@@ -121,14 +121,15 @@ The script performs rate-limited Nominatim lookups and creates `public/images/co
 
 ## Assembly-line phases (ops, not this repo)
 
-1. Research → draft `site-config.json` (spot-check Gemini output) — see [`prompts/gemini-site-config.md`](prompts/gemini-site-config.md)
-2. Content → Claude Markdown into collections only — see [`prompts/claude-markdown.md`](prompts/claude-markdown.md)
-3. Domain / DNS → Cloudflare
-4. Assemble → this template + inject config/content
-5. Deploy → Pages
-6. Email Routing + Web3Forms (+ Turnstile)
-7. Twilio while ranking → CallRail when rented
-8. GSC + Looker / AgencyAnalytics later
+1. Research candidates → [`prompts/gemini-candidate-research.md`](prompts/gemini-candidate-research.md) → spreadsheet row (spot-check volumes, Map Pack, competitor links)
+2. Approved candidate → draft `site-config.json` via [`prompts/gemini-site-config.md`](prompts/gemini-site-config.md)
+3. Content → Claude Markdown into collections only — see [`prompts/claude-markdown.md`](prompts/claude-markdown.md)
+4. Domain / DNS → Cloudflare
+5. Assemble → this template + inject config/content
+6. Deploy → Pages
+7. Email Routing + Web3Forms (+ Turnstile)
+8. Twilio while ranking → CallRail when rented
+9. GSC + Looker / AgencyAnalytics later
 
 **Throughput note:** Expect 3–5 solid sites/day until you script Cloudflare/GitHub. Ten “live” sites with real QA in one day is usually fiction.
 
