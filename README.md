@@ -121,8 +121,8 @@ The script performs rate-limited Nominatim lookups and creates `public/images/co
 
 ## Assembly-line phases (ops, not this repo)
 
-1. Research → draft `site-config.json` (spot-check Gemini output)
-2. Content → Claude Markdown into collections only
+1. Research → draft `site-config.json` (spot-check Gemini output) — see [`prompts/gemini-site-config.md`](prompts/gemini-site-config.md)
+2. Content → Claude Markdown into collections only — see [`prompts/claude-markdown.md`](prompts/claude-markdown.md)
 3. Domain / DNS → Cloudflare
 4. Assemble → this template + inject config/content
 5. Deploy → Pages
