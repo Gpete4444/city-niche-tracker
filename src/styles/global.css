@@ -1,0 +1,78 @@
+@import "tailwindcss";
+
+@theme {
+  --color-brand: var(--brand-primary, #1c2b3a);
+  --color-accent: var(--brand-accent, #e8a317);
+  --color-ink: var(--brand-ink, #0f1720);
+  --color-paper: #eef1f4;
+  --color-muted: #5a6570;
+  --color-line: #d0d7de;
+  --font-display: "Archivo", "Avenir Next Condensed", ui-sans-serif, system-ui, sans-serif;
+  --font-body: "Source Sans 3", "Source Sans Pro", ui-sans-serif, system-ui, sans-serif;
+}
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply bg-paper font-body text-ink antialiased;
+  }
+
+  a {
+    @apply text-inherit;
+  }
+}
+
+@layer components {
+  @keyframes rise-in {
+    from {
+      opacity: 0;
+      transform: translateY(12px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .animate-rise {
+    animation: rise-in 0.55s ease-out both;
+  }
+
+  .animate-rise-delay {
+    animation: rise-in 0.55s ease-out 0.12s both;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .animate-rise,
+    .animate-rise-delay {
+      animation: none;
+    }
+  }
+
+  .prose-site {
+    @apply max-w-none text-base leading-relaxed text-ink/90;
+  }
+
+  .prose-site p + p {
+    @apply mt-4;
+  }
+
+  .btn-primary {
+    @apply inline-flex items-center justify-center rounded-md bg-accent px-5 py-3 text-center text-sm font-semibold tracking-wide text-ink transition hover:brightness-110 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent;
+  }
+
+  .btn-secondary {
+    @apply inline-flex items-center justify-center rounded-md border border-line bg-white/70 px-5 py-3 text-center text-sm font-semibold tracking-wide text-ink transition hover:bg-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand;
+  }
+
+  .field {
+    @apply w-full rounded-md border border-line bg-white px-3 py-2.5 text-sm text-ink placeholder:text-muted/70 focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/20;
+  }
+
+  .label {
+    @apply mb-1.5 block text-sm font-medium text-ink;
+  }
+}

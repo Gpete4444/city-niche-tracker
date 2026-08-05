@@ -1,17 +1,81 @@
 ---
+import { getEntry, render } from 'astro:content';
+import BaseLayout from '../layouts/BaseLayout.astro';
+import Hero from '../components/Hero.astro';
+import ServiceCards from '../components/ServiceCards.astro';
+import HomeSections from '../components/HomeSections.astro';
+import TrustSignals from '../components/TrustSignals.astro';
+import { getCollection } from 'astro:content';
+import { site } from '../config/site';
 
+const indexEntry = await getEntry('pages', 'index');
+if (!indexEntry) {
+  throw new Error('Missing src/content/pages/index.md');
+}
+
+const { Content } = await render(indexEntry);
+const locations = (await getCollection('locations')).filter((e) => !e.data.draft);
 ---
 
-<html lang="en">
-	<head>
-		<meta charset="utf-8" />
-		<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-		<link rel="icon" href="/favicon.ico" />
-		<meta name="viewport" content="width=device-width" />
-		<meta name="generator" content={Astro.generator} />
-		<title>Astro</title>
-	</head>
-	<body>
-		<h1>Astro</h1>
-	</body>
-</html>
+<BaseLayout
+  title={indexEntry.data.title}
+  description={indexEntry.data.description}
+  pageType="home"
+>
+  <Hero
+    h1={indexEntry.data.h1}
+    supporting={site.tagline}
+    showForm
+    image={indexEntry.data.heroImage}
+  />
+  <TrustSignals />
+
+  <section
+    class:list={[
+      'mx-auto max-w-6xl px-4 py-12 sm:px-6 sm:py-16',
+      indexEntry.data.featureImage && 'grid items-center gap-8 md:grid-cols-2 md:gap-12',
+    ]}
+    aria-labelledby="intro-heading"
+  >
+    <div>
+      <div class="max-w-3xl">
+        <p class="text-xs font-bold uppercase tracking-[0.18em] text-accent">
+          Local concrete repair
+        </p>
+        <h2 id="intro-heading" class="mt-2 font-display text-2xl font-bold tracking-tight text-ink sm:text-3xl">
+          {indexEntry.data.sectionHeading ?? `Concrete lifting in ${site.primaryCity}`}
+        </h2>
+      </div>
+      <div class="prose-site mt-5 max-w-3xl">
+        <Content />
+      </div>
+    </div>
+    {
+      indexEntry.data.featureImage && (
+        <img
+          src={indexEntry.data.featureImage.src}
+          alt={indexEntry.data.featureImage.alt}
+          class="aspect-[4/3] w-full rounded-xl object-cover shadow-lg"
+          width="900"
+          height="675"
+          loading="lazy"
+        />
+      )
+    }
+  </section>
+
+  <ServiceCards heading={`${site.niche} services`} />
+
+  <HomeSections
+    whyChooseUs={indexEntry.data.whyChooseUs}
+    process={indexEntry.data.process}
+    faqs={indexEntry.data.faqs}
+    gallery={indexEntry.data.gallery}
+    coverageMap={indexEntry.data.coverageMap}
+    locations={locations.map((location) => ({
+      id: location.id,
+      city: location.data.city,
+      state: location.data.state,
+    }))}
+  />
+</BaseLayout>

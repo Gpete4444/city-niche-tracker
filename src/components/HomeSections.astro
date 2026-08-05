@@ -1,0 +1,263 @@
+---
+import { site, formatPhoneDisplay, phoneHref } from '../config/site';
+
+interface TextItem {
+  title: string;
+  description: string;
+  image?: ImageItem;
+}
+
+interface FaqItem {
+  question: string;
+  answer: string;
+}
+
+interface LocationItem {
+  id: string;
+  city: string;
+  state: string;
+}
+
+interface ImageItem {
+  src: string;
+  alt: string;
+}
+
+interface Props {
+  whyChooseUs?: TextItem[];
+  process?: TextItem[];
+  faqs?: FaqItem[];
+  locations?: LocationItem[];
+  gallery?: ImageItem[];
+  coverageMap?: ImageItem;
+}
+
+const {
+  whyChooseUs = [],
+  process = [],
+  faqs = [],
+  locations = [],
+  gallery = [],
+  coverageMap,
+} = Astro.props;
+const reviews = site.socialProof?.reviews ?? [];
+---
+
+{
+  whyChooseUs.length > 0 && (
+    <section class="border-y border-line bg-white/65" aria-labelledby="why-heading">
+      <div class="mx-auto max-w-6xl px-4 py-14 sm:px-6 sm:py-20">
+        <div class="max-w-2xl">
+          <p class="text-xs font-bold uppercase tracking-[0.18em] text-accent">Why choose us</p>
+          <h2 id="why-heading" class="mt-2 font-display text-2xl font-bold tracking-tight text-ink sm:text-3xl">
+            Straightforward concrete repair guidance
+          </h2>
+        </div>
+        <ul class="mt-8 grid gap-6 md:grid-cols-3">
+          {whyChooseUs.map((item) => (
+            <li class="border-l-2 border-accent pl-5">
+              <h3 class="font-display text-lg font-semibold text-ink">{item.title}</h3>
+              <p class="mt-2 text-sm leading-relaxed text-muted">{item.description}</p>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </section>
+  )
+}
+
+{
+  process.length > 0 && (
+    <section class="mx-auto max-w-6xl px-4 py-14 sm:px-6 sm:py-20" aria-labelledby="process-heading">
+      <div class="max-w-2xl">
+        <p class="text-xs font-bold uppercase tracking-[0.18em] text-accent">How it works</p>
+        <h2 id="process-heading" class="mt-2 font-display text-2xl font-bold tracking-tight text-ink sm:text-3xl">
+          From settled slab to a clear repair plan
+        </h2>
+      </div>
+      <ol class="mt-8 grid gap-5 md:grid-cols-3">
+        {process.map((item, index) => (
+          <li class="overflow-hidden rounded-lg border border-line bg-white">
+            {item.image && (
+              <img
+                src={item.image.src}
+                alt={item.image.alt}
+                class="aspect-[16/9] w-full object-cover"
+                width="720"
+                height="405"
+                loading="lazy"
+              />
+            )}
+            <div class="p-5">
+              <span class="inline-flex size-8 items-center justify-center rounded-full bg-brand text-sm font-bold text-white">
+                {index + 1}
+              </span>
+              <h3 class="mt-4 font-display text-lg font-semibold text-ink">{item.title}</h3>
+              <p class="mt-2 text-sm leading-relaxed text-muted">{item.description}</p>
+            </div>
+          </li>
+        ))}
+      </ol>
+    </section>
+  )
+}
+
+{
+  locations.length > 0 && (
+    <section class="border-y border-line bg-brand text-white" aria-labelledby="areas-heading">
+      <div
+        class:list={[
+          'mx-auto max-w-6xl gap-8 px-4 py-14 sm:px-6 sm:py-16',
+          coverageMap && 'grid lg:grid-cols-[minmax(280px,0.7fr)_minmax(0,1.3fr)] lg:items-center',
+        ]}
+      >
+        <div>
+          <p class="text-xs font-bold uppercase tracking-[0.18em] text-white/65">Where we work</p>
+          <h2 id="areas-heading" class="mt-2 font-display text-2xl font-bold tracking-tight sm:text-3xl">
+            Serving {site.primaryCity} and nearby communities
+          </h2>
+          <p class="mt-3 text-sm leading-relaxed text-white/75">
+            Local service pages explain the concrete problems and repair options relevant to each area.
+          </p>
+          <ul class="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
+            {locations.map((location) => (
+              <li>
+                <a
+                  class="flex items-center justify-between rounded-md border border-white/20 bg-white/10 px-4 py-3 text-sm font-semibold transition hover:bg-white/20"
+                  href={`/locations/${location.id}`}
+                >
+                  <span>{location.city}, {location.state}</span>
+                  <span aria-hidden="true">→</span>
+                </a>
+              </li>
+            ))}
+          </ul>
+        </div>
+        {coverageMap && (
+          <figure class="mt-8 lg:mt-0">
+            <img
+              src={coverageMap.src}
+              alt={coverageMap.alt}
+              class="w-full rounded-xl bg-white shadow-2xl"
+              width="1000"
+              height="680"
+              loading="lazy"
+            />
+            <figcaption class="mt-2 text-xs text-white/55">
+              Coverage visualization is approximate; confirm availability for a specific address.
+            </figcaption>
+          </figure>
+        )}
+      </div>
+    </section>
+  )
+}
+
+{
+  gallery.length > 0 && (
+    <section class="mx-auto max-w-6xl px-4 py-14 sm:px-6 sm:py-20" aria-labelledby="gallery-heading">
+      <div class="max-w-2xl">
+        <p class="text-xs font-bold uppercase tracking-[0.18em] text-accent">Project gallery</p>
+        <h2 id="gallery-heading" class="mt-2 font-display text-2xl font-bold tracking-tight text-ink sm:text-3xl">
+          See the work up close
+        </h2>
+        <p class="mt-2 text-sm text-muted">
+          Demo imagery shows how this section works. Replace it with verified owner project photos before launch.
+        </p>
+      </div>
+      <ul class="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        {gallery.map((image, index) => (
+          <li class:list={[index === 0 && 'sm:col-span-2 lg:col-span-1']}>
+            <img
+              src={image.src}
+              alt={image.alt}
+              class="aspect-[4/3] w-full rounded-lg object-cover shadow-sm"
+              width="800"
+              height="600"
+              loading="lazy"
+            />
+          </li>
+        ))}
+      </ul>
+    </section>
+  )
+}
+
+{
+  reviews.length > 0 && (
+    <section class="border-b border-line bg-white/65" aria-labelledby="reviews-heading">
+      <div class="mx-auto max-w-6xl px-4 py-14 sm:px-6 sm:py-20">
+        <div class="text-center">
+          <p class="text-xs font-bold uppercase tracking-[0.18em] text-accent">Customer feedback</p>
+          <h2 id="reviews-heading" class="mt-2 font-display text-2xl font-bold tracking-tight text-ink sm:text-3xl">
+            What local customers say
+          </h2>
+        </div>
+        <ul class="mt-8 grid gap-5 md:grid-cols-3">
+          {reviews.map((review) => (
+            <li class="rounded-lg border border-line bg-white p-6 shadow-sm">
+              {review.rating && (
+                <>
+                  <span class="text-amber-500" aria-hidden="true">
+                    {'★'.repeat(review.rating)}
+                  </span>
+                  <span class="sr-only">{review.rating} out of 5 stars</span>
+                </>
+              )}
+              <blockquote class="mt-3 text-sm leading-relaxed text-ink/85">
+                “{review.quote}”
+              </blockquote>
+              <p class="mt-4 text-sm font-semibold text-ink">{review.author}</p>
+              {(review.location || review.source) && (
+                <p class="text-xs text-muted">
+                  {[review.location, review.source].filter(Boolean).join(' · ')}
+                </p>
+              )}
+            </li>
+          ))}
+        </ul>
+      </div>
+    </section>
+  )
+}
+
+{
+  faqs.length > 0 && (
+    <section class="mx-auto max-w-4xl px-4 py-14 sm:px-6 sm:py-20" aria-labelledby="faq-heading">
+      <div class="text-center">
+        <p class="text-xs font-bold uppercase tracking-[0.18em] text-accent">Common questions</p>
+        <h2 id="faq-heading" class="mt-2 font-display text-2xl font-bold tracking-tight text-ink sm:text-3xl">
+          {site.niche} FAQs
+        </h2>
+      </div>
+      <div class="mt-8 divide-y divide-line border-y border-line">
+        {faqs.map((faq) => (
+          <details class="group py-4">
+            <summary class="flex cursor-pointer list-none items-center justify-between gap-4 font-semibold text-ink">
+              {faq.question}
+              <span class="text-xl text-accent transition group-open:rotate-45" aria-hidden="true">+</span>
+            </summary>
+            <p class="max-w-3xl pt-3 text-sm leading-relaxed text-muted">{faq.answer}</p>
+          </details>
+        ))}
+      </div>
+    </section>
+  )
+}
+
+<section class="bg-ink text-white" aria-labelledby="final-cta-heading">
+  <div class="mx-auto max-w-5xl px-4 py-14 text-center sm:px-6 sm:py-16">
+    <h2 id="final-cta-heading" class="font-display text-2xl font-bold tracking-tight sm:text-3xl">
+      Ready for a clear estimate?
+    </h2>
+    <p class="mx-auto mt-3 max-w-2xl text-white/75">
+      Tell us about the project, or call to talk through options in {site.primaryCity}.
+    </p>
+    <div class="mt-7 flex flex-col justify-center gap-3 sm:flex-row">
+      <a class="btn-primary" href="#lead-form">{site.primaryCta}</a>
+      <a class="btn-secondary border-white/25 bg-white/10 text-white hover:bg-white/20" href={phoneHref()}>
+        Call {formatPhoneDisplay()}
+      </a>
+    </div>
+  </div>
+</section>

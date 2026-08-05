@@ -1,0 +1,90 @@
+---
+import { site } from '../config/site';
+
+interface Props {
+  pageTitle?: string;
+  pageDescription?: string;
+  pageType?: 'home' | 'service' | 'location' | 'page';
+  serviceName?: string;
+  locationCity?: string;
+}
+
+const {
+  pageDescription,
+  pageType = 'page',
+  serviceName,
+  locationCity,
+} = Astro.props;
+
+const areaServed = [
+  { '@type': 'City', name: site.primaryCity },
+  ...site.targetSuburbs.map((name) => ({ '@type': 'City', name })),
+];
+
+const baseBusiness = {
+  '@type': site.address ? 'LocalBusiness' : 'ProfessionalService',
+  '@id': `https://${site.domain}/#business`,
+  name: site.businessName,
+  description: pageDescription ?? site.tagline,
+  url: `https://${site.domain}`,
+  telephone: site.phone,
+  email: site.email,
+  image: `https://${site.domain}/favicon.svg`,
+  areaServed,
+  priceRange: '$$',
+  address: site.address
+    ? {
+        '@type': 'PostalAddress',
+        streetAddress: site.address.street,
+        addressLocality: site.address.city,
+        addressRegion: site.address.state,
+        postalCode: site.address.zip,
+        addressCountry: 'US',
+      }
+    : {
+        '@type': 'PostalAddress',
+        addressLocality: site.primaryCity,
+        addressRegion: site.state,
+        addressCountry: 'US',
+      },
+  ...(site.geo
+    ? {
+        geo: {
+          '@type': 'GeoCoordinates',
+          latitude: site.geo.lat,
+          longitude: site.geo.lng,
+        },
+      }
+    : {}),
+};
+
+const graph: Record<string, unknown>[] = [baseBusiness];
+
+if (pageType === 'service' && serviceName) {
+  graph.push({
+    '@type': 'Service',
+    name: serviceName,
+    provider: { '@id': `https://${site.domain}/#business` },
+    areaServed,
+    description: pageDescription ?? serviceName,
+  });
+}
+
+if (pageType === 'location' && locationCity) {
+  graph.push({
+    '@type': 'Service',
+    name: `${site.niche} in ${locationCity}`,
+    provider: { '@id': `https://${site.domain}/#business` },
+    areaServed: [{ '@type': 'City', name: locationCity }],
+    description:
+      pageDescription ?? `${site.niche} serving ${locationCity}, ${site.state}`,
+  });
+}
+
+const jsonLd = {
+  '@context': 'https://schema.org',
+  '@graph': graph,
+};
+---
+
+<script type="application/ld+json" set:html={JSON.stringify(jsonLd)} />

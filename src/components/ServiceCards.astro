@@ -1,0 +1,79 @@
+---
+import { getCollection } from 'astro:content';
+import { site } from '../config/site';
+
+interface Props {
+  heading?: string;
+  limit?: number;
+}
+
+const { heading = 'Services', limit } = Astro.props;
+
+const serviceEntries = (await getCollection('services'))
+  .filter((entry) => !entry.data.draft)
+  .sort((a, b) => (a.data.order ?? 99) - (b.data.order ?? 99));
+
+const cards =
+  serviceEntries.length > 0
+    ? serviceEntries.slice(0, limit).map((entry) => ({
+        title: entry.data.serviceName,
+        href: `/services/${entry.id}`,
+        description: entry.data.description,
+        image: entry.data.cardImage,
+      }))
+    : site.services.slice(0, limit).map((name) => ({
+        title: name,
+        href: '/contact',
+        description: `${name} serving ${site.primaryCity} and nearby cities.`,
+        image: undefined,
+      }));
+---
+
+<section class="mx-auto max-w-6xl px-4 py-14 sm:px-6 sm:py-20" aria-labelledby="services-heading">
+  <div class="mb-8 max-w-2xl">
+    <p class="text-xs font-bold uppercase tracking-[0.18em] text-accent">What we do</p>
+    <h2 id="services-heading" class="font-display text-2xl font-bold tracking-tight text-ink sm:text-3xl">
+      {heading}
+    </h2>
+    <p class="mt-2 text-muted">
+      Practical fixes for sunken slabs across {site.primaryCity} and the surrounding area.
+    </p>
+  </div>
+  <ul class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+    {
+      cards.map((card, index) => (
+        <li class="flex">
+          <a
+            href={card.href}
+            class="group flex w-full flex-col overflow-hidden rounded-lg border border-line bg-white shadow-sm transition hover:-translate-y-0.5 hover:border-brand/40 hover:shadow-md"
+          >
+            {
+              card.image && (
+                <img
+                  src={card.image.src}
+                  alt={card.image.alt}
+                  class="aspect-[4/3] w-full object-cover transition duration-300 group-hover:scale-[1.02]"
+                  width="600"
+                  height="450"
+                  loading="lazy"
+                />
+              )
+            }
+            <div class="flex grow flex-col p-5">
+              <span class="text-xs font-bold tracking-[0.16em] text-accent">
+                {String(index + 1).padStart(2, '0')}
+              </span>
+              <h3 class="mt-1 font-display text-lg font-semibold text-ink group-hover:text-brand">
+                {card.title}
+              </h3>
+              <p class="mt-2 text-sm leading-relaxed text-muted">{card.description}</p>
+              <span class="mt-auto pt-5 text-sm font-semibold text-accent group-hover:underline">
+                Learn more →
+              </span>
+            </div>
+          </a>
+        </li>
+      ))
+    }
+  </ul>
+</section>

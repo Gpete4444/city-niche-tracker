@@ -1,0 +1,53 @@
+---
+import { getCollection } from 'astro:content';
+import { site, formatPhoneDisplay, phoneHref } from '../config/site';
+
+const services = (await getCollection('services'))
+  .filter((e) => !e.data.draft)
+  .sort((a, b) => (a.data.order ?? 99) - (b.data.order ?? 99));
+const locations = (await getCollection('locations')).filter((e) => !e.data.draft);
+
+const firstService = services[0];
+const firstLocation = locations[0];
+---
+
+<header class="border-b border-line/80 bg-paper/95 backdrop-blur-sm">
+  <div class="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-3 sm:px-6">
+    <a href="/" class="min-w-0">
+      <span class="block truncate font-display text-base font-bold tracking-tight text-brand sm:text-lg">
+        {site.businessName}
+      </span>
+      <span class="block truncate text-xs text-muted sm:text-sm">
+        {site.niche} · {site.primaryCity}, {site.state}
+      </span>
+    </a>
+    <a
+      href={phoneHref()}
+      class="btn-primary shrink-0 px-3 py-2 text-xs sm:px-4 sm:text-sm"
+      aria-label={`Call ${formatPhoneDisplay()}`}
+    >
+      {formatPhoneDisplay()}
+    </a>
+  </div>
+  <nav class="border-t border-line/60" aria-label="Primary">
+    <div class="mx-auto flex max-w-6xl gap-4 overflow-x-auto px-4 py-2 text-sm font-medium text-ink/80 sm:justify-center sm:px-6">
+      <a class="whitespace-nowrap hover:text-brand" href="/">Home</a>
+      {
+        firstService && (
+          <a class="whitespace-nowrap hover:text-brand" href={`/services/${firstService.id}`}>
+            Services
+          </a>
+        )
+      }
+      {
+        firstLocation && (
+          <a class="whitespace-nowrap hover:text-brand" href={`/locations/${firstLocation.id}`}>
+            Areas
+          </a>
+        )
+      }
+      <a class="whitespace-nowrap hover:text-brand" href="/about">About</a>
+      <a class="whitespace-nowrap hover:text-brand" href="/contact">Contact</a>
+    </div>
+  </nav>
+</header>

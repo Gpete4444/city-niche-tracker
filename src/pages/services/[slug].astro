@@ -1,0 +1,42 @@
+---
+import { getCollection, render } from 'astro:content';
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import Hero from '../../components/Hero.astro';
+import LeadForm from '../../components/LeadForm.astro';
+import { site } from '../../config/site';
+
+export async function getStaticPaths() {
+  const services = await getCollection('services');
+  return services
+    .filter((entry) => !entry.data.draft)
+    .map((entry) => ({
+      params: { slug: entry.id },
+      props: { entry },
+    }));
+}
+
+const { entry } = Astro.props;
+const { Content } = await render(entry);
+---
+
+<BaseLayout
+  title={entry.data.title}
+  description={entry.data.description}
+  pageType="service"
+  serviceName={entry.data.serviceName}
+>
+  <Hero
+    h1={entry.data.h1}
+    supporting={entry.data.description}
+    image={entry.data.heroImage ?? entry.data.cardImage}
+  />
+  <section class="mx-auto max-w-5xl px-4 py-10 sm:px-6">
+    <div class="prose-site max-w-3xl">
+      <Content />
+    </div>
+    <p class="mt-8 text-sm text-muted">
+      Serving {site.primaryCity}, {site.state} and nearby communities.
+    </p>
+  </section>
+  <LeadForm heading={`Ask about ${entry.data.serviceName}`} />
+</BaseLayout>

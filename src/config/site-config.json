@@ -1,0 +1,45 @@
+{
+  "businessName": "Spokane Concrete Lifting Pros",
+  "tagline": "Fast foam lifting that levels sunken concrete without the tear-out.",
+  "domain": "spokaneconcretelifting.com",
+  "niche": "Concrete Lifting & Leveling",
+  "primaryCity": "Spokane",
+  "state": "WA",
+  "targetSuburbs": [
+    "Spokane Valley",
+    "Liberty Lake",
+    "Cheney",
+    "Post Falls",
+    "Mead"
+  ],
+  "coverageAreas": [
+    { "name": "Spokane", "state": "WA" },
+    { "name": "Spokane Valley", "state": "WA" },
+    { "name": "Liberty Lake", "state": "WA" },
+    { "name": "Cheney", "state": "WA" },
+    { "name": "Post Falls", "state": "ID" },
+    { "name": "Mead", "state": "WA" }
+  ],
+  "serviceRadiusMiles": 40,
+  "phone": "+15095550199",
+  "email": "leads@spokaneconcretelifting.com",
+  "web3FormsAccessKey": "YOUR_WEB3FORMS_ACCESS_KEY",
+  "turnstileSiteKey": "",
+  "primaryCta": "Get a Free Estimate",
+  "services": [
+    "Polyurethane Concrete Foam Leveling",
+    "Driveway Concrete Repair",
+    "Patio & Walkway Slab Leveling",
+    "Commercial Slab Lifting"
+  ],
+  "brand": {
+    "primary": "#1C2B3A",
+    "accent": "#E8A317",
+    "ink": "#0F1720"
+  },
+  "socialProof": {
+    "licenses": [],
+    "statistics": [],
+    "reviews": []
+  }
+}

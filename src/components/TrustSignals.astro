@@ -1,0 +1,54 @@
+---
+import { site } from '../config/site';
+
+const rating = site.socialProof?.rating;
+const licenses = site.socialProof?.licenses ?? [];
+const statistics = site.socialProof?.statistics ?? [];
+const hasProof = Boolean(rating || licenses.length > 0 || statistics.length > 0);
+---
+
+{
+  hasProof && (
+    <section class="border-b border-line bg-white" aria-label="Business credentials and statistics">
+      <div class="mx-auto flex max-w-6xl flex-wrap items-stretch justify-center divide-line px-4 sm:px-6 md:divide-x">
+        {rating &&
+          (rating.url ? (
+            <a
+              class="flex min-w-44 flex-1 items-center justify-center gap-3 px-5 py-5 transition hover:bg-paper"
+              href={rating.url}
+              rel="noopener"
+              target="_blank"
+            >
+              <span class="text-lg tracking-tight text-amber-500" aria-hidden="true">★★★★★</span>
+              <span>
+                <strong class="block text-sm text-ink">{rating.value.toFixed(1)} / 5</strong>
+                <span class="block text-xs text-muted">{rating.reviewCount} reviews on {rating.source}</span>
+              </span>
+            </a>
+          ) : (
+            <div class="flex min-w-44 flex-1 items-center justify-center gap-3 px-5 py-5">
+              <span class="text-lg tracking-tight text-amber-500" aria-hidden="true">★★★★★</span>
+              <span>
+                <strong class="block text-sm text-ink">{rating.value.toFixed(1)} / 5</strong>
+                <span class="block text-xs text-muted">{rating.reviewCount} reviews on {rating.source}</span>
+              </span>
+            </div>
+          ))}
+        {statistics.map((stat) => (
+          <div class="min-w-36 flex-1 px-5 py-5 text-center">
+            <strong class="block font-display text-xl text-brand">{stat.value}</strong>
+            <span class="block text-xs text-muted">{stat.label}</span>
+          </div>
+        ))}
+        {licenses.map((license) => (
+          <div class="min-w-44 flex-1 px-5 py-5 text-center">
+            <strong class="block text-sm text-ink">{license.name}</strong>
+            <span class="block text-xs text-muted">
+              {[license.number, license.jurisdiction].filter(Boolean).join(' · ')}
+            </span>
+          </div>
+        ))}
+      </div>
+    </section>
+  )
+}

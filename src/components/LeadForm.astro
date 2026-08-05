@@ -1,0 +1,117 @@
+---
+import { site } from '../config/site';
+
+interface Props {
+  heading?: string;
+  compact?: boolean;
+}
+
+const { heading = 'Request a free estimate', compact = false } = Astro.props;
+const hasTurnstile = Boolean(site.turnstileSiteKey);
+const hasPlaceholderKey = site.web3FormsAccessKey.startsWith('YOUR_');
+---
+
+<section
+  id="lead-form"
+  class:list={[
+    compact
+      ? 'rounded-xl bg-white p-5 text-ink shadow-2xl shadow-black/25 sm:p-6'
+      : 'border-y border-line bg-white/60',
+  ]}
+  aria-labelledby="form-heading"
+>
+  <div class:list={[!compact && 'mx-auto max-w-5xl px-4 py-12 sm:px-6 sm:py-16']}>
+    <div class="max-w-xl">
+      <h2
+        id="form-heading"
+        class:list={[
+          'font-display font-bold tracking-tight text-ink',
+          compact ? 'text-xl sm:text-2xl' : 'text-2xl sm:text-3xl',
+        ]}
+      >
+        {heading}
+      </h2>
+      <p class:list={['text-muted', compact ? 'mt-1 text-sm' : 'mt-2']}>
+        Tell us about the project and how to reach you.
+      </p>
+    </div>
+
+    <form
+      class:list={['grid max-w-xl', compact ? 'mt-5 gap-3' : 'mt-8 gap-4']}
+      action="https://api.web3forms.com/submit"
+      method="POST"
+    >
+      <input type="hidden" name="access_key" value={site.web3FormsAccessKey} />
+      <input type="hidden" name="subject" value={`Lead: ${site.businessName}`} />
+      <input type="hidden" name="from_name" value={site.businessName} />
+      <input type="checkbox" name="botcheck" class="hidden" tabindex="-1" autocomplete="off" />
+
+      <div>
+        <label class="label" for="name">Name</label>
+        <input class="field" id="name" name="name" type="text" required autocomplete="name" />
+      </div>
+
+      <div>
+        <label class="label" for="phone">Phone</label>
+        <input class="field" id="phone" name="phone" type="tel" required autocomplete="tel" />
+      </div>
+
+      {
+        !compact && (
+          <div>
+            <label class="label" for="email">Email (optional)</label>
+            <input class="field" id="email" name="email" type="email" autocomplete="email" />
+          </div>
+        )
+      }
+
+      <div>
+        <label class="label" for="service">What do you need?</label>
+        <select class="field" id="service" name="service" required>
+          <option value="" disabled selected>Select a service</option>
+          {site.services.map((service) => <option value={service}>{service}</option>)}
+          <option value="Other / Not sure">Other / Not sure</option>
+        </select>
+      </div>
+
+      <div>
+        <label class="label" for="message">Details</label>
+        <textarea
+          class:list={['field', compact ? 'min-h-20' : 'min-h-28']}
+          id="message"
+          name="message"
+          rows={compact ? 2 : 4}
+          placeholder="City, slab type, and anything we should know…"
+          required={!compact}
+        ></textarea>
+      </div>
+
+      {
+        hasTurnstile && (
+          <div class="cf-turnstile" data-sitekey={site.turnstileSiteKey} data-theme="light" />
+        )
+      }
+
+      <button type="submit" class:list={['btn-primary w-full', !compact && 'sm:w-auto']}>
+        {site.primaryCta}
+      </button>
+      {
+        hasPlaceholderKey ? (
+          <p class="text-xs text-muted">
+            Demo form: replace the Web3Forms key in{' '}
+            <code class="rounded bg-paper px-1">site-config.json</code> before launch.
+          </p>
+        ) : (
+          <p class="text-xs text-muted">
+            No obligation. Your information is handled according to our <a
+              class="underline hover:text-brand"
+              href="/privacy">privacy policy</a
+            >.
+          </p>
+        )
+      }
+    </form>
+  </div>
+</section>
+
+{hasTurnstile && <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer />}

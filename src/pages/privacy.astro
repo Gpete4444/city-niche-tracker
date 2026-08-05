@@ -1,0 +1,29 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import { site } from '../config/site';
+---
+
+<BaseLayout
+  title="Privacy Policy"
+  description={`Privacy policy for ${site.businessName}.`}
+  pageType="page"
+>
+  <section class="mx-auto max-w-3xl px-4 py-12 sm:px-6">
+    <h1 class="font-display text-3xl font-bold tracking-tight">Privacy Policy</h1>
+    <div class="prose-site mt-6 space-y-4">
+      <p>
+        {site.businessName} (“we”) collects information you submit through our contact form or
+        by phone—typically your name, phone number, email, and project details—so we can respond
+        to estimate requests.
+      </p>
+      <p>
+        Form submissions are processed by Web3Forms and delivered to {site.email}. We do not sell
+        your personal information. Call recordings (if enabled via your tracking provider) are used
+        only for lead quality and service follow-up.
+      </p>
+      <p>
+        Questions: <a class="text-brand underline" href={`mailto:${site.email}`}>{site.email}</a>
+      </p>
+    </div>
+  </section>
+</BaseLayout>
