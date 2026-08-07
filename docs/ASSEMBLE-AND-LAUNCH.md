@@ -81,11 +81,14 @@ Checklist marks **build** done when `dist/index.html` exists.
    ```
 
 2. Cloudflare Dashboard → Workers & Pages → Create → Connect Git
-3. Settings:
+3. Settings (static Astro site — **not** Workers):
    - **Build command:** `npm run build`
+   - **Deploy command:** leave **empty** (do **not** use `npx wrangler deploy`)
    - **Output directory:** `dist`
-   - **Node version:** 22+ (match `package.json` engines)
+   - **Environment variable (optional but recommended):** `NODE_VERSION` = `22`
 4. Deploy
+
+If install fails with `npm ci` / lockfile out of sync, regenerate `package-lock.json` in the template (`npm install`), re-assemble or copy the lock into the site repo, and push again.
 
 ## 5. DNS
 

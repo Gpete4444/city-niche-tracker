@@ -115,8 +115,9 @@ The script performs rate-limited Nominatim lookups and creates `public/images/co
 ## Cloudflare Pages settings
 
 - Build command: `npm run build`
+- Deploy command: **empty** (static `dist` output — do not set `npx wrangler deploy`)
 - Output directory: `dist`
-- Node version: 22+ (see `package.json` engines)
+- Node version: 22+ (set env `NODE_VERSION=22` in Pages if the default Node breaks `npm ci`)
 - Prefer `npm ci` if you commit the lockfile (recommended)
 
 Full assemble → Pages → DNS → forms runbook: [`docs/ASSEMBLE-AND-LAUNCH.md`](docs/ASSEMBLE-AND-LAUNCH.md). Parked follow-ons: [`docs/BACKLOG.md`](docs/BACKLOG.md).
