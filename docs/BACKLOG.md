@@ -40,6 +40,6 @@ Items intentionally deferred until Sprint E assemble/launch is routine. Do not b
 | Area | Status |
 |------|--------|
 | Discovery → site-config → content → stage → preview | Working |
-| Assemble site folder + checklist + launch docs | Working (this sprint) |
-| CF Pages / DNS / forms automation | Manual runbook only |
+| Assemble site folder + checklist + launch docs | Working |
+| CF domain / Email Routing / forms Launch helpers | Working (ops Launch + `npm run launch-site`; Web3Forms key still paste; first GH/Worker connect still manual) |
 | Images / design / Ippei SEO compare | Parked here |

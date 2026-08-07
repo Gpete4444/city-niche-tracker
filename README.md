@@ -134,7 +134,7 @@ If you create a **Pages** project instead and see Output directory:
 - Deploy command: empty
 - Output directory: `dist`
 
-Full assemble → deploy runbook: [`docs/ASSEMBLE-AND-LAUNCH.md`](docs/ASSEMBLE-AND-LAUNCH.md). Parked follow-ons: [`docs/BACKLOG.md`](docs/BACKLOG.md).
+Master pipeline flowchart + tools matrix: [`docs/MASTER-FLOW.md`](docs/MASTER-FLOW.md). Full assemble → deploy runbook: [`docs/ASSEMBLE-AND-LAUNCH.md`](docs/ASSEMBLE-AND-LAUNCH.md). Parked follow-ons: [`docs/BACKLOG.md`](docs/BACKLOG.md).
 
 ## Operator dashboard (local)
 
@@ -220,7 +220,7 @@ See [`prompts/README.md`](prompts/README.md). Outputs under `research/` are giti
 11. Twilio while ranking → CallRail when rented
 12. GSC + Looker / AgencyAnalytics later
 
-**Throughput note:** Expect 3–5 solid sites/day until you script Cloudflare/GitHub. Ten “live” sites with real QA in one day is usually fiction.
+**Throughput note:** Expect more sites/day once Assemble + Launch are routine. First GitHub/Workers project connect is still manual; CF domain + Email Routing + Web3Forms paste are ops Launch. Ten “live” sites with real QA in one day is still usually fiction.
 
 ## Demo seed
 

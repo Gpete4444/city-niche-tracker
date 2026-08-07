@@ -296,22 +296,23 @@ export function getAssembleChecklist(candidateId) {
       },
       {
         id: 'pages',
-        label: 'Create Cloudflare Pages project (build: npm run build, output: dist)',
+        label: 'Create Cloudflare Workers project (build + npx wrangler deploy)',
         done: Boolean(detail.meta?.cloudflarePagesDone),
+        detail: detail.meta?.cfProject || null,
       },
       {
         id: 'dns',
-        label: 'Point domain DNS to Pages',
+        label: 'Attach custom domain (ops Launch / CF API)',
         done: Boolean(detail.meta?.dnsDone),
       },
       {
         id: 'forms',
-        label: 'Set real web3FormsAccessKey (+ optional Turnstile)',
+        label: 'Paste real web3FormsAccessKey (+ optional Turnstile)',
         done: Boolean(detail.meta?.formsDone),
       },
       {
         id: 'email',
-        label: 'Cloudflare Email Routing for leads@',
+        label: 'Cloudflare Email Routing for leads@ (ops Launch)',
         done: Boolean(detail.meta?.emailRoutingDone),
       },
     ],

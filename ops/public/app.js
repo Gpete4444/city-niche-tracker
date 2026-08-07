@@ -2827,6 +2827,7 @@ function renderSiteConfig() {
         <label>State <input id="sc-edit-state" type="text" value="${esc(draft.state || '')}" maxlength="2" /></label>
         <label>Radius (mi) <input id="sc-edit-radius" type="text" value="${esc(String(draft.serviceRadiusMiles ?? ''))}" /></label>
         <label>Web3Forms key <input id="sc-edit-web3" type="text" value="${esc(draft.web3FormsAccessKey || '')}" /></label>
+        <label>Turnstile site key <input id="sc-edit-turnstile" type="text" value="${esc(draft.turnstileSiteKey || '')}" placeholder="optional" /></label>
         <label>Brand primary <input id="sc-edit-brand-primary" type="text" value="${esc(brand.primary || '')}" placeholder="#1C2B3A" /></label>
         <label>Brand accent <input id="sc-edit-brand-accent" type="text" value="${esc(brand.accent || '')}" placeholder="#E8A317" /></label>
         <label>Brand ink <input id="sc-edit-brand-ink" type="text" value="${esc(brand.ink || '')}" placeholder="#0F1720" /></label>
@@ -2907,7 +2908,7 @@ function contentUpNextHtml(stepDone, ready) {
   if (!stepDone.builder) {
     return `<div class="callout">Up next: <strong>Step 5 · Stage homepage</strong> (also refreshes the build package).</div>`;
   }
-  return `<div class="callout">Up next: <strong>Assemble checklist</strong> · optional <code>npm run build</code> / <code>astro dev</code>.</div>`;
+  return `<div class="callout">Up next: <strong>Assemble → Launch</strong> · checklist / CF domain + Web3Forms paste.</div>`;
 }
 
 function renderContent() {
@@ -2936,12 +2937,15 @@ function renderContent() {
   })();
   const stagedAt = d?.meta?.lastSiteStagingAt || null;
   const stagingPath = d?.meta?.siteStagingPath || null;
+  const assembledAt = d?.meta?.lastAssembleAt || null;
+  const assembledPath = d?.meta?.assembledSitePath || null;
+  const cfg = d?.siteConfig || {};
   const stepDone = {
     research: Boolean(research) || Boolean(f.hasContentResearch),
     outline: Boolean(outline) || Boolean(f.hasContentOutline),
     writer: Boolean(draft?.files) || Boolean(accepted?.files) || Boolean(f.hasContentDraft) || Boolean(f.hasContent),
     accepted: Boolean(accepted) || Boolean(f.hasContent),
-    builder: Boolean(pack || f.hasBuildPackage || stagedAt || stagingPath),
+    builder: Boolean(pack || f.hasBuildPackage || stagedAt || stagingPath || assembledAt),
   };
   const defaultOpen = firstIncompleteContentStep(stepDone);
   if (state.contentOpenStep == null) state.contentOpenStep = defaultOpen;
@@ -3124,7 +3128,7 @@ function renderContent() {
       open: openId === 'builder',
       tip: '1 Stage → 2 Checklist → 3 optional Build package',
       bodyHtml: `
-        <p class="disc-tool-blurb"><strong>Stage homepage</strong> is the next step after Accept. It copies into <code>research/{id}/site-staging/</code> and also refreshes the build package. Then <strong>Assemble site</strong> writes a sibling folder for GitHub/CF Pages.</p>
+        <p class="disc-tool-blurb"><strong>Stage homepage</strong> is the next step after Accept. It copies into <code>research/{id}/site-staging/</code> and also refreshes the build package. Then <strong>Assemble site</strong> writes a sibling folder. <strong>Launch</strong> pastes Web3Forms + runs Cloudflare Email Routing / custom domain (API).</p>
         ${contentActionRow({
           n: 1,
           label: 'Stage homepage',
@@ -3135,20 +3139,41 @@ function renderContent() {
         ${contentActionRow({
           n: 2,
           label: 'Assemble site',
-          hint: 'Copy template → inject staging → sibling site folder. Then checklist / CF Pages.',
+          hint: 'Copy template → inject staging → sibling site folder.',
           controlsHtml: `<button type="button" class="btn" id="ca-assemble" title="Assemble site folder from staging" ${stagedAt ? '' : 'disabled'}>Assemble site</button>
           <button type="button" class="btn" id="ca-checklist" title="Show assemble / deploy checklist">Assemble checklist</button>`,
         })}
         ${contentActionRow({
           n: 3,
+          label: 'Launch (CF + Web3Forms)',
+          hint: 'Paste Web3Forms key; automate Email Routing + custom domain when CLOUDFLARE_* is set. Human still buys domain / verifies Gmail / creates the Web3Forms form.',
+          controlsHtml: `<button type="button" class="btn primary" id="ca-launch" title="Run launch helpers" ${assembledAt || assembledPath ? '' : 'disabled'}>Run launch</button>
+          <button type="button" class="btn" id="ca-launch-status" title="Show launch status">Launch status</button>`,
+        })}
+        <div class="site-config-nap" id="ca-launch-form" style="margin-top:0.75rem">
+          <label>Domain <input id="ca-launch-domain" type="text" value="${esc(cfg.domain || '')}" placeholder="example.com" /></label>
+          <label>Phone <input id="ca-launch-phone" type="text" value="${esc(cfg.phone || '')}" /></label>
+          <label>Leads email <input id="ca-launch-email" type="email" value="${esc(cfg.email || '')}" placeholder="leads@example.com" /></label>
+          <label>Email Routing destination <input id="ca-launch-dest" type="email" value="" placeholder="your@gmail.com" title="CF forwards leads@ here" /></label>
+          <label class="site-config-span2">Web3Forms access key <input id="ca-launch-web3" type="text" value="${esc(cfg.web3FormsAccessKey || '')}" placeholder="Paste from web3forms.com" /></label>
+          <label>Turnstile site key <input id="ca-launch-turnstile" type="text" value="${esc(cfg.turnstileSiteKey || '')}" placeholder="optional" /></label>
+          <label><input id="ca-launch-run-cf" type="checkbox" checked /> Run Cloudflare API</label>
+          <label><input id="ca-launch-create-turnstile" type="checkbox" /> Create Turnstile widget</label>
+          <label><input id="ca-launch-mark-cf" type="checkbox" /> Mark CF Worker project done</label>
+        </div>
+        <p class="muted">Create key at <a href="https://web3forms.com" target="_blank" rel="noopener">web3forms.com</a> · docs: <code>docs/ASSEMBLE-AND-LAUNCH.md</code></p>
+        ${contentActionRow({
+          n: 4,
           label: 'Build package JSON (advanced)',
           hint: 'Optional if you already Staged — Stage refreshes the package automatically.',
           controlsHtml: `<button type="button" class="btn" id="ca-build-package" title="Build package JSON for this candidate" ${hasMarkdown ? '' : 'disabled'}>Build package JSON</button>`,
         })}
         ${
-          stagedAt
-            ? `<div class="callout">Staged${stagingPath ? ` · <code>${esc(stagingPath)}</code>` : ''} · ${esc(stagedAt)}. Open checklist or run <code>npm run build</code>.</div>`
-            : ''
+          assembledAt || assembledPath
+            ? `<div class="callout">Assembled${assembledPath ? ` · <code>${esc(assembledPath)}</code>` : ''} · ${esc(assembledAt || '')}. Push to GitHub, then Launch for CF domain / email.</div>`
+            : stagedAt
+              ? `<div class="callout">Staged${stagingPath ? ` · <code>${esc(stagingPath)}</code>` : ''} · ${esc(stagedAt)}. Assemble next.</div>`
+              : ''
         }
         ${
           pack
@@ -3378,7 +3403,7 @@ function wireContentTab(d) {
           String(result.written?.length || 0),
         )} files). Build package refreshed.</p>
         ${previewNote}
-        <p class="muted">Next: <strong>Assemble checklist</strong>.</p>`,
+        <p class="muted">Next: <strong>Stage → Assemble → Launch</strong>.</p>`,
       });
     } catch (error) {
       await showModal({ title: 'Staging failed', confirmLabel: 'OK', bodyHtml: `<p>${esc(error.message)}</p>` });
@@ -3465,6 +3490,93 @@ function wireContentTab(d) {
     } catch (error) {
       await showModal({
         title: 'Assemble failed',
+        confirmLabel: 'OK',
+        bodyHtml: `<p>${esc(error.message)}</p>`,
+      });
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  });
+
+  const fillLaunchDefaults = async () => {
+    try {
+      const st = await api(`/api/candidates/${encodeURIComponent(id)}/launch`);
+      const dest = document.getElementById('ca-launch-dest');
+      if (dest && !dest.value && st.defaultNotifyEmail) dest.value = st.defaultNotifyEmail;
+      return st;
+    } catch {
+      return null;
+    }
+  };
+  fillLaunchDefaults();
+
+  document.getElementById('ca-launch-status')?.addEventListener('click', async () => {
+    try {
+      const st = await fillLaunchDefaults();
+      if (!st) throw new Error('Could not load launch status');
+      const flags = [
+        `Assembled: ${st.assembled ? 'yes' : 'no'}`,
+        `CF credentials: ${st.cloudflareConfigured ? 'yes' : 'missing in .env'}`,
+        `Web3Forms key: ${st.web3FormsAccessKeySet ? 'set' : 'placeholder / missing'}`,
+        `CF project: ${st.cloudflarePagesDone ? '✓' : '○'}`,
+        `DNS / custom domain: ${st.dnsDone ? '✓' : '○'}`,
+        `Forms: ${st.formsDone ? '✓' : '○'}`,
+        `Email Routing: ${st.emailRoutingDone ? '✓' : '○'}`,
+      ]
+        .map((l) => `<li>${esc(l)}</li>`)
+        .join('');
+      await showModal({
+        title: 'Launch status',
+        confirmLabel: 'OK',
+        bodyHtml: `<ul class="narrative-list">${flags}</ul>
+          <p class="muted">Slug: <code>${esc(st.assembledSiteSlug || '—')}</code>
+          · path: <code>${esc(st.assembledSitePath || '—')}</code></p>
+          <p class="muted">Human leftovers: buy/point domain NS → CF; verify Email Routing destination once; create Web3Forms form and paste key; push site repo after key write.</p>`,
+      });
+    } catch (error) {
+      await showModal({ title: 'Failed', confirmLabel: 'OK', bodyHtml: `<p>${esc(error.message)}</p>` });
+    }
+  });
+
+  document.getElementById('ca-launch')?.addEventListener('click', async () => {
+    const btn = document.getElementById('ca-launch');
+    if (btn) btn.disabled = true;
+    try {
+      const body = {
+        domain: document.getElementById('ca-launch-domain')?.value?.trim() || '',
+        phone: document.getElementById('ca-launch-phone')?.value?.trim() || '',
+        email: document.getElementById('ca-launch-email')?.value?.trim() || '',
+        destinationEmail: document.getElementById('ca-launch-dest')?.value?.trim() || '',
+        web3FormsAccessKey: document.getElementById('ca-launch-web3')?.value?.trim() || '',
+        turnstileSiteKey: document.getElementById('ca-launch-turnstile')?.value?.trim() || '',
+        runCloudflare: Boolean(document.getElementById('ca-launch-run-cf')?.checked),
+        createTurnstile: Boolean(document.getElementById('ca-launch-create-turnstile')?.checked),
+        markCloudflareProjectDone: Boolean(document.getElementById('ca-launch-mark-cf')?.checked),
+      };
+      const result = await api(`/api/candidates/${encodeURIComponent(id)}/launch`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+      });
+      state.detail = result.candidate || (await api(`/api/candidates/${encodeURIComponent(id)}`));
+      state.tab = 'content';
+      state.contentOpenStep = 'builder';
+      renderDetail();
+      const human = (result.human || []).map((h) => `<li>${esc(h)}</li>`).join('');
+      const cfOk = result.cloudflare?.ok ? 'Cloudflare helpers ran' : 'Cloudflare skipped or incomplete';
+      await showModal({
+        title: result.ok ? 'Launch updated' : 'Launch partial',
+        confirmLabel: 'OK',
+        bodyHtml: `<p>${esc(cfOk)}. Forms key: ${result.formsDone ? 'set' : 'still placeholder'}.</p>
+          <ul class="narrative-list">${human || '<li>No extra notes</li>'}</ul>
+          ${
+            result.assembledConfigPath
+              ? `<p class="muted">Wrote <code>${esc(result.assembledConfigPath)}</code></p>`
+              : ''
+          }`,
+      });
+    } catch (error) {
+      await showModal({
+        title: 'Launch failed',
         confirmLabel: 'OK',
         bodyHtml: `<p>${esc(error.message)}</p>`,
       });
@@ -3763,6 +3875,7 @@ function wireSiteConfigTab(d) {
           state: document.getElementById('sc-edit-state')?.value?.trim() || '',
           serviceRadiusMiles: document.getElementById('sc-edit-radius')?.value?.trim() || '',
           web3FormsAccessKey: document.getElementById('sc-edit-web3')?.value?.trim() || '',
+          turnstileSiteKey: document.getElementById('sc-edit-turnstile')?.value?.trim() || '',
           targetSuburbs: document.getElementById('sc-edit-suburbs')?.value || '',
           services: document.getElementById('sc-edit-services')?.value || '',
           commercialServices: document.getElementById('sc-edit-commercial')?.value || '',
@@ -3844,6 +3957,7 @@ function wireSiteConfigTab(d) {
             serviceRadiusMiles:
               document.getElementById('sc-edit-radius')?.value?.trim() || nap.radiusMiles || '',
             web3FormsAccessKey: document.getElementById('sc-edit-web3')?.value?.trim() || '',
+            turnstileSiteKey: document.getElementById('sc-edit-turnstile')?.value?.trim() || '',
             targetSuburbs: document.getElementById('sc-edit-suburbs')?.value || '',
             services: document.getElementById('sc-edit-services')?.value || '',
             commercialServices: document.getElementById('sc-edit-commercial')?.value || '',

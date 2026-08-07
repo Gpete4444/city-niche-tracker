@@ -62,6 +62,8 @@ import { buildBuildPackage, getBuildPackage } from './lib/build-package.mjs';
 import { stageSiteContent, getStagingSummary } from './lib/site-staging.mjs';
 import { ensureAstroPreview, ASTRO_PREVIEW_URL } from './lib/astro-preview.mjs';
 import { assembleSite, getAssembleChecklist } from './lib/assemble-site.mjs';
+import { getLaunchStatus, launchSite } from './lib/launch-site.mjs';
+import { cloudflareConfigured } from './lib/cloudflare-launch.mjs';
 import { getBatchCostPreview, getCostPreview } from './lib/cost-estimates.mjs';
 import {
   getJob,
@@ -967,6 +969,47 @@ app.post('/api/candidates/:id/assemble', (req, res) => {
         error: error.message,
         checklist: error.checklist,
         siteRoot: error.siteRoot || null,
+      });
+    }
+    sendError(res, error);
+  }
+});
+
+app.get('/api/candidates/:id/launch', (req, res) => {
+  try {
+    res.json(getLaunchStatus(req.params.id));
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/candidates/:id/launch', async (req, res) => {
+  try {
+    const body = req.body || {};
+    const result = await launchSite(req.params.id, {
+      domain: body.domain,
+      phone: body.phone,
+      email: body.email,
+      businessName: body.businessName,
+      web3FormsAccessKey: body.web3FormsAccessKey,
+      turnstileSiteKey: body.turnstileSiteKey,
+      destinationEmail: body.destinationEmail,
+      runCloudflare: body.runCloudflare !== false,
+      createTurnstile: Boolean(body.createTurnstile),
+      attachDomain: body.attachDomain !== false,
+      setupEmail: body.setupEmail !== false,
+      markCloudflareProjectDone: Boolean(body.markCloudflareProjectDone),
+    });
+    res.json({
+      ...result,
+      candidate: getCandidateDetail(req.params.id),
+      cloudflareConfigured: cloudflareConfigured(),
+    });
+  } catch (error) {
+    if (error.checklist) {
+      return res.status(error.status || 500).json({
+        error: error.message,
+        checklist: error.checklist,
       });
     }
     sendError(res, error);

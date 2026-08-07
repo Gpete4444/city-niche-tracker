@@ -8,7 +8,8 @@ interface Props {
 
 const { heading = 'Request a free estimate', compact = false } = Astro.props;
 const hasTurnstile = Boolean(site.turnstileSiteKey);
-const hasPlaceholderKey = site.web3FormsAccessKey.startsWith('YOUR_');
+const hasPlaceholderKey =
+  /^(YOUR_|REPLACE_WEB3FORMS)/i.test(site.web3FormsAccessKey || '');
 ---
 
 <section

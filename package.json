@@ -15,6 +15,7 @@
     "prospect-renters": "node scripts/prospect-renters.mjs",
     "ops": "node ops/server.mjs",
     "assemble-site": "node ops/lib/run-assemble.mjs",
+    "launch-site": "node ops/lib/run-launch.mjs",
     "astro": "astro"
   },
   "dependencies": {

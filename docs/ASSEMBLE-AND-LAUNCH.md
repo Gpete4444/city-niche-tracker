@@ -1,6 +1,6 @@
 # Assemble and launch
 
-End-to-end path from a staged candidate to a live Cloudflare Pages site.
+End-to-end path from a staged candidate to a live Cloudflare Workers site.
 
 ## Prerequisites
 
@@ -8,6 +8,7 @@ End-to-end path from a staged candidate to a live Cloudflare Pages site.
 2. Content accepted (at least homepage_first)
 3. **Stage homepage** in ops (writes `research/{id}/site-staging/`)
 4. Optional: template GitHub remote (see below) — assemble works **without** it via local copy
+5. For **Launch** automation: `CLOUDFLARE_ACCOUNT_ID` + `CLOUDFLARE_API_TOKEN` in `.env` (see `.env.example`). API calls are free.
 
 ## 1. Template GitHub remote (checklist item)
 
@@ -71,7 +72,7 @@ npm run build
 
 Checklist marks **build** done when `dist/index.html` exists.
 
-## 4. Cloudflare (Workers Builds or Pages)
+## 4. GitHub + first Cloudflare Worker deploy (still manual once)
 
 1. Push the assembled site to its **own** GitHub repo (one repo per domain):
 
@@ -117,31 +118,58 @@ Assemble writes this file using the site slug as `name`. Optional: set env `NODE
 
 If install fails with `npm ci` / lockfile out of sync, regenerate `package-lock.json` in the template (`npm install`), re-assemble or copy the lock into the site repo, and push again.
 
-## 5. DNS
+## 5. Ops Launch (Cloudflare API + Web3Forms paste)
 
-1. In Pages → Custom domains → add your domain
-2. At the registrar / CF DNS, point the domain as Cloudflare instructs (usually CNAME to `*.pages.dev` or CF proxy)
+After Assemble (and ideally after the Worker exists), use ops → Content → **Launch**:
 
-## 6. Forms (Web3Forms + optional Turnstile)
+1. Paste **Web3Forms** access key ([web3forms.com](https://web3forms.com) — create form manually; no public create-form API)
+2. Set domain / `leads@` / Email Routing destination (Gmail)
+3. Check **Run Cloudflare API** (needs `.env` tokens)
+4. **Run launch**
 
-1. Create a key at [web3forms.com](https://web3forms.com)
-2. In the **assembled** site’s `src/config/site-config.json`, set `web3FormsAccessKey`
-3. Optional: set `turnstileSiteKey` from Cloudflare Turnstile
-4. Commit, push, redeploy Pages
+What Launch does:
+
+- Writes NAP + Web3Forms (+ optional Turnstile) into the **assembled** `src/config/site-config.json` (and research copy)
+- Looks up the CF zone for the domain
+- Enables Email Routing, ensures destination address, creates `leads@` → forward rule
+- Attaches custom domain to the Worker named by assemble slug (when the Worker exists)
+- Optionally creates a Turnstile widget
+- Sets checklist meta flags (`formsDone`, `dnsDone`, `emailRoutingDone`, …)
+
+CLI:
+
+```powershell
+npm run launch-site -- <candidateId>
+npm run launch-site -- <candidateId> --skip-cloudflare
+npm run launch-site -- <candidateId> --turnstile --destination=you@gmail.com
+```
+
+### Human leftovers (API cannot do these)
+
+1. **Buy the domain** / point nameservers at Cloudflare (zone must exist in your account)
+2. **Verify** Email Routing destination once (click link in Gmail)
+3. **Create** the Web3Forms form and paste the key (semi-automation)
+4. **Commit + push** the assembled site after Launch writes the key so CF rebuilds
+5. First-time **GitHub repo + Workers Builds** project connect (§4)
+
+### Cost
+
+Cloudflare and Web3Forms **API calls are $0**. You pay domains (~$10–15/yr) and stay on free tiers for typical static + Email Routing + ~250 Web3Forms submissions/mo.
+
+## 6. Forms notes
+
+- Site form already posts to `https://api.web3forms.com/submit` via `LeadForm.astro`
+- Placeholders `YOUR_*` and `REPLACE_WEB3FORMS_*` show the demo banner
+- Optional `turnstileSiteKey` from Launch or Site config edit
 
 Never commit real keys to the **template** master if demos use placeholders.
 
-## 7. Email Routing (`leads@`)
+## 7. Ops checklist flags
 
-1. Cloudflare → Email → Email Routing for the domain
-2. Destination address you control
-3. Match `site-config.json` `email` (e.g. `leads@example.com`)
-
-## Ops checklist flags
-
-Manual CF/DNS/forms/email steps are not auto-detected yet. After you finish them, you can record in candidate meta later; for now treat the checklist UI as a runbook with ✓ only for remote / staging / assemble / local build artifacts.
+Assemble / build / template remote are auto-detected. CF / DNS / forms / email flags are set by **Launch** (or remain open until you run it). Open **Assemble checklist** or **Launch status** in ops.
 
 ## Related
 
+- Master flowchart + tools matrix: [MASTER-FLOW.md](MASTER-FLOW.md)
 - Parked follow-ons (images, design polish, Ippei SEO compare): [BACKLOG.md](BACKLOG.md)
 - Astro preview during ops: Stage homepage opens `http://127.0.0.1:4321/`
