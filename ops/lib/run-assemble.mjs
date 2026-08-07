@@ -1,21 +1,25 @@
 #!/usr/bin/env node
 /**
- * CLI: npm run assemble-site -- <candidateId> [--force]
+ * CLI: npm run assemble-site -- <candidateId> [--force] [--skip-git] [--slug=name]
  */
-import { assembleSite, getAssembleChecklist } from './assemble-site.mjs';
+import { assembleSite } from './assemble-site.mjs';
 
 const args = process.argv.slice(2);
 const force = args.includes('--force');
 const skipGit = args.includes('--skip-git');
+const slugArg = args.find((a) => a.startsWith('--slug='));
+const siteSlug = slugArg ? slugArg.slice('--slug='.length) : undefined;
 const id = args.find((a) => !a.startsWith('--'));
 
 if (!id) {
-  console.error('Usage: npm run assemble-site -- <candidateId> [--force] [--skip-git]');
+  console.error(
+    'Usage: npm run assemble-site -- <candidateId> [--force] [--skip-git] [--slug=name]',
+  );
   process.exit(1);
 }
 
 try {
-  const result = assembleSite(id, { force, skipGit });
+  const result = assembleSite(id, { force, skipGit, siteSlug });
   console.log(JSON.stringify({ ok: true, ...result, candidate: undefined }, null, 2));
   console.log('\nChecklist:');
   for (const step of result.checklist.steps) {

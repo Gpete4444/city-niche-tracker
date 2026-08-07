@@ -337,8 +337,12 @@ export function assembleSite(candidateId, { force = false, skipGit = false, site
   const detail = getCandidateDetail(candidateId);
   const slug =
     siteSlug ||
-    slugifySiteName(config.domain) ||
-    slugifySiteName(config.primaryCity) ||
+    (config.domain && !/^example\.com$/i.test(config.domain)
+      ? slugifySiteName(config.domain)
+      : null) ||
+    slugifySiteName(
+      [config.primaryCity, config.niche].filter(Boolean).join('-'),
+    ) ||
     slugifySiteName(candidateId);
 
   const sitesRoot = assembledSitesRoot();
