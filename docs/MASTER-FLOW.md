@@ -8,76 +8,88 @@ Shareable overview of the full project: how a market becomes a live lead-gen sit
 
 ## Master flowchart
 
-Phases are boxed groups; arrows show order. Nodes marked **human** are still manual.
+Phases read **left to right in two rows**; sub-steps stack vertically inside each phase box. Nodes marked **human** are still manual.
 
 ```mermaid
 flowchart TB
-  subgraph disc [1 Discover markets]
-    direction TB
-    d1["Census place seeds"] --> d2["Create discovery pack"]
-    d2 --> d3["Process batch"]
-    d3 --> d4["Candidate list in ops"]
+  subgraph row1 [Phases 1 to 5]
+    direction LR
+
+    subgraph disc [1 Discover markets]
+      direction TB
+      d1["Census place seeds"] --> d2["Create discovery pack"]
+      d2 --> d3["Process batch"]
+      d3 --> d4["Candidate list in ops"]
+    end
+
+    subgraph res [2 Research SERP]
+      direction TB
+      r1["Stage 1 SERP and keywords"] --> r2["Stage 2 enrich when recommended"]
+      r2 --> r3["Optional Stage 4 renter prospects"]
+    end
+
+    subgraph dec [3 Decide pursue]
+      direction TB
+      e1["Claude narrative draft"] --> e2["Human Accept or reject"]
+      e2 --> e3["Pursue gate unlocks build"]
+    end
+
+    subgraph scfg [4 Site config]
+      direction TB
+      s1["NAP plus Claude prompt"] --> s2["Paste or edit draft"]
+      s2 --> s3["Accept site-config.json"]
+    end
+
+    subgraph cont [5 Content]
+      direction TB
+      c1["Researcher pack"] --> c2["Outline"]
+      c2 --> c3["Writer homepage-first"]
+      c3 --> c4["Accept markdown"]
+    end
+
+    disc --> res --> dec --> scfg --> cont
   end
 
-  subgraph res [2 Research SERP]
-    direction TB
-    r1["Stage 1 SERP and keywords"] --> r2["Stage 2 enrich when recommended"]
-    r2 --> r3["Optional Stage 4 renter prospects"]
+  subgraph row2 [Phases 6 to 10]
+    direction LR
+
+    subgraph stg [6 Stage preview]
+      direction TB
+      t1["Stage homepage to site-staging"] --> t2["Astro preview QA"]
+    end
+
+    subgraph asm [7 Assemble]
+      direction TB
+      a1["Assemble sibling site folder"] --> a2["Local npm run build smoke"]
+    end
+
+    subgraph ship [8 GitHub plus CF Worker]
+      direction TB
+      h1["gh repo create and push — human"] --> h2["CF Workers Builds connect — human"]
+      h2 --> h3["First deploy via Wrangler"]
+    end
+
+    subgraph launch [9 Launch]
+      direction TB
+      l1["Buy domain and point NS — human"] --> l2["Create Web3Forms form — human"]
+      l2 --> l3["Paste access key in ops Launch"]
+      l3 --> l4["Ops Launch Email Routing and custom domain"]
+      l4 --> l5["Verify Gmail destination — human"]
+      l5 --> l6["Commit and push for CF rebuild"]
+    end
+
+    subgraph live [10 Live / rent]
+      direction TB
+      v1["Form and leads@ receive leads"] --> v2["Hand off site or leads to renter"]
+    end
+
+    stg --> asm --> ship --> launch --> live
   end
 
-  subgraph dec [3 Decide pursue]
-    direction TB
-    e1["Claude narrative draft"] --> e2["Human Accept or reject"]
-    e2 --> e3["Pursue gate unlocks build"]
-  end
-
-  subgraph scfg [4 Site config]
-    direction TB
-    s1["NAP plus Claude prompt"] --> s2["Paste or edit draft"]
-    s2 --> s3["Accept site-config.json"]
-  end
-
-  subgraph cont [5 Content]
-    direction TB
-    c1["Researcher pack"] --> c2["Outline"]
-    c2 --> c3["Writer homepage-first"]
-    c3 --> c4["Accept markdown"]
-  end
-
-  subgraph stg [6 Stage preview]
-    direction TB
-    t1["Stage homepage to site-staging"] --> t2["Astro preview QA"]
-  end
-
-  subgraph asm [7 Assemble]
-    direction TB
-    a1["Assemble sibling site folder"] --> a2["Local npm run build smoke"]
-  end
-
-  subgraph ship [8 GitHub plus CF Worker]
-    direction TB
-    h1["gh repo create and push — human"] --> h2["CF Workers Builds connect — human"]
-    h2 --> h3["First deploy via Wrangler"]
-  end
-
-  subgraph launch [9 Launch]
-    direction TB
-    l1["Buy domain and point NS — human"] --> l2["Create Web3Forms form — human"]
-    l2 --> l3["Paste access key in ops Launch"]
-    l3 --> l4["Ops Launch Email Routing and custom domain"]
-    l4 --> l5["Verify Gmail destination — human"]
-    l5 --> l6["Commit and push for CF rebuild"]
-  end
-
-  subgraph live [10 Live / rent]
-    direction TB
-    v1["Form and leads@ receive leads"] --> v2["Hand off site or leads to renter"]
-  end
-
-  disc --> res --> dec --> scfg --> cont --> stg --> asm --> ship --> launch --> live
+  cont --> stg
 ```
 
-Open on GitHub or [mermaid.live](https://mermaid.live) to view the rendered boxes (paste the `mermaid` code block).
+Open on GitHub or [mermaid.live](https://mermaid.live) to view the rendered boxes (paste the `mermaid` code block). Left-to-right in two rows.
 
 ### Steps: what happens and why
 
