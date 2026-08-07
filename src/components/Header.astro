@@ -1,12 +1,16 @@
 ---
 import { getCollection } from 'astro:content';
-import { site, formatPhoneDisplay, phoneHref } from '../config/site';
+import { site, formatPhoneDisplay, phoneHref, siteShowsServicesNav } from '../config/site';
+import { filterLocationsForSite } from '../lib/locations-for-site';
+import { filterServicesForSite } from '../lib/services-for-site';
 
-const services = (await getCollection('services'))
-  .filter((e) => !e.data.draft)
-  .sort((a, b) => (a.data.order ?? 99) - (b.data.order ?? 99));
-const locations = (await getCollection('locations')).filter((e) => !e.data.draft);
+const services = filterServicesForSite(await getCollection('services'), site);
+const locations = filterLocationsForSite(
+  (await getCollection('locations')).filter((e) => !e.data.draft),
+  site,
+);
 
+const showServicesNav = siteShowsServicesNav() && services.length > 0;
 const firstService = services[0];
 const firstLocation = locations[0];
 ---
@@ -33,7 +37,7 @@ const firstLocation = locations[0];
     <div class="mx-auto flex max-w-6xl gap-4 overflow-x-auto px-4 py-2 text-sm font-medium text-ink/80 sm:justify-center sm:px-6">
       <a class="whitespace-nowrap hover:text-brand" href="/">Home</a>
       {
-        firstService && (
+        showServicesNav && firstService && (
           <a class="whitespace-nowrap hover:text-brand" href={`/services/${firstService.id}`}>
             Services
           </a>

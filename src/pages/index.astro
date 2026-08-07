@@ -6,7 +6,8 @@ import ServiceCards from '../components/ServiceCards.astro';
 import HomeSections from '../components/HomeSections.astro';
 import TrustSignals from '../components/TrustSignals.astro';
 import { getCollection } from 'astro:content';
-import { site } from '../config/site';
+import { site, siteShowsServiceCards } from '../config/site';
+import { locationLinksForSite } from '../lib/locations-for-site';
 
 const indexEntry = await getEntry('pages', 'index');
 if (!indexEntry) {
@@ -14,7 +15,13 @@ if (!indexEntry) {
 }
 
 const { Content } = await render(indexEntry);
-const locations = (await getCollection('locations')).filter((e) => !e.data.draft);
+const locationEntries = (await getCollection('locations')).filter((e) => !e.data.draft);
+const locations = locationLinksForSite(locationEntries, site);
+const showServices = siteShowsServiceCards();
+const sections = Array.isArray(site.homepageSections) ? site.homepageSections : null;
+const showOfferProcess =
+  site.siteArchetype === 'single_service' ||
+  (sections ? sections.includes('offerProcess') : false);
 ---
 
 <BaseLayout
@@ -40,10 +47,10 @@ const locations = (await getCollection('locations')).filter((e) => !e.data.draft
     <div>
       <div class="max-w-3xl">
         <p class="text-xs font-bold uppercase tracking-[0.18em] text-accent">
-          Local concrete repair
+          {site.niche}
         </p>
         <h2 id="intro-heading" class="mt-2 font-display text-2xl font-bold tracking-tight text-ink sm:text-3xl">
-          {indexEntry.data.sectionHeading ?? `Concrete lifting in ${site.primaryCity}`}
+          {indexEntry.data.sectionHeading ?? `${site.niche} in ${site.primaryCity}`}
         </h2>
       </div>
       <div class="prose-site mt-5 max-w-3xl">
@@ -64,18 +71,18 @@ const locations = (await getCollection('locations')).filter((e) => !e.data.draft
     }
   </section>
 
-  <ServiceCards heading={`${site.niche} services`} />
+  {showServices && <ServiceCards heading={`${site.niche} services`} />}
 
   <HomeSections
     whyChooseUs={indexEntry.data.whyChooseUs}
     process={indexEntry.data.process}
+    processHeading={
+      showOfferProcess ? `How ${site.services[0] ?? site.niche} works` : undefined
+    }
+    whyHeading={`Why choose ${site.businessName}`}
     faqs={indexEntry.data.faqs}
     gallery={indexEntry.data.gallery}
     coverageMap={indexEntry.data.coverageMap}
-    locations={locations.map((location) => ({
-      id: location.id,
-      city: location.data.city,
-      state: location.data.state,
-    }))}
+    locations={locations}
   />
 </BaseLayout>

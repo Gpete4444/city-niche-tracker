@@ -13,9 +13,10 @@ interface FaqItem {
 }
 
 interface LocationItem {
-  id: string;
+  id?: string;
   city: string;
   state: string;
+  href?: string;
 }
 
 interface ImageItem {
@@ -30,6 +31,8 @@ interface Props {
   locations?: LocationItem[];
   gallery?: ImageItem[];
   coverageMap?: ImageItem;
+  processHeading?: string;
+  whyHeading?: string;
 }
 
 const {
@@ -39,6 +42,8 @@ const {
   locations = [],
   gallery = [],
   coverageMap,
+  processHeading,
+  whyHeading,
 } = Astro.props;
 const reviews = site.socialProof?.reviews ?? [];
 ---
@@ -50,7 +55,7 @@ const reviews = site.socialProof?.reviews ?? [];
         <div class="max-w-2xl">
           <p class="text-xs font-bold uppercase tracking-[0.18em] text-accent">Why choose us</p>
           <h2 id="why-heading" class="mt-2 font-display text-2xl font-bold tracking-tight text-ink sm:text-3xl">
-            Straightforward concrete repair guidance
+            {whyHeading ?? `Straightforward ${site.niche} guidance`}
           </h2>
         </div>
         <ul class="mt-8 grid gap-6 md:grid-cols-3">
@@ -72,7 +77,7 @@ const reviews = site.socialProof?.reviews ?? [];
       <div class="max-w-2xl">
         <p class="text-xs font-bold uppercase tracking-[0.18em] text-accent">How it works</p>
         <h2 id="process-heading" class="mt-2 font-display text-2xl font-bold tracking-tight text-ink sm:text-3xl">
-          From settled slab to a clear repair plan
+          {processHeading ?? `How our ${site.niche} process works`}
         </h2>
       </div>
       <ol class="mt-8 grid gap-5 md:grid-cols-3">
@@ -117,14 +122,14 @@ const reviews = site.socialProof?.reviews ?? [];
             Serving {site.primaryCity} and nearby communities
           </h2>
           <p class="mt-3 text-sm leading-relaxed text-white/75">
-            Local service pages explain the concrete problems and repair options relevant to each area.
+            Local pages cover {site.niche.toLowerCase()} options relevant to each community we serve.
           </p>
           <ul class="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
             {locations.map((location) => (
               <li>
                 <a
                   class="flex items-center justify-between rounded-md border border-white/20 bg-white/10 px-4 py-3 text-sm font-semibold transition hover:bg-white/20"
-                  href={`/locations/${location.id}`}
+                  href={location.href || (location.id ? `/locations/${location.id}` : '/contact')}
                 >
                   <span>{location.city}, {location.state}</span>
                   <span aria-hidden="true">→</span>

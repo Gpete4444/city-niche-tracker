@@ -1,0 +1,205 @@
+{
+  "version": 2,
+  "appliesTo": "specialty_high_ticket",
+  "ticketClasses": {
+    "low": {
+      "avgJobUsd": { "maxExclusive": 1500 },
+      "note": "Need more leads for a rental to pencil. Treat volume bands one tier stricter (e.g. mid volume reads as low)."
+    },
+    "mid": {
+      "avgJobUsd": { "minInclusive": 1500, "maxExclusive": 5000 },
+      "note": "Standard local services. Prefer mid+ cluster volume unless SERP is unusually soft."
+    },
+    "high": {
+      "avgJobUsd": { "minInclusive": 5000 },
+      "note": "Specialty / high-ticket (trenchless, foundation, major HVAC replacement, etc.). Use volume bands below as written."
+    }
+  },
+  "volumeMetric": {
+    "field": "volumes.clusterVolumeSum",
+    "definition": "Sum of Google Ads Keyword Planner monthly volumes for the selected keyword set, measured per city geo that exists in Google Ads, then summed across the cluster. Not Gemini-style ranges on geo-suffixed phrases.",
+    "interpretationNotes": [
+      "primaryVolume = searches FROM the primary city geo, not searches about that city.",
+      "clusterSum adds independent city geos; it does not double-count the same search.",
+      "Ads volumes are bucketed (10, 20, 30, 50…). Local niches are noisy at the low end.",
+      "null means insufficient data; 0 means measured zero.",
+      "Ads competition / CPC are auction metrics, not organic SEO difficulty. High CPC can signal commercial intent."
+    ]
+  },
+  "authorityMetric": {
+    "name": "DataForSEO Rank",
+    "scale": "0-100",
+    "disclaimer": "DataForSEO Rank is a backlink-based authority score. It is NOT Moz Domain Authority or Ahrefs Domain Rating. Use it for relative competitor comparison only.",
+    "domainRankBands": {
+      "low": { "maxExclusive": 20, "label": "Low authority" },
+      "mid": { "minInclusive": 20, "maxExclusive": 40, "label": "Mid authority" },
+      "high": { "minInclusive": 40, "label": "High authority" }
+    }
+  },
+  "demandBands": {
+    "low": { "maxExclusive": 100, "label": "Low", "score": 4, "howToTreat": "Only pursue if job value is high AND SERP is soft. Thin demand; ranking cannot invent leads." },
+    "mid": { "minInclusive": 100, "maxExclusive": 300, "label": "Mid", "score": 7, "howToTreat": "Default worth-a-closer-look band for specialty trades." },
+    "high": { "minInclusive": 300, "maxExclusive": 700, "label": "High", "score": 8, "howToTreat": "Strong local demand for a specialty niche if competition is not locked up." },
+    "very_high": { "minInclusive": 700, "label": "Very high", "score": 10, "howToTreat": "Excellent demand — score competition harder; expect stronger Map Pack + organic sites." }
+  },
+  "demandScoreScale": [
+    { "maxExclusive": 50, "score": 2 },
+    { "minInclusive": 50, "maxExclusive": 100, "score": 4 },
+    { "minInclusive": 100, "maxExclusive": 200, "score": 6 },
+    { "minInclusive": 200, "maxExclusive": 300, "score": 7 },
+    { "minInclusive": 300, "maxExclusive": 500, "score": 8 },
+    { "minInclusive": 500, "maxExclusive": 700, "score": 9 },
+    { "minInclusive": 700, "score": 10 }
+  ],
+  "competitionScore": {
+    "definition": "1–10 opportunity score from organic SERP softness. Higher = easier / more opportunity (not 'more competitors'). Based on unique organic service domains in the top results after stripping directories.",
+    "scale": [
+      { "maxUniqueOrganicDomainsInclusive": 2, "score": 9, "label": "Very soft" },
+      { "maxUniqueOrganicDomainsInclusive": 5, "score": 6, "label": "Soft" },
+      { "maxUniqueOrganicDomainsInclusive": 8, "score": 4, "label": "Moderate" },
+      { "minUniqueOrganicDomainsInclusive": 9, "score": 2, "label": "Hard" }
+    ],
+    "homepageAdjustment": {
+      "organicHomePagesAtLeast": 2,
+      "delta": -1,
+      "note": "Dedicated niche/homepages are harder to displace than location sub-pages. Cap score at 1 minimum."
+    },
+    "medianDomainRankAdjustment": {
+      "highRankMinInclusive": 40,
+      "delta": -1,
+      "lowRankMaxExclusive": 20,
+      "deltaLow": 1,
+      "note": "After Stage 2 enrichment: median competitor DataForSEO domain Rank ≥40 → harder (−1); median <20 → easier (+1). Cap 1–10."
+    }
+  },
+  "mapPackGapScore": {
+    "definition": "1–10 opportunity from Map Pack gap. Higher = more gap (easier path or clearer blue-link focus).",
+    "absent": { "score": 9, "label": "Map Pack absent — stronger early opportunity for a new site + later GBP." },
+    "present": { "score": 3, "label": "Map Pack present — blue-link / organic path first; Map Pack usually needs a real GBP." }
+  },
+  "jobValueScore": {
+    "definition": "1–10 from estimated average job cost. Filled by Claude/human — DataForSEO does not produce this.",
+    "scale": [
+      { "maxExclusive": 1500, "score": 3, "label": "Low ticket" },
+      { "minInclusive": 1500, "maxExclusive": 5000, "score": 6, "label": "Mid ticket" },
+      { "minInclusive": 5000, "maxExclusive": 12000, "score": 8, "label": "High ticket" },
+      { "minInclusive": 12000, "score": 10, "label": "Very high ticket" }
+    ]
+  },
+  "displaceability": {
+    "definition": "1–10 how displaceable organic blue-link competitors look for a new niche homepage. Higher = easier to outrank over time. This is NOT a promise of ranking in 4–6 months.",
+    "honestyLimit": "Scores page thinness + relative DataForSEO Rank. Human/Claude may confirm; do not invent Rank or word counts.",
+    "bands": {
+      "low": { "maxExclusive": 4, "label": "Hard to displace", "id": "low" },
+      "mid": { "minInclusive": 4, "maxExclusive": 7, "label": "Mixed displaceability", "id": "mid" },
+      "high": { "minInclusive": 7, "label": "Likely displaceable", "id": "high" }
+    },
+    "strengthLabels": ["thin_stub", "moderate", "strong_niche_page"],
+    "aggregateHints": {
+      "mostlyThinStubs": "Most URLs look like thin location/service stubs → lean pursue even at mid proposedScore.",
+      "severalStrongPages": "Several strong niche pages on higher-Rank domains → deprioritize."
+    }
+  },
+  "serpSoftness": {
+    "soft": {
+      "allOf": [
+        { "organicHomePageCountMaxInclusive": 1 },
+        { "uniqueOrganicDomainsMaxInclusive": 5 }
+      ],
+      "note": "Few or no dedicated niche sites; mostly directories or thin sub-pages."
+    },
+    "hard": {
+      "anyOf": [
+        { "organicHomePageCountMinInclusive": 2, "mapPackPresent": true },
+        { "uniqueOrganicDomainsMinInclusive": 8 }
+      ],
+      "note": "Map Pack filled with strong locals and/or several dedicated niche sites."
+    }
+  },
+  "proposedScoreWeights": {
+    "demand": 0.25,
+    "competition": 0.25,
+    "jobValue": 0.2,
+    "mapPackGap": 0.15,
+    "displaceability": 0.15,
+    "note": "When displaceability is null (Stage 1 only), renormalize the other four weights to sum to 1. Round to 1 decimal. Do not invent missing jobValue — leave proposedScore null until jobValue is set."
+  },
+  "decisionRulesSpecialtyHighTicket": [
+    {
+      "id": "pursue_mid_soft",
+      "when": { "demandBandIn": ["mid", "high", "very_high"], "serpSoftness": "soft" },
+      "decision": "pursue",
+      "summary": "Mid+ volume + soft SERP → pursue."
+    },
+    {
+      "id": "pursue_mid_mixed_high_displaceability",
+      "when": {
+        "demandBandIn": ["mid", "high", "very_high"],
+        "serpSoftness": "mixed",
+        "displaceabilityBandIn": ["high"]
+      },
+      "decision": "pursue",
+      "summary": "Mid+ volume + mixed SERP + high displaceability (mostly thin stubs) → pursue."
+    },
+    {
+      "id": "deprioritize_mid_mixed_low_displaceability",
+      "when": {
+        "demandBandIn": ["mid"],
+        "serpSoftness": "mixed",
+        "displaceabilityBandIn": ["low"]
+      },
+      "decision": "deprioritize",
+      "summary": "Mid volume + mixed SERP + low displaceability (strong niche pages) → deprioritize."
+    },
+    {
+      "id": "deprioritize_mid_hard",
+      "when": { "demandBandIn": ["mid"], "serpSoftness": "hard" },
+      "decision": "deprioritize",
+      "summary": "Mid volume + hard SERP → pass or deprioritize."
+    },
+    {
+      "id": "maybe_low_soft_high_ticket",
+      "when": { "demandBandIn": ["low"], "serpSoftness": "soft", "ticketClassIn": ["high"] },
+      "decision": "maybe",
+      "summary": "Low volume + soft SERP + very high job value → maybe, as a portfolio bet."
+    },
+    {
+      "id": "pass_low_otherwise",
+      "when": { "demandBandIn": ["low"] },
+      "decision": "pass",
+      "summary": "Low volume without a soft-SERP + high-ticket exception → pass."
+    },
+    {
+      "id": "pass_high_hard_unless_gbp",
+      "when": { "demandBandIn": ["high", "very_high"], "serpSoftness": "hard" },
+      "decision": "pass_unless_gbp_angle",
+      "summary": "High volume + hard SERP → do not chase unless you have a real GBP / contractor angle."
+    },
+    {
+      "id": "review_default",
+      "when": {},
+      "decision": "review",
+      "summary": "Mixed signals — human review using scoreInputs, enrichment pages, and SERP links."
+    }
+  ],
+  "pathToWin": {
+    "siteOnlyDefinition": "Site-only = a Rank & Rent website without a strong Google Business Profile (often no GBP at launch).",
+    "twoLanes": {
+      "mapPack": "The 3 local businesses with the map. Google heavily favors GBP: reviews, address/NAP, categories, proximity, profile activity.",
+      "blueLinks": "Normal organic results under/around the pack. Google favors web pages: relevance, content, internal links, backlinks."
+    },
+    "blueLinksFirst": "A new Rank & Rent site usually starts site-only, so it generally cannot win the Map Pack early. It can rank in blue links first—especially when competitors only have thin location sub-pages and no dedicated niche homepage. Map Pack becomes realistic after a renter attaches a real GBP.",
+    "playbook": [
+      "Build the site and aim to rank in organic blue links to get leads.",
+      "Rent to a contractor who has or will create a real GBP.",
+      "Push Map Pack as a second phase once the GBP is attached."
+    ],
+    "mapPackAbsent": "Stronger early opportunity: blue links face less local-pack squeeze; later GBP can compete in both lanes.",
+    "mapPackPresent": "Expect to compete below the pack first. Soft organic (0–1 niche homepages, sub-pages only) still supports a site-only build."
+  },
+  "enrichmentGate": {
+    "demandBandIn": ["mid", "high", "very_high"],
+    "decisionIn": ["review", "pursue", "maybe"],
+    "note": "Stage 2 --enrich is recommended when Stage 1 demand is mid+ and decision is review/pursue/maybe. Always available via explicit --enrich / enrich-candidate."
+  }
+}

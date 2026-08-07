@@ -1,8 +1,10 @@
 ---
-title: "Contact Spokane Concrete Lifting Pros"
-description: "Request a free concrete lifting estimate in Spokane, WA. Call or send the form—we respond quickly with clear next steps."
-h1: "Get Your Free Concrete Lifting Estimate"
+title: "Contact Us | Kitchen & Bathroom Remodeling"
+description: "Get a free estimate for your kitchen or bathroom remodel in Spanish Fork, UT and the surrounding area."
+h1: "Get a Free Estimate"
 draft: false
 ---
 
-Tell us about the settled slab, driveway, or patio. Include your city and a good callback number. Prefer to talk now? Call the number at the top of the page—we answer local leads during business hours.
+Ready to talk through your kitchen or bathroom remodel? Send us a few details about your project and we'll follow up to schedule a walkthrough and put together a written estimate.
+
+We serve Spanish Fork and the surrounding communities, including Springville, Payson, Salem, and Benjamin.

@@ -1,0 +1,27 @@
+{
+  "version": "astro-rr-1",
+  "sharedRequiredPages": [
+    "src/content/pages/index.md",
+    "src/content/pages/about.md",
+    "src/content/pages/contact.md"
+  ],
+  "homepageFrontmatter": ["title", "description", "h1"],
+  "homepageRecommended": ["sectionHeading", "whyChooseUs", "process", "faqs"],
+  "archetypes": {
+    "multi_service": {
+      "requireServicePages": true,
+      "showServiceCards": true,
+      "minServices": 2,
+      "minLocations": 4,
+      "maxLocations": 6
+    },
+    "single_service": {
+      "requireServicePages": false,
+      "showServiceCards": false,
+      "minServices": 1,
+      "maxServicePages": 1,
+      "minLocations": 4,
+      "maxLocations": 6
+    }
+  }
+}

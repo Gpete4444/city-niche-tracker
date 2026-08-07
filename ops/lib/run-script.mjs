@@ -1,0 +1,250 @@
+import { spawn } from 'node:child_process';
+import path from 'node:path';
+import { randomUUID } from 'node:crypto';
+import { existsSync, readFileSync } from 'node:fs';
+import { saveMeta, pathsFor } from './candidates.mjs';
+
+const ROOT = process.cwd();
+const jobs = new Map();
+
+export function getJob(jobId) {
+  return jobs.get(jobId) ?? null;
+}
+
+export function listJobsForCandidate(candidateId) {
+  return [...jobs.values()].filter((j) => j.candidateId === candidateId);
+}
+
+function appendLog(job, chunk, stream) {
+  const text = chunk.toString();
+  job.logs.push({ t: Date.now(), stream, text });
+  if (job.logs.length > 2000) job.logs.splice(0, job.logs.length - 2000);
+  job.logText += text;
+  if (job.logText.length > 500_000) {
+    job.logText = job.logText.slice(-400_000);
+  }
+}
+
+function parseCostFromLog(logText) {
+  const m = String(logText || '').match(/cost this run:\s*\$([0-9.]+)/i);
+  if (!m) return null;
+  const n = Number(m[1]);
+  return Number.isFinite(n) ? n : null;
+}
+
+function readJsonSafe(filePath) {
+  if (!existsSync(filePath)) return null;
+  try {
+    return JSON.parse(readFileSync(filePath, 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
+function resolveJobCostUsd(job) {
+  const fromLog = parseCostFromLog(job.logText);
+  if (fromLog != null) return fromLog;
+
+  const p = pathsFor(job.candidateId);
+  if (job.label === 'research') {
+    const research = readJsonSafe(p.research);
+    const n = Number(research?.estimatedApiCostUsd);
+    return Number.isFinite(n) ? n : null;
+  }
+  if (job.label === 'enrich') {
+    const research = readJsonSafe(p.research);
+    const n = Number(research?.enrichment?.estimatedApiCostUsd);
+    return Number.isFinite(n) ? n : null;
+  }
+  if (job.label === 'prospects') {
+    const prospects = readJsonSafe(p.prospects);
+    const n = Number(prospects?.estimatedApiCostUsd);
+    return Number.isFinite(n) ? n : null;
+  }
+  return null;
+}
+
+function recordJobCost(job) {
+  const costUsd = resolveJobCostUsd(job);
+  job.costUsd = costUsd;
+  job.costSource = 'dataforseo';
+  if (costUsd != null) {
+    saveMeta(job.candidateId, {
+      lastCosts: { [job.label]: costUsd },
+    });
+  }
+}
+
+/**
+ * Spawn a node script relative to repo root. Returns job record immediately.
+ */
+export function startJob({
+  candidateId,
+  label,
+  script,
+  args = [],
+  onSuccess = null,
+}) {
+  const jobId = randomUUID();
+  const scriptPath = path.join(ROOT, script);
+  const job = {
+    id: jobId,
+    candidateId,
+    label,
+    script,
+    args,
+    status: 'running',
+    startedAt: new Date().toISOString(),
+    finishedAt: null,
+    exitCode: null,
+    logs: [],
+    logText: '',
+    error: null,
+    costUsd: null,
+    costSource: null,
+  };
+  jobs.set(jobId, job);
+  saveMeta(candidateId, { lastJobId: jobId });
+
+  const child = spawn(process.execPath, [scriptPath, ...args], {
+    cwd: ROOT,
+    env: { ...process.env },
+    windowsHide: true,
+  });
+
+  job.pid = child.pid;
+
+  child.stdout.on('data', (chunk) => appendLog(job, chunk, 'stdout'));
+  child.stderr.on('data', (chunk) => appendLog(job, chunk, 'stderr'));
+
+  child.on('error', (error) => {
+    job.status = 'error';
+    job.error = error.message;
+    job.finishedAt = new Date().toISOString();
+    appendLog(job, `${error.message}\n`, 'stderr');
+  });
+
+  child.on('close', async (code) => {
+    job.exitCode = code;
+    job.finishedAt = new Date().toISOString();
+    if (code !== 0) {
+      job.status = 'error';
+      job.error = `Exit code ${code}`;
+      return;
+    }
+    try {
+      recordJobCost(job);
+      if (typeof onSuccess === 'function') {
+        await onSuccess(job);
+      }
+      job.status = 'ok';
+    } catch (error) {
+      job.status = 'error';
+      job.error = error.message;
+      appendLog(job, `onSuccess: ${error.message}\n`, 'stderr');
+    }
+  });
+
+  return job;
+}
+
+export function runResearch(candidateId, { adsMode = 'live', forceSerp = false, volumesOnly = false } = {}) {
+  const p = pathsFor(candidateId);
+  const mode = String(adsMode || 'live').toLowerCase() === 'standard' ? 'standard' : 'live';
+  const args = ['--config', p.config, '--out', p.research, '--ads-mode', mode];
+  if (forceSerp) args.push('--force-serp');
+  if (volumesOnly) args.push('--volumes-only');
+  return startJob({
+    candidateId,
+    label: 'research',
+    script: 'scripts/research-candidate.mjs',
+    args,
+    onSuccess: () => {
+      saveMeta(candidateId, {
+        lastResearchAt: new Date().toISOString(),
+        lastAdsMode: mode,
+        lastResearchMode: volumesOnly ? 'volumes_only' : forceSerp ? 'force_serp' : 'default',
+      });
+    },
+  });
+}
+
+export function runEnrich(candidateId) {
+  const p = pathsFor(candidateId);
+  return startJob({
+    candidateId,
+    label: 'enrich',
+    script: 'scripts/enrich-candidate.mjs',
+    args: ['--research', p.research, '--out', p.research],
+    onSuccess: () => {
+      saveMeta(candidateId, { lastEnrichAt: new Date().toISOString() });
+    },
+  });
+}
+
+export function runProspects(candidateId) {
+  const p = pathsFor(candidateId);
+  return startJob({
+    candidateId,
+    label: 'prospects',
+    script: 'scripts/prospect-renters.mjs',
+    args: ['--research', p.research, '--out', p.prospects],
+    onSuccess: () => {
+      saveMeta(candidateId, { lastProspectsAt: new Date().toISOString() });
+    },
+  });
+}
+
+/**
+ * Async Narrative draft as a job record (for batch runner + single poll).
+ */
+export function runNarrativeJob(candidateId) {
+  const jobId = randomUUID();
+  const job = {
+    id: jobId,
+    candidateId,
+    label: 'narrative',
+    script: 'claude-narrative',
+    args: [],
+    status: 'running',
+    startedAt: new Date().toISOString(),
+    finishedAt: null,
+    exitCode: null,
+    logs: [],
+    logText: '',
+    error: null,
+    costUsd: null,
+    costSource: 'anthropic',
+  };
+  jobs.set(jobId, job);
+  saveMeta(candidateId, { lastJobId: jobId });
+
+  (async () => {
+    try {
+      appendLog(job, `Narrative draft for ${candidateId}…\n`, 'stdout');
+      const { generateNarrativeDraft } = await import('./claude.mjs');
+      const result = await generateNarrativeDraft(candidateId);
+      if (result.costUsd != null) {
+        job.costUsd = result.costUsd;
+        saveMeta(candidateId, { lastCosts: { narrative: result.costUsd } });
+      }
+      appendLog(
+        job,
+        result.parseError
+          ? 'Draft saved with parse error — review raw text.\n'
+          : 'Narrative draft saved.\n',
+        'stdout',
+      );
+      job.status = 'ok';
+      job.exitCode = 0;
+      job.finishedAt = new Date().toISOString();
+    } catch (error) {
+      job.status = 'error';
+      job.error = error.message;
+      job.finishedAt = new Date().toISOString();
+      appendLog(job, `${error.message}\n`, 'stderr');
+    }
+  })();
+
+  return job;
+}

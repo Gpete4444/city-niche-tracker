@@ -1,0 +1,36 @@
+{
+  "archetype": "single_service",
+  "page": "homepage",
+  "sections": [
+    {
+      "heading": "H1",
+      "headingText": "{primaryService} in {city}, {state}",
+      "instructions": "Single-offer H1. Do not list multiple services.",
+      "words": "8-12"
+    },
+    {
+      "heading": "H2",
+      "headingText": "Intro / who this is for",
+      "instructions": "2 short paragraphs. Focus on the one specialty and the customer problem.",
+      "words": "140-200"
+    },
+    {
+      "heading": "H2",
+      "headingText": "Step-by-step offer process (exactly 3-5 steps)",
+      "instructions": "Frontmatter process[] drives OfferProcess section (not a services grid). Be concrete.",
+      "words": "40-70 each"
+    },
+    {
+      "heading": "H2",
+      "headingText": "Why this specialty (exactly 3)",
+      "instructions": "whyChooseUs[] — expertise for THIS offer only.",
+      "words": "30-50 each"
+    },
+    {
+      "heading": "H2",
+      "headingText": "FAQs (3-5)",
+      "instructions": "faqs[] about the single service, timeline, fit, what to expect.",
+      "words": "40-80 each"
+    }
+  ]
+}

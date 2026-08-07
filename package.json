@@ -10,12 +10,18 @@
     "build": "astro build",
     "preview": "astro preview",
     "generate-map": "node scripts/generate-coverage-map.mjs",
+    "research-candidate": "node scripts/research-candidate.mjs",
+    "enrich-candidate": "node scripts/enrich-candidate.mjs",
+    "prospect-renters": "node scripts/prospect-renters.mjs",
+    "ops": "node ops/server.mjs",
+    "assemble-site": "node ops/lib/run-assemble.mjs",
     "astro": "astro"
   },
   "dependencies": {
     "@astrojs/sitemap": "^3.7.3",
     "@tailwindcss/vite": "^4.3.3",
     "astro": "^7.1.6",
+    "express": "^5.2.1",
     "tailwindcss": "^4.3.3"
   }
 }

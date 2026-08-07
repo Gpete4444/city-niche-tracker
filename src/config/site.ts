@@ -85,7 +85,14 @@ export const siteConfigSchema = z.object({
   web3FormsAccessKey: z.string().min(1),
   turnstileSiteKey: z.string().optional().default(''),
   primaryCta: z.string().min(1),
-  services: z.array(z.string().min(1)).min(1),
+  /** Residential / primary services (display order = priority; typically volume-ranked at generation). */
+  services: z.array(z.string().min(1)).min(1).max(12),
+  /** Optional commercial services; homepage shows after residential when present. */
+  commercialServices: z.array(z.string().min(1)).max(12).optional(),
+  /** Cap residential (and commercial) cards per section on the homepage. */
+  homepageServicesLimit: z.number().int().min(1).max(12).optional().default(12),
+  siteArchetype: z.enum(['multi_service', 'single_service']).optional().default('multi_service'),
+  homepageSections: z.array(z.string().min(1)).optional(),
   brand: brandSchema,
   socialProof: socialProofSchema.optional(),
 });
@@ -94,6 +101,24 @@ export type SiteConfig = z.infer<typeof siteConfigSchema>;
 export type SiteAddress = z.infer<typeof addressSchema>;
 
 export const site = siteConfigSchema.parse(rawConfig);
+
+export function siteShowsServiceCards(config: SiteConfig = site): boolean {
+  const sections = config.homepageSections;
+  if (Array.isArray(sections) && sections.length) return sections.includes('services');
+  return (config.siteArchetype ?? 'multi_service') === 'multi_service';
+}
+
+/** How many service cards to show per homepage section (1–12). */
+export function homepageServicesDisplayLimit(config: SiteConfig = site): number {
+  const n = Number(config.homepageServicesLimit);
+  if (!Number.isFinite(n)) return 12;
+  return Math.min(12, Math.max(1, Math.floor(n)));
+}
+
+export function siteShowsServicesNav(config: SiteConfig = site): boolean {
+  if ((config.siteArchetype ?? 'multi_service') === 'single_service') return false;
+  return siteShowsServiceCards(config);
+}
 
 export function siteUrl(path = '/'): string {
   const normalized = path.startsWith('/') ? path : `/${path}`;

@@ -1,6 +1,6 @@
 # Claude prompt: Markdown content collections
 
-Use for Phase 2 after `site-config.json` is finalized. Paste into Claude with the config attached.
+Use for Phase 2 after `site-config.json` is finalized (ops **Site config** Accept, or [`claude-site-config.md`](claude-site-config.md)). Prefer ops **Content** tab (copy prompt → paste → write).
 
 Output **only** Markdown files for this Astro template. Do **not** create `schema.json` — JSON-LD is generated in Astro.
 
@@ -71,7 +71,7 @@ SITE CONFIG:
 
 ## After Claude
 
-1. Replace files under `src/content/`.
-2. Delete leftover demo Markdown that does not apply.
+1. Prefer ops → **Content** → Load as draft → Write `src/content/` (backs up + prunes demo leftovers).
+2. Or manually replace files under `src/content/` and delete leftover demo Markdown.
 3. Run `npm run build` — fix any Zod frontmatter errors.
 4. Skim every location page for uniqueness before deploy.

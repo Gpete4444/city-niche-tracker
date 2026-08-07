@@ -1,10 +1,16 @@
 ---
-title: "About Spokane Concrete Lifting Pros"
-description: "Local concrete lifting specialists serving Spokane, Spokane Valley, Liberty Lake, and nearby communities with foam leveling and slab repair."
-h1: "About Our Concrete Lifting Team"
+title: "About Us | Kitchen & Bathroom Remodeling"
+description: "Kitchen & Bathroom Remodeling focuses exclusively on kitchen and bathroom remodels for homeowners in Spanish Fork, UT and the surrounding area."
+h1: "About Kitchen & Bathroom Remodeling"
 draft: false
 ---
 
-Spokane Concrete Lifting Pros focuses on one job: getting sunken concrete back to level so your property is safer and looks finished again.
+Kitchen & Bathroom Remodeling focuses on one thing: kitchen and bathroom remodels for homeowners in and around Spanish Fork, UT.
 
-We serve homeowners and property managers across the Spokane metro with polyurethane foam lifting for driveways, patios, walkways, and commercial slabs. No franchise fluff—clear estimates, local crews, and work scheduled around your day.
+Rather than spreading across every type of home improvement project, we put our attention into full kitchen remodels, bathroom renovations, custom cabinetry and countertop installation, and related upgrades like tile work and fixture replacements.
+
+We work with homeowners across Spanish Fork, Springville, Payson, Salem, and Benjamin. Some are in newer developments looking to match current design trends. Others are in older homes in need of a full update.
+
+Every project starts with a clear, written estimate. No vague pricing, no pressure to sign on the spot.
+
+Have a project in mind? Reach out for a free estimate and we'll walk you through what it would take to get your kitchen or bathroom where you want it.

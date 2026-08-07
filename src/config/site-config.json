@@ -1,37 +1,58 @@
 {
-  "businessName": "Spokane Concrete Lifting Pros",
-  "tagline": "Fast foam lifting that levels sunken concrete without the tear-out.",
-  "domain": "spokaneconcretelifting.com",
-  "niche": "Concrete Lifting & Leveling",
-  "primaryCity": "Spokane",
-  "state": "WA",
+  "businessName": "Kitchen & Bathroom Remodeling",
+  "tagline": "Specialized kitchen and bathroom remodeling for Spanish Fork and surrounding Utah County communities.",
+  "domain": "example.com",
+  "niche": "Kitchen & Bathroom Remodeling",
+  "primaryCity": "Spanish Fork",
+  "state": "UT",
   "targetSuburbs": [
-    "Spokane Valley",
-    "Liberty Lake",
-    "Cheney",
-    "Post Falls",
-    "Mead"
+    "Springville",
+    "Payson",
+    "Salem",
+    "Benjamin"
   ],
   "coverageAreas": [
-    { "name": "Spokane", "state": "WA" },
-    { "name": "Spokane Valley", "state": "WA" },
-    { "name": "Liberty Lake", "state": "WA" },
-    { "name": "Cheney", "state": "WA" },
-    { "name": "Post Falls", "state": "ID" },
-    { "name": "Mead", "state": "WA" }
+    {
+      "name": "Spanish Fork",
+      "state": "UT"
+    },
+    {
+      "name": "Springville",
+      "state": "UT"
+    },
+    {
+      "name": "Payson",
+      "state": "UT"
+    },
+    {
+      "name": "Salem",
+      "state": "UT"
+    },
+    {
+      "name": "Benjamin",
+      "state": "UT"
+    }
   ],
   "serviceRadiusMiles": 40,
-  "phone": "+15095550199",
-  "email": "leads@spokaneconcretelifting.com",
+  "phone": "+1XXXXXXXXXX",
+  "email": "leads@example.com",
   "web3FormsAccessKey": "YOUR_WEB3FORMS_ACCESS_KEY",
   "turnstileSiteKey": "",
   "primaryCta": "Get a Free Estimate",
+  "siteArchetype": "multi_service",
   "services": [
-    "Polyurethane Concrete Foam Leveling",
-    "Driveway Concrete Repair",
-    "Patio & Walkway Slab Leveling",
-    "Commercial Slab Lifting"
+    "Full Kitchen Remodels",
+    "Bathroom Renovations",
+    "Kitchen & Bathroom Design Services",
+    "Custom Cabinetry & Countertop Installation",
+    "Primary Bathroom Remodels",
+    "Secondary & Guest Bathroom Remodels",
+    "Walk-In Shower & Tub Conversions",
+    "Tile Installation & Flooring",
+    "Kitchen Island & Layout Redesign",
+    "Fixture & Hardware Upgrades"
   ],
+  "homepageServicesLimit": 10,
   "brand": {
     "primary": "#1C2B3A",
     "accent": "#E8A317",
@@ -41,5 +62,16 @@
     "licenses": [],
     "statistics": [],
     "reviews": []
-  }
+  },
+  "homepageSections": [
+    "hero",
+    "trust",
+    "intro",
+    "services",
+    "process",
+    "whyChooseUs",
+    "areas",
+    "faqs",
+    "cta"
+  ]
 }

@@ -1,0 +1,11 @@
+{
+  "niche": "Trenchless Sewer Pipe Lining",
+  "primary": "Louisville,KY",
+  "cluster": [
+    "Jeffersontown,KY",
+    "St. Matthews,KY",
+    "Shively,KY"
+  ],
+  "related": 10,
+  "out": "research/louisville-trenchless.json"
+}

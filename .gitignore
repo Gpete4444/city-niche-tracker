@@ -17,8 +17,17 @@ pnpm-debug.log*
 .env
 .env.production
 
-# macOS-specific files
-.DS_Store
+# local candidate research outputs (may contain paid API data)
+research/
 
-# jetbrains setting folder
+# site-config Accept backups (local only)
+src/config/site-config.backup-*.json
+
+# cached API lookups
+.cache/
+
+# editor / OS
+.DS_Store
 .idea/
+.vscode/
+.claude/

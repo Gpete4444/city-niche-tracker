@@ -1,0 +1,42 @@
+{
+  "archetype": "multi_service",
+  "page": "homepage",
+  "sections": [
+    {
+      "heading": "H1",
+      "headingText": "{niche} in {city}, {state}",
+      "instructions": "Hero-aligned H1. Include niche + primary city. Keep under 12 words.",
+      "words": "8-12"
+    },
+    {
+      "heading": "H2",
+      "headingText": "Intro / problem",
+      "instructions": "2 short paragraphs under frontmatter body. Local pain without fabricated stats.",
+      "words": "120-180"
+    },
+    {
+      "heading": "H2",
+      "headingText": "Services overview",
+      "instructions": "Support ServiceCards — do not invent services beyond site-config.services.",
+      "words": "0"
+    },
+    {
+      "heading": "H2",
+      "headingText": "Process (exactly 3 steps)",
+      "instructions": "Frontmatter process[]: title + description each. Practical lead-gen steps.",
+      "words": "40-60 each"
+    },
+    {
+      "heading": "H2",
+      "headingText": "Why choose us (exactly 3)",
+      "instructions": "Frontmatter whyChooseUs[]. No fake years-in-business or license claims.",
+      "words": "30-50 each"
+    },
+    {
+      "heading": "H2",
+      "headingText": "FAQs (3-5)",
+      "instructions": "Frontmatter faqs[]. Prefer PAA-style questions from research when available.",
+      "words": "40-80 each"
+    }
+  ]
+}
