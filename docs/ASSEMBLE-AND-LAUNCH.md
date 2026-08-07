@@ -71,7 +71,7 @@ npm run build
 
 Checklist marks **build** done when `dist/index.html` exists.
 
-## 4. Cloudflare Pages
+## 4. Cloudflare (Workers Builds or Pages)
 
 1. Push the assembled site to its **own** GitHub repo (one repo per domain):
 
@@ -80,13 +80,40 @@ Checklist marks **build** done when `dist/index.html` exists.
    gh repo create my-site-domain --private --source=. --remote=origin --push
    ```
 
-2. Cloudflare Dashboard → Workers & Pages → Create → Connect Git
-3. Settings (static Astro site — **not** Workers):
-   - **Build command:** `npm run build`
-   - **Deploy command:** leave **empty** (do **not** use `npx wrangler deploy`)
-   - **Output directory:** `dist`
-   - **Environment variable (optional but recommended):** `NODE_VERSION` = `22`
-4. Deploy
+2. Cloudflare Dashboard → **Workers & Pages** → Create → connect that GitHub repo.
+
+### If the UI looks like “Worker” Builds (Deploy command required)
+
+This is the common 2025+ UI. There is **no** “Output directory = dist” field. Static files are published via Wrangler assets:
+
+| Setting | Value |
+| --- | --- |
+| Build command | `npm run build` |
+| Deploy command | `npx wrangler deploy` (**required** — keep it) |
+| Non-production deploy | `npx wrangler versions upload` (optional) |
+| Path / root | `/` |
+
+Repo must include `wrangler.json` with:
+
+```json
+{
+  "name": "your-site-slug",
+  "compatibility_date": "2025-08-01",
+  "assets": {
+    "directory": "./dist"
+  }
+}
+```
+
+Assemble writes this file using the site slug as `name`. Optional: set env `NODE_VERSION=22`.
+
+### If the UI is classic Pages (Output directory visible)
+
+| Setting | Value |
+| --- | --- |
+| Build command | `npm run build` |
+| Deploy command | empty |
+| Output directory | `dist` |
 
 If install fails with `npm ci` / lockfile out of sync, regenerate `package-lock.json` in the template (`npm install`), re-assemble or copy the lock into the site repo, and push again.
 

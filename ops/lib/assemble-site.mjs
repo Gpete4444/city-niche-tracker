@@ -368,6 +368,14 @@ export function assembleSite(candidateId, { force = false, skipGit = false, site
   const injected = injectStagingIntoSite(siteRoot, stagingRoot);
   const synced = syncLiveContentCollections(siteRoot, config);
 
+  writeJson(path.join(siteRoot, 'wrangler.json'), {
+    name: slug,
+    compatibility_date: '2025-08-01',
+    assets: {
+      directory: './dist',
+    },
+  });
+
   writeJson(path.join(siteRoot, '_assemble.json'), {
     candidateId,
     assembledAt: new Date().toISOString(),
@@ -380,7 +388,7 @@ export function assembleSite(candidateId, { force = false, skipGit = false, site
       `cd ${siteRoot}`,
       'npm install',
       'npm run build',
-      'Create Cloudflare Pages project → see docs/ASSEMBLE-AND-LAUNCH.md',
+      'Cloudflare Workers Builds: npm run build + npx wrangler deploy (see docs/ASSEMBLE-AND-LAUNCH.md)',
     ],
   });
 

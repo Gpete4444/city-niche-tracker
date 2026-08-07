@@ -114,13 +114,27 @@ The script performs rate-limited Nominatim lookups and creates `public/images/co
 
 ## Cloudflare Pages settings
 
-- Build command: `npm run build`
-- Deploy command: **empty** (static `dist` output — do not set `npx wrangler deploy`)
-- Output directory: `dist`
-- Node version: 22+ (set env `NODE_VERSION=22` in Pages if the default Node breaks `npm ci`)
-- Prefer `npm ci` if you commit the lockfile (recommended)
+This template is a **static** Astro site (`dist/`). In the Cloudflare dashboard you will usually see **Workers & Pages**.
 
-Full assemble → Pages → DNS → forms runbook: [`docs/ASSEMBLE-AND-LAUNCH.md`](docs/ASSEMBLE-AND-LAUNCH.md). Parked follow-ons: [`docs/BACKLOG.md`](docs/BACKLOG.md).
+### Workers Builds (current CF UI — Deploy command required)
+
+If Build settings show a required **Deploy command** and no “Output directory”:
+
+- Build command: `npm run build`
+- Deploy command: `npx wrangler deploy` (keep this)
+- Non-production deploy (optional): `npx wrangler versions upload`
+- Repo must include [`wrangler.json`](wrangler.json) with `"assets": { "directory": "./dist" }` (Assemble writes the Worker `name` from the site slug)
+- Optional env: `NODE_VERSION=22`
+
+### Classic Pages (Output directory field)
+
+If you create a **Pages** project instead and see Output directory:
+
+- Build command: `npm run build`
+- Deploy command: empty
+- Output directory: `dist`
+
+Full assemble → deploy runbook: [`docs/ASSEMBLE-AND-LAUNCH.md`](docs/ASSEMBLE-AND-LAUNCH.md). Parked follow-ons: [`docs/BACKLOG.md`](docs/BACKLOG.md).
 
 ## Operator dashboard (local)
 
