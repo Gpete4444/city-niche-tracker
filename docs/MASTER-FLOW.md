@@ -162,6 +162,50 @@ Detailed runbook: [ASSEMBLE-AND-LAUNCH.md](ASSEMBLE-AND-LAUNCH.md).
 
 ---
 
+## Costs (stage and tool)
+
+Estimates align with ops pre-run modals ([`ops/lib/cost-estimates.mjs`](../ops/lib/cost-estimates.mjs)). DataForSEO and Claude figures are **estimates**, not invoices; provider list prices change.
+
+**Rough all-in per new site (research + content + domain year 1):** about **$11–$20** on free hosting/forms (domain dominates). Typical pursue-path API/AI spend is often **~$1–$5** without heavy enrich.
+
+### Per-stage variable costs
+
+| Stage | Primary tools | Typical cost / site (USD) | Notes |
+| --- | --- | --- | --- |
+| 1 Discover | Ops, Census CSV, Claude (pick rows), DataForSEO SERP probe | ~$0.002/row probe + small Claude | Probe is cheap; Claude for pack narrative varies by tokens |
+| 2 Research | DataForSEO Stage 1 | ~$0.20–$1.50 | Ads volumes × cities/keywords; lower if SERP cache reused |
+| 2b Enrich | DataForSEO Stage 2 | ~$0.05–$0.80 | ~$0.05/URL clamped; only when recommended |
+| 2c Prospects | DataForSEO Stage 4 | ~$0.05–$0.40 | Optional; does not block build |
+| 3 Decide | Claude narrative | ~$0.05–$0.50 est. | Sonnet list ~$3/$15 per MTok; not an invoice |
+| 4 Site config | Claude draft | ~$0.02–$0.20 est. | One JSON draft |
+| 5 Content | Claude researcher / outline / writer | ~$0.20–$2.00 est. | Largest Claude spend; homepage-first is cheaper than full suite |
+| 6–7 Stage / Assemble | Ops, Astro, local machine | $0 | No paid API |
+| 8 Ship | GitHub, CF Workers, Wrangler | $0 on free tiers | Still buy domain separately |
+| 9 Launch | Web3Forms, CF Email Routing, Turnstile, registrar | Domain ~$10–15/yr; APIs $0 | Web3Forms free ~250 submissions/mo |
+| 10 Live / rent | Web3Forms, Email Routing, Gmail | $0 until form volume / paid CF | Optional later: call tracking (Twilio/CallRail) not in this table |
+
+### Per-tool billing
+
+| Tool | Billing model | Rank & Rent use cost |
+| --- | --- | --- |
+| Ops dashboard | Local free | $0 |
+| Census CSV | In-repo | $0 |
+| DataForSEO | Pay-as-you-go API | See stage ranges above |
+| Claude (Anthropic) | Token usage | See stage ranges; model override via `ANTHROPIC_MODEL` |
+| Astro / Tailwind / IDE | Local / free | $0 |
+| GitHub | Free private OK for this scale | $0 |
+| Cloudflare Workers | Free tier (~100 Workers) | $0 typical static |
+| CF Email Routing | Free inbound | $0 |
+| CF Turnstile | Free typical | $0 |
+| CF Management API | No per-call fee | $0 |
+| Web3Forms | Free ~250/mo; paid ~$5–18+/mo | $0 until over free |
+| Domain registrar | Annual | ~$10–15/site/year |
+| Gmail | Free | $0 |
+
+Does not include your time, phone tracking (Twilio/CallRail), or analytics add-ons.
+
+---
+
 ## Out of scope
 
 Images polish, template design tweaks, and deep SEO compare work are parked in [BACKLOG.md](BACKLOG.md). This flowchart is the **production path** from discovery to a rentable live site.
