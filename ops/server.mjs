@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 /**
- * Local-only Rank & Rent ops dashboard.
+ * Local-only Rover dashboard.
  * Bind: 127.0.0.1:8787 — do not expose publicly.
  *
+ *   npm run rover
  *   npm run ops
  */
 
@@ -10,6 +11,7 @@ import express from 'express';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadEnvFile, fetchUserBalance } from '../scripts/lib/dataforseo.mjs';
+import { listPalettes } from '../scripts/lib/site-palettes.mjs';
 import {
   acceptNarrative,
   acceptNarratives,
@@ -28,6 +30,14 @@ import {
   CANDIDATE_DECISIONS,
 } from './lib/candidates.mjs';
 import {
+  attachGroupIds,
+  createGroup,
+  deleteGroup,
+  listGroups,
+  renameGroup,
+  updateGroupMembers,
+} from './lib/candidate-groups.mjs';
+import {
   generateNarrativeDraft,
   generateProspectsOutreachDraft,
   pasteNarrativeDraft,
@@ -38,6 +48,7 @@ import {
   getSiteConfigDraft,
   pasteSiteConfigDraft,
   setCandidateArchetype,
+  applySiteConfigBrand,
   updateSiteConfigDraft,
   listArchetypes,
 } from './lib/site-config.mjs';
@@ -48,22 +59,65 @@ import {
   pasteContentDraft,
 } from './lib/content-markdown.mjs';
 import {
+  fillSiteImages,
+  getImagesManifest,
+  structureHasPhotosEnabled,
+} from './lib/fill-site-images.mjs';
+import {
   buildResearcherPrompt,
   buildOutlinePrompt,
   buildWriterPrompt,
   buildEditorPrompt,
+  buildContentBriefDraft,
+  getContentBrief,
+  saveContentBrief,
+  confirmContentBrief,
+  buildOnesHotPrompt,
   pasteContentResearch,
   pasteContentOutline,
   pasteAgentContentDraft,
   importContentDraftFromDisk,
   seedDefaultOutline,
 } from './lib/content-agents.mjs';
+import {
+  applyPreset,
+  buildFullWritePrompt,
+  buildStructurePrompt,
+  composeContentOutline,
+  confirmContentOutline,
+  getContentOutlinePackage,
+  getContentStructure,
+  getDefaultStructureSelection,
+  listStructureCatalog,
+  pasteContentOutlinePackage,
+  saveContentStructure,
+} from './lib/content-structure.mjs';
 import { buildBuildPackage, getBuildPackage } from './lib/build-package.mjs';
 import { stageSiteContent, getStagingSummary } from './lib/site-staging.mjs';
+import {
+  isAssembleStale,
+  launchFidelitySummary,
+} from './lib/preview-fidelity.mjs';
 import { ensureAstroPreview, ASTRO_PREVIEW_URL } from './lib/astro-preview.mjs';
+import { ensureAssembledPreview, stopAssembledPreview } from './lib/assembled-preview.mjs';
 import { assembleSite, getAssembleChecklist } from './lib/assemble-site.mjs';
 import { getLaunchStatus, launchSite } from './lib/launch-site.mjs';
+import {
+  BILLING_CYCLES,
+  createManualSite,
+  deleteSite,
+  getSite,
+  listSites,
+  PAYMENT_METHODS,
+  SITE_STATUSES,
+  updateSite,
+  upsertSiteAfterLaunch,
+  upsertSiteFromCandidate,
+  upsertSitesFromCandidates,
+} from './lib/sites.mjs';
 import { cloudflareConfigured } from './lib/cloudflare-launch.mjs';
+import { buildAssembledSite, getShipStatus, shipAssembledSite } from './lib/ship-site.mjs';
+import { ghAuthStatus } from './lib/github-site.mjs';
 import { getBatchCostPreview, getCostPreview } from './lib/cost-estimates.mjs';
 import {
   getJob,
@@ -421,12 +475,52 @@ app.get('/api/rubric', (_req, res) => {
 
 app.get('/api/candidates', (_req, res) => {
   try {
-    const candidates = listCandidates();
+    const candidates = attachGroupIds(listCandidates());
+    const groups = listGroups();
     res.json({
       candidates,
+      groups,
       decisionCounts: decisionGroupCounts(candidates),
       decisions: CANDIDATE_DECISIONS,
     });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/candidate-groups', (req, res) => {
+  try {
+    const group = createGroup(req.body?.name);
+    res.status(201).json({ group, groups: listGroups() });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.patch('/api/candidate-groups/:id', (req, res) => {
+  try {
+    const group = renameGroup(req.params.id, req.body?.name);
+    res.json({ group, groups: listGroups() });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.delete('/api/candidate-groups/:id', (req, res) => {
+  try {
+    const group = deleteGroup(req.params.id);
+    res.json({ group, groups: listGroups() });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/candidate-groups/:id/members', (req, res) => {
+  try {
+    const body = req.body || {};
+    const ids = Array.isArray(body.ids) ? body.ids : [];
+    const group = updateGroupMembers(req.params.id, ids, body.op || 'add');
+    res.json({ group, groups: listGroups() });
   } catch (error) {
     sendError(res, error);
   }
@@ -707,6 +801,18 @@ app.post('/api/candidates/:id/site-config/accept', (req, res) => {
   }
 });
 
+app.post('/api/candidates/:id/site-config/brand', (req, res) => {
+  try {
+    const body = req.body || {};
+    const nap = {
+      allowNonPursue: Boolean(body.allowNonPursue),
+    };
+    res.json(applySiteConfigBrand(req.params.id, body.paletteId || body.brand?.paletteId, nap));
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
 app.get('/api/candidates/:id/content/prompt', (req, res) => {
   try {
     res.json(buildContentPrompt(req.params.id));
@@ -741,14 +847,30 @@ app.post('/api/candidates/:id/content/paste', (req, res) => {
   }
 });
 
-app.post('/api/candidates/:id/content/accept', (req, res) => {
+app.post('/api/candidates/:id/content/accept', async (req, res) => {
   try {
     const body = req.body || {};
-    res.json(
-      acceptContent(req.params.id, {
-        ignoreWarnings: Boolean(body.ignoreWarnings),
-      }),
-    );
+    const result = acceptContent(req.params.id, {
+      ignoreWarnings: Boolean(body.ignoreWarnings),
+    });
+    let images = null;
+    if (structureHasPhotosEnabled(req.params.id)) {
+      try {
+        images = await fillSiteImages(req.params.id, { replace: false });
+      } catch (imageErr) {
+        images = {
+          ok: false,
+          warning: imageErr.message || String(imageErr),
+          human: [imageErr.message || String(imageErr)],
+          providerStatus: imageErr.providerStatus || null,
+        };
+      }
+    }
+    res.json({
+      ...result,
+      images,
+      candidate: getCandidateDetail(req.params.id),
+    });
   } catch (error) {
     if (error.check) {
       return res.status(error.status || 400).json({
@@ -760,13 +882,160 @@ app.post('/api/candidates/:id/content/accept', (req, res) => {
   }
 });
 
+app.get('/api/candidates/:id/images', (req, res) => {
+  try {
+    res.json(getImagesManifest(req.params.id));
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/candidates/:id/images/pull', async (req, res) => {
+  try {
+    const replace = Boolean(req.body?.replace || req.query?.replace);
+    const result = await fillSiteImages(req.params.id, { replace });
+    res.json(result);
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
 app.get('/api/archetypes', (_req, res) => {
   res.json({ archetypes: listArchetypes() });
+});
+
+app.get('/api/palettes', (_req, res) => {
+  res.json({ palettes: listPalettes(), defaultId: 'slate-gold' });
 });
 
 app.post('/api/candidates/:id/archetype', (req, res) => {
   try {
     res.json(setCandidateArchetype(req.params.id, req.body?.siteArchetype));
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.get('/api/content/structure/catalog', (_req, res) => {
+  try {
+    res.json(listStructureCatalog());
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.get('/api/candidates/:id/content/structure', (req, res) => {
+  try {
+    const structure = getContentStructure(req.params.id) || {
+      ...getDefaultStructureSelection(),
+      status: 'empty',
+    };
+    res.json({
+      structure,
+      catalog: listStructureCatalog(),
+      outline: getContentOutlinePackage(req.params.id),
+    });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/candidates/:id/content/structure', (req, res) => {
+  try {
+    const body = req.body || {};
+    if (body.presetId && body.applyPreset) {
+      const selection = applyPreset(body.presetId);
+      return res.json(saveContentStructure(req.params.id, selection));
+    }
+    res.json(saveContentStructure(req.params.id, body));
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/candidates/:id/content/structure/compose', (req, res) => {
+  try {
+    res.json(composeContentOutline(req.params.id, req.body || null));
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.get('/api/candidates/:id/content/structure/prompt', (req, res) => {
+  try {
+    res.json(buildStructurePrompt(req.params.id));
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/candidates/:id/content/structure/outline', (req, res) => {
+  try {
+    const raw = req.body?.json ?? req.body?.text ?? req.body;
+    res.json(pasteContentOutlinePackage(req.params.id, raw));
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/candidates/:id/content/structure/confirm', (req, res) => {
+  try {
+    res.json(confirmContentOutline(req.params.id));
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.get('/api/candidates/:id/content/structure/write-prompt', (req, res) => {
+  try {
+    res.json(buildFullWritePrompt(req.params.id));
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.get('/api/candidates/:id/content/brief', (req, res) => {
+  try {
+    const brief = getContentBrief(req.params.id);
+    if (!brief) return res.status(404).json({ error: 'No content brief' });
+    res.json({ brief });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/candidates/:id/content/brief', (req, res) => {
+  try {
+    const body = req.body || {};
+    if (body.regenerate || body.generate) {
+      return res.json(
+        buildContentBriefDraft(req.params.id, {
+          siteArchetype: body.siteArchetype || null,
+        }),
+      );
+    }
+    res.json(saveContentBrief(req.params.id, body));
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/candidates/:id/content/brief/confirm', (req, res) => {
+  try {
+    res.json(confirmContentBrief(req.params.id, req.body || {}));
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.get('/api/candidates/:id/content/oneshot/prompt', (req, res) => {
+  try {
+    res.json(
+      buildOnesHotPrompt(req.params.id, {
+        siteArchetype: req.query.siteArchetype || null,
+        mode: req.query.mode || 'homepage_first',
+      }),
+    );
   } catch (error) {
     sendError(res, error);
   }
@@ -910,7 +1179,7 @@ app.post('/api/preview/ensure', async (_req, res) => {
 app.post('/api/candidates/:id/staging', async (req, res) => {
   try {
     const staged = stageSiteContent(req.params.id, {
-      mode: req.body?.mode || 'homepage_first',
+      mode: req.body?.mode || 'full',
       refreshPackage: req.body?.refreshPackage !== false,
     });
     const openPreview = req.body?.openPreview !== false;
@@ -929,10 +1198,11 @@ app.post('/api/candidates/:id/staging', async (req, res) => {
       preview,
     });
   } catch (error) {
-    if (error.contract) {
+    if (error.contract || error.check) {
       return res.status(error.status || 400).json({
         error: error.message,
         contract: error.contract,
+        check: error.check,
       });
     }
     sendError(res, error);
@@ -949,6 +1219,22 @@ app.get('/api/candidates/:id/staging', (req, res) => {
   }
 });
 
+app.get('/api/candidates/:id/launch-fidelity', (req, res) => {
+  try {
+    const detail = getCandidateDetail(req.params.id);
+    const config = detail.siteConfig || {};
+    const fidelity = launchFidelitySummary(req.params.id, detail, config);
+    res.json({
+      ...fidelity,
+      assembleStale: isAssembleStale(detail.meta || {}),
+      lastSiteStagingAt: detail.meta?.lastSiteStagingAt || null,
+      lastAssembleAt: detail.meta?.lastAssembleAt || null,
+    });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
 app.get('/api/candidates/:id/assemble/checklist', (req, res) => {
   try {
     res.json(getAssembleChecklist(req.params.id));
@@ -957,12 +1243,53 @@ app.get('/api/candidates/:id/assemble/checklist', (req, res) => {
   }
 });
 
-app.post('/api/candidates/:id/assemble', (req, res) => {
+app.post('/api/candidates/:id/assemble', async (req, res) => {
   try {
     const force = Boolean(req.body?.force);
     const skipGit = Boolean(req.body?.skipGit);
     const siteSlug = req.body?.siteSlug ? String(req.body.siteSlug) : undefined;
-    res.json(assembleSite(req.params.id, { force, skipGit, siteSlug }));
+    const doBuild = req.body?.build !== false;
+    const wantShip = req.body?.ship !== false;
+    // Release :4322 lock before force-replacing the assembled folder (Windows EPERM).
+    await stopAssembledPreview();
+    const result = assembleSite(req.params.id, { force, skipGit, siteSlug });
+
+    let build = null;
+    if (doBuild && result.absoluteSiteRoot) {
+      try {
+        build = buildAssembledSite(result.absoluteSiteRoot);
+      } catch (error) {
+        build = { ok: false, error: error.message };
+      }
+    }
+
+    let ship = null;
+    const canShip = Boolean(ghAuthStatus()) && cloudflareConfigured();
+    if (wantShip && canShip && build?.ok && result.absoluteSiteRoot) {
+      try {
+        ship = await shipAssembledSite(req.params.id, {
+          skipBuild: Boolean(build?.ok),
+        });
+      } catch (error) {
+        ship = {
+          ok: false,
+          error: error.message,
+          ...(error.ship || {}),
+        };
+      }
+    } else if (wantShip && !canShip) {
+      ship = {
+        skipped: true,
+        reason: 'Set gh auth login + CLOUDFLARE_* (and GITHUB_OWNER) to auto-ship after assemble',
+      };
+    }
+
+    res.json({
+      ...result,
+      build,
+      ship,
+      candidate: getCandidateDetail(req.params.id),
+    });
   } catch (error) {
     if (error.checklist) {
       return res.status(error.status || 500).json({
@@ -971,6 +1298,27 @@ app.post('/api/candidates/:id/assemble', (req, res) => {
         siteRoot: error.siteRoot || null,
       });
     }
+    sendError(res, error);
+  }
+});
+
+app.post('/api/candidates/:id/assembled/preview', async (req, res) => {
+  try {
+    const detail = getCandidateDetail(req.params.id);
+    const rel = detail.meta?.assembledSitePath;
+    if (!rel) {
+      return res.status(400).json({ error: 'Assemble the site first' });
+    }
+    const abs = path.isAbsolute(rel) ? rel : path.resolve(process.cwd(), rel);
+    const rebuild = Boolean(req.body?.rebuild);
+    const forceRebind = req.body?.forceRebind !== false; // default true — never leave :4322 on another site
+    const preview = await ensureAssembledPreview(abs, { rebuild, forceRebind });
+    res.json({
+      ...preview,
+      assembledSitePath: abs,
+      kind: 'assembled',
+    });
+  } catch (error) {
     sendError(res, error);
   }
 });
@@ -995,13 +1343,19 @@ app.post('/api/candidates/:id/launch', async (req, res) => {
       turnstileSiteKey: body.turnstileSiteKey,
       destinationEmail: body.destinationEmail,
       runCloudflare: body.runCloudflare !== false,
+      ship: body.ship !== false,
+      skipGithub: Boolean(body.skipGithub),
+      skipBuild: Boolean(body.skipBuild),
+      skipDeploy: Boolean(body.skipDeploy),
       createTurnstile: Boolean(body.createTurnstile),
       attachDomain: body.attachDomain !== false,
       setupEmail: body.setupEmail !== false,
       markCloudflareProjectDone: Boolean(body.markCloudflareProjectDone),
     });
+    const site = result.site || upsertSiteAfterLaunch(req.params.id);
     res.json({
       ...result,
+      site,
       candidate: getCandidateDetail(req.params.id),
       cloudflareConfigured: cloudflareConfigured(),
     });
@@ -1010,6 +1364,88 @@ app.post('/api/candidates/:id/launch', async (req, res) => {
       return res.status(error.status || 500).json({
         error: error.message,
         checklist: error.checklist,
+      });
+    }
+    sendError(res, error);
+  }
+});
+
+app.get('/api/sites', (_req, res) => {
+  try {
+    res.json({
+      sites: listSites(),
+      statuses: SITE_STATUSES,
+      paymentMethods: PAYMENT_METHODS,
+      billingCycles: BILLING_CYCLES,
+    });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/sites', (req, res) => {
+  try {
+    const body = req.body || {};
+    if (Array.isArray(body.candidateIds)) {
+      const result = upsertSitesFromCandidates(body.candidateIds);
+      return res.json(result);
+    }
+    const site = body.candidateId
+      ? upsertSiteFromCandidate({ candidateId: body.candidateId, status: body.status })
+      : createManualSite(body);
+    res.json({ site });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.get('/api/sites/:id', (req, res) => {
+  try {
+    res.json({ site: getSite(req.params.id) });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.patch('/api/sites/:id', (req, res) => {
+  try {
+    res.json({ site: updateSite(req.params.id, req.body || {}) });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.delete('/api/sites/:id', (req, res) => {
+  try {
+    res.json(deleteSite(req.params.id));
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.get('/api/candidates/:id/ship', (req, res) => {
+  try {
+    res.json(getShipStatus(req.params.id));
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/candidates/:id/ship', async (req, res) => {
+  try {
+    const body = req.body || {};
+    const result = await shipAssembledSite(req.params.id, {
+      skipGithub: Boolean(body.skipGithub),
+      skipBuild: Boolean(body.skipBuild),
+      skipDeploy: Boolean(body.skipDeploy),
+      skipBuildsConnect: Boolean(body.skipBuildsConnect),
+    });
+    res.json(result);
+  } catch (error) {
+    if (error.ship) {
+      return res.status(error.status || 500).json({
+        error: error.message,
+        ship: error.ship,
       });
     }
     sendError(res, error);
@@ -1048,8 +1484,18 @@ app.use((req, res, next) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
+// Unmatched API routes — JSON (not Express HTML "Cannot POST …")
+app.use((req, res) => {
+  if (req.path.startsWith('/api/')) {
+    return res.status(404).json({
+      error: `Not found: ${req.method} ${req.path}`,
+    });
+  }
+  res.status(404).send('Not found');
+});
+
 app.listen(PORT, HOST, () => {
-  console.log(`Ops dashboard: http://${HOST}:${PORT}`);
+  console.log(`Rover dashboard: http://${HOST}:${PORT}`);
   console.log('Local only — do not expose this port publicly.');
   console.log(
     `DataForSEO: ${process.env.DATAFORSEO_LOGIN ? 'configured' : 'missing'} · Anthropic: ${process.env.ANTHROPIC_API_KEY ? 'configured' : 'missing'}`,

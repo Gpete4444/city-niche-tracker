@@ -5,7 +5,7 @@ Write Astro Markdown FILE blocks for the homepage (and stubs if needed).
 ## Prompt
 
 ```text
-You are writing Rank & Rent content for an Astro + Markdown site.
+You are writing content for a Rover local lead-gen Astro + Markdown site.
 
 ARCHETYPE: {{SITE_ARCHETYPE}} ({{ARCHETYPE_LABEL}})
 HOMEPAGE SECTIONS (template will render): {{HOMEPAGE_SECTIONS}}

@@ -1,0 +1,156 @@
+{
+  "template": "multi_service",
+  "siteArchetype": "multi_service",
+  "pageType": "Homepage / Primary Service Landing Page",
+  "sections": [
+    {
+      "id": "h1",
+      "level": "H1",
+      "heading": "{businessName}: {niche} for Residential & Commercial in {city}, {state}",
+      "instructions": "Format: Paragraph (180–200 words). Define the service offering for {city}, {state}. Mention the customer’s common problems. Highlight experience, expertise, and USPs without inventing licenses, years, or review counts. Write to generate leads. Example tone: [{businessName}] is the trusted {niche} contractor in {city}, {state}.",
+      "kind": "hero"
+    },
+    {
+      "id": "services-residential",
+      "level": "H2",
+      "heading": "Residential {niche}",
+      "instructions": "Section intro only — short lead-in. Child H3s carry the depth. Do not invent services beyond the brief list.",
+      "kind": "services_group",
+      "serviceSource": "residential"
+    },
+    {
+      "id": "services-commercial",
+      "level": "H2",
+      "heading": "Commercial {niche}",
+      "instructions": "Section intro only — short lead-in for commercial/B2B offers. Child H3s carry the depth.",
+      "kind": "services_group",
+      "serviceSource": "commercial"
+    },
+    {
+      "id": "services-specialty",
+      "level": "H2",
+      "heading": "Specialty {niche} Services",
+      "instructions": "Section intro only for specialty / add-on services. Child H3s carry the depth.",
+      "kind": "services_group",
+      "serviceSource": "specialty"
+    },
+    {
+      "id": "why-best",
+      "level": "H2",
+      "heading": "Why we're the best {niche} company in {city}",
+      "instructions": "Format: Paragraph. Explain why this company is the best fit for {niche} compared to alternatives. Cover craftsmanship, materials, local knowledge, and process — no fabricated awards or years-in-business.",
+      "kind": "why"
+    },
+    {
+      "id": "process",
+      "level": "H3",
+      "heading": "What Does Our Expert {niche} Process Involve?",
+      "instructions": "Format: Paragraph + short numbered list with definitions. Explain quotes, design/planning, installation, and follow-up. Stress professional handling. Keep honest and practical.",
+      "kind": "process"
+    },
+    {
+      "id": "materials",
+      "level": "H3",
+      "heading": "Which Materials & Options Do We Provide?",
+      "instructions": "Format: Paragraph + list with short definitions. List materials/options appropriate to {niche}. Do not invent brand exclusives unless in site-config.",
+      "kind": "materials"
+    },
+    {
+      "id": "planning",
+      "level": "H2",
+      "heading": "Planning & Timeline",
+      "instructions": "Section heading only — child H3s cover timeline detail.",
+      "kind": "planning_group"
+    },
+    {
+      "id": "timeline-overall",
+      "level": "H3",
+      "heading": "How Long Does {niche} Take? — Timeline from plan to finish",
+      "instructions": "Brief description (60–90 words). Realistic ranges only; no fabricated guarantees.",
+      "kind": "planning"
+    },
+    {
+      "id": "timeline-stages",
+      "level": "H3",
+      "heading": "Installation Timeline — What to expect at each stage",
+      "instructions": "Brief description (60–90 words). Walk through consultation → prep → install → cleanup.",
+      "kind": "planning"
+    },
+    {
+      "id": "design-process",
+      "level": "H3",
+      "heading": "Design & Planning Process — Steps from consultation to final product",
+      "instructions": "Brief description (60–90 words).",
+      "kind": "planning"
+    },
+    {
+      "id": "cost",
+      "level": "H2",
+      "heading": "Cost & Budget",
+      "instructions": "Section heading only — child H3s cover pricing angles. No fake dollar quotes unless ranges appear in research/site-config.",
+      "kind": "cost_group"
+    },
+    {
+      "id": "cost-factors",
+      "level": "H3",
+      "heading": "Pricing Guide — What affects {niche} costs",
+      "instructions": "Brief description (80–110 words). Factors: scope, materials, access, permits — stay general if no local price data.",
+      "kind": "cost"
+    },
+    {
+      "id": "cost-ranges",
+      "level": "H3",
+      "heading": "How Much Does {niche} Cost? — Price ranges for different types",
+      "instructions": "Brief description (80–110 words). Use ranges only when supported; otherwise explain what drives cost without inventing numbers.",
+      "kind": "cost"
+    },
+    {
+      "id": "cost-budget",
+      "level": "H3",
+      "heading": "Budget Planning — How to allocate your project budget",
+      "instructions": "Brief description (70–100 words).",
+      "kind": "cost"
+    },
+    {
+      "id": "cost-hidden",
+      "level": "H3",
+      "heading": "Hidden Costs — Additional expenses to consider",
+      "instructions": "Brief description (70–100 words). Installation, hardware, permits, disposal, etc.",
+      "kind": "cost"
+    },
+    {
+      "id": "areas",
+      "level": "H2",
+      "heading": "Proudly Serving {city} & Nearby Areas",
+      "instructions": "Mention {city}, {state} and nearby locations from the brief suburb list. Short geo-relevance section.",
+      "kind": "areas",
+      "expandSuburbs": true
+    },
+    {
+      "id": "faqs",
+      "level": "H2",
+      "heading": "FAQs",
+      "instructions": "Provide direct, exact answers with no fluff; one paragraph each. For boolean questions start with Yes or No. Seed 3–5 FAQs as H3 children when generating; operator may edit.",
+      "kind": "faq_group",
+      "expandFaqs": true
+    }
+  ],
+  "defaultFaqs": [
+    {
+      "heading": "How long does a typical {niche} project take in {city}?",
+      "instructions": "Format: Paragraph (30–50 words). Start with a direct timeframe range."
+    },
+    {
+      "heading": "Do you offer free estimates for {niche} in {city}?",
+      "instructions": "Format: Paragraph (30–50 words). Start with Yes or No, then one clarifying sentence."
+    },
+    {
+      "heading": "What areas do you serve near {city}, {state}?",
+      "instructions": "Format: Paragraph (30–50 words). List primary city + suburbs from the brief."
+    },
+    {
+      "heading": "Will you handle permits and inspections when required?",
+      "instructions": "Format: Paragraph (30–50 words). Start with Yes or No when possible; stay honest."
+    }
+  ]
+}

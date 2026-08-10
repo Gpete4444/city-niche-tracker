@@ -5,146 +5,181 @@ import {
   commercialServiceCardsForSite,
   serviceCardsForSite,
 } from '../lib/services-for-site';
+import { fitEqualGrid } from '../lib/equal-grid';
+import TwoToneHeading from './TwoToneHeading.astro';
 
 interface Props {
   heading?: string;
   limit?: number;
+  surface?: string;
 }
 
-const { heading = 'Services', limit } = Astro.props;
+const { heading = 'Services', limit, surface = 'section-surface-muted' } = Astro.props;
 
 const entries = await getCollection('services');
 const displayLimit = limit ?? homepageServicesDisplayLimit();
-const residential = serviceCardsForSite(entries, site, displayLimit);
-const commercial = commercialServiceCardsForSite(entries, site, displayLimit);
+const residentialRaw = serviceCardsForSite(entries, site, displayLimit);
+const commercialRaw = commercialServiceCardsForSite(entries, site, displayLimit);
+const residentialGrid = fitEqualGrid(residentialRaw, { maxCols: 3 });
+const commercialGrid = fitEqualGrid(commercialRaw, { maxCols: 3 });
+const residential = residentialGrid.items;
+const commercial = commercialGrid.items;
 const splitSections = commercial.length > 0;
+const totalAvailable =
+  serviceCardsForSite(entries, site, 12).length +
+  commercialServiceCardsForSite(entries, site, 12).length;
+const shownCount = residential.length + commercial.length;
+const truncated = limit == null && totalAvailable > shownCount;
 ---
 
-<section class="mx-auto max-w-6xl px-4 py-14 sm:px-6 sm:py-20" aria-labelledby="services-heading">
-  <div class="mb-8 max-w-2xl">
-    <p class="text-xs font-bold uppercase tracking-[0.18em] text-accent">What we do</p>
-    <h2 id="services-heading" class="font-display text-2xl font-bold tracking-tight text-ink sm:text-3xl">
-      {heading}
-    </h2>
-    <p class="mt-2 text-muted">
-      {site.niche} across {site.primaryCity} and the surrounding area.
-    </p>
-  </div>
+<section class={surface} aria-labelledby="services-heading">
+  <div class="mx-auto max-w-6xl px-4 py-14 sm:px-6 sm:py-20">
+    <div class="mb-8 max-w-2xl">
+      <p class="text-xs font-bold uppercase tracking-[0.18em] text-accent">What we do</p>
+      <TwoToneHeading
+        as="h2"
+        id="services-heading"
+        text={heading}
+        emphasis="services"
+        class="text-2xl sm:text-3xl"
+      />
+      <p class="mt-2 text-muted">
+        {site.niche} across {site.primaryCity} and the surrounding area.
+      </p>
+    </div>
 
-  {
-    splitSections ? (
-      <div class="space-y-12">
-        <div>
-          <h3 class="font-display text-xl font-semibold tracking-tight text-ink">
-            Residential Services
-          </h3>
-          <ul class="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {residential.map((card, index) => (
-              <li class="flex">
-                <a
-                  href={card.href}
-                  class="group flex w-full flex-col overflow-hidden rounded-lg border border-line bg-white shadow-sm transition hover:-translate-y-0.5 hover:border-brand/40 hover:shadow-md"
-                >
-                  {card.image && (
-                    <img
-                      src={card.image.src}
-                      alt={card.image.alt}
-                      class="aspect-[4/3] w-full object-cover transition duration-300 group-hover:scale-[1.02]"
-                      width="600"
-                      height="450"
-                      loading="lazy"
-                    />
-                  )}
-                  <div class="flex grow flex-col p-5">
-                    <span class="text-xs font-bold tracking-[0.16em] text-accent">
-                      {String(index + 1).padStart(2, '0')}
-                    </span>
-                    <h3 class="mt-1 font-display text-lg font-semibold text-ink group-hover:text-brand">
-                      {card.title}
-                    </h3>
-                    <p class="mt-2 text-sm leading-relaxed text-muted">{card.description}</p>
-                    <span class="mt-auto pt-5 text-sm font-semibold text-accent group-hover:underline">
-                      Learn more →
-                    </span>
-                  </div>
-                </a>
-              </li>
-            ))}
-          </ul>
-        </div>
-        <div>
-          <h3 class="font-display text-xl font-semibold tracking-tight text-ink">
-            Commercial Services
-          </h3>
-          <ul class="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {commercial.map((card, index) => (
-              <li class="flex">
-                <a
-                  href={card.href}
-                  class="group flex w-full flex-col overflow-hidden rounded-lg border border-line bg-white shadow-sm transition hover:-translate-y-0.5 hover:border-brand/40 hover:shadow-md"
-                >
-                  {card.image && (
-                    <img
-                      src={card.image.src}
-                      alt={card.image.alt}
-                      class="aspect-[4/3] w-full object-cover transition duration-300 group-hover:scale-[1.02]"
-                      width="600"
-                      height="450"
-                      loading="lazy"
-                    />
-                  )}
-                  <div class="flex grow flex-col p-5">
-                    <span class="text-xs font-bold tracking-[0.16em] text-accent">
-                      {String(index + 1).padStart(2, '0')}
-                    </span>
-                    <h3 class="mt-1 font-display text-lg font-semibold text-ink group-hover:text-brand">
-                      {card.title}
-                    </h3>
-                    <p class="mt-2 text-sm leading-relaxed text-muted">{card.description}</p>
-                    <span class="mt-auto pt-5 text-sm font-semibold text-accent group-hover:underline">
-                      Learn more →
-                    </span>
-                  </div>
-                </a>
-              </li>
-            ))}
-          </ul>
-        </div>
-      </div>
-    ) : (
-      <ul class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {residential.map((card, index) => (
-          <li class="flex">
-            <a
-              href={card.href}
-              class="group flex w-full flex-col overflow-hidden rounded-lg border border-line bg-white shadow-sm transition hover:-translate-y-0.5 hover:border-brand/40 hover:shadow-md"
-            >
-              {card.image && (
-                <img
-                  src={card.image.src}
-                  alt={card.image.alt}
-                  class="aspect-[4/3] w-full object-cover transition duration-300 group-hover:scale-[1.02]"
-                  width="600"
-                  height="450"
-                  loading="lazy"
-                />
-              )}
-              <div class="flex grow flex-col p-5">
-                <span class="text-xs font-bold tracking-[0.16em] text-accent">
-                  {String(index + 1).padStart(2, '0')}
-                </span>
-                <h3 class="mt-1 font-display text-lg font-semibold text-ink group-hover:text-brand">
-                  {card.title}
+    {
+      splitSections ? (
+        <div class="space-y-12">
+          {
+            residential.length > 0 && (
+              <div>
+                <h3 class="font-display text-xl font-semibold tracking-tight text-ink">
+                  Residential Services
                 </h3>
-                <p class="mt-2 text-sm leading-relaxed text-muted">{card.description}</p>
-                <span class="mt-auto pt-5 text-sm font-semibold text-accent group-hover:underline">
-                  Learn more →
-                </span>
+                <ul class:list={['mt-5 grid gap-4', residentialGrid.className]}>
+                  {residential.map((card, index) => (
+                    <li class="flex">
+                      <a
+                        href={card.href}
+                        class="group flex w-full flex-col overflow-hidden rounded-lg border border-line bg-surface-raised shadow-sm transition hover:-translate-y-0.5 hover:border-brand/40 hover:shadow-md"
+                      >
+                        {card.image && (
+                          <img
+                            src={card.image.src}
+                            alt={card.image.alt}
+                            class="aspect-[4/3] w-full object-cover transition duration-300 group-hover:scale-[1.02]"
+                            width="600"
+                            height="450"
+                            loading="lazy"
+                          />
+                        )}
+                        <div class="flex grow flex-col p-5">
+                          <span class="text-xs font-bold tracking-[0.16em] text-accent">
+                            {String(index + 1).padStart(2, '0')}
+                          </span>
+                          <h3 class="mt-1 font-display text-lg font-semibold text-ink group-hover:text-brand">
+                            {card.title}
+                          </h3>
+                          <p class="mt-2 text-sm leading-relaxed text-muted">{card.description}</p>
+                          <span class="mt-auto pt-5 text-sm font-semibold text-accent group-hover:underline">
+                            Learn more →
+                          </span>
+                        </div>
+                      </a>
+                    </li>
+                  ))}
+                </ul>
               </div>
-            </a>
-          </li>
-        ))}
-      </ul>
-    )
-  }
+            )
+          }
+          {
+            commercial.length > 0 && (
+              <div>
+                <h3 class="font-display text-xl font-semibold tracking-tight text-ink">
+                  Commercial Services
+                </h3>
+                <ul class:list={['mt-5 grid gap-4', commercialGrid.className]}>
+                  {commercial.map((card, index) => (
+                    <li class="flex">
+                      <a
+                        href={card.href}
+                        class="group flex w-full flex-col overflow-hidden rounded-lg border border-line bg-surface-raised shadow-sm transition hover:-translate-y-0.5 hover:border-brand/40 hover:shadow-md"
+                      >
+                        {card.image && (
+                          <img
+                            src={card.image.src}
+                            alt={card.image.alt}
+                            class="aspect-[4/3] w-full object-cover transition duration-300 group-hover:scale-[1.02]"
+                            width="600"
+                            height="450"
+                            loading="lazy"
+                          />
+                        )}
+                        <div class="flex grow flex-col p-5">
+                          <span class="text-xs font-bold tracking-[0.16em] text-accent">
+                            {String(index + 1).padStart(2, '0')}
+                          </span>
+                          <h3 class="mt-1 font-display text-lg font-semibold text-ink group-hover:text-brand">
+                            {card.title}
+                          </h3>
+                          <p class="mt-2 text-sm leading-relaxed text-muted">{card.description}</p>
+                          <span class="mt-auto pt-5 text-sm font-semibold text-accent group-hover:underline">
+                            Learn more →
+                          </span>
+                        </div>
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )
+          }
+        </div>
+      ) : (
+        <ul class:list={['grid gap-4', residentialGrid.className]}>
+          {residential.map((card, index) => (
+            <li class="flex">
+              <a
+                href={card.href}
+                class="group flex w-full flex-col overflow-hidden rounded-lg border border-line bg-surface-raised shadow-sm transition hover:-translate-y-0.5 hover:border-brand/40 hover:shadow-md"
+              >
+                {card.image && (
+                  <img
+                    src={card.image.src}
+                    alt={card.image.alt}
+                    class="aspect-[4/3] w-full object-cover transition duration-300 group-hover:scale-[1.02]"
+                    width="600"
+                    height="450"
+                    loading="lazy"
+                  />
+                )}
+                <div class="flex grow flex-col p-5">
+                  <span class="text-xs font-bold tracking-[0.16em] text-accent">
+                    {String(index + 1).padStart(2, '0')}
+                  </span>
+                  <h3 class="mt-1 font-display text-lg font-semibold text-ink group-hover:text-brand">
+                    {card.title}
+                  </h3>
+                  <p class="mt-2 text-sm leading-relaxed text-muted">{card.description}</p>
+                  <span class="mt-auto pt-5 text-sm font-semibold text-accent group-hover:underline">
+                    Learn more →
+                  </span>
+                </div>
+              </a>
+            </li>
+          ))}
+        </ul>
+      )
+    }
+
+    {
+      truncated && (
+        <p class="mt-8 text-sm text-muted">
+          Showing {shownCount} of {totalAvailable} services. Open{' '}
+          <span class="font-semibold text-ink">Services</span> in the menu for the full list.
+        </p>
+      )
+    }
+  </div>
 </section>

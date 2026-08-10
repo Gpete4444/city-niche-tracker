@@ -1,5 +1,5 @@
 /**
- * Orchestrate Rank & Rent launch: patch assembled site-config (Web3Forms / NAP / Turnstile),
+ * Orchestrate Rover launch: patch assembled site-config (Web3Forms / NAP / Turnstile),
  * run Cloudflare helpers, set checklist meta flags.
  */
 
@@ -14,6 +14,8 @@ import {
   normalizeDomain,
   runCloudflareLaunch,
 } from './cloudflare-launch.mjs';
+import { shipAssembledSite } from './ship-site.mjs';
+import { upsertSiteAfterLaunch } from './sites.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
@@ -114,6 +116,11 @@ export function patchLaunchSiteConfig(candidateId, patch = {}) {
  *   turnstileSiteKey?: string,
  *   destinationEmail?: string,
  *   runCloudflare?: boolean,
+ *   ship?: boolean,
+ *   skipGithub?: boolean,
+ *   skipBuild?: boolean,
+ *   skipDeploy?: boolean,
+ *   skipBuildsConnect?: boolean,
  *   createTurnstile?: boolean,
  *   attachDomain?: boolean,
  *   setupEmail?: boolean,
@@ -157,9 +164,27 @@ export async function launchSite(candidateId, opts = {}) {
       'Create a form at https://web3forms.com and paste the access key into Launch, then re-run (or Save keys only).',
     );
   } else {
-    human.push(
-      'Web3Forms key written to assembled site-config — commit & push the site repo so CF rebuilds with the live key.',
-    );
+    human.push('Web3Forms key written to assembled site-config.');
+  }
+
+  let ship = null;
+  const doShip = opts.ship !== false;
+  if (doShip) {
+    try {
+      ship = await shipAssembledSite(candidateId, {
+        skipGithub: opts.skipGithub === true,
+        skipBuild: opts.skipBuild === true,
+        skipDeploy: opts.skipDeploy === true || !cloudflareConfigured(),
+        skipBuildsConnect: opts.skipBuildsConnect === true,
+      });
+      human.push(...(ship.human || []));
+    } catch (error) {
+      ship = error.ship || { ok: false, error: error.message };
+      human.push(`Ship failed: ${error.message}`);
+      // Continue to CF helpers when possible (email/domain) even if ship failed mid-way
+    }
+  } else if (formsDone) {
+    human.push('Skipped auto ship (GitHub/build/deploy).');
   }
 
   let cf = null;
@@ -167,7 +192,7 @@ export async function launchSite(candidateId, opts = {}) {
   if (runCf) {
     if (!cloudflareConfigured()) {
       human.push(
-        'Set CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN in .env to automate domain + Email Routing.',
+        'Set CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN in .env to automate deploy + domain + Email Routing.',
       );
     } else {
       const workerName =
@@ -204,7 +229,11 @@ export async function launchSite(candidateId, opts = {}) {
     launchDomain: domain || null,
   };
 
-  if (opts.markCloudflareProjectDone || detail.meta?.cloudflarePagesDone) {
+  if (ship?.steps?.github?.fullName) {
+    metaPatch.githubRepo = ship.steps.github.fullName;
+    metaPatch.githubRepoUrl = ship.steps.github.repoUrl;
+  }
+  if (ship?.steps?.deploy?.ok || opts.markCloudflareProjectDone || detail.meta?.cloudflarePagesDone) {
     metaPatch.cloudflarePagesDone = true;
   }
   if (cf?.dnsDone) metaPatch.dnsDone = true;
@@ -212,9 +241,9 @@ export async function launchSite(candidateId, opts = {}) {
   if (formsDone) metaPatch.formsDone = true;
 
   // If Worker exists and domain attach succeeded, treat CF project as present
-  if (cf?.steps?.worker?.exists) {
+  if (cf?.steps?.worker?.exists || ship?.steps?.deploy?.ok) {
     metaPatch.cloudflarePagesDone = true;
-    metaPatch.cfProject = cf.workerName;
+    metaPatch.cfProject = cf?.workerName || ship?.slug || detail.meta?.assembledSiteSlug;
   }
   if (cf?.workerName) metaPatch.cfProject = cf.workerName;
 
@@ -234,17 +263,20 @@ export async function launchSite(candidateId, opts = {}) {
   }
 
   const checklist = getAssembleChecklist(candidateId);
+  const site = upsertSiteAfterLaunch(candidateId);
 
   return {
-    ok: formsDone || Boolean(cf?.ok),
+    ok: formsDone || Boolean(cf?.ok) || Boolean(ship?.ok),
     candidateId,
     config: patched.config,
     assembledSitePath: patched.assembledSitePath,
     assembledConfigPath: patched.assembledConfigPath,
     formsDone,
+    ship,
     cloudflare: cf,
     human,
     checklist,
+    site,
     meta: loadMetaSafe(candidateId),
   };
 }
@@ -268,6 +300,9 @@ export function getLaunchStatus(candidateId) {
     assembled: Boolean(assembledRoot),
     assembledSitePath: detail.meta?.assembledSitePath || null,
     assembledSiteSlug: detail.meta?.assembledSiteSlug || null,
+    githubRepo: detail.meta?.githubRepo || null,
+    githubRepoUrl: detail.meta?.githubRepoUrl || null,
+    lastShipAt: detail.meta?.lastShipAt || null,
     domain: config.domain || null,
     phone: config.phone || null,
     email: config.email || null,

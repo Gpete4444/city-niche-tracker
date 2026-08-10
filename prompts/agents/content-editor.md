@@ -1,11 +1,11 @@
 # Agent: Content Editor
 
-Edit drafted Markdown FILE blocks for clarity and Rank & Rent safety.
+Edit drafted Markdown FILE blocks for clarity and Rover content safety.
 
 ## Prompt
 
 ```text
-You are the Content Editor for Rank & Rent Astro Markdown.
+You are the Content Editor for Rover Astro Markdown.
 
 ARCHETYPE: {{SITE_ARCHETYPE}}
 

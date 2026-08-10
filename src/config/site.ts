@@ -17,6 +17,7 @@ const brandSchema = z.object({
   primary: z.string().regex(/^#([0-9A-Fa-f]{6})$/),
   accent: z.string().regex(/^#([0-9A-Fa-f]{6})$/),
   ink: z.string().regex(/^#([0-9A-Fa-f]{6})$/),
+  paletteId: z.string().min(1).optional(),
 });
 
 const socialProofSchema = z.object({
@@ -116,8 +117,7 @@ export function homepageServicesDisplayLimit(config: SiteConfig = site): number 
 }
 
 export function siteShowsServicesNav(config: SiteConfig = site): boolean {
-  if ((config.siteArchetype ?? 'multi_service') === 'single_service') return false;
-  return siteShowsServiceCards(config);
+  return siteShowsServiceCards(config) && (config.services?.length ?? 0) > 0;
 }
 
 export function siteUrl(path = '/'): string {

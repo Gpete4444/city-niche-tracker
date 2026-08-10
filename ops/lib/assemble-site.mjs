@@ -18,10 +18,41 @@ import {
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { getCandidateDetail, pathsFor, saveMeta } from './candidates.mjs';
-import { loadAcceptedSiteConfig } from './content-markdown.mjs';
+import { loadAcceptedSiteConfig, sanitizeMarkdownImageFrontmatter } from './content-markdown.mjs';
 import { getStagingSummary } from './site-staging.mjs';
+import { stopAssembledPreviewSync } from './assembled-preview.mjs';
 
 const ROOT = process.cwd();
+
+function sleepSync(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+/** Remove assembled site folder; stop :4322 first and retry on Windows locks. */
+function removeAssembledSiteRoot(siteRoot) {
+  if (!existsSync(siteRoot)) return;
+  stopAssembledPreviewSync({ waitMs: 2500 });
+  let lastErr = null;
+  for (let attempt = 1; attempt <= 5; attempt += 1) {
+    try {
+      rmSync(siteRoot, { recursive: true, force: true });
+      return;
+    } catch (error) {
+      lastErr = error;
+      const code = error?.code || '';
+      if (code !== 'EPERM' && code !== 'EBUSY' && code !== 'ENOTEMPTY') throw error;
+      stopAssembledPreviewSync({ waitMs: 500 });
+      sleepSync(200 * attempt);
+    }
+  }
+  const err = new Error(
+    `Could not replace assembled site (folder locked): ${siteRoot}. Close Explorer windows and site preview (:4322), then retry. ${lastErr?.message || ''}`.trim(),
+  );
+  err.status = 423;
+  err.siteRoot = siteRoot;
+  err.cause = lastErr;
+  throw err;
+}
 
 const COPY_SKIP_NAMES = new Set([
   'node_modules',
@@ -94,7 +125,7 @@ function slugifySiteName(raw) {
 function assembledSitesRoot() {
   const fromEnv = String(process.env.ASSEMBLED_SITES_DIR || '').trim();
   if (fromEnv) return path.resolve(fromEnv);
-  return path.join(ROOT, '..', 'rank-and-rent-sites');
+  return path.join(ROOT, '..', 'rover-sites');
 }
 
 function shouldSkipCopy(name) {
@@ -149,12 +180,19 @@ export function injectStagingIntoSite(siteRoot, stagingRoot) {
         overlay(toRel);
       } else {
         mkdirSync(path.dirname(to), { recursive: true });
-        cpSync(from, to);
+        if (name.endsWith('.md')) {
+          const raw = readFileSync(from, 'utf8');
+          const cleaned = sanitizeMarkdownImageFrontmatter(raw);
+          writeFileSync(to, cleaned.endsWith('\n') ? cleaned : `${cleaned}\n`, 'utf8');
+        } else {
+          cpSync(from, to);
+        }
         injected.push(toRel.replace(/\\/g, '/'));
       }
     }
   };
   overlay('src');
+  overlay('public');
   return injected;
 }
 
@@ -242,7 +280,7 @@ function initGitRepo(siteRoot, { commitMessage }) {
   }
   runGit(['add', '-A'], siteRoot);
   try {
-    runGit(['-c', 'user.email=ops@local', '-c', 'user.name=Rank Rent Ops', 'commit', '-m', commitMessage], siteRoot);
+    runGit(['-c', 'user.email=rover@local', '-c', 'user.name=Rover', 'commit', '-m', commitMessage], siteRoot);
   } catch (err) {
     const msg = String(err?.stderr || err?.message || err);
     if (!/nothing to commit/i.test(msg)) throw err;
@@ -272,7 +310,7 @@ export function getAssembleChecklist(candidateId) {
     steps: [
       {
         id: 'template_remote',
-        label: 'Push rank-and-rent-template to GitHub (Template repo)',
+        label: 'Push Rover template to GitHub (Template repo)',
         done: Boolean(remote.url),
         detail: remote.url
           ? `Detected ${remote.nameWithOwner || remote.url} (${remote.source})`
@@ -360,7 +398,7 @@ export function assembleSite(candidateId, { force = false, skipGit = false, site
   }
 
   if (existsSync(siteRoot)) {
-    rmSync(siteRoot, { recursive: true, force: true });
+    removeAssembledSiteRoot(siteRoot);
   }
   mkdirSync(sitesRoot, { recursive: true });
 

@@ -1,0 +1,160 @@
+{
+  "template": "specialty",
+  "siteArchetype": "single_service",
+  "pageType": "Homepage / Primary Service Landing Page",
+  "sections": [
+    {
+      "id": "h1",
+      "level": "H1",
+      "heading": "{businessName}: {primaryService} in {city}, {state}",
+      "instructions": "Format: Paragraph (180–200 words). Define {primaryService} in {city}, {state}. Highlight common customer problems for this specialty. Showcase local experience, code/safety compliance where relevant, and a clear CTA for a free on-site estimate. No fabricated licenses, years, or review counts.",
+      "kind": "hero",
+      "subHeadline": "{niche} across {city} and nearby communities"
+    },
+    {
+      "id": "services",
+      "level": "H2",
+      "heading": "Premier {primaryService} in {city}, {state}",
+      "instructions": "Introductory paragraph introducing full-scope {primaryService} solutions for properties across the metro. Child H3s carry offer depth.",
+      "kind": "services_group",
+      "serviceSource": "all"
+    },
+    {
+      "id": "why",
+      "level": "H2",
+      "heading": "Why {city} Homeowners Invest in {primaryService}",
+      "instructions": "Section focusing on customer benefits, ROI, and local advantages — no fake stats.",
+      "kind": "why_group"
+    },
+    {
+      "id": "why-value",
+      "level": "H3",
+      "heading": "Home Value, Usability & Long-Term Benefit",
+      "instructions": "Format: Paragraph (90–110 words). Honest benefits of {primaryService} for homeowners in {city}.",
+      "kind": "why"
+    },
+    {
+      "id": "why-safety",
+      "level": "H3",
+      "heading": "Safety, Code Compliance & Peace of Mind",
+      "instructions": "Format: Paragraph (90–110 words). Emphasize safety and compliance where the niche warrants it; stay general if codes are unknown.",
+      "kind": "why"
+    },
+    {
+      "id": "why-efficiency",
+      "level": "H3",
+      "heading": "Quality Materials, Efficiency & Comfort",
+      "instructions": "Format: Paragraph (90–110 words). Materials, efficiency, and comfort gains tied to {primaryService}.",
+      "kind": "why"
+    },
+    {
+      "id": "codes",
+      "level": "H2",
+      "heading": "Understanding Local Codes & Requirements in {city}, {state}",
+      "instructions": "Authority section covering local regulatory requirements to build trust. Stay high-level unless research supplies specifics — do not invent code numbers.",
+      "kind": "codes_group"
+    },
+    {
+      "id": "codes-basics",
+      "level": "H3",
+      "heading": "Key Requirements Homeowners Should Know",
+      "instructions": "Format: Paragraph (80–100 words). Summarize typical requirements for {primaryService}; flag when a licensed pro should confirm local rules.",
+      "kind": "codes"
+    },
+    {
+      "id": "codes-permits",
+      "level": "H3",
+      "heading": "Local Building Permits & Inspections",
+      "instructions": "Format: Paragraph (80–100 words). Reassure that the contractor helps with permits/inspections when applicable — without guaranteeing outcomes.",
+      "kind": "codes"
+    },
+    {
+      "id": "process",
+      "level": "H2",
+      "heading": "Our Professional {primaryService} Process",
+      "instructions": "Step-by-step breakdown from consult to finish. Child H3s are the numbered steps.",
+      "kind": "process_group",
+      "expandProcess": true
+    },
+    {
+      "id": "cost",
+      "level": "H2",
+      "heading": "{primaryService} Cost & Price Guide in {city}, {state}",
+      "instructions": "High-intent pricing section. No invented dollar figures unless supported by research/site-config.",
+      "kind": "cost_group"
+    },
+    {
+      "id": "cost-factors",
+      "level": "H3",
+      "heading": "Average Cost Factors for {primaryService}",
+      "instructions": "Format: Paragraph (90–110 words). Explain what drives price (scope, access, materials, site conditions).",
+      "kind": "cost"
+    },
+    {
+      "id": "cost-options",
+      "level": "H3",
+      "heading": "Options & Upgrades That Affect Price",
+      "instructions": "Format: Paragraph (80–100 words). Compare common option tiers without fabricating brand claims.",
+      "kind": "cost"
+    },
+    {
+      "id": "cost-estimate",
+      "level": "H3",
+      "heading": "Free Estimating, Clear Quotes & Flexible Financing",
+      "instructions": "Format: Paragraph (80–100 words). Promote transparent pricing and free estimates — no fake financing partners.",
+      "kind": "cost"
+    },
+    {
+      "id": "areas",
+      "level": "H2",
+      "heading": "Serving Greater {city} & Nearby Communities",
+      "instructions": "Geo-relevance silo for surrounding suburban queries. Child H3s list metro coverage.",
+      "kind": "areas",
+      "expandSuburbs": true
+    },
+    {
+      "id": "faqs",
+      "level": "H2",
+      "heading": "Frequently Asked Questions About {primaryService} in {city}",
+      "instructions": "Direct, exact answers with zero fluff for search snippets. Boolean answers start Yes or No.",
+      "kind": "faq_group",
+      "expandFaqs": true
+    }
+  ],
+  "defaultProcess": [
+    {
+      "heading": "Step 1: Free On-Site Consultation & Scope Review",
+      "instructions": "Brief description (60–80 words). Site assessment, measuring, and clarifying goals before work begins."
+    },
+    {
+      "heading": "Step 2: Prep, Protection & Site Setup",
+      "instructions": "Brief description (60–80 words). Protect property, stage materials, and prep the work area."
+    },
+    {
+      "heading": "Step 3: Professional Installation / Core Work",
+      "instructions": "Brief description (60–80 words). Core specialty work for {primaryService}."
+    },
+    {
+      "heading": "Step 4: Quality Check, Cleanup & Walkthrough",
+      "instructions": "Brief description (60–80 words). Final inspection, cleanup, and homeowner walkthrough."
+    }
+  ],
+  "defaultFaqs": [
+    {
+      "heading": "How long does {primaryService} take in {city}?",
+      "instructions": "Format: Paragraph (30–50 words). Start with a direct timeframe."
+    },
+    {
+      "heading": "Will the work cause structural issues or lasting damage?",
+      "instructions": "Format: Paragraph (30–50 words). Start with No when appropriate, then one reassuring, honest sentence."
+    },
+    {
+      "heading": "Is {primaryService} required or recommended for my project in {state}?",
+      "instructions": "Format: Paragraph (30–50 words). Start with Yes or It depends, then clarify when it applies."
+    },
+    {
+      "heading": "How do you handle weather, moisture, or site conditions during the job?",
+      "instructions": "Format: Paragraph (30–50 words). Direct, practical answer."
+    }
+  ]
+}

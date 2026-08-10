@@ -20,7 +20,7 @@ Paste the enriched JSON into Claude with this prompt.
 ## Prompt
 
 ```text
-You are completing Rank & Rent candidate research for a local lead-gen site (specialty / high-ticket rubric v2).
+You are completing Rover candidate research for a local lead-gen site (specialty / high-ticket rubric v2).
 
 I will paste a DataForSEO research JSON. It already contains:
 - Exact niche string

@@ -1,16 +1,12 @@
 ---
-title: "About Us | Kitchen & Bathroom Remodeling"
-description: "Kitchen & Bathroom Remodeling focuses exclusively on kitchen and bathroom remodels for homeowners in Spanish Fork, UT and the surrounding area."
-h1: "About Kitchen & Bathroom Remodeling"
-draft: false
+title: "About Our Kitchen & Bathroom Remodeling Team | Spanish Fork, UT"
+description: "Learn about our approach to kitchen and bathroom remodeling in Spanish Fork, UT — craftsmanship, clear communication, and local commitment."
+h1: "About Our Kitchen & Bathroom Remodeling Team"
 ---
+We started this business around a simple idea: kitchens and bathrooms should work as well as they look. Too many remodels focus on surface-level style while ignoring the layout problems and material shortcuts that homeowners end up living with for years. Our approach is different — we spend time understanding how a space is actually used before we ever talk finishes.
 
-Kitchen & Bathroom Remodeling focuses on one thing: kitchen and bathroom remodels for homeowners in and around Spanish Fork, UT.
+Every project we take on in Spanish Fork and the surrounding Utah County area gets the same attention to detail, whether it's a single bathroom refresh or a full kitchen overhaul. We believe in transparent pricing, realistic timelines, and materials chosen for how they'll hold up — not just how they'll photograph.
 
-Rather than spreading across every type of home improvement project, we put our attention into full kitchen remodels, bathroom renovations, custom cabinetry and countertop installation, and related upgrades like tile work and fixture replacements.
+Being part of this community means our reputation is built one project at a time. We'd rather walk a homeowner through honest trade-offs than oversell a scope that doesn't fit their budget or timeline. If that approach sounds right for your project, we'd welcome the chance to talk it through.
 
-We work with homeowners across Spanish Fork, Springville, Payson, Salem, and Benjamin. Some are in newer developments looking to match current design trends. Others are in older homes in need of a full update.
-
-Every project starts with a clear, written estimate. No vague pricing, no pressure to sign on the spot.
-
-Have a project in mind? Reach out for a free estimate and we'll walk you through what it would take to get your kitchen or bathroom where you want it.
+[Get in touch](/contact) to schedule a free estimate for your kitchen or bathroom remodel.

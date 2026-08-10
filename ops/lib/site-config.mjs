@@ -18,6 +18,7 @@ import {
   normalizeArchetype,
   suggestArchetype,
 } from '../../scripts/lib/site-archetypes.mjs';
+import { applyPaletteToBrand, getPalette, SITE_PALETTES } from '../../scripts/lib/site-palettes.mjs';
 
 const ROOT = process.cwd();
 const SITE_CONFIG_PATH = path.join(ROOT, 'src', 'config', 'site-config.json');
@@ -669,6 +670,99 @@ export function setCandidateArchetype(candidateId, siteArchetype) {
     ok: true,
     siteArchetype: id,
     archetypes: listArchetypes(),
+    candidate: getCandidateDetail(candidateId),
+  };
+}
+
+function stripSiteConfigOps(config) {
+  if (!config || typeof config !== 'object') return null;
+  const { _ops, ...rest } = config;
+  return rest;
+}
+
+function readTemplateSiteConfig() {
+  if (!existsSync(SITE_CONFIG_PATH)) return null;
+  try {
+    return JSON.parse(readFileSync(SITE_CONFIG_PATH, 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
+function backupTemplateSiteConfig() {
+  if (!existsSync(SITE_CONFIG_PATH)) return;
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+  copyFileSync(
+    SITE_CONFIG_PATH,
+    path.join(path.dirname(SITE_CONFIG_PATH), `site-config.backup-${stamp}.json`),
+  );
+}
+
+/**
+ * Apply a named palette to draft (seeded from accepted/template if needed).
+ * Also syncs brand into research accepted + src/config/site-config.json when present.
+ */
+export function applySiteConfigBrand(candidateId, paletteId, nap = {}) {
+  assertSiteConfigHandoffReady(candidateId, { allowNonPursue: Boolean(nap.allowNonPursue) });
+  const key = String(paletteId || '').trim();
+  const known = SITE_PALETTES.find((p) => p.id === key);
+  if (!known) {
+    const err = new Error('Unknown palette id');
+    err.status = 400;
+    throw err;
+  }
+  const palette = getPalette(known.id);
+
+  const p = pathsFor(candidateId);
+  const draftExisting = readJson(p.siteConfigDraft);
+  const accepted = readJson(p.siteConfig);
+  const template = readTemplateSiteConfig();
+  const base =
+    stripSiteConfigOps(draftExisting) || stripSiteConfigOps(accepted) || stripSiteConfigOps(template);
+  if (!base) {
+    const err = new Error(
+      'No site-config draft or accepted config — paste/load a draft before picking a palette',
+    );
+    err.status = 400;
+    throw err;
+  }
+
+  const next = {
+    ...base,
+    brand: applyPaletteToBrand(base.brand || {}, palette.id),
+  };
+
+  const { draft, placeholders, suburbCheck } = writeDraftFile(candidateId, next, {
+    source: 'palette',
+    paletteId: palette.id,
+  });
+
+  if (accepted) {
+    const { _ops: prevOps, ...clean } = accepted;
+    writeJson(p.siteConfig, {
+      ...clean,
+      brand: next.brand,
+      _ops: {
+        ...(prevOps && typeof prevOps === 'object' ? prevOps : {}),
+        lastBrandPaletteAt: new Date().toISOString(),
+        paletteId: palette.id,
+      },
+    });
+  }
+
+  if (template && typeof template === 'object') {
+    backupTemplateSiteConfig();
+    mkdirSync(path.dirname(SITE_CONFIG_PATH), { recursive: true });
+    writeJson(SITE_CONFIG_PATH, { ...template, brand: next.brand });
+  }
+
+  return {
+    ok: true,
+    draft,
+    brand: next.brand,
+    paletteId: palette.id,
+    placeholders,
+    suburbCheck,
     candidate: getCandidateDetail(candidateId),
   };
 }

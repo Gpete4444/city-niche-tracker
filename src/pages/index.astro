@@ -1,13 +1,23 @@
 ---
-import { getEntry, render } from 'astro:content';
+import { existsSync } from 'node:fs';
+import path from 'node:path';
+import { getEntry, getCollection, render } from 'astro:content';
 import BaseLayout from '../layouts/BaseLayout.astro';
 import Hero from '../components/Hero.astro';
 import ServiceCards from '../components/ServiceCards.astro';
 import HomeSections from '../components/HomeSections.astro';
 import TrustSignals from '../components/TrustSignals.astro';
-import { getCollection } from 'astro:content';
+import TwoToneHeading from '../components/TwoToneHeading.astro';
 import { site, siteShowsServiceCards } from '../config/site';
-import { locationLinksForSite } from '../lib/locations-for-site';
+import { filterLocationsForSite } from '../lib/locations-for-site';
+import { bandSurface } from '../lib/section-surfaces';
+import {
+  extractHomepageIntro,
+  extractHomepageProseSections,
+  homepageUsesStructuredSections,
+  proseSectionEyebrow,
+  simpleProseToHtml,
+} from '../lib/content-body';
 
 const indexEntry = await getEntry('pages', 'index');
 if (!indexEntry) {
@@ -15,13 +25,90 @@ if (!indexEntry) {
 }
 
 const { Content } = await render(indexEntry);
-const locationEntries = (await getCollection('locations')).filter((e) => !e.data.draft);
-const locations = locationLinksForSite(locationEntries, site);
-const showServices = siteShowsServiceCards();
-const sections = Array.isArray(site.homepageSections) ? site.homepageSections : null;
+
+const locationEntries = filterLocationsForSite(
+  (await getCollection('locations')).filter((e) => !e.data.draft),
+  site,
+);
+/** Real location pages only — never suburb fallback chips without MD. */
+const locations = locationEntries.map((e) => ({
+  id: e.id,
+  city: e.data.city,
+  state: e.data.state,
+  href: `/locations/${e.id}`,
+}));
+
+const sectionList = Array.isArray(site.homepageSections) ? site.homepageSections : null;
+const showSection = (key: string) => !sectionList || sectionList.includes(key);
+const showServices = siteShowsServiceCards() && showSection('services');
 const showOfferProcess =
-  site.siteArchetype === 'single_service' ||
-  (sections ? sections.includes('offerProcess') : false);
+  showSection('offerProcess') ||
+  (site.siteArchetype === 'single_service' && showSection('process'));
+const social = site.socialProof;
+const hasTrustData = Boolean(
+  social?.rating ||
+    (social?.licenses && social.licenses.length) ||
+    (social?.statistics && social.statistics.length),
+);
+const showTrust = showSection('trust') && hasTrustData;
+const showIntro = showSection('intro');
+const showWhy = showSection('whyChooseUs');
+const showProcess = showSection('process') || showOfferProcess;
+const showAreas = showSection('areas') && locations.length > 0;
+const showFaqs = showSection('faqs');
+const showGallery = showSection('gallery') || showSection('beforeAfter');
+const showReviews = showSection('reviews');
+const showCta = showSection('cta');
+
+const structured = homepageUsesStructuredSections(sectionList);
+const proseOnlyKeys = ['cost', 'materials', 'timeline', 'codes', 'diyVsPro', 'whenToCall'];
+const enabledProseKeys = proseOnlyKeys.filter((k) => showSection(k));
+const wantsProseExtras = enabledProseKeys.length > 0;
+const showProseBody = showIntro || wantsProseExtras;
+
+const rawBody = typeof indexEntry.body === 'string' ? indexEntry.body : '';
+const introParagraphs = structured
+  ? extractHomepageIntro(rawBody, {
+      h1: indexEntry.data.h1,
+      title: indexEntry.data.title,
+      sectionHeading: indexEntry.data.sectionHeading,
+      maxParagraphs: 3,
+    })
+  : [];
+
+const proseSections = structured
+  ? extractHomepageProseSections(rawBody, {
+      h1: indexEntry.data.h1,
+      title: indexEntry.data.title,
+      sectionHeading: indexEntry.data.sectionHeading,
+      enabledIds: enabledProseKeys,
+    }).map((s) => ({
+      id: s.id,
+      heading: s.heading,
+      html: simpleProseToHtml(s.body),
+      eyebrow: proseSectionEyebrow(s.id),
+    }))
+  : [];
+
+const featureImage = indexEntry.data.featureImage;
+const featureSrc = String(featureImage?.src || '').trim();
+const featurePublicPath = featureSrc.replace(/^\//, '').replace(/^public\//, '');
+const showFeatureImage = Boolean(
+  featureImage &&
+    featureSrc &&
+    (/^https?:\/\//i.test(featureSrc) ||
+      (featurePublicPath &&
+        existsSync(path.join(process.cwd(), 'public', ...featurePublicPath.split('/'))))),
+);
+
+const showIntroSection =
+  showIntro && (structured ? introParagraphs.length > 0 : showProseBody);
+
+/** Light-band index after hero/trust (even = raised, odd = muted). */
+let lightBand = 0;
+const introSurface = showIntroSection ? bandSurface(lightBand++) : null;
+const servicesSurface = showServices ? bandSurface(lightBand++) : null;
+const homeSectionsBandStart = lightBand;
 ---
 
 <BaseLayout
@@ -29,60 +116,87 @@ const showOfferProcess =
   description={indexEntry.data.description}
   pageType="home"
 >
-  <Hero
-    h1={indexEntry.data.h1}
-    supporting={site.tagline}
-    showForm
-    image={indexEntry.data.heroImage}
-  />
-  <TrustSignals />
+  {
+    showSection('hero') && (
+      <Hero
+        h1={indexEntry.data.h1}
+        supporting={site.tagline}
+        showForm
+        image={indexEntry.data.heroImage}
+      />
+    )
+  }
+  {showTrust && <TrustSignals />}
 
-  <section
-    class:list={[
-      'mx-auto max-w-6xl px-4 py-12 sm:px-6 sm:py-16',
-      indexEntry.data.featureImage && 'grid items-center gap-8 md:grid-cols-2 md:gap-12',
-    ]}
-    aria-labelledby="intro-heading"
-  >
-    <div>
-      <div class="max-w-3xl">
-        <p class="text-xs font-bold uppercase tracking-[0.18em] text-accent">
-          {site.niche}
-        </p>
-        <h2 id="intro-heading" class="mt-2 font-display text-2xl font-bold tracking-tight text-ink sm:text-3xl">
-          {indexEntry.data.sectionHeading ?? `${site.niche} in ${site.primaryCity}`}
-        </h2>
-      </div>
-      <div class="prose-site mt-5 max-w-3xl">
-        <Content />
-      </div>
-    </div>
-    {
-      indexEntry.data.featureImage && (
-        <img
-          src={indexEntry.data.featureImage.src}
-          alt={indexEntry.data.featureImage.alt}
-          class="aspect-[4/3] w-full rounded-xl object-cover shadow-lg"
-          width="900"
-          height="675"
-          loading="lazy"
-        />
-      )
-    }
-  </section>
+  {
+    showIntroSection && introSurface && (
+      <section class={introSurface} aria-labelledby="intro-heading">
+        <div
+          class:list={[
+            'mx-auto max-w-6xl px-4 py-12 sm:px-6 sm:py-16',
+            showFeatureImage && 'grid items-center gap-8 md:grid-cols-2 md:gap-12',
+          ]}
+        >
+          <div>
+            <div class="max-w-3xl">
+              <p class="text-xs font-bold uppercase tracking-[0.18em] text-accent">
+                {site.niche}
+              </p>
+              {
+                showIntro && (
+                  <TwoToneHeading
+                    as="h2"
+                    id="intro-heading"
+                    mode="plain"
+                    text={indexEntry.data.sectionHeading ?? `${site.niche} in ${site.primaryCity}`}
+                    class="mt-2 text-2xl sm:text-3xl"
+                  />
+                )
+              }
+            </div>
+            <div class="prose-site mt-5 max-w-3xl">
+              {
+                structured ? (
+                  introParagraphs.map((p) => <p>{p}</p>)
+                ) : (
+                  <Content />
+                )
+              }
+            </div>
+          </div>
+          {
+            showFeatureImage && featureImage && (
+              <img
+                src={featureImage.src}
+                alt={featureImage.alt}
+                class="aspect-[4/3] w-full rounded-xl object-cover shadow-lg"
+                width="900"
+                height="675"
+                loading="lazy"
+              />
+            )
+          }
+        </div>
+      </section>
+    )
+  }
 
-  {showServices && <ServiceCards heading={`${site.niche} services`} />}
+  {showServices && <ServiceCards heading={`${site.niche} services`} surface={servicesSurface} />}
 
   <HomeSections
-    whyChooseUs={indexEntry.data.whyChooseUs}
-    process={indexEntry.data.process}
+    bandStart={homeSectionsBandStart}
+    whyChooseUs={showWhy ? indexEntry.data.whyChooseUs : []}
+    process={showProcess ? indexEntry.data.process : []}
     processHeading={
       showOfferProcess ? `How ${site.services[0] ?? site.niche} works` : undefined
     }
     whyHeading={`Why choose ${site.businessName}`}
-    faqs={indexEntry.data.faqs}
-    gallery={indexEntry.data.gallery}
-    coverageMap={indexEntry.data.coverageMap}
-    locations={locations}
+    faqs={showFaqs ? indexEntry.data.faqs : []}
+    gallery={showGallery ? indexEntry.data.gallery : []}
+    coverageMap={showAreas ? indexEntry.data.coverageMap : undefined}
+    locations={showAreas ? locations : []}
+    proseSections={proseSections}
+    showReviews={showReviews}
+    showCta={showCta}
   />
 </BaseLayout>

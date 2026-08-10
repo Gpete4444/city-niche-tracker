@@ -112,8 +112,8 @@ export function formatKnownCandidatesForPrompt({ stateFilter = null, limit = 500
   }
 
   const header = st
-    ? `Known candidates already in Ops (state ${st}; showing ${rows.length} of ${total}). Do **not** re-propose these Niche×City×State pairs — they already live in Candidates (any decision group).`
-    : `Known candidates already in Ops (showing ${rows.length} of ${total}). Do **not** re-propose these Niche×City×State pairs — they already live in Candidates (any decision group).`;
+    ? `Known candidates already in Rover (state ${st}; showing ${rows.length} of ${total}). Do **not** re-propose these Niche×City×State pairs — they already live in Candidates (any decision group).`
+    : `Known candidates already in Rover (showing ${rows.length} of ${total}). Do **not** re-propose these Niche×City×State pairs — they already live in Candidates (any decision group).`;
 
   const lines = [
     header,

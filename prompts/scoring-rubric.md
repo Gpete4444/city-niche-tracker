@@ -145,6 +145,10 @@ That asset’s realistic first win is **blue links, not the map**. Soft organic 
 - **Map Pack present** → expect to compete below the pack first; still pursue if organic is soft (≤1 niche homepage / mostly sub-pages).
 - **Time-to-rank estimates** should usually quote a longer path *without* GBP (blue links only) vs *with* GBP (Map Pack becomes realistic).
 
+## Rover display flags (not score inputs)
+
+SERP / Enrichment tabs may show **Map Pack Site?**, organic **EMD?**, enrich **Multi-loc?**, and thin-words summaries. These are human heuristics for review — they do **not** change `proposedScore` weights or decision rules yet.
+
 ## Stage 3 renter prospecting
 
 After **pursue**, run `npm run prospect-renters`. Review-count bands are a **size proxy only** (not employee headcount). Prefer outreach to businesses with websites + reviews that do **not** already own the niche Map Pack / organic SERP; ads presence signals budget.

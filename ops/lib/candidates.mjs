@@ -50,8 +50,14 @@ export function pathsFor(id) {
     content: path.join(RESEARCH_DIR, `${safe}-content.json`),
     contentResearch: path.join(RESEARCH_DIR, `${safe}-content-research.json`),
     contentOutline: path.join(RESEARCH_DIR, `${safe}-content-outline.json`),
+    contentBrief: path.join(RESEARCH_DIR, `${safe}-content-brief.json`),
+    contentStructure: path.join(RESEARCH_DIR, `${safe}-content-structure.json`),
+    contentOutlinePackage: path.join(RESEARCH_DIR, `${safe}-content-outline-package.json`),
     buildPackage: path.join(RESEARCH_DIR, `${safe}-build-package.json`),
     siteStaging: path.join(RESEARCH_DIR, safe, 'site-staging'),
+    siteImages: path.join(RESEARCH_DIR, safe, 'site-images'),
+    imagesManifest: path.join(RESEARCH_DIR, `${safe}-images-manifest.json`),
+    imagesPullStatus: path.join(RESEARCH_DIR, `${safe}-images-pull.json`),
     prospects: path.join(RESEARCH_DIR, `${safe}-prospects.json`),
     prospectsDraft: path.join(RESEARCH_DIR, `${safe}-prospects.draft.json`),
   };
@@ -303,6 +309,8 @@ export function listCandidates() {
 
   for (const file of files) {
     if (!file.endsWith('.json')) continue;
+    // Registry / index files living in research/ — not candidates.
+    if (file === 'candidate-groups.json' || file === 'known-candidates.json') continue;
     if (file.endsWith('.meta.json') || file.endsWith('.config.json')) {
       cleaned.add(file.replace(/\.(meta|config)\.json$/, ''));
       continue;
@@ -399,7 +407,11 @@ export function getCandidateDetail(id) {
   const contentAccepted = readJson(p.content);
   const contentResearch = readJson(p.contentResearch);
   const contentOutline = readJson(p.contentOutline);
+  const contentBrief = readJson(p.contentBrief);
+  const contentStructure = readJson(p.contentStructure);
+  const contentOutlinePackage = readJson(p.contentOutlinePackage);
   const buildPackage = readJson(p.buildPackage);
+  const imagesManifest = readJson(p.imagesManifest);
   const prospects = readJson(p.prospects);
   const stageInfo = deriveStage(id);
 
@@ -418,7 +430,13 @@ export function getCandidateDetail(id) {
       hasContent: Boolean(contentAccepted),
       hasContentResearch: Boolean(contentResearch),
       hasContentOutline: Boolean(contentOutline),
+      hasContentBrief: Boolean(contentBrief),
+      hasContentBriefConfirmed: Boolean(contentBrief?.status === 'confirmed'),
+      hasContentStructure: Boolean(contentStructure),
+      hasContentOutlinePackage: Boolean(contentOutlinePackage),
+      hasContentOutlineConfirmed: Boolean(contentOutlinePackage?.status === 'confirmed'),
       hasBuildPackage: Boolean(buildPackage),
+      hasImages: Boolean(imagesManifest?.files?.length),
     },
     meta,
     config,
@@ -433,7 +451,11 @@ export function getCandidateDetail(id) {
     content: contentAccepted,
     contentResearch,
     contentOutline,
+    contentBrief,
+    contentStructure,
+    contentOutlinePackage,
     buildPackage,
+    imagesManifest,
     prospects,
     summary: summarizeResearch(research),
   };

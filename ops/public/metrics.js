@@ -142,8 +142,12 @@ export function displaceabilityBand(score) {
   return null;
 }
 
-function tipAttr(text) {
-  return `title="${esc(text)}" aria-label="${esc(text)}"`;
+/** Large ops tooltip attrs — use data-tip only (no native title; avoids double tips). */
+export function tipAttr(text) {
+  const raw = String(text ?? '').trim();
+  if (!raw) return '';
+  const t = esc(raw);
+  return `data-tip="${t}" aria-label="${t}"`;
 }
 
 /**
@@ -216,14 +220,98 @@ export function strengthLabelHtml(label) {
   return `<span class="metric metric-${tone}" ${tipAttr(tip)}>${esc(label || '—')}</span>`;
 }
 
-export function mapPackHtml(present, { slotCount, reviewsLabel, avgReviews, maxReviews, hasLsa } = {}) {
+/** Yes/No metric chip (Site?, EMD?, Multi-loc?). */
+export function yesNoHtml(value, { yesTip = '', noTip = '', naLabel = '—', naTip = '' } = {}) {
+  if (value == null) {
+    return `<span class="metric metric-neutral" ${tipAttr(naTip || 'Not available')}>${esc(naLabel)}</span>`;
+  }
+  if (value) {
+    return `<span class="metric metric-mixed" ${tipAttr(yesTip || 'Yes')}>Yes</span>`;
+  }
+  return `<span class="metric metric-neutral" ${tipAttr(noTip || 'No')}>No</span>`;
+}
+
+/**
+ * Plain-English thin-words + multi-location summary for Enrichment tab.
+ */
+export function thinWordsCalloutHtml({
+  wordCountSummary = null,
+  multiLocationPageCount = null,
+  thinStubShare = null,
+  pages = [],
+} = {}) {
+  let summary = wordCountSummary;
+  if (!summary && pages?.length) {
+    const counts = pages
+      .filter((p) => p.kind !== 'map_pack' && !p.fetchFailed && p.signals?.wordCount != null)
+      .map((p) => Number(p.signals.wordCount))
+      .filter((n) => Number.isFinite(n) && n >= 0)
+      .sort((a, b) => a - b);
+    if (counts.length) {
+      const median =
+        counts.length % 2 === 1
+          ? counts[(counts.length - 1) / 2]
+          : Math.round((counts[counts.length / 2 - 1] + counts[counts.length / 2]) / 2);
+      summary = {
+        pageCount: counts.length,
+        median,
+        under400: counts.filter((n) => n < 400).length,
+        under800: counts.filter((n) => n < 800).length,
+      };
+    }
+  }
+  let multiLoc = multiLocationPageCount;
+  if (multiLoc == null && pages?.length) {
+    multiLoc = pages.filter(
+      (p) => p.kind !== 'map_pack' && !p.fetchFailed && p.signals?.looksMultiLocation,
+    ).length;
+  }
+  if (!summary && (multiLoc == null || multiLoc === 0)) return '';
+  const tip = [
+    'Thin-words messaging (display only — not a proposedScore input).',
+    'Word counts are approximate main-content HTML fetches from Stage 2 enrich.',
+    '<400 often reads as stubby; <800 is still thin for a niche homepage target.',
+    'Multi-location template signals (nationwide / many city links) bump thinness and usually mean harder national players.',
+  ].join('\n');
+  const parts = [];
+  if (summary?.median != null) {
+    parts.push(`Median <strong>${esc(String(summary.median))}</strong> words`);
+  }
+  if (summary?.pageCount != null && summary.under400 != null) {
+    parts.push(
+      `${esc(String(summary.under400))}/${esc(String(summary.pageCount))} under 400`,
+    );
+  }
+  if (summary?.pageCount != null && summary.under800 != null) {
+    parts.push(
+      `${esc(String(summary.under800))}/${esc(String(summary.pageCount))} under 800`,
+    );
+  }
+  if (thinStubShare != null && thinStubShare !== '') {
+    parts.push(`thin_stub share ${esc(String(thinStubShare))}`);
+  }
+  if (multiLoc != null) {
+    parts.push(`${esc(String(multiLoc))} multi-location template${Number(multiLoc) === 1 ? '' : 's'}`);
+  }
+  if (!parts.length) return '';
+  return `<div class="callout" ${tipAttr(tip)}><strong>Thin words / multi-loc:</strong> ${parts.join(' · ')}</div>`;
+}
+
+export function mapPackHtml(present, { slotCount, reviewsLabel, avgReviews, maxReviews, hasLsa, websiteCount } = {}) {
   if (present == null) return `<span class="metric metric-neutral">—</span>`;
   if (present) {
     const n = slotCount != null && !Number.isNaN(Number(slotCount)) ? Number(slotCount) : null;
     const reviews = reviewsLabel && String(reviewsLabel).trim() ? String(reviewsLabel).trim() : null;
+    const sites =
+      websiteCount != null && n != null && !Number.isNaN(Number(websiteCount))
+        ? `${Number(websiteCount)}/${n} have websites`
+        : null;
     const tip = [
       'Map Pack present — compete in blue links first. Map Pack usually needs a real GBP after rent.',
       n != null ? `Local results in pack: ${n} (Google often shows up to 3).` : '',
+      sites
+        ? `Map Pack websites: ${sites}. Slots without a URL are often GBP-only / phone-lead angles.`
+        : '',
       reviews ? `Review counts by pack slot: ${reviews}.` : '',
       avgReviews != null ? `Avg reviews: ${avgReviews}${maxReviews != null ? ` (max ${maxReviews})` : ''}.` : '',
       hasLsa ? 'Local Services Ads also present — phone leads may sit below LSAs.' : '',
@@ -234,6 +322,7 @@ export function mapPackHtml(present, { slotCount, reviewsLabel, avgReviews, maxR
     let label = 'Yes';
     if (reviews) label = `Yes · ${reviews}`;
     else if (n != null) label = `Yes · ${n} locals`;
+    if (sites) label += ` · ${sites}`;
     if (hasLsa) label += ' · LSA';
     return `<span class="metric metric-mixed" ${tipAttr(tip)}>${esc(label)}</span>`;
   }
@@ -277,7 +366,7 @@ export function thWithTip(label, tip) {
 }
 
 export function legendHtml() {
-  return `<div class="metric-legend" title="Color meaning for score badges">
+  return `<div class="metric-legend" ${tipAttr('Color meaning for score badges')}>
     <span class="metric metric-good">Favorable</span>
     <span class="metric metric-mixed">Mixed</span>
     <span class="metric metric-bad">Unfavorable</span>
@@ -382,6 +471,8 @@ export function displaceabilityTip({
   medianThinnessScore = null,
   medianDomainRank = null,
   hint = null,
+  wordCountSummary = null,
+  multiLocationPageCount = null,
 } = {}) {
   const lines = [
     'Displaceability — how easy blue-link competitor pages look to beat with a new niche homepage.',
@@ -390,6 +481,8 @@ export function displaceabilityTip({
     '',
     'How each page is scored:',
     'Start at 5; nudge from word count, location-stub URL, niche in title/H1, multi-location signals, page/domain Rank.',
+    'Word bands (informational): <400 very stubby · <800 still thin for a niche homepage · >2000 often stronger.',
+    'Multi-location / nationwide template signals bump thinness (+1) — often national players, not local specialists.',
     'Thinness 1–10 (higher = thinner/easier) → thin_stub (≥7), moderate, or strong_niche_page (≤3).',
     '',
     'How the overall score is built:',
@@ -414,6 +507,14 @@ export function displaceabilityTip({
   }
   if (medianThinnessScore != null) parts.push(`median thinness ${medianThinnessScore}`);
   if (medianDomainRank != null) parts.push(`median Domain Rank ${medianDomainRank}`);
+  if (wordCountSummary?.median != null) {
+    parts.push(
+      `median ${wordCountSummary.median} words (${wordCountSummary.under800 ?? '?'}/${wordCountSummary.pageCount ?? '?'} under 800)`,
+    );
+  }
+  if (multiLocationPageCount != null) {
+    parts.push(`${multiLocationPageCount} multi-location`);
+  }
 
   let summary = `This candidate: ${parts.join(' · ')}`;
   if (score != null) {
@@ -519,9 +620,7 @@ export function overallScoreHtml(inputs = {}, storedScore = null, options = {}) 
   if (score == null) return badge;
   if (!provisional) return badge;
   if (compact) {
-    return `<span class="score-cell">${badge}<abbr class="score-prov" title="${esc(
-      tip,
-    )}">*</abbr></span>`;
+    return `<span class="score-cell">${badge}<abbr class="score-prov" ${tipAttr(tip)}>*</abbr></span>`;
   }
-  return `${badge} <span class="metric metric-mixed" title="${esc(tip)}">provisional</span>`;
+  return `${badge} <span class="metric metric-mixed" ${tipAttr(tip)}>provisional</span>`;
 }

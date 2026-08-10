@@ -1,3 +1,13 @@
+## Terminology
+
+- **Rover** is the product / dashboard name. Say **Rover** in user-facing language — never call the dashboard “Ops”.
+- **`ops/`** is only the code folder (`ops/public`, `ops/server.mjs`). Prefer `npm run rover` when telling the user how to start the dashboard (`npm run ops` is an alias).
+
+## Terminology
+
+- **Rover** is the product / dashboard name. Say **Rover** in user-facing language — never call the dashboard “Ops”.
+- **`ops/`** is only the code folder (`ops/public`, `ops/server.mjs`). Prefer `npm run rover` when telling the user how to start the dashboard (`npm run ops` is an alias).
+
 ## Development
 
 When starting the dev server, use background mode:

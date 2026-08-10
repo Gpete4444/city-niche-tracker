@@ -16,8 +16,8 @@ const hasPlaceholderKey =
   id="lead-form"
   class:list={[
     compact
-      ? 'rounded-xl bg-white p-5 text-ink shadow-2xl shadow-black/25 sm:p-6'
-      : 'border-y border-line bg-white/60',
+      ? 'rounded-xl bg-surface-raised p-5 text-ink shadow-2xl shadow-black/25 sm:p-6'
+      : 'section-surface-raised',
   ]}
   aria-labelledby="form-heading"
 >
@@ -97,7 +97,7 @@ const hasPlaceholderKey =
         {site.primaryCta}
       </button>
       {
-        hasPlaceholderKey ? (
+        hasPlaceholderKey && import.meta.env.DEV ? (
           <p class="text-xs text-muted">
             Demo form: replace the Web3Forms key in{' '}
             <code class="rounded bg-paper px-1">site-config.json</code> before launch.

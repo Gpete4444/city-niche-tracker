@@ -1,0 +1,70 @@
+---
+import { preferAccentPhrase, splitTwoToneHeading } from '../lib/two-tone';
+
+interface Props {
+  as?: 'h1' | 'h2' | 'h3';
+  text: string;
+  /** Force accent substring; otherwise auto-split when mode is auto */
+  emphasis?: string;
+  /** Preferred phrases to accent when present (e.g. city) — tried before auto-split */
+  prefer?: Array<string | null | undefined>;
+  /** plain = never accent; auto = smart split (default) */
+  mode?: 'auto' | 'plain';
+  /** dark = ink page; light = on brand/ink hero */
+  tone?: 'dark' | 'light';
+  id?: string;
+  class?: string;
+}
+
+const {
+  as: Tag = 'h2',
+  text,
+  emphasis,
+  prefer,
+  mode = 'auto',
+  tone = 'dark',
+  id,
+  class: className,
+} = Astro.props;
+
+let lead = text;
+let accent: string | null = null;
+
+if (mode !== 'plain') {
+  if (emphasis && text.includes(emphasis)) {
+    const idx = text.indexOf(emphasis);
+    lead = text.slice(0, idx).trimEnd();
+    accent = emphasis.trim();
+  } else if (prefer?.length) {
+    const parts = preferAccentPhrase(text, prefer);
+    lead = parts.lead;
+    accent = parts.accent;
+  } else {
+    const parts = splitTwoToneHeading(text);
+    lead = parts.lead;
+    accent = parts.accent;
+  }
+}
+
+const leadClass = tone === 'light' ? 'text-white' : 'text-ink';
+const accentClass = 'font-semibold italic text-accent';
+---
+
+<Tag
+  id={id}
+  class:list={[
+    'font-display font-bold tracking-tight',
+    leadClass,
+    className,
+  ]}
+>
+  {lead}
+  {
+    accent && (
+      <>
+        {' '}
+        <span class={accentClass}>{accent}</span>
+      </>
+    )
+  }
+</Tag>

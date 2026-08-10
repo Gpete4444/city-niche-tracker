@@ -1,12 +1,12 @@
 # Discovery prompt — Gemini (volume / keyword estimates)
 
-Claude already chose the city×niche rows. Ops fills **Map Pack and organic counts** via a cheap DataForSEO SERP probe.
+Claude already chose the city×niche rows. Rover fills **Map Pack and organic counts** via a cheap DataForSEO SERP probe.
 
 **Your job: volume and keyword estimates only.** Do **not** invent Map Pack, organic homepage counts, directories, or competitor URLs.
 
 {{FILTER_BRIEF}}
 
-## How to deliver results (Ops merges into the file)
+## How to deliver results (Rover merges into the file)
 
 **Preferred output: volume-delta CSV**
 
@@ -22,7 +22,7 @@ Rows: <n must equal Claude row count>
 Notes: PASTE_INTO_OPS · VOLUME_DELTA
 ```
 
-Ops pastes your reply → merges volume columns onto the batch (never overwrites DFS Map Pack/organic) → writes **`{{GEMINI_OUTPUT_CSV}}`**.
+Rover pastes your reply → merges volume columns onto the batch (never overwrites DFS Map Pack/organic) → writes **`{{GEMINI_OUTPUT_CSV}}`**.
 
 ## Integrity
 
@@ -34,7 +34,7 @@ Ops pastes your reply → merges volume columns onto the batch (never overwrites
 
 - `Est. Cluster Volume` — e.g. `"200 – 400 / mo (est)"` (quote it). Must be a **search-volume band**, never a city population or `ESTIMATE 34,600`.
 - `Top Target Keywords & Volumes` — quoted; newline-separated `keyword (est volume)`. Never put Google Search URLs here.
-- Leave Map Pack / organic / directories / link columns **blank** (Ops owns those via DFS SERP probe)
+- Leave Map Pack / organic / directories / link columns **blank** (Rover owns those via DFS SERP probe)
 
 ## Volume-delta template (fill and return this)
 

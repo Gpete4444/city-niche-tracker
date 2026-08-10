@@ -60,6 +60,13 @@ export function classifiedToResearchSerp(classified, { itemTypes = [], reusedFro
     mapPackPresent: classified.mapPackPresent,
     mapPackConfidence: 'high',
     localPack: classified.localPack || [],
+    mapPackSlotCount: classified.mapPackSlotCount ?? (classified.localPack || []).length,
+    mapPackWebsiteCount:
+      classified.mapPackWebsiteCount ??
+      (classified.localPack || []).filter((b) => b.hasWebsite ?? Boolean(b.url)).length,
+    mapPackNoWebsiteCount:
+      classified.mapPackNoWebsiteCount ??
+      (classified.localPack || []).filter((b) => !(b.hasWebsite ?? Boolean(b.url))).length,
     mapPackReviews: classified.mapPackReviews || null,
     features: classified.features || null,
     directories: {

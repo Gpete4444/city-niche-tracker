@@ -1,5 +1,5 @@
 {
-  "name": "rank-and-rent-template",
+  "name": "rover",
   "type": "module",
   "version": "0.0.1",
   "engines": {
@@ -14,6 +14,7 @@
     "enrich-candidate": "node scripts/enrich-candidate.mjs",
     "prospect-renters": "node scripts/prospect-renters.mjs",
     "ops": "node ops/server.mjs",
+    "rover": "node ops/server.mjs",
     "assemble-site": "node ops/lib/run-assemble.mjs",
     "launch-site": "node ops/lib/run-launch.mjs",
     "astro": "astro"

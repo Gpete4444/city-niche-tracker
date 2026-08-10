@@ -1,5 +1,5 @@
 /**
- * Cloudflare API helpers for Rank & Rent launch:
+ * Cloudflare API helpers for Rover launch:
  * zone lookup, Email Routing (leads@ → Gmail), Worker custom domain, optional Turnstile.
  *
  * Requires CLOUDFLARE_ACCOUNT_ID + CLOUDFLARE_API_TOKEN in .env.
@@ -48,7 +48,15 @@ export async function cfFetch(method, pathSuffix, body) {
   });
   let data;
   try {
-    data = await res.json();
+    // Assets-only Workers often return 204 No Content on GET /workers/scripts/{name}
+    if (res.status === 204) return null;
+    const text = await res.text();
+    if (!text) {
+      if (res.ok) return null;
+      data = { success: false, errors: [{ message: `empty body (${res.status})` }] };
+    } else {
+      data = JSON.parse(text);
+    }
   } catch {
     const err = new Error(`Cloudflare API ${method} ${pathSuffix}: non-JSON (${res.status})`);
     err.status = 502;
@@ -104,14 +112,20 @@ export async function findZone(domain) {
 
 /**
  * Enable Email Routing for zone if needed.
+ * Zone settings GET/enable may 403 with Account-scoped Address tokens — soft-fail.
  * @param {string} zoneId
  */
 export async function ensureEmailRoutingEnabled(zoneId) {
   let settings;
   try {
     settings = await cfFetch('GET', `/zones/${zoneId}/email/routing`);
-  } catch {
-    settings = null;
+  } catch (error) {
+    return {
+      enabled: null,
+      created: false,
+      skipped: true,
+      reason: error.message || 'zone_email_routing_unavailable',
+    };
   }
   if (settings?.enabled) return { enabled: true, created: false, settings };
 
@@ -119,22 +133,28 @@ export async function ensureEmailRoutingEnabled(zoneId) {
     const result = await cfFetch('POST', `/zones/${zoneId}/email/routing/enable`);
     return { enabled: true, created: true, settings: result };
   } catch (error) {
-    // Some accounts use PUT /dns_settings or already-enabled variants
     try {
       const result = await cfFetch('POST', `/zones/${zoneId}/email/routing/dns`);
       return { enabled: true, created: true, settings: result, via: 'dns' };
     } catch {
-      throw error;
+      return {
+        enabled: null,
+        created: false,
+        skipped: true,
+        reason: error.message || 'enable_failed',
+      };
     }
   }
 }
 
 /**
  * Ensure destination address exists (may need Gmail verification click).
- * @param {string} zoneId
+ * Uses account-level Addresses API (Account → Email Routing Addresses permission).
+ * @param {string} _zoneId unused — addresses are account-scoped
  * @param {string} destinationEmail
  */
-export async function ensureEmailDestination(zoneId, destinationEmail) {
+export async function ensureEmailDestination(_zoneId, destinationEmail) {
+  const { accountId } = getCloudflareCredentials();
   const email = String(destinationEmail || '').trim().toLowerCase();
   if (!email || !email.includes('@')) {
     const err = new Error('destinationEmail must be a valid address (e.g. your Gmail)');
@@ -142,7 +162,7 @@ export async function ensureEmailDestination(zoneId, destinationEmail) {
     throw err;
   }
 
-  const list = await cfFetch('GET', `/zones/${zoneId}/email/routing/addresses`);
+  const list = await cfFetch('GET', `/accounts/${accountId}/email/routing/addresses`);
   const existing = (Array.isArray(list) ? list : []).find(
     (a) => String(a.email || '').toLowerCase() === email,
   );
@@ -153,10 +173,11 @@ export async function ensureEmailDestination(zoneId, destinationEmail) {
       verified: Boolean(existing.verified),
       created: false,
       destination: existing,
+      via: 'account',
     };
   }
 
-  const created = await cfFetch('POST', `/zones/${zoneId}/email/routing/addresses`, {
+  const created = await cfFetch('POST', `/accounts/${accountId}/email/routing/addresses`, {
     email,
   });
   return {
@@ -165,6 +186,7 @@ export async function ensureEmailDestination(zoneId, destinationEmail) {
     verified: Boolean(created?.verified),
     created: true,
     destination: created,
+    via: 'account',
   };
 }
 
@@ -214,18 +236,26 @@ export async function ensureLeadsForwardRule(zoneId, leadsAddress, destinationEm
 }
 
 /**
- * List Worker scripts; return true if script name exists.
+ * Return true if a Worker script exists.
+ * Note: GET /workers/scripts/{name} returns 204 (empty) for assets-only Workers,
+ * which our JSON client treats as failure — use /settings or /services instead.
  * @param {string} scriptName
  */
 export async function workerExists(scriptName) {
   const { accountId } = getCloudflareCredentials();
   const name = String(scriptName || '').trim();
   if (!name) return false;
+  const encoded = encodeURIComponent(name);
   try {
-    await cfFetch('GET', `/accounts/${accountId}/workers/scripts/${encodeURIComponent(name)}`);
+    await cfFetch('GET', `/accounts/${accountId}/workers/scripts/${encoded}/settings`);
     return true;
   } catch {
-    return false;
+    try {
+      await cfFetch('GET', `/accounts/${accountId}/workers/services/${encoded}`);
+      return true;
+    } catch {
+      return false;
+    }
   }
 }
 
@@ -350,20 +380,41 @@ export async function runCloudflareLaunch(opts) {
       );
       steps.emailRouting = { skipped: true, reason: 'missing_destination' };
     } else {
-      steps.emailRouting = await ensureEmailRoutingEnabled(zone.id);
-      steps.destination = await ensureEmailDestination(zone.id, destinationEmail);
-      if (!steps.destination.verified) {
+      try {
+        steps.emailRouting = await ensureEmailRoutingEnabled(zone.id);
+        if (steps.emailRouting?.skipped) {
+          human.push(
+            `Zone Email Routing settings API unavailable (${steps.emailRouting.reason}). If Email Routing is not on yet, enable it in the Cloudflare dashboard for ${domain}.`,
+          );
+        }
+      } catch (error) {
+        steps.emailRouting = { skipped: true, error: error.message };
+        human.push(`Email Routing enable skipped: ${error.message}`);
+      }
+
+      try {
+        steps.destination = await ensureEmailDestination(zone.id, destinationEmail);
+        if (!steps.destination.verified) {
+          human.push(
+            `Check ${destinationEmail} for a Cloudflare Email Routing verification link (required once).`,
+          );
+        }
+      } catch (error) {
+        steps.destination = { error: error.message };
         human.push(
-          `Check ${destinationEmail} for a Cloudflare Email Routing verification link (required once).`,
+          `Could not ensure Email Routing destination ${destinationEmail}: ${error.message}`,
         );
       }
-      try {
-        steps.leadsRule = await ensureLeadsForwardRule(zone.id, leadsEmail, destinationEmail);
-      } catch (error) {
-        steps.leadsRule = { error: error.message };
-        human.push(
-          `Could not create Email Routing rule for ${leadsEmail}: ${error.message}. Verify the destination address first, then re-run.`,
-        );
+
+      if (steps.destination && !steps.destination.error) {
+        try {
+          steps.leadsRule = await ensureLeadsForwardRule(zone.id, leadsEmail, destinationEmail);
+        } catch (error) {
+          steps.leadsRule = { error: error.message };
+          human.push(
+            `Could not create Email Routing rule for ${leadsEmail}: ${error.message}. Verify the destination address first, then re-run.`,
+          );
+        }
       }
     }
   }
@@ -377,7 +428,7 @@ export async function runCloudflareLaunch(opts) {
       steps.worker = { name: workerName, exists };
       if (!exists) {
         human.push(
-          `Worker "${workerName}" not found. Push the assembled site to GitHub, create the Workers Builds project, deploy once, then re-run Launch to attach ${domain}.`,
+          `Worker "${workerName}" not found yet. Re-run Launch with Auto ship (or wait a few seconds after Wrangler deploy) to attach ${domain}.`,
         );
         steps.workerDomain = { skipped: true, reason: 'worker_missing' };
       } else {
@@ -387,6 +438,11 @@ export async function runCloudflareLaunch(opts) {
             service: workerName,
             zoneId: zone.id,
           });
+          human.push(
+            steps.workerDomain?.created
+              ? `Attached custom domain ${domain} → Worker "${workerName}".`
+              : `Custom domain ${domain} already attached to Worker "${workerName}".`,
+          );
         } catch (error) {
           steps.workerDomain = { error: error.message };
           human.push(`Custom domain attach failed: ${error.message}`);

@@ -6,50 +6,50 @@ End-to-end path from a staged candidate to a live Cloudflare Workers site.
 
 1. Site-config accepted for the candidate
 2. Content accepted (at least homepage_first)
-3. **Stage homepage** in ops (writes `research/{id}/site-staging/`)
+3. **Stage homepage** in Rover (writes `research/{id}/site-staging/`)
 4. Optional: template GitHub remote (see below) — assemble works **without** it via local copy
 5. For **Launch** automation: `CLOUDFLARE_ACCOUNT_ID` + `CLOUDFLARE_API_TOKEN` in `.env` (see `.env.example`). API calls are free.
 
 ## 1. Template GitHub remote (checklist item)
 
-Create once for the master template:
+Create once for the master template ([github.com/7D7D/Rover](https://github.com/7D7D/Rover)):
 
 ```powershell
-cd c:\Repos\rank-and-rent-template
-gh repo create rank-and-rent-template --private --source=. --remote=origin --push
-gh api repos/7D7D/rank-and-rent-template -X PATCH -f is_template=true
+cd c:\Repos\Rover
+gh repo create Rover --private --source=. --remote=origin --push
+gh api repos/7D7D/Rover -X PATCH -f is_template=true
 ```
 
 Or if the empty remote already exists:
 
 ```powershell
-git remote add origin https://github.com/7D7D/rank-and-rent-template.git
+git remote add origin https://github.com/7D7D/Rover.git
 # commit template-worthy files, then:
 git push -u origin master
-gh api repos/7D7D/rank-and-rent-template -X PATCH -f is_template=true
+gh api repos/7D7D/Rover -X PATCH -f is_template=true
 ```
 
-Ops detects the remote via `git remote get-url origin` or env:
+Rover detects the remote via `git remote get-url origin` or env:
 
 ```text
-TEMPLATE_GITHUB_REPO=7D7D/rank-and-rent-template
+TEMPLATE_GITHUB_REPO=7D7D/Rover
 ```
 
 Do **not** commit `.env` or `research/` (gitignored).
 
 ## 2. Assemble site folder
 
-In ops → Content → **Assemble site**, or:
+In Rover → Content → **Assemble site**, or:
 
 ```powershell
-# API (ops server running)
+# API (Rover server running)
 # POST /api/candidates/{id}/assemble  { "force": true }
 ```
 
 Creates a sibling folder (default):
 
 ```text
-c:\Repos\rank-and-rent-sites\{domain-or-slug}\
+c:\Repos\rover-sites\{domain-or-slug}\
 ```
 
 Override with `ASSEMBLED_SITES_DIR`.
@@ -65,75 +65,54 @@ What happens:
 ## 3. Build smoke test
 
 ```powershell
-cd c:\Repos\rank-and-rent-sites\{slug}
+cd c:\Repos\rover-sites\{slug}
 npm install
 npm run build
 ```
 
 Checklist marks **build** done when `dist/index.html` exists.
 
-## 4. GitHub + first Cloudflare Worker deploy (still manual once)
+## 4. GitHub + Cloudflare Worker deploy (automated by Launch)
 
-1. Push the assembled site to its **own** GitHub repo (one repo per domain):
+**Per-site** GitHub create/push and first Worker deploy are part of Rover **Launch** (checkbox **Auto ship**, on by default). You should not run `gh` / `wrangler` yourself for each site.
 
-   ```powershell
-   cd c:\Repos\rank-and-rent-sites\{slug}
-   gh repo create my-site-domain --private --source=. --remote=origin --push
-   ```
+### One-time machine setup
 
-2. Cloudflare Dashboard → **Workers & Pages** → Create → connect that GitHub repo.
+1. Install [GitHub CLI](https://cli.github.com) and run `gh auth login` once
+2. Set `GITHUB_OWNER=your-org-or-user` in `.env` (or rely on `gh api user` / `TEMPLATE_GITHUB_REPO`)
+3. Set `CLOUDFLARE_ACCOUNT_ID` + `CLOUDFLARE_API_TOKEN` (Workers Scripts Edit at minimum)
+4. Optional for push-to-deploy rebuilds (one-time):
+   - Install the **Cloudflare Workers and Pages** GitHub App: CF dashboard → any Worker → **Settings → Builds → Connect → GitHub** → authorize for `7D7D` (or your org). Docs: [GitHub integration](https://developers.cloudflare.com/workers/ci-cd/builds/git-integration/github-integration/)
+   - On your **user** API token ([My Profile → API Tokens](https://dash.cloudflare.com/profile/api-tokens)), add **Account → Workers Builds Configuration → Edit** (and keep Workers Scripts Edit). Account-owned tokens return `Authentication error` on the Builds API.
+   - Re-run Launch (or ship) so Rover can `PUT …/builds/repos/connections` + create the production trigger (`npm run build` / `npx wrangler deploy`).
 
-### If the UI looks like “Worker” Builds (Deploy command required)
+### What Auto ship does
 
-This is the common 2025+ UI. There is **no** “Output directory = dist” field. Static files are published via Wrangler assets:
+1. `gh repo create` (private) for the assemble slug if needed, commit, push `main`
+2. `npm install` + `npm run build` in the assembled folder
+3. `npx wrangler deploy` (creates/updates the Worker from `wrangler.json`)
+4. Best-effort Workers Builds GitHub connection (skipped quietly if the Builds API isn’t available)
 
-| Setting | Value |
-| --- | --- |
-| Build command | `npm run build` |
-| Deploy command | `npx wrangler deploy` (**required** — keep it) |
-| Non-production deploy | `npx wrangler versions upload` (optional) |
-| Path / root | `/` |
+Assemble already writes `wrangler.json` with `"assets": { "directory": "./dist" }` and the site slug as `name`.
 
-Repo must include `wrangler.json` with:
+If install fails with `npm ci` / lockfile out of sync, regenerate `package-lock.json` in the template (`npm install`), re-assemble, and re-run Launch.
 
-```json
-{
-  "name": "your-site-slug",
-  "compatibility_date": "2025-08-01",
-  "assets": {
-    "directory": "./dist"
-  }
-}
-```
+## 5. Rover Launch (ship + Cloudflare API + Web3Forms paste)
 
-Assemble writes this file using the site slug as `name`. Optional: set env `NODE_VERSION=22`.
-
-### If the UI is classic Pages (Output directory visible)
-
-| Setting | Value |
-| --- | --- |
-| Build command | `npm run build` |
-| Deploy command | empty |
-| Output directory | `dist` |
-
-If install fails with `npm ci` / lockfile out of sync, regenerate `package-lock.json` in the template (`npm install`), re-assemble or copy the lock into the site repo, and push again.
-
-## 5. Ops Launch (Cloudflare API + Web3Forms paste)
-
-After Assemble (and ideally after the Worker exists), use ops → Content → **Launch**:
+After Assemble, use Rover → Content → **Launch**:
 
 1. Paste **Web3Forms** access key ([web3forms.com](https://web3forms.com) — create form manually; no public create-form API)
 2. Set domain / `leads@` / Email Routing destination (Gmail)
-3. Check **Run Cloudflare API** (needs `.env` tokens)
+3. Leave **Auto ship** and **Run Cloudflare domain / email API** checked
 4. **Run launch**
 
-What Launch does:
+**Full step-by-step reference (UI fields, pipeline, soft-fails, env, meta flags):** [LAUNCH.md](LAUNCH.md).
+
+Summary of what Launch does:
 
 - Writes NAP + Web3Forms (+ optional Turnstile) into the **assembled** `src/config/site-config.json` (and research copy)
-- Looks up the CF zone for the domain
-- Enables Email Routing, ensures destination address, creates `leads@` → forward rule
-- Attaches custom domain to the Worker named by assemble slug (when the Worker exists)
-- Optionally creates a Turnstile widget
+- Auto ship: GitHub repo + build + Wrangler deploy + Workers Builds connect (§4)
+- Cloudflare: Email Routing (`leads@` → destination) + custom domain attach to the Worker
 - Sets checklist meta flags (`formsDone`, `dnsDone`, `emailRoutingDone`, …)
 
 CLI:
@@ -141,16 +120,16 @@ CLI:
 ```powershell
 npm run launch-site -- <candidateId>
 npm run launch-site -- <candidateId> --skip-cloudflare
+npm run launch-site -- <candidateId> --skip-ship
 npm run launch-site -- <candidateId> --turnstile --destination=you@gmail.com
 ```
 
 ### Human leftovers (API cannot do these)
 
 1. **Buy the domain** / point nameservers at Cloudflare (zone must exist in your account)
-2. **Verify** Email Routing destination once (click link in Gmail)
+2. **Verify** Email Routing destination once (click link in Gmail) when the destination is new
 3. **Create** the Web3Forms form and paste the key (semi-automation)
-4. **Commit + push** the assembled site after Launch writes the key so CF rebuilds
-5. First-time **GitHub repo + Workers Builds** project connect (§4)
+4. **One-time** machine setup: `gh auth login` + `.env` (`GITHUB_OWNER`, `CLOUDFLARE_*`) — not per site
 
 ### Cost
 
@@ -164,12 +143,13 @@ Cloudflare and Web3Forms **API calls are $0**. You pay domains (~$10–15/yr) an
 
 Never commit real keys to the **template** master if demos use placeholders.
 
-## 7. Ops checklist flags
+## 7. Rover checklist flags
 
-Assemble / build / template remote are auto-detected. CF / DNS / forms / email flags are set by **Launch** (or remain open until you run it). Open **Assemble checklist** or **Launch status** in ops.
+Assemble / build / template remote are auto-detected. CF / DNS / forms / email flags are set by **Launch** (or remain open until you run it). Open **Assemble checklist** or **Launch status** in Rover.
 
 ## Related
 
 - Master flowchart + tools matrix: [MASTER-FLOW.md](MASTER-FLOW.md)
+- **Run launch** button details: [LAUNCH.md](LAUNCH.md)
 - Parked follow-ons (images, design polish, Ippei SEO compare): [BACKLOG.md](BACKLOG.md)
 - Astro preview during ops: Stage homepage opens `http://127.0.0.1:4321/`

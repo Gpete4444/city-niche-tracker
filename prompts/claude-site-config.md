@@ -7,7 +7,7 @@ Ignores research-only fields (raw volume numbers, scores, competitor URLs) excep
 ## Prompt
 
 ```text
-You are helping build a Rank & Rent local lead-gen website from an approved candidate.
+You are helping build a Rover local lead-gen website from an approved candidate.
 
 Approved candidate narrative JSON and/or DataForSEO research JSON:
 {{PASTE_APPROVED_CANDIDATE_JSON}}
@@ -34,7 +34,7 @@ Use from research/narrative when present:
 Ignore for site-config (research-only dump):
 competitors, scores, mapPack, spreadsheetFields, verificationChecklist, DataForSEO cost fields, raw volume fields as output values
 
-Return ONLY valid JSON matching this schema. No markdown fences, no commentary before/after the JSON. Ops will ignore trailing text if present, but a single clean object is preferred.
+Return ONLY valid JSON matching this schema. No markdown fences, no commentary before/after the JSON. Rover will ignore trailing text if present, but a single clean object is preferred.
 
 Rules:
 1. Treat SERP / competitor claims as draft research, not verified facts beyond what DataForSEO already measured.
@@ -46,7 +46,7 @@ Rules:
 6. Placeholders allowed: web3FormsAccessKey = "YOUR_WEB3FORMS_ACCESS_KEY", turnstileSiteKey = "".
 7. services = residential / primary list only. Order by expected search demand (highest first). multi_service: typically 6–12 related labels when volume supports it (hard max 12). single_service: usually 1 primary offer label.
 8. commercialServices (optional): when the niche commonly has commercial demand (roofing, concrete, HVAC, plumbing, etc.), add a shorter commercial list (also max 12, volume-ordered). Otherwise omit the field.
-9. homepageServicesLimit: integer 1–12 (default 12) — how many cards to show per homepage section.
+9. homepageServicesLimit: integer 1–12 — how many “What we do” cards to show on the homepage. Independent of services.length (e.g. 10 service pages, homepageServicesLimit 6). When there are more than 6 services, prefer 6 unless the brief asks otherwise.
 
 JSON shape:
 {

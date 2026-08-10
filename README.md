@@ -1,13 +1,14 @@
-# Rank & Rent Master Template
+# Rover
 
-Clone-per-site Astro template for local lead-gen Rank & Rent websites. Swap `site-config.json` + Markdown content, push a new repo, attach Cloudflare Pages.
+Clone-per-site Astro template and local Rover dashboard for local lead-gen websites. Swap `site-config.json` + Markdown content, ship a new repo, attach Cloudflare Workers.
 
-**Stack:** Astro + Tailwind CSS v4 + Cloudflare Pages (static) + Web3Forms + optional Turnstile.
+**Stack:** Astro + Tailwind CSS v4 + Cloudflare Workers (static assets) + Web3Forms + optional Turnstile.  
+**Repo:** [github.com/7D7D/Rover](https://github.com/7D7D/Rover)
 
 ## Quick start
 
 ```powershell
-cd c:\Repos\rank-and-rent-template
+cd c:\Repos\Rover
 npm install
 npm run dev
 ```
@@ -19,6 +20,14 @@ npm run build
 npm run preview
 ```
 
+**Rover dashboard** (pipeline UI):
+
+```powershell
+npm run rover
+# alias: npm run ops
+```
+
+Open [http://127.0.0.1:8787](http://127.0.0.1:8787).
 ## Clone a new site
 
 1. **Use this repo as a GitHub template** (or `git clone` and remove `.git`, then `git init`).
@@ -134,21 +143,22 @@ If you create a **Pages** project instead and see Output directory:
 - Deploy command: empty
 - Output directory: `dist`
 
-Master pipeline flowchart + tools matrix: [`docs/MASTER-FLOW.md`](docs/MASTER-FLOW.md). Full assemble → deploy runbook: [`docs/ASSEMBLE-AND-LAUNCH.md`](docs/ASSEMBLE-AND-LAUNCH.md). Parked follow-ons: [`docs/BACKLOG.md`](docs/BACKLOG.md).
+Master pipeline flowchart + tools matrix: [`docs/MASTER-FLOW.md`](docs/MASTER-FLOW.md). Full assemble → deploy runbook: [`docs/ASSEMBLE-AND-LAUNCH.md`](docs/ASSEMBLE-AND-LAUNCH.md). **Run launch** details: [`docs/LAUNCH.md`](docs/LAUNCH.md). Parked follow-ons: [`docs/BACKLOG.md`](docs/BACKLOG.md).
 
 ## Operator dashboard (local)
 
 For day-to-day pipeline work, use the local ops UI instead of juggling CLI commands:
 
 ```powershell
-npm run ops
+npm run rover
+# alias: npm run ops
 ```
 
 Open [http://127.0.0.1:8787](http://127.0.0.1:8787) — bound to localhost only. Do **not** expose this port or deploy it to Cloudflare Pages.
 
 **Flow:** Discovery = Claude (pick rows + narrative) → **cheap DataForSEO SERP probe** (~$0.002/row for Map Pack + organic counts) → Gemini volume estimates → decide → **Process batch** promotes rows into Candidates by `meta.decision`. Only `pursue` auto-queues Stage 1 (full cluster volumes + scoring; Live or Standard Ads queue).
 
-**Anti-dupe:** Ops maintains `research/known-candidates.csv` from all candidates (any group). New Discovery Claude prompts include that list so city×niche pairs are not re-proposed; Process links to an existing candidate instead of creating a duplicate.
+**Anti-dupe:** Rover maintains `research/known-candidates.csv` from all candidates (any group). New Discovery Claude prompts include that list so city×niche pairs are not re-proposed; Process links to an existing candidate instead of creating a duplicate.
 
 Add `ANTHROPIC_API_KEY` to `.env` for one-click Claude narrative drafts (Accept required before save). DataForSEO keys are still required for Stage 1–2 / Prospects scripts.
 
@@ -159,7 +169,7 @@ The UI lists every candidate under `research/`, shows full tables (SERP, keyword
 Chat models do **not** fetch live Google SERPs or city keyword volumes reliably. Use DataForSEO for facts; Claude for narrative.
 
 1. Copy [`.env.example`](.env.example) → `.env` and add DataForSEO API login/password (and `ANTHROPIC_API_KEY` for ops narrative).
-2. Prefer `npm run ops`, or pull SERP + volumes via CLI:
+2. Prefer `npm run rover` (or `npm run ops`), or pull SERP + volumes via CLI:
 
 ```powershell
 # Prefer --config on Windows (PowerShell strips quotes / breaks on ";")
@@ -187,6 +197,8 @@ npm run research-candidate -- --config scripts/examples/louisville-candidate.jso
 ```
 
 Adds DataForSEO **Rank** (0–100, **not** Moz DA), per-URL page heuristics, and `displaceability` (automates the “are these thin stubs?” gate). Failed HTML fetches are labeled `fetch_failed` and excluded from displaceability.
+
+**Rover tip:** Stage 1 re-runs **keep** Stage 2 enrichment. Force SERP may mark it stale if organic/directory URLs change — re-Enrich when you want fresh Rank. The stage-rail research mode blurb explains Reuse SERP vs Volumes only vs Force SERP (Ads volumes are usually the costly part).
 
 ### Stage 3 — Claude narrative (Accept → approved package)
 

@@ -1,11 +1,11 @@
 # Agent: Content Researcher
 
-Produce a JSON research pack for Rank & Rent homepage/service content. Use ONLY the pasted DataForSEO / candidate research — do not invent SERP facts.
+Produce a JSON research pack for Rover homepage/service content. Use ONLY the pasted DataForSEO / candidate research — do not invent SERP facts.
 
 ## Prompt
 
 ```text
-You are the Content Researcher for a local Rank & Rent site.
+You are the Content Researcher for a local Rover site.
 
 Inputs:
 SITE CONFIG:

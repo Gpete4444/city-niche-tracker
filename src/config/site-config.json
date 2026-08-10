@@ -1,58 +1,56 @@
 {
-  "businessName": "Kitchen & Bathroom Remodeling",
-  "tagline": "Specialized kitchen and bathroom remodeling for Spanish Fork and surrounding Utah County communities.",
-  "domain": "example.com",
-  "niche": "Kitchen & Bathroom Remodeling",
-  "primaryCity": "Spanish Fork",
-  "state": "UT",
+  "businessName": "Egress Window Installation",
+  "tagline": "Code-compliant basement egress windows for Omaha homes — sized, installed, and drained right the first time.",
+  "domain": "omahaegresswindowpros.com",
+  "niche": "Egress Window Installation",
+  "primaryCity": "Omaha",
+  "state": "NE",
   "targetSuburbs": [
-    "Springville",
-    "Payson",
-    "Salem",
-    "Benjamin"
+    "Bellevue",
+    "Papillion",
+    "La Vista",
+    "Elkhorn"
   ],
   "coverageAreas": [
     {
-      "name": "Spanish Fork",
-      "state": "UT"
+      "name": "Omaha",
+      "state": "NE"
     },
     {
-      "name": "Springville",
-      "state": "UT"
+      "name": "Bellevue",
+      "state": "NE"
     },
     {
-      "name": "Payson",
-      "state": "UT"
+      "name": "Papillion",
+      "state": "NE"
     },
     {
-      "name": "Salem",
-      "state": "UT"
+      "name": "La Vista",
+      "state": "NE"
     },
     {
-      "name": "Benjamin",
-      "state": "UT"
+      "name": "Elkhorn",
+      "state": "NE"
     }
   ],
   "serviceRadiusMiles": 40,
-  "phone": "+1XXXXXXXXXX",
-  "email": "leads@example.com",
-  "web3FormsAccessKey": "YOUR_WEB3FORMS_ACCESS_KEY",
+  "phone": "+13852212770",
+  "email": "rovergrowthpartners@gmail.com",
+  "web3FormsAccessKey": "REPLACE_WEB3FORMS_KEY",
   "turnstileSiteKey": "",
   "primaryCta": "Get a Free Estimate",
   "siteArchetype": "multi_service",
   "services": [
-    "Full Kitchen Remodels",
-    "Bathroom Renovations",
-    "Kitchen & Bathroom Design Services",
-    "Custom Cabinetry & Countertop Installation",
-    "Primary Bathroom Remodels",
-    "Secondary & Guest Bathroom Remodels",
-    "Walk-In Shower & Tub Conversions",
-    "Tile Installation & Flooring",
-    "Kitchen Island & Layout Redesign",
-    "Fixture & Hardware Upgrades"
+    "Basement Egress Window Cutting & Installation",
+    "Egress Window Well Covers & Coverings",
+    "Window Well Excavation & Installation",
+    "Window Well Drainage Systems",
+    "Egress Window & Well Waterproofing",
+    "Basement Window Replacement",
+    "Basement Bedroom & Rental Conversion Permitting Support",
+    "Egress Window Sizing & Code Compliance Consultation"
   ],
-  "homepageServicesLimit": 10,
+  "homepageServicesLimit": 8,
   "brand": {
     "primary": "#1C2B3A",
     "accent": "#E8A317",

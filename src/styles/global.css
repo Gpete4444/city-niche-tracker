@@ -4,9 +4,12 @@
   --color-brand: var(--brand-primary, #1c2b3a);
   --color-accent: var(--brand-accent, #e8a317);
   --color-ink: var(--brand-ink, #0f1720);
-  --color-paper: #eef1f4;
+  --color-paper: #f1f4f7;
+  --color-surface-raised: #ffffff;
+  --color-surface-muted: #d5dde6;
+  --color-surface-tint: color-mix(in srgb, var(--brand-primary, #1c2b3a) 9%, #eef2f6);
   --color-muted: #5a6570;
-  --color-line: #d0d7de;
+  --color-line: #c5ced8;
   --font-display: "Archivo", "Avenir Next Condensed", ui-sans-serif, system-ui, sans-serif;
   --font-body: "Source Sans 3", "Source Sans Pro", ui-sans-serif, system-ui, sans-serif;
 }
@@ -56,8 +59,48 @@
     @apply max-w-none text-base leading-relaxed text-ink/90;
   }
 
-  .prose-site p + p {
-    @apply mt-4;
+  .prose-site :where(h2) {
+    @apply mt-10 font-display text-2xl font-bold tracking-tight text-ink first:mt-0 sm:text-3xl;
+  }
+
+  .prose-site :where(h3) {
+    @apply mt-8 font-display text-xl font-bold tracking-tight text-ink first:mt-0 sm:text-2xl;
+  }
+
+  .prose-site :where(h4) {
+    @apply mt-6 text-lg font-semibold text-ink first:mt-0;
+  }
+
+  .prose-site :where(p) {
+    @apply mt-4 first:mt-0;
+  }
+
+  .prose-site :where(ul, ol) {
+    @apply mt-4 list-outside space-y-2 pl-5 first:mt-0;
+  }
+
+  .prose-site :where(ul) {
+    @apply list-disc;
+  }
+
+  .prose-site :where(ol) {
+    @apply list-decimal;
+  }
+
+  .prose-site :where(li) {
+    @apply leading-relaxed;
+  }
+
+  .prose-site :where(a) {
+    @apply font-medium text-brand underline decoration-brand/30 underline-offset-2 hover:decoration-brand;
+  }
+
+  .prose-site :where(strong) {
+    @apply font-semibold text-ink;
+  }
+
+  .prose-site :where(hr) {
+    @apply my-8 border-line;
   }
 
   .btn-primary {
@@ -74,5 +117,30 @@
 
   .label {
     @apply mb-1.5 block text-sm font-medium text-ink;
+  }
+
+  /* Section ground bands — alternate for page rhythm */
+  .section-surface-paper {
+    @apply bg-paper;
+  }
+
+  .section-surface-raised {
+    @apply bg-surface-raised;
+  }
+
+  .section-surface-muted {
+    @apply bg-surface-muted;
+  }
+
+  .section-surface-tint {
+    @apply bg-surface-tint;
+  }
+
+  .section-surface-brand {
+    @apply bg-brand text-white;
+  }
+
+  .section-surface-ink {
+    @apply bg-ink text-white;
   }
 }

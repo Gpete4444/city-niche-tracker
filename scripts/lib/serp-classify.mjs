@@ -24,12 +24,14 @@ export function classifySerpItems(items = []) {
 
   for (const item of items) {
     if (item.type === 'local_pack') {
+      const url = item.url ?? null;
       localPack.push({
         title: item.title ?? null,
-        url: item.url ?? null,
+        url,
         domain: item.domain ? registrableDomain(item.domain) : null,
         rating: item.rating?.value ?? item.rating ?? null,
         reviewsCount: item.rating?.votes_count ?? item.reviews_count ?? null,
+        hasWebsite: Boolean(url),
       });
       continue;
     }
@@ -86,9 +88,15 @@ export function classifySerpItems(items = []) {
     ...organicSubPages.map((x) => x.domain),
   ]);
 
+  const mapPackWebsiteCount = localPack.filter((b) => b.hasWebsite).length;
+  const mapPackSlotCount = localPack.length;
+
   return {
     mapPackPresent: localPack.length > 0,
     localPack,
+    mapPackSlotCount,
+    mapPackWebsiteCount,
+    mapPackNoWebsiteCount: mapPackSlotCount - mapPackWebsiteCount,
     directories: { count: directories.length, links: directories },
     organicHomePages: { count: organicHomePages.length, links: organicHomePages },
     organicSubPages: { count: organicSubPages.length, links: organicSubPages },

@@ -5,16 +5,23 @@
 import {
   existsSync,
   mkdirSync,
+  readdirSync,
   readFileSync,
   rmSync,
   writeFileSync,
 } from 'node:fs';
 import path from 'node:path';
 import { getCandidateDetail, pathsFor, saveMeta } from './candidates.mjs';
-import { loadAcceptedSiteConfig } from './content-markdown.mjs';
+import { loadAcceptedSiteConfig, sanitizeMarkdownImageFrontmatter } from './content-markdown.mjs';
 import { buildBuildPackage } from './build-package.mjs';
 import { runTemplateContract } from './template-contract.mjs';
 import { applyArchetypeDefaults } from '../../scripts/lib/site-archetypes.mjs';
+import {
+  assertLaunchContentComplete,
+  expectedLaunchContentPaths,
+  resolveStructurePageIds,
+} from './preview-fidelity.mjs';
+import { syncSiteImagesToPublic } from './fill-site-images.mjs';
 
 const ROOT = process.cwd();
 
@@ -24,9 +31,9 @@ function writeJson(filePath, data) {
 }
 
 /**
- * Stage homepage (or full) content + site-config under research/{id}/site-staging/
+ * Stage full (default) or homepage_first content + site-config under research/{id}/site-staging/
  */
-export function stageSiteContent(candidateId, { mode = 'homepage_first', refreshPackage = true } = {}) {
+export function stageSiteContent(candidateId, { mode = 'full', refreshPackage = true } = {}) {
   const detail = getCandidateDetail(candidateId);
   const loaded = loadAcceptedSiteConfig(candidateId);
   if (!loaded?.config) {
@@ -43,13 +50,32 @@ export function stageSiteContent(candidateId, { mode = 'homepage_first', refresh
 
   let config = applyArchetypeDefaults({ ...loaded.config });
   const files = { ...content.files };
-  if (mode === 'homepage_first') {
+  const pageIds = resolveStructurePageIds(candidateId, detail);
+  const resolvedMode =
+    mode === 'homepage_first'
+      ? 'homepage_first'
+      : pageIds.includes('services') || pageIds.includes('locations')
+        ? 'full'
+        : mode || 'full';
+
+  if (resolvedMode === 'homepage_first') {
     for (const key of Object.keys(files)) {
       if (!key.startsWith('src/content/pages/')) delete files[key];
     }
   }
 
-  const contract = runTemplateContract(files, config, { mode });
+  // Heal frontmatter (e.g. missing closing ---) before contract + write
+  for (const [rel, body] of Object.entries(files)) {
+    if (rel.endsWith('.md')) {
+      files[rel] = sanitizeMarkdownImageFrontmatter(body);
+    }
+  }
+
+  if (resolvedMode !== 'homepage_first') {
+    assertLaunchContentComplete(files, config, pageIds, { label: 'Staging' });
+  }
+
+  const contract = runTemplateContract(files, config, { mode: resolvedMode });
   if (!contract.ok) {
     const err = new Error(`Staging blocked: ${contract.errors.slice(0, 3).join('; ')}`);
     err.status = 400;
@@ -65,25 +91,44 @@ export function stageSiteContent(candidateId, { mode = 'homepage_first', refresh
 
   writeJson(path.join(stagingRoot, 'src', 'config', 'site-config.json'), config);
 
+  // Copy stock images before writing MD (omitMissing checks disk under public/)
+  const imageSync = syncSiteImagesToPublic(candidateId);
+
   const written = [];
   for (const [rel, body] of Object.entries(files)) {
     const abs = path.join(stagingRoot, ...rel.split('/'));
     mkdirSync(path.dirname(abs), { recursive: true });
-    writeFileSync(abs, body.endsWith('\n') ? body : `${body}\n`, 'utf8');
+    const out = String(body || '');
+    writeFileSync(abs, out.endsWith('\n') ? out : `${out}\n`, 'utf8');
     written.push(rel);
   }
+
+  const imagesDir = path.join(stagingRoot, 'public', 'images');
+  if (existsSync(imagesDir)) {
+    for (const name of readdirSync(imagesDir)) {
+      if (!name.startsWith('.')) written.push(`public/images/${name}`);
+    }
+  }
+
+  const expected = expectedLaunchContentPaths(config, pageIds);
+  const serviceCount = written.filter((p) => p.startsWith('src/content/services/')).length;
+  const locationCount = written.filter((p) => p.startsWith('src/content/locations/')).length;
 
   writeJson(path.join(stagingRoot, '_staging.json'), {
     candidateId,
     stagedAt: new Date().toISOString(),
-    mode,
+    mode: resolvedMode,
     siteArchetype: config.siteArchetype,
+    pageIds,
     written,
+    expectedCount: expected.length,
+    serviceCount,
+    locationCount,
     contract,
     nextSteps: [
-      'Review research/{id}/site-staging/src/content/pages/index.md',
-      'When ready: assemble clones template and inject this staging tree',
-      'npm run build against assembled repo (Sprint E)',
+      'Review research/{id}/site-staging/src/content/',
+      'Assemble (injects staging into sibling site + build)',
+      'Open site preview and click every sitemap URL before Launch',
     ],
   });
 
@@ -100,7 +145,12 @@ export function stageSiteContent(candidateId, { mode = 'homepage_first', refresh
     ok: true,
     stagingPath: path.relative(ROOT, stagingRoot).replace(/\\/g, '/'),
     written,
+    mode: resolvedMode,
+    pageIds,
+    serviceCount,
+    locationCount,
     contract,
+    imageSync,
     candidate: getCandidateDetail(candidateId),
   };
 }

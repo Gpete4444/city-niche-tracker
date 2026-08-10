@@ -7,7 +7,7 @@ Output **only** Markdown files for this Astro template. Do **not** create `schem
 ## Prompt
 
 ```text
-You are writing Rank & Rent content for an Astro + Markdown site.
+You are writing content for a Rover local lead-gen Astro + Markdown site.
 
 I will paste site-config.json. Produce Markdown files that match the collection schemas below exactly.
 

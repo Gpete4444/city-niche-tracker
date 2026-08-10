@@ -300,7 +300,7 @@ function mapPackLabel(v) {
 export function buildFilterBrief(filters = {}) {
   const f = normalizeFilters(filters);
   const lines = [
-    '## Operator filters (from Rank & Rent Ops)',
+    '## Operator filters (from Rover)',
     '',
     `- **State:** ${f.state || 'ANY (nationwide — pick the best US markets)'}`,
     `- **Niches:** ${
@@ -1155,53 +1155,56 @@ export function processDiscoveryBatch(
 
     try {
       if (candidateId && existsSync(pathsFor(candidateId).config)) {
+        skipped.push({
+          index: i,
+          reason: 'already processed',
+          candidateId,
+          decision,
+        });
+        continue;
+      }
+      const existing = findCandidateByGeo({
+        niche: row.Niche,
+        city: row.City,
+        state: row.State,
+      });
+      if (existing) {
+        candidateId = existing.id;
         setDecision(candidateId, decision, row.decision_notes || row.recommended_reason || null);
         saveMetaSource(candidateId, source);
         attachDiscoveryArtifacts(candidateId, row, dir, batch.id, i);
-      } else {
-        const existing = findCandidateByGeo({
-          niche: row.Niche,
-          city: row.City,
-          state: row.State,
-        });
-        if (existing) {
-          candidateId = existing.id;
-          setDecision(candidateId, decision, row.decision_notes || row.recommended_reason || null);
-          saveMetaSource(candidateId, source);
-          attachDiscoveryArtifacts(candidateId, row, dir, batch.id, i);
-          promoted.push({
-            index: i,
-            candidateId,
-            decision,
-            niche: row.Niche,
-            primary,
-            linkedExisting: true,
-          });
-          row.candidateId = candidateId;
-          nextRows[i] = row;
-          if (decision === 'pursue') {
-            const p = pathsFor(candidateId);
-            if (!existsSync(p.research)) pursueIds.push(candidateId);
-          }
-          continue;
-        }
-        const serpCache = resolveFreshSerpCacheRel(dir, rowKey(row));
-        const discoverySeed = discoveryNarrativeSeedFromRow(row, {
-          batchId: batch.id,
-          rowIndex: i,
-        });
-        const created = createCandidate({
+        promoted.push({
+          index: i,
+          candidateId,
+          decision,
           niche: row.Niche,
           primary,
-          cluster,
-          source,
-          decision,
-          decisionNotes: row.decision_notes || row.recommended_reason || null,
-          serpCache,
-          discoverySeed,
+          linkedExisting: true,
         });
-        candidateId = created.id;
+        row.candidateId = candidateId;
+        nextRows[i] = row;
+        if (decision === 'pursue') {
+          const p = pathsFor(candidateId);
+          if (!existsSync(p.research)) pursueIds.push(candidateId);
+        }
+        continue;
       }
+      const serpCache = resolveFreshSerpCacheRel(dir, rowKey(row));
+      const discoverySeed = discoveryNarrativeSeedFromRow(row, {
+        batchId: batch.id,
+        rowIndex: i,
+      });
+      const created = createCandidate({
+        niche: row.Niche,
+        primary,
+        cluster,
+        source,
+        decision,
+        decisionNotes: row.decision_notes || row.recommended_reason || null,
+        serpCache,
+        discoverySeed,
+      });
+      candidateId = created.id;
       row.candidateId = candidateId;
       nextRows[i] = row;
       promoted.push({ index: i, candidateId, decision, niche: row.Niche, primary });

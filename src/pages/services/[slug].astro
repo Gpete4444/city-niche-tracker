@@ -1,9 +1,11 @@
 ---
-import { getCollection, render } from 'astro:content';
+import { getCollection } from 'astro:content';
 import BaseLayout from '../../layouts/BaseLayout.astro';
 import Hero from '../../components/Hero.astro';
 import LeadForm from '../../components/LeadForm.astro';
+import ServicePageSections from '../../components/ServicePageSections.astro';
 import { site } from '../../config/site';
+import { filterServicesForSite } from '../../lib/services-for-site';
 
 export async function getStaticPaths() {
   const services = await getCollection('services');
@@ -16,7 +18,14 @@ export async function getStaticPaths() {
 }
 
 const { entry } = Astro.props;
-const { Content } = await render(entry);
+const allServices = filterServicesForSite(await getCollection('services'), site).filter(
+  (e) => !e.data.draft && e.id !== entry.id,
+);
+const related = allServices.slice(0, 4).map((e) => ({
+  href: `/services/${e.id}`,
+  title: e.data.serviceName,
+  description: e.data.description,
+}));
 ---
 
 <BaseLayout
@@ -30,13 +39,12 @@ const { Content } = await render(entry);
     supporting={entry.data.description}
     image={entry.data.heroImage ?? entry.data.cardImage}
   />
-  <section class="mx-auto max-w-5xl px-4 py-10 sm:px-6">
-    <div class="prose-site max-w-3xl">
-      <Content />
-    </div>
-    <p class="mt-8 text-sm text-muted">
-      Serving {site.primaryCity}, {site.state} and nearby communities.
-    </p>
-  </section>
+  <ServicePageSections
+    body={entry.body || ''}
+    h1={entry.data.h1}
+    title={entry.data.title}
+    serviceName={entry.data.serviceName}
+    related={related}
+  />
   <LeadForm heading={`Ask about ${entry.data.serviceName}`} />
 </BaseLayout>

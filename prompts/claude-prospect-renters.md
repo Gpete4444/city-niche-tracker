@@ -7,7 +7,7 @@ Do **not** invent review counts, ad flags, phones, or Map Pack ownership — cop
 ## Prompt
 
 ```text
-You are drafting Rank & Rent outreach angles for local contractors.
+You are drafting Rover outreach angles for local contractors.
 
 I will paste a prospect-renters JSON (Stage 3). For each high- and medium-priority prospect, return concise outreach notes:
 

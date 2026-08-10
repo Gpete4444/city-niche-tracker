@@ -20,6 +20,11 @@ import {
   saveMeta,
   RESEARCH_DIR,
 } from './candidates.mjs';
+import {
+  assertLaunchContentComplete,
+  outlineRequiresFullContent,
+  resolveStructurePageIds,
+} from './preview-fidelity.mjs';
 
 const ROOT = process.cwd();
 const CONTENT_ROOT = path.join(ROOT, 'src', 'content');
@@ -248,7 +253,7 @@ export function parseContentFileBlocks(raw, { allowDiskFallback = true } = {}) {
       err.status = 400;
       throw err;
     }
-    files[rel] = ensureYamlFrontmatter(body);
+    files[rel] = sanitizeMarkdownImageFrontmatter(ensureYamlFrontmatter(body));
   }
 
   return files;
@@ -285,28 +290,346 @@ function splitFrontmatter(markdown) {
   return { ok: true, frontmatter: m[1], body: m[2] || '' };
 }
 
-/**
- * Recover markdown when Claude omits opening/closing `---` around YAML frontmatter.
- * Leaves already-delimited files unchanged.
- */
-export function ensureYamlFrontmatter(markdown) {
-  let s = String(markdown || '')
-    .replace(/^\uFEFF/, '')
+const IMAGE_FM_KEYS = ['heroImage', 'featureImage', 'cardImage', 'coverageMap'];
+
+function normalizePublicImageSrc(raw) {
+  let s = String(raw || '')
+    .trim()
+    .replace(/\\/g, '/');
+  if (!s) return '';
+  if (s.startsWith('public/')) s = `/${s.slice('public/'.length)}`;
+  if (!s.startsWith('/') && !/^https?:\/\//i.test(s)) {
+    s = `/${s.replace(/^\/+/, '')}`;
+  }
+  return s;
+}
+
+function altFromImageSrc(src) {
+  const base = String(src || '')
+    .split('/')
+    .pop()
+    ?.replace(/\.[^.]+$/, '')
+    .replace(/[-_]+/g, ' ')
     .trim();
-  if (!s) return s;
+  return base ? `${base} photo` : 'Project photo';
+}
 
-  if (/^---\r?\n/.test(s)) {
-    return s.endsWith('\n') ? s : `${s}\n`;
+function formatImageYaml(indent, key, src) {
+  const alt = altFromImageSrc(src);
+  return `${indent}${key}:\n${indent}  src: ${JSON.stringify(src)}\n${indent}  alt: ${JSON.stringify(alt)}`;
+}
+
+/**
+ * Normalize image frontmatter so Astro content schema accepts it:
+ * - omit empty string / null image fields
+ * - convert bare path strings → { src, alt }
+ * - repair Claude list blocks (whyChooseUs/process/faqs/gallery) missing `-` markers
+ */
+export function sanitizeMarkdownImageFrontmatter(markdown) {
+  const ensured = ensureYamlFrontmatter(markdown);
+  const split = splitFrontmatter(ensured);
+  if (!split.ok) return ensured;
+
+  let fm = split.frontmatter;
+  const keyAlt = IMAGE_FM_KEYS.join('|');
+
+  // Drop explicit empty / null / whitespace-only scalar image keys.
+  // Do NOT drop bare `key:` (no characters after ':') — that starts a multiline `{ src, alt }` object.
+  fm = fm.replace(
+    new RegExp(`^([ \\t]*)(${keyAlt})[ \\t]*:[ \\t]*([^\\n]*)$`, 'gim'),
+    (match, indent, key, rawVal) => {
+      const v = String(rawVal || '').trim();
+      if (v === '' && String(rawVal || '').length > 0) return ''; // whitespace-only value
+      if (v === '""' || v === "''" || v === 'null' || v === '~') return '';
+      return match;
+    },
+  );
+
+  // Bare path → object (same-line scalars only; [ \\t] so we never cross lines)
+  fm = fm.replace(
+    new RegExp(
+      `^([ \\t]*)(${keyAlt})[ \\t]*:[ \\t]*(?:"([^"]+)"|'([^']+)'|([^\\s{\\[#][^\\n]*?))[ \\t]*$`,
+      'gim',
+    ),
+    (match, indent, key, d1, d2, bare) => {
+      const raw = String(d1 || d2 || bare || '').trim();
+      if (!raw || raw === 'null' || raw === '~') return '';
+      if (raw.startsWith('{')) return match;
+      const src = normalizePublicImageSrc(raw);
+      if (!src) return '';
+      return formatImageYaml(indent, key, src);
+    },
+  );
+
+  // Nested process[].image (and similar) — drop explicit empties; keep bare `image:` for multiline objects
+  fm = fm.replace(/^[ \t]*image[ \t]*:[ \t]*([^\n]*)$/gim, (match, rawVal) => {
+    const v = String(rawVal || '').trim();
+    if (v === '' && String(rawVal || '').length > 0) return '';
+    if (v === '""' || v === "''" || v === 'null' || v === '~') return '';
+    return match;
+  });
+  fm = fm.replace(
+    /^([ \t]*)image[ \t]*:[ \t]*(?:"([^"]+)"|'([^']+)'|([^\s{\\[#][^\n]*?))[ \t]*$/gim,
+    (match, indent, d1, d2, bare) => {
+      const raw = String(d1 || d2 || bare || '').trim();
+      if (!raw || raw === 'null' || raw === '~') return '';
+      if (raw.startsWith('{')) return match;
+      const src = normalizePublicImageSrc(raw);
+      if (!src) return '';
+      return formatImageYaml(indent, 'image', src);
+    },
+  );
+
+  // Gallery list items that are bare strings: - "public/images/x.jpg"
+  fm = fm.replace(
+    /^([ \t]*)-\s+(?:"([^"]+\.(?:jpg|jpeg|png|webp|gif|svg))"|'([^']+\.(?:jpg|jpeg|png|webp|gif|svg))'|(\S+\.(?:jpg|jpeg|png|webp|gif|svg)))\s*$/gim,
+    (match, indent, d1, d2, bare) => {
+      const raw = String(d1 || d2 || bare || '').trim();
+      const src = normalizePublicImageSrc(raw);
+      if (!src) return match;
+      const alt = altFromImageSrc(src);
+      return `${indent}- src: ${JSON.stringify(src)}\n${indent}  alt: ${JSON.stringify(alt)}`;
+    },
+  );
+
+  fm = repairFrontmatterListBlocks(fm);
+  fm = omitMissingImageFrontmatter(fm);
+
+  fm = fm.replace(/\n{3,}/g, '\n\n').replace(/[ \t]+\n/g, '\n').trimEnd();
+  let body = stripDuplicateLeadingTitle(split.body || '', fm);
+  const bodyOut = body.startsWith('\n') ? body : `\n${body}`;
+  const out = `---\n${fm}\n---${bodyOut}`;
+  return out.endsWith('\n') ? out : `${out}\n`;
+}
+
+function fmScalar(fm, key) {
+  const m = String(fm || '').match(new RegExp(`^${key}[ \\t]*:[ \\t]*(.+)$`, 'im'));
+  if (!m) return '';
+  return m[1].trim().replace(/^["']|["']$/g, '');
+}
+
+function stripDuplicateLeadingTitle(body, fm) {
+  const h1 = fmScalar(fm, 'h1');
+  const title = fmScalar(fm, 'title');
+  const sectionHeading = fmScalar(fm, 'sectionHeading');
+  const lines = String(body || '').replace(/^\uFEFF/, '').split(/\r?\n/);
+  const echoes = new Set(
+    [h1, title, sectionHeading]
+      .map((t) =>
+        String(t || '')
+          .trim()
+          .toLowerCase()
+          .replace(/\s+/g, ' '),
+      )
+      .filter(Boolean),
+  );
+  let i = 0;
+  while (i < lines.length && !lines[i].trim()) i += 1;
+  if (i >= lines.length) return body;
+  const first = lines[i].trim().replace(/^#+\s*/, '').toLowerCase().replace(/\s+/g, ' ');
+  if (echoes.has(first)) {
+    i += 1;
+    while (i < lines.length && !lines[i].trim()) i += 1;
+    return `\n${lines.slice(i).join('\n')}`;
   }
+  return body;
+}
 
-  const head = s.split(/\n/).slice(0, 8).join('\n');
-  if (!/^(title|description|h1)\s*:/m.test(head)) {
-    return s.endsWith('\n') ? s : `${s}\n`;
+function publicImageExists(src) {
+  const s = normalizePublicImageSrc(src);
+  if (!s) return false;
+  if (/^https?:\/\//i.test(s)) return true;
+  const rel = s.replace(/^\//, '').replace(/^public\//, '');
+  return existsSync(path.join(ROOT, 'public', ...rel.split('/')));
+}
+
+/** Drop image objects whose src file is missing from public/. */
+function omitMissingImageFrontmatter(fm) {
+  let out = String(fm || '');
+  const keyAlt = IMAGE_FM_KEYS.join('|');
+
+  // Multiline objects:
+  // key:
+  //   src: "..."
+  //   alt: "..."
+  out = out.replace(
+    new RegExp(
+      `^([ \\t]*)(${keyAlt})[ \\t]*:[ \\t]*\\n(?:[ \\t]+(?:src|alt)[ \\t]*:[ \\t]*[^\\n]*\\n?){1,4}`,
+      'gim',
+    ),
+    (block, indent, key) => {
+      const srcM = block.match(/^[ \t]*src[ \t]*:[ \t]*("([^"]+)"|'([^']+)'|(\S+))/m);
+      const raw = srcM ? srcM[2] || srcM[3] || srcM[4] || '' : '';
+      if (!raw || publicImageExists(raw)) return block;
+      return '';
+    },
+  );
+
+  // Same-line flow objects are rare; drop if src missing
+  out = out.replace(
+    new RegExp(`^([ \\t]*)(${keyAlt})[ \\t]*:[ \\t]*\\{[^\\n]*src[^\\n]*\\}[ \\t]*$`, 'gim'),
+    (block) => {
+      const srcM = block.match(/src[ \\t]*:[ \\t]*["']?([^"',}\\s]+)/);
+      const raw = srcM?.[1] || '';
+      if (!raw || publicImageExists(raw)) return block;
+      return '';
+    },
+  );
+
+  // Gallery list items with missing src
+  out = out.replace(
+    /^([ \t]*)-[ \t]+src[ \t]*:[ \t]*("([^"]+)"|'([^']+)'|(\S+))[ \t]*\n[ \t]+alt[ \t]*:[ \t]*[^\n]*$/gim,
+    (block, indent, _q, d1, d2, bare) => {
+      const raw = d1 || d2 || bare || '';
+      if (!raw || publicImageExists(raw)) return block;
+      return '';
+    },
+  );
+
+  // If gallery/process image keys are left empty (all items omitted), drop the key
+  out = out.replace(/^(gallery)[ \t]*:[ \t]*\n(?![ \t]*-)/im, '');
+  out = out.replace(/\n{3,}/g, '\n\n');
+
+  return out;
+}
+
+const LIST_BLOCK_SPECS = {
+  whyChooseUs: { fields: ['title', 'description'], startKeys: ['title'] },
+  process: { fields: ['title', 'description', 'image'], startKeys: ['title'] },
+  faqs: { fields: ['question', 'answer'], startKeys: ['question'] },
+  gallery: { fields: ['src', 'alt'], startKeys: ['src'] },
+};
+
+/**
+ * Claude sometimes emits list sections without `-` item markers, which YAML
+ * collapses into duplicated mapping keys. Rewrite those blocks into proper lists.
+ */
+function repairFrontmatterListBlocks(fm) {
+  let out = String(fm || '');
+  for (const [key, spec] of Object.entries(LIST_BLOCK_SPECS)) {
+    out = repairOneListBlock(out, key, spec);
   }
+  return out;
+}
 
-  const lines = s.split(/\n/);
-  let fmEnd = -1;
+function repairOneListBlock(fm, key, spec) {
+  const lines = String(fm || '').split(/\n/);
+  const startRe = new RegExp(`^${key}[ \\t]*:[ \\t]*(.*)$`);
+  let start = -1;
+  let inline = '';
   for (let i = 0; i < lines.length; i++) {
+    const m = lines[i].match(startRe);
+    if (m) {
+      start = i;
+      inline = (m[1] || '').trim();
+      break;
+    }
+  }
+  if (start < 0) return fm;
+
+  // Already a JSON/flow array or non-empty inline value — leave alone
+  if (inline && inline !== '|' && inline !== '>') return fm;
+
+  const fieldSet = new Set(spec.fields);
+
+  let end = lines.length;
+  for (let i = start + 1; i < lines.length; i++) {
+    const L = lines[i];
+    if (!L.trim()) continue;
+    // Next top-level key that is NOT an item field for this list
+    const top = L.match(/^([A-Za-z_][A-Za-z0-9_]*)[ \t]*:/);
+    if (top && !fieldSet.has(top[1])) {
+      end = i;
+      break;
+    }
+  }
+
+  const blockLines = lines.slice(start + 1, end);
+  const blockText = blockLines.join('\n');
+  // Already a proper YAML list
+  if (/^[ \t]*-\s+/m.test(blockText)) return fm;
+
+  const entries = [];
+  let current = null;
+
+  const kvRe = /^[ \t]*([A-Za-z_][A-Za-z0-9_]*)[ \t]*:[ \t]*(.*?)\s*$/;
+  for (const L of blockLines) {
+    if (!L.trim()) continue;
+    const m = L.match(kvRe);
+    if (!m) continue;
+    const [, field, rawVal] = m;
+    if (!fieldSet.has(field)) continue;
+    if (spec.startKeys.includes(field)) {
+      if (current) entries.push(current);
+      current = {};
+    }
+    if (!current) current = {};
+    let val = rawVal;
+    if (
+      (val.startsWith('"') && val.endsWith('"')) ||
+      (val.startsWith("'") && val.endsWith("'"))
+    ) {
+      val = val.slice(1, -1);
+    }
+    if (field === 'src' || field === 'image') {
+      // image may be multiline object already; only normalize scalar paths here
+      if (val && !val.startsWith('{')) val = normalizePublicImageSrc(val);
+    }
+    if (field === 'image' && val) {
+      current.image = { src: val, alt: altFromImageSrc(val) };
+    } else {
+      current[field] = val;
+    }
+  }
+  if (current) entries.push(current);
+  if (!entries.length) return fm;
+
+  const rebuilt = [`${key}:`];
+  for (const entry of entries) {
+    let first = true;
+    for (const field of spec.fields) {
+      if (entry[field] == null || entry[field] === '') continue;
+      if (field === 'image' && typeof entry.image === 'object') {
+        const prefix = first ? '- ' : '  ';
+        rebuilt.push(`${prefix}image:`);
+        rebuilt.push(`    src: ${JSON.stringify(entry.image.src)}`);
+        rebuilt.push(`    alt: ${JSON.stringify(entry.image.alt)}`);
+        first = false;
+        continue;
+      }
+      const prefix = first ? '- ' : '  ';
+      rebuilt.push(`${prefix}${field}: ${JSON.stringify(entry[field])}`);
+      first = false;
+    }
+  }
+
+  return [...lines.slice(0, start), ...rebuilt, ...lines.slice(end)].join('\n');
+}
+
+function imageFieldLooksLikeBadScalar(fm, key) {
+  // Same-line only: do not use \s after ':' (it matches newlines and false-positives multiline objects)
+  const re = new RegExp(`^${key}[ \\t]*:[ \\t]*([^\\n]*)$`, 'im');
+  const m = String(fm || '').match(re);
+  if (!m) return false;
+  const rest = m[1].trim();
+  if (!rest) return false; // multiline object (`key:` then indented src/alt)
+  if (rest.startsWith('{')) return false;
+  // Quoted or bare path scalar on the same line
+  if (/^["']/.test(rest)) return true;
+  if (!/^[\{\[]/.test(rest) && !/^>/.test(rest) && !/^\|/.test(rest)) {
+    if (/\.(jpg|jpeg|png|webp|gif|svg)\b/i.test(rest) || rest.includes('/')) return true;
+  }
+  return false;
+}
+
+/**
+ * Find index where YAML frontmatter body ends (first non-YAML prose line).
+ * @param {string[]} lines
+ * @param {number} [start]
+ */
+function findFrontmatterEnd(lines, start = 0) {
+  let fmEnd = -1;
+  for (let i = start; i < lines.length; i++) {
     const L = lines[i];
     if (!L.trim()) {
       let j = i + 1;
@@ -317,19 +640,74 @@ export function ensureYamlFrontmatter(markdown) {
       }
       const next = lines[j];
       const nextYaml =
-        /^[a-zA-Z0-9_]+\s*:/.test(next) || /^\s+- /.test(next) || /^\s{2,}\S/.test(next);
+        /^[a-zA-Z0-9_]+\s*:/.test(next) ||
+        /^\s+- /.test(next) ||
+        /^-(?!-)\s/.test(next) ||
+        /^\s{2,}\S/.test(next);
       if (!nextYaml) {
         fmEnd = i;
         break;
       }
       continue;
     }
+    // Closing fence already present mid-stream — treat as end
+    if (/^---\s*$/.test(L)) {
+      fmEnd = i;
+      break;
+    }
     const looksYaml =
-      /^[a-zA-Z0-9_]+\s*:/.test(L) || /^\s+- /.test(L) || /^\s{2,}\S/.test(L);
+      /^[a-zA-Z0-9_]+\s*:/.test(L) ||
+      /^\s+- /.test(L) ||
+      /^-(?!-)\s/.test(L) ||
+      /^\s{2,}\S/.test(L);
     if (looksYaml) continue;
     fmEnd = i;
     break;
   }
+  return fmEnd;
+}
+
+/**
+ * Recover markdown when Claude omits opening/closing `---` around YAML frontmatter.
+ * Also heals files that open with `---` but lost the closing fence (e.g. gallery rewrite bug).
+ */
+export function ensureYamlFrontmatter(markdown) {
+  let s = String(markdown || '')
+    .replace(/^\uFEFF/, '')
+    .trim();
+  if (!s) return s;
+
+  const hasClosing =
+    /^---\r?\n[\s\S]*?\r?\n---\r?\n/.test(s) || /^---\r?\n[\s\S]*?\r?\n---\s*$/.test(s);
+
+  if (/^---\r?\n/.test(s)) {
+    if (hasClosing) {
+      return s.endsWith('\n') ? s : `${s}\n`;
+    }
+    // Opening fence without closing — insert close at FM/body boundary
+    const lines = s.split(/\n/);
+    const fmEnd = findFrontmatterEnd(lines, 1);
+    if (fmEnd < 0) {
+      return `---\n${lines.slice(1).join('\n').trimEnd()}\n---\n`;
+    }
+    if (/^---\s*$/.test(lines[fmEnd])) {
+      return s.endsWith('\n') ? s : `${s}\n`;
+    }
+    const fm = lines.slice(1, fmEnd).join('\n').trimEnd();
+    const body = lines.slice(fmEnd).join('\n').replace(/^\n+/, '');
+    const out = body.trim()
+      ? `---\n${fm}\n---\n\n${body.trimEnd()}\n`
+      : `---\n${fm}\n---\n`;
+    return out;
+  }
+
+  const head = s.split(/\n/).slice(0, 8).join('\n');
+  if (!/^(title|description|h1)\s*:/m.test(head)) {
+    return s.endsWith('\n') ? s : `${s}\n`;
+  }
+
+  const lines = s.split(/\n/);
+  const fmEnd = findFrontmatterEnd(lines, 0);
 
   if (fmEnd < 0) {
     return `---\n${s}\n---\n`;
@@ -344,7 +722,7 @@ export function ensureYamlFrontmatter(markdown) {
 function normalizeContentFilesMap(files) {
   const out = {};
   for (const [rel, markdown] of Object.entries(files || {})) {
-    out[rel] = ensureYamlFrontmatter(markdown);
+    out[rel] = sanitizeMarkdownImageFrontmatter(ensureYamlFrontmatter(markdown));
   }
   return out;
 }
@@ -413,6 +791,26 @@ export function validateContentBundle(files, siteConfig, { mode = 'full' } = {})
     const { frontmatter: fm, body } = split;
     for (const key of ['title', 'description', 'h1']) {
       if (!fmHasKey(fm, key)) errors.push(`${rel}: missing frontmatter key "${key}"`);
+    }
+
+    for (const key of IMAGE_FM_KEYS) {
+      if (imageFieldLooksLikeBadScalar(fm, key)) {
+        errors.push(
+          `${rel}: ${key} must be { src, alt } or omitted (not a string). Omit the field when there is no image.`,
+        );
+      }
+    }
+    if (/^[ \t]*image\s*:\s*["']/m.test(fm) || /^[ \t]*image\s*:\s*[^|\s{\n][^\n]*$/m.test(fm)) {
+      const imgLines = fm.split(/\n/).filter((l) => /^\s*image\s*:/.test(l));
+      for (const line of imgLines) {
+        const rest = line.replace(/^\s*image\s*:\s*/, '').trim();
+        if (rest && !rest.startsWith('{') && (rest.startsWith('"') || rest.startsWith("'") || rest.includes('/'))) {
+          errors.push(
+            `${rel}: process/image fields must be { src, alt } or omitted (not a string)`,
+          );
+          break;
+        }
+      }
     }
 
     if (rel.includes('/pages/')) {
@@ -714,12 +1112,21 @@ export function acceptContent(candidateId, { ignoreWarnings = false } = {}) {
 
   const files = normalizeContentFilesMap(draft.files);
   const onlyPages = Object.keys(files).every((rel) => rel.startsWith('src/content/pages/'));
-  const mode =
-    draft._ops?.mode === 'homepage_first' || draft._ops?.mode === 'full'
+  const requireFull = outlineRequiresFullContent(candidateId);
+  const mode = requireFull
+    ? 'full'
+    : draft._ops?.mode === 'homepage_first' || draft._ops?.mode === 'full'
       ? draft._ops.mode
       : onlyPages
         ? 'homepage_first'
         : 'full';
+
+  if (requireFull) {
+    assertLaunchContentComplete(files, config, resolveStructurePageIds(candidateId), {
+      label: 'Accept',
+    });
+  }
+
   const check = validateContentBundle(files, config, { mode });
   if (!check.ok) {
     const err = new Error(`Content validation failed: ${check.errors.slice(0, 3).join('; ')}`);
@@ -792,6 +1199,32 @@ export function acceptContent(candidateId, { ignoreWarnings = false } = {}) {
   };
   writeJson(p.content, accepted);
   if (existsSync(p.contentDraft)) unlinkSync(p.contentDraft);
+
+  // Keep Astro section gates aligned with confirmed Structure outline (avoid circular import)
+  try {
+    const outlinePkg = existsSync(p.contentOutlinePackage)
+      ? JSON.parse(readFileSync(p.contentOutlinePackage, 'utf8'))
+      : null;
+    if (outlinePkg?.homepageSections?.length && existsSync(p.siteConfig)) {
+      const sc = JSON.parse(readFileSync(p.siteConfig, 'utf8'));
+      writeFileSync(
+        p.siteConfig,
+        `${JSON.stringify(
+          {
+            ...sc,
+            homepageSections: outlinePkg.homepageSections,
+            ...(outlinePkg.siteArchetype ? { siteArchetype: outlinePkg.siteArchetype } : {}),
+          },
+          null,
+          2,
+        )}\n`,
+        'utf8',
+      );
+    }
+  } catch {
+    // non-fatal — content files already written
+  }
+
   saveMeta(candidateId, {
     lastContentAt: new Date().toISOString(),
     contentBackup: backup.backupRoot,

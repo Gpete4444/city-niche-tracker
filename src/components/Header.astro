@@ -11,20 +11,112 @@ const locations = filterLocationsForSite(
 );
 
 const showServicesNav = siteShowsServicesNav() && services.length > 0;
-const firstService = services[0];
-const firstLocation = locations[0];
+const showAreasNav = locations.length > 0;
+const brandSubtitle =
+  site.businessName.toLowerCase().includes(site.niche.toLowerCase())
+    ? `${site.primaryCity}, ${site.state}`
+    : `${site.niche} · ${site.primaryCity}, ${site.state}`;
+
+const navLinkClass =
+  'whitespace-nowrap rounded-md px-2 py-1.5 text-sm font-medium text-ink/80 hover:bg-brand/5 hover:text-brand';
 ---
 
-<header class="border-b border-line/80 bg-paper/95 backdrop-blur-sm">
-  <div class="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-3 sm:px-6">
-    <a href="/" class="min-w-0">
-      <span class="block truncate font-display text-base font-bold tracking-tight text-brand sm:text-lg">
+<header class="sticky top-0 z-[100] border-b border-line/80 bg-paper/95 backdrop-blur-sm">
+  <div class="mx-auto flex max-w-6xl items-center gap-3 px-4 py-3 sm:gap-4 sm:px-6">
+    <a href="/" class="min-w-0 shrink">
+      <span class="block truncate font-display text-sm font-bold tracking-tight text-brand sm:text-base lg:text-lg">
         {site.businessName}
       </span>
-      <span class="block truncate text-xs text-muted sm:text-sm">
-        {site.niche} · {site.primaryCity}, {site.state}
+      <span class="block truncate text-[0.7rem] text-muted sm:text-xs">
+        {brandSubtitle}
       </span>
     </a>
+
+    <nav
+      class="min-w-0 flex-1 overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      aria-label="Primary"
+    >
+      <div class="flex items-center justify-end gap-0.5 sm:justify-center sm:gap-1 lg:gap-2">
+        <a class={navLinkClass} href="/">Home</a>
+        {
+          showServicesNav && (
+            <div class="nav-menu relative shrink-0">
+              <button
+                type="button"
+                class:list={[navLinkClass, 'nav-menu-trigger inline-flex items-center gap-1']}
+                aria-expanded="false"
+                aria-haspopup="true"
+                aria-controls="nav-services-menu"
+                id="nav-services-btn"
+              >
+                Services
+                <span class="text-[0.65em] text-muted" aria-hidden="true">
+                  ▾
+                </span>
+              </button>
+              <ul
+                id="nav-services-menu"
+                class="nav-menu-panel fixed z-[110] hidden max-h-[min(24rem,70vh)] min-w-[16rem] overflow-y-auto rounded-lg border border-line bg-paper py-1 shadow-xl"
+                role="menu"
+                aria-labelledby="nav-services-btn"
+              >
+                {services.map((svc) => (
+                  <li role="none">
+                    <a
+                      role="menuitem"
+                      class="block px-3 py-2 text-sm text-ink/90 hover:bg-brand/5 hover:text-brand"
+                      href={`/services/${svc.id}`}
+                    >
+                      {svc.data.serviceName}
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )
+        }
+        {
+          showAreasNav && (
+            <div class="nav-menu relative shrink-0">
+              <button
+                type="button"
+                class:list={[navLinkClass, 'nav-menu-trigger inline-flex items-center gap-1']}
+                aria-expanded="false"
+                aria-haspopup="true"
+                aria-controls="nav-areas-menu"
+                id="nav-areas-btn"
+              >
+                Areas
+                <span class="text-[0.65em] text-muted" aria-hidden="true">
+                  ▾
+                </span>
+              </button>
+              <ul
+                id="nav-areas-menu"
+                class="nav-menu-panel fixed z-[110] hidden max-h-[min(24rem,70vh)] min-w-[14rem] overflow-y-auto rounded-lg border border-line bg-paper py-1 shadow-xl"
+                role="menu"
+                aria-labelledby="nav-areas-btn"
+              >
+                {locations.map((loc) => (
+                  <li role="none">
+                    <a
+                      role="menuitem"
+                      class="block px-3 py-2 text-sm text-ink/90 hover:bg-brand/5 hover:text-brand"
+                      href={`/locations/${loc.id}`}
+                    >
+                      {loc.data.city}, {loc.data.state}
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )
+        }
+        <a class={navLinkClass} href="/about">About</a>
+        <a class={navLinkClass} href="/contact">Contact</a>
+      </div>
+    </nav>
+
     <a
       href={phoneHref()}
       class="btn-primary shrink-0 px-3 py-2 text-xs sm:px-4 sm:text-sm"
@@ -33,25 +125,79 @@ const firstLocation = locations[0];
       {formatPhoneDisplay()}
     </a>
   </div>
-  <nav class="border-t border-line/60" aria-label="Primary">
-    <div class="mx-auto flex max-w-6xl gap-4 overflow-x-auto px-4 py-2 text-sm font-medium text-ink/80 sm:justify-center sm:px-6">
-      <a class="whitespace-nowrap hover:text-brand" href="/">Home</a>
-      {
-        showServicesNav && firstService && (
-          <a class="whitespace-nowrap hover:text-brand" href={`/services/${firstService.id}`}>
-            Services
-          </a>
-        )
-      }
-      {
-        firstLocation && (
-          <a class="whitespace-nowrap hover:text-brand" href={`/locations/${firstLocation.id}`}>
-            Areas
-          </a>
-        )
-      }
-      <a class="whitespace-nowrap hover:text-brand" href="/about">About</a>
-      <a class="whitespace-nowrap hover:text-brand" href="/contact">Contact</a>
-    </div>
-  </nav>
 </header>
+
+<script>
+  function positionPanel(btn, panel) {
+    const rect = btn.getBoundingClientRect();
+    const gap = 4;
+    const maxWidth = Math.min(320, window.innerWidth - 16);
+    panel.style.minWidth = `${Math.max(rect.width, 224)}px`;
+    panel.style.maxWidth = `${maxWidth}px`;
+    let left = rect.left;
+    if (left + maxWidth > window.innerWidth - 8) {
+      left = Math.max(8, window.innerWidth - maxWidth - 8);
+    }
+    panel.style.left = `${left}px`;
+    panel.style.top = `${rect.bottom + gap}px`;
+  }
+
+  function closeAllMenus(except = null) {
+    document.querySelectorAll('.nav-menu').forEach((menu) => {
+      if (except && menu === except) return;
+      const btn = menu.querySelector('.nav-menu-trigger');
+      const panel = menu.querySelector('.nav-menu-panel');
+      if (btn) btn.setAttribute('aria-expanded', 'false');
+      panel?.classList.add('hidden');
+    });
+  }
+
+  document.querySelectorAll('.nav-menu').forEach((menu) => {
+    const btn = menu.querySelector('.nav-menu-trigger');
+    const panel = menu.querySelector('.nav-menu-panel');
+    if (!btn || !panel) return;
+
+    btn.addEventListener('click', (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      const open = btn.getAttribute('aria-expanded') === 'true';
+      closeAllMenus();
+      if (!open) {
+        btn.setAttribute('aria-expanded', 'true');
+        positionPanel(btn, panel);
+        panel.classList.remove('hidden');
+      }
+    });
+
+    panel.addEventListener('click', (ev) => ev.stopPropagation());
+  });
+
+  document.addEventListener('click', () => closeAllMenus());
+  document.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Escape') closeAllMenus();
+  });
+  window.addEventListener(
+    'resize',
+    () => {
+      document.querySelectorAll('.nav-menu').forEach((menu) => {
+        const btn = menu.querySelector('.nav-menu-trigger');
+        const panel = menu.querySelector('.nav-menu-panel');
+        if (!btn || !panel || panel.classList.contains('hidden')) return;
+        positionPanel(btn, panel);
+      });
+    },
+    { passive: true },
+  );
+  window.addEventListener(
+    'scroll',
+    () => {
+      document.querySelectorAll('.nav-menu').forEach((menu) => {
+        const btn = menu.querySelector('.nav-menu-trigger');
+        const panel = menu.querySelector('.nav-menu-panel');
+        if (!btn || !panel || panel.classList.contains('hidden')) return;
+        positionPanel(btn, panel);
+      });
+    },
+    { passive: true },
+  );
+</script>

@@ -220,6 +220,36 @@ export async function enrichResearchReport(research, { includeMapPackPages = tru
   const displaceability = scoreDisplaceability(organicRows);
   const fetchFailedCount = organicRows.filter((p) => p.fetchFailed).length;
 
+  const organicForWords = organicRows.filter((p) => !p.fetchFailed && p.signals?.wordCount != null);
+  const wordCounts = organicForWords
+    .map((p) => Number(p.signals.wordCount))
+    .filter((n) => Number.isFinite(n) && n >= 0)
+    .sort((a, b) => a - b);
+  const wordCountSummary = {
+    pageCount: wordCounts.length,
+    median:
+      wordCounts.length === 0
+        ? null
+        : wordCounts.length % 2 === 1
+          ? wordCounts[(wordCounts.length - 1) / 2]
+          : Math.round(
+              (wordCounts[wordCounts.length / 2 - 1] + wordCounts[wordCounts.length / 2]) / 2,
+            ),
+    under400: wordCounts.filter((n) => n < 400).length,
+    under800: wordCounts.filter((n) => n < 800).length,
+  };
+  const multiLocationPageCount = organicRows.filter(
+    (p) => !p.fetchFailed && p.signals?.looksMultiLocation,
+  ).length;
+  const multiLocationShare =
+    organicRows.filter((p) => !p.fetchFailed).length > 0
+      ? Number(
+          (
+            multiLocationPageCount / organicRows.filter((p) => !p.fetchFailed).length
+          ).toFixed(2),
+        )
+      : null;
+
   const extrasPaid = extractPaidAndMapPackExtras(research);
   const directoriesTop3 = (research.serp?.directories?.links ?? [])
     .map((l) => (typeof l === 'string' ? l : l?.url))
@@ -246,6 +276,9 @@ export async function enrichResearchReport(research, { includeMapPackPages = tru
       directoryDominance,
       keywordIntentMix: keywordIntentMix(research.volumes?.keywords ?? []),
       volumeConcentration: volumeConcentration(research.volumes ?? {}),
+      multiLocationPageCount,
+      multiLocationShare,
+      wordCountSummary,
     },
     estimatedApiCostUsd: Number(totalCost.toFixed(5)),
   };

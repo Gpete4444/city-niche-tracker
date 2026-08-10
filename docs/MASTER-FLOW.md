@@ -1,8 +1,10 @@
-# Rank & Rent — master flow
+# Rover — master flow
 
 Shareable overview of the full project: how a market becomes a live lead-gen site, and which tools do which work.
 
-**What this is:** A Rank & Rent system finds local niches worth ranking for, then ships a static lead-gen website per market. You rent the site (or its leads) to a local operator. One **master template** plus a local **ops dashboard** drive the pipeline; each live site is its **own GitHub repo** hosted on **Cloudflare Workers**. Forms go through **Web3Forms**; `leads@` mail uses **Cloudflare Email Routing**.
+**What this is:** **Rover** finds local niches worth ranking for, then ships a static lead-gen website per market (rank-and-rent style). You rent the site (or its leads) to a local operator. One **master template** plus the local **Rover dashboard** drive the pipeline; each live site is its **own GitHub repo** hosted on **Cloudflare Workers**. Forms go through **Web3Forms**; `leads@` mail uses **Cloudflare Email Routing**.
+
+**Repo:** [github.com/7D7D/Rover](https://github.com/7D7D/Rover)
 
 ---
 
@@ -42,8 +44,8 @@ flowchart TB
 
     subgraph cont [5 Content]
       direction TB
-      c1["Researcher pack"] --> c2["Outline"]
-      c2 --> c3["Writer homepage-first"]
+      c1["Structure H2 checklist"] --> c2["Outline SEO prompt"]
+      c2 --> c3["Full-write FILE paste"]
       c3 --> c4["Accept markdown"]
     end
 
@@ -65,22 +67,22 @@ flowchart TB
 
     subgraph ship [8 GitHub plus CF Worker]
       direction TB
-      h1["gh repo create and push — human"] --> h2["CF Workers Builds connect — human"]
-      h2 --> h3["First deploy via Wrangler"]
+      h1["Launch Auto ship: gh create and push"] --> h2["npm build plus Wrangler deploy"]
+      h2 --> h3["Optional Workers Builds connect"]
     end
 
     subgraph launch [9 Launch]
       direction TB
       l1["Buy domain and point NS — human"] --> l2["Create Web3Forms form — human"]
-      l2 --> l3["Paste access key in ops Launch"]
-      l3 --> l4["Ops Launch Email Routing and custom domain"]
+      l2 --> l3["Paste access key in Rover Launch"]
+      l3 --> l4["Rover Launch Email Routing and custom domain"]
       l4 --> l5["Verify Gmail destination — human"]
-      l5 --> l6["Commit and push for CF rebuild"]
     end
 
     subgraph live [10 Live / rent]
       direction TB
-      v1["Form and leads@ receive leads"] --> v2["Hand off site or leads to renter"]
+      v1["Form and leads@ receive leads"] --> v2["Track on Sites tab"]
+      v2 --> v3["Hand off site or leads to renter"]
     end
 
     stg --> asm --> ship --> launch --> live
@@ -95,26 +97,25 @@ Open on GitHub or [mermaid.live](https://mermaid.live) to view the rendered boxe
 
 | Step | What happens | Why it exists |
 | --- | --- | --- |
-| **1 · Discover markets** | Ops discovery packs + census place seeds shortlist niches/cities. | Avoid building sites in dead markets; start from population and niche fit. |
+| **1 · Discover markets** | Rover discovery packs + census place seeds shortlist niches/cities. | Avoid building sites in dead markets; start from population and niche fit. |
 | **2 · Research SERP** | DataForSEO SERP/keywords (and related signals) score opportunity. | Prove search demand and that competition is beatable before spending content time. |
 | **3 · Decide pursue** | Claude narrative + human Accept; decision = pursue / skip. | Gate expensive work (site-config, content, domain) to winners only. |
 | **4 · Site config** | Lock business name, domain, phone, email, services, suburbs, brand. | One JSON source of truth so pages, schema, and CTAs stay consistent. |
-| **5 · Content** | Researcher → outline → writer → Accept markdown pages. | Local SEO pages (home, about, contact, services, locations) that match the config. |
-| **6 · Stage preview** | Copy into `research/{id}/site-staging/` and preview in Astro. | Catch wrong market/content before cloning a whole site repo. |
-| **7 · Assemble** | Copy template + inject staging into `rank-and-rent-sites/{slug}`. | Isolate each domain in its own folder/repo (clone-per-site). |
-| **8 · GitHub + CF Worker** | Push site repo; Cloudflare Workers Builds deploys `dist` via Wrangler. | Cheap global hosting with one Worker project per site. |
-| **9 · Launch** | Paste Web3Forms key; ops Launch attaches domain + Email Routing (API). | Go live on the real domain with working form and `leads@` inbox. |
-| **10 · Live / rent** | Leads hit inbox/form; hand site or leads to a local renter. | The business model: ranked site → rented asset. |
+| **5 · Content** | **Structure** (pages + H2s grouped by Home / Service template / About / Contact / Locations + presets/photos) → outline SEO prompt → Confirm → full-write FILE paste → Accept. Service pages share one H2 template applied to every service FILE. | Best SEO value: operator-chosen sections, then Claude fills with methods/costs/timelines. Astro comes after Accept. |
+| **6 · Stage preview** | Stage **full** site (all Structure-selected pages including every service/location FILE) into `site-staging/`, then Assemble + open **every** preview sitemap URL on :4322. Re-Assemble after every Stage (stale warning if skipped). | Catch wrong market/content before Launch — preview must match what ships. |
+| **7 · Assemble** | Copy template + inject staging into `rover-sites/{slug}`. | Isolate each domain in its own folder/repo (clone-per-site). |
+| **8 · GitHub + CF Worker** | Launch Auto ship: create/push GitHub repo, build, Wrangler deploy (optional Builds connect). | Cheap global hosting with one Worker project per site — no per-site terminal. |
+| **9 · Launch** | Paste Web3Forms key; Rover Launch ships + attaches domain + Email Routing (API). Full button reference: [LAUNCH.md](LAUNCH.md). | Go live on the real domain with working form and `leads@` inbox. |
+| **10 · Live / rent** | Leads hit inbox/form; hand site or leads to a local renter. Track inventory on the **Sites** tab (rent status, pricing, payment method, CF/Web3Forms links). | The business model: ranked site → rented asset. |
 
 ### Still human (API cannot fully automate)
 
-- **Buy the domain** and point nameservers at Cloudflare (step 8–9).
-- **First** GitHub repo create + Workers Builds project connect (step 8).
+- **Buy the domain** and point nameservers at Cloudflare (step 9).
 - **Create** a Web3Forms form and paste the access key (step 9).
 - **Verify** Email Routing destination once (click link in Gmail) (step 9).
-- **Commit + push** after Launch writes keys so CF rebuilds (step 9).
+- **One-time machine setup:** `gh auth login` + `.env` (`GITHUB_OWNER`, `CLOUDFLARE_*`) — not per site.
 
-Detailed runbook: [ASSEMBLE-AND-LAUNCH.md](ASSEMBLE-AND-LAUNCH.md).
+Detailed runbook: [ASSEMBLE-AND-LAUNCH.md](ASSEMBLE-AND-LAUNCH.md). **Run launch** button reference: [LAUNCH.md](LAUNCH.md).
 
 ---
 
@@ -122,7 +123,7 @@ Detailed runbook: [ASSEMBLE-AND-LAUNCH.md](ASSEMBLE-AND-LAUNCH.md).
 
 | Tool | Used for |
 | --- | --- |
-| Ops dashboard (`npm run ops`) | Local pipeline UI / orchestration |
+| Rover dashboard (`npm run rover`) | Local pipeline UI / orchestration |
 | DataForSEO | SERP, keywords, maps, enrichment signals |
 | Census places CSV | City/population seeds for discovery |
 | Claude (Anthropic) | Narrative, site-config draft, content writing |
@@ -145,7 +146,7 @@ Detailed runbook: [ASSEMBLE-AND-LAUNCH.md](ASSEMBLE-AND-LAUNCH.md).
 
 | Tool | 1 Discover | 2 Research | 3 Decide | 4 Site config | 5 Content | 6 Stage | 7 Assemble | 8 Ship | 9 Launch | 10 Live |
 | --- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| Ops dashboard | X | X | X | X | X | X | X | | X | |
+| Rover dashboard | X | X | X | X | X | X | X | | X | |
 | DataForSEO | X | X | | | | | | | | |
 | Census places CSV | X | | | | | | | | | |
 | Claude (Anthropic) | | | X | X | X | | | | | |
@@ -164,7 +165,7 @@ Detailed runbook: [ASSEMBLE-AND-LAUNCH.md](ASSEMBLE-AND-LAUNCH.md).
 
 ## Costs (stage and tool)
 
-Estimates align with ops pre-run modals ([`ops/lib/cost-estimates.mjs`](../ops/lib/cost-estimates.mjs)). DataForSEO and Claude figures are **estimates**, not invoices; provider list prices change.
+Estimates align with Rover pre-run modals ([`ops/lib/cost-estimates.mjs`](../ops/lib/cost-estimates.mjs)). DataForSEO and Claude figures are **estimates**, not invoices; provider list prices change.
 
 **Rough all-in per new site (research + content + domain year 1):** about **$11–$20** on free hosting/forms (domain dominates). Typical pursue-path API/AI spend is often **~$1–$5** without heavy enrich.
 
@@ -172,23 +173,23 @@ Estimates align with ops pre-run modals ([`ops/lib/cost-estimates.mjs`](../ops/l
 
 | Stage | Primary tools | Typical cost / site (USD) | Notes |
 | --- | --- | --- | --- |
-| 1 Discover | Ops, Census CSV, Claude (pick rows), DataForSEO SERP probe | ~$0.002/row probe + small Claude | Probe is cheap; Claude for pack narrative varies by tokens |
+| 1 Discover | Rover, Census CSV, Claude (pick rows), DataForSEO SERP probe | ~$0.002/row probe + small Claude | Probe is cheap; Claude for pack narrative varies by tokens |
 | 2 Research | DataForSEO Stage 1 | ~$0.20–$1.50 | Ads volumes × cities/keywords; lower if SERP cache reused |
 | 2b Enrich | DataForSEO Stage 2 | ~$0.05–$0.80 | ~$0.05/URL clamped; only when recommended |
 | 2c Prospects | DataForSEO Stage 4 | ~$0.05–$0.40 | Optional; does not block build |
 | 3 Decide | Claude narrative | ~$0.05–$0.50 est. | Sonnet list ~$3/$15 per MTok; not an invoice |
 | 4 Site config | Claude draft | ~$0.02–$0.20 est. | One JSON draft |
 | 5 Content | Claude researcher / outline / writer | ~$0.20–$2.00 est. | Largest Claude spend; homepage-first is cheaper than full suite |
-| 6–7 Stage / Assemble | Ops, Astro, local machine | $0 | No paid API |
+| 6–7 Stage / Assemble | Rover, Astro, local machine | $0 | No paid API |
 | 8 Ship | GitHub, CF Workers, Wrangler | $0 on free tiers | Still buy domain separately |
 | 9 Launch | Web3Forms, CF Email Routing, Turnstile, registrar | Domain ~$10–15/yr; APIs $0 | Web3Forms free ~250 submissions/mo |
 | 10 Live / rent | Web3Forms, Email Routing, Gmail | $0 until form volume / paid CF | Optional later: call tracking (Twilio/CallRail) not in this table |
 
 ### Per-tool billing
 
-| Tool | Billing model | Rank & Rent use cost |
+| Tool | Billing model | Rover use cost |
 | --- | --- | --- |
-| Ops dashboard | Local free | $0 |
+| Rover dashboard | Local free | $0 |
 | Census CSV | In-repo | $0 |
 | DataForSEO | Pay-as-you-go API | See stage ranges above |
 | Claude (Anthropic) | Token usage | See stage ranges; model override via `ANTHROPIC_MODEL` |

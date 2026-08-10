@@ -1,0 +1,198 @@
+---
+import { site } from '../config/site';
+import { fitEqualGrid } from '../lib/equal-grid';
+import { bandSurface } from '../lib/section-surfaces';
+import {
+  parseServiceBody,
+  simpleMarkdownToHtml,
+  type ServiceBodySection,
+} from '../lib/service-body';
+import TwoToneHeading from './TwoToneHeading.astro';
+
+interface RelatedCard {
+  href: string;
+  title: string;
+  description: string;
+}
+
+interface Props {
+  body: string;
+  h1?: string;
+  title?: string;
+  serviceName: string;
+  related?: RelatedCard[];
+}
+
+const { body, h1, title, serviceName, related: relatedRaw = [] } = Astro.props;
+const parsed = parseServiceBody(body, { h1, title, serviceName });
+const introHtml = simpleMarkdownToHtml(parsed.intro);
+const relatedGrid = fitEqualGrid(relatedRaw, { maxCols: 3 });
+const related = relatedGrid.items;
+const relatedSurface = bandSurface(
+  (introHtml ? 1 : 0) + parsed.sections.length,
+);
+
+const eyebrowFor = (kind: ServiceBodySection['kind']): string => {
+  switch (kind) {
+    case 'scope':
+      return "What's included";
+    case 'process':
+      return 'How it works';
+    case 'cost':
+      return 'Cost';
+    case 'materials':
+      return 'Materials';
+    case 'timeline':
+      return 'Timeline';
+    case 'faq':
+      return 'FAQs';
+    case 'diy':
+      return 'DIY vs pro';
+    case 'whenToCall':
+      return 'When to call';
+    case 'codes':
+      return 'Codes & permits';
+    default:
+      return serviceName;
+  }
+};
+---
+
+{
+  introHtml && (
+    <section class={bandSurface(0)} aria-label="Service overview">
+      <div class="mx-auto max-w-3xl px-4 py-10 sm:px-6 sm:py-12">
+        <div class="prose-site" set:html={introHtml} />
+      </div>
+    </section>
+  )
+}
+
+{
+  parsed.sections.map((section, sectionIndex) => {
+    const surface = bandSurface(introHtml ? sectionIndex + 1 : sectionIndex);
+
+    if (section.kind === 'process' && section.steps?.length) {
+      const stepsGrid = fitEqualGrid(section.steps, { maxCols: 3 });
+      const steps = stepsGrid.items;
+      if (!steps.length) return null;
+      return (
+        <section class={surface} aria-labelledby={`svc-process-${sectionIndex}`}>
+          <div class="mx-auto max-w-6xl px-4 py-14 sm:px-6 sm:py-16">
+            <div class="max-w-2xl">
+              <p class="text-xs font-bold uppercase tracking-[0.18em] text-accent">{eyebrowFor('process')}</p>
+              <TwoToneHeading
+                as="h2"
+                id={`svc-process-${sectionIndex}`}
+                mode="plain"
+                text={section.heading}
+                class="mt-2 text-2xl sm:text-3xl"
+              />
+            </div>
+            <ol class:list={['mt-8 grid gap-5', stepsGrid.className]}>
+              {steps.map((step, index) => (
+                <li class="rounded-lg border border-line bg-surface-raised p-5 shadow-sm">
+                  <span class="text-xs font-bold tracking-[0.16em] text-accent">
+                    {String(index + 1).padStart(2, '0')}
+                  </span>
+                  <h3 class="mt-1 font-display text-lg font-semibold text-ink">{step.title}</h3>
+                  <p class="mt-2 text-sm leading-relaxed text-muted">{step.description}</p>
+                </li>
+              ))}
+            </ol>
+          </div>
+        </section>
+      );
+    }
+
+    if (section.kind === 'faq' && section.faqs?.length) {
+      return (
+        <section class={surface} aria-labelledby={`svc-faq-${sectionIndex}`}>
+          <div class="mx-auto max-w-4xl px-4 py-14 sm:px-6 sm:py-16">
+            <div class="text-center">
+              <p class="text-xs font-bold uppercase tracking-[0.18em] text-accent">{eyebrowFor('faq')}</p>
+              <TwoToneHeading
+                as="h2"
+                id={`svc-faq-${sectionIndex}`}
+                mode="plain"
+                text={section.heading}
+                class="mt-2 text-2xl sm:text-3xl"
+              />
+            </div>
+            <div class="mt-8 divide-y divide-line border-y border-line">
+              {section.faqs.map((faq) => (
+                <details class="group py-4">
+                  <summary class="flex cursor-pointer list-none items-center justify-between gap-4 font-semibold text-ink">
+                    {faq.question}
+                    <span class="text-xl text-accent transition group-open:rotate-45" aria-hidden="true">
+                      +
+                    </span>
+                  </summary>
+                  <p class="max-w-3xl pt-3 text-sm leading-relaxed text-muted">{faq.answer}</p>
+                </details>
+              ))}
+            </div>
+          </div>
+        </section>
+      );
+    }
+
+    const html = simpleMarkdownToHtml(section.body);
+    if (!html) return null;
+
+    return (
+      <section class={surface} aria-labelledby={`svc-sec-${sectionIndex}`}>
+        <div class="mx-auto max-w-3xl px-4 py-12 sm:px-6 sm:py-14">
+          <p class="text-xs font-bold uppercase tracking-[0.18em] text-accent">{eyebrowFor(section.kind)}</p>
+          <TwoToneHeading
+            as="h2"
+            id={`svc-sec-${sectionIndex}`}
+            mode="plain"
+            text={section.heading}
+            class="mt-2 text-2xl sm:text-3xl"
+          />
+          <div class="prose-site mt-5" set:html={html} />
+        </div>
+      </section>
+    );
+  })
+}
+
+{
+  related.length > 0 && (
+    <section class={relatedSurface} aria-labelledby="related-services-heading">
+      <div class="mx-auto max-w-6xl px-4 py-14 sm:px-6 sm:py-16">
+        <div class="max-w-2xl">
+          <p class="text-xs font-bold uppercase tracking-[0.18em] text-accent">More services</p>
+          <TwoToneHeading
+            as="h2"
+            id="related-services-heading"
+            mode="plain"
+            text={`Other ${site.niche} services`}
+            class="mt-2 text-2xl sm:text-3xl"
+          />
+        </div>
+        <ul class:list={['mt-8 grid gap-4', relatedGrid.className]}>
+          {related.map((card) => (
+            <li class="flex">
+              <a
+                href={card.href}
+                class="group flex w-full flex-col rounded-lg border border-line bg-surface-raised p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-brand/40 hover:shadow-md"
+              >
+                <h3 class="font-display text-lg font-semibold text-ink group-hover:text-brand">
+                  {card.title}
+                </h3>
+                <p class="mt-2 grow text-sm leading-relaxed text-muted">{card.description}</p>
+                <span class="mt-4 text-sm font-semibold text-accent group-hover:underline">Learn more →</span>
+              </a>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </section>
+  )
+}
+
+<p class="section-surface-paper mx-auto max-w-3xl px-4 py-6 text-sm text-muted sm:px-6">
+  Serving {site.primaryCity}, {site.state} and nearby communities.
+</p>

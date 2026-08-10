@@ -27,10 +27,77 @@ import {
   readSerpCache,
 } from './lib/serp-cache.mjs';
 import { averageKeywordCpc, enrichClassifiedSerp } from './lib/serp-signals.mjs';
-import { buildResearchScoring, shouldAutoEnrich } from './lib/scoring.mjs';
+import { applyEnrichmentToScoring, buildResearchScoring, shouldAutoEnrich } from './lib/scoring.mjs';
 import { enrichResearchReport } from './lib/enrich.mjs';
 
 loadEnvFile();
+
+function normalizeSerpUrl(url) {
+  return String(url || '')
+    .trim()
+    .replace(/\/$/, '')
+    .toLowerCase();
+}
+
+/** Organic home + sub + directory landing URLs for enrichment staleness checks. */
+function serpUrlSet(serp) {
+  const urls = new Set();
+  for (const bucket of [
+    serp?.organicHomePages?.links,
+    serp?.organicSubPages?.links,
+    serp?.directories?.links,
+  ]) {
+    for (const link of bucket || []) {
+      const raw = typeof link === 'string' ? link : link?.url;
+      const key = normalizeSerpUrl(raw);
+      if (key) urls.add(key);
+    }
+  }
+  return urls;
+}
+
+function serpUrlSetsEqual(a, b) {
+  if (a.size !== b.size) return false;
+  for (const u of a) {
+    if (!b.has(u)) return false;
+  }
+  return true;
+}
+
+/**
+ * Never drop Stage 2 enrichment on Stage 1 rewrite. Mark stale when SERP URL set changes.
+ */
+function preservePriorEnrichment(report, priorResearch) {
+  const prior = priorResearch?.enrichment;
+  if (!prior || typeof prior !== 'object') return report;
+
+  const urlsChanged = !serpUrlSetsEqual(serpUrlSet(priorResearch.serp), serpUrlSet(report.serp));
+  const enrichment = {
+    ...prior,
+    stale: urlsChanged,
+    staleReason: urlsChanged ? 'serp_urls_changed' : null,
+    preservedFromStage1At: new Date().toISOString(),
+  };
+  if (!urlsChanged) {
+    delete enrichment.staleReason;
+    enrichment.stale = false;
+  }
+
+  report.enrichment = enrichment;
+  report.scoring = applyEnrichmentToScoring(report, enrichment);
+  report.scoreInputs = report.scoring.scoreInputs;
+  report.proposedScore = report.scoring.proposedScore;
+  report.decision = report.scoring.decision;
+
+  if (urlsChanged) {
+    console.error(
+      'Stage 1: kept prior enrichment but marked stale (SERP organic/directory URLs changed). Re-run Enrich when ready.',
+    );
+  } else {
+    console.error('Stage 1: preserved prior Stage 2 enrichment (SERP URLs unchanged).');
+  }
+  return report;
+}
 
 function usage() {
   console.log(`Usage (PowerShell-safe — prefer --config):
@@ -223,7 +290,7 @@ async function main() {
   let priorResearch = null;
 
   const outPath = args.out ? path.resolve(args.out) : '';
-  if (args.volumesOnly && outPath && existsSync(outPath)) {
+  if (outPath && existsSync(outPath)) {
     try {
       priorResearch = JSON.parse(readFileSync(outPath, 'utf8'));
     } catch {
@@ -279,19 +346,12 @@ async function main() {
     serp = classifySerpItems(serpRaw.items);
   }
 
-  if (!args.volumesOnly) {
-    serp = enrichClassifiedSerp(serp, {
-      niche,
-      itemTypes: serpRaw.itemTypes,
-      items: serpRaw.items || [],
-    });
-  } else if (!serp.mapPackReviews && (serpRaw.items || []).length) {
-    serp = enrichClassifiedSerp(serp, {
-      niche,
-      itemTypes: serpRaw.itemTypes,
-      items: serpRaw.items || [],
-    });
-  }
+  // Cheap local re-annotate (niche / Map Pack website / EMD) — no API cost.
+  serp = enrichClassifiedSerp(serp, {
+    niche,
+    itemTypes: serpRaw.itemTypes,
+    items: serpRaw.items || [],
+  });
   const nicheHomeCount =
     serp.organicHomePages?.nicheRelevantCount ?? serp.organicHomePages?.count ?? 0;
   const nicheDomainCount =
@@ -475,12 +535,18 @@ async function main() {
     }
   }
 
+  // Keep prior Stage 2 enrichment unless this run just fetched a fresh --enrich block.
+  if (!args.enrich && priorResearch?.enrichment) {
+    preservePriorEnrichment(report, priorResearch);
+    report.spreadsheetFields = buildSpreadsheetFields(report);
+  }
+
   const json = `${JSON.stringify(report, null, 2)}\n`;
   if (args.out) {
-    const outPath = path.resolve(args.out);
-    mkdirSync(path.dirname(outPath), { recursive: true });
-    writeFileSync(outPath, json, 'utf8');
-    console.error(`Wrote ${outPath}`);
+    const resolvedOut = path.resolve(args.out);
+    mkdirSync(path.dirname(resolvedOut), { recursive: true });
+    writeFileSync(resolvedOut, json, 'utf8');
+    console.error(`Wrote ${resolvedOut}`);
   }
   process.stdout.write(json);
   console.error(`Estimated DataForSEO cost this run: $${totalCost.toFixed(4)}`);

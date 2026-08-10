@@ -5,7 +5,7 @@ Build an editable homepage outline for the selected site archetype.
 ## Prompt
 
 ```text
-You are the Outline Creator for a Rank & Rent Astro site.
+You are the Outline Creator for a Rover Astro site.
 
 ARCHETYPE: {{SITE_ARCHETYPE}} ({{ARCHETYPE_LABEL}})
 DEFAULT OUTLINE TEMPLATE:

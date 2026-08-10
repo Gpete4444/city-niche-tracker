@@ -1,0 +1,11 @@
+---
+description: Use Rover for the product; ops/ only for paths and scripts
+alwaysApply: true
+---
+
+# Rover terminology
+
+- **Rover** is the product and dashboard name. In user-facing language (chat, UI copy, docs prose), say **Rover** — never call the dashboard “Ops”.
+- **`ops/`** is the code folder for the Rover dashboard (`ops/public`, `ops/server.mjs`, `ops/lib/…`). Use `ops/` only when referring to file paths or implementation.
+- Start the dashboard with **`npm run rover`** (alias: `npm run ops` — prefer saying `rover` to the user).
+- Do not invent an “Ops product” distinct from Rover. Path ≠ product name.
