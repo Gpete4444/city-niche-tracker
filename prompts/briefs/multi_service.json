@@ -121,7 +121,7 @@
     {
       "id": "areas",
       "level": "H2",
-      "heading": "Proudly Serving {city} & Nearby Areas",
+      "heading": "Proudly Serving {city} & Nearby Locations",
       "instructions": "Mention {city}, {state} and nearby locations from the brief suburb list. Short geo-relevance section.",
       "kind": "areas",
       "expandSuburbs": true

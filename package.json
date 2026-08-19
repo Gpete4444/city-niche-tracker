@@ -10,6 +10,7 @@
     "build": "astro build",
     "preview": "astro preview",
     "generate-map": "node scripts/generate-coverage-map.mjs",
+    "build-research-map": "node scripts/build-research-map-data.mjs",
     "research-candidate": "node scripts/research-candidate.mjs",
     "enrich-candidate": "node scripts/enrich-candidate.mjs",
     "prospect-renters": "node scripts/prospect-renters.mjs",
@@ -24,10 +25,14 @@
     "@tailwindcss/vite": "^4.3.3",
     "astro": "^7.1.6",
     "express": "^5.2.1",
-    "tailwindcss": "^4.3.3"
+    "tailwindcss": "^4.3.3",
+    "twilio": "^6.1.0"
   },
   "optionalDependencies": {
     "@emnapi/core": "1.11.3",
     "@emnapi/runtime": "1.11.3"
+  },
+  "devDependencies": {
+    "shpjs": "^6.2.0"
   }
 }

@@ -1,8 +1,8 @@
 # Launch button reference
 
-What **Run launch** does today in Rover → Content → Website builder (step **Launch**).
+What **Run launch** and **Push updates** do in Rover → Content → Website builder (step **Launch**).
 
-Broader assemble + deploy runbook: [ASSEMBLE-AND-LAUNCH.md](ASSEMBLE-AND-LAUNCH.md). Master pipeline: [MASTER-FLOW.md](MASTER-FLOW.md).
+Broader assemble + deploy runbook: [ASSEMBLE-AND-LAUNCH.md](ASSEMBLE-AND-LAUNCH.md). Master pipeline: [MASTER-FLOW.md](MASTER-FLOW.md). After go-live indexing (GSC, sitemap, Request indexing): [SITE-INDEXING.md](SITE-INDEXING.md).
 
 ---
 
@@ -10,9 +10,11 @@ Broader assemble + deploy runbook: [ASSEMBLE-AND-LAUNCH.md](ASSEMBLE-AND-LAUNCH.
 
 | Entry | How |
 | --- | --- |
-| Rover UI | Content → Website builder → **Run launch** (disabled until the candidate is assembled) |
+| Rover UI | Website → **Run launch** (first go-live: keys + optional ship + CF domain/email) |
+| Rover UI | Website → **Push updates** (already live: ship only — GitHub + build + Worker) |
 | CLI | `npm run launch-site -- <candidateId>` |
 | API | `POST /api/candidates/:id/launch` with JSON body (same fields as the UI) |
+| API | `POST /api/candidates/:id/ship` (ship only — what Push updates calls) |
 
 CLI flags:
 
@@ -24,6 +26,19 @@ npm run launch-site -- <candidateId> --turnstile --destination=you@gmail.com
 ```
 
 Related: `GET/POST /api/candidates/:id/ship` (ship only), `GET /api/candidates/:id/launch` (status, no secrets).
+
+**Push updates** appears when the candidate looks already live (`lastLaunchAt`, `lastShipAt`, `dnsDone`, `emailRoutingDone`, or `cloudflarePagesDone`). It does **not** patch NAP/Web3Forms or run Cloudflare Email Routing / custom domain. Re-assemble via **Prepare preview** before pushing template/content changes.
+
+### Live vs Rover freshness
+
+On the Launch step (already-live + assembled), a permanent status row sits **under** Push updates / Run launch / Launch status. It uses `GET /api/candidates/:id/ship-diff` with a solid indicator: green = matches GitHub, red = differs (Push), amber = checking / no remote / unknown.
+
+- Compares the assembled site tree to `origin/main` after `git fetch` (plus uncommitted porcelain)
+- **Refresh status** re-runs the check
+- **Show file differences** opens `--stat` + name-status paths before you decide to Push
+- Instant hint: `lastAssembleAt` vs `lastShipAt` (secondary to git)
+
+Statuses: `current` | `behind` | `no_remote` | `no_assembled` | `unknown`. Push is never hard-blocked when current.
 
 ---
 
@@ -38,9 +53,11 @@ Related: `GET/POST /api/candidates/:id/ship` (ship only), `GET /api/candidates/:
 | Web3Forms access key | From site-config | Written into site-config; marks `formsDone` when real (not placeholder) |
 | Turnstile site key | From site-config / optional | Written into site-config |
 | **Auto ship** (GitHub + build + Worker deploy) | **On** | GitHub create/push, `npm` build, Wrangler deploy, Workers Builds connect |
-| **Run Cloudflare domain / email API** | **On** | Zone lookup, Email Routing, custom domain attach |
+| **Run Cloudflare domain / email API** | **On** first go-live; **Off** when already live | Zone lookup, Email Routing, custom domain attach |
 | Create Turnstile widget | Off | Creates a CF Turnstile widget and writes the site key back |
 | Mark CF Worker project done | Off | Forces meta `cloudflarePagesDone` even without a successful deploy |
+
+When already live, **Push updates** is the primary button; **Run launch** remains available for key changes or intentional CF re-runs.
 
 ---
 
@@ -159,7 +176,8 @@ Launch result modal summarizes ship ok/partial, Cloudflare ok/partial, and forms
 1. **Buy the domain** and point nameservers at Cloudflare (zone must exist in the account)
 2. **Create** the Web3Forms form at [web3forms.com](https://web3forms.com) and paste the access key (no public create-form API)
 3. **Verify** Email Routing destination once when it is new (click link in Gmail)
-4. **One-time machine setup** (not per site):
+4. **Index the live site** — Search Console Domain property, submit `/sitemap.xml`, Request indexing on homepage + top service pages: [SITE-INDEXING.md](SITE-INDEXING.md)
+5. **One-time machine setup** (not per site):
    - `gh auth login`
    - `.env`: `GITHUB_OWNER`, `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN`, optional `WEB3FORMS_DEFAULT_NOTIFY_EMAIL`
    - Authorize Cloudflare Workers and Pages GitHub App once for push-to-rebuild

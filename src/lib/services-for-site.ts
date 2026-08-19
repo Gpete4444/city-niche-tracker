@@ -12,6 +12,10 @@ export type ServiceEntryLike = {
       src: string;
       alt: string;
     };
+    heroImage?: {
+      src: string;
+      alt: string;
+    };
   };
 };
 
@@ -35,6 +39,15 @@ function norm(s: string) {
   return String(s || '')
     .trim()
     .toLowerCase();
+}
+
+/** Prefer cardImage; fall back to hero when card art is missing (avoids empty chrome). */
+function pickServiceCardImage(e: ServiceEntryLike): ServiceCard['image'] | undefined {
+  const card = e.data.cardImage;
+  if (card?.src) return card;
+  const hero = e.data.heroImage;
+  if (hero?.src) return hero;
+  return undefined;
 }
 
 function byOrder<T extends ServiceEntryLike>(a: T, b: T) {
@@ -78,11 +91,15 @@ function cardsFromNames(
   names: string[] | undefined,
   site: SiteServices,
   limit?: number,
+  cityOverride?: string,
 ): ServiceCard[] {
   const list = names || [];
   const cap = limit != null ? limit : list.length;
   const sliceNames = list.slice(0, cap);
   if (!sliceNames.length) return [];
+  const city =
+    String(cityOverride || site.primaryCity || '')
+      .trim() || 'your area';
 
   const filtered = filterServicesByNames(entries, sliceNames);
   if (filtered.length) {
@@ -94,11 +111,12 @@ function cardsFromNames(
           id: e.id,
           title: e.data.serviceName,
           href: `/services/${e.id}`,
-          description: e.data.description || `${e.data.serviceName} serving ${site.primaryCity}.`,
-          image: e.data.cardImage,
+          description: cityOverride
+            ? `${e.data.serviceName} serving ${city} and nearby cities.`
+            : e.data.description || `${e.data.serviceName} serving ${city}.`,
+          image: pickServiceCardImage(e),
         };
       }
-      const city = String(site.primaryCity || '').trim() || 'your area';
       return {
         title: name,
         href: '/contact',
@@ -107,7 +125,6 @@ function cardsFromNames(
     });
   }
 
-  const city = String(site.primaryCity || '').trim() || 'your area';
   return sliceNames.map((name) => ({
     title: name,
     href: '/contact',
@@ -116,8 +133,12 @@ function cardsFromNames(
 }
 
 /** Fallback cards from site.services when no matching service Markdown exists. */
-export function serviceCardsFromSite(site: SiteServices, limit?: number): ServiceCard[] {
-  return cardsFromNames([], site.services, site, limit);
+export function serviceCardsFromSite(
+  site: SiteServices,
+  limit?: number,
+  cityOverride?: string,
+): ServiceCard[] {
+  return cardsFromNames([], site.services, site, limit, cityOverride);
 }
 
 /**
@@ -127,9 +148,10 @@ export function serviceCardsForSite<T extends ServiceEntryLike>(
   entries: T[],
   site: SiteServices,
   limit?: number,
+  cityOverride?: string,
 ): ServiceCard[] {
   const cap = limit ?? homepageServicesDisplayLimit(site as SiteConfig);
-  return cardsFromNames(entries, site.services, site, cap);
+  return cardsFromNames(entries, site.services, site, cap, cityOverride);
 }
 
 /** Commercial service cards (site.commercialServices). */
@@ -137,11 +159,12 @@ export function commercialServiceCardsForSite<T extends ServiceEntryLike>(
   entries: T[],
   site: SiteServices,
   limit?: number,
+  cityOverride?: string,
 ): ServiceCard[] {
   const names = site.commercialServices;
   if (!names?.length) return [];
   const cap = limit ?? homepageServicesDisplayLimit(site as SiteConfig);
-  return cardsFromNames(entries, names, site, cap);
+  return cardsFromNames(entries, names, site, cap, cityOverride);
 }
 
 /** All configured service names (residential + commercial) for prune/seed. */

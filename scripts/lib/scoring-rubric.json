@@ -17,7 +17,7 @@
   },
   "volumeMetric": {
     "field": "volumes.clusterVolumeSum",
-    "definition": "Sum of Google Ads Keyword Planner monthly volumes for the selected keyword set, measured per city geo that exists in Google Ads, then summed across the cluster. Not Gemini-style ranges on geo-suffixed phrases.",
+    "definition": "Sum of Google Ads Keyword Planner monthly volumes for the selected keyword set, measured per city geo that exists in Google Ads, then summed across the cluster. Not rough geo-phrase ranges on geo-suffixed phrases.",
     "interpretationNotes": [
       "primaryVolume = searches FROM the primary city geo, not searches about that city.",
       "clusterSum adds independent city geos; it does not double-count the same search.",

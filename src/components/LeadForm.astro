@@ -22,7 +22,7 @@ const hasPlaceholderKey =
   aria-labelledby="form-heading"
 >
   <div class:list={[!compact && 'mx-auto max-w-5xl px-4 py-12 sm:px-6 sm:py-16']}>
-    <div class="max-w-xl">
+    <div class:list={['max-w-xl', !compact && 'mx-auto text-center']}>
       <h2
         id="form-heading"
         class:list={[
@@ -38,7 +38,10 @@ const hasPlaceholderKey =
     </div>
 
     <form
-      class:list={['grid max-w-xl', compact ? 'mt-5 gap-3' : 'mt-8 gap-4']}
+      class:list={[
+        'grid max-w-xl',
+        compact ? 'mt-5 gap-3' : 'mx-auto mt-8 gap-4',
+      ]}
       action="https://api.web3forms.com/submit"
       method="POST"
     >
@@ -82,7 +85,7 @@ const hasPlaceholderKey =
           id="message"
           name="message"
           rows={compact ? 2 : 4}
-          placeholder="City, slab type, and anything we should know…"
+          placeholder="City, project details, anything we should know…"
           required={!compact}
         ></textarea>
       </div>

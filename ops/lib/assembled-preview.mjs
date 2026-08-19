@@ -258,7 +258,7 @@ export async function ensureAssembledPreview(
   const shouldRebuild = rebuild || contentNewerThanDist(abs);
   if (shouldRebuild) {
     try {
-      build = buildAssembledSite(abs);
+      build = buildAssembledSite(abs, { visualEdit: true });
     } catch (error) {
       return {
         ok: false,

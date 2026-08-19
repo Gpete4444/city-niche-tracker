@@ -5,12 +5,23 @@ import Hero from '../../components/Hero.astro';
 import LeadForm from '../../components/LeadForm.astro';
 import ServicePageSections from '../../components/ServicePageSections.astro';
 import { site } from '../../config/site';
-import { filterServicesForSite } from '../../lib/services-for-site';
+import {
+  allConfiguredServiceNames,
+  filterServicesByNames,
+} from '../../lib/services-for-site';
+import { parseServiceBody } from '../../lib/service-body';
 
 export async function getStaticPaths() {
   const services = await getCollection('services');
+  const allowed = new Set(
+    allConfiguredServiceNames(site).map((n) => n.trim().toLowerCase()),
+  );
   return services
     .filter((entry) => !entry.data.draft)
+    .filter((entry) => {
+      if (!allowed.size) return true;
+      return allowed.has(String(entry.data.serviceName || '').trim().toLowerCase());
+    })
     .map((entry) => ({
       params: { slug: entry.id },
       props: { entry },
@@ -18,14 +29,28 @@ export async function getStaticPaths() {
 }
 
 const { entry } = Astro.props;
-const allServices = filterServicesForSite(await getCollection('services'), site).filter(
-  (e) => !e.data.draft && e.id !== entry.id,
-);
-const related = allServices.slice(0, 4).map((e) => ({
+const allServices = filterServicesByNames(
+  await getCollection('services'),
+  allConfiguredServiceNames(site),
+).filter((e) => !e.data.draft && e.id !== entry.id);
+const related = allServices.slice(0, 3).map((e) => ({
   href: `/services/${e.id}`,
   title: e.data.serviceName,
   description: e.data.description,
+  image: e.data.cardImage?.src
+    ? e.data.cardImage
+    : e.data.heroImage?.src
+      ? e.data.heroImage
+      : undefined,
 }));
+
+const parsed = parseServiceBody(entry.body || '', {
+  h1: entry.data.h1,
+  title: entry.data.title,
+  serviceName: entry.data.serviceName,
+});
+const faqs = parsed.sections.find((s) => s.kind === 'faq')?.faqs || [];
+const ogImage = entry.data.heroImage?.src || entry.data.cardImage?.src;
 ---
 
 <BaseLayout
@@ -33,18 +58,25 @@ const related = allServices.slice(0, 4).map((e) => ({
   description={entry.data.description}
   pageType="service"
   serviceName={entry.data.serviceName}
+  ogImage={ogImage}
+  faqs={faqs}
 >
   <Hero
     h1={entry.data.h1}
     supporting={entry.data.description}
     image={entry.data.heroImage ?? entry.data.cardImage}
+    editFile={`src/content/services/${entry.id}.md`}
+    supportingKey="description"
   />
   <ServicePageSections
     body={entry.body || ''}
     h1={entry.data.h1}
     title={entry.data.title}
     serviceName={entry.data.serviceName}
+    materialsImages={entry.data.materialsImages || []}
+    processImages={entry.data.processImages || []}
     related={related}
+    editFile={`src/content/services/${entry.id}.md`}
   />
   <LeadForm heading={`Ask about ${entry.data.serviceName}`} />
 </BaseLayout>

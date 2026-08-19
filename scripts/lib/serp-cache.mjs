@@ -87,6 +87,8 @@ export function classifiedToResearchSerp(classified, { itemTypes = [], reusedFro
     uniqueNicheOrganicDomains: classified.uniqueNicheOrganicDomains || null,
     itemTypes: itemTypes.length ? itemTypes : classified.features?.itemTypes || [],
     paidAds: classified.paidAds || { count: 0, links: [] },
+    peopleAlsoAskQuestions: classified.peopleAlsoAskQuestions || [],
+    organicTitles: classified.organicTitles || [],
     ...(reusedFrom
       ? {
           reusedFromDiscovery: true,

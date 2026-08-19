@@ -19,6 +19,10 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { getCandidateDetail, pathsFor, saveMeta } from './candidates.mjs';
 import { loadAcceptedSiteConfig, sanitizeMarkdownImageFrontmatter } from './content-markdown.mjs';
+import {
+  ensureRoverSocialProofSeed,
+  ensureSocialProofOnSiteConfigFile,
+} from './content-social-proof.mjs';
 import { getStagingSummary } from './site-staging.mjs';
 import { stopAssembledPreviewSync } from './assembled-preview.mjs';
 
@@ -197,11 +201,48 @@ export function injectStagingIntoSite(siteRoot, stagingRoot) {
 }
 
 /**
- * Also pull live services/locations stubs into the site when staging is homepage-only.
- * Filters by site-config (service names + location state) so demo leftovers stay out.
+ * When staging supplied services/locations, drop leftover template demo MD that
+ * copyTemplateTree left behind (not in the injected set).
  */
-function syncLiveContentCollections(siteRoot, config) {
+function pruneUnstagedContentCollections(siteRoot, injectedRels = []) {
+  const pruned = [];
+  const injected = new Set(
+    (injectedRels || []).map((r) => String(r || '').replace(/\\/g, '/')),
+  );
+  const stagingHasServices = [...injected].some((r) => /^src\/content\/services\/.+\.md$/i.test(r));
+  const stagingHasLocations = [...injected].some((r) => /^src\/content\/locations\/.+\.md$/i.test(r));
+
+  const pruneDir = (bucket, enabled) => {
+    if (!enabled) return;
+    const dir = path.join(siteRoot, 'src', 'content', bucket);
+    if (!existsSync(dir)) return;
+    for (const name of readdirSync(dir)) {
+      if (!name.endsWith('.md') || name.startsWith('_')) continue;
+      const rel = `src/content/${bucket}/${name}`;
+      if (injected.has(rel)) continue;
+      rmSync(path.join(dir, name), { force: true });
+      pruned.push(rel);
+    }
+  };
+
+  pruneDir('services', stagingHasServices);
+  pruneDir('locations', stagingHasLocations);
+  return pruned;
+}
+
+/**
+ * Gap-fill services/locations from the template live tree when staging did not
+ * provide them (homepage-first). Never wipe or replace files already injected
+ * from staging — that undoes sanitized candidate content.
+ */
+function syncLiveContentCollections(siteRoot, config, injectedRels = []) {
   const synced = [];
+  const injected = new Set(
+    (injectedRels || []).map((r) => String(r || '').replace(/\\/g, '/')),
+  );
+  const stagingHasServices = [...injected].some((r) => /^src\/content\/services\/.+\.md$/i.test(r));
+  const stagingHasLocations = [...injected].some((r) => /^src\/content\/locations\/.+\.md$/i.test(r));
+
   const allowedServices = new Set(
     [...(config?.services || []), ...(config?.commercialServices || [])]
       .map((s) => String(s || '').trim().toLowerCase())
@@ -228,11 +269,19 @@ function syncLiveContentCollections(siteRoot, config) {
     }
   };
 
+  const writeSanitized = (from, to, rel) => {
+    const raw = readFileSync(from, 'utf8');
+    const cleaned = sanitizeMarkdownImageFrontmatter(raw);
+    mkdirSync(path.dirname(to), { recursive: true });
+    writeFileSync(to, cleaned.endsWith('\n') ? cleaned : `${cleaned}\n`, 'utf8');
+    synced.push(rel);
+  };
+
   const liveServices = path.join(ROOT, 'src', 'content', 'services');
   const destServices = path.join(siteRoot, 'src', 'content', 'services');
-  if (existsSync(liveServices)) {
+  if (existsSync(liveServices) && !stagingHasServices) {
     mkdirSync(destServices, { recursive: true });
-    // Clear copied demo services from template tree first
+    // Homepage-only: drop template demo services, then gap-fill allowed stubs
     for (const name of readdirSync(destServices)) {
       if (!name.endsWith('.md')) continue;
       rmSync(path.join(destServices, name), { force: true });
@@ -244,15 +293,16 @@ function syncLiveContentCollections(siteRoot, config) {
         const serviceName = readFm(from, 'serviceName');
         if (!serviceName || !allowedServices.has(serviceName.toLowerCase())) continue;
       }
-      const to = path.join(destServices, name);
-      cpSync(from, to);
-      synced.push(`src/content/services/${name}`);
+      const rel = `src/content/services/${name}`;
+      writeSanitized(from, path.join(destServices, name), rel);
     }
+  } else if (existsSync(liveServices) && stagingHasServices) {
+    // Full stage already injected services — do not pull template demos/stubs
   }
 
   const liveLocs = path.join(ROOT, 'src', 'content', 'locations');
   const destLocs = path.join(siteRoot, 'src', 'content', 'locations');
-  if (existsSync(liveLocs)) {
+  if (existsSync(liveLocs) && !stagingHasLocations) {
     mkdirSync(destLocs, { recursive: true });
     for (const name of readdirSync(destLocs)) {
       if (!name.endsWith('.md')) continue;
@@ -265,10 +315,11 @@ function syncLiveContentCollections(siteRoot, config) {
         const state = readFm(from, 'state');
         if (!state || state.toLowerCase() !== wantState) continue;
       }
-      const to = path.join(destLocs, name);
-      cpSync(from, to);
-      synced.push(`src/content/locations/${name}`);
+      const rel = `src/content/locations/${name}`;
+      writeSanitized(from, path.join(destLocs, name), rel);
     }
+  } else if (existsSync(liveLocs) && stagingHasLocations) {
+    // Full stage already injected locations — do not pull template demos/stubs
   }
   return synced;
 }
@@ -405,7 +456,32 @@ export function assembleSite(candidateId, { force = false, skipGit = false, site
   copyTemplateTree(siteRoot);
   const stagingRoot = pathsFor(candidateId).siteStaging;
   const injected = injectStagingIntoSite(siteRoot, stagingRoot);
-  const synced = syncLiveContentCollections(siteRoot, config);
+  const pruned = pruneUnstagedContentCollections(siteRoot, injected);
+  const synced = syncLiveContentCollections(siteRoot, config, injected);
+
+  // Replace Local homeowner trio (and empty socialProof) with Google-style reviews
+  const researchSeed = ensureRoverSocialProofSeed(candidateId, config);
+  const stagingCfg = path.join(stagingRoot, 'src', 'config', 'site-config.json');
+  const assembledCfg = path.join(siteRoot, 'src', 'config', 'site-config.json');
+  const stagingSeed = ensureSocialProofOnSiteConfigFile(stagingCfg, config);
+  const assembledSeed = ensureSocialProofOnSiteConfigFile(assembledCfg, config);
+  // Template already copies public/images/review-avatars/; ensure dir exists after overlay
+  const avatarsDir = path.join(siteRoot, 'public', 'images', 'review-avatars');
+  const templateAvatars = path.join(ROOT, 'public', 'images', 'review-avatars');
+  if (existsSync(templateAvatars) && !existsSync(avatarsDir)) {
+    mkdirSync(path.dirname(avatarsDir), { recursive: true });
+    cpSync(templateAvatars, avatarsDir, { recursive: true });
+  } else if (existsSync(templateAvatars)) {
+    // Gap-fill any missing avatar files
+    for (const name of readdirSync(templateAvatars)) {
+      const from = path.join(templateAvatars, name);
+      const to = path.join(avatarsDir, name);
+      if (!existsSync(to) && statSync(from).isFile()) {
+        mkdirSync(avatarsDir, { recursive: true });
+        cpSync(from, to);
+      }
+    }
+  }
 
   writeJson(path.join(siteRoot, 'wrangler.json'), {
     name: slug,
@@ -422,7 +498,13 @@ export function assembleSite(candidateId, { force = false, skipGit = false, site
     templateRemote: getTemplateRemoteInfo(),
     stagingPath: path.relative(ROOT, stagingRoot).replace(/\\/g, '/'),
     injected,
+    prunedDemos: pruned,
     syncedContent: synced,
+    socialProofSeed: {
+      research: researchSeed,
+      staging: stagingSeed,
+      assembled: assembledSeed,
+    },
     nextSteps: [
       `cd ${siteRoot}`,
       'npm install',
@@ -450,6 +532,7 @@ export function assembleSite(candidateId, { force = false, skipGit = false, site
     absoluteSiteRoot: siteRoot,
     slug,
     injected,
+    prunedDemos: pruned,
     syncedContent: synced,
     checklist: getAssembleChecklist(candidateId),
     candidate: getCandidateDetail(candidateId),

@@ -1,0 +1,211 @@
+{
+  "_comment": "Niche image Pull profiles. Auto-appended when Pull/Replace runs on an unmatched niche (operators need not edit). Advanced users may hand-tune boost/tokens/kindHints.",
+  "profiles": [
+    {
+      "id": "egress",
+      "match": "egress|window well|basement window",
+      "boost": ["basement egress window", "window well", "foundation basement"],
+      "tokens": ["egress", "basement", "window", "well", "foundation", "crawlspace"],
+      "kindHints": {
+        "hero": "finished basement egress window interior",
+        "process": "basement window well installation contractor",
+        "materials": "egress window well grate steel liner",
+        "other": "basement foundation window"
+      }
+    },
+    {
+      "id": "kitchen",
+      "match": "kitchen|cabinetr|cabinet|countertop|counter top",
+      "boost": ["kitchen remodel", "kitchen cabinets", "kitchen island"],
+      "tokens": ["kitchen", "cabinet", "countertop", "island", "remodel"],
+      "kindHints": {
+        "hero": "modern remodeled kitchen island",
+        "process": "kitchen cabinet install renovation",
+        "materials": "kitchen cabinet door quartz countertop close up",
+        "other": "kitchen interior renovation"
+      }
+    },
+    {
+      "id": "bath",
+      "match": "bath|shower|tub|vanity",
+      "boost": ["bathroom remodel", "bathroom renovation", "walk in shower"],
+      "tokens": ["bathroom", "shower", "tub", "tile", "vanity", "remodel"],
+      "kindHints": {
+        "hero": "finished bathroom remodel tile shower",
+        "process": "bathroom renovation demolition tile",
+        "materials": "bathroom tile fixture materials",
+        "other": "residential bathroom interior"
+      }
+    },
+    {
+      "id": "roof",
+      "match": "roof|roofing|shingle",
+      "boost": ["roof replacement", "asphalt shingles", "roofline house"],
+      "tokens": ["roof", "shingle", "roofing", "gutter"],
+      "kindHints": {
+        "hero": "new residential roof shingles exterior",
+        "process": "roofers installing shingles",
+        "materials": "asphalt roofing shingles close up",
+        "other": "house roof exterior"
+      }
+    },
+    {
+      "id": "hvac",
+      "match": "hvac|furnace|air condition|heat pump|duct",
+      "boost": ["HVAC installation", "furnace technician", "air conditioner outdoor"],
+      "tokens": ["hvac", "furnace", "air conditioner", "ductwork", "thermostat"],
+      "kindHints": {
+        "hero": "home HVAC system outdoor unit",
+        "process": "HVAC technician installing furnace",
+        "materials": "HVAC duct filter equipment",
+        "other": "residential mechanical HVAC"
+      }
+    },
+    {
+      "id": "plumbing",
+      "match": "plumb|water heater|faucet|\\bpex\\b|under.?sink",
+      "boost": ["plumbing repair", "plumber pipes", "water heater"],
+      "tokens": [
+        "plumbing",
+        "pipe",
+        "pipes",
+        "plumber",
+        "drain",
+        "faucet",
+        "underground",
+        "contractor",
+        "jobsite"
+      ],
+      "requireNicheHit": true,
+      "kindHints": {
+        "hero": "modern bathroom plumbing fixtures",
+        "process": "plumber working under sink pipes",
+        "materials": "copper PEX plumbing pipe fittings",
+        "other": "residential plumbing"
+      }
+    },
+    {
+      "id": "electrical",
+      "match": "electr|wiring|panel|outlet",
+      "boost": ["electrical panel", "electrician wiring", "home electrical"],
+      "tokens": ["electrical", "electrician", "wiring", "panel", "outlet"],
+      "kindHints": {
+        "hero": "home electrical panel upgrade",
+        "process": "electrician installing wiring",
+        "materials": "electrical wire outlet materials",
+        "other": "residential electrical work"
+      }
+    },
+    {
+      "id": "flooring",
+      "match": "floor|hardwood|laminate|vinyl plank|carpet",
+      "boost": ["hardwood flooring", "floor installation", "vinyl plank"],
+      "tokens": ["flooring", "hardwood", "laminate", "vinyl", "plank"],
+      "kindHints": {
+        "hero": "finished hardwood floor living room",
+        "process": "flooring installation contractor",
+        "materials": "hardwood flooring planks close up",
+        "other": "residential flooring"
+      }
+    },
+    {
+      "id": "paint",
+      "match": "paint|painter|interior paint",
+      "boost": ["interior house painting", "fresh painted walls"],
+      "tokens": ["paint", "painter", "walls", "brush", "roller"],
+      "kindHints": {
+        "hero": "freshly painted interior room",
+        "process": "painter rolling wall interior",
+        "materials": "paint cans brushes rollers",
+        "other": "residential interior paint"
+      }
+    },
+    {
+      "id": "landscape",
+      "match": "landscap|lawn|sod|irrigation",
+      "boost": ["residential landscaping", "lawn yard", "garden landscaping"],
+      "tokens": ["landscape", "lawn", "yard", "garden", "sod"],
+      "kindHints": {
+        "hero": "landscaped front yard residential",
+        "process": "landscapers installing sod",
+        "materials": "mulch plants landscaping materials",
+        "other": "home landscaping exterior"
+      }
+    },
+    {
+      "id": "garage-door",
+      "match": "garage door",
+      "boost": ["garage door installation", "residential garage door"],
+      "tokens": ["garage", "door", "opener"],
+      "kindHints": {
+        "hero": "modern residential garage door",
+        "process": "garage door installation",
+        "materials": "garage door panel hardware",
+        "other": "house garage exterior"
+      }
+    },
+    {
+      "id": "fence",
+      "match": "fence|fencing",
+      "boost": ["wood fence installation", "residential fence yard"],
+      "tokens": ["fence", "fencing", "yard", "privacy"],
+      "kindHints": {
+        "hero": "wood privacy fence backyard",
+        "process": "fence installation posts",
+        "materials": "fence boards posts materials",
+        "other": "residential fence"
+      }
+    },
+    {
+      "id": "concrete",
+      "match": "concrete|driveway|patio|sidewalk",
+      "boost": ["concrete driveway", "patio pour", "residential concrete"],
+      "tokens": ["concrete", "driveway", "patio", "slab"],
+      "kindHints": {
+        "hero": "finished concrete driveway house",
+        "process": "concrete pour finishing",
+        "materials": "concrete forms rebar",
+        "other": "residential concrete exterior"
+      }
+    },
+    {
+      "id": "solar",
+      "match": "solar|photovoltaic",
+      "boost": ["residential solar panels roof", "solar installation"],
+      "tokens": ["solar", "panels", "photovoltaic", "roof"],
+      "kindHints": {
+        "hero": "solar panels on house roof",
+        "process": "solar panel installation roof",
+        "materials": "solar panel module close up",
+        "other": "residential solar energy"
+      }
+    },
+    {
+      "id": "sewer",
+      "match": "sewer|trenchless|pipe.?lining|drain.?line|septic",
+      "boost": ["sewer line replacement", "trenchless sewer repair", "sewer pipe excavation"],
+      "tokens": [
+        "sewer",
+        "pipe",
+        "pipes",
+        "plumbing",
+        "trenchless",
+        "drain",
+        "excavation",
+        "underground",
+        "trench",
+        "contractor",
+        "jobsite",
+        "construction",
+        "inspection"
+      ],
+      "requireNicheHit": true,
+      "kindHints": {
+        "hero": "residential sewer line repair excavation",
+        "process": "sewer pipe trenchless installation contractor",
+        "materials": "sewer pipe liner CIPP materials",
+        "other": "underground sewer plumbing residential"
+      }
+    }
+  ]
+}

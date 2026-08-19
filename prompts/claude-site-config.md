@@ -20,14 +20,20 @@ Also provide:
 - Service radius miles (optional): {{RADIUS_MILES}}
 - Website type / siteArchetype: {{SITE_ARCHETYPE}}
   (multi_service = Type A multi-service local; single_service = Type B single-offer specialty)
+- Operator brand look (Colors & fonts in Rover) — use these brand hexes and fontTheme:
+  - paletteId: {{PALETTE_ID}} ({{PALETTE_LABEL}})
+  - primary: {{BRAND_PRIMARY}}
+  - accent: {{BRAND_ACCENT}}
+  - ink: {{BRAND_INK}}
+  - fontTheme: {{FONT_THEME}}
 
 Use from research/narrative when present:
 - niche → niche (exact string; do not synonym-swap)
 - city / primaryCity → primaryCity
 - state → state
 - suggestedServices → starting labels for services; expand to related residential offers
-- suggestedSuburbs → targetSuburbs (4–6)
-- coverageAreas = primary city + suggestedSuburbs, each with correct state (cross-state OK)
+- suggestedSuburbs → targetSuburbs (prefer 4–8; Website Builder Service area may widen coverageAreas and keep ≤8 SEO pages)
+- coverageAreas = primary city + service-area selections (map radius + toggles); each with correct state (cross-state OK)
 - localPainPoints may inform tagline wording only — do not invent stats
 - niche / keyword volumes (when present) → order services by expected search demand (highest first). Do NOT copy raw volume numbers into site-config.
 
@@ -38,20 +44,22 @@ Return ONLY valid JSON matching this schema. No markdown fences, no commentary b
 
 Rules:
 1. Treat SERP / competitor claims as draft research, not verified facts beyond what DataForSEO already measured.
-2. Omit "address" and "geo" unless I provide a real street NAP. Do not invent a street address.
-3. Omit or empty "socialProof" (rating, licenses, statistics, reviews) unless I provide verified owner data.
+2. Include "address" (street + zip) only when I provide a real street NAP — better for LocalBusiness schema. Never invent a street or postal code. Omit "geo" unless I provide coordinates.
+3. Omit "socialProof" unless I provide owner rating/licenses/reviews — Rover will seed defaults when empty. Do not invent review counts from SERP competitors.
 4. Prefer real municipalities for suburbs.
-5. "brand" hex colors: industrial/trades look. Avoid purple gradients and cream+terracotta clichés. Default OK:
-   primary #1C2B3A, accent #E8A317, ink #0F1720
+5. "brand" hex colors: use the operator Colors & fonts values above (primary/accent/ink + paletteId). Avoid purple gradients and cream+terracotta clichés.
+   Include "fontTheme": "{{FONT_THEME}}" on brand (operator-chosen; do not invent other font ids).
 6. Placeholders allowed: web3FormsAccessKey = "YOUR_WEB3FORMS_ACCESS_KEY", turnstileSiteKey = "".
 7. services = residential / primary list only. Order by expected search demand (highest first). multi_service: typically 6–12 related labels when volume supports it (hard max 12). single_service: usually 1 primary offer label.
 8. commercialServices (optional): when the niche commonly has commercial demand (roofing, concrete, HVAC, plumbing, etc.), add a shorter commercial list (also max 12, volume-ordered). Otherwise omit the field.
-9. homepageServicesLimit: integer 1–12 — how many “What we do” cards to show on the homepage. Independent of services.length (e.g. 10 service pages, homepageServicesLimit 6). When there are more than 6 services, prefer 6 unless the brief asks otherwise.
+9. homepageServicesLimit: integer 1–12 — how many “What we do” cards on the homepage. Prefer **6 (3×2)** or **8 (4×2)** for ~2 scrolls; independent of services.length (e.g. 10 service pages, homepageServicesLimit 8).
+10. tagline = ONE sentence used as the homepage hero supporting line (under H1). Pattern: niche/primary offer + primaryCity + 2–3 concrete offer terms + free-estimate cue. Aim ~140–160 characters. Do NOT write soft/generic lines (“specialized … for surrounding communities”). Do NOT make it multiple sentences or a paragraph.
+    Example: "Full kitchen and bathroom remodeling in Spanish Fork, UT — cabinetry, tile, walk-in showers. Free estimates."
 
 JSON shape:
 {
   "businessName": "string",
-  "tagline": "string (one sentence)",
+  "tagline": "string (one SEO-sharp sentence; see rule 10)",
   "domain": "string (no protocol)",
   "niche": "string",
   "primaryCity": "string",
@@ -67,11 +75,13 @@ JSON shape:
   "siteArchetype": "multi_service",
   "services": ["string"],
   "commercialServices": ["string"],
-  "homepageServicesLimit": 12,
+  "homepageServicesLimit": 8,
   "brand": {
-    "primary": "#1C2B3A",
-    "accent": "#E8A317",
-    "ink": "#0F1720"
+    "primary": "{{BRAND_PRIMARY}}",
+    "accent": "{{BRAND_ACCENT}}",
+    "ink": "{{BRAND_INK}}",
+    "paletteId": "{{PALETTE_ID}}",
+    "fontTheme": "{{FONT_THEME}}"
   },
   "socialProof": {
     "licenses": [],
@@ -91,5 +101,5 @@ Notes on siteArchetype:
 2. Verify city/suburb spelling and state borders.
 3. Replace phone, email, Web3Forms key before launch.
 4. Run `npm run generate-map` if `coverageAreas` changed.
-5. Do not fill `socialProof` until the renter supplies verified credentials/reviews.
+5. Replace `socialProof` with owner credentials/reviews before launch (Rover may seed defaults).
 6. Generate Markdown with [`claude-markdown.md`](claude-markdown.md) / ops Content agents.

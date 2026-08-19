@@ -1,7 +1,8 @@
 ---
-import { site, formatPhoneDisplay, phoneHref } from '../config/site';
+import { site, formatPhoneDisplay, phoneHref, socialProofHasTrustStrip } from '../config/site';
 import LeadForm from './LeadForm.astro';
 import TwoToneHeading from './TwoToneHeading.astro';
+import { ve } from '../lib/visual-edit';
 
 interface Props {
   h1: string;
@@ -12,6 +13,10 @@ interface Props {
     src: string;
     alt: string;
   };
+  /** Candidate markdown file for visual-edit bindings */
+  editFile?: string;
+  supportingKey?: 'tagline' | 'description';
+  heroSlotKey?: string;
 }
 
 const {
@@ -20,10 +25,24 @@ const {
   showCtas = true,
   showForm = false,
   image,
+  editFile,
+  supportingKey = 'tagline',
+  heroSlotKey = 'hero-1',
 } = Astro.props;
+
+const trustBits =
+  socialProofHasTrustStrip(site.socialProof)
+    ? [
+        ...(site.socialProof?.statistics ?? []).slice(0, 2).map((s) => `${s.value} ${s.label}`),
+        ...(site.socialProof?.licenses ?? []).slice(0, 1).map((l) => l.name),
+      ].slice(0, 3)
+    : [];
 ---
 
-<section class="relative overflow-hidden border-b border-line bg-gradient-to-br from-brand via-brand to-ink text-white">
+<section
+  class="relative overflow-hidden border-b border-line bg-gradient-to-br from-brand via-brand to-ink text-white"
+  data-section="hero"
+>
   {
     image && (
       <>
@@ -34,6 +53,17 @@ const {
           width="1800"
           height="1000"
           fetchpriority="high"
+          data-edit={
+            editFile
+              ? ve({
+                  type: 'image',
+                  file: editFile,
+                  key: 'heroImage',
+                  kind: 'image',
+                  slotKey: heroSlotKey,
+                })
+              : undefined
+          }
         />
         <div class="pointer-events-none absolute inset-0 bg-gradient-to-r from-ink/95 via-brand/85 to-ink/70" />
       </>
@@ -51,9 +81,19 @@ const {
     ]}
   >
     <div class="animate-rise">
-      <p class="mb-3 font-display text-sm font-bold uppercase tracking-[0.12em] text-accent sm:text-base">
+      <p
+        class="mb-3 font-display text-sm font-bold uppercase tracking-[0.12em] text-accent sm:text-base"
+        data-edit={ve({ type: 'config', key: 'businessName', kind: 'text' })}
+      >
         {site.businessName}
       </p>
+      <div
+        data-edit={
+          editFile
+            ? ve({ type: 'fm', file: editFile, key: 'h1', kind: 'heading' })
+            : undefined
+        }
+      >
       <TwoToneHeading
         as="h1"
         text={h1}
@@ -65,18 +105,47 @@ const {
         ]}
         class="max-w-3xl text-3xl leading-tight sm:text-5xl"
       />
-      <p class="mt-4 max-w-2xl text-base text-white/85 sm:text-lg">
+      </div>
+      <p
+        class="mt-4 max-w-2xl text-base text-white/85 sm:text-lg"
+        data-edit={
+          supportingKey === 'tagline'
+            ? ve({ type: 'config', key: 'tagline', kind: 'body' })
+            : editFile
+              ? ve({ type: 'fm', file: editFile, key: 'description', kind: 'body' })
+              : undefined
+        }
+      >
         {supporting}
       </p>
       {
+        trustBits.length > 0 && (
+          <ul class="mt-5 flex flex-wrap gap-x-5 gap-y-2 text-sm text-white/75">
+            {trustBits.map((bit) => (
+              <li class="flex items-center gap-2">
+                <span class="text-accent" aria-hidden="true">
+                  ✓
+                </span>
+                <span>{bit}</span>
+              </li>
+            ))}
+          </ul>
+        )
+      }
+      {
         showCtas && !showForm && (
           <div class="mt-7 flex flex-col gap-3 sm:flex-row sm:items-center">
-            <a href="#lead-form" class="btn-primary bg-accent shadow-lg shadow-black/20">
+            <a
+              href="#lead-form"
+              class="btn-primary bg-accent shadow-lg shadow-black/20"
+              data-edit={ve({ type: 'config', key: 'primaryCta', kind: 'text' })}
+            >
               {site.primaryCta}
             </a>
             <a
               href={phoneHref()}
               class="btn-secondary border-white/30 bg-white/10 text-white hover:bg-white/20"
+              data-edit={ve({ type: 'config', key: 'phone', kind: 'text' })}
             >
               Call {formatPhoneDisplay()}
             </a>
@@ -89,6 +158,7 @@ const {
             <a
               href={phoneHref()}
               class="btn-secondary border-white/30 bg-white/10 text-white hover:bg-white/20"
+              data-edit={ve({ type: 'config', key: 'phone', kind: 'text' })}
             >
               Call {formatPhoneDisplay()}
             </a>
@@ -96,8 +166,7 @@ const {
         )
       }
       <p class="mt-4 text-sm text-white/70">
-        Serving {site.primaryCity} and nearby communities
-        {site.serviceRadiusMiles ? ` within ${site.serviceRadiusMiles} miles` : ''}.
+        Serving {site.primaryCity} and nearby communities.
       </p>
     </div>
     {

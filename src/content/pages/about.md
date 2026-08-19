@@ -1,12 +1,14 @@
 ---
-title: "About Our Kitchen & Bathroom Remodeling Team | Spanish Fork, UT"
-description: "Learn about our approach to kitchen and bathroom remodeling in Spanish Fork, UT — craftsmanship, clear communication, and local commitment."
-h1: "About Our Kitchen & Bathroom Remodeling Team"
+title: "About Company Brand Name | Columbia, SC"
+description: "Company Brand Name provides Cabinet Refinishing & Remodeling for Columbia, SC homeowners, with written estimates and finishes suited to Midlands humidity."
+h1: "About Company Brand Name"
 ---
-We started this business around a simple idea: kitchens and bathrooms should work as well as they look. Too many remodels focus on surface-level style while ignoring the layout problems and material shortcuts that homeowners end up living with for years. Our approach is different — we spend time understanding how a space is actually used before we ever talk finishes.
+## About Company Brand Name — Columbia's Cabinet Refinishing Team
 
-Every project we take on in Spanish Fork and the surrounding Utah County area gets the same attention to detail, whether it's a single bathroom refresh or a full kitchen overhaul. We believe in transparent pricing, realistic timelines, and materials chosen for how they'll hold up — not just how they'll photograph.
+Company Brand Name focuses on one thing: cabinet refinishing, refacing, and remodeling for kitchens across Columbia, SC and the surrounding Midlands. Every project starts the same way — an in-home consultation where we measure the space, talk through color and finish options, and put together a written estimate before any work begins. Homeowners know the scope and price range up front, not after the job is underway.
 
-Being part of this community means our reputation is built one project at a time. We'd rather walk a homeowner through honest trade-offs than oversell a scope that doesn't fit their budget or timeline. If that approach sounds right for your project, we'd welcome the chance to talk it through.
+Columbia's warm, humid climate is part of how we choose materials. Cabinet finishes here take on more moisture stress than in drier regions, so we lean on catalyzed conversion varnishes and sprayed alkyd enamels that are built to resist swelling, peeling, and yellowing over time. That same approach carries into refacing and custom cabinetry work, where matching veneer and hardware need to hold up as well as they look on install day.
 
-[Get in touch](/contact) to schedule a free estimate for your kitchen or bathroom remodel.
+From first call to final walkthrough, homeowners can expect clear communication about timeline, masked-off work areas to contain dust and overspray, and a finished kitchen that matches what was discussed at the estimate. Company Brand Name is licensed and insured to work in South Carolina, with a 4.9-star average rating and more than 500 completed projects across Columbia and its suburbs.
+
+[Contact](/contact) us today for a free estimate, or explore our [Cabinet Refinishing](/services/cabinet-refinishing) and [Kitchen Cabinet Remodeling](/services/kitchen-cabinet-remodeling) services.

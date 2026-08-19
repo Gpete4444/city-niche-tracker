@@ -97,26 +97,22 @@ export function getCostPreview(candidateId, act) {
 
   if (act === 'research') {
     const lastCost = last.research ?? null;
-    const hasSerpCache = Boolean(config.serpCache);
     return {
       act,
       provider: 'dataforseo',
-      title: 'Run Stage 1 research?',
-      whatItDoes: hasSerpCache
-        ? 'Reuses Discovery organic SERP (Map Pack / organic counts) when the probe cache is fresh, then pulls Ads keyword volumes across the city cluster. Saves everything into the research file.'
-        : 'Looks up this niche on Google for your city, counts Map Pack / organic competitors, and pulls monthly search volumes for your keywords across the city cluster. Saves everything into the research file.',
+      title: 'Ad volumes?',
+      whatItDoes:
+        'Pulls Ads keyword search volumes and CPC across the city cluster into the research file.',
       estimateLabel: lastCost != null ? `Last run: ${formatUsd(lastCost)}` : formatRange(0.2, 1.5),
       estimateUsdLow: lastCost ?? 0.2,
       estimateUsdHigh: lastCost ?? 1.5,
       estimateDetail:
         lastCost != null
           ? 'Using your last Stage 1 cost for this candidate as the estimate.'
-          : hasSerpCache
-            ? `Typical Ads volume cost for ~${cityCount} cities and ~${related} related keywords (organic SERP reused from Discovery when cache ≤14 days). Actual depends on DataForSEO pricing.`
-            : `Typical range for ~${cityCount} cities and ~${related} related keywords. Actual cost depends on DataForSEO pricing.`,
+          : `Typical Ads volume cost for ~${cityCount} cities and ~${related} related keywords. Actual depends on DataForSEO pricing.`,
       willOverwrite,
       overwriteNote: willOverwrite
-        ? 'This candidate already has research. Running again replaces SERP, keywords, volumes, and scoring. Stage 1 rewrites the research file, so enrichment on that file is overwritten until you re-run Stage 2. Pass forceSerp / --force-serp to ignore Discovery SERP cache.'
+        ? 'This candidate already has research. Running again refreshes volumes (and SERP only if Force new SERP is on). Stage 2 Enrich stays on the file unless SERP URLs change (then marked stale).'
         : null,
       confirmLabel: lastCost != null ? `Run (est. ${formatUsd(lastCost)})` : 'Run (est. $0.20–$1.50)',
     };
@@ -276,12 +272,14 @@ export function getBatchCostPreview(candidateIds = [], act) {
     }
   }
   const provider = previews[0]?.provider || (act === 'narrative' ? 'anthropic' : 'dataforseo');
+  const actTitle =
+    act === 'research' ? 'Ad volumes' : act === 'enrich' ? 'enrich' : act;
   return {
     act,
     provider,
     count: ids.length,
     runnable: previews.length,
-    title: `Batch ${act} on ${ids.length}?`,
+    title: `Batch ${actTitle} on ${ids.length}?`,
     estimateUsdLow: Number(low.toFixed(4)),
     estimateUsdHigh: Number(high.toFixed(4)),
     estimateLabel:

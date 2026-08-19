@@ -25,23 +25,56 @@ Items intentionally deferred. Do not block shipping on these.
 - **SERP** (Stage 1 + Discovery probe): primary city only — no UI choice for multi-city SERP
 - **Volumes** (Stage 1): multi-geo — primary + config `cluster` (from Discovery `suggested_suburbs`); Ads Planner volumes summed across those geos
 - **Discovery Pack:** no distance/radius filter in New pack (state, pop, seasonality, tiers, Map Pack preference, niches/cities)
-- **Site Config `radiusMiles`:** website service-area copy only — not SERP targeting
-- **Candidates Est. Volume:** Stage 1 DFS Ads cluster sum (not Discovery Gemini); Discovery table Est. Volume remains Gemini
+- **Website Builder Service area:** radius slider + map selects **coverageAreas** (customer trust / Areas SVG); **targetSuburbs** stay Claude-first ≤8 SEO location pages. Requires `npm run build-research-map`. Radius shrink drops cities outside the circle (center kept).
+- **Discovery Pack Use Map:** same shared map beside Cities (`Use Map` / `Done`) fills the pack Cities field from the discovery table panel.
+- **Site Config `radiusMiles` / `serviceRadiusMiles`:** set on the Service area map (NAP field is a default seed only)
 
-**Later analysis should cover:** single vs multi-city SERP option; whether a distance-from-primary Discovery filter should return; how cluster cities are chosen vs measured; UX to surface “SERP @ primary / volumes @ N cities”.
+**Later analysis should cover:** single vs multi-city SERP option; how cluster cities are chosen vs measured for Ads volumes; UX to surface “SERP @ primary / volumes @ N cities”.
+
+**Not the same as** the interactive research Map tab (below) — that is geography/population UI; this section is SERP/volume/geo targeting analysis.
+
+## Interactive research Map tab (Discovery + Candidates)
+
+**Status:** Shipped in Rover (operator Map tab). Rebuild GeoJSON after Census updates: `npm run build-research-map`.
+
+**Scope (delivered):**
+
+- New Rover top nav **Map** tab — full-bleed (no Discovery/Candidates sidebars)
+- City + county boundary layers, independent on/off, overlay when both on
+- Zoom in/out; readable **name + population** on the map (declutter at low zoom)
+- Live min/max population filter (defaults 5k–500k)
+- State `<select>` + City autofill + **Show** to zoom
+- Candidates table **Map** column (separate from Map Pack) → open Map zoomed to row city
+- Operator-only — **not** the visitor coverage SVG (`generate-coverage-map`)
+
+**Data:**
+
+- Place pop: `data/census/SUB-IP-EST2025-POP.csv` (incorporated) + `data/census/acs5-place-pop.csv` (ACS 5-year B01003 place totals by GEOID — CDPs / gap-fill; built from Census summary-file FTP, no API key; SUB-IP wins on name+state)
+- County pop: `data/census/co-est2025-alldata.csv` (`SUMLEV=050`, `POPESTIMATE2025`, FIPS → shapefile `GEOID`)
+- Boundaries: Census cartographic Places + Counties 500k (`cb_2025_us_place_500k`, `cb_2025_us_county_500k`) — copy from Downloads into `data/census/boundaries/` on build, join, serve as GeoJSON
+- **Build:** `npm run build-research-map` → `data/census/map/{places,counties}.geojson` (gitignored; rebuild after Census updates). Set `FORCE_ACS_REFRESH=1` to re-download ACS place pops.
+
+**Shipped (Rover Map tab):** full-bleed Map nav; native state select; city suggest; pop filter (default 5k–500k); Show zoom (auto-widens filter); Candidates Map column; Leaflet + `/api/map/*`; CDPs via ACS GEOID join.
 
 ## Images pipeline
 
+**Rule:** All image fixes must harden the pipeline for current and future candidates (see `.cursor/rules/pipeline-forever.mdc`) — not one-off assembled-site patches.
+
 **When:** A site is near launch and needs real visuals.
 
-**Scope (later):**
+**Done (remainder):**
 
-- Replace Unsplash demos in `public/images/` with niche-appropriate hero / card / gallery assets
-- Writer/Editor prompts: only emit `heroImage` / `cardImage` / `featureImage` / `gallery` when files exist
+- Phase 1: niche-aware stock Pull scoring + Writer/Editor omit image FM unless files exist (incl. nested `process[].image`)
+- Phase 2: Rover Website per-slot review (Re-pull / Upload) for launch-ready swaps
 - Keep `npm run generate-map` for coverage SVG ([README](../README.md))
-- No generative-image ops pipeline unless we explicitly add one
 
-**Today:** Manual drop-in under `public/images/` + frontmatter `src`/`alt` (see README “Optional images”).
+**Shipped:**
+
+- Stock **Pull images** (Unsplash/Pexels) for Structure photo slots (niche query map + description/tag scoring)
+- Per-slot **Re-pull** / **Upload** on Website → Images
+- **ChatGPT before/after (browser prompts):** Website → copy niche prompts → import into `gallery`
+- Manual drop-in under `public/images/` + frontmatter `src`/`alt` (see README “Optional images”)
+- Omit missing image FM (top-level + gallery/materials + nested `process[].image`); optional `site-images` roots on Stage
 
 ## Template design / layout polish
 
@@ -70,8 +103,9 @@ Items intentionally deferred. Do not block shipping on these.
 | Discovery → site-config → content → Website (stage/assemble/launch) | Working |
 | Assemble auto build + optional auto-ship + assembled preview :4322 | Working |
 | CF domain / Email Routing / forms Launch helpers | Working (Rover Launch; Web3Forms key still paste) |
-| Images / design / Ippei SEO compare | Parked here |
+| Images / design / Ippei SEO compare | Images pipeline remainder done (Pull scoring + omit FM + slot Re-pull/Upload); design polish + Ippei compare still parked |
 | City cluster / SERP / distance | Parked above |
+| Interactive research Map tab | Done (Rover Map tab; rebuild GeoJSON with `npm run build-research-map`) |
 | Phase 5a named groups | Done |
 | Phases 5b Rover UX | Parked above |
 | Phase 6 Content Structure (outline-first) | Done |

@@ -20,6 +20,23 @@ import {
   tipAttr,
   yesNoHtml,
 } from './metrics.js';
+import { openVisualEditor } from './visual-editor.js';
+import {
+  ensureResearchMapReady,
+  invalidateResearchMapSize,
+  openResearchMap,
+} from './research-map.js?v=20260818map1';
+import {
+  mountServiceAreaMap,
+  mountDiscoveryCitiesMap,
+  setServiceAreaTableMode,
+  setDiscoveryTableMapMode,
+} from './service-area-map.js?v=20260818disc5';
+
+/** @type {{ destroy: () => void, invalidateSize?: () => void } | null} */
+let serviceAreaMount = null;
+/** @type {{ destroy: () => void, invalidateSize?: () => void } | null} */
+let discoveryCitiesMount = null;
 
 /** Set large ops tooltip; strips native title to avoid double tips. */
 function setElementTip(el, text) {
@@ -63,8 +80,49 @@ const FALLBACK_PALETTES = [
   },
 ];
 
+/** Keep in sync with scripts/lib/site-fonts.mjs */
+const FALLBACK_FONT_THEMES = [
+  {
+    id: 'archivo-source',
+    label: 'Default',
+    tip: 'Condensed trades headlines + clear humanist body (current Rover)',
+    displayFamily: 'Archivo',
+    bodyFamily: 'Source Sans 3',
+    displayStack: '"Archivo", "Avenir Next Condensed", ui-sans-serif, system-ui, sans-serif',
+    bodyStack: '"Source Sans 3", "Source Sans Pro", ui-sans-serif, system-ui, sans-serif',
+    googleHref:
+      'https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=Source+Sans+3:wght@400;600;700&display=swap',
+  },
+  {
+    id: 'playfair-dm',
+    label: 'Fancy',
+    tip: 'Editorial serif display + clean geometric body',
+    displayFamily: 'Playfair Display',
+    bodyFamily: 'DM Sans',
+    displayStack: '"Playfair Display", "Times New Roman", Georgia, serif',
+    bodyStack: '"DM Sans", "Helvetica Neue", ui-sans-serif, system-ui, sans-serif',
+    googleHref:
+      'https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=Playfair+Display:ital,wght@0,600;0,700;1,600&display=swap',
+  },
+  {
+    id: 'outfit-nunito',
+    label: 'Friendly',
+    tip: 'Warm modern display + soft readable body',
+    displayFamily: 'Outfit',
+    bodyFamily: 'Nunito Sans',
+    displayStack: '"Outfit", "Avenir Next", ui-sans-serif, system-ui, sans-serif',
+    bodyStack: '"Nunito Sans", "Segoe UI", ui-sans-serif, system-ui, sans-serif',
+    googleHref:
+      'https://fonts.googleapis.com/css2?family=Nunito+Sans:ital,opsz,wght@0,6..12,400;0,6..12,600;0,6..12,700;1,6..12,400&family=Outfit:wght@600;700;800&display=swap',
+  },
+];
+
 function getPalettes() {
   return state.palettes?.length ? state.palettes : FALLBACK_PALETTES;
+}
+
+function getFontThemes() {
+  return state.fontThemes?.length ? state.fontThemes : FALLBACK_FONT_THEMES;
 }
 
 function matchPaletteId(brand = {}) {
@@ -133,6 +191,57 @@ async function ensurePalettes() {
   return state.palettes;
 }
 
+async function ensureFontThemes() {
+  if (state.fontThemes?.length) return state.fontThemes;
+  try {
+    const data = await api('/api/font-themes');
+    state.fontThemes = data.themes || FALLBACK_FONT_THEMES;
+  } catch {
+    state.fontThemes = FALLBACK_FONT_THEMES;
+  }
+  return state.fontThemes;
+}
+
+function ensureSiteFontSampleStyles() {
+  if (document.getElementById('rover-font-theme-samples')) return;
+  const themes = getFontThemes();
+  const hrefs = [...new Set(themes.map((t) => t.googleHref).filter(Boolean))];
+  hrefs.forEach((href, i) => {
+    const link = document.createElement('link');
+    link.rel = 'stylesheet';
+    link.href = href;
+    link.id = i === 0 ? 'rover-font-theme-samples' : `rover-font-theme-samples-${i}`;
+    document.head.appendChild(link);
+  });
+}
+
+function matchFontThemeId(brand = {}) {
+  const id = String(brand.fontTheme || '').trim();
+  if (id && getFontThemes().some((t) => t.id === id)) return id;
+  return 'archivo-source';
+}
+
+function fontThemeCardsHtml(brand = {}, businessName = '') {
+  const current = matchFontThemeId(brand);
+  const name = String(businessName || 'Your Business').trim() || 'Your Business';
+  return `<div class="font-theme-cards" role="radiogroup" aria-label="Text font">
+    ${getFontThemes()
+      .map((t) => {
+        const on = t.id === current ? 'on' : '';
+        return `<button type="button" class="font-theme-card ${on}" data-font-theme="${esc(t.id)}" role="radio" aria-checked="${
+          t.id === current ? 'true' : 'false'
+        }" data-tip="${esc(t.tip || t.label)}">
+          <span class="font-theme-card-label">${esc(t.label)}</span>
+          <span class="font-theme-card-sample-display" style="font-family:${esc(t.displayStack)}">Aa</span>
+          <span class="font-theme-card-sample-name" style="font-family:${esc(t.displayStack)}">${esc(name)}</span>
+          <span class="font-theme-card-sample-body" style="font-family:${esc(t.bodyStack)}">Clear body text for forms, FAQs, and trust copy.</span>
+          <span class="font-theme-card-meta muted">${esc(t.displayFamily)} · ${esc(t.bodyFamily)}</span>
+        </button>`;
+      })
+      .join('')}
+  </div>`;
+}
+
 function hideOpsTooltip() {
   const tip = document.getElementById('ops-tooltip');
   if (!tip) return;
@@ -175,6 +284,8 @@ function showOpsTooltip(anchorEl, clientX, clientY) {
     hideOpsTooltip();
     return;
   }
+  // Avoid native browser tooltip stacking with #ops-tooltip
+  anchorEl.removeAttribute('title');
   tip.textContent = text;
   tip.classList.remove('hidden');
   // Measure after show, then place
@@ -216,6 +327,16 @@ function wireOpsTooltips() {
   });
   window.addEventListener('scroll', hideOpsTooltip, true);
   window.addEventListener('resize', hideOpsTooltip);
+  document.addEventListener(
+    'click',
+    (event) => {
+      const tip = event.target?.closest?.('summary .tip-info');
+      if (!tip) return;
+      event.preventDefault();
+      event.stopPropagation();
+    },
+    true,
+  );
 }
 
 const state = {
@@ -227,12 +348,39 @@ const state = {
   candidateStageFilter: '',
   candidateBatchFilter: '',
   candidateGroupFilter: '',
+  candidateVisibilityFilter: 'active',
   candidateTextFilter: '',
   candidateGroups: [],
+  archivedCount: 0,
   candidateSort: { key: 'proposedScore', dir: -1 },
   detail: null,
   contentOpenStep: null,
   websiteOpenStep: null,
+  siteConfigOpenStep: null,
+  contentFollowCurrent: undefined,
+  websiteFollowCurrent: undefined,
+  siteConfigFollowCurrent: undefined,
+  view: 'discovery',
+  /** @type {'research'|'website-builder'|null} shell mode when on candidates layout */
+  pipelineMode: null,
+  contentSoftCurrent: null,
+  websiteSoftCurrent: null,
+  siteConfigSoftCurrent: null,
+  contentSoftDone: {},
+  websiteSoftDone: {},
+  siteConfigSoftDone: {},
+  /** @type {Record<string, boolean>} candidateId → Twilio ranking number provisioned */
+  sitePhoneProvisioned: {},
+  phone: {
+    sites: [],
+    calls: [],
+    stats: null,
+    selectedSiteId: null,
+    selectedCallId: null,
+    filterText: '',
+    filterPhase: '',
+  },
+  imageMatchFilter: 'all',
   multiQueue: false,
   lastBatchJob: null,
   tab: 'overview',
@@ -245,7 +393,6 @@ const state = {
   health: null,
   dfsBalance: null,
   balanceTimer: null,
-  view: 'discovery',
   discoveryPresets: null,
   discoveryBatches: [],
   discoveryBatchId: null,
@@ -254,6 +401,7 @@ const state = {
   discoverySort: { key: null, dir: 1 },
   discoveryFilters: { text: '', human: '', rec: '', mapPack: '' },
   lastDiscoveryPack: null,
+  discoveryClaudeSent: false,
   sites: [],
   siteStatuses: [],
   sitePaymentMethods: [],
@@ -291,6 +439,8 @@ async function api(path, options = {}) {
     if (data.placeholders) err.placeholders = data.placeholders;
     if (data.check) err.check = data.check;
     if (data.contract) err.contract = data.contract;
+    if (data.seoLint) err.seoLint = data.seoLint;
+    if (data.speechLint) err.speechLint = data.speechLint;
     throw err;
   }
   return data;
@@ -361,6 +511,25 @@ function showModal({
   });
 }
 
+/** Non-blocking status — prefer over dismiss-only OK modals on happy paths. */
+function showToast(message, { tone = 'ok', ms = 4200 } = {}) {
+  let el = document.getElementById('ops-toast');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'ops-toast';
+    el.className = 'ops-toast';
+    el.setAttribute('role', 'status');
+    document.body.appendChild(el);
+  }
+  el.textContent = String(message || '').trim();
+  el.classList.remove('hidden', 'tone-ok', 'tone-warn', 'tone-err');
+  el.classList.add(`tone-${tone === 'warn' ? 'warn' : tone === 'err' ? 'err' : 'ok'}`);
+  clearTimeout(showToast._timer);
+  showToast._timer = setTimeout(() => {
+    el.classList.add('hidden');
+  }, ms);
+}
+
 function slugifyPreviewName(name) {
   return String(name || '')
     .toLowerCase()
@@ -387,6 +556,110 @@ function structurePageIdsFromDetail(d) {
   const fromStructure = d?.contentStructure?.pages;
   if (Array.isArray(fromStructure) && fromStructure.length) return fromStructure;
   return ['home', 'about', 'contact'];
+}
+
+/** Expected ### FILE paths for Accept given outline + site-config */
+function expectedDraftFilesFromDetail(d) {
+  const pages = new Set(structurePageIdsFromDetail(d));
+  const cfg = d?.siteConfig || {};
+  const files = [];
+  if (pages.has('home')) files.push('src/content/pages/index.md');
+  if (pages.has('about')) files.push('src/content/pages/about.md');
+  if (pages.has('contact')) files.push('src/content/pages/contact.md');
+  if (pages.has('services')) {
+    for (const name of [...(cfg.services || []), ...(cfg.commercialServices || [])]) {
+      const slug = slugifyPreviewName(name);
+      if (slug) files.push(`src/content/services/${slug}.md`);
+    }
+  }
+  if (pages.has('locations')) {
+    for (const name of cfg.targetSuburbs || []) {
+      const slug = slugifyPreviewName(name);
+      if (slug) files.push(`src/content/locations/${slug}.md`);
+    }
+  }
+  return files;
+}
+
+function shortDraftPath(path) {
+  return String(path || '')
+    .replace(/^src\/content\//, '')
+    .trim();
+}
+
+function missingDraftFilesListHtml(missing, { limit = 0 } = {}) {
+  const list = Array.isArray(missing) ? missing : [];
+  if (!list.length) return '';
+  const show = limit > 0 ? list.slice(0, limit) : list;
+  const items = show
+    .map((f) => `<li><code>${esc(shortDraftPath(f))}</code></li>`)
+    .join('');
+  const more =
+    limit > 0 && list.length > limit
+      ? `<li class="muted">+${esc(String(list.length - limit))} more</li>`
+      : '';
+  return `<ul class="narrative-list" style="margin:0.35rem 0 0">${items}${more}</ul>`;
+}
+
+/** Shared incomplete-draft copy for modal + Content callouts */
+function incompleteDraftExplainHtml({ have, expectedCount, missing, compact = false }) {
+  const miss = Array.isArray(missing) ? missing : [];
+  if (!miss.length) return '';
+  const haveN = Number(have) || 0;
+  const expN = Number(expectedCount) || haveN + miss.length;
+  const progress = `<strong>Loaded ${esc(String(haveN))} of ${esc(String(expN))} required files.</strong>`;
+  const howTo = `<ol class="narrative-list" style="margin:0.4rem 0 0;padding-left:1.25rem">
+      <li>Stay on <strong>Content → Full write</strong> (do not Accept yet).</li>
+      <li>In Claude.ai, ask it to <strong>continue</strong> with the remaining pages as more <code>### FILE:</code> blocks.</li>
+      <li>Copy those new blocks → paste into <strong>Paste FILE blocks</strong>.</li>
+      <li>Click <strong>Load FILE blocks as draft</strong> again (Rover merges; the count should rise).</li>
+      <li>Repeat until every required file is loaded, then <strong>Accept</strong> (Speech/SEO Refinement runs on complete Load).</li>
+    </ol>`;
+  const gate = `<p style="margin:0.35rem 0 0"><strong>Does this block you?</strong> Not on Content — you can keep loading chunks. You need all files before <strong>Accept</strong> / <strong>Prepare preview</strong> for a full site.</p>`;
+  if (compact) {
+    return `<div class="callout warn">
+      <p style="margin:0">${progress} Missing ${esc(String(miss.length))} file(s).</p>
+      ${gate}
+      <p style="margin:0.35rem 0 0"><strong>How to finish</strong></p>
+      ${howTo}
+      ${missingDraftFilesListHtml(miss, { limit: 8 })}
+    </div>`;
+  }
+  return `<div class="callout warn">
+      <p style="margin:0 0 0.35rem">${progress} Claude often returns pages in chunks — that is OK.</p>
+      ${gate}
+      <p style="margin:0.5rem 0 0"><strong>How to finish</strong></p>
+      ${howTo}
+      <details class="narrative-raw" style="margin-top:0.5rem">
+        <summary>Missing files (${esc(String(miss.length))})</summary>
+        ${missingDraftFilesListHtml(miss)}
+      </details>
+    </div>`;
+}
+
+function incompleteDraftCalloutHtml(d) {
+  if (!d?.contentDraft?.files && !d?.contentDraft?._ops?.fileList?.length) return '';
+  const expected = expectedDraftFilesFromDetail(d);
+  if (!expected.length) return '';
+  const pages = structurePageIdsFromDetail(d);
+  const needsFull =
+    pages.includes('about') ||
+    pages.includes('contact') ||
+    pages.includes('services') ||
+    pages.includes('locations');
+  if (!needsFull) return '';
+  const have = new Set(
+    d?.contentDraft?._ops?.fileList ||
+      (d?.contentDraft?.files ? Object.keys(d.contentDraft.files) : []),
+  );
+  const missing = expected.filter((f) => !have.has(f));
+  if (!missing.length) return '';
+  return incompleteDraftExplainHtml({
+    have: have.size,
+    expectedCount: expected.length,
+    missing,
+    compact: true,
+  });
 }
 
 function previewSitemapEntries(d, baseUrl = 'http://127.0.0.1:4322') {
@@ -438,39 +711,60 @@ async function loadHealth() {
   state.health = await api('/api/health');
   const h = state.health;
   const hostEl = document.getElementById('settings-host');
-  const dfsEl = document.getElementById('settings-dfs');
-  const anthEl = document.getElementById('settings-anthropic');
+  const connEl = document.getElementById('settings-connections');
+  const listEl = document.getElementById('settings-connections-list');
   if (hostEl) {
     hostEl.textContent =
       h.host && h.port != null ? `${h.host}:${h.port}` : h.host || '127.0.0.1';
   }
-  if (dfsEl) dfsEl.textContent = h.hasDataForSeo ? 'ok' : 'missing';
-  if (anthEl) {
-    anthEl.textContent = h.hasAnthropic
-      ? `ok · ${h.model || '—'}`
-      : `missing · ${h.model || '—'}`;
+  const c = h.connections || {};
+  const total = Number(c.total) || 0;
+  const ok = Number(c.ok) || 0;
+  if (connEl) connEl.textContent = total ? `${ok}/${total}` : '—';
+  if (listEl) {
+    const items = Array.isArray(c.items) ? c.items : [];
+    listEl.innerHTML = items
+      .map((item) => {
+        const good = Boolean(item.ok);
+        const mark = good ? '✓' : '✕';
+        const cls = good ? 'settings-conn-ok' : 'settings-conn-bad';
+        return `<div class="settings-conn-item">
+          <span class="settings-conn-name">${esc(item.name || '')}</span>
+          <span class="${cls}" aria-label="${good ? 'configured' : 'missing'}">${mark}</span>
+        </div>`;
+      })
+      .join('');
   }
+}
+
+function normalizeThemeId(raw) {
+  if (raw === 'dark') return '4';
+  if (raw === 'light') return '1';
+  const id = String(raw || '').trim();
+  return /^[1-6]$/.test(id) ? id : '1';
 }
 
 function getTheme() {
   try {
-    return localStorage.getItem('ops.theme') === 'dark' ? 'dark' : 'light';
+    return normalizeThemeId(localStorage.getItem('ops.theme'));
   } catch {
-    return 'light';
+    return '1';
   }
 }
 
 function applyTheme(theme) {
-  const next = theme === 'dark' ? 'dark' : 'light';
-  if (next === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
-  else document.documentElement.removeAttribute('data-theme');
+  const next = normalizeThemeId(theme);
+  document.documentElement.setAttribute('data-theme', next);
   try {
     localStorage.setItem('ops.theme', next);
   } catch {
     /* ignore */
   }
-  const toggle = document.getElementById('theme-toggle');
-  if (toggle) toggle.checked = next === 'dark';
+  document.querySelectorAll('[data-theme-pick]').forEach((btn) => {
+    const on = btn.getAttribute('data-theme-pick') === next;
+    btn.classList.toggle('is-active', on);
+    btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+  });
   return next;
 }
 
@@ -479,12 +773,12 @@ function closeSettingsMenu() {
   const btn = document.getElementById('settings-btn');
   if (menu) menu.classList.add('hidden');
   if (btn) btn.setAttribute('aria-expanded', 'false');
+  hideOpsTooltip();
 }
 
 function wireSettingsUi() {
   const btn = document.getElementById('settings-btn');
   const menu = document.getElementById('settings-menu');
-  const toggle = document.getElementById('theme-toggle');
   if (!btn || !menu) return;
 
   applyTheme(getTheme());
@@ -493,6 +787,7 @@ function wireSettingsUi() {
     event.stopPropagation();
     const open = menu.classList.contains('hidden');
     if (open) {
+      hideOpsTooltip();
       menu.classList.remove('hidden');
       btn.setAttribute('aria-expanded', 'true');
     } else {
@@ -500,15 +795,30 @@ function wireSettingsUi() {
     }
   });
 
+  const connToggle = document.getElementById('settings-connections-toggle');
+  const connList = document.getElementById('settings-connections-list');
+  connToggle?.addEventListener('click', (event) => {
+    event.stopPropagation();
+    if (!connList) return;
+    const willOpen = connList.classList.contains('hidden') || connList.hidden;
+    connList.classList.toggle('hidden', !willOpen);
+    connList.hidden = !willOpen;
+    connToggle.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
+    connToggle.classList.toggle('is-open', willOpen);
+  });
+
   menu.addEventListener('click', (event) => event.stopPropagation());
+
+  menu.querySelectorAll('[data-theme-pick]').forEach((swatch) => {
+    swatch.addEventListener('click', (event) => {
+      event.stopPropagation();
+      applyTheme(swatch.getAttribute('data-theme-pick'));
+    });
+  });
 
   document.addEventListener('click', () => closeSettingsMenu());
   document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape') closeSettingsMenu();
-  });
-
-  toggle?.addEventListener('change', () => {
-    applyTheme(toggle.checked ? 'dark' : 'light');
   });
 }
 
@@ -595,19 +905,16 @@ function renderDfsBalance() {
   if (!b) {
     el.classList.add('muted');
     el.textContent = 'DFS …';
-    setElementTip(el, 'Loading DataForSEO balance');
     return;
   }
   if (!b.ok || b.balance == null) {
     el.classList.add('err');
     el.textContent = 'DFS balance —';
-    setElementTip(el, b.error || 'Could not load DataForSEO balance');
     return;
   }
   const bal = Number(b.balance);
   el.classList.add(bal < 1 ? 'warn' : 'ok');
   el.textContent = `DFS ${formatMoney(bal)}`;
-  setElementTip(el, `DataForSEO balance ${formatMoney(bal)} · updated ${b.fetchedAt || ''}`);
 }
 
 async function loadDfsBalance() {
@@ -656,12 +963,15 @@ async function confirmPaidAction(act) {
 
   const adsNote =
     act === 'research'
-      ? `<p><strong>Research mode:</strong> ${esc(researchModeLabel())} — ${esc(researchModeBlurb())}</p>
-        <p><strong>Ads volumes:</strong> ${
+      ? `<p><strong>Ads volumes:</strong> ${
           getAdsMode() === 'standard'
             ? 'Standard queue (~$0.05–0.06/task, slower — good overnight)'
             : 'Live (~$0.075–0.09/task, seconds)'
-        }. Change beside Run research.</p>`
+        }.</p>${
+          getForceSerp()
+            ? '<p><strong>Force new SERP:</strong> on — refetches Map Pack/organic (~$0.002) before refreshing volumes.</p>'
+            : ''
+        }`
       : '';
 
   const bodyHtml = `
@@ -725,10 +1035,28 @@ async function loadCandidates() {
   state.candidates = data.candidates || [];
   state.candidateGroups = data.groups || [];
   state.decisionCounts = data.decisionCounts || {};
+  state.archivedCount = data.archivedCount ?? state.candidates.filter((c) => c.archived).length;
   refreshDecisionFilterCounts();
+  refreshVisibilityFilterCounts();
   fillCandidateBatchFilterSelect();
   fillCandidateGroupSelects();
   renderList();
+}
+
+function refreshVisibilityFilterCounts() {
+  const sel = document.getElementById('candidate-visibility-filter');
+  if (!sel) return;
+  const all = state.candidates.length;
+  const archived = state.archivedCount ?? state.candidates.filter((c) => c.archived).length;
+  const active = Math.max(0, all - archived);
+  const labels = {
+    active: `Active (${active})`,
+    archived: `Archived (${archived})`,
+    all: `All (${all})`,
+  };
+  for (const opt of sel.options) {
+    if (labels[opt.value] != null) opt.textContent = labels[opt.value];
+  }
 }
 
 function refreshDecisionFilterCounts() {
@@ -756,10 +1084,15 @@ function filteredCandidates() {
   const stageF = state.candidateStageFilter;
   const batchF = state.candidateBatchFilter;
   const groupF = state.candidateGroupFilter;
+  const vis = state.candidateVisibilityFilter || 'active';
   const text = String(state.candidateTextFilter || '')
     .trim()
     .toLowerCase();
+  const websiteBuilderOnly = state.view === 'website-builder';
   return state.candidates.filter((c) => {
+    if (websiteBuilderOnly && c.decision !== 'pursue') return false;
+    if (vis === 'active' && c.archived) return false;
+    if (vis === 'archived' && !c.archived) return false;
     if (f === '__undecided') {
       if (c.decision) return false;
     } else if (f && c.decision !== f) {
@@ -828,10 +1161,14 @@ function aggregateSelectedFlags() {
 
 function candidateOverallInputs(c) {
   const inputs = c.scoreInputs || {};
+  const jobValue =
+    inputs.jobValue != null && inputs.jobValue !== ''
+      ? inputs.jobValue
+      : c.narrativeJobValue ?? null;
   return {
     demand: inputs.demand ?? null,
     competition: inputs.competition ?? null,
-    jobValue: inputs.jobValue ?? null,
+    jobValue,
     mapPackGap: inputs.mapPackGap ?? null,
     displaceability: c.displaceability ?? inputs.displaceability ?? null,
   };
@@ -923,6 +1260,14 @@ const CANDIDATE_TABLE_COLS = [
     source: 'census',
   },
   {
+    key: 'researchMap',
+    label: 'Map',
+    tip: 'Open research Map tab zoomed to this city',
+    sortable: false,
+    cellClass: 'col-short',
+    source: 'ops',
+  },
+  {
     key: 'mapPack',
     label: 'Map Pack',
     tip: 'Map Pack present (Yes/No). When Yes, shows review counts per pack slot (e.g. 78/14/235). LSA if Local Services Ads detected.',
@@ -932,8 +1277,8 @@ const CANDIDATE_TABLE_COLS = [
   },
   {
     key: 'volume',
-    label: 'Est. Volume',
-    tip: 'Stage 1 Ads Planner cluster search volume / month (sum across measured geos). Not Discovery Gemini estimates.',
+    label: 'Search vol.',
+    tip: 'Stage 1 Ads Planner cluster search volume / month (sum across measured geos).',
     sortable: true,
     cellClass: 'col-truncate',
     source: 'dfs',
@@ -948,7 +1293,7 @@ const CANDIDATE_TABLE_COLS = [
   },
   {
     key: 'orgHome',
-    label: 'Org Home',
+    label: 'Homepages',
     tip: 'Niche-relevant / all organic homepages (title+URL token match). Directories excluded.',
     sortable: true,
     cellClass: 'col-short',
@@ -956,7 +1301,7 @@ const CANDIDATE_TABLE_COLS = [
   },
   {
     key: 'orgSub',
-    label: 'Org Sub',
+    label: 'Subpages',
     tip: 'Niche-relevant / all organic subpages (title+URL token match). Directories excluded.',
     sortable: true,
     cellClass: 'col-short',
@@ -988,7 +1333,7 @@ const CANDIDATE_TABLE_COLS = [
   },
   {
     key: 'competition',
-    label: 'Open.',
+    label: 'Openness',
     tip: 'Organic openness 1–10. Higher = more open / better for you.',
     sortable: true,
     cellClass: 'col-score-metric',
@@ -996,7 +1341,7 @@ const CANDIDATE_TABLE_COLS = [
   },
   {
     key: 'disp',
-    label: 'Disp.',
+    label: 'Displace.',
     tip: 'Stage 2 — Displaceability 1–10. Higher = easier to outrank.',
     sortable: true,
     cellClass: 'col-score-metric',
@@ -1004,7 +1349,7 @@ const CANDIDATE_TABLE_COLS = [
   },
   {
     key: 'jobValue',
-    label: 'Job Val.',
+    label: 'Job value',
     tip: 'Job value score 1–10 from accepted narrative ticket size',
     sortable: true,
     cellClass: 'col-score-metric',
@@ -1012,7 +1357,7 @@ const CANDIDATE_TABLE_COLS = [
   },
   {
     key: 'serpSoftness',
-    label: 'Softness',
+    label: 'SERP soft',
     tip: 'SERP softness label: soft / mixed / hard',
     sortable: true,
     cellClass: 'col-score-metric',
@@ -1066,7 +1411,12 @@ function updateCandidateSelectionCount() {
   const countEl = document.getElementById('candidate-filter-count');
   if (countEl) {
     const n = filteredCandidates().length;
-    countEl.textContent = `Showing ${n} / ${state.candidates.length}`;
+    const vis = state.candidateVisibilityFilter || 'active';
+    const all = state.candidates.length;
+    const archived = state.archivedCount ?? state.candidates.filter((c) => c.archived).length;
+    const denom =
+      vis === 'archived' ? archived : vis === 'all' ? all : Math.max(0, all - archived);
+    countEl.textContent = `Showing ${n} / ${denom}`;
   }
   const batchSel = document.getElementById('candidate-batch-decision');
   const batchBtn = document.getElementById('candidate-batch-decision-btn');
@@ -1074,6 +1424,8 @@ function updateCandidateSelectionCount() {
   const groupAddBtn = document.getElementById('candidate-group-add-btn');
   const groupRemoveBtn = document.getElementById('candidate-group-remove-btn');
   const addToSitesBtn = document.getElementById('candidate-add-to-sites-btn');
+  const archiveBtn = document.getElementById('candidate-archive-btn');
+  const unarchiveBtn = document.getElementById('candidate-unarchive-btn');
   const disable = state.selectedIds.size === 0;
   if (batchSel) batchSel.disabled = disable;
   if (batchBtn) batchBtn.disabled = disable;
@@ -1081,14 +1433,30 @@ function updateCandidateSelectionCount() {
   if (groupAddBtn) groupAddBtn.disabled = disable;
   if (groupRemoveBtn) groupRemoveBtn.disabled = disable;
   if (addToSitesBtn) addToSitesBtn.disabled = disable;
+  if (archiveBtn) archiveBtn.disabled = disable;
+  if (unarchiveBtn) unarchiveBtn.disabled = disable;
 }
 
 function emptyStateForFilter() {
   const f = state.candidateDecisionFilter;
+  const vis = state.candidateVisibilityFilter || 'active';
   if (!state.candidates.length) {
     return 'No candidates yet — Process a discovery batch (all decisions land in groups here).';
   }
-  if (f === 'pursue') return 'No pursue yet — Process a discovery batch and Accept pursue rows.';
+  if (state.view === 'website-builder' && !state.candidates.some((c) => c.decision === 'pursue' && !c.archived)) {
+    return 'No pursue Candidates yet — mark pursue in Research to open Website Builder.';
+  }
+  if (vis === 'archived' && !(state.archivedCount ?? state.candidates.some((c) => c.archived))) {
+    return 'No archived candidates — Archive hides rows from Active without deleting files.';
+  }
+  if (vis === 'archived') {
+    return 'No archived candidates match these filters.';
+  }
+  if (f === 'pursue') {
+    return state.view === 'website-builder'
+      ? 'No pursue Candidates yet — mark pursue in Research to build here.'
+      : 'No pursue yet — Process a discovery batch and Accept pursue rows.';
+  }
   if (f === 'pass' || f === 'deprioritize' || f === 'pass_unless_gbp_angle') {
     return `No ${f} candidates — archive groups fill when you Process discovery rows with that decision.`;
   }
@@ -1176,7 +1544,7 @@ function renderList() {
   const thead = document.querySelector('#candidate-table thead');
   const tbody = document.querySelector('#candidate-table tbody');
   if (!thead || !tbody) return;
-  renderSourceLegend('candidate-source-legend', { exclude: ['gemini'] });
+  renderSourceLegend('candidate-source-legend');
   const sort = state.candidateSort;
   thead.innerHTML = `<tr>${CANDIDATE_TABLE_COLS.map((c) => {
     if (c.key === '_select') {
@@ -1231,6 +1599,16 @@ function renderList() {
           return `<td${tdClass}>${
             c.population == null ? '—' : esc(String(c.population))
           }</td>`;
+        }
+        if (col.key === 'researchMap') {
+          const city = c.primaryCity || c.city || '';
+          const st = c.state || '';
+          if (!city || !st) return `<td${tdClass} class="muted">—</td>`;
+          return `<td${tdClass}><button type="button" class="btn btn-sm cand-open-map" data-city="${esc(
+            city,
+          )}" data-state="${esc(st)}" data-tip="Open Map zoomed to ${esc(city)}, ${esc(
+            st,
+          )}">Map</button></td>`;
         }
         if (col.key === 'mapPack') {
           return `<td${tdClass}>${mapPackHtml(c.mapPackPresent, {
@@ -1408,8 +1786,31 @@ function renderList() {
   });
   tbody.querySelectorAll('tr').forEach((tr) => {
     tr.addEventListener('click', (e) => {
-      if (e.target.closest('input.cand-check, select.cand-decision, input.cand-notes')) return;
+      if (
+        e.target.closest(
+          'input.cand-check, select.cand-decision, input.cand-notes, button.cand-open-map',
+        )
+      )
+        return;
       selectCandidate(tr.dataset.id);
+    });
+  });
+  tbody.querySelectorAll('button.cand-open-map').forEach((btn) => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const city = btn.dataset.city || '';
+      const st = btn.dataset.state || '';
+      setView('map');
+      try {
+        await openResearchMap({ city, state: st }, { api, esc, showModal });
+      } catch (error) {
+        await showModal({
+          title: 'Map failed',
+          confirmLabel: 'OK',
+          hideCancel: true,
+          bodyHtml: `<p>${esc(error.message)}</p>`,
+        });
+      }
     });
   });
   tbody.querySelectorAll('.cand-check').forEach((cb) => {
@@ -1460,6 +1861,16 @@ async function selectCandidate(id) {
   state.multiQueue = false;
   state.contentOpenStep = null;
   state.websiteOpenStep = null;
+  state.siteConfigOpenStep = null;
+  state.contentFollowCurrent = undefined;
+  state.websiteFollowCurrent = undefined;
+  state.siteConfigFollowCurrent = undefined;
+  state.contentSoftCurrent = null;
+  state.websiteSoftCurrent = null;
+  state.siteConfigSoftCurrent = null;
+  state.contentSoftDone = {};
+  state.websiteSoftDone = {};
+  state.siteConfigSoftDone = {};
   if (state.selectedIds.size > 1) {
     renderList();
     renderMultiDetail();
@@ -1491,9 +1902,14 @@ function renderMultiDetail() {
   titleEl.textContent = `${ids.length} candidates selected`;
   setElementTip(titleEl, '');
   titleEl.removeAttribute('aria-label');
+  const idTip = document.getElementById('detail-id-tip');
+  if (idTip) {
+    idTip.classList.add('hidden');
+    setElementTip(idTip, '');
+    idTip.setAttribute('aria-label', 'Candidate id');
+  }
   document.getElementById('detail-sub').textContent =
     'Stage rail runs on the full selection · click a row to focus one candidate';
-  document.getElementById('stage-chip').textContent = 'multi';
   renderActions();
   document.querySelectorAll('.tab').forEach((tab) => {
     tab.classList.toggle('active', tab.dataset.tab === 'overview');
@@ -1557,14 +1973,14 @@ function updateTabCompletion() {
   const f = state.detail?.stageFlags || {};
   const labels = {
     overview: 'Overview',
-    serp: 'SERP',
-    keywords: 'Keywords',
-    enrichment: 'Enrichment',
+    serp: '1 · Research',
+    keywords: '1 · Keywords',
+    enrichment: '2 · Enrich',
     narrative: '3 · Narrative',
-    'site-config': 'Site config',
-    content: 'Content',
-    website: 'Website',
-    prospects: '4 · Prospects',
+    'site-config': '4 · Site-Config',
+    content: '5 · Content',
+    website: '6 · Website',
+    prospects: 'Prospects',
     logs: 'Logs',
   };
   document.querySelectorAll('.tab').forEach((tab) => {
@@ -1601,6 +2017,9 @@ function updateTabCompletion() {
         ? `${esc(base)} ${stageDraftMark()}`
         : esc(base);
     tab.classList.toggle('active', key === state.tab);
+    if (key === 'keywords') {
+      setElementTip(tab, 'Stage 1 · keyword volumes from research');
+    }
   });
 }
 
@@ -1623,70 +2042,55 @@ function setAdsMode(mode) {
   return next;
 }
 
-function getResearchMode() {
+function getForceSerp() {
   try {
-    const v = localStorage.getItem('ops.researchMode');
-    if (v === 'force_serp' || v === 'volumes_only') return v;
-    return 'default';
+    return localStorage.getItem('ops.forceSerp') === '1';
   } catch {
-    return 'default';
+    return false;
   }
 }
 
-function setResearchMode(mode) {
-  const next =
-    mode === 'force_serp' || mode === 'volumes_only' ? mode : 'default';
+function setForceSerp(on) {
+  const next = Boolean(on);
   try {
-    localStorage.setItem('ops.researchMode', next);
+    localStorage.setItem('ops.forceSerp', next ? '1' : '0');
   } catch {
     /* ignore */
   }
   return next;
 }
 
-function researchModeLabel(mode = getResearchMode()) {
-  if (mode === 'volumes_only') return 'Volumes only';
-  if (mode === 'force_serp') return 'Force new SERP';
-  return 'Reuse SERP + refresh volumes';
-}
-
-function researchOptsFromMode(mode = getResearchMode()) {
+function researchOptsFromUi() {
   return {
-    forceSerp: mode === 'force_serp',
-    volumesOnly: mode === 'volumes_only',
+    forceSerp: getForceSerp(),
+    volumesOnly: false,
   };
 }
 
-function adsModeSelectHtml(disabled = false) {
+function adsModeSegmentHtml(disabled = false) {
   const mode = getAdsMode();
-  return `<select id="ads-mode-select" class="ads-mode-select" data-tip="Live ≈ $0.075–0.09/Ads task · Standard queue ≈ $0.05–0.06 (slower, overnight OK)" ${
-    disabled ? 'disabled' : ''
-  }>
-    <option value="live"${mode === 'live' ? ' selected' : ''}>Live</option>
-    <option value="standard"${mode === 'standard' ? ' selected' : ''}>Standard</option>
-  </select>`;
+  const tip =
+    'Live ≈ $0.075–0.09/Ads task · Standard queue ≈ $0.05–0.06 (slower, overnight OK)';
+  return `<div class="ads-mode-segment" role="group" aria-label="Ads queue" ${tipAttr(tip)}>
+    <button type="button" class="ads-mode-seg${mode === 'live' ? ' active' : ''}" data-ads-mode="live" ${
+      disabled ? 'disabled' : ''
+    }>Live</button>
+    <button type="button" class="ads-mode-seg${
+      mode === 'standard' ? ' active' : ''
+    }" data-ads-mode="standard" ${disabled ? 'disabled' : ''}>Standard</button>
+  </div>`;
 }
 
-function researchModeSelectHtml(disabled = false) {
-  const mode = getResearchMode();
-  const tip = researchModeBlurb(mode);
-  return `<select id="research-mode-select" class="research-mode-select" ${tipAttr(tip)} ${
-    disabled ? 'disabled' : ''
-  }>
-    <option value="default"${mode === 'default' ? ' selected' : ''}>Reuse SERP + refresh volumes</option>
-    <option value="volumes_only"${mode === 'volumes_only' ? ' selected' : ''}>Volumes only</option>
-    <option value="force_serp"${mode === 'force_serp' ? ' selected' : ''}>Force new SERP</option>
-  </select>`;
-}
-
-function researchModeBlurb(mode = getResearchMode()) {
-  if (mode === 'volumes_only') {
-    return 'Keeps this candidate’s Map Pack/organic. Re-pulls Ads volumes only (often ~$0.50+ with several cities). Stage 2 Rank stays.';
-  }
-  if (mode === 'force_serp') {
-    return 'Refetches Map Pack/organic (~$0.002) and still refreshes Ads volumes. Keeps Stage 2 Rank but marks it stale if URLs change — re-Enrich when ready.';
-  }
-  return 'No SERP fee (uses Discovery cache when fresh). Re-pulls Ads volumes (often ~$0.50+ with several cities). Stage 2 Rank stays.';
+function forceSerpCheckboxHtml(disabled = false) {
+  const on = getForceSerp();
+  return `<label class="research-force-serp" ${tipAttr(
+    'Refetch Map Pack/organic (~$0.002). Leave off to reuse cached SERP when available.',
+  )}>
+    <input type="checkbox" id="research-force-serp" ${on ? 'checked' : ''} ${
+      disabled ? 'disabled' : ''
+    } />
+    <span class="research-force-serp-text">Force<br />new SERP</span>
+  </label>`;
 }
 
 function jobActLabel(act) {
@@ -1773,12 +2177,15 @@ async function confirmBatchPaidAction(act, ids) {
     : '';
   const adsNote =
     act === 'research'
-      ? `<p><strong>Research mode:</strong> ${esc(researchModeLabel())} — ${esc(researchModeBlurb())}</p>
-        <p><strong>Ads volumes:</strong> ${
+      ? `<p><strong>Ads volumes:</strong> ${
           getAdsMode() === 'standard'
             ? 'Standard queue (~$0.05–0.06/task, slower — good overnight)'
             : 'Live (~$0.075–0.09/task, seconds)'
-        }. Change beside Run research.</p>`
+        }.</p>${
+          getForceSerp()
+            ? '<p><strong>Force new SERP:</strong> on — refetches Map Pack/organic (~$0.002) before refreshing volumes.</p>'
+            : ''
+        }`
       : '';
   return showModal({
     title: preview.title,
@@ -1821,7 +2228,6 @@ function renderActions() {
   const f = detailMatches
     ? d.stageFlags || {}
     : listRow?.stageFlags || d?.stageFlags || {};
-  const hasAnthropic = Boolean(state.health?.hasAnthropic);
   const researchDone =
     targetCount > 1
       ? agg.hasResearch === agg.count && agg.count > 0
@@ -1842,6 +2248,13 @@ function renderActions() {
     targetCount > 1
       ? agg.hasProspects === agg.count && agg.count > 0
       : Boolean(f.hasProspects);
+  const currentStage = !researchDone
+    ? 'research'
+    : !enrichDone
+      ? 'enrich'
+      : !narrAccepted
+        ? 'narrative'
+        : null;
   const busy = Boolean(state.activeJobId || state.activeBatchJobId || state.claudeBusy);
   const runningAct = state.activeAct;
   const batchLabel = targetCount > 1 ? ` (${targetCount})` : '';
@@ -1872,7 +2285,7 @@ function renderActions() {
     >
       <div class="action-group stage-1${researchDone ? ' action-done' : ''}${
         runningAct === 'research' ? ' action-running' : ''
-      }">
+      }${currentStage === 'research' ? ' current' : ''}">
         <span class="action-group-head"><span class="action-group-title">Research</span><span class="action-group-num">1${
           researchDone
             ? ` ${stageCheckMark()}`
@@ -1880,25 +2293,23 @@ function renderActions() {
               ? aggMark(agg.hasResearch, agg.count)
               : ''
         }</span></span>
-        <div class="action-group-btns">
-          ${adsModeSelectHtml(busy)}
-          ${researchModeSelectHtml(busy)}
-          <button type="button" class="btn btn-sm" data-act="research" data-tip="Stage 1 — SERP + Ads volumes (modes above)" ${stageBusyAttr(
+        <div class="action-group-btns research-stage-btns">
+          <button type="button" class="btn btn-sm primary" data-act="research" data-tip="Ads search volume + CPC (~$0.50+ with several cities). Reuses Map Pack/organic unless Force new SERP is checked." ${stageBusyAttr(
             'research',
           )}>${
             runningAct === 'research'
               ? 'Running…'
               : targetCount > 1
-                ? `Run research${batchLabel}`
-                : researchDone
-                  ? 'Re-run research'
-                  : 'Run research'
+                ? `Ad volumes${batchLabel}`
+                : 'Ad volumes'
           }</button>
+          ${adsModeSegmentHtml(busy)}
+          ${forceSerpCheckboxHtml(busy)}
         </div>
       </div>
       <div class="action-group stage-2${enrichDone ? ' action-done' : ''}${
         runningAct === 'enrich' ? ' action-running' : ''
-      }">
+      }${currentStage === 'enrich' ? ' current' : ''}">
         <span class="action-group-head"><span class="action-group-title">Enrich</span><span class="action-group-num">2${
           enrichDone
             ? ` ${stageCheckMark()}`
@@ -1907,7 +2318,7 @@ function renderActions() {
               : ''
         }</span></span>
         <div class="action-group-btns">
-          <button type="button" class="btn btn-sm" data-act="enrich" data-tip="Stage 2 — page fetch, Domain Rank, thinness / displaceability" ${stageBusyAttr('enrich')}>${
+          <button type="button" class="btn btn-sm primary" data-act="enrich" data-tip="Stage 2 — page fetch, Domain Rank, thinness / displaceability" ${stageBusyAttr('enrich')}>${
             runningAct === 'enrich'
               ? 'Running…'
               : targetCount > 1
@@ -1920,7 +2331,9 @@ function renderActions() {
       </div>
       <div class="action-group stage-narr${narrAccepted ? ' action-done' : ''}${
         narrDraft ? ' action-draft' : ''
-      }${runningAct === 'narrative' || runningAct === 'outreach' ? ' action-running' : ''}">
+      }${runningAct === 'narrative' || runningAct === 'outreach' ? ' action-running' : ''}${
+        currentStage === 'narrative' ? ' current' : ''
+      }">
         <span class="action-group-head"><span class="action-group-title">Narrative</span><span class="action-group-num">3${
           narrAccepted
             ? ` ${stageCheckMark()}`
@@ -1931,32 +2344,24 @@ function renderActions() {
                 : ''
         }</span></span>
         <div class="action-group-btns">
-          <button type="button" class="btn btn-sm primary" data-act="narrative" data-tip="Claude API narrative draft (not committed until Accept draft on Narrative tab)" ${
-            !hasAnthropic || busy ? 'disabled' : ''
-          } ${runningAct === 'narrative' ? 'aria-busy="true"' : ''}>${
-            runningAct === 'narrative'
-              ? 'Claude…'
-              : targetCount > 1
-                ? `Draft narrative${batchLabel}`
-                : 'Draft narrative'
-          }</button>
-          <button type="button" class="btn btn-sm" data-act="copy-prompt" ${
+          <button type="button" class="btn btn-sm primary" data-act="copy-prompt" ${
             busy || targetCount > 1 ? 'disabled' : ''
-          } data-tip="Copy Claude.ai prompt, then paste the JSON result on the Narrative tab">Copy prompt</button>
+          } data-tip="Copy Claude.ai prompt, then paste the JSON result on the Narrative tab (default — no API cost)">Copy prompt</button>
         </div>
       </div>
+      <span class="stage-rail-sep" aria-hidden="true"></span>
       <div class="action-group stage-4${prospectsDone ? ' action-done' : ''}${
         runningAct === 'prospects' || runningAct === 'outreach' ? ' action-running' : ''
       }">
-        <span class="action-group-head"><span class="action-group-title">Prospects</span><span class="action-group-num">4${
+        <span class="action-group-head"><span class="action-group-title">Prospects</span><span class="action-group-num">${
           prospectsDone
-            ? ` ${stageCheckMark()}`
+            ? stageCheckMark()
             : targetCount > 1
               ? aggMark(agg.hasProspects, agg.count)
               : ''
         }</span></span>
         <div class="action-group-btns">
-          <button type="button" class="btn btn-sm" data-act="prospects" data-tip="Stage 4 — find local businesses via Maps SERP (DataForSEO)" ${stageBusyAttr(
+          <button type="button" class="btn btn-sm" data-act="prospects" data-tip="Find local businesses via Maps SERP (optional)" ${stageBusyAttr(
             'prospects',
           )}>${
             runningAct === 'prospects'
@@ -1966,11 +2371,6 @@ function renderActions() {
                 : prospectsDone
                   ? 'Re-find'
                   : 'Find renters'
-          }</button>
-          <button type="button" class="btn btn-sm" data-act="outreach" data-tip="Claude draft outreach from the prospects list (one candidate at a time)" ${
-            !hasAnthropic || busy || targetCount > 1 ? 'disabled' : ''
-          } ${runningAct === 'outreach' ? 'aria-busy="true"' : ''}>${
-            runningAct === 'outreach' ? 'Claude…' : 'Draft outreach'
           }</button>
         </div>
       </div>
@@ -1994,17 +2394,16 @@ function renderActions() {
   el.querySelectorAll('[data-act]').forEach((btn) => {
     btn.addEventListener('click', () => handleAction(btn.dataset.act, btn));
   });
-  const adsSel = el.querySelector('#ads-mode-select');
-  if (adsSel) {
-    adsSel.addEventListener('change', () => {
-      setAdsMode(adsSel.value);
+  el.querySelectorAll('[data-ads-mode]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      setAdsMode(btn.dataset.adsMode);
+      renderActions();
     });
-  }
-  const researchSel = el.querySelector('#research-mode-select');
-  if (researchSel) {
-    researchSel.addEventListener('change', () => {
-      setResearchMode(researchSel.value);
-      setElementTip(researchSel, researchModeBlurb(researchSel.value));
+  });
+  const forceSerp = el.querySelector('#research-force-serp');
+  if (forceSerp) {
+    forceSerp.addEventListener('change', () => {
+      setForceSerp(forceSerp.checked);
     });
   }
 }
@@ -2060,28 +2459,25 @@ async function handleBatchNarrativeAccept(ids) {
   return { accepted, errors };
 }
 
-async function warnResearchOrphansEnrichment(ids, researchMode) {
-  if (researchMode === 'volumes_only') return true;
+async function warnResearchOrphansEnrichment(ids, forceSerp) {
   const enriched = ids.filter((cid) => {
     const row = state.candidates.find((c) => c.id === cid);
     return Boolean(row?.stageFlags?.hasEnrichment);
   });
   if (!enriched.length) return true;
-  if (researchMode === 'force_serp') {
+  if (forceSerp) {
     return showModal({
       title: 'Force SERP keeps enrichment (may mark stale)',
-      confirmLabel: 'Continue research',
+      confirmLabel: 'Continue',
       bodyHtml: `<p><strong>${esc(String(enriched.length))}</strong> selected candidate(s) already have Stage 2 enrichment.</p>
-        <p>Stage 1 will <strong>keep</strong> Domain Rank / thinness. If Map Pack/organic URLs change, enrichment is marked <strong>stale</strong> — re-run Enrich when you want fresh Rank.</p>
-        <p class="muted">Mode: ${esc(researchModeLabel(researchMode))}.</p>`,
+        <p>Stage 1 will <strong>keep</strong> Domain Rank / thinness. If Map Pack/organic URLs change, enrichment is marked <strong>stale</strong> — re-run Enrich when you want fresh Rank.</p>`,
     });
   }
   return showModal({
     title: 'Stage 1 will keep enrichment',
-    confirmLabel: 'Continue research',
+    confirmLabel: 'Continue',
     bodyHtml: `<p><strong>${esc(String(enriched.length))}</strong> selected candidate(s) already have Stage 2 enrichment.</p>
-      <p>Mode <strong>${esc(researchModeLabel(researchMode))}</strong> reuses SERP, so Domain Rank stays. Ads volumes still re-pull (that is the main cost).</p>
-      <p class="muted">Use Volumes only to skip confusion, or Force new SERP only when you need a fresh Map Pack/organic pull.</p>`,
+      <p>Ad volumes will re-pull (main cost). Map Pack/organic stays cached unless you check <strong>Force new SERP</strong>.</p>`,
   });
 }
 
@@ -2130,12 +2526,12 @@ async function handleAction(act, btn) {
 
       if (ids.length > 1) {
         if (act === 'research') {
-          const proceed = await warnResearchOrphansEnrichment(ids, getResearchMode());
+          const proceed = await warnResearchOrphansEnrichment(ids, getForceSerp());
           if (!proceed) return;
         }
         const ok = await confirmBatchPaidAction(act, ids);
         if (!ok) return;
-        const researchOpts = act === 'research' ? researchOptsFromMode() : {};
+        const researchOpts = act === 'research' ? researchOptsFromUi() : {};
         const batch = await api('/api/jobs/batch', {
           method: 'POST',
           body: JSON.stringify({
@@ -2160,7 +2556,7 @@ async function handleAction(act, btn) {
       if (act === 'narrative') return;
 
       if (act === 'research') {
-        const proceed = await warnResearchOrphansEnrichment(ids, getResearchMode());
+        const proceed = await warnResearchOrphansEnrichment(ids, getForceSerp());
         if (!proceed) return;
       }
       const ok = await confirmPaidAction(act);
@@ -2168,7 +2564,7 @@ async function handleAction(act, btn) {
       state.activeAct = act;
       state.jobStatusLine = 'Starting…';
       renderActions();
-      const researchOpts = act === 'research' ? researchOptsFromMode() : {};
+      const researchOpts = act === 'research' ? researchOptsFromUi() : {};
       const job = await api(`/api/candidates/${encodeURIComponent(ids[0])}/${act}`, {
         method: 'POST',
         body: JSON.stringify(
@@ -2188,12 +2584,7 @@ async function handleAction(act, btn) {
       await navigator.clipboard.writeText(data.prompt || '');
       state.tab = 'narrative';
       renderDetail();
-      await showModal({
-        title: 'Copied',
-        confirmLabel: 'OK',
-        bodyHtml:
-          '<p>Claude.ai prompt is on your clipboard.</p><p class="muted">Paste Claude’s JSON on the <strong>Narrative</strong> tab → Load as draft → Accept draft.</p>',
-      });
+      showToast('Narrative prompt copied — paste Claude’s JSON → Load as draft → Accept.');
       return;
     }
 
@@ -2376,10 +2767,18 @@ function statCard(label, valueHtml) {
 
 function renderOverview() {
   const r = state.detail.research;
+  const narrative = state.detail.narrative;
   const s = state.detail.summary || {};
   const meta = state.detail.meta || {};
   const scoring = r?.scoring || {};
   const inputs = scoring.scoreInputs || {};
+  const narrInputs = narrative?.scoring?.scoreInputs || {};
+  const resolvedJobValue =
+    inputs.jobValue != null && inputs.jobValue !== ''
+      ? inputs.jobValue
+      : narrInputs.jobValue != null && narrInputs.jobValue !== ''
+        ? narrInputs.jobValue
+        : null;
   const dispSource = r?.enrichment?.displaceability || scoring.displaceability || {};
   const dispScore = s.displaceability ?? inputs.displaceability ?? dispSource.score ?? null;
   const dispBand = displaceabilityBand(dispScore);
@@ -2405,7 +2804,7 @@ function renderOverview() {
   const overallInputs = {
     demand: inputs.demand ?? null,
     competition: inputs.competition ?? null,
-    jobValue: inputs.jobValue ?? null,
+    jobValue: resolvedJobValue,
     mapPackGap: inputs.mapPackGap ?? null,
     displaceability:
       dispSource.score ??
@@ -2503,12 +2902,12 @@ function renderOverview() {
     [
       'Job value',
       metricHtml({
-        value: inputs.jobValue,
+        value: resolvedJobValue,
         max: 10,
         label: 'Job value',
         extraTip: SCORE_INPUT_TIPS.jobValue,
       }),
-      inputs.jobValue == null ? 'Set via narrative / Claude' : '—',
+      resolvedJobValue == null ? 'Set via narrative / Claude' : '—',
     ],
     [
       'SERP softness',
@@ -2537,7 +2936,7 @@ function renderOverview() {
   return `
     ${legendHtml()}
     ${
-      overallProvisional || state.detail?.narrativeDraft
+      overallProvisional
         ? `<div class="callout warn finalize-job-val"><strong>Finalize Job Val</strong> — overall score is provisional until Stage 3 sets <code>averageJobCostUsd</code> + <code>jobValue</code>, then Accept.</div>`
         : ''
     }
@@ -2714,9 +3113,14 @@ function renderSerp() {
   ];
   const mapPackSiteTip =
     'Map Pack websites: count of slots with a website URL. No-URL slots are often GBP-only / harder phone-lead angles until you build a real site + GBP.';
+  const organicNumberingTip =
+    'Abs # is full-page position (not “organic 1–10”). Gaps (e.g. missing 1 or 10–12) are usually AI Overview / related blocks — not missing blue links. Map Pack rows below are separate and unnumbered in Abs #. We request ~10 organic URLs; Abs # can still be 13+ when other features sit above them. Blue # is a simple 1…N among the blue links we list.';
+  const nicheEmdTip =
+    'Niche? matches niche words in the SERP title + URL only (no page HTML). Needs at least two niche tokens (or one if the niche is a single word). Synonyms or brand names without those words show as No — that can disagree with a human read of the page. EMD? is Yes/No for every organic row (homepage or subpage).';
+  const organicInfoTip = `${organicNumberingTip} ${nicheEmdTip}`;
 
   return `
-    <div class="callout">
+    ${statusLineHtml(`
       Map Pack: ${mapPackHtml(serp.mapPackPresent, {
         slotCount: mapPackSlotCount,
         reviewsLabel: serp.mapPackReviews?.reviewsLabel,
@@ -2727,25 +3131,10 @@ function renderSerp() {
       })}
       · Organic homepages: <strong data-tip="Higher count = harder SERP">${esc(homeCount)}</strong>
       · Unique domains: <strong data-tip="Higher count = harder SERP">${esc(domainCount)}</strong>
+      · Sites ${esc(String(mapPackWebsiteCount))}/${esc(String(mapPackSlotCount))}
       · item types: ${esc((serp.itemTypes || []).join(', '))}
-    </div>
-    <div class="callout" ${tipAttr(mapPackSiteTip)}>
-      <strong>Map Pack websites:</strong> ${esc(String(mapPackWebsiteCount))}/${esc(String(mapPackSlotCount))}
-      — slots without a URL are often GBP-only / phone-lead angles.
-    </div>
-    <div class="callout">
-      <strong>About numbering:</strong> Abs # is full-page position (not “organic 1–10”).
-      Gaps (e.g. missing 1 or 10–12) are usually AI Overview / related blocks — not missing blue links.
-      Map Pack rows below are separate and unnumbered in Abs #.
-      We request ~10 organic URLs; Abs # can still be 13+ when other features sit above them.
-      Blue # is a simple 1…N among the blue links we list.
-    </div>
-    <div class="callout">
-      <strong>Niche?</strong> matches niche words in the SERP <em>title + URL only</em> (no page HTML).
-      Needs at least two niche tokens (or one if the niche is a single word). Synonyms or brand names without those words show as No — that can disagree with a human read of the page.
-      <strong>EMD?</strong> is Yes/No for every organic row (homepage or subpage).
-    </div>
-    <h3>Map Pack</h3>
+    `)}
+    ${headingWithInfoHtml('h3', 'Map Pack', mapPackSiteTip)}
     ${tableHtml(
       [
         '#',
@@ -2758,7 +3147,7 @@ function renderSerp() {
       ],
       local,
     )}
-    <h3>Organic</h3>
+    ${headingWithInfoHtml('h3', 'Organic', organicInfoTip)}
     ${tableHtml(organicHeaders, organic)}
     <h3>Directories</h3>
     ${tableHtml(dirHeaders, dirs)}
@@ -2901,7 +3290,6 @@ function renderEnrichment() {
 
   return `
     ${legendHtml()}
-    <div class="callout warn">${esc(enr.metricDisclaimer || '')}</div>
     ${staleCallout}
     ${thinWordsCalloutHtml({
       wordCountSummary,
@@ -2914,24 +3302,19 @@ function renderEnrichment() {
         ? `<div class="callout warn"><strong>${esc(String(fetchFailedCount))}</strong> page fetch failure(s) — labeled <code>fetch_failed</code>, excluded from displaceability. Re-run Enrich to retry.</div>`
         : ''
     }
-    <div class="stat-grid">
-      ${statCard(
-        'Displaceability',
-        metricHtml({
-          value: d.score,
-          max: 10,
-          label: 'Displaceability',
-          extraTip: dispTip,
-        }),
-      )}
-      ${statCard(
-        'Band',
-        `<span class="metric metric-neutral" data-tip="${esc(dispTip)}">${esc(d.band?.label ?? d.band?.id ?? '—')}</span>`,
-      )}
-      ${statCard('Thin stub share', `<span class="metric metric-neutral" data-tip="Share of organic URLs labeled thin_stub. Higher often means easier.">${esc(d.thinStubShare ?? '—')}</span>`)}
-      ${statCard('Fetch failures', `<span class="metric metric-${fetchFailedCount > 0 ? 'bad' : 'neutral'}" data-tip="HTML fetches that failed after retry"><strong>${esc(String(fetchFailedCount))}</strong></span>`)}
+    <div class="enrich-disp-row">
+      ${metricHtml({
+        value: d.score,
+        max: 10,
+        label: 'Displaceability',
+        extraTip: dispTip,
+      })}
+      <p class="muted enrich-disp-hint" data-tip="${esc(dispTip)}">${
+        d.band?.label || d.band?.id
+          ? `<strong>${esc(d.band.label ?? d.band.id)}</strong> · `
+          : ''
+      }${esc(d.hint || 'Hover the score for the full scoring recipe.')}</p>
     </div>
-    <p class="muted" data-tip="${esc(dispTip)}">${esc(d.hint || 'Hover Displaceability for the full scoring recipe.')}</p>
     <h3>Pages</h3>
     ${tableHtml(pageHeaders, pages)}
     <h3>Domains</h3>
@@ -2944,8 +3327,6 @@ function renderEnrichment() {
       ],
       domains,
     )}
-    <h3>Extras</h3>
-    <div class="json-block">${esc(JSON.stringify(enr.extras || {}, null, 2))}</div>
   `;
 }
 
@@ -2984,86 +3365,14 @@ function narrativeReviewHtml(doc, { pending = false } = {}) {
       <button type="button" class="btn danger" data-act="reject" data-tip="Discard narrative draft">Reject draft</button>
     </div>`);
   } else {
-    parts.push(`<div class="callout">Accepted narrative · ${esc(source)}${
-      state.detail?.stageFlags?.hasApproved ? ' · approved package ready' : ''
-    }</div>`);
+    parts.push(
+      statusLineHtml(
+        `Accepted narrative · ${esc(source)}${
+          state.detail?.stageFlags?.hasApproved ? ' · approved package ready' : ''
+        }`,
+      ),
+    );
   }
-
-  parts.push(`<h3>Scores</h3>`);
-  parts.push(
-    tableHtml(
-      ['Metric', 'Value'],
-      [
-        [
-          'Overall (proposed)',
-          overallScoreHtml(
-            {
-              demand: inputs.demand,
-              competition: inputs.competition,
-              jobValue: inputs.jobValue,
-              mapPackGap: inputs.mapPackGap,
-              displaceability: inputs.displaceability,
-            },
-            scoring.proposedScore,
-          ),
-        ],
-        [
-          'Demand',
-          metricHtml({
-            value: inputs.demand,
-            max: 10,
-            label: 'Demand',
-            extraTip: SCORE_INPUT_TIPS.demand,
-          }),
-        ],
-        [
-          'Organic openness',
-          metricHtml({
-            value: inputs.competition,
-            max: 10,
-            label: 'Organic openness',
-            extraTip: SCORE_INPUT_TIPS.competition,
-          }),
-        ],
-        [
-          'Job value',
-          metricHtml({
-            value: inputs.jobValue,
-            max: 10,
-            label: 'Job value',
-            extraTip: SCORE_INPUT_TIPS.jobValue,
-          }),
-        ],
-        [
-          'Map Pack gap',
-          metricHtml({
-            value: inputs.mapPackGap,
-            max: 10,
-            label: 'Map Pack gap',
-            extraTip: SCORE_INPUT_TIPS.mapPackGap,
-          }),
-        ],
-        [
-          'Displaceability',
-          metricHtml({
-            value: inputs.displaceability,
-            max: 10,
-            label: 'Displaceability',
-            extraTip: SCORE_INPUT_TIPS.displaceability,
-          }),
-        ],
-        ['Ticket class', esc(scoring.ticketClass ?? '—')],
-        [
-          'Displaceability band',
-          esc(
-            typeof scoring.displaceabilityBand === 'object'
-              ? scoring.displaceabilityBand?.id ?? scoring.displaceabilityBand?.label
-              : scoring.displaceabilityBand ?? '—',
-          ),
-        ],
-      ],
-    ),
-  );
 
   parts.push(`<h3>Decision</h3>`);
   parts.push(
@@ -3112,22 +3421,6 @@ function narrativeReviewHtml(doc, { pending = false } = {}) {
   parts.push(`<h3>Suggested services</h3>${listHtml(doc.suggestedServices)}`);
   parts.push(`<h3>Suggested suburbs</h3>${listHtml(doc.suggestedSuburbs)}`);
 
-  if (doc.spreadsheetFields && typeof doc.spreadsheetFields === 'object') {
-    parts.push(`<h3>Spreadsheet fields</h3>`);
-    parts.push(
-      tableHtml(
-        ['Field', 'Value'],
-        Object.entries(doc.spreadsheetFields).map(([k, v]) => [
-          esc(k),
-          `<span class="pre-cell">${esc(v == null ? '—' : String(v))}</span>`,
-        ]),
-      ),
-    );
-  }
-
-  parts.push(`<details class="narrative-raw"><summary>Raw JSON</summary>
-    <div class="json-block">${esc(JSON.stringify(doc, null, 2))}</div>
-  </details>`);
   return parts.join('');
 }
 
@@ -3136,7 +3429,7 @@ function narrativePasteBoxHtml({ replace = false, hideHeading = false } = {}) {
     <div class="narrative-paste">
       ${hideHeading ? '' : `<h3>${replace ? 'Replace draft from paste' : 'Paste Claude.ai JSON'}</h3>`}
       <p class="muted">Copy Claude’s JSON response, paste below, then Load as draft. Review the readable summary, then Accept draft or Reject draft.</p>
-      <textarea id="narrative-paste" class="narrative-paste-input" rows="10" placeholder='{ "niche": "...", "scoring": { ... } }'></textarea>
+      <textarea id="narrative-paste" class="narrative-paste-input" rows="2" placeholder='{ "niche": "...", "scoring": { ... } }'></textarea>
       <div class="narrative-actions">
         <button type="button" class="btn primary" id="narrative-paste-btn">Load as draft</button>
       </div>
@@ -3150,7 +3443,10 @@ function renderNarrative() {
   const busy = state.claudeBusy && state.activeAct === 'narrative';
   const parts = [];
   parts.push(
-    `<p class="action-hint">Claude API (when key set) writes a draft here · Or Copy prompt → paste JSON below · Nothing commits until <strong>Accept draft</strong> (writes <code>*-approved.json</code>)</p>`,
+    panelHowToHtml({
+      label: 'Narrative',
+      info: 'Copy prompt → Claude.ai → paste JSON → Load as draft → Accept. Optional Anthropic API draft is on the stage rail only when a key is set — never required.',
+    }),
   );
   if (busy) {
     parts.push(`<div class="callout warn">Calling Claude… results will appear here when ready.</div>`);
@@ -3183,14 +3479,31 @@ function siteConfigNapFromLocal() {
   }
 }
 
+/** Optional street NAP for site-config — omit incomplete address (build Zod). */
+function siteConfigAddressFromForm(primaryCity, state) {
+  const street = document.getElementById('sc-edit-street')?.value?.trim() || '';
+  const zip = document.getElementById('sc-edit-zip')?.value?.trim() || '';
+  if (!street) return null;
+  return {
+    street,
+    zip,
+    city: String(primaryCity || '').trim(),
+    state: String(state || '').trim(),
+  };
+}
+
 function saveSiteConfigNapFromForm() {
   const prev = siteConfigNapFromLocal();
   const nap = {
-    domain: document.getElementById('sc-domain')?.value?.trim() || '',
-    businessName: document.getElementById('sc-business')?.value?.trim() || '',
-    phone: document.getElementById('sc-phone')?.value?.trim() || '',
-    email: document.getElementById('sc-email')?.value?.trim() || '',
-    radiusMiles: document.getElementById('sc-radius')?.value?.trim() || '40',
+    domain: document.getElementById('sc-domain')?.value?.trim() || prev.domain || '',
+    businessName: document.getElementById('sc-business')?.value?.trim() || prev.businessName || '',
+    phone: document.getElementById('sc-phone')?.value?.trim() || prev.phone || '',
+    email: document.getElementById('sc-email')?.value?.trim() || prev.email || '',
+    radiusMiles: document.getElementById('sc-radius')?.value?.trim() || prev.radiusMiles || '40',
+    paletteId:
+      document.getElementById('sc-brand-palette')?.value?.trim() || prev.paletteId || 'slate-gold',
+    fontTheme:
+      document.getElementById('sc-font-theme')?.value?.trim() || prev.fontTheme || 'archivo-source',
     siteArchetype:
       prev.siteArchetype ||
       state.detail?.meta?.siteArchetype ||
@@ -3206,8 +3519,106 @@ function saveSiteConfigNapFromForm() {
   return nap;
 }
 
+function saveSiteConfigLookToLocal({ paletteId, fontTheme } = {}) {
+  const prev = siteConfigNapFromLocal();
+  const nap = {
+    ...prev,
+    paletteId: String(paletteId || prev.paletteId || 'slate-gold').trim() || 'slate-gold',
+    fontTheme: String(fontTheme || prev.fontTheme || 'archivo-source').trim() || 'archivo-source',
+  };
+  try {
+    localStorage.setItem('ops.siteConfigNap', JSON.stringify(nap));
+  } catch {
+    /* ignore */
+  }
+  return nap;
+}
+
+function siteConfigAcceptedSummaryHtml(accepted) {
+  if (!accepted) return '';
+  const bits = [accepted.businessName, accepted.primaryCity || accepted.city, accepted.state]
+    .map((x) => String(x || '').trim())
+    .filter(Boolean);
+  const domain = String(accepted.domain || '').trim();
+  return statusLineHtml(
+    `Accepted${bits.length ? `: <strong>${esc(bits.join(' · '))}</strong>` : ''}${
+      domain ? ` · <code>${esc(domain)}</code>` : ''
+    }. Continue on the <strong>Content</strong> tab.`,
+  );
+}
+
+/** Strip markdown bold for Review Images Search line (stale manifests may still store **). */
+function stripMdBoldDisplay(s) {
+  return String(s || '')
+    .replace(/\*\*(.+?)\*\*/g, '$1')
+    .replace(/^\*\*|\*\*$/g, '')
+    .trim();
+}
+
+function serviceNamesBulletHtml(names) {
+  const list = (names || []).map((n) => String(n || '').trim()).filter(Boolean);
+  if (!list.length) return '<p class="muted" style="margin:0.25rem 0">None</p>';
+  return `<ul class="narrative-list ca-svc-choice-list">${list.map((n) => `<li>${esc(n)}</li>`).join('')}</ul>`;
+}
+
+/**
+ * Easy-read residential vs commercial lists + Accept choices (forever Config UX).
+ * @param {{ residential: string[], commercial: string[], mode: 'draft'|'accepted', asStepBody?: boolean }} opts
+ */
+function siteConfigServicesChoiceHtml({
+  residential = [],
+  commercial = [],
+  mode = 'draft',
+  asStepBody = false,
+} = {}) {
+  const res = (residential || []).map((n) => String(n || '').trim()).filter(Boolean);
+  const com = (commercial || []).map((n) => String(n || '').trim()).filter(Boolean);
+  const hasCommercial = com.length > 0;
+  const keepId =
+    mode === 'accepted' ? 'site-config-accept-keep-commercial' : 'site-config-accept-with-commercial';
+  const residentialId =
+    mode === 'accepted' ? 'site-config-accept-residential-only-update' : 'site-config-accept-residential-only';
+  const singleAcceptId = mode === 'accepted' ? 'site-config-reaccept-btn' : 'site-config-accept-btn';
+  const keepLabel = mode === 'accepted' ? 'Keep commercial' : 'Accept with commercial';
+  const resLabel = mode === 'accepted' ? 'Update to residential only' : 'Accept residential only';
+
+  const actions = hasCommercial
+    ? `<div class="narrative-actions" style="justify-content:flex-start;flex-wrap:wrap;gap:0.5rem">
+        <button type="button" class="btn primary" id="${esc(keepId)}" data-tip="Keep commercial list — homepage shows Residential + Commercial grids">${esc(keepLabel)}</button>
+        <button type="button" class="btn" id="${esc(residentialId)}" data-tip="Clear commercialServices — one What we do grid, fewer card photos. No Claude re-prompt.">${esc(resLabel)}</button>
+      </div>
+      <p class="muted" style="margin:0.35rem 0 0;font-size:0.85rem">Residential only = one What we do grid. Commercial = second grid (needs more card photos). No new Claude prompt either way.</p>`
+    : `<div class="narrative-actions" style="justify-content:flex-start">
+        <button type="button" class="btn primary" id="${esc(singleAcceptId)}" data-tip="Write site-config and unlock Content">${
+          mode === 'accepted' ? 'Re-write site-config' : 'Accept site-config'
+        }</button>
+      </div>`;
+
+  const heading = asStepBody
+    ? ''
+    : `<h4 style="margin:0 0 0.5rem">${mode === 'accepted' ? 'Accepted services' : 'Review services before Accept'}</h4>`;
+  const wrapClass = asStepBody ? 'ca-svc-choice ca-svc-choice--step' : 'ca-svc-choice';
+
+  return `<div class="${wrapClass}" id="ca-svc-choice-${esc(mode)}">
+    ${heading}
+    <div class="ca-svc-choice-cols">
+      <div>
+        <p class="muted" style="margin:0 0 0.25rem;font-size:0.8rem;text-transform:uppercase;letter-spacing:0.04em">Residential / primary</p>
+        ${serviceNamesBulletHtml(res)}
+      </div>
+      <div>
+        <p class="muted" style="margin:0 0 0.25rem;font-size:0.8rem;text-transform:uppercase;letter-spacing:0.04em">Commercial (optional homepage split)</p>
+        ${serviceNamesBulletHtml(com)}
+      </div>
+    </div>
+    ${actions}
+  </div>`;
+}
+
 function renderSiteConfig() {
   ensurePalettes().catch(() => {});
+  ensureFontThemes().catch(() => {});
+  ensureSiteFontSampleStyles();
   const d = state.detail;
   const f = d?.stageFlags || {};
   const decision = d?.meta?.decision || null;
@@ -3216,93 +3627,244 @@ function renderSiteConfig() {
   const draft = d?.siteConfigDraft;
   const accepted = d?.siteConfig;
   const ready = Boolean(f.hasNarrative && f.hasApproved && decision === 'pursue');
+  const brandForLook = {
+    ...(draft || accepted)?.brand,
+    paletteId:
+      (draft || accepted)?.brand?.paletteId || nap.paletteId || 'slate-gold',
+    fontTheme:
+      (draft || accepted)?.brand?.fontTheme || nap.fontTheme || 'archivo-source',
+  };
+  const stepDone = {
+    details: Boolean(accepted) || Boolean(String(nap.domain || '').trim() && String(nap.businessName || '').trim()),
+    look:
+      Boolean(accepted) ||
+      Boolean((draft || accepted)?.brand?.fontTheme) ||
+      Boolean((draft || accepted)?.brand?.paletteId) ||
+      Boolean(nap.paletteId || nap.fontTheme),
+    paste: Boolean(accepted),
+    serviceArea: Boolean(
+      accepted &&
+        (Array.isArray(accepted.coverageAreas) && accepted.coverageAreas.length >= 2
+          ? true
+          : Boolean(d?.meta?.lastServiceAreaAt)),
+    ),
+    phone: Boolean(
+      accepted &&
+        (isSoftDone('siteConfigSoftDone', 'phone') ||
+          state.sitePhoneProvisioned?.[d?.id] ||
+          Boolean(d?.meta?.phoneSkippedAt) ||
+          (accepted.phone && !isLaunchPhonePlaceholder(accepted.phone))),
+    ),
+  };
+  const detailsDone = stepDone.details || isSoftDone('siteConfigSoftDone', 'details');
+  const lookDone = stepDone.look || isSoftDone('siteConfigSoftDone', 'look');
+  const pasteDone = stepDone.paste || isSoftDone('siteConfigSoftDone', 'paste');
+  const servicesDone =
+    Boolean(accepted) || isSoftDone('siteConfigSoftDone', 'services');
+  const serviceAreaDone =
+    Boolean(
+      accepted &&
+        (Array.isArray(accepted.coverageAreas) && accepted.coverageAreas.length >= 2
+          ? true
+          : Boolean(d?.meta?.lastServiceAreaAt)),
+    ) || isSoftDone('siteConfigSoftDone', 'service-area');
+  const phoneDone = Boolean(
+    accepted &&
+      (isSoftDone('siteConfigSoftDone', 'phone') ||
+        state.sitePhoneProvisioned?.[d?.id] ||
+        Boolean(d?.meta?.phoneSkippedAt) ||
+        (accepted.phone && !isLaunchPhonePlaceholder(accepted.phone))),
+  );
+  // Forward-only: 1 look → 2 details → 3 paste → 4 services → 5 service-area → 6 phone
+  const durableCurrent = !lookDone
+    ? 'look'
+    : !detailsDone
+      ? 'details'
+      : !pasteDone
+        ? 'paste'
+        : !servicesDone
+          ? 'services'
+          : !serviceAreaDone
+            ? 'service-area'
+            : !phoneDone
+              ? 'phone'
+              : null;
+  const currentId = resolvePanelCurrent('siteConfigSoftCurrent', durableCurrent);
+  if (state.siteConfigFollowCurrent !== currentId) {
+    state.siteConfigOpenStep = currentId;
+    state.siteConfigFollowCurrent = currentId;
+  }
+  const openId = state.siteConfigOpenStep;
   const parts = [];
 
   parts.push(
-    `<p class="action-hint">Handoff after Stage 3 Accept + decision <strong>pursue</strong>. Fills <code>prompts/claude-site-config.md</code> from the approved package, then writes <code>src/config/site-config.json</code>.</p>`,
+    panelHowToHtml({
+      label: 'Site config',
+      info: '1 Colors & fonts → 2 Business details → 3 Paste/Accept → 4 Review services → 5 Service area → 6 Provision phone → Content.',
+    }),
   );
 
   if (!f.hasNarrative) {
     parts.push(
-      `<div class="callout warn">Accept Stage 3 narrative first (creates <code>*-approved.json</code>).</div>`,
+      `<div class="callout warn">Accept the Narrative draft first, then come back here.</div>`,
     );
   } else if (!f.hasApproved) {
     parts.push(
-      `<div class="callout warn">Narrative accepted but no approved package — re-Accept the draft (or paste + Accept) to generate it.</div>`,
+      `<div class="callout warn">Narrative is accepted but the approved package is missing — Accept the narrative draft again.</div>`,
     );
   } else if (decision !== 'pursue') {
     parts.push(
-      `<div class="callout warn">Decision is <code>${esc(decision || 'unset')}</code> — set <strong>pursue</strong> on Overview before site-config (or use allow non-pursue in advanced).</div>`,
+      `<div class="callout warn">Decision is <code>${esc(
+        decision || 'unset',
+      )}</code> — set <strong>pursue</strong> on Overview before site-config.</div>`,
     );
-  } else {
+  } else if (!accepted) {
     parts.push(
-      `<div class="callout">Ready · approved package${pack?.niche ? ` · ${esc(pack.niche)}` : ''}${
-        pack?.city ? ` · ${esc(pack.city)}` : ''
-      }</div>`,
+      statusLineHtml(
+        `Ready${pack?.niche ? ` · ${esc(pack.niche)}` : ''}${
+          pack?.city ? ` · ${esc(pack.city)}` : ''
+        }`,
+      ),
     );
   }
 
-  parts.push(`
-    <h3>Operator NAP / domain</h3>
-    <p class="disc-tool-blurb">Used in the Claude prompt and merged into the draft when fields are still placeholders.</p>
-    <div class="site-config-nap">
-      <label data-tip="Public domain without https://">Domain <input id="sc-domain" type="text" value="${esc(nap.domain || '')}" placeholder="example.com" /></label>
-      <label data-tip="Customer-facing brand name">Business name <input id="sc-business" type="text" value="${esc(nap.businessName || '')}" placeholder="Brand LLC" /></label>
-      <label data-tip="E.164 phone for click-to-call">Phone <input id="sc-phone" type="text" value="${esc(nap.phone || '')}" placeholder="+1XXXXXXXXXX" /></label>
-      <label data-tip="Lead inbox email">Email <input id="sc-email" type="email" value="${esc(nap.email || '')}" placeholder="leads@example.com" /></label>
-      <label data-tip="Service radius in miles">Radius (mi) <input id="sc-radius" type="text" value="${esc(nap.radiusMiles || '40')}" /></label>
-      <label class="muted" style="justify-content:flex-end" data-tip="Allow site-config when decision is not pursue"><span><input id="sc-allow-non-pursue" type="checkbox" /> Allow non-pursue</span></label>
-    </div>
-    <h3>Color palette</h3>
-    <p class="disc-tool-blurb">Sets brand primary / accent / ink on draft and accepted site-config (and <code>src/config/site-config.json</code> when present). Layout is chosen on the <strong>Content</strong> tab Structure checklist.</p>
-    <div class="site-config-palette">
-      <label data-tip="Named brand palette — Apply writes primary / accent / ink">
-        Palette
-        <select id="sc-brand-palette">
-          ${paletteOptionsHtml((draft || accepted)?.brand || {})}
-        </select>
-      </label>
-      ${paletteSwatchesHtml((draft || accepted)?.brand || {})}
-      <button type="button" class="btn primary" id="sc-apply-palette" data-tip="Write palette colors into draft + accepted site-config" ${
-        draft || accepted ? '' : 'disabled'
-      }>Apply palette</button>
-    </div>
-    <div class="narrative-actions">
-      <button type="button" class="btn primary" id="sc-copy-prompt" data-tip="Copy filled Claude site-config prompt (includes approved package)" ${ready || f.hasApproved ? '' : 'disabled'}>Copy site-config prompt</button>
-      <button type="button" class="btn" id="sc-open-approved" data-tip="Show approved candidate JSON" ${f.hasApproved ? '' : 'disabled'}>Show approved JSON</button>
-    </div>
-  `);
+  if (accepted) {
+    parts.push(siteConfigAcceptedSummaryHtml(accepted));
+    const dw = domainBrandMismatchClient(accepted.domain, {
+      niche: accepted.niche,
+      businessName: accepted.businessName,
+      primaryCity: accepted.primaryCity,
+    });
+    if (dw.mismatch) {
+      parts.push(
+        `<div class="callout warn"><strong>Domain vs brand:</strong> ${esc(dw.reason)}</div>`,
+      );
+    }
+  }
 
-  parts.push(`
+  const lockedUntilAccept =
+    '<p class="muted small">Locked until you <strong>Accept</strong> site-config in step 3.</p>';
+
+  parts.push(
+    contentStepHtml({
+      id: 'look',
+      num: 1,
+      title: 'Colors & fonts',
+      done: lookDone,
+      open: openId === 'look',
+      current: currentId === 'look' && !lookDone,
+      info: 'Pick a brand palette and a site-wide text font first. Apply saves the look (or remembers it until Load draft), then continue to Business details → Copy.',
+      bodyHtml: `
+        <h4>Site colors</h4>
+        <div class="site-config-palette">
+          <label data-tip="Named brand palette — Apply writes primary / accent / ink">
+            Palette
+            <select id="sc-brand-palette">
+              ${paletteOptionsHtml(brandForLook)}
+            </select>
+          </label>
+          ${paletteSwatchesHtml(brandForLook)}
+        </div>
+        <h4>Text font</h4>
+        <p class="disc-tool-blurb">Affects the whole site (headings + body). Default matches current Rover.</p>
+        <input type="hidden" id="sc-font-theme" value="${esc(matchFontThemeId(brandForLook))}" />
+        ${fontThemeCardsHtml(
+          brandForLook,
+          (draft || accepted)?.businessName || nap.businessName || '',
+        )}
+        <div class="narrative-actions" style="justify-content:flex-end;margin-top:0.75rem">
+          <button type="button" class="btn primary" id="sc-apply-look" data-tip="Save palette and font theme (to draft when available, otherwise until Load draft)">Apply look</button>
+        </div>
+        ${
+          draft || accepted
+            ? ''
+            : `<p class="muted small">No draft yet — Apply look remembers your choice and steers the Copy prompt; it writes into site-config when you Load draft.</p>`
+        }`,
+    }),
+  );
+
+  parts.push(
+    contentStepHtml({
+      id: 'details',
+      num: 2,
+      title: 'Business details',
+      done: detailsDone,
+      open: openId === 'details',
+      current: currentId === 'details' && !detailsDone,
+      info: 'Fill domain, name, phone, email, and radius. Copy site-config prompt for Claude.ai (includes your Colors & fonts), then Paste.',
+      bodyHtml: `
+        <p class="disc-tool-blurb">Used when you copy the prompt and merged into the draft if Claude leaves blanks.</p>
+        <div class="site-config-nap">
+          <label>
+            <span class="label-with-tip-head">
+              <span>Domain</span>
+              <button type="button" class="tip-info" data-tip="Public hostname without https:// (e.g. yourdomain.com)." aria-label="About Domain">i</button>
+            </span>
+            <input id="sc-domain" type="text" value="${esc(nap.domain || '')}" placeholder="yourdomain.com" />
+          </label>
+          <label>
+            <span class="label-with-tip-head">
+              <span>Business name</span>
+              <button type="button" class="tip-info" data-tip="Customer-facing brand name on the site." aria-label="About Business name">i</button>
+            </span>
+            <input id="sc-business" type="text" value="${esc(nap.businessName || '')}" placeholder="Brand LLC" />
+          </label>
+          <label>
+            <span class="label-with-tip-head">
+              <span>Phone</span>
+              <button type="button" class="tip-info" data-tip="Click-to-call number shown on the site." aria-label="About Phone">i</button>
+            </span>
+            <input id="sc-phone" type="text" value="${esc(nap.phone || '')}" placeholder="+1…" />
+          </label>
+          <label>
+            <span class="label-with-tip-head">
+              <span>Email</span>
+              <button type="button" class="tip-info" data-tip="Public site leads address (usually leads@yourdomain.com) — shown in footer, contact, and schema. Not your personal Gmail." aria-label="About Email">i</button>
+            </span>
+            <input id="sc-email" type="email" value="${esc(nap.email || '')}" placeholder="leads@yourdomain.com" />
+          </label>
+          <label>
+            <span class="label-with-tip-head">
+              <span>Radius (mi)</span>
+              <button type="button" class="tip-info" data-tip="Default radius seed for step 5 Service area map." aria-label="About Radius">i</button>
+            </span>
+            <input id="sc-radius" type="text" value="${esc(nap.radiusMiles || '40')}" />
+          </label>
+        </div>
+        <div class="narrative-actions" style="justify-content:flex-end">
+          <button type="button" class="btn primary" id="sc-copy-prompt" data-tip="Copy Claude.ai site-config prompt" ${ready || f.hasApproved ? '' : 'disabled'}>Copy site-config prompt</button>
+        </div>`,
+    }),
+  );
+
+  const pasteParts = [];
+  pasteParts.push(`
     <div class="narrative-paste">
-      <h3>${draft ? 'Replace site-config draft' : 'Paste site-config JSON'}</h3>
-      <p class="muted">Paste Claude’s site-config object (one JSON object; trailing commentary is ignored), then Load draft. Missing fields get TBD placeholders you can edit below.</p>
-      <textarea id="site-config-paste" class="narrative-paste-input" rows="10" placeholder='{ "businessName": "...", "targetSuburbs": [...] }' data-tip="Paste Claude site-config JSON"></textarea>
+      <h4>${draft ? 'Replace from Claude' : 'Paste Claude’s reply'}</h4>
+      <p class="muted">Paste Claude’s full reply below, then <strong>Load draft</strong> to review residential vs commercial before Accept. Extra commentary after the JSON is fine.</p>
+      <textarea id="site-config-paste" class="narrative-paste-input" rows="2" placeholder="Paste Claude’s site-config reply here…" data-tip="Paste Claude site-config reply"></textarea>
       <div class="narrative-actions">
-        <button type="button" class="btn primary" id="site-config-paste-btn" data-tip="Load paste as research/{id}-site-config.draft.json" ${
+        <button type="button" class="btn primary" id="site-config-paste-load-btn" data-tip="Load paste as draft — review services, then Accept" ${
           f.hasApproved ? '' : 'disabled'
-        }>Load as draft</button>
-        <button type="button" class="btn" id="site-config-accept-btn" data-tip="Accept draft = write src/config/site-config.json" ${
-          draft ? '' : 'disabled'
-        }>Accept site-config</button>
+        }>Load draft</button>
       </div>
-      <p class="disc-tool-blurb"><strong>Accept site-config</strong> is the accept step — it writes <code>src/config/site-config.json</code> (backs up the previous file).</p>
+      <p class="disc-tool-blurb"><strong>Load draft</strong> does not write the live config yet — pick Accept with commercial or residential only below.</p>
     </div>
   `);
 
   if (draft?._ops?.suburbCheck?.warnings?.length) {
-    parts.push(
+    pasteParts.push(
       `<div class="callout warn">Suburb warnings: ${esc(draft._ops.suburbCheck.warnings.join('; '))}</div>`,
     );
   }
 
   const ph = draft?._ops?.placeholders || [];
   if (draft && ph.length) {
-    parts.push(
-      `<div class="callout warn">Placeholders still set: <code>${esc(ph.join(', '))}</code> — fill via Edit draft before Accept (or Accept with placeholders for an early build).</div>`,
+    pasteParts.push(
+      `<div class="callout warn">Still need filling: <code>${esc(ph.join(', '))}</code> — edit below before Accept (or Accept anyway for an early build).</div>`,
     );
   } else if (draft) {
-    parts.push(`<div class="callout">Draft looks complete (no TBD placeholders).</div>`);
+    pasteParts.push(statusLineHtml('Draft looks complete — review below, then Accept.'));
   }
 
   if (draft) {
@@ -3312,74 +3874,263 @@ function renderSiteConfig() {
     const commercialText = Array.isArray(draft.commercialServices)
       ? draft.commercialServices.join('; ')
       : '';
-    parts.push(`
-      <h3>Edit draft</h3>
-      <p class="muted">Save small NAP / copy fixes without re-pasting Claude JSON.</p>
+    const svcN = Array.isArray(draft.services) ? draft.services.length : 0;
+    const lim = Number(draft.homepageServicesLimit ?? 8);
+    const showCards = svcN ? Math.min(svcN, Number.isFinite(lim) ? lim : 8) : 0;
+    pasteParts.push(
+      siteConfigServicesChoiceHtml({
+        residential: draft.services || [],
+        commercial: draft.commercialServices || [],
+        mode: 'draft',
+      }),
+    );
+    pasteParts.push(`
+      <div class="narrative-actions" style="justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.5rem;margin-top:1rem">
+        <h4 style="margin:0">Review draft fields</h4>
+      </div>
+      <p class="muted">Fix anything Claude got wrong, then Accept above (saves your edits).</p>
       <div class="site-config-nap" id="sc-draft-edit">
         <label>Business name <input id="sc-edit-businessName" type="text" value="${esc(draft.businessName || '')}" /></label>
         <label>Domain <input id="sc-edit-domain" type="text" value="${esc(draft.domain || '')}" /></label>
         <label>Phone <input id="sc-edit-phone" type="text" value="${esc(draft.phone || '')}" /></label>
         <label>Email <input id="sc-edit-email" type="email" value="${esc(draft.email || '')}" /></label>
-        <label>Tagline <input id="sc-edit-tagline" type="text" value="${esc(draft.tagline || '')}" /></label>
+        <label class="site-config-span2">Tagline <input id="sc-edit-tagline" type="text" value="${esc(draft.tagline || '')}" /></label>
         <label>Primary CTA <input id="sc-edit-primaryCta" type="text" value="${esc(draft.primaryCta || '')}" /></label>
-        <label>Niche <input id="sc-edit-niche" type="text" value="${esc(draft.niche || '')}" /></label>
         <label>Primary city <input id="sc-edit-primaryCity" type="text" value="${esc(draft.primaryCity || '')}" /></label>
         <label>State <input id="sc-edit-state" type="text" value="${esc(draft.state || '')}" maxlength="2" /></label>
-        <label>Radius (mi) <input id="sc-edit-radius" type="text" value="${esc(String(draft.serviceRadiusMiles ?? ''))}" /></label>
-        <label>Web3Forms key <input id="sc-edit-web3" type="text" value="${esc(draft.web3FormsAccessKey || '')}" /></label>
-        <label>Turnstile site key <input id="sc-edit-turnstile" type="text" value="${esc(draft.turnstileSiteKey || '')}" placeholder="optional" /></label>
-        <label>Brand primary <input id="sc-edit-brand-primary" type="text" value="${esc(brand.primary || '')}" placeholder="#1C2B3A" /></label>
-        <label>Brand accent <input id="sc-edit-brand-accent" type="text" value="${esc(brand.accent || '')}" placeholder="#E8A317" /></label>
-        <label>Brand ink <input id="sc-edit-brand-ink" type="text" value="${esc(brand.ink || '')}" placeholder="#0F1720" /></label>
         <label class="site-config-span2">Target suburbs <input id="sc-edit-suburbs" type="text" value="${esc(suburbsText)}" placeholder="City A; City B" /></label>
-        <label class="site-config-span2">Services (residential, up to 12) <input id="sc-edit-services" type="text" value="${esc(servicesText)}" placeholder="Service A; Service B" data-tip="Every name here gets a service page" /></label>
-        <label class="site-config-span2">Commercial services (optional) <input id="sc-edit-commercial" type="text" value="${esc(commercialText)}" placeholder="Commercial A; Commercial B" /></label>
-        <label class="site-config-span2">Homepage “What we do” cards
-          <input id="sc-edit-svc-limit" type="number" min="1" max="12" value="${esc(String(draft.homepageServicesLimit ?? 12))}" data-tip="How many service cards on the homepage (1–12). Service pages are still created for every name in Services." />
-          <span class="muted" style="display:block;margin-top:0.35rem;font-size:0.85em;font-weight:400">Shows this many cards on the homepage. Service pages are still created for every name in Services (e.g. 6 cards, 10 pages).${(() => {
-            const svcN = Array.isArray(draft.services) ? draft.services.length : 0;
-            const lim = Number(draft.homepageServicesLimit ?? 12);
-            if (!svcN) return '';
-            const show = Math.min(svcN, Number.isFinite(lim) ? lim : 12);
-            return ` Currently: showing ${show} of ${svcN} on homepage.`;
-          })()}</span>
-        </label>
+        <label class="site-config-span2">Services (each gets a page) <input id="sc-edit-services" type="text" value="${esc(servicesText)}" placeholder="Service A; Service B" data-tip="Every name here gets a service page" /></label>
       </div>
-      <div class="narrative-actions">
-        <button type="button" class="btn primary" id="site-config-save-draft-btn" data-tip="Save Edit draft fields into research/{id}-site-config.draft.json">Save draft</button>
-      </div>
-      <details class="narrative-raw"><summary>Raw draft JSON</summary>
-        <div class="json-block">${esc(JSON.stringify(draft, null, 2))}</div>
+      <details class="narrative-raw content-advanced">
+        <summary>Advanced — save draft without Accept · extra fields</summary>
+        <div class="narrative-actions" style="margin:0.5rem 0">
+          <button type="button" class="btn" id="site-config-save-draft-btn" data-tip="Save review edits without Accept">Save draft only</button>
+        </div>
+        <div class="site-config-nap" style="margin-top:0.5rem">
+          <label>Niche <input id="sc-edit-niche" type="text" value="${esc(draft.niche || '')}" /></label>
+          <label>Radius (mi) <input id="sc-edit-radius" type="text" value="${esc(String(draft.serviceRadiusMiles ?? ''))}" /></label>
+          <label>Street (optional) <input id="sc-edit-street" type="text" value="${esc(draft.address?.street || '')}" placeholder="Only if real — never invent" data-tip="Optional real street for LocalBusiness schema. Leave blank if unknown." /></label>
+          <label>ZIP (optional) <input id="sc-edit-zip" type="text" value="${esc(draft.address?.zip || '')}" placeholder="e.g. 84084" data-tip="Optional ZIP with street. Leave blank if unknown." /></label>
+          <label>Web3Forms key <input id="sc-edit-web3" type="text" value="${esc(draft.web3FormsAccessKey || '')}" /></label>
+          <label>Turnstile site key <input id="sc-edit-turnstile" type="text" value="${esc(draft.turnstileSiteKey || '')}" placeholder="optional" /></label>
+          <label>Brand primary <input id="sc-edit-brand-primary" type="text" value="${esc(brand.primary || '')}" placeholder="#1C2B3A" /></label>
+          <label>Brand accent <input id="sc-edit-brand-accent" type="text" value="${esc(brand.accent || '')}" placeholder="#E8A317" /></label>
+          <label>Brand ink <input id="sc-edit-brand-ink" type="text" value="${esc(brand.ink || '')}" placeholder="#0F1720" /></label>
+          <label class="site-config-span2">Commercial services (optional) <input id="sc-edit-commercial" type="text" value="${esc(commercialText)}" placeholder="Commercial A; Commercial B" data-tip="Prefer the Accept buttons above; editing here still works for fine-tuning" /></label>
+          <label class="site-config-span2">Homepage “What we do” cards
+            <input id="sc-edit-svc-limit" type="number" min="1" max="12" value="${esc(String(draft.homepageServicesLimit ?? 8))}" data-tip="Prefer 6 or 8 homepage cards. Service pages are still created for every Services name." />
+            <span class="muted" style="display:block;margin-top:0.35rem;font-size:0.85em;font-weight:400">Prefer 6 (3×2) or 8 (4×2).${
+              svcN ? ` Currently showing ${esc(String(showCards))} of ${esc(String(svcN))} on homepage.` : ''
+            }</span>
+          </label>
+        </div>
+        <details class="narrative-raw">
+          <summary>Raw draft JSON</summary>
+          <div class="json-block">${esc(JSON.stringify(draft, null, 2))}</div>
+        </details>
       </details>
     `);
   }
-  if (accepted) {
-    parts.push('<h3>Last accepted (research copy)</h3>');
-    parts.push(`<div class="json-block">${esc(JSON.stringify(accepted, null, 2))}</div>`);
-  }
-  if (pack) {
-    parts.push(`<details class="narrative-raw"><summary>Approved package</summary>
-      <div class="json-block">${esc(JSON.stringify(pack, null, 2))}</div>
-    </details>`);
-  }
+
+  parts.push(
+    contentStepHtml({
+      id: 'paste',
+      num: 3,
+      title: 'Paste Claude’s reply',
+      done: pasteDone,
+      open: openId === 'paste',
+      current: currentId === 'paste' && !pasteDone,
+      info: 'Paste Claude’s site-config reply, Load draft, then Accept with commercial or residential only.',
+      bodyHtml: pasteParts.join(''),
+    }),
+  );
+
+  parts.push(
+    contentStepHtml({
+      id: 'services',
+      num: 4,
+      title: 'Review services',
+      done: servicesDone,
+      open: openId === 'services',
+      current: currentId === 'services' && !servicesDone,
+      locked: !accepted,
+      info: 'Residential vs commercial lists drive the homepage What we do split. Keep or clear commercial here — no Claude re-prompt.',
+      bodyHtml: accepted
+        ? siteConfigServicesChoiceHtml({
+            residential: accepted.services || [],
+            commercial: accepted.commercialServices || [],
+            mode: 'accepted',
+            asStepBody: true,
+          })
+        : lockedUntilAccept,
+    }),
+  );
+
+  const covN = accepted && Array.isArray(accepted.coverageAreas) ? accepted.coverageAreas.length : 0;
+  const pageN = accepted && Array.isArray(accepted.targetSuburbs) ? accepted.targetSuburbs.length : 0;
+  parts.push(
+    contentStepHtml({
+      id: 'service-area',
+      num: 5,
+      title: 'Service area',
+      done: serviceAreaDone,
+      open: openId === 'service-area',
+      current: currentId === 'service-area' && !serviceAreaDone,
+      locked: !accepted,
+      info: 'Set radius on the map, toggle cities, Accept. Coverage list can be wide; SEO location pages stay Claude-first (max 8).',
+      bodyHtml: accepted
+        ? `
+          <p class="disc-tool-blurb">Map fills the left panel (all cities). Coverage can be wide; SEO pages stay Claude-first (max 8).</p>
+          ${
+            serviceAreaDone
+              ? `<p class="muted small">Saved · ${esc(String(covN))} coverage · ${esc(String(pageN))} location pages · ${esc(
+                  String(accepted.serviceRadiusMiles ?? ''),
+                )} mi — reopen to edit.</p>`
+              : ''
+          }
+          <div id="sa-host" class="sa-host"></div>
+        `
+        : lockedUntilAccept,
+    }),
+  );
+
+  const phoneTrackingHint = accepted?.phone
+    ? `<p class="muted small">Current site-config phone: <code>${esc(accepted.phone)}</code></p>`
+    : '';
+  const alreadyProvisioned = Boolean(state.sitePhoneProvisioned?.[d?.id]);
+  parts.push(
+    contentStepHtml({
+      id: 'phone',
+      num: 6,
+      title: 'Provision phone number',
+      done: phoneDone,
+      open: openId === 'phone',
+      current: currentId === 'phone' && !phoneDone,
+      locked: !accepted,
+      info: 'Buy a Twilio local DID after Accept (~$1.15/mo). Whisper uses business name. See docs/PHONE-TRACKING.md.',
+      bodyHtml: accepted
+        ? `
+          <p class="disc-tool-blurb">Provision a local ranking number, then continue Content → Website Prepare / Launch.</p>
+          ${phoneTrackingHint}
+          <div class="narrative-actions" style="align-items:center;gap:0.5rem;flex-wrap:wrap;margin-top:0.5rem">
+            <label class="muted small" style="display:inline-flex;align-items:center;gap:0.35rem">
+              Area code (optional)
+              <input id="sc-twilio-area" type="text" inputmode="numeric" maxlength="3" placeholder="auto" style="width:4rem" />
+            </label>
+            <button type="button" class="btn primary" id="sc-provision-twilio" data-tip="Buy Twilio ranking number and write site-config phone" ${
+              alreadyProvisioned ? 'disabled' : ''
+            }>Provision new phone number</button>
+            <button type="button" class="btn" id="sc-skip-phone" data-tip="Skip Twilio for now — continue with the current site-config phone (Launch still flags placeholders)" ${
+              phoneDone ? 'disabled' : ''
+            }>Skip</button>
+          </div>
+          <p class="muted small" id="sc-phone-tracking-status"></p>
+        `
+        : lockedUntilAccept,
+    }),
+  );
+
   return parts.join('');
 }
 
-function contentStepHtml({ id, num, title, done, open, tip, bodyHtml }) {
-  return `<section class="content-step${done ? ' done' : ''}${open ? ' open' : ''}" data-content-step="${esc(id)}">
-    <button type="button" class="content-step-head" data-content-toggle="${esc(id)}" data-tip="${esc(tip || '')}">
-      <span class="disc-step-mark" aria-hidden="true"></span>
-      <span class="content-step-label">${esc(String(num))} · ${esc(title)}</span>
-    </button>
+function panelHowToHtml({ label, info }) {
+  return `<div class="panel-how-to">
+    <span class="panel-how-to-label">${esc(label)}</span>
+    <button type="button" class="tip-info" data-tip="${esc(info)}" aria-label="About ${esc(
+      label,
+    )}">i</button>
+  </div>`;
+}
+
+function statusLineHtml(innerHtml) {
+  if (!innerHtml) return '';
+  return `<p class="status-line">${innerHtml}</p>`;
+}
+
+function headingWithInfoHtml(tag, text, info) {
+  const t = String(tag || 'h3').toLowerCase();
+  const safe = t === 'h2' || t === 'h4' ? t : 'h3';
+  return `<${safe} class="heading-with-info"><span>${esc(text)}</span><button type="button" class="tip-info" data-tip="${esc(
+    info,
+  )}" aria-label="About ${esc(text)}">i</button></${safe}>`;
+}
+
+function contentStepHtml({ id, num, title, done, open, info, bodyHtml, current = false, locked = false }) {
+  const infoBtn = info
+    ? `<button type="button" class="tip-info" data-tip="${esc(info)}" aria-label="About ${esc(
+        title,
+      )}">i</button>`
+    : '';
+  return `<section class="content-step${done ? ' done' : ''}${open ? ' open' : ''}${
+    current ? ' current' : ''
+  }${locked ? ' locked' : ''}" data-content-step="${esc(id)}">
+    <div class="content-step-head-wrap">
+      <button type="button" class="content-step-head" data-content-toggle="${esc(id)}">
+        <span class="disc-step-mark" aria-hidden="true"></span>
+        <span class="content-step-label">${esc(String(num))} · ${esc(title)}</span>
+      </button>
+      ${infoBtn}
+    </div>
     <div class="content-step-body">${bodyHtml}</div>
   </section>`;
 }
 
-/** Numbered action row: n · label + optional controls */
-function contentActionRow({ n, label, hint, controlsHtml = '' }) {
-  return `<div class="content-action-row">
+const SITE_CONFIG_STEP_ORDER = ['look', 'details', 'paste', 'services', 'service-area', 'phone'];
+const CONTENT_STEP_ORDER = ['structure', 'outline', 'write', 'editor', 'accept'];
+const WEBSITE_STEP_ORDER = ['images', 'prepare', 'launch'];
+
+/** Force open + pulse to stepId (Copy / handoff) without waiting for durable done. */
+function advancePanelStep(panel, stepId) {
+  if (panel === 'site-config') {
+    state.siteConfigOpenStep = stepId;
+    state.siteConfigSoftCurrent = stepId;
+    state.siteConfigFollowCurrent = stepId;
+    markSoftDonePrior('siteConfigSoftDone', SITE_CONFIG_STEP_ORDER, stepId);
+  } else if (panel === 'website') {
+    state.websiteOpenStep = stepId;
+    state.websiteSoftCurrent = stepId;
+    state.websiteFollowCurrent = stepId;
+    markSoftDonePrior('websiteSoftDone', WEBSITE_STEP_ORDER, stepId);
+  } else {
+    state.contentOpenStep = stepId;
+    state.contentSoftCurrent = stepId;
+    state.contentFollowCurrent = stepId;
+    markSoftDonePrior('contentSoftDone', CONTENT_STEP_ORDER, stepId);
+  }
+}
+
+/** Sticky green-check for steps before the soft-advanced target. */
+function markSoftDonePrior(softDoneKey, order, stepId) {
+  const map = { ...(state[softDoneKey] || {}) };
+  const idx = order.indexOf(stepId);
+  if (idx <= 0) {
+    state[softDoneKey] = map;
+    return;
+  }
+  for (let i = 0; i < idx; i += 1) map[order[i]] = true;
+  state[softDoneKey] = map;
+}
+
+function isSoftDone(softDoneKey, stepId) {
+  return Boolean(state[softDoneKey]?.[stepId]);
+}
+
+/** Prefer soft current until durable catches up or panel is complete. */
+function resolvePanelCurrent(softKey, durableCurrent) {
+  const soft = state[softKey];
+  if (soft && (soft === durableCurrent || durableCurrent == null)) {
+    state[softKey] = null;
+  }
+  return state[softKey] ?? durableCurrent;
+}
+
+/** Numbered action row: n · label + optional controls; done shows green ✓ */
+function contentActionRow({ n, label, hint, controlsHtml = '', done = false }) {
+  return `<div class="content-action-row${done ? ' content-action-row-done' : ''}">
     <div class="content-action-meta">
-      <span class="content-action-num">${esc(String(n))}</span>
+      <span class="content-action-num${done ? ' content-action-num-done' : ''}"${
+        done ? ` ${tipAttr('Completed')}` : ''
+      }>${done ? '✓' : esc(String(n))}</span>
       <div>
         <div class="content-action-label">${label}</div>
         ${hint ? `<p class="disc-tool-blurb">${hint}</p>` : ''}
@@ -3389,31 +4140,244 @@ function contentActionRow({ n, label, hint, controlsHtml = '' }) {
   </div>`;
 }
 
+/** Advisory speech-lint findings for Content → Editor panel */
+function speechLintFindingsHtml(speechLint) {
+  if (!speechLint) return '';
+  const findings = speechLint.findings || [];
+  if (!findings.length) {
+    return `<div class="callout"><strong>Speech/SEO Refinement:</strong> No speech flags.</div>`;
+  }
+  const items = findings
+    .slice(0, 25)
+    .map((f) => {
+      const where = [f.file, f.section].filter(Boolean).map((x) => esc(String(x))).join(' · ');
+      return `<li><code>${esc(f.rule || 'flag')}</code>${where ? ` · ${where}` : ''}<br><span class="muted">${esc(
+        f.excerpt || '',
+      )}</span>${f.suggestion ? `<br>${esc(f.suggestion)}` : ''}</li>`;
+    })
+    .join('');
+  const more =
+    findings.length > 25
+      ? `<p class="muted">Showing 25 of ${esc(String(findings.length))}.</p>`
+      : '';
+  return `<details class="narrative-raw lint-findings" open><summary><strong>Speech:</strong> ${esc(
+    String(findings.length),
+  )} finding(s)</summary><ul class="speech-lint-list">${items}</ul>${more}</details>`;
+}
+
+/** SEO lint findings (critical vs soft) */
+function seoLintFindingsHtml(seoLint) {
+  if (!seoLint) return '';
+  const findings = seoLint.findings || [];
+  if (!findings.length) {
+    return `<div class="callout"><strong>Speech/SEO Refinement:</strong> No SEO flags.</div>`;
+  }
+  const critical = findings.filter((f) => f.severity === 'critical');
+  const items = findings
+    .slice(0, 25)
+    .map((f) => {
+      const sev = f.severity === 'critical' ? 'critical' : 'soft';
+      return `<li><code>${esc(sev)}</code> · <code>${esc(f.rule || 'flag')}</code> · ${esc(
+        f.file || '',
+      )}<br><span class="muted">${esc(f.excerpt || '')}</span>${
+        f.suggestion ? `<br>${esc(f.suggestion)}` : ''
+      }</li>`;
+    })
+    .join('');
+  const critNote = critical.length
+    ? ` · ${esc(String(critical.length))} critical`
+    : '';
+  return `<details class="narrative-raw lint-findings" open><summary><strong>SEO:</strong> ${esc(
+    String(findings.length),
+  )} finding(s)${critNote}</summary><ul class="speech-lint-list">${items}</ul></details>`;
+}
+
+function autoFixSummaryHtml(autoFix) {
+  if (!autoFix?.changeCount) return '';
+  const changes = autoFix.changes || [];
+  const speech = changes.filter((c) => (c.kind || kindFromRule(c.rule)) === 'speech');
+  const seo = changes.filter((c) => (c.kind || kindFromRule(c.rule)) === 'seo');
+  const speechN = autoFix.speechCount ?? speech.length;
+  const seoN = autoFix.seoCount ?? seo.length;
+
+  const list = (rows) =>
+    rows
+      .slice(0, 20)
+      .map(
+        (c) =>
+          `<li><code>${esc(c.rule || '')}</code> · ${esc(c.file || '')}<br><span class="muted">${esc(
+            c.detail || '',
+          )}</span></li>`,
+      )
+      .join('');
+
+  const speechBlock = speech.length
+    ? `<p class="muted" style="margin:0.5rem 0 0.25rem"><strong>Speech</strong> (${esc(
+        String(speechN),
+      )})</p><ul class="speech-lint-list">${list(speech)}</ul>`
+    : '';
+  const seoBlock = seo.length
+    ? `<p class="muted" style="margin:0.5rem 0 0.25rem"><strong>SEO</strong> (${esc(
+        String(seoN),
+      )})</p><ul class="speech-lint-list">${list(seo)}</ul>`
+    : '';
+
+  return `<details class="narrative-raw" open><summary>Auto-fixed ${esc(
+    String(autoFix.changeCount),
+  )} issue(s) (${esc(String(speechN))} speech · ${esc(String(seoN))} SEO)</summary>${speechBlock}${seoBlock}</details>`;
+}
+
+function kindFromRule(rule) {
+  return rule === 'missing_internal_link' ? 'seo' : 'speech';
+}
+
+/**
+ * Claude editor rewrite is recommended when speech leftovers, Critical SEO, or soft SEO remain.
+ * @param {object|null|undefined} draftOrLints - content draft, or { speechLint, seoLint }
+ */
+function contentNeedsEditorRewrite(draftOrLints) {
+  const speechLint = draftOrLints?.speechLint || draftOrLints?._ops?.speechLint;
+  const seoLint = draftOrLints?.seoLint || draftOrLints?._ops?.seoLint;
+  const speechN = speechLint?.findings?.length || 0;
+  const criticalSeoN = (seoLint?.findings || []).filter((f) => f.severity === 'critical').length;
+  const softSeoN = (seoLint?.findings || []).filter((f) => f.severity !== 'critical').length;
+  const advisoryN = speechN + softSeoN;
+  return {
+    needed: speechN > 0 || criticalSeoN > 0 || softSeoN > 0,
+    speechN,
+    criticalSeoN,
+    softSeoN,
+    advisoryN,
+    softOnly: softSeoN > 0 && speechN === 0 && criticalSeoN === 0,
+  };
+}
+
+function lintSevDotHtml(tone, count, tip) {
+  if (!count) return '';
+  const cls = tone === 'critical' ? 'lint-sev-dot lint-sev-critical' : 'lint-sev-dot lint-sev-advisory';
+  return `<span class="lint-sev-count" ${tipAttr(tip)}><span class="${cls}" aria-hidden="true"></span><span class="lint-sev-n">${esc(
+    String(count),
+  )}</span></span>`;
+}
+
+function editorRewriteWhyHtml(needs) {
+  if (!needs?.needed) return '';
+  const bits = [];
+  if (needs.speechN) {
+    bits.push(
+      `${esc(String(needs.speechN))} speech leftover(s) auto-fix could not safely clear`,
+    );
+  }
+  if (needs.criticalSeoN) {
+    bits.push(
+      `${esc(String(needs.criticalSeoN))} Critical SEO finding(s) that block Accept unless overridden`,
+    );
+  }
+  if (needs.softSeoN) {
+    bits.push(`${esc(String(needs.softSeoN))} soft SEO finding(s) (recommended Claude pass)`);
+  }
+  const label = needs.softOnly ? 'Claude rewrite recommended' : 'Claude rewrite needed';
+  const dots = [
+    lintSevDotHtml(
+      'advisory',
+      needs.advisoryN,
+      'Advisory — Accept allowed; Claude pass recommended',
+    ),
+    lintSevDotHtml(
+      'critical',
+      needs.criticalSeoN,
+      'Critical SEO — blocks Accept unless overridden',
+    ),
+  ]
+    .filter(Boolean)
+    .join('');
+  return `<div class="callout warn editor-rewrite-why">
+    <div class="editor-rewrite-status"><strong>${label}:</strong>${
+      dots ? ` <span class="lint-sev-dots">${dots}</span>` : ''
+    } ${bits.join(' · ')}</div>
+    <p class="editor-rewrite-workflow muted">Copy the editor prompt → fix in Claude.ai → paste FILE blocks → Load, then Speech/SEO Refinement again.</p>
+  </div>`;
+}
+
+function speechCheckResultBodyHtml({ speechLint, seoLint, autoFix }) {
+  const needs = contentNeedsEditorRewrite({ speechLint, seoLint });
+  const speechN = needs.speechN;
+  const fixN = autoFix?.changeCount || 0;
+  const fixSpeech = autoFix?.speechCount ?? 0;
+  const fixSeo = autoFix?.seoCount ?? 0;
+  const fixLine = fixN
+    ? `<p class="muted">Auto-fixed ${esc(String(fixN))} (${esc(String(fixSpeech))} speech · ${esc(
+        String(fixSeo),
+      )} SEO).</p>`
+    : '<p class="muted">No auto-fixes needed this pass.</p>';
+
+  if (!needs.needed) {
+    return `<p><strong>No rewrite needed.</strong> Speech leftovers and SEO flags are clear.</p>${fixLine}<p><strong>Up next:</strong> <strong>Accept content</strong>.</p>`;
+  }
+
+  if (needs.softOnly) {
+    return `<p><strong>Recommended Claude pass for soft SEO.</strong></p>
+    <p>${esc(String(needs.softSeoN))} soft SEO flag(s) remain (advisory — Accept is not blocked).</p>
+    ${fixLine}
+    <p>Use <strong>Copy editor prompt</strong> below → Claude.ai → paste revised FILE blocks → Load, then Speech/SEO Refinement again. Or Accept now if you are fine shipping with soft flags.</p>`;
+  }
+
+  const bits = [];
+  if (speechN) bits.push(`${esc(String(speechN))} speech leftover(s)`);
+  if (needs.criticalSeoN) bits.push(`${esc(String(needs.criticalSeoN))} Critical SEO`);
+  if (needs.softSeoN) bits.push(`${esc(String(needs.softSeoN))} soft SEO`);
+  return `<p><strong>Additional Claude pass needed.</strong></p>
+    <p>${bits.join(' · ')}.</p>
+    ${fixLine}
+    <p>Rover auto-fix cleared what it could safely. Use <strong>Copy editor prompt</strong> below → Claude.ai → paste revised FILE blocks → Load, then Speech/SEO Refinement again.${
+      needs.criticalSeoN
+        ? ' Critical SEO blocks Accept until fixed (or you override on Accept).'
+        : ' You can still Accept if only speech leftovers remain.'
+    }</p>`;
+}
+
 function firstIncompleteContentStep(flags) {
   if (!flags.structure) return 'structure';
   if (!flags.outline) return 'outline';
   if (!flags.write) return 'write';
+  if (!flags.editor) return 'editor';
   if (!flags.accepted) return 'accept';
   return 'accept';
 }
 
-function contentUpNextHtml(stepDone, ready) {
+function contentUpNextHtml(stepDone, ready, { secCount = 0, outlineConfirmed = false, outlineDrafted = false } = {}) {
   if (!ready) {
-    return `<div class="callout warn">Up next: Accept <strong>Site config</strong> first (NAP / services / suburbs).</div>`;
+    return `<div class="callout warn">Accept <strong>Site config</strong> first (business NAP, services, suburbs).</div>`;
   }
+  const structureBits = [
+    'Structure checklist',
+    secCount ? `${esc(String(secCount))} sections` : '',
+    outlineConfirmed ? 'outline confirmed' : outlineDrafted ? 'outline drafted' : '',
+    stepDone.accepted ? 'content accepted' : stepDone.write ? 'draft ready' : '',
+  ].filter(Boolean);
+  const structureLine = structureBits.join(' · ');
+
+  if (stepDone.accepted) {
+    return statusLineHtml(structureLine);
+  }
+
+  let upNext = '';
   if (!stepDone.structure) {
-    return `<div class="callout">Up next: <strong>Structure</strong> — pick pages + H2 sections (presets optional) → Continue.</div>`;
+    upNext = 'Up next: <strong>Structure</strong> — pages + sections → Continue';
+  } else if (!stepDone.outline) {
+    upNext =
+      'Up next: <strong>Outline paste cycle</strong> — Copy structure prompt → Claude.ai → Load &amp; confirm';
+  } else if (!stepDone.write) {
+    upNext =
+      'Up next: <strong>Write paste cycle</strong> — Copy full-write prompt → Claude.ai → Load FILE (auto Speech/SEO Refinement)';
+  } else if (!stepDone.editor) {
+    upNext =
+      'Up next: <strong>Speech/SEO Refinement</strong> (auto on Load; re-run if needed) — Claude Copy/Load available for leftovers or soft SEO';
+  } else {
+    upNext =
+      'Up next: <strong>Accept content</strong> — then <strong>Website → Prepare preview</strong>';
   }
-  if (!stepDone.outline) {
-    return `<div class="callout">Up next: <strong>Outline</strong> — SEO structure prompt → paste refined outline → Confirm.</div>`;
-  }
-  if (!stepDone.write) {
-    return `<div class="callout">Up next: <strong>Full write</strong> — copy write prompt → Load FILE blocks as draft.</div>`;
-  }
-  if (!stepDone.accepted) {
-    return `<div class="callout">Up next: <strong>Accept content</strong> — then open the <strong>Website</strong> tab.</div>`;
-  }
-  return `<div class="callout">Content accepted. Up next: <strong>Website</strong> tab — Stage → Assemble → Launch.</div>`;
+  return statusLineHtml(`${upNext}${structureLine ? ` · ${structureLine}` : ''}`);
 }
 
 function briefSectionsTableHtml(brief) {
@@ -3458,11 +4422,251 @@ function collectBriefSectionsFromDom() {
   }));
 }
 
-function firstIncompleteWebsiteStep({ staged, assembled, launched }) {
-  if (!staged) return 'stage';
-  if (!assembled) return 'assemble';
+function firstIncompleteWebsiteStep({ imagesDone, prepareDone, launched }) {
+  if (!imagesDone) return 'images';
+  if (!prepareDone) return 'prepare';
   if (!launched) return 'launch';
   return 'launch';
+}
+
+function isLaunchPhonePlaceholder(phone) {
+  const phoneRaw = String(phone || '').trim();
+  return (
+    !phoneRaw ||
+    /^\+?1?X+$/i.test(phoneRaw.replace(/[\s\-().]/g, '')) ||
+    /X{4,}/i.test(phoneRaw) ||
+    phoneRaw === '+1XXXXXXXXXX'
+  );
+}
+
+function isLaunchDomainPlaceholder(domain) {
+  const d = String(domain || '')
+    .trim()
+    .toLowerCase()
+    .replace(/^https?:\/\//, '')
+    .replace(/\/$/, '');
+  return !d || d === 'example.com' || d === 'www.example.com' || /^tbd\b/i.test(d);
+}
+
+function isLaunchWeb3Placeholder(key) {
+  const s = String(key || '').trim();
+  return (
+    !s ||
+    /^(REPLACE_WEB3FORMS_KEY|YOUR_WEB3FORMS_ACCESS_KEY)$/i.test(s) ||
+    /^REPLACE_/i.test(s) ||
+    /^YOUR_WEB3FORMS/i.test(s) ||
+    /^tbd\b/i.test(s)
+  );
+}
+
+/** Soft warn when hostname tokens don't overlap niche/brand/city (mirrors ops/lib/site-config.mjs). */
+function domainBrandMismatchClient(domain, { niche, businessName, primaryCity } = {}) {
+  const host = String(domain || '')
+    .trim()
+    .toLowerCase()
+    .replace(/^https?:\/\//, '')
+    .replace(/\/$/, '')
+    .replace(/^www\./, '');
+  if (!host || host === 'example.com' || /^tbd\b/i.test(host)) {
+    return { mismatch: false, domain: host, reason: null };
+  }
+  const label = host.split('.')[0] || host;
+  const hostTokens = label.split(/[^a-z0-9]+/).filter((t) => t.length > 2);
+  const stop = new Set([
+    'the',
+    'and',
+    'for',
+    'pros',
+    'llc',
+    'inc',
+    'com',
+    'net',
+    'org',
+    'www',
+    'services',
+    'service',
+    'local',
+    'home',
+  ]);
+  const meaningful = hostTokens.filter((t) => !stop.has(t));
+  if (!meaningful.length) return { mismatch: false, domain: host, reason: null };
+  const hay = `${niche || ''} ${businessName || ''} ${primaryCity || ''}`
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ');
+  const hayTokens = new Set(
+    hay
+      .split(/\s+/)
+      .filter((t) => t.length > 2 && !stop.has(t)),
+  );
+  const hit = meaningful.some((t) =>
+    [...hayTokens].some((h) => h.includes(t) || t.includes(h)),
+  );
+  if (hit) return { mismatch: false, domain: host, reason: null };
+  return {
+    mismatch: true,
+    domain: host,
+    reason: `Hostname “${host}” does not share tokens with niche/brand/city — use the final client domain before go-live (test hosts are OK for preview).`,
+  };
+}
+
+function napCsvFromSiteConfig(cfg = {}) {
+  const services = [
+    ...(Array.isArray(cfg.services) ? cfg.services : []),
+    ...(Array.isArray(cfg.commercialServices) ? cfg.commercialServices : []),
+  ]
+    .map((s) => (typeof s === 'string' ? s : s?.name))
+    .filter(Boolean)
+    .join('; ');
+  const row = {
+    businessName: cfg.businessName || '',
+    phone: cfg.phone || '',
+    email: cfg.email || '',
+    street: cfg.address?.street || '',
+    city: cfg.address?.city || cfg.primaryCity || '',
+    state: cfg.address?.state || cfg.state || '',
+    zip: cfg.address?.zip || '',
+    domain: cfg.domain || '',
+    niche: cfg.niche || '',
+    services,
+  };
+  const headers = Object.keys(row);
+  const escape = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+  return `${headers.join(',')}\n${headers.map((h) => escape(row[h])).join(',')}\n`;
+}
+
+function citationsChecklistHtml(cfg = {}) {
+  const items = [
+    'Google Business Profile — website URL + NAP match site-config',
+    'Apple Business Connect',
+    'Bing Places',
+    'Yelp Business',
+    'BBB and/or local chamber (when applicable)',
+    '1–2 niche directories or supplier partner links',
+  ];
+  return `<div class="callout" id="ca-citations" style="margin-top:0.75rem">
+    <strong>Citations (off-page)</strong>
+    <p class="muted" style="margin:0.35rem 0 0.5rem;font-size:0.85rem">Head-term ranking needs local citations and GBP — Assemble cannot mint backlinks. Check these off before expecting page-one speed.</p>
+    <ul class="narrative-list" style="margin:0 0 0.5rem">
+      ${items.map((t) => `<li>${esc(t)}</li>`).join('')}
+    </ul>
+    <div class="narrative-actions" style="justify-content:flex-start">
+      <button type="button" class="btn btn-sm" id="ca-download-nap" data-tip="Download NAP CSV from accepted site-config for directory forms">Download NAP CSV</button>
+    </div>
+  </div>`;
+}
+
+/** Preflight issues for Launch step (domain / phone / web3). */
+function launchPreflightIssues({ domain, phone, web3FormsAccessKey }) {
+  const issues = [];
+  if (isLaunchDomainPlaceholder(domain)) {
+    issues.push({ id: 'domain', label: 'Domain still empty or example.com' });
+  }
+  if (isLaunchPhonePlaceholder(phone)) {
+    issues.push({ id: 'phone', label: 'Phone still a placeholder (set under Advanced or Site config)' });
+  }
+  if (isLaunchWeb3Placeholder(web3FormsAccessKey)) {
+    issues.push({
+      id: 'web3',
+      label: 'Web3Forms access key missing or placeholder — create at web3forms.com and paste',
+    });
+  }
+  return issues;
+}
+
+function launchPreflightHtml(issues) {
+  if (!issues?.length) return '';
+  return `<div class="callout warn"><strong>Before launch:</strong><ul class="narrative-list">${issues
+    .map((i) => `<li>${esc(i.label)}</li>`)
+    .join('')}</ul></div>`;
+}
+
+function applyShipFreshnessUi(diff) {
+  const box = document.getElementById('ca-ship-freshness');
+  const msg = document.getElementById('ca-ship-freshness-msg');
+  if (!box || !msg) return;
+  let status = diff?.status || 'unknown';
+  if (status === 'behind') status = 'behind';
+  else if (status === 'current') status = 'current';
+  box.dataset.status = status;
+  const assembleTip =
+    diff?.timestampHint?.assembleNewerThanShip && status === 'current'
+      ? ` <span class="muted">(Assemble ${esc(diff.timestampHint.lastAssembleAt || '')} · last ship ${esc(diff.timestampHint.lastShipAt || 'never')})</span>`
+      : '';
+  const matchInfoTip =
+    status === 'current'
+      ? ` <button type="button" class="tip-info" data-tip="Local assembled tree matches GitHub origin/main — already pushed. Prepare preview auto-ships when gh + Cloudflare are set, so a green match after Prepare (with new images) is expected. Use Push updates only when status shows a mismatch or auto-ship was skipped." aria-label="About matched GitHub status">i</button>`
+      : '';
+  msg.innerHTML = `${esc(diff?.summary || 'Could not determine ship status.')}${assembleTip}${matchInfoTip}`;
+}
+
+function formatShipDiffModalHtml(diff) {
+  const files = (diff?.files || [])
+    .map((f) => `<li><code>${esc(f.status || '?')}</code> ${esc(f.path || '')}</li>`)
+    .join('');
+  const dirty = (diff?.dirty || []).map((l) => `<li><code>${esc(l)}</code></li>`).join('');
+  const stat = diff?.stat ? `<pre class="code-block" style="max-height:14rem;overflow:auto">${esc(diff.stat)}</pre>` : '';
+  return `<p><strong>${esc(diff?.summary || '')}</strong></p>
+    <p class="muted">Status: <code>${esc(diff?.status || '—')}</code>
+      · needs push: ${diff?.needsPush ? 'yes' : 'no'}
+      · fetch: ${diff?.fetchOk ? 'ok' : 'failed / skipped'}</p>
+    ${stat || '<p class="muted">No --stat output.</p>'}
+    ${
+      files
+        ? `<p>Changed paths vs <code>origin/main</code>:</p><ul class="narrative-list">${files}</ul>`
+        : '<p class="muted">No name-status differences vs origin/main.</p>'
+    }
+    ${
+      dirty
+        ? `<p>Uncommitted (porcelain):</p><ul class="narrative-list">${dirty}</ul>`
+        : ''
+    }
+    <p class="muted">Prepare preview first if Stage changed the package, then Push updates.</p>`;
+}
+
+async function loadShipFreshness(candidateId, { showError = false } = {}) {
+  const box = document.getElementById('ca-ship-freshness');
+  const msg = document.getElementById('ca-ship-freshness-msg');
+  if (!box) return null;
+  if (msg) msg.textContent = 'Checking whether assembled matches GitHub…';
+  try {
+    const diff = await api(`/api/candidates/${encodeURIComponent(candidateId)}/ship-diff`);
+    applyShipFreshnessUi(diff);
+    return diff;
+  } catch (error) {
+    if (msg) {
+      msg.textContent = showError
+        ? error.message || 'Ship status check failed'
+        : 'Could not check GitHub (network or git). Use Refresh status.';
+    }
+    box.dataset.status = 'unknown';
+    return null;
+  }
+}
+
+function collectLaunchFormValues() {
+  return {
+    domain: document.getElementById('ca-launch-domain')?.value?.trim() || '',
+    phone: document.getElementById('ca-launch-phone')?.value?.trim() || '',
+    email: document.getElementById('ca-launch-email')?.value?.trim() || '',
+    destinationEmail: document.getElementById('ca-launch-dest')?.value?.trim() || '',
+    web3FormsAccessKey: document.getElementById('ca-launch-web3')?.value?.trim() || '',
+    turnstileSiteKey: document.getElementById('ca-launch-turnstile')?.value?.trim() || '',
+    ship: Boolean(document.getElementById('ca-launch-ship')?.checked),
+    runCloudflare: Boolean(document.getElementById('ca-launch-run-cf')?.checked),
+    createTurnstile: Boolean(document.getElementById('ca-launch-create-turnstile')?.checked),
+    markCloudflareProjectDone: Boolean(document.getElementById('ca-launch-mark-cf')?.checked),
+  };
+}
+
+/** Launch Advanced checkbox + “i” tip (data-tip on icon only). */
+function launchOptCheckboxHtml({ id, label, tip, ariaLabel, checked = false }) {
+  return `<div class="launch-opt">
+    <label class="launch-opt-label" for="${esc(id)}">
+      <input id="${esc(id)}" type="checkbox"${checked ? ' checked' : ''} />
+      <span>${esc(label)}</span>
+    </label>
+    <button type="button" class="tip-info" data-tip="${esc(tip)}" aria-label="${esc(ariaLabel)}">i</button>
+  </div>`;
 }
 
 
@@ -3548,7 +4752,8 @@ function structureChecklistHtml(d, catalog) {
 
   const groupBlurbs = {
     home: 'Homepage H1/H2 blocks and Astro section keys.',
-    services: 'Shared template — applies to each service in site-config.',
+    services:
+      'Shared template — applies to each name in site-config services and commercialServices. svcHero photos cover both lists; homepage splits into Residential + Commercial when commercialServices is set.',
     about: 'About page sections.',
     contact: 'Contact page sections.',
     locations: 'Shared template — applies to each suburb in targetSuburbs.',
@@ -3579,7 +4784,7 @@ function structureChecklistHtml(d, catalog) {
       : '';
 
   return `
-    <p class="disc-tool-blurb">Choose site pages, then H2 blocks per page type. Letter presets snap the checkboxes (then mix/match). Photo-capable sections can include image slots.</p>
+    <p class="muted small" id="structure-process-hint">Services pages use <strong>How we work</strong> (process). <strong>Deep offer process</strong> is for single-offer sites only — never both.</p>
     ${statusCallout}
     <div class="structure-presets">
       <span class="muted small">Presets</span>
@@ -3591,11 +4796,10 @@ function structureChecklistHtml(d, catalog) {
     ${contentActionRow({
       n: 1,
       label: 'Continue — compose outline <span class="muted">(Required)</span>',
-      hint: 'Builds the downloadable outline package from your checklist.',
+      hint: 'Saves your checklist and builds the downloadable outline package.',
       controlsHtml: `<button type="button" class="btn primary" id="cs-compose" ${
         catalog?.sections?.length ? '' : 'disabled'
-      }>Continue</button>
-        <button type="button" class="btn" id="cs-save" data-tip="Save checklist without composing">Save checklist</button>`,
+      }>Continue</button>`,
     })}`;
 }
 
@@ -3628,6 +4832,11 @@ function renderContent() {
     if (accepted?.files) return Object.keys(accepted.files).sort();
     return [];
   })();
+  const speechChecked = Boolean(draft?._ops?.lastSpeechCheckAt);
+  const editorNeeds = contentNeedsEditorRewrite(draft);
+  const needsEditorClaude = speechChecked && editorNeeds.needed;
+  const hasEditableContent = Boolean(draft?.files) || Boolean(accepted?.files);
+  const seoCritical = (draft?._ops?.seoLint?.findings || []).filter((f) => f.severity === 'critical');
   const stepDone = {
     structure: structureReady && Boolean(outlinePkg?.sections?.length),
     outline: outlineConfirmed,
@@ -3636,6 +4845,11 @@ function renderContent() {
       Boolean(accepted?.files) ||
       Boolean(f.hasContentDraft) ||
       Boolean(f.hasContent),
+    // Done only when lint is clear (or already accepted) — keep step open for multi-pass
+    editor:
+      Boolean(accepted) ||
+      Boolean(f.hasContent) ||
+      (speechChecked && !editorNeeds.needed),
     accepted: Boolean(accepted) || Boolean(f.hasContent),
     brief: brief?.status === 'confirmed' || Boolean(f.hasContentBriefConfirmed),
     oneshot:
@@ -3646,39 +4860,44 @@ function renderContent() {
     research: Boolean(research) || Boolean(f.hasContentResearch),
     outlineLegacy: Boolean(outline) || Boolean(f.hasContentOutline),
   };
-  const defaultOpen = firstIncompleteContentStep(stepDone);
-  if (state.contentOpenStep == null) state.contentOpenStep = defaultOpen;
+  const durableCurrent = stepDone.accepted ? null : firstIncompleteContentStep(stepDone);
+  const currentId = resolvePanelCurrent('contentSoftCurrent', durableCurrent);
+  if (state.contentFollowCurrent !== currentId) {
+    state.contentOpenStep = currentId;
+    state.contentFollowCurrent = currentId;
+  }
   const openId = state.contentOpenStep;
+  const structureDone = stepDone.structure || isSoftDone('contentSoftDone', 'structure');
+  const outlineDone = stepDone.outline || isSoftDone('contentSoftDone', 'outline');
+  const writeDone = stepDone.write || isSoftDone('contentSoftDone', 'write');
+  const editorDone = stepDone.editor || isSoftDone('contentSoftDone', 'editor');
+  const acceptDone = stepDone.accepted || isSoftDone('contentSoftDone', 'accept');
   const parts = [];
 
   parts.push(
-    `<p class="action-hint"><strong>Required:</strong> Structure → Outline → Full write → Accept. Then open the <strong>Website</strong> tab. Legacy Brief / one-shot live under Advanced.</p>`,
+    panelHowToHtml({
+      label: 'Content',
+      info: 'Structure → outline Copy / Load & confirm → write Copy / Load (auto Speech/SEO Refinement) → Accept. Default path is Claude.ai paste (no Anthropic API). Then Website → Prepare preview.',
+    }),
   );
-  parts.push(contentUpNextHtml(stepDone, ready));
-
-  if (!ready) {
-    parts.push(
-      `<div class="callout warn">Accept <strong>Site config</strong> first (business NAP, services, suburbs).</div>`,
-    );
-  } else {
-    const secCount = outlinePkg?.sectionIds?.length || structure?.sections?.length || 0;
-    parts.push(
-      `<div class="callout">Structure checklist${
-        secCount ? ` · ${esc(String(secCount))} sections` : ''
-      }${outlineConfirmed ? ' · outline confirmed' : outlinePkg ? ' · outline drafted' : ''}${
-        stepDone.accepted ? ' · content accepted' : stepDone.write ? ' · draft ready' : ''
-      }</div>`,
-    );
-  }
+  const secCount = outlinePkg?.sectionIds?.length || structure?.sections?.length || 0;
+  parts.push(
+    contentUpNextHtml(stepDone, ready, {
+      secCount,
+      outlineConfirmed,
+      outlineDrafted: Boolean(outlinePkg),
+    }),
+  );
 
   parts.push(
     contentStepHtml({
       id: 'structure',
       num: 1,
       title: 'Structure',
-      done: stepDone.structure,
+      done: structureDone,
       open: openId === 'structure',
-      tip: 'Pages + H2 checkboxes + presets + photos',
+      current: currentId === 'structure' && !structureDone,
+      info: 'Choose site pages, then H2 blocks per page type. Prefer Preset C for ranking builds — selecting every section makes Full write heavy. Photo-capable sections can include image slots.',
       bodyHtml: ready
         ? structureChecklistHtml(d, catalog)
         : `<p class="muted">Accept Site config to unlock the checklist.</p>`,
@@ -3689,20 +4908,17 @@ function renderContent() {
     contentStepHtml({
       id: 'outline',
       num: 2,
-      title: 'Outline (SEO structure)',
-      done: stepDone.outline,
+      title: 'Outline (paste cycle 1)',
+      done: outlineDone,
       open: openId === 'outline',
-      tip: 'Structure prompt → paste outline → Confirm',
+      current: currentId === 'outline' && !outlineDone,
+      info: 'Paste cycle 1 of 2. Copy the SEO structure prompt, refine in Claude.ai, paste JSON back, then Load & confirm (one step). No Anthropic API required.',
       bodyHtml: `
-        <p class="disc-tool-blurb">Download/copy the SEO structure prompt, refine the outline in Claude, paste JSON back, then Confirm.</p>
         ${
           outlinePkg?.sections?.length
             ? `<p class="muted">${esc(String(outlinePkg.sections.length))} outline sections · status <code>${esc(
                 outlinePkg.status || '',
-              )}</code></p>
-              <details class="narrative-raw"><summary>Outline JSON preview</summary>
-                <pre class="json-block">${esc(JSON.stringify(outlinePkg, null, 2))}</pre>
-              </details>`
+              )}</code></p>`
             : `<div class="callout warn">Compose an outline from Structure → Continue first.</div>`
         }
         ${contentActionRow({
@@ -3710,31 +4926,18 @@ function renderContent() {
           label: 'Copy structure prompt <span class="muted">(Required)</span>',
           controlsHtml: `<button type="button" class="btn primary" id="cs-copy-structure" ${
             outlinePkg?.sections?.length ? '' : 'disabled'
-          }>Copy structure prompt</button>
-          <button type="button" class="btn" id="cs-download-outline" ${
-            outlinePkg?.sections?.length ? '' : 'disabled'
-          }>Download outline JSON</button>
-          <button type="button" class="btn" id="cs-download-outline-md" ${
-            outlinePkg?.sections?.length ? '' : 'disabled'
-          }>Download outline MD</button>`,
+          }>Copy structure prompt</button>`,
         })}
         ${contentActionRow({
           n: 2,
           label: 'Paste refined outline JSON <span class="muted">(Required)</span>',
-          controlsHtml: `<textarea id="cs-outline-paste" class="narrative-paste-input" rows="8" placeholder='{ "sections": [ ... ] }'></textarea>`,
+          controlsHtml: `<textarea id="cs-outline-paste" class="narrative-paste-input" rows="2" placeholder='{ "sections": [ ... ] }'></textarea>`,
         })}
         ${contentActionRow({
           n: 3,
-          label: 'Load outline <span class="muted">(Required)</span>',
-          controlsHtml: `<button type="button" class="btn" id="cs-paste-outline">Load outline</button>`,
-        })}
-        ${contentActionRow({
-          n: 4,
-          label: 'Confirm outline <span class="muted">(Required)</span>',
-          hint: 'Locks outline for the full-write prompt.',
-          controlsHtml: `<button type="button" class="btn primary" id="cs-confirm-outline" ${
-            outlinePkg?.sections?.length ? '' : 'disabled'
-          }>Confirm outline</button>`,
+          label: 'Load &amp; confirm outline <span class="muted">(Required)</span>',
+          hint: 'Loads Claude’s JSON and locks it for the full-write prompt.',
+          controlsHtml: `<button type="button" class="btn primary" id="cs-paste-outline">Load &amp; confirm outline</button>`,
         })}`,
     }),
   );
@@ -3743,12 +4946,13 @@ function renderContent() {
     contentStepHtml({
       id: 'write',
       num: 3,
-      title: 'Full write',
-      done: stepDone.write,
+      title: 'Full write (paste cycle 2)',
+      done: writeDone,
       open: openId === 'write',
-      tip: 'Value SEO write prompt → FILE draft',
+      current: currentId === 'write' && !writeDone,
+      info: 'Paste cycle 2 of 2. Copy the full-write prompt (needs confirmed outline). Paste Claude’s ### FILE blocks and Load — Speech/SEO Refinement runs automatically when the draft is complete.',
       bodyHtml: `
-        <p class="disc-tool-blurb">Copy the full-write prompt (needs confirmed outline). Paste Claude’s ### FILE blocks and load as draft.</p>
+        ${incompleteDraftCalloutHtml(d)}
         ${contentActionRow({
           n: 1,
           label: 'Copy full-write prompt <span class="muted">(Required)</span>',
@@ -3759,50 +4963,127 @@ function renderContent() {
         ${contentActionRow({
           n: 2,
           label: 'Paste FILE blocks <span class="muted">(Required)</span>',
-          controlsHtml: `<textarea id="ca-writer-paste" class="narrative-paste-input" rows="8" placeholder="### FILE: src/content/pages/index.md&#10;---&#10;..." data-tip="Paste ### FILE: markdown blocks"></textarea>`,
+          controlsHtml: `<textarea id="ca-writer-paste" class="narrative-paste-input" rows="2" placeholder="### FILE: src/content/pages/index.md&#10;---&#10;..." data-tip="Paste ### FILE: markdown blocks"></textarea>`,
         })}
         ${contentActionRow({
           n: 3,
           label: 'Load FILE blocks as draft <span class="muted">(Required)</span>',
           controlsHtml: `<button type="button" class="btn primary" id="ca-paste-writer" data-tip="Parse FILE blocks into candidate draft" ${ready ? '' : 'disabled'}>Load FILE blocks as draft</button>`,
+        })}`,
+    }),
+  );
+
+  const editorClaudeLabel = editorNeeds.criticalSeoN
+    ? 'Needed for Critical SEO'
+    : needsEditorClaude
+      ? 'Recommended'
+      : 'Optional';
+  const editorStatusBits = [];
+  if (stepDone.accepted) {
+    editorStatusBits.push(
+      `<div class="callout">Accepted site still live — Load creates a draft; Accept again to publish fixes.</div>`,
+    );
+  }
+  if (!speechChecked && !stepDone.accepted) {
+    editorStatusBits.push(
+      `<div class="callout warn">Speech/SEO Refinement not run yet — Accept stays blocked.</div>`,
+    );
+  } else if (needsEditorClaude) {
+    editorStatusBits.push(editorRewriteWhyHtml(editorNeeds));
+  } else if (speechChecked && !stepDone.accepted) {
+    editorStatusBits.push(
+      `<div class="callout"><strong>No Claude rewrite needed.</strong> Up next: <strong>Accept content</strong>.</div>
+                <p class="muted">Speech/SEO Refinement run at ${esc(String(draft._ops.lastSpeechCheckAt))}</p>`,
+    );
+  }
+  const editorStatusCallout = editorStatusBits.join('\n');
+  const editorClaudeChrome = hasEditableContent
+    ? `        ${contentActionRow({
+          n: 2,
+          label: `Copy editor prompt <span class="muted">(${editorClaudeLabel})</span>`,
+          hint: 'Prompt includes only files with open findings — paste back only changed FILEs; Load merges. Works from draft or accepted content.',
+          controlsHtml: `<button type="button" class="btn primary" id="ca-copy-editor" data-tip="Copy findings-scoped editor prompt for Claude.ai" ${
+            ready ? '' : 'disabled'
+          }>Copy editor prompt</button>`,
         })}
-        <details class="narrative-raw content-advanced">
-          <summary>Optional / Advanced</summary>
-          ${contentActionRow({
-            n: 'A',
-            label: 'Import from src/content',
-            controlsHtml: `<button type="button" class="btn" id="ca-import-disk" ${ready ? '' : 'disabled'}>Import from src/content</button>`,
-          })}
-        </details>`,
+        ${contentActionRow({
+          n: 3,
+          label: 'Paste revised FILE blocks',
+          hint: 'Load here after Claude — then Speech/SEO Refinement again.',
+          controlsHtml: `<textarea id="ca-editor-paste" class="narrative-paste-input" rows="2" placeholder="### FILE: src/content/pages/index.md&#10;---&#10;..." data-tip="Paste revised ### FILE: blocks"></textarea>`,
+        })}
+        ${contentActionRow({
+          n: 4,
+          label: 'Load FILE blocks as draft',
+          controlsHtml: `<button type="button" class="btn" id="ca-paste-editor" data-tip="Parse FILE blocks into candidate draft" ${ready ? '' : 'disabled'}>Load FILE blocks as draft</button>`,
+        })}
+        <details class="narrative-raw content-advanced" style="margin-top:0.5rem">
+          <summary>Advanced</summary>
+          <p class="muted">Only if markdown was edited on disk outside Rover (e.g. Claude Code). Normal paste path: use Load above.</p>
+          <button type="button" class="btn" id="ca-import-disk-editor" ${ready ? '' : 'disabled'}>Import from src/content</button>
+        </details>`
+    : '';
+
+  parts.push(
+    contentStepHtml({
+      id: 'editor',
+      num: 4,
+      title: 'Speech/SEO Refinement',
+      done: editorDone,
+      open: openId === 'editor',
+      current: currentId === 'editor' && !editorDone,
+      info: 'Speech/SEO Refinement runs automatically after a complete FILE Load. Re-run anytime. Copy editor prompt / Load stay available for speech leftovers, Critical SEO, and soft SEO — including after Accept (Load seeds a new draft; Accept again to publish).',
+      bodyHtml: `
+        ${incompleteDraftCalloutHtml(d)}
+        ${contentActionRow({
+          n: 1,
+          label: 'Speech/SEO Refinement <span class="muted">(Required)</span>',
+          hint: 'Auto-fixes soft issues, then re-lints. Always shows a result message.',
+          controlsHtml: `<button type="button" class="btn primary" id="ca-speech-check" data-tip="Auto-fix + scan draft for speech + SEO issues" ${
+            hasEditableContent && ready ? '' : 'disabled'
+          }>Speech/SEO Refinement</button>`,
+        })}
+        <div id="ca-autofix-panel">${autoFixSummaryHtml(draft?._ops?.autoFix)}</div>
+        <div id="ca-speech-lint-panel">${
+          speechChecked ? speechLintFindingsHtml(draft?._ops?.speechLint) : ''
+        }</div>
+        <div id="ca-seo-lint-panel">${
+          speechChecked ? seoLintFindingsHtml(draft?._ops?.seoLint) : ''
+        }</div>
+        ${editorStatusCallout}
+        ${editorClaudeChrome}`,
     }),
   );
 
   parts.push(
     contentStepHtml({
       id: 'accept',
-      num: 4,
+      num: 5,
       title: 'Accept content',
-      done: stepDone.accepted,
+      done: acceptDone,
       open: openId === 'accept',
-      tip: 'Required: Accept content',
+      current: currentId === 'accept' && !stepDone.accepted,
+      info: 'Accept writes shared src/content/, auto-pulls stock photos when enabled, and generates logo + coverage map when possible. Then open Website → Prepare preview.',
       bodyHtml: `
-        <p class="disc-tool-blurb">Accept writes shared <code>src/content/</code>, then continue on the <strong>Website</strong> tab.</p>
-        ${contentActionRow({
-          n: 1,
-          label: 'Accept content <span class="muted">(Required)</span>',
-          hint: 'Writes draft → <code>src/content/</code> (backs up previous).',
-          controlsHtml: `<button type="button" class="btn primary" id="content-accept-btn" data-tip="Accept draft — write files into src/content/" ${draft ? '' : 'disabled'}>Accept content</button>`,
-        })}
-        <details class="narrative-raw content-advanced">
-          <summary>Optional / Advanced — editor polish</summary>
-          ${contentActionRow({
-            n: 'A',
-            label: 'Copy editor prompt',
-            hint: 'Paste revised ### FILE: blocks back into Full write and Load again.',
-            controlsHtml: `<button type="button" class="btn" id="ca-copy-editor" data-tip="Copy editor prompt with current draft FILE blocks" ${draft ? '' : 'disabled'}>Copy editor prompt</button>`,
-          })}
-        </details>
-        ${fileList.length ? `<p class="muted">Files: ${fileList.map((p) => `<code>${esc(p)}</code>`).join(' · ')}</p>` : ''}
+        ${incompleteDraftCalloutHtml(d)}
+        ${
+          seoCritical.length
+            ? `<div class="callout warn"><strong>Critical SEO:</strong> ${esc(
+                seoCritical.map((f) => f.excerpt || f.rule).join('; '),
+              )}. Use Copy editor prompt on the Speech/SEO Refinement step, or check override below.</div>
+              <label class="check"><input type="checkbox" id="content-accept-seo-override" /> Accept with SEO warnings</label>`
+            : ''
+        }
+        <div class="narrative-actions" style="justify-content:flex-end">
+          <button type="button" class="btn primary" id="content-accept-btn" data-tip="Accept draft — write files into src/content/" ${
+            draft && speechChecked ? '' : 'disabled'
+          }>Accept content</button>
+        </div>
+        <div id="ca-accept-progress" class="job-progress hidden" aria-live="polite">
+          <div class="job-progress-track"><div class="job-progress-bar" id="ca-accept-progress-bar"></div></div>
+          <p class="job-progress-label" id="ca-accept-progress-label">Accepting…</p>
+          <p class="job-progress-detail" id="ca-accept-progress-detail">Starting…</p>
+        </div>
         ${check?.errors?.length ? `<div class="callout warn"><strong>Errors:</strong> ${esc(check.errors.join('; '))}</div>` : ''}
         ${
           check?.warnings?.length || contract?.warnings?.length
@@ -3811,13 +5092,31 @@ function renderContent() {
               )}</div>`
             : ''
         }
-        ${
-          accepted?._ops
-            ? `<p class="muted">Last accept: ${esc(String(accepted._ops.written?.length || 0))} files · pruned ${esc(
+        ${(() => {
+          const written = accepted?._ops?.written;
+          const paths =
+            Array.isArray(written) && written.length
+              ? written
+              : fileList.length
+                ? fileList
+                : [];
+          if (!paths.length && !accepted?._ops) return '';
+          const summary = accepted?._ops
+            ? `Last accept: ${esc(String(accepted._ops.written?.length || paths.length))} files · pruned ${esc(
                 String(accepted._ops.pruned?.length || 0),
-              )}</p>`
-            : ''
-        }`,
+              )}`
+            : `Draft files (${esc(String(paths.length))})`;
+          if (!paths.length) {
+            return `<p class="muted">${summary}</p>`;
+          }
+          const list = paths
+            .map((p) => `<li><code>${esc(p)}</code></li>`)
+            .join('');
+          return `<details class="narrative-raw content-advanced">
+            <summary>${summary}</summary>
+            <ul class="narrative-list" style="margin:0.5rem 0 0">${list}</ul>
+          </details>`;
+        })()}`,
     }),
   );
 
@@ -3859,7 +5158,7 @@ function renderContent() {
       ${contentActionRow({
         n: 'B',
         label: 'Paste researcher JSON',
-        controlsHtml: `<textarea id="ca-research-paste" class="narrative-paste-input" rows="3" placeholder="Paste researcher JSON" data-tip="Paste Claude researcher JSON"></textarea>
+        controlsHtml: `<textarea id="ca-research-paste" class="narrative-paste-input" rows="2" placeholder="Paste researcher JSON" data-tip="Paste Claude researcher JSON"></textarea>
           <button type="button" class="btn" id="ca-paste-researcher" data-tip="Save research pack for this candidate" ${ready ? '' : 'disabled'}>Save research</button>`,
       })}
       ${contentActionRow({
@@ -3871,7 +5170,7 @@ function renderContent() {
         n: 'D',
         label: 'Copy / paste outline',
         controlsHtml: `<button type="button" class="btn" id="ca-copy-outline" data-tip="Copy outline prompt for Claude" ${ready ? '' : 'disabled'}>Copy outline prompt</button>
-          <textarea id="ca-outline-paste" class="narrative-paste-input" rows="3" placeholder="Paste outline JSON" data-tip="Paste outline JSON"></textarea>
+          <textarea id="ca-outline-paste" class="narrative-paste-input" rows="2" placeholder="Paste outline JSON" data-tip="Paste outline JSON"></textarea>
           <button type="button" class="btn" id="ca-paste-outline" data-tip="Save outline for this candidate" ${ready ? '' : 'disabled'}>Save outline</button>`,
       })}
       ${contentActionRow({
@@ -3897,7 +5196,7 @@ function renderContent() {
       <div class="narrative-actions">
         <button type="button" class="btn" id="content-copy-prompt" data-tip="Copy full one-shot markdown prompt" ${ready ? '' : 'disabled'}>Copy full markdown prompt</button>
       </div>
-      <textarea id="content-paste" class="narrative-paste-input" rows="6" placeholder="Optional: paste full ### FILE suite"></textarea>
+      <textarea id="content-paste" class="narrative-paste-input" rows="2" placeholder="Optional: paste full ### FILE suite"></textarea>
       <div class="narrative-actions">
         <button type="button" class="btn" id="content-paste-btn" data-tip="Load legacy FILE suite as draft" ${ready ? '' : 'disabled'}>Load as draft</button>
       </div>
@@ -3915,7 +5214,7 @@ function imagesStatusLine(d) {
         Object.values(d.contentStructure.photos).some((p) => p?.enabled),
     );
     if (!photosOn) return 'No Structure photo slots enabled — pull will skip.';
-    return 'No images pulled yet. Accept content (auto) or click Pull images.';
+    return 'No images pulled yet. Accept content (auto stock + logo/map) or Pull photos.';
   }
   const sources = m.sources || {};
   const srcPart = Object.keys(sources).length
@@ -3927,19 +5226,374 @@ function imagesStatusLine(d) {
   return `${m.files.length} file(s) on disk${srcPart}${at}`;
 }
 
-function imagesFileListHtml(d) {
-  const files = d?.imagesManifest?.files || [];
-  if (!files.length) return '';
-  const rows = files
-    .slice(0, 24)
-    .map(
-      (f) =>
-        `<li><code>${esc(f.filename || '')}</code>${
-          f.provider ? ` <span class="muted">(${esc(f.provider)})</span>` : ''
-        }</li>`,
-    )
-    .join('');
-  return `<ul class="muted" style="margin:0.5rem 0 0;padding-left:1.2rem;font-size:0.9em">${rows}</ul>`;
+function imagesMatchDotHtml(grade, tip, { tipped = true } = {}) {
+  const isEmpty = grade === 'missing' || grade === 'empty';
+  const g = isEmpty
+    ? 'empty'
+    : grade === 'good' || grade === 'ok' || grade === 'poor'
+      ? grade
+      : 'poor';
+  const cls = `img-match-dot img-match-${g}`;
+  if (!tipped) {
+    return `<span class="${cls}" aria-hidden="true"></span>`;
+  }
+  const tipText =
+    tip ||
+    (isEmpty
+      ? 'No photo in this slot'
+      : g === 'good'
+        ? 'Good match'
+        : g === 'ok'
+          ? 'OK match'
+          : 'Poor match');
+  return `<span class="${cls}" data-tip="${esc(tipText)}" aria-label="${esc(tipText)}"></span>`;
+}
+
+function imagesSlotGrade(slot) {
+  if (!slot) return null;
+  if (slot.missing) return 'missing';
+  const g = slot.matchGrade;
+  return g === 'good' || g === 'ok' || g === 'poor' ? g : null;
+}
+
+function imagesMatchFilterId(activeFilter) {
+  if (activeFilter === 'empty' || activeFilter === 'missing') return 'empty';
+  return ['all', 'poor', 'ok', 'good'].includes(activeFilter) ? activeFilter : 'all';
+}
+
+function imagesSlotMatchesFilter(slot, filter) {
+  const grade = imagesSlotGrade(slot);
+  const f = imagesMatchFilterId(filter);
+  if (f === 'all') return true;
+  if (f === 'empty') return grade === 'missing';
+  return grade === f;
+}
+
+function imagesMatchTotalsHtml(totals, activeFilter = 'all') {
+  const t = totals || {};
+  const poor = Number(t.poor) || 0;
+  const ok = Number(t.ok) || 0;
+  const good = Number(t.good) || 0;
+  const missing = Number(t.missing) || 0;
+  const total = poor + ok + good + missing;
+  const active = imagesMatchFilterId(activeFilter);
+  const filterBtn = (id, inner, tip) => {
+    const pressed = active === id;
+    return `<button type="button" class="img-match-totals-btn${
+      pressed ? ' is-active' : ''
+    }" data-match-filter="${esc(id)}" aria-pressed="${pressed ? 'true' : 'false'}" data-tip="${esc(
+      tip,
+    )}">${inner}</button>`;
+  };
+  const bulkRepull = (grade, count) => {
+    const label = grade === 'poor' ? 'Poor' : 'Ok';
+    const disabled = count < 1 ? ' disabled' : '';
+    return `<button type="button" class="btn btn-sm img-match-bulk-repull" data-bulk-repull="${esc(
+      grade,
+    )}" data-tip="${esc(`Re-pull all ${label} matches`)}"${disabled}>Re-pull</button>`;
+  };
+  const untipped = { tipped: false };
+  return `<div class="img-match-totals" role="toolbar" aria-label="Photo match filters">
+    ${filterBtn(
+      'all',
+      `<strong>${esc(String(total))}</strong>
+      <span class="muted">All</span>`,
+      `Show all ${total} photo slot${total === 1 ? '' : 's'}`,
+    )}
+    <span class="img-match-totals-group">
+      ${filterBtn(
+        'poor',
+        `${imagesMatchDotHtml('poor', null, untipped)}
+      <strong>${esc(String(poor))}</strong>
+      <span class="muted">Poor</span>`,
+        `Show ${poor} Poor match${poor === 1 ? '' : 'es'} (filled slots only)`,
+      )}
+      ${bulkRepull('poor', poor)}
+    </span>
+    <span class="img-match-totals-group">
+      ${filterBtn(
+        'ok',
+        `${imagesMatchDotHtml('ok', null, untipped)}
+      <strong>${esc(String(ok))}</strong>
+      <span class="muted">Ok</span>`,
+        `Show ${ok} Ok match${ok === 1 ? '' : 'es'}`,
+      )}
+      ${bulkRepull('ok', ok)}
+    </span>
+    ${filterBtn(
+      'good',
+      `${imagesMatchDotHtml('good', null, untipped)}
+      <strong>${esc(String(good))}</strong>
+      <span class="muted">Good</span>`,
+      `Show ${good} Good match${good === 1 ? '' : 'es'}`,
+    )}
+    ${filterBtn(
+      'empty',
+      `${imagesMatchDotHtml('missing', null, untipped)}
+      <strong>${esc(String(missing))}</strong>
+      <span class="muted">Empty</span>`,
+      `Show ${missing} Empty slot${missing === 1 ? '' : 's'}`,
+    )}
+  </div>`;
+}
+
+function imagesSlotCardHtml(slot) {
+  const thumb = slot.previewUrl
+    ? `<img src="${esc(slot.previewUrl)}" alt="" loading="lazy" style="width:100%;height:100%;object-fit:cover" />`
+    : `<span class="muted" style="font-size:0.75rem">Empty</span>`;
+  const grade = imagesSlotGrade(slot);
+  const tip =
+    slot.matchTip ||
+    (slot.missing
+      ? 'No photo in this slot'
+      : slot.score != null
+        ? `Score ${slot.score}`
+        : '');
+  const matchDot = grade ? imagesMatchDotHtml(grade, tip) : '';
+  const badge = slot.source
+    ? `<span class="muted" style="font-size:0.75rem">${esc(slot.source)}</span>`
+    : `<span class="muted" style="font-size:0.75rem">missing</span>`;
+  const q = stripMdBoldDisplay(String(slot.query || slot.queryHint || '').trim());
+  const qShort = q.length > 72 ? `${q.slice(0, 70)}…` : q;
+  const queryLine = q
+    ? `<span class="muted" style="font-size:0.7rem;line-height:1.25" title="${esc(q)}">Search: ${esc(qShort)}</span>`
+    : '';
+  return `<div class="image-slot-card" data-slot-key="${esc(slot.key)}" style="border:1px solid var(--border);border-radius:6px;overflow:hidden;background:var(--bg-subtle)">
+    <div style="aspect-ratio:16/10;background:#0f172a0d;display:flex;align-items:center;justify-content:center">${thumb}</div>
+    <div style="padding:0.45rem 0.55rem;display:flex;flex-direction:column;gap:0.25rem">
+      <strong style="font-size:0.85rem;display:flex;align-items:center;gap:0.35rem">${matchDot}${esc(slot.label || slot.key)}</strong>
+      <span class="muted" style="font-size:0.75rem">${esc(slot.wiredFm || slot.key)}</span>
+      ${queryLine}
+      ${badge}
+      <div style="display:flex;flex-wrap:wrap;gap:0.3rem;margin-top:0.15rem">
+        <button type="button" class="btn btn-sm ca-slot-repull" data-slot-key="${esc(slot.key)}" data-tip="Fetch a different stock photo for this slot">Re-pull</button>
+        <label class="btn btn-sm" style="cursor:pointer;margin:0" data-tip="Upload a local image for this slot">
+          Upload
+          <input type="file" class="ca-slot-upload" data-slot-key="${esc(slot.key)}" accept="image/jpeg,image/png,image/webp,image/gif" hidden />
+        </label>
+      </div>
+    </div>
+  </div>`;
+}
+
+function imagesSlotsShellHtml() {
+  return `<div id="ca-image-slots" style="margin-top:0.75rem">
+    <p class="muted" style="margin:0 0 0.35rem;font-size:0.85rem">Per-slot review (near launch): Re-pull stock or Upload owner photos. Stage → Assemble after changes. Use All / poor / ok / good / empty to filter.</p>
+    <div id="ca-image-slots-totals"></div>
+    <div id="ca-image-slots-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:0.65rem"></div>
+    <p id="ca-image-slots-filter-empty" class="muted" style="display:none;font-size:0.85rem;margin:0.35rem 0 0"></p>
+    <p id="ca-image-slots-empty" class="muted" style="display:none;font-size:0.85rem;margin:0.35rem 0 0">No Structure photo slots enabled.</p>
+  </div>`;
+}
+
+async function refreshImageSlotsGrid(candidateId) {
+  const grid = document.getElementById('ca-image-slots-grid');
+  const empty = document.getElementById('ca-image-slots-empty');
+  const filterEmpty = document.getElementById('ca-image-slots-filter-empty');
+  const totalsEl = document.getElementById('ca-image-slots-totals');
+  if (!grid) return;
+  const filter = imagesMatchFilterId(state.imageMatchFilter);
+  state.imageMatchFilter = filter;
+  try {
+    const data = await api(`/api/candidates/${encodeURIComponent(candidateId)}/images/slots`);
+    const slots = data?.slots || [];
+    if (!slots.length) {
+      grid.innerHTML = '';
+      if (totalsEl) totalsEl.innerHTML = '';
+      if (filterEmpty) {
+        filterEmpty.style.display = 'none';
+        filterEmpty.textContent = '';
+      }
+      if (empty) empty.style.display = 'block';
+      return;
+    }
+    if (empty) empty.style.display = 'none';
+    if (totalsEl) totalsEl.innerHTML = imagesMatchTotalsHtml(data.matchTotals, filter);
+    const visible = slots.filter((s) => imagesSlotMatchesFilter(s, filter));
+    grid.innerHTML = visible.map(imagesSlotCardHtml).join('');
+    if (filterEmpty) {
+      if (!visible.length) {
+        filterEmpty.style.display = 'block';
+        const labels = {
+          all: 'No photo slots.',
+          poor: 'No poor matches.',
+          ok: 'No ok matches.',
+          good: 'No good matches.',
+          empty: 'No empty slots.',
+        };
+        filterEmpty.textContent = labels[filter] || 'No matching slots.';
+      } else {
+        filterEmpty.style.display = 'none';
+        filterEmpty.textContent = '';
+      }
+    }
+  } catch (error) {
+    if (totalsEl) totalsEl.innerHTML = '';
+    if (filterEmpty) {
+      filterEmpty.style.display = 'none';
+      filterEmpty.textContent = '';
+    }
+    grid.innerHTML = `<p class="muted" style="font-size:0.85rem">${esc(error.message || 'Could not load slots')}</p>`;
+  }
+}
+
+/** After slot Re-pull/Upload: keep Review images open; refresh grid + status only. */
+async function refreshImageSlotInPlace(candidateId, candidate) {
+  if (candidate) state.detail = candidate;
+  state.websiteOpenStep = 'images';
+  state.websiteFollowCurrent = 'images';
+  state.websiteSoftCurrent = 'images';
+  const statusEl = document.getElementById('ca-images-status');
+  if (statusEl && state.detail) {
+    statusEl.textContent = imagesStatusLine(state.detail);
+  }
+  await refreshImageSlotsGrid(candidateId);
+  setImagesProgress(false);
+}
+
+function wireImageSlotActions(candidateId, _refreshFn) {
+  const root = document.getElementById('ca-image-slots');
+  if (!root || root.dataset.wired === '1') return;
+  root.dataset.wired = '1';
+
+  root.addEventListener('click', async (ev) => {
+    const bulkBtn = ev.target.closest('.img-match-bulk-repull');
+    if (bulkBtn && root.contains(bulkBtn)) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      if (bulkBtn.disabled) return;
+      const grade = bulkBtn.getAttribute('data-bulk-repull');
+      if (grade !== 'poor' && grade !== 'ok') return;
+      const gradeLabel = grade === 'poor' ? 'Poor' : 'Ok';
+      bulkBtn.disabled = true;
+      try {
+        const data = await api(`/api/candidates/${encodeURIComponent(candidateId)}/images/slots`);
+        const targets = (data?.slots || []).filter((s) => imagesSlotMatchesFilter(s, grade));
+        if (!targets.length) {
+          showToast(`No ${gradeLabel} slots to re-pull.`);
+          return;
+        }
+        state.imageMatchFilter = grade;
+        let lastCandidate = null;
+        for (let i = 0; i < targets.length; i += 1) {
+          const slotKey = targets[i].key;
+          setImagesProgress(true, {
+            label: `Re-pulling ${gradeLabel}…`,
+            detail: slotKey,
+            current: i + 1,
+            total: targets.length,
+          });
+          const result = await api(
+            `/api/candidates/${encodeURIComponent(candidateId)}/images/slots/${encodeURIComponent(slotKey)}/repull`,
+            { method: 'POST', body: '{}' },
+          );
+          lastCandidate = result.candidate || lastCandidate;
+        }
+        await refreshImageSlotInPlace(candidateId, lastCandidate);
+        showToast(`Re-pulled ${targets.length} ${gradeLabel} slot${targets.length === 1 ? '' : 's'}.`);
+      } catch (error) {
+        setImagesProgress(false);
+        await refreshImageSlotsGrid(candidateId);
+        await showModal({
+          title: 'Bulk Re-pull failed',
+          confirmLabel: 'OK',
+          hideCancel: true,
+          bodyHtml: `<p>${esc(error.message)}</p><p class="muted">Slots already re-pulled were kept.</p>`,
+        });
+      } finally {
+        bulkBtn.disabled = false;
+      }
+      return;
+    }
+    const filterBtn = ev.target.closest('[data-match-filter]');
+    if (filterBtn && root.contains(filterBtn)) {
+      const next = imagesMatchFilterId(filterBtn.getAttribute('data-match-filter'));
+      if (state.imageMatchFilter === next) return;
+      state.imageMatchFilter = next;
+      await refreshImageSlotsGrid(candidateId);
+      return;
+    }
+    const btn = ev.target.closest('.ca-slot-repull');
+    if (!btn) return;
+    const slotKey = btn.getAttribute('data-slot-key');
+    if (!slotKey) return;
+    btn.disabled = true;
+    setImagesProgress(true, {
+      label: `Re-pulling ${slotKey}…`,
+      detail: 'Searching providers',
+      current: 1,
+      total: 2,
+    });
+    try {
+      const result = await api(
+        `/api/candidates/${encodeURIComponent(candidateId)}/images/slots/${encodeURIComponent(slotKey)}/repull`,
+        { method: 'POST', body: '{}' },
+      );
+      setImagesProgress(true, {
+        label: 'Slot updated',
+        detail: result.slot?.filename || slotKey,
+        current: 2,
+        total: 2,
+      });
+      await refreshImageSlotInPlace(candidateId, result.candidate);
+    } catch (error) {
+      setImagesProgress(false);
+      await showModal({
+        title: 'Re-pull failed',
+        confirmLabel: 'OK',
+        hideCancel: true,
+        bodyHtml: `<p>${esc(error.message)}</p>`,
+      });
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  root.addEventListener('change', async (ev) => {
+    const input = ev.target.closest('.ca-slot-upload');
+    if (!input || input.tagName !== 'INPUT') return;
+    const slotKey = input.getAttribute('data-slot-key');
+    const file = input.files?.[0];
+    if (!slotKey || !file) return;
+    setImagesProgress(true, {
+      label: `Uploading ${slotKey}…`,
+      detail: file.name,
+      current: 1,
+      total: 2,
+    });
+    try {
+      const dataUrl = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = () => reject(new Error('Could not read file'));
+        reader.readAsDataURL(file);
+      });
+      const result = await api(
+        `/api/candidates/${encodeURIComponent(candidateId)}/images/slots/${encodeURIComponent(slotKey)}/upload`,
+        {
+          method: 'POST',
+          body: JSON.stringify({ dataUrl, alt: file.name.replace(/\.[^.]+$/, '') }),
+        },
+      );
+      setImagesProgress(true, {
+        label: 'Upload saved',
+        detail: result.slot?.filename || slotKey,
+        current: 2,
+        total: 2,
+      });
+      await refreshImageSlotInPlace(candidateId, result.candidate);
+    } catch (error) {
+      setImagesProgress(false);
+      await showModal({
+        title: 'Upload failed',
+        confirmLabel: 'OK',
+        hideCancel: true,
+        bodyHtml: `<p>${esc(error.message)}</p>`,
+      });
+    } finally {
+      input.value = '';
+    }
+  });
 }
 
 function renderWebsite() {
@@ -3947,157 +5601,220 @@ function renderWebsite() {
   const f = d?.stageFlags || {};
   const draft = d?.contentDraft;
   const accepted = d?.content;
-  const pack = d?.buildPackage;
   const hasMarkdown = Boolean(draft || accepted || f.hasContent);
   const stagedAt = d?.meta?.lastSiteStagingAt || null;
   const stagingPath = d?.meta?.siteStagingPath || null;
   const assembledAt = d?.meta?.lastAssembleAt || null;
   const assembledPath = d?.meta?.assembledSitePath || null;
   const launched = Boolean(d?.meta?.lastLaunchAt || d?.meta?.lastShipAt);
+  const alreadyLive = Boolean(
+    launched || d?.meta?.dnsDone || d?.meta?.emailRoutingDone || d?.meta?.cloudflarePagesDone,
+  );
   const cfg = d?.siteConfig || {};
   const flags = {
     staged: Boolean(stagedAt || stagingPath),
     assembled: Boolean(assembledAt || assembledPath),
     launched,
+    alreadyLive,
   };
   const assembleStale = isAssembleStaleClient(d);
   const pageIds = structurePageIdsFromDetail(d);
   const wantsServices = pageIds.includes('services');
   const wantsLocations = pageIds.includes('locations');
-  const defaultOpen = firstIncompleteWebsiteStep(flags);
-  if (state.websiteOpenStep == null) state.websiteOpenStep = defaultOpen;
+  const imagesDone = Boolean(
+    d?.imagesManifest?.files?.length || f.hasImages || d?.siteConfig?.logo,
+  );
+  const hasLogoAsset = Boolean(f.hasLogo || d?.siteConfig?.logo);
+  const hasCoverageMapAsset = Boolean(f.hasCoverageMap);
+  const hasStockPhotos = Boolean(d?.imagesManifest?.files?.length || f.hasImages);
+  const pullPhotosBtnLabel = hasStockPhotos ? 'Re-pull photos' : 'Pull photos';
+  const pullPhotosTip = hasStockPhotos
+    ? 'Accept usually already pulled stock. Fills empty slots, or asks before replacing when every slot is full (not logo/map).'
+    : 'Accept normally pulls stock. Use here if Accept skipped or failed.';
+  const pullPhotosHint = hasStockPhotos
+    ? 'Already on site from Accept (or a prior run) — fills gaps, or confirms before replacing stock only (not logo/map).'
+    : 'Usually auto after Accept — use if stock slots are still empty.';
+  const logoBtnLabel = hasLogoAsset ? 'Regenerate logo' : 'Generate logo';
+  const mapBtnLabel = hasCoverageMapAsset ? 'Regenerate coverage map' : 'Generate coverage map';
+  const logoTip = hasLogoAsset
+    ? 'Accept usually already created this. Click to replace the existing header logo SVG.'
+    : 'Accept normally creates this. Use here if Accept skipped or failed.';
+  const mapTip = hasCoverageMapAsset
+    ? 'Accept usually already created this. Click to replace the existing coverage-map.svg and homepage Areas map.'
+    : 'Accept normally creates this when Areas exist. Use here if Accept skipped or failed.';
+  const logoHint = hasLogoAsset
+    ? 'Already on site from Accept (or a prior run) — this button replaces the monogram SVG.'
+    : 'Usually auto after Accept — use if logo is still missing.';
+  const mapHint = hasCoverageMapAsset
+    ? 'Already on site from Accept (or a prior run) — this button replaces the Nominatim SVG / Areas map.'
+    : 'Usually auto after Accept when Areas exist — use if the map is still missing.';
+  const prepareDone = flags.staged && flags.assembled && !assembleStale;
+  const stepFlags = { imagesDone, prepareDone, launched: flags.launched };
+  const durableCurrent = flags.launched ? null : firstIncompleteWebsiteStep(stepFlags);
+  const currentId = resolvePanelCurrent('websiteSoftCurrent', durableCurrent);
+  if (state.websiteFollowCurrent !== currentId) {
+    state.websiteOpenStep = currentId;
+    state.websiteFollowCurrent = currentId;
+  }
   const openId = state.websiteOpenStep;
+  const imagesStepDone = imagesDone || isSoftDone('websiteSoftDone', 'images');
+  const prepareStepDone = prepareDone || isSoftDone('websiteSoftDone', 'prepare');
+  const launchStepDone = flags.launched || isSoftDone('websiteSoftDone', 'launch');
   const parts = [];
 
   parts.push(
-    `<p class="action-hint"><strong>Website:</strong> Pull images (optional) → <strong>Stage site</strong> (local package) → <strong>Assemble</strong> (sibling build) → preview every sitemap URL → Launch. Re-Assemble after every Stage.</p>`,
+    panelHowToHtml({
+      label: 'Website',
+      info: 'Review images → Prepare preview (Stage + Assemble) → open every sitemap URL → Launch (first go-live) or Push updates (already live).',
+    }),
   );
+  const phoneRaw = String(cfg.phone || '').trim();
+  const phoneIsPlaceholder = isLaunchPhonePlaceholder(phoneRaw);
+  const launchIssues = launchPreflightIssues({
+    domain: cfg.domain,
+    phone: cfg.phone,
+    web3FormsAccessKey: cfg.web3FormsAccessKey,
+  });
+  if (phoneIsPlaceholder) {
+    parts.push(
+      `<div class="callout warn"><strong>Phone placeholder:</strong> still <code>+1XXXXXXXXXX</code> (or empty). Set a real click-to-call number in Site config (or Launch → Advanced) before launch — Rover will not invent one.</div>`,
+    );
+  }
+  const domainWarn = domainBrandMismatchClient(cfg.domain, {
+    niche: cfg.niche,
+    businessName: cfg.businessName,
+    primaryCity: cfg.primaryCity,
+  });
+  if (domainWarn.mismatch) {
+    parts.push(
+      `<div class="callout warn"><strong>Domain vs brand:</strong> ${esc(domainWarn.reason)}</div>`,
+    );
+  }
   if (!hasMarkdown && !f.hasContent) {
     parts.push(
       `<div class="callout warn">Accept content on the <strong>Content</strong> tab first (all service/location FILEs when Structure includes them).</div>`,
     );
-  } else if (!flags.staged) {
+  } else if (flags.alreadyLive) {
     parts.push(
-      `<div class="callout">Up next: <strong>Stage site</strong> — copies accepted content + images into a local package Assemble reads. Does not deploy.</div>`,
+      statusLineHtml(
+        'Site already live: after <strong>Prepare preview</strong>, use <strong>Push updates</strong> to GitHub + Cloudflare Worker (skips first-time domain/email setup).',
+      ),
     );
-  } else if (!flags.assembled) {
+  } else if (!imagesDone) {
     parts.push(
-      `<div class="callout">Up next: <strong>Assemble site</strong> — builds the sibling site from staging (npm install/build).</div>`,
+      statusLineHtml(
+        'Up next: <strong>Review images</strong> — stock photos, logo, and coverage map (usually auto after Accept).',
+      ),
     );
-  } else if (assembleStale) {
+  } else if (!prepareDone) {
     parts.push(
-      `<div class="callout warn"><strong>Assemble is stale</strong> — Stage (${esc(
-        stagedAt || '',
-      )}) is newer than Assemble (${esc(
-        assembledAt || 'never',
-      )}). Re-Assemble before trusting Open site preview.</div>`,
+      statusLineHtml(
+        `Up next: <strong>Prepare preview</strong> — stages the full launch package${
+          wantsServices ? ' (including every service page)' : ''
+        }, assembles the sibling site, then open the sitemap on :4322.`,
+      ),
     );
   } else {
     parts.push(
-      `<div class="callout">Up next: open every <strong>Preview sitemap</strong> URL, then <strong>Run launch</strong>.</div>`,
+      statusLineHtml(
+        'Up next: open every <strong>Preview sitemap</strong> URL, then <strong>Run launch</strong>.',
+      ),
     );
   }
 
   parts.push(
     contentStepHtml({
       id: 'images',
-      num: '0',
-      title: 'Pull images',
-      done: Boolean(d?.imagesManifest?.files?.length || f.hasImages),
-      open: openId === 'images',
-      tip: 'Optional: free stock photos when Structure Include photos is on',
-      bodyHtml: `
-        <p class="disc-tool-blurb">Downloads unique Unsplash/Pexels photos into <code>research/{id}/site-images/</code> (one per service card when enabled). Auto-runs on Content Accept when photos are on; use Pull / Replace here to fill gaps. Does not Stage or Assemble.</p>
-        ${contentActionRow({
-          n: 1,
-          label: 'Pull images',
-          controlsHtml: `<button type="button" class="btn" id="ca-pull-images" data-tip="Download related free stock photos (unique per slot; no shared fallback)">Pull images</button>
-          <button type="button" class="btn" id="ca-pull-images-replace" data-tip="Re-download and replace existing stock photos">Replace all</button>`,
-        })}
-        <div id="ca-images-progress" class="job-progress hidden" aria-live="polite">
-          <div class="job-progress-track"><div class="job-progress-bar" id="ca-images-progress-bar"></div></div>
-          <p class="job-progress-label" id="ca-images-progress-label">Pulling images…</p>
-          <p class="job-progress-detail" id="ca-images-progress-detail">Starting…</p>
-        </div>
-        <div id="ca-images-status" class="callout muted">${esc(imagesStatusLine(d))}</div>
-        ${imagesFileListHtml(d)}`,
-    }),
-  );
-
-  parts.push(
-    contentStepHtml({
-      id: 'stage',
       num: 1,
-      title: 'Stage site',
-      done: flags.staged,
-      open: openId === 'stage',
-      tip: 'Copy accepted content + images into research/{id}/site-staging (local package for Assemble). Does not deploy.',
+      title: 'Review images',
+      done: imagesStepDone,
+      open: openId === 'images',
+      current: currentId === 'images' && !imagesStepDone,
+      info: 'Accept content already pulls stock photos (and generates logo/map when possible). Use <strong>Pull photos</strong> to fill empty slots, or to replace the set when every slot is full. Per-slot Re-pull / Upload for near-launch QA. ChatGPT before/after is optional gallery polish.',
       bodyHtml: `
-        <p class="disc-tool-blurb"><strong>Stage site</strong> builds the local package Assemble needs: accepted markdown (Home/About/Contact${
-          wantsServices ? ' + every service page' : ''
-        }${
-          wantsLocations ? ' + every location page' : ''
-        }) plus synced <code>site-images</code>, written to <code>research/{id}/site-staging/</code>. It does <em>not</em> publish or deploy — without Stage, Assemble has nothing to inject. Blocks if Structure expects FILEs that are missing or still stubs.</p>
         ${contentActionRow({
           n: 1,
-          label: 'Stage site <span class="muted">(Required)</span>',
-          controlsHtml: `<button type="button" class="btn primary" id="ca-stage" data-tip="Copy accepted content + images into site-staging for Assemble. Does not deploy." ${hasMarkdown ? '' : 'disabled'}>Stage site</button>`,
-        })}
-        <details class="narrative-raw content-advanced">
-          <summary>Optional / Advanced — homepage-only smoke stage</summary>
-          ${contentActionRow({
-            n: 'A',
-            label: 'Stage homepage only',
-            hint: 'Strips services/locations — not launch-fidelity.',
-            controlsHtml: `<button type="button" class="btn" id="ca-stage-homepage" ${hasMarkdown ? '' : 'disabled'}>Stage homepage only</button>`,
-          })}
-        </details>
-        ${
-          stagedAt
-            ? `<div class="callout">Staged${stagingPath ? ` · <code>${esc(stagingPath)}</code>` : ''} · ${esc(stagedAt)}</div>`
-            : ''
-        }`,
-    }),
-  );
-
-  parts.push(
-    contentStepHtml({
-      id: 'assemble',
-      num: 2,
-      title: 'Assemble + build',
-      done: flags.assembled && !assembleStale,
-      open: openId === 'assemble',
-      tip: 'Build sibling site from staging (required after Stage)',
-      bodyHtml: `
-        <p class="disc-tool-blurb"><strong>Assemble</strong> builds the sibling site folder from <code>site-staging</code>, runs <code>npm install && npm run build</code>, and auto-ships (GitHub + Worker) when <code>gh</code> + Cloudflare credentials are set.</p>
-        ${
-          assembleStale
-            ? `<div class="callout warn">Staging is newer than Assemble — run <strong>Assemble site</strong> again before preview/launch.</div>`
-            : ''
-        }
-        ${contentActionRow({
-          n: 1,
-          label: 'Assemble site <span class="muted">(Required)</span>',
-          controlsHtml: `<button type="button" class="btn primary" id="ca-assemble" data-tip="Assemble site folder, build, and ship when credentials allow" ${flags.staged ? '' : 'disabled'}>Assemble site</button>
-          <button type="button" class="btn" id="ca-checklist" data-tip="Show assemble / deploy checklist">Checklist</button>`,
+          label: pullPhotosBtnLabel,
+          hint: pullPhotosHint,
+          done: hasStockPhotos,
+          controlsHtml: `
+            <div class="flex-wrap gap-2" style="display:flex;flex-wrap:wrap;gap:0.4rem;align-items:center">
+              <button type="button" class="btn" id="ca-pull-images" data-tip="${esc(
+                pullPhotosTip,
+              )}">${esc(pullPhotosBtnLabel)}</button>
+            </div>`,
         })}
         ${contentActionRow({
           n: 2,
-          label: 'Open site preview <span class="muted">(assembled)</span>',
-          hint: 'Serves this candidate’s assembled <code>dist/</code> on port 4322 — not the shared template.',
-          controlsHtml: `<button type="button" class="btn" id="ca-open-assembled-preview" data-tip="Preview assembled site on 127.0.0.1:4322" ${flags.assembled ? '' : 'disabled'}>Open site preview</button>`,
+          label: logoBtnLabel,
+          hint: logoHint,
+          done: hasLogoAsset,
+          controlsHtml: `<button type="button" class="btn" id="ca-generate-logo" data-tip="${esc(
+            logoTip,
+          )}">${esc(logoBtnLabel)}</button>`,
         })}
+        ${contentActionRow({
+          n: 3,
+          label: mapBtnLabel,
+          hint: mapHint,
+          done: hasCoverageMapAsset,
+          controlsHtml: `<button type="button" class="btn" id="ca-generate-map" data-tip="${esc(
+            mapTip,
+          )}">${esc(mapBtnLabel)}</button>`,
+        })}
+        ${contentActionRow({
+          n: 4,
+          label: 'Before & after (ChatGPT)',
+          hint: 'Copy prompts → generate in ChatGPT (browser) → import two images (any order; earlier filename time = Before).',
+          controlsHtml: `
+            <div class="flex-wrap gap-2" style="display:flex;flex-wrap:wrap;gap:0.4rem;align-items:center">
+              <button type="button" class="btn" id="ca-ba-copy-before" data-tip="Copy BEFORE image prompt">Copy before</button>
+              <button type="button" class="btn" id="ca-ba-copy-after" data-tip="Copy AFTER image prompt">Copy after</button>
+              <a class="btn" id="ca-ba-open-chatgpt" href="https://chatgpt.com/" target="_blank" rel="noopener" data-tip="Open ChatGPT in a new tab">Open ChatGPT</a>
+              <label class="btn" style="cursor:pointer" data-tip="Choose before then after image files">
+                Import pair
+                <input type="file" id="ca-ba-import-files" accept="image/jpeg,image/png,image/webp" multiple hidden />
+              </label>
+            </div>
+            <p class="muted" id="ca-ba-status" style="margin:0.35rem 0 0;font-size:0.85rem"></p>`,
+        })}
+        <div id="ca-images-progress" class="job-progress hidden" aria-live="polite">
+          <div class="job-progress-track"><div class="job-progress-bar" id="ca-images-progress-bar"></div></div>
+          <p class="job-progress-label" id="ca-images-progress-label">Working…</p>
+          <p class="job-progress-detail" id="ca-images-progress-detail">Starting…</p>
+        </div>
+        <div id="ca-images-status" class="callout muted">${esc(imagesStatusLine(d))}</div>
+        ${imagesSlotsShellHtml()}`,
+    }),
+  );
+
+  const prepareInfoParts = ['Home/About/Contact'];
+  if (wantsServices) prepareInfoParts.push('every service page');
+  if (wantsLocations) prepareInfoParts.push('every location page');
+  const prepareInfo = `Prepare preview stages the full launch package (${prepareInfoParts.join(
+    ' + ',
+  )}), assembles the sibling site, and opens the assembled preview on :4322.`;
+  parts.push(
+    contentStepHtml({
+      id: 'prepare',
+      num: 2,
+      title: 'Prepare preview',
+      done: prepareStepDone,
+      open: openId === 'prepare' || openId === 'stage' || openId === 'assemble',
+      current: currentId === 'prepare' && !prepareStepDone,
+      info: prepareInfo,
+      bodyHtml: `
+        <div class="narrative-actions" style="justify-content:center">
+          <button type="button" class="btn primary" id="ca-prepare-preview" data-tip="Full Stage → Assemble → open preview :4322" ${hasMarkdown ? '' : 'disabled'}>Prepare preview</button>
+          <button type="button" class="btn" id="ca-open-assembled-preview" data-tip="Preview assembled site on 127.0.0.1:4322" ${flags.assembled ? '' : 'disabled'}>Open site preview</button>
+          <button type="button" class="btn" id="ca-visual-edit" data-tip="Operator visual editor on the assembled preview" ${hasMarkdown ? '' : 'disabled'}>Edit visually</button>
+          <button type="button" class="btn" id="ca-checklist" data-tip="Show assemble / deploy checklist">Checklist</button>
+        </div>
         <div id="ca-assemble-progress" class="job-progress hidden" aria-live="polite">
           <div class="job-progress-track"><div class="job-progress-bar"></div></div>
-          <p class="job-progress-label">Assembling…</p>
+          <p class="job-progress-label">Preparing…</p>
           <p class="job-progress-detail" id="ca-assemble-progress-detail">Working…</p>
-        </div>
-        ${
-          assembledAt || assembledPath
-            ? `<div class="callout">Assembled${assembledPath ? ` · <code>${esc(assembledPath)}</code>` : ''} · ${esc(assembledAt || '')}</div>`
-            : ''
-        }
-        ${flags.assembled ? previewSitemapHtml(d) : ''}`,
+        </div>`,
     }),
   );
 
@@ -4106,67 +5823,141 @@ function renderWebsite() {
       id: 'launch',
       num: 3,
       title: 'Launch',
-      done: flags.launched,
+      done: launchStepDone,
       open: openId === 'launch',
-      tip: 'Ship + Cloudflare domain / Email Routing + Web3Forms',
+      current: currentId === 'launch' && !flags.launched,
+      info: flags.alreadyLive
+        ? 'Already live: Prepare preview first, then Push updates (GitHub + build + Worker). Run launch only when you need to change keys or re-run Cloudflare domain/email.'
+        : 'Before Run launch: buy/point domain NS at Cloudflare (zone must exist), paste Web3Forms key, set Gmail destination for leads@. Then Run launch. After: verify Gmail once if the destination is new. Auto ship + Cloudflare on by default.',
       bodyHtml: `
-        <p class="disc-tool-blurb">Paste Web3Forms key. Auto ship can re-push/deploy; Cloudflare attaches domain + Email Routing. Human leftovers: buy/point NS, verify Gmail once, create Web3Forms form.</p>
         ${
           assembleStale
-            ? `<div class="callout warn">Assemble is stale vs Stage — re-Assemble and re-check the preview sitemap before Launch.</div>`
+            ? `<div class="callout warn">Assemble is stale vs Stage — run <strong>Prepare preview</strong> again before Launch or Push updates.</div>`
             : ''
         }
-        ${contentActionRow({
-          n: 1,
-          label: 'Run launch <span class="muted">(Required for go-live)</span>',
-          controlsHtml: `<button type="button" class="btn primary" id="ca-launch" data-tip="Ship + CF helpers" ${flags.assembled ? '' : 'disabled'}>Run launch</button>
-          <button type="button" class="btn" id="ca-launch-status" data-tip="Show launch status">Launch status</button>`,
-        })}
-        <div class="site-config-nap" id="ca-launch-form" style="margin-top:0.75rem">
-          <label>Domain <input id="ca-launch-domain" type="text" value="${esc(cfg.domain || '')}" placeholder="example.com" /></label>
-          <label>Phone <input id="ca-launch-phone" type="text" value="${esc(cfg.phone || '')}" /></label>
-          <label>Leads email <input id="ca-launch-email" type="email" value="${esc(cfg.email || '')}" placeholder="leads@example.com" /></label>
-          <label>Email Routing destination <input id="ca-launch-dest" type="email" value="" placeholder="your@gmail.com" data-tip="CF forwards leads@ here" /></label>
-          <label class="site-config-span2">Web3Forms access key <input id="ca-launch-web3" type="text" value="${esc(cfg.web3FormsAccessKey || '')}" placeholder="Paste from web3forms.com" /></label>
-          <label>Turnstile site key <input id="ca-launch-turnstile" type="text" value="${esc(cfg.turnstileSiteKey || '')}" placeholder="optional" /></label>
-          <label><input id="ca-launch-ship" type="checkbox" checked /> Auto ship (GitHub + build + Worker deploy)</label>
-          <label><input id="ca-launch-run-cf" type="checkbox" checked /> Run Cloudflare domain / email API</label>
-          <label><input id="ca-launch-create-turnstile" type="checkbox" /> Create Turnstile widget</label>
-          <label><input id="ca-launch-mark-cf" type="checkbox" /> Mark CF Worker project done</label>
+        ${
+          flags.alreadyLive
+            ? ''
+            : `<div class="callout"><strong>Before Run launch</strong>
+          <ol class="narrative-list">
+            <li>Buy the domain and point nameservers to Cloudflare (zone must exist in this account)</li>
+            <li>Create a form at <a href="https://web3forms.com" target="_blank" rel="noopener">web3forms.com</a> and paste the access key below</li>
+            <li>Set Email Routing destination (Gmail) below</li>
+          </ol>
+          <p class="muted" style="margin:0.35rem 0 0">Then Run launch. After: click Cloudflare’s verify link in Gmail once if the destination is new; smoke-test the live form.</p>
+        </div>`
+        }
+        ${launchPreflightHtml(launchIssues)}
+        ${citationsChecklistHtml(cfg)}
+        <div id="ca-launch-form">
+        <div class="site-config-nap ca-launch-nap" style="margin-top:0.5rem">
+          <label>
+            <span class="label-with-tip-head">
+              <span>Domain</span>
+              <button type="button" class="tip-info" data-tip="Public hostname for go-live. Point nameservers to Cloudflare first so the zone exists in this account before Run Cloudflare domain / email." aria-label="About Domain">i</button>
+            </span>
+            <input id="ca-launch-domain" type="text" value="${esc(cfg.domain || '')}" placeholder="yourdomain.com" />
+          </label>
+          <label>
+            <span class="label-with-tip-head">
+              <span>Phone</span>
+              <button type="button" class="tip-info" data-tip="Click-to-call number written into site-config at launch." aria-label="About Phone">i</button>
+            </span>
+            <input id="ca-launch-phone" type="text" value="${esc(cfg.phone || '')}" placeholder="+1…" />
+          </label>
+          <label>
+            <span class="label-with-tip-head">
+              <span>Web3Forms access key</span>
+              <button type="button" class="tip-info" data-tip="Form access key from web3forms.com — delivers lead form submissions." aria-label="About Web3Forms access key">i</button>
+            </span>
+            <input id="ca-launch-web3" type="text" value="${esc(cfg.web3FormsAccessKey || '')}" placeholder="Paste from web3forms.com" />
+          </label>
+          <label>
+            <span class="label-with-tip-head">
+              <span>Leads email</span>
+              <button type="button" class="tip-info" data-tip="Public site leads address (usually leads@yourdomain.com) — shown in footer, contact, and schema. Not your personal Gmail." aria-label="About Leads email">i</button>
+            </span>
+            <input id="ca-launch-email" type="email" value="${esc(cfg.email || '')}" placeholder="leads@yourdomain.com" />
+          </label>
+          <label>
+            <span class="label-with-tip-head">
+              <span>Email Routing destination</span>
+              <button type="button" class="tip-info" data-tip="Where Cloudflare forwards leads@ (usually your Gmail). Not the address printed on the website — that is Config → Email / Leads email." aria-label="About Email Routing destination">i</button>
+            </span>
+            <input id="ca-launch-dest" type="email" value="" placeholder="your@gmail.com" />
+          </label>
+          <label>
+            <span class="label-with-tip-head">
+              <span>Turnstile site key</span>
+              <button type="button" class="tip-info" data-tip="Optional Cloudflare Turnstile site key for form bot protection." aria-label="About Turnstile site key">i</button>
+            </span>
+            <input id="ca-launch-turnstile" type="text" value="${esc(cfg.turnstileSiteKey || '')}" placeholder="optional" />
+          </label>
         </div>
+        <div class="ca-launch-opts">
+          ${launchOptCheckboxHtml({
+            id: 'ca-launch-ship',
+            label: 'Auto ship (GitHub + build + Worker deploy)',
+            ariaLabel: 'About Auto ship',
+            checked: true,
+            tip: 'Publishes the website online (saves it, builds it, and puts it on the internet). Leave on for a normal go-live. Turn off only if you are re-running Launch for Cloudflare/keys without republishing.',
+          })}
+          ${launchOptCheckboxHtml({
+            id: 'ca-launch-run-cf',
+            label: 'Run Cloudflare domain / email API',
+            ariaLabel: 'About Cloudflare domain / email',
+            checked: !flags.alreadyLive,
+            tip: flags.alreadyLive
+              ? 'Domain and Email Routing are already set up for this site — left off by default. Turn on only if you need to re-attach the custom domain or recreate leads@ forwarding. Prefer Push updates for template/content publishes.'
+              : 'Attaches the Worker custom domain and forwards leads@ to your Gmail. Requires the domain zone already in this Cloudflare account (buy/point NS first). Leave on when launching a new domain.',
+          })}
+          ${launchOptCheckboxHtml({
+            id: 'ca-launch-create-turnstile',
+            label: 'Create Turnstile widget',
+            ariaLabel: 'About Create Turnstile widget',
+            tip: 'Adds a spam/bot check to the contact form. Leave off unless you want that protection — most launches don’t need it.',
+          })}
+          ${launchOptCheckboxHtml({
+            id: 'ca-launch-mark-cf',
+            label: 'Mark CF Worker project done',
+            ariaLabel: 'About Mark CF Worker project done',
+            tip: 'Only updates Rover’s checklist to say hosting is done. Does not publish or fix anything. Leave off for normal launches; use only if the site is already live but Rover still shows incomplete.',
+          })}
+        </div>
+        <div class="narrative-actions">
+          ${
+            flags.alreadyLive
+              ? `<button type="button" class="btn primary" id="ca-push-updates" data-tip="Prepare preview first, then push assembled site to GitHub + build + Cloudflare Worker. Skips first-time domain/email setup." ${flags.assembled ? '' : 'disabled'}>Push updates</button>
+          <button type="button" class="btn" id="ca-launch" data-tip="Full launch: patch keys + optional ship + optional CF domain/email" ${flags.assembled ? '' : 'disabled'}>Run launch</button>`
+              : `<button type="button" class="btn primary" id="ca-launch" data-tip="Ship + CF helpers" ${flags.assembled ? '' : 'disabled'}>Run launch</button>`
+          }
+          <button type="button" class="btn" id="ca-launch-status" data-tip="Status, human leftovers, machine creds">Launch status</button>
+        </div>
+        ${
+          flags.alreadyLive && flags.assembled
+            ? `<div id="ca-ship-freshness" class="ca-ship-status" data-status="pending" role="status" aria-live="polite">
+          <span class="ca-ship-status-dot" aria-hidden="true"></span>
+          <p id="ca-ship-freshness-msg" class="ca-ship-status-msg">Checking whether assembled matches GitHub…</p>
+          <div class="ca-ship-status-actions narrative-actions">
+            <button type="button" class="btn btn-sm" id="ca-ship-diff-refresh" data-tip="Fetch origin and compare assembled tree to GitHub">Refresh status</button>
+            <button type="button" class="btn btn-sm" id="ca-ship-diff-show" data-tip="List files that differ from origin/main before you Push updates">Show file differences</button>
+          </div>
+        </div>`
+            : ''
+        }
+        <p class="muted">${
+          flags.alreadyLive
+            ? 'Push updates = ship only (GitHub + build + Worker). Re-assemble via Prepare preview when template/content changed.'
+            : 'Create key at <a href="https://web3forms.com" target="_blank" rel="noopener">web3forms.com</a> · before Run launch: domain NS at Cloudflare · after: verify Gmail once if new'
+        }</p>
         <div id="ca-launch-progress" class="job-progress hidden" aria-live="polite">
           <div class="job-progress-track"><div class="job-progress-bar"></div></div>
           <p class="job-progress-label" id="ca-launch-progress-label">Launching…</p>
           <p class="job-progress-detail" id="ca-launch-progress-detail">Starting…</p>
         </div>
-        <p class="muted">Create key at <a href="https://web3forms.com" target="_blank" rel="noopener">web3forms.com</a> · <code>docs/LAUNCH.md</code></p>`,
+        </div>`,
     }),
   );
-
-  parts.push(`
-    <details class="narrative-raw content-advanced">
-      <summary>Optional / Advanced</summary>
-      ${contentActionRow({
-        n: 'A',
-        label: 'Template live buffer (not this candidate)',
-        hint: 'Shared Astro on :4321 — leftover markets may appear. Prefer <strong>Open site preview</strong> after Assemble.',
-        controlsHtml: `<button type="button" class="btn" id="ca-open-preview" data-tip="Open shared template buffer on 127.0.0.1:4321">Open template buffer</button>`,
-      })}
-      ${contentActionRow({
-        n: 'B',
-        label: 'Build package JSON',
-        hint: 'Stage refreshes this automatically.',
-        controlsHtml: `<button type="button" class="btn" id="ca-build-package" data-tip="Build package JSON for this candidate" ${hasMarkdown ? '' : 'disabled'}>Build package JSON</button>`,
-      })}
-      ${
-        pack
-          ? `<details class="narrative-raw"><summary>Build package</summary><div class="json-block">${esc(
-              JSON.stringify(pack, null, 2),
-            )}</div></details>`
-          : ''
-      }
-    </details>
-  `);
 
   return parts.join('');
 }
@@ -4177,6 +5968,13 @@ const LAUNCH_PROGRESS_STEPS = [
   'npm install + build…',
   'Wrangler deploy…',
   'Cloudflare domain / Email Routing…',
+];
+
+const SHIP_PROGRESS_STEPS = [
+  'GitHub commit + push…',
+  'npm install + build…',
+  'Wrangler deploy…',
+  'Workers Builds (best-effort)…',
 ];
 
 function setLaunchProgress(visible, label, detail) {
@@ -4194,6 +5992,23 @@ function setAssembleProgress(visible, detail) {
   const detailEl = document.getElementById('ca-assemble-progress-detail');
   if (!box) return;
   box.classList.toggle('hidden', !visible);
+  if (detailEl && detail) detailEl.textContent = detail;
+}
+
+const ACCEPT_PROGRESS_STEPS = [
+  'Writing files to src/content…',
+  'Pulling stock photos (if enabled)…',
+  'Generating logo…',
+  'Building coverage map…',
+];
+
+function setAcceptProgress(visible, { label, detail } = {}) {
+  const box = document.getElementById('ca-accept-progress');
+  const labelEl = document.getElementById('ca-accept-progress-label');
+  const detailEl = document.getElementById('ca-accept-progress-detail');
+  if (!box) return;
+  box.classList.toggle('hidden', !visible);
+  if (labelEl && label) labelEl.textContent = label;
   if (detailEl && detail) detailEl.textContent = detail;
 }
 
@@ -4224,24 +6039,24 @@ function wireContentTab(d) {
   const ready = Boolean(d.stageFlags?.hasSiteConfig);
   const refresh = async (candidate, nextStep, tab = 'content') => {
     if (tab === 'website') {
-      if (nextStep) state.websiteOpenStep = nextStep;
+      if (nextStep) advancePanelStep('website', nextStep);
       state.tab = 'website';
     } else {
-      if (nextStep) state.contentOpenStep = nextStep;
+      if (nextStep) advancePanelStep('content', nextStep);
       state.tab = 'content';
     }
     state.detail = candidate || (await api(`/api/candidates/${encodeURIComponent(id)}`));
     renderDetail();
   };
-  const copyPrompt = (path, title) => async () => {
+  const copyPrompt = (path, title, { advanceTo, panel = 'content' } = {}) => async () => {
     try {
       const data = await api(path);
       await navigator.clipboard.writeText(data.prompt || '');
-      await showModal({
-        title: title || 'Copied',
-        confirmLabel: 'OK',
-        bodyHtml: '<p>Prompt is on your clipboard.</p>',
-      });
+      showToast(`${title || 'Prompt'} copied to clipboard.`);
+      if (advanceTo) {
+        advancePanelStep(panel, advanceTo);
+        renderDetail();
+      }
     } catch (error) {
       await showModal({
         title: 'Copy failed',
@@ -4256,6 +6071,8 @@ function wireContentTab(d) {
       const step = btn.getAttribute('data-content-toggle');
       if (state.tab === 'website') {
         state.websiteOpenStep = state.websiteOpenStep === step ? null : step;
+      } else if (state.tab === 'site-config') {
+        state.siteConfigOpenStep = state.siteConfigOpenStep === step ? null : step;
       } else {
         state.contentOpenStep = state.contentOpenStep === step ? null : step;
       }
@@ -4267,13 +6084,17 @@ function wireContentTab(d) {
     const pages = [...document.querySelectorAll('input[name="structure-page"]')]
       .filter((el) => el.checked || el.disabled)
       .map((el) => el.value);
+    // Required sections are disabled+checked; never treat disabled-unchecked (e.g. offerProcess) as selected
     const sections = [...document.querySelectorAll('input[name="structure-section"]')]
-      .filter((el) => el.checked || el.disabled)
+      .filter((el) => el.checked)
       .map((el) => el.value);
     const photos = {};
+    const catalogSections = state.contentStructureCatalog?.sections || [];
+    const maxById = new Map(catalogSections.map((s) => [s.id, Number(s.maxImages) || 3]));
     for (const el of document.querySelectorAll('input[name="structure-photo"]')) {
       if (!el.checked) continue;
-      photos[el.value] = { enabled: true, count: 3 };
+      const max = maxById.get(el.value) || 3;
+      photos[el.value] = { enabled: true, count: max };
     }
     return { pages, sections, photos };
   };
@@ -4286,9 +6107,6 @@ function wireContentTab(d) {
       if (!sec.checked) photo.checked = false;
     });
   };
-  document.querySelectorAll('input[name="structure-section"]').forEach((el) => {
-    el.addEventListener('change', syncStructurePhotoToggles);
-  });
 
   const syncStructurePageGroups = () => {
     document.querySelectorAll('.structure-page-group').forEach((g) => {
@@ -4308,34 +6126,107 @@ function wireContentTab(d) {
     });
     syncStructurePhotoToggles();
   };
-  document.querySelectorAll('input[name="structure-page"]').forEach((el) => {
-    el.addEventListener('change', syncStructurePageGroups);
+
+  /** Services page → process only; single-offer → offerProcess wins if both checked */
+  const syncProcessOfferExclusion = () => {
+    const servicesPage = document.querySelector('input[name="structure-page"][value="services"]');
+    const processCb = document.querySelector('input[name="structure-section"][value="process"]');
+    const offerCb = document.querySelector('input[name="structure-section"][value="offerProcess"]');
+    const hint = document.getElementById('structure-process-hint');
+    const servicesOn = Boolean(servicesPage && (servicesPage.checked || servicesPage.disabled));
+    if (!processCb || !offerCb) return;
+    if (servicesOn) {
+      if (offerCb.checked) {
+        offerCb.checked = false;
+        const photo = document.querySelector('input[name="structure-photo"][value="offerProcess"]');
+        if (photo) {
+          photo.checked = false;
+          photo.disabled = true;
+        }
+      }
+      offerCb.disabled = true;
+      if (hint) {
+        hint.textContent =
+          'Services pages use How we work (process). Deep offer process is disabled while Services is on.';
+      }
+    } else {
+      offerCb.disabled = false;
+      if (processCb.checked && offerCb.checked) {
+        processCb.checked = false;
+        const photo = document.querySelector('input[name="structure-photo"][value="process"]');
+        if (photo) {
+          photo.checked = false;
+          photo.disabled = true;
+        }
+        if (hint) {
+          hint.textContent =
+            'Deep offer process is for single-offer sites. How we work was unchecked — pick one process style.';
+        }
+      } else if (hint) {
+        hint.textContent =
+          'Services pages use How we work (process). Deep offer process is for single-offer sites only — never both.';
+      }
+    }
+    syncStructurePhotoToggles();
+  };
+
+  document.querySelectorAll('input[name="structure-section"]').forEach((el) => {
+    el.addEventListener('change', () => {
+      if (el.value === 'process' || el.value === 'offerProcess') syncProcessOfferExclusion();
+      syncStructurePhotoToggles();
+    });
   });
+  document.querySelectorAll('input[name="structure-page"]').forEach((el) => {
+    el.addEventListener('change', () => {
+      syncStructurePageGroups();
+      syncProcessOfferExclusion();
+    });
+  });
+  syncProcessOfferExclusion();
 
   if (ready) {
     ensureStructureCatalog().catch(() => {});
-    if (!d.contentStructure || d.contentStructure.status === 'empty') {
-      api(`/api/candidates/${encodeURIComponent(id)}/content/structure`)
-        .then((data) => {
-          if (data.catalog?.sections?.length) {
-            state.contentStructureCatalog = data.catalog;
-            state.contentStructureCatalogError = null;
-          }
-          if (data.structure && state.detail?.id === id) {
-            state.detail.contentStructure = data.structure;
-          }
-          if (data.outline && state.detail?.id === id && !state.detail.contentOutlinePackage) {
-            state.detail.contentOutlinePackage = data.outline;
-          }
-          if (state.tab === 'content') renderDetail();
-        })
-        .catch((error) => {
-          if (!state.contentStructureCatalog) {
-            state.contentStructureCatalogError =
-              error?.message || 'Couldn’t load section catalog';
-            if (state.tab === 'content') renderDetail();
-          }
-        });
+    // Hydrate once when detail has no structure object. Do not re-fetch on
+    // status === 'empty' — that is the synthetic default and would loop
+    // renderDetail forever (checkboxes never stick before first Save).
+    if (!d.contentStructure) {
+      if (!state._structureHydratePromise || state._structureHydrateId !== id) {
+        state._structureHydrateId = id;
+        state._structureHydratePromise = api(
+          `/api/candidates/${encodeURIComponent(id)}/content/structure`,
+        )
+          .then((data) => {
+            if (state._structureHydrateId !== id) return;
+            let changed = false;
+            if (data.catalog?.sections?.length) {
+              state.contentStructureCatalog = data.catalog;
+              state.contentStructureCatalogError = null;
+              changed = true;
+            }
+            if (data.structure && state.detail?.id === id) {
+              state.detail.contentStructure = data.structure;
+              changed = true;
+            }
+            if (data.outline && state.detail?.id === id && !state.detail.contentOutlinePackage) {
+              state.detail.contentOutlinePackage = data.outline;
+              changed = true;
+            }
+            if (changed && state.tab === 'content') renderDetail();
+          })
+          .catch((error) => {
+            if (state._structureHydrateId !== id) return;
+            if (!state.contentStructureCatalog) {
+              state.contentStructureCatalogError =
+                error?.message || 'Couldn’t load section catalog';
+              if (state.tab === 'content') renderDetail();
+            }
+          })
+          .finally(() => {
+            if (state._structureHydrateId === id) {
+              state._structureHydratePromise = null;
+            }
+          });
+      }
     }
   }
 
@@ -4359,22 +6250,6 @@ function wireContentTab(d) {
     });
   });
 
-  document.getElementById('cs-save')?.addEventListener('click', async () => {
-    try {
-      const result = await api(`/api/candidates/${encodeURIComponent(id)}/content/structure`, {
-        method: 'POST',
-        body: JSON.stringify(collectStructureSelection()),
-      });
-      await refresh(result.candidate, 'structure');
-    } catch (error) {
-      await showModal({
-        title: 'Save failed',
-        confirmLabel: 'OK',
-        bodyHtml: `<p>${esc(error.message)}</p>`,
-      });
-    }
-  });
-
   document.getElementById('cs-compose')?.addEventListener('click', async () => {
     try {
       const selection = collectStructureSelection();
@@ -4387,6 +6262,11 @@ function wireContentTab(d) {
         body: JSON.stringify(selection),
       });
       await refresh(result.candidate, 'outline');
+      if (result.warnings?.length) {
+        showToast(result.warnings.join(' '), { tone: 'warn' });
+      } else {
+        showToast('Outline composed — copy structure prompt next.');
+      }
     } catch (error) {
       await showModal({
         title: 'Compose failed',
@@ -4406,47 +6286,6 @@ function wireContentTab(d) {
       ),
     );
 
-  document.getElementById('cs-download-outline')?.addEventListener('click', () => {
-    const outline = state.detail?.contentOutlinePackage;
-    if (!outline) return;
-    downloadText(
-      `${id}-content-outline.json`,
-      `${JSON.stringify(outline, null, 2)}\n`,
-      'application/json',
-    );
-  });
-
-  document.getElementById('cs-download-outline-md')?.addEventListener('click', () => {
-    const outline = state.detail?.contentOutlinePackage;
-    if (!outline?.sections?.length) return;
-    const lines = [
-      `# Content outline — ${id}`,
-      '',
-      `Status: ${outline.status || 'draft'}`,
-      `Preset: ${outline.presetId || 'custom'}`,
-      '',
-      '## Pages',
-      ...(outline.pages || []).map((p) => `- **${p.label || p.id}** (\`${p.route || p.id}\`)`),
-      '',
-      '## Sections',
-    ];
-    for (const s of outline.sections) {
-      lines.push('', `### ${s.level || 'H2'}: ${s.heading || s.id}`);
-      lines.push(`- id: \`${s.id}\``);
-      if (s.instructions) lines.push(`- instructions: ${s.instructions}`);
-      if (s.images?.length) {
-        lines.push('- images:');
-        for (const img of s.images) {
-          lines.push(
-            `  - \`${img.path}\` — alt: ${img.alt || 'TODO'}; caption: ${img.caption || ''}`,
-          );
-        }
-      }
-    }
-    lines.push('');
-    downloadText(`${id}-content-outline.md`, lines.join('\n'), 'text/markdown');
-  });
-
   document.getElementById('cs-paste-outline')?.addEventListener('click', async () => {
     const text = document.getElementById('cs-outline-paste')?.value || '';
     if (!text.trim()) {
@@ -4462,26 +6301,15 @@ function wireContentTab(d) {
         method: 'POST',
         body: JSON.stringify({ json: text }),
       });
-      await refresh(result.candidate, 'outline');
-    } catch (error) {
-      await showModal({
-        title: 'Outline paste failed',
-        confirmLabel: 'OK',
-        bodyHtml: `<p>${esc(error.message)}</p>`,
-      });
-    }
-  });
-
-  document.getElementById('cs-confirm-outline')?.addEventListener('click', async () => {
-    try {
-      const result = await api(
+      const confirmed = await api(
         `/api/candidates/${encodeURIComponent(id)}/content/structure/confirm`,
         { method: 'POST', body: '{}' },
       );
-      await refresh(result.candidate, 'write');
+      await refresh(confirmed.candidate || result.candidate, 'write');
+      showToast('Outline loaded & confirmed — copy full-write prompt next.');
     } catch (error) {
       await showModal({
-        title: 'Confirm failed',
+        title: 'Outline load failed',
         confirmLabel: 'OK',
         bodyHtml: `<p>${esc(error.message)}</p>`,
       });
@@ -4605,9 +6433,38 @@ function wireContentTab(d) {
       'click',
       copyPrompt(`/api/candidates/${encodeURIComponent(id)}/content/editor/prompt`, 'Editor prompt'),
     );
-  document.getElementById('ca-paste-writer')?.addEventListener('click', async () => {
+  document.getElementById('ca-speech-check')?.addEventListener('click', async () => {
     try {
-      const text = document.getElementById('ca-writer-paste')?.value || '';
+      const data = await api(`/api/candidates/${encodeURIComponent(id)}/content/speech-lint`);
+      const needs = contentNeedsEditorRewrite(data);
+      if (needs.needed) {
+        await showModal({
+          title: needs.softOnly
+            ? 'Speech/SEO Refinement — rewrite recommended'
+            : 'Speech/SEO Refinement — rewrite needed',
+          confirmLabel: 'OK',
+          hideCancel: true,
+          bodyHtml: speechCheckResultBodyHtml(data),
+        });
+      } else {
+        showToast('Speech/SEO Refinement clear — ready to Accept.');
+      }
+      await refresh(data.candidate || state.detail, needs.needed ? 'editor' : 'accept');
+    } catch (error) {
+      await showModal({
+        title: 'Speech/SEO Refinement failed',
+        confirmLabel: 'OK',
+        bodyHtml: `<p>${esc(error.message)}</p>`,
+      });
+    }
+  });
+  const loadFileBlocks = async (textareaId) => {
+    try {
+      const text = document.getElementById(textareaId)?.value || '';
+      const reAcceptNeeded =
+        textareaId === 'ca-editor-paste' &&
+        Boolean(state.detail?.content?.files) &&
+        Boolean(state.detail?.flags?.hasContent);
       const wantsFull =
         structurePageIdsFromDetail(state.detail).includes('services') ||
         structurePageIdsFromDetail(state.detail).includes('locations') ||
@@ -4616,16 +6473,65 @@ function wireContentTab(d) {
         method: 'POST',
         body: JSON.stringify({ text, mode: wantsFull ? 'full' : 'homepage_first' }),
       });
-      await refresh(result.candidate, 'accept');
+      const launch = result.check?.launch;
+      const missing = launch?.missing || [];
       const msgs = [...(result.check?.errors || []), ...(result.check?.warnings || [])];
-      if (msgs.length) {
+      const speechN = result.speechLint?.findings?.length || 0;
+      const seoN = result.seoLint?.findings?.length || 0;
+      const fixN = result.autoFix?.changeCount || 0;
+      const fixSpeech = result.autoFix?.speechCount || 0;
+      const fixSeo = result.autoFix?.seoCount || 0;
+      const proofN = result.socialProofMerge?.merged
+        ? result.socialProofMerge?.reviewCount || 0
+        : 0;
+
+      if (missing.length) {
+        await refresh(result.candidate, textareaId === 'ca-writer-paste' ? 'write' : 'editor');
+        const incompleteHtml = incompleteDraftExplainHtml({
+          have: launch?.have || 0,
+          expectedCount: launch?.expectedCount || missing.length,
+          missing,
+          compact: false,
+        });
+        const proofHtml = proofN
+          ? `<p class="muted">Also seeded ${esc(String(proofN))} placeholder review(s) into site-config — replace with real reviews before launch.</p>`
+          : '';
         await showModal({
-          title: 'Draft loaded',
+          title: 'Partial draft loaded',
           confirmLabel: 'OK',
           hideCancel: true,
-          bodyHtml: `<p>${esc(msgs.join('; '))}</p>`,
+          bodyHtml: `${incompleteHtml}${proofHtml}
+          <p class="muted">Auto-fixed ${esc(String(fixN))} (${esc(String(fixSpeech))} speech · ${esc(
+            String(fixSeo),
+          )} SEO) · remaining ${esc(String(speechN))} speech · ${esc(String(seoN))} SEO.</p>`,
         });
+        return;
       }
+
+      // Full draft: auto Speech/SEO Refinement, then advance
+      let speechData = null;
+      let needsRewrite = false;
+      try {
+        speechData = await api(`/api/candidates/${encodeURIComponent(id)}/content/speech-lint`);
+        needsRewrite = contentNeedsEditorRewrite(speechData).needed;
+      } catch {
+        needsRewrite = true;
+      }
+      const candidate =
+        speechData?.candidate || result.candidate || (await api(`/api/candidates/${encodeURIComponent(id)}`));
+      // Prefer Accept when lint is clean; stay on Speech/SEO Refinement when rewrite still recommended
+      await refresh(candidate, needsRewrite ? 'editor' : 'accept');
+      const bits = [
+        'Draft loaded',
+        fixN ? `auto-fixed ${fixN}` : null,
+        proofN ? `${proofN} placeholder reviews` : null,
+        needsRewrite
+          ? 'speech/SEO leftovers — rewrite or Accept with care'
+          : reAcceptNeeded
+            ? 'Speech/SEO Refinement clear — Accept again to publish'
+            : 'Speech/SEO Refinement clear',
+      ].filter(Boolean);
+      showToast(bits.join(' · '), { tone: needsRewrite || msgs.length ? 'warn' : 'ok' });
     } catch (error) {
       await showModal({
         title: 'Paste failed',
@@ -4634,23 +6540,41 @@ function wireContentTab(d) {
         bodyHtml: `<p>${esc(error.message)}</p>`,
       });
     }
-  });
-  document.getElementById('ca-import-disk')?.addEventListener('click', async () => {
+  };
+  document
+    .getElementById('ca-paste-writer')
+    ?.addEventListener('click', () => loadFileBlocks('ca-writer-paste'));
+  document
+    .getElementById('ca-paste-editor')
+    ?.addEventListener('click', () => loadFileBlocks('ca-editor-paste'));
+  const importDiskToDraft = async () => {
     try {
+      const pages = structurePageIdsFromDetail(state.detail);
+      const wantsFull =
+        pages.includes('services') ||
+        pages.includes('locations') ||
+        pages.includes('about') ||
+        pages.includes('contact') ||
+        state.detail?.contentOutlinePackage?.status === 'confirmed';
+      const mode = wantsFull ? 'full' : 'homepage_first';
       const result = await api(`/api/candidates/${encodeURIComponent(id)}/content/import-disk`, {
         method: 'POST',
-        body: JSON.stringify({ mode: 'homepage_first' }),
+        body: JSON.stringify({ mode }),
       });
-      await refresh(result.candidate, 'accept');
+      await refresh(result.candidate, 'editor');
       const msgs = [...(result.check?.errors || []), ...(result.check?.warnings || [])];
+      const fixN = result.autoFix?.changeCount || 0;
+      const fileN = Object.keys(result.draft?.files || {}).length;
       await showModal({
         title: 'Imported to candidate draft',
         confirmLabel: 'OK',
-        bodyHtml: `<p>Loaded from <code>src/content/pages/</code> into <code>research/${esc(
+        bodyHtml: `<p>Loaded <strong>${esc(String(fileN))}</strong> file(s) from <code>src/content/</code> (${esc(
+          mode,
+        )}) into <code>research/${esc(
           id,
         )}-content.draft.json</code>. Accept when ready.</p>${
           msgs.length ? `<p class="muted">${esc(msgs.join('; '))}</p>` : ''
-        }`,
+        }${fixN ? `<p class="muted">Auto-fixed ${esc(String(fixN))} issue(s).</p>` : ''}`,
       });
     } catch (error) {
       await showModal({
@@ -4659,71 +6583,52 @@ function wireContentTab(d) {
         bodyHtml: `<p>${esc(error.message)}</p>`,
       });
     }
-  });
-  document.getElementById('ca-build-package')?.addEventListener('click', async () => {
-    try {
-      const result = await api(`/api/candidates/${encodeURIComponent(id)}/build-package`, {
-        method: 'POST',
-        body: '{}',
-      });
-      await refresh(result.candidate, 'assemble', 'website');
-      await showModal({
-        title: 'Build package',
-        confirmLabel: 'OK',
-        bodyHtml: `<p>Wrote <code>*-build-package.json</code> · archetype <code>${esc(
-          result.package?.siteArchetype || '',
-        )}</code></p>`,
-      });
-    } catch (error) {
-      await showModal({ title: 'Failed', confirmLabel: 'OK', bodyHtml: `<p>${esc(error.message)}</p>` });
-    }
-  });
-  const runStage = async (mode) => {
-    try {
-      const result = await api(`/api/candidates/${encodeURIComponent(id)}/staging`, {
-        method: 'POST',
-        body: JSON.stringify({ mode, openPreview: false }),
-      });
-      await refresh(result.candidate, 'assemble', 'website');
-      await showModal({
-        title: mode === 'full' ? 'Site staged' : 'Homepage staged',
-        confirmLabel: 'OK',
-        hideCancel: true,
-        bodyHtml: `<p>Staged to <code>${esc(result.stagingPath)}</code> (${esc(
-          String(result.written?.length || 0),
-        )} files${result.serviceCount != null ? ` · ${esc(String(result.serviceCount))} services` : ''}${
-          result.locationCount != null ? ` · ${esc(String(result.locationCount))} locations` : ''
-        }).</p>
-        <p class="muted">Next: <strong>Assemble site</strong>, then open every Preview sitemap URL.</p>`,
-      });
-    } catch (error) {
-      const missing = error.check?.missing || error.check?.errors || [];
-      await showModal({
-        title: 'Staging failed',
-        confirmLabel: 'OK',
-        hideCancel: true,
-        bodyHtml: `<p>${esc(error.message)}</p>${
-          missing.length
-            ? `<ul class="narrative-list">${missing
-                .slice(0, 12)
-                .map((m) => `<li><code>${esc(typeof m === 'string' ? m : m)}</code></li>`)
-                .join('')}</ul>`
-            : ''
-        }`,
-      });
-    }
   };
-
-  const runPullImages = async (replace) => {
+  document.getElementById('ca-import-disk-editor')?.addEventListener('click', importDiskToDraft);
+  const runPullImages = async () => {
     const pullBtn = document.getElementById('ca-pull-images');
-    const replaceBtn = document.getElementById('ca-pull-images-replace');
     const setBusy = (busy) => {
       if (pullBtn) pullBtn.disabled = busy;
-      if (replaceBtn) replaceBtn.disabled = busy;
     };
+    let replace = false;
+    try {
+      const slotSnap = await api(`/api/candidates/${encodeURIComponent(id)}/images/slots`);
+      const slots = slotSnap?.slots || [];
+      if (!slots.length) {
+        await showModal({
+          title: 'No photo slots',
+          confirmLabel: 'OK',
+          hideCancel: true,
+          bodyHtml:
+            '<p>Structure has no photo-capable sections for this candidate. Enable photos on sections first.</p>',
+        });
+        return;
+      }
+      const missing = slots.filter((s) => s.missing).length;
+      if (missing === 0) {
+        const ok = await showModal({
+          title: 'Replace existing stock photos?',
+          confirmLabel: 'Replace all',
+          cancelLabel: 'Cancel',
+          bodyHtml:
+            '<p>Every slot already has a photo. Replace re-downloads stock only (not logo or coverage map). Per-slot Re-pull can refresh one image instead.</p>',
+        });
+        if (!ok) return;
+        replace = true;
+      }
+    } catch (error) {
+      await showModal({
+        title: 'Could not check photo slots',
+        confirmLabel: 'OK',
+        hideCancel: true,
+        bodyHtml: `<p>${esc(error.message)}</p>`,
+      });
+      return;
+    }
+
     setBusy(true);
     setImagesProgress(true, {
-      label: replace ? 'Replacing images…' : 'Pulling images…',
+      label: replace ? 'Replacing images…' : 'Pulling photos…',
       detail: 'Starting…',
     });
     let pollTimer = null;
@@ -4733,7 +6638,7 @@ function wireContentTab(d) {
         const ps = snap?.pullStatus;
         if (ps?.status === 'running') {
           setImagesProgress(true, {
-            label: replace ? 'Replacing images…' : 'Pulling images…',
+            label: replace ? 'Replacing images…' : 'Pulling photos…',
             detail: ps.label || `${ps.current || 0}/${ps.total || '?'}`,
             current: ps.current,
             total: ps.total,
@@ -4760,7 +6665,7 @@ function wireContentTab(d) {
             .join(' · ')}`
         : '';
       setImagesProgress(true, {
-        label: replace ? 'Images replaced' : 'Images pulled',
+        label: replace ? 'Images replaced' : 'Photos pulled',
         detail: `${filled}/${total} slots${sourceLine}`,
         current: total,
         total: total || 1,
@@ -4772,7 +6677,7 @@ function wireContentTab(d) {
         .map((f) => `<li><code>${esc(f.filename || '')}</code></li>`)
         .join('');
       await showModal({
-        title: replace ? 'Images replaced' : 'Images pulled',
+        title: replace ? 'Images replaced' : 'Photos pulled',
         confirmLabel: 'OK',
         hideCancel: true,
         bodyHtml: `${lines || '<p>Done.</p>'}${
@@ -4794,79 +6699,15 @@ function wireContentTab(d) {
     }
   };
 
-  document.getElementById('ca-stage')?.addEventListener('click', () => runStage('full'));
-  document.getElementById('ca-stage-homepage')?.addEventListener('click', () =>
-    runStage('homepage_first'),
-  );
-  document.getElementById('ca-pull-images')?.addEventListener('click', () => runPullImages(false));
-  document.getElementById('ca-pull-images-replace')?.addEventListener('click', () =>
-    runPullImages(true),
-  );
-  document.getElementById('ca-open-preview')?.addEventListener('click', async () => {
-    const previewUrlDefault = 'http://127.0.0.1:4321/';
-    let previewTab = null;
-    try {
-      previewTab = window.open(previewUrlDefault, '_blank');
-    } catch {
-      previewTab = null;
-    }
-    try {
-      const preview = await api('/api/preview/ensure', { method: 'POST', body: '{}' });
-      const url = preview.url || previewUrlDefault;
-      if (preview.ok) {
-        try {
-          if (previewTab && !previewTab.closed) {
-            previewTab.location.replace(url);
-            previewTab.focus?.();
-          } else {
-            window.open(url, '_blank');
-          }
-        } catch {
-          window.open(url, '_blank');
-        }
-      }
-      await showModal({
-        title: preview.ok ? 'Template buffer ready' : 'Template buffer not ready',
-        confirmLabel: 'OK',
-        bodyHtml: preview.ok
-          ? `<p>Opened shared template buffer <a href="${esc(url)}" target="_blank" rel="noopener">${esc(url)}</a>${
-              preview.started ? ' (started Astro dev)' : ''
-            }.</p>
-             <p class="warn-text">This is <strong>not</strong> a clean preview of this candidate. Prefer <strong>Open site preview</strong> after Assemble (port 4322).</p>`
-          : `<p>${esc(preview.error || 'Could not start Astro')}</p>`,
-      });
-    } catch (error) {
-      await showModal({ title: 'Preview failed', confirmLabel: 'OK', bodyHtml: `<p>${esc(error.message)}</p>` });
-    }
-  });
-
-  document.getElementById('ca-open-assembled-preview')?.addEventListener('click', async () => {
+  const openAssembledPreview = async ({ quiet = false } = {}) => {
     const previewUrlDefault = 'http://127.0.0.1:4322/';
-    if (isAssembleStaleClient(state.detail)) {
-      const goAssemble = await showModal({
-        title: 'Assemble is stale',
-        confirmLabel: 'Re-Assemble',
-        cancelLabel: 'Preview anyway',
-        bodyHtml: `<p>Staging (<code>${esc(
-          state.detail?.meta?.lastSiteStagingAt || '',
-        )}</code>) is newer than Assemble (<code>${esc(
-          state.detail?.meta?.lastAssembleAt || 'never',
-        )}</code>).</p>
-        <p>Preview may show incomplete/old content. Re-Assemble for launch fidelity.</p>`,
-      });
-      if (goAssemble) {
-        document.getElementById('ca-assemble')?.click();
-        return;
-      }
-    }
-
     let previewTab = null;
     try {
       previewTab = window.open(previewUrlDefault, '_blank');
     } catch {
       previewTab = null;
     }
-    setAssembleProgress(true, 'Starting assembled preview…');
+    if (!quiet) setAssembleProgress(true, 'Starting assembled preview…');
     try {
       const preview = await api(`/api/candidates/${encodeURIComponent(id)}/assembled/preview`, {
         method: 'POST',
@@ -4885,21 +6726,315 @@ function wireContentTab(d) {
           window.open(url, '_blank');
         }
       }
+      return preview;
+    } finally {
+      if (!quiet) setAssembleProgress(false);
+    }
+  };
+
+  document.getElementById('ca-prepare-preview')?.addEventListener('click', async () => {
+    const btn = document.getElementById('ca-prepare-preview');
+    if (btn) btn.disabled = true;
+    setAssembleProgress(true, 'Staging full launch package…');
+    try {
+      const staged = await api(`/api/candidates/${encodeURIComponent(id)}/staging`, {
+        method: 'POST',
+        body: JSON.stringify({ mode: 'full', openPreview: false }),
+      });
+      const serviceN = staged.serviceCount != null ? Number(staged.serviceCount) : null;
+      const locationN = staged.locationCount != null ? Number(staged.locationCount) : null;
+      if (staged.candidate) {
+        state.detail = staged.candidate;
+      }
+      setAssembleProgress(
+        true,
+        `Staged ${staged.written?.length || 0} files${
+          serviceN != null ? ` · ${serviceN} service page(s)` : ''
+        }${locationN != null ? ` · ${locationN} location page(s)` : ''} — assembling…`,
+      );
+      const assembleTimer = setInterval(() => {
+        setAssembleProgress(true, 'npm install + build (and ship if credentials set)…');
+      }, 8000);
+      let assembled;
+      try {
+        assembled = await api(`/api/candidates/${encodeURIComponent(id)}/assemble`, {
+          method: 'POST',
+          body: JSON.stringify({ force: true, build: true, ship: true }),
+        });
+      } finally {
+        clearInterval(assembleTimer);
+      }
+      await refresh(assembled.candidate || staged.candidate, 'launch', 'website');
+      setAssembleProgress(true, 'Opening assembled preview on :4322…');
+      const preview = await openAssembledPreview({ quiet: true });
+      const buildLine = assembled.build?.ok
+        ? 'Build ok'
+        : assembled.build?.error
+          ? `Build failed: ${assembled.build.error}`
+          : 'Build skipped';
+      const shipLine = assembled.ship?.ok
+        ? 'Auto-ship ok'
+        : assembled.ship?.skipped
+          ? `Auto-ship skipped — ${assembled.ship.reason || 'credentials missing'}`
+          : assembled.ship?.error
+            ? `Auto-ship failed: ${assembled.ship.error}`
+            : 'Auto-ship not run';
+      const previewUrl = preview?.url || 'http://127.0.0.1:4322/';
       const map = previewSitemapHtml(state.detail);
-      const bindNote = preview.rebound
+      await showModal({
+        title:
+          assembled.build?.ok === false
+            ? 'Prepared (build failed)'
+            : preview?.ok
+              ? 'Preview ready'
+              : 'Prepared (preview failed)',
+        confirmLabel: 'OK',
+        hideCancel: true,
+        bodyHtml: `<p>Full Stage → Assemble complete.</p>
+          <p>${
+            serviceN != null
+              ? `<strong>${esc(String(serviceN))} service page(s)</strong> staged`
+              : 'Full package staged'
+          }${
+            locationN != null ? ` · <strong>${esc(String(locationN))} location page(s)</strong>` : ''
+          }.</p>
+          <p>${esc(buildLine)}. ${esc(shipLine)}.</p>
+          ${
+            preview?.ok
+              ? `<p>Opened <a href="${esc(previewUrl)}" target="_blank" rel="noopener">${esc(previewUrl)}</a> — click every Preview sitemap URL before Launch.</p>${map}`
+              : `<p class="callout warn">${esc(preview?.error || 'Could not open assembled preview')}</p>`
+          }`,
+      });
+    } catch (error) {
+      const missing = error.check?.missing || error.check?.errors || [];
+      await showModal({
+        title: 'Prepare preview failed',
+        confirmLabel: 'OK',
+        hideCancel: true,
+        bodyHtml: `<p>${esc(error.message)}</p>${
+          missing.length
+            ? `<ul class="narrative-list">${missing
+                .slice(0, 12)
+                .map((m) => `<li><code>${esc(typeof m === 'string' ? m : m)}</code></li>`)
+                .join('')}</ul>`
+            : ''
+        }`,
+      });
+    } finally {
+      setAssembleProgress(false);
+      if (btn) btn.disabled = false;
+      if (assembleBtn) assembleBtn.disabled = false;
+    }
+  });
+  document.getElementById('ca-pull-images')?.addEventListener('click', () => runPullImages());
+  wireImageSlotActions(id, refresh);
+  void refreshImageSlotsGrid(id);
+  document.getElementById('ca-generate-logo')?.addEventListener('click', async () => {
+    const btn = document.getElementById('ca-generate-logo');
+    if (btn) btn.disabled = true;
+    setImagesProgress(true, {
+      label: 'Generating logo…',
+      detail: 'Building SVG monogram',
+      current: 1,
+      total: 3,
+    });
+    try {
+      const result = await api(`/api/candidates/${encodeURIComponent(id)}/logo/generate`, {
+        method: 'POST',
+        body: '{}',
+      });
+      setImagesProgress(true, {
+        label: 'Logo ready',
+        detail: result.path || '/images/logo.svg',
+        current: 3,
+        total: 3,
+      });
+      await refresh(result.candidate, 'images', 'website');
+      await showModal({
+        title: 'Logo generated',
+        confirmLabel: 'OK',
+        hideCancel: true,
+        bodyHtml: `<p>Wrote <code>${esc(result.path || '/images/logo.svg')}</code> and set site-config <code>logo</code>. Use <strong>Prepare preview</strong> to see it on the header.</p>`,
+      });
+    } catch (error) {
+      setImagesProgress(false);
+      await showModal({
+        title: 'Logo failed',
+        confirmLabel: 'OK',
+        bodyHtml: `<p>${esc(error.message)}</p>`,
+      });
+    } finally {
+      if (btn) btn.disabled = false;
+      setTimeout(() => setImagesProgress(false), 800);
+    }
+  });
+  document.getElementById('ca-generate-map')?.addEventListener('click', async () => {
+    const btn = document.getElementById('ca-generate-map');
+    if (btn) btn.disabled = true;
+    setImagesProgress(true, {
+      label: 'Generating coverage map…',
+      detail: 'Looking up municipal boundaries (~1s per city)',
+      current: 0,
+      total: 0,
+    });
+    try {
+      const result = await api(`/api/candidates/${encodeURIComponent(id)}/coverage-map/generate`, {
+        method: 'POST',
+        body: '{}',
+      });
+      setImagesProgress(true, {
+        label: 'Coverage map ready',
+        detail: `${result.areas || '?'} areas · ${result.path || 'coverage-map.svg'}`,
+        current: 1,
+        total: 1,
+      });
+      await refresh(result.candidate, 'images', 'website');
+      await showModal({
+        title: 'Coverage map ready',
+        confirmLabel: 'OK',
+        hideCancel: true,
+        bodyHtml: `<p>Wrote <code>${esc(result.path || 'coverage-map.svg')}</code> (${esc(
+          String(result.areas || ''),
+        )} areas) and wired <code>coverageMap</code> on homepage. Use <strong>Prepare preview</strong> to refresh Areas.</p>`,
+      });
+    } catch (error) {
+      setImagesProgress(false);
+      await showModal({
+        title: 'Coverage map failed',
+        confirmLabel: 'OK',
+        bodyHtml: `<p>${esc(error.message)}</p>`,
+      });
+    } finally {
+      if (btn) btn.disabled = false;
+      setTimeout(() => setImagesProgress(false), 800);
+    }
+  });
+
+  const baStatus = (msg) => {
+    const el = document.getElementById('ca-ba-status');
+    if (el) el.textContent = msg || '';
+  };
+  const copyBaPrompt = async (kind) => {
+    try {
+      const prompts = await api(
+        `/api/candidates/${encodeURIComponent(id)}/images/before-after-prompts`,
+      );
+      const text = prompts[kind] || prompts.pair || '';
+      await navigator.clipboard.writeText(text);
+      baStatus(`Copied ${kind} prompt (${text.length} chars). Paste into ChatGPT.`);
+    } catch (error) {
+      baStatus(error.message || 'Copy failed');
+      await showModal({
+        title: 'Prompt failed',
+        confirmLabel: 'OK',
+        hideCancel: true,
+        bodyHtml: `<p>${esc(error.message)}</p>`,
+      });
+    }
+  };
+  document.getElementById('ca-ba-copy-before')?.addEventListener('click', () =>
+    copyBaPrompt('before'),
+  );
+  document.getElementById('ca-ba-copy-after')?.addEventListener('click', () =>
+    copyBaPrompt('after'),
+  );
+
+  const fileToDataUrl = (file) =>
+    new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || ''));
+      reader.onerror = () => reject(new Error(`Could not read ${file.name}`));
+      reader.readAsDataURL(file);
+    });
+
+  document.getElementById('ca-ba-import-files')?.addEventListener('change', async (ev) => {
+    const input = ev.target;
+    const files = [...(input.files || [])];
+    if (!files.length) return;
+    if (files.length < 2) {
+      baStatus('Select two images (any order — earlier filename time becomes Before).');
+      input.value = '';
+      return;
+    }
+    baStatus('Importing before/after pair (ordering by filename time)…');
+    try {
+      const payloadFiles = [];
+      for (const file of files.slice(0, 2)) {
+        payloadFiles.push({
+          name: file.name,
+          lastModified: file.lastModified || 0,
+          dataUrl: await fileToDataUrl(file),
+        });
+      }
+      const result = await api(
+        `/api/candidates/${encodeURIComponent(id)}/images/before-after-import`,
+        {
+          method: 'POST',
+          body: JSON.stringify({ files: payloadFiles }),
+        },
+      );
+      await refresh(result.candidate, 'images', 'website');
+      baStatus(
+        `Imported pair #${result.pairIndex}: ${result.files?.map((f) => f.filename).join(', ')}. Stage → Assemble to preview.`,
+      );
+      await showModal({
+        title: 'Before/after imported',
+        confirmLabel: 'OK',
+        hideCancel: true,
+        bodyHtml: `<p>Ordered by filename time (earlier = Before). Saved <code>${esc(
+          (result.files || []).map((f) => f.filename).join('</code>, <code>'),
+        )}</code>. Stock beforeAfter pulls were cleared. Stage → Assemble to preview.</p>`,
+      });
+    } catch (error) {
+      baStatus(error.message || 'Import failed');
+      await showModal({
+        title: 'Import failed',
+        confirmLabel: 'OK',
+        hideCancel: true,
+        bodyHtml: `<p>${esc(error.message)}</p>`,
+      });
+    } finally {
+      input.value = '';
+    }
+  });
+
+  document.getElementById('ca-open-assembled-preview')?.addEventListener('click', async () => {
+    if (isAssembleStaleClient(state.detail)) {
+      const goPrepare = await showModal({
+        title: 'Assemble is stale',
+        confirmLabel: 'Prepare preview',
+        cancelLabel: 'Preview anyway',
+        bodyHtml: `<p>Staging (<code>${esc(
+          state.detail?.meta?.lastSiteStagingAt || '',
+        )}</code>) is newer than Assemble (<code>${esc(
+          state.detail?.meta?.lastAssembleAt || 'never',
+        )}</code>).</p>
+        <p>Preview may show incomplete/old content. Run <strong>Prepare preview</strong> for launch fidelity.</p>`,
+      });
+      if (goPrepare) {
+        document.getElementById('ca-prepare-preview')?.click();
+        return;
+      }
+    }
+    setAssembleProgress(true, 'Starting assembled preview…');
+    try {
+      const preview = await openAssembledPreview({ quiet: true });
+      const url = preview?.url || 'http://127.0.0.1:4322/';
+      const map = previewSitemapHtml(state.detail);
+      const bindNote = preview?.rebound
         ? ' (rebound :4322 to this assembled site)'
-        : preview.started
+        : preview?.started
           ? ' (started preview server)'
           : ' (already bound to this site)';
       await showModal({
-        title: preview.ok ? 'Assembled preview ready' : 'Assembled preview failed',
+        title: preview?.ok ? 'Assembled preview ready' : 'Assembled preview failed',
         confirmLabel: 'OK',
         hideCancel: true,
-        bodyHtml: preview.ok
+        bodyHtml: preview?.ok
           ? `<p>Opened this candidate’s assembled site: <a href="${esc(url)}" target="_blank" rel="noopener">${esc(url)}</a>${bindNote}.</p>
              <p class="muted">Path: <code>${esc(preview.assembledSitePath || preview.boundSiteRoot || '')}</code></p>
              ${map}`
-          : `<p>${esc(preview.error || 'Could not start assembled preview')}</p>`,
+          : `<p>${esc(preview?.error || 'Could not start assembled preview')}</p>`,
       });
     } catch (error) {
       await showModal({
@@ -4911,6 +7046,10 @@ function wireContentTab(d) {
     } finally {
       setAssembleProgress(false);
     }
+  });
+
+  document.getElementById('ca-visual-edit')?.addEventListener('click', async () => {
+    await openVisualEditor(id, { api, esc, showModal });
   });
 
   document.getElementById('ca-checklist')?.addEventListener('click', async () => {
@@ -4935,51 +7074,6 @@ function wireContentTab(d) {
     }
   });
 
-  document.getElementById('ca-assemble')?.addEventListener('click', async () => {
-    const btn = document.getElementById('ca-assemble');
-    if (btn) btn.disabled = true;
-    setAssembleProgress(true, 'Copying template + injecting staging…');
-    const assembleTimer = setInterval(() => {
-      setAssembleProgress(true, 'npm install + build (and ship if credentials set)…');
-    }, 8000);
-    try {
-      const result = await api(`/api/candidates/${encodeURIComponent(id)}/assemble`, {
-        method: 'POST',
-        body: JSON.stringify({ force: true, build: true, ship: true }),
-      });
-      await refresh(result.candidate, 'launch', 'website');
-      const buildLine = result.build?.ok
-        ? 'Build ok'
-        : result.build?.error
-          ? `Build failed: ${result.build.error}`
-          : 'Build skipped';
-      const shipLine = result.ship?.ok
-        ? 'Auto-ship ok'
-        : result.ship?.skipped
-          ? `Auto-ship skipped — ${result.ship.reason || 'credentials missing'}`
-          : result.ship?.error
-            ? `Auto-ship failed: ${result.ship.error}`
-            : 'Auto-ship not run';
-      await showModal({
-        title: result.build?.ok === false ? 'Assembled (build failed)' : 'Site assembled',
-        confirmLabel: 'OK',
-        bodyHtml: `<p>Wrote <code>${esc(result.absoluteSiteRoot || result.siteRoot)}</code></p>
-          <p>${esc(buildLine)}. ${esc(shipLine)}.</p>
-          <p class="muted">Next: <strong>Open site preview</strong> (assembled :4322), then <strong>Run launch</strong> for domain / email if needed.</p>`,
-      });
-    } catch (error) {
-      await showModal({
-        title: 'Assemble failed',
-        confirmLabel: 'OK',
-        bodyHtml: `<p>${esc(error.message)}</p>`,
-      });
-    } finally {
-      clearInterval(assembleTimer);
-      setAssembleProgress(false);
-      if (btn) btn.disabled = false;
-    }
-  });
-
   const fillLaunchDefaults = async () => {
     try {
       const st = await api(`/api/candidates/${encodeURIComponent(id)}/launch`);
@@ -4991,6 +7085,51 @@ function wireContentTab(d) {
     }
   };
   fillLaunchDefaults();
+  loadShipFreshness(id);
+
+  document.getElementById('ca-ship-diff-refresh')?.addEventListener('click', async () => {
+    const btn = document.getElementById('ca-ship-diff-refresh');
+    if (btn) btn.disabled = true;
+    try {
+      await loadShipFreshness(id, { showError: true });
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  });
+
+  document.getElementById('ca-ship-diff-show')?.addEventListener('click', async () => {
+    const btn = document.getElementById('ca-ship-diff-show');
+    if (btn) btn.disabled = true;
+    try {
+      const diff = await loadShipFreshness(id, { showError: true });
+      await showModal({
+        title: 'Ship file differences',
+        confirmLabel: 'OK',
+        hideCancel: true,
+        bodyHtml: formatShipDiffModalHtml(
+          diff || {
+            status: 'unknown',
+            summary: 'Could not load diff.',
+            files: [],
+            dirty: [],
+            stat: '',
+          },
+        ),
+      });
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  });
+
+  document.getElementById('ca-download-nap')?.addEventListener('click', () => {
+    const cfg = state.detail?.siteConfig || {};
+    const csv = napCsvFromSiteConfig(cfg);
+    const host = String(cfg.domain || cfg.businessName || 'site')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '');
+    downloadText(`${host || 'site'}-nap.csv`, csv, 'text/csv');
+  });
 
   document.getElementById('ca-launch-status')?.addEventListener('click', async () => {
     try {
@@ -5025,10 +7164,73 @@ function wireContentTab(d) {
         bodyHtml: `<ul class="narrative-list">${flags}</ul>
           <p class="muted">Slug: <code>${esc(st.assembledSiteSlug || '—')}</code>
           · path: <code>${esc(st.assembledSitePath || '—')}</code></p>
-          <p class="muted">Human leftovers: buy/point domain NS → CF; verify Email Routing destination once; create Web3Forms form and paste key. One-time machine: <code>gh auth login</code> + <code>GITHUB_OWNER</code> + <code>CLOUDFLARE_*</code>.</p>`,
+          <p class="muted">Human leftovers: before CF attach — buy/point domain NS → Cloudflare; paste Web3Forms key; after — verify Email Routing destination once. One-time machine: <code>gh auth login</code> + <code>GITHUB_OWNER</code> + <code>CLOUDFLARE_*</code>.</p>`,
       });
     } catch (error) {
       await showModal({ title: 'Failed', confirmLabel: 'OK', bodyHtml: `<p>${esc(error.message)}</p>` });
+    }
+  });
+
+  document.getElementById('ca-push-updates')?.addEventListener('click', async () => {
+    if (isAssembleStaleClient(state.detail)) {
+      const proceed = await showModal({
+        title: 'Assemble is stale',
+        confirmLabel: 'Push anyway',
+        cancelLabel: 'Cancel',
+        danger: true,
+        bodyHtml: `<p>Staging is newer than Assemble. Push may ship incomplete/old content.</p>
+          <p>Prefer <strong>Prepare preview</strong> first, then Push updates.</p>`,
+      });
+      if (!proceed) return;
+    }
+
+    const pushBtn = document.getElementById('ca-push-updates');
+    const launchBtn = document.getElementById('ca-launch');
+    const form = document.getElementById('ca-launch-form');
+    if (pushBtn) pushBtn.disabled = true;
+    if (launchBtn) launchBtn.disabled = true;
+    form?.querySelectorAll('input,button,select,textarea').forEach((el) => {
+      el.disabled = true;
+    });
+    let stepIdx = 0;
+    setLaunchProgress(true, 'Pushing updates…', SHIP_PROGRESS_STEPS[0]);
+    const shipTimer = setInterval(() => {
+      stepIdx = Math.min(stepIdx + 1, SHIP_PROGRESS_STEPS.length - 1);
+      setLaunchProgress(true, 'Pushing updates…', SHIP_PROGRESS_STEPS[stepIdx]);
+    }, 12000);
+    try {
+      const result = await api(`/api/candidates/${encodeURIComponent(id)}/ship`, {
+        method: 'POST',
+        body: JSON.stringify({}),
+      });
+      await refresh(result.candidate || state.detail, 'launch', 'website');
+      const human = (result.human || []).map((h) => `<li>${esc(h)}</li>`).join('');
+      await showModal({
+        title: result.ok ? 'Updates pushed' : 'Push partial',
+        confirmLabel: 'OK',
+        bodyHtml: `<p>Ship-only: GitHub + build + Cloudflare Worker (no domain/email setup).</p>
+          <ul class="narrative-list">${human || '<li>No extra notes</li>'}</ul>
+          ${
+            result.steps?.github?.repoUrl
+              ? `<p class="muted">Repo: <a href="${esc(result.steps.github.repoUrl)}" target="_blank" rel="noopener">${esc(result.steps.github.fullName || result.steps.github.repoUrl)}</a></p>`
+              : ''
+          }
+          <p class="muted">If the live site still looks old, confirm <strong>Prepare preview</strong> ran after your template/content changes, then Push updates again.</p>`,
+      });
+    } catch (error) {
+      await showModal({
+        title: 'Push updates failed',
+        confirmLabel: 'OK',
+        bodyHtml: `<p>${esc(error.message)}</p>`,
+      });
+    } finally {
+      clearInterval(shipTimer);
+      setLaunchProgress(false);
+      form?.querySelectorAll('input,button,select,textarea').forEach((el) => {
+        el.disabled = false;
+      });
+      if (pushBtn) pushBtn.disabled = false;
+      if (launchBtn) launchBtn.disabled = false;
     }
   });
 
@@ -5040,10 +7242,26 @@ function wireContentTab(d) {
         cancelLabel: 'Cancel',
         danger: true,
         bodyHtml: `<p>Staging is newer than Assemble. Launch may ship incomplete/old content.</p>
-          <p>Prefer <strong>Assemble site</strong> and check the Preview sitemap first.</p>`,
+          <p>Prefer <strong>Prepare preview</strong> and check the Preview sitemap first.</p>`,
       });
       if (!proceed) return;
     }
+
+    const pendingBody = collectLaunchFormValues();
+    const issues = launchPreflightIssues(pendingBody);
+    if (issues.length) {
+      const ok = await showModal({
+        title: 'Placeholders still set',
+        confirmLabel: 'Launch anyway',
+        cancelLabel: 'Cancel',
+        danger: true,
+        bodyHtml: `<p>These still look like placeholders:</p>
+          <ul class="narrative-list">${issues.map((i) => `<li>${esc(i.label)}</li>`).join('')}</ul>
+          <p class="muted">Fix them above (or under Advanced), or launch anyway if you intend to finish later.</p>`,
+      });
+      if (!ok) return;
+    }
+
     const btn = document.getElementById('ca-launch');
     const form = document.getElementById('ca-launch-form');
     if (btn) btn.disabled = true;
@@ -5057,18 +7275,7 @@ function wireContentTab(d) {
       setLaunchProgress(true, 'Launching…', LAUNCH_PROGRESS_STEPS[stepIdx]);
     }, 12000);
     try {
-      const body = {
-        domain: document.getElementById('ca-launch-domain')?.value?.trim() || '',
-        phone: document.getElementById('ca-launch-phone')?.value?.trim() || '',
-        email: document.getElementById('ca-launch-email')?.value?.trim() || '',
-        destinationEmail: document.getElementById('ca-launch-dest')?.value?.trim() || '',
-        web3FormsAccessKey: document.getElementById('ca-launch-web3')?.value?.trim() || '',
-        turnstileSiteKey: document.getElementById('ca-launch-turnstile')?.value?.trim() || '',
-        ship: Boolean(document.getElementById('ca-launch-ship')?.checked),
-        runCloudflare: Boolean(document.getElementById('ca-launch-run-cf')?.checked),
-        createTurnstile: Boolean(document.getElementById('ca-launch-create-turnstile')?.checked),
-        markCloudflareProjectDone: Boolean(document.getElementById('ca-launch-mark-cf')?.checked),
-      };
+      const body = pendingBody;
       const result = await api(`/api/candidates/${encodeURIComponent(id)}/launch`, {
         method: 'POST',
         body: JSON.stringify(body),
@@ -5091,7 +7298,8 @@ function wireContentTab(d) {
             result.ship?.steps?.github?.repoUrl
               ? `<p class="muted">Repo: <a href="${esc(result.ship.steps.github.repoUrl)}" target="_blank" rel="noopener">${esc(result.ship.steps.github.fullName)}</a></p>`
               : ''
-          }`,
+          }
+          <p class="muted"><strong>After launch:</strong> verify Email Routing destination once if new (click link in Gmail); confirm the live form with your Web3Forms key.</p>`,
       });
     } catch (error) {
       await showModal({
@@ -5148,52 +7356,171 @@ function wireContentTab(d) {
   const acceptBtn = document.getElementById('content-accept-btn');
   if (acceptBtn) {
     acceptBtn.addEventListener('click', async () => {
+      const ignoreSeo = Boolean(document.getElementById('content-accept-seo-override')?.checked);
       const ok = await showModal({
         title: 'Accept content?',
         confirmLabel: 'Write src/content/',
-        bodyHtml:
-          '<p>Accepts the candidate draft into shared <code>src/content/</code> (backs up existing Markdown, prunes leftovers not in the bundle).</p>',
+        bodyHtml: ignoreSeo
+          ? '<p>Accepts the draft into <code>src/content/</code> <strong>with SEO warnings overridden</strong>.</p>'
+          : '<p>Accepts the candidate draft into shared <code>src/content/</code> (backs up existing Markdown, prunes leftovers not in the bundle).</p>',
       });
       if (!ok) return;
       acceptBtn.disabled = true;
+      let stepIdx = 0;
+      setAcceptProgress(true, {
+        label: 'Accepting…',
+        detail: ACCEPT_PROGRESS_STEPS[0],
+      });
+      const acceptTimer = setInterval(() => {
+        stepIdx = Math.min(stepIdx + 1, ACCEPT_PROGRESS_STEPS.length - 1);
+        setAcceptProgress(true, {
+          label: 'Accepting…',
+          detail: ACCEPT_PROGRESS_STEPS[stepIdx],
+        });
+      }, 1200);
       try {
         let result;
         try {
           result = await api(`/api/candidates/${encodeURIComponent(id)}/content/accept`, {
             method: 'POST',
-            body: JSON.stringify({}),
+            body: JSON.stringify({ ignoreSeoWarnings: ignoreSeo }),
           });
         } catch (error) {
           if (error.message?.includes('ignoreWarnings') || error.check?.warnings?.length) {
+            clearInterval(acceptTimer);
+            setAcceptProgress(false);
             const force = await showModal({
               title: 'Content warnings',
               confirmLabel: 'Write anyway',
               bodyHtml: `<p>${esc(error.message)}</p>`,
             });
             if (!force) throw error;
-            result = await api(`/api/candidates/${encodeURIComponent(id)}/content/accept`, {
-              method: 'POST',
-              body: JSON.stringify({ ignoreWarnings: true }),
+            setAcceptProgress(true, {
+              label: 'Accepting…',
+              detail: ACCEPT_PROGRESS_STEPS[0],
             });
+            stepIdx = 0;
+            const retryTimer = setInterval(() => {
+              stepIdx = Math.min(stepIdx + 1, ACCEPT_PROGRESS_STEPS.length - 1);
+              setAcceptProgress(true, {
+                label: 'Accepting…',
+                detail: ACCEPT_PROGRESS_STEPS[stepIdx],
+              });
+            }, 1200);
+            try {
+              result = await api(`/api/candidates/${encodeURIComponent(id)}/content/accept`, {
+                method: 'POST',
+                body: JSON.stringify({ ignoreWarnings: true, ignoreSeoWarnings: ignoreSeo }),
+              });
+            } finally {
+              clearInterval(retryTimer);
+            }
+          } else if (error.message?.includes('ignoreSeoWarnings') || error.seoLint) {
+            clearInterval(acceptTimer);
+            setAcceptProgress(false);
+            const force = await showModal({
+              title: 'Critical SEO findings',
+              confirmLabel: 'Accept with SEO warnings',
+              bodyHtml: `<p>${esc(error.message)}</p><p class="muted">Or cancel and fix via the Editor step.</p>`,
+            });
+            if (!force) throw error;
+            setAcceptProgress(true, {
+              label: 'Accepting…',
+              detail: ACCEPT_PROGRESS_STEPS[0],
+            });
+            stepIdx = 0;
+            const retryTimer = setInterval(() => {
+              stepIdx = Math.min(stepIdx + 1, ACCEPT_PROGRESS_STEPS.length - 1);
+              setAcceptProgress(true, {
+                label: 'Accepting…',
+                detail: ACCEPT_PROGRESS_STEPS[stepIdx],
+              });
+            }, 1200);
+            try {
+              result = await api(`/api/candidates/${encodeURIComponent(id)}/content/accept`, {
+                method: 'POST',
+                body: JSON.stringify({ ignoreSeoWarnings: true }),
+              });
+            } finally {
+              clearInterval(retryTimer);
+            }
           } else {
             throw error;
           }
         }
-        await refresh(result.candidate, 'stage', 'website');
+        clearInterval(acceptTimer);
+        setAcceptProgress(false);
+        await refresh(result.candidate, 'prepare', 'website');
+        const map = result.coverageMap;
+        const logo = result.logo;
+        const mapMissing = map && (map.ok === false || map.skipped);
+        const logoOk = logo && logo.ok !== false && logo.path;
+        const mapOk = map && map.ok && map.path;
+        const mapWarn = mapMissing
+          ? `<p class="callout warn">Coverage map missing${
+              map.warning ? `: ${esc(map.warning)}` : ''
+            }. Accept already tried — re-run under <strong>Website</strong> → Review images → <strong>Regenerate coverage map</strong> (button says Generate if none exists yet), then Prepare preview.</p>`
+          : '';
+        const failedSlots = Array.isArray(result.images?.failedSlots)
+          ? result.images.failedSlots
+          : [];
+        const failedN = Number(result.images?.failed) || failedSlots.length;
+        const imageFailGuide =
+          failedN > 0
+            ? `<div class="callout warn"><strong>${esc(String(failedN))} image slot(s) need attention</strong> — content Accept is still done.
+          <ol style="margin:0.4rem 0 0;padding-left:1.25rem">
+            <li>Open <strong>Website</strong> → <strong>Review images</strong></li>
+            <li>${
+              failedSlots.length
+                ? `For ${failedSlots
+                    .map((s) => `<code>${esc(s.key)}</code>`)
+                    .join(', ')}: <strong>Re-pull</strong> or <strong>Upload</strong> an owner photo`
+                : 'For each failed slot: <strong>Re-pull</strong> or <strong>Upload</strong> an owner photo'
+            }</li>
+            <li>Continue to <strong>Prepare preview</strong></li>
+          </ol></div>`
+            : '';
         const imageLines = (result.images?.human || [])
+          .filter((h) => /^Images:/i.test(String(h || '')))
           .map((h) => `<p class="muted">${esc(h)}</p>`)
           .join('');
         const imageWarn = result.images?.warning
           ? `<p class="callout warn">${esc(result.images.warning)}</p>`
           : '';
+        const failedSlotRows = failedSlots
+          .map(
+            (s) =>
+              `<li><span class="accept-asset-warn" aria-hidden="true"></span> <code>${esc(
+                s.key,
+              )}</code> needs attention</li>`,
+          )
+          .join('');
+        const logoRow = logoOk
+          ? `<li><span class="stage-check" aria-hidden="true">✓</span> Logo generated</li>`
+          : logo
+            ? `<li><span class="accept-asset-skip" aria-hidden="true">○</span> Logo skipped${
+                logo.warning ? ` <span class="muted">(${esc(logo.warning)})</span>` : ''
+              }</li>`
+            : '';
+        const mapRow = mapOk
+          ? `<li><span class="stage-check" aria-hidden="true">✓</span> Coverage map generated</li>`
+          : mapMissing
+            ? `<li><span class="accept-asset-skip" aria-hidden="true">○</span> Coverage map missing</li>`
+            : '';
+        const assetChecklistHtml =
+          failedSlotRows || logoRow || mapRow
+            ? `<ul class="accept-asset-check">${failedSlotRows}${logoRow}${mapRow}</ul>`
+            : '';
         await showModal({
           title: 'Content accepted',
           confirmLabel: 'OK',
           bodyHtml: `<p>Wrote <strong>${esc(String(result.written?.length || 0))}</strong> file(s) to <code>src/content/</code>.</p>
-          ${imageWarn}${imageLines}
-          <p><strong>Up next:</strong> <strong>Website</strong> tab → Pull images (if needed) → <strong>Stage site</strong> (local package for Assemble; does not deploy).</p>`,
+          ${imageWarn}${imageFailGuide}${imageLines}${assetChecklistHtml}${mapWarn}
+          <p><strong>Up next:</strong> <strong>Website</strong> → Review images → <strong>Prepare preview</strong> (full Stage + Assemble + open :4322).</p>`,
         });
       } catch (error) {
+        clearInterval(acceptTimer);
+        setAcceptProgress(false);
         await showModal({
           title: 'Accept failed',
           confirmLabel: 'OK',
@@ -5217,6 +7544,11 @@ function renderProspects() {
         ${statCard('High priority', `<span class="metric metric-good"><strong>${esc(p.summary?.highPriority)}</strong></span>`)}
         ${statCard('Running ads', `<span class="metric metric-neutral"><strong>${esc(p.summary?.runningAds)}</strong></span>`)}
         ${statCard('API cost', `<span class="metric metric-neutral"><strong>${esc(p.estimatedApiCostUsd)}</strong></span>`)}
+        <div class="stat prospects-outreach-copy">
+          <button type="button" class="btn primary" id="prospects-copy-outreach-prompt" data-tip="Copy Claude.ai outreach prompt with this prospects JSON">
+            Copy outreach prompt
+          </button>
+        </div>
       </div>
     `);
     const rows = (p.prospects || []).map((x) => [
@@ -5271,37 +7603,62 @@ function wireSiteConfigTab(d) {
   if (paletteSelect) {
     paletteSelect.addEventListener('change', () => {
       updatePaletteSwatches(paletteSelect.value);
+      saveSiteConfigLookToLocal({
+        paletteId: paletteSelect.value,
+        fontTheme: document.getElementById('sc-font-theme')?.value,
+      });
     });
   }
-  const applyPaletteBtn = document.getElementById('sc-apply-palette');
-  if (applyPaletteBtn) {
-    applyPaletteBtn.addEventListener('click', async () => {
-      const paletteId = document.getElementById('sc-brand-palette')?.value?.trim();
-      if (!paletteId) return;
-      applyPaletteBtn.disabled = true;
+  document.querySelectorAll('[data-font-theme]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const id = btn.getAttribute('data-font-theme');
+      const hidden = document.getElementById('sc-font-theme');
+      if (hidden) hidden.value = id || '';
+      document.querySelectorAll('[data-font-theme]').forEach((el) => {
+        const on = el.getAttribute('data-font-theme') === id;
+        el.classList.toggle('on', on);
+        el.setAttribute('aria-checked', on ? 'true' : 'false');
+      });
+      saveSiteConfigLookToLocal({
+        paletteId: document.getElementById('sc-brand-palette')?.value,
+        fontTheme: id,
+      });
+    });
+  });
+  const applyLookBtn = document.getElementById('sc-apply-look');
+  if (applyLookBtn) {
+    applyLookBtn.addEventListener('click', async () => {
+      const paletteId = document.getElementById('sc-brand-palette')?.value?.trim() || 'slate-gold';
+      const fontTheme = document.getElementById('sc-font-theme')?.value?.trim() || 'archivo-source';
+      applyLookBtn.disabled = true;
+      saveSiteConfigLookToLocal({ paletteId, fontTheme });
+      const hasConfig = Boolean(d.siteConfigDraft || d.siteConfig || state.detail?.siteConfigDraft || state.detail?.siteConfig);
       try {
-        const allow = Boolean(document.getElementById('sc-allow-non-pursue')?.checked);
-        const result = await api(`/api/candidates/${encodeURIComponent(d.id)}/site-config/brand`, {
-          method: 'POST',
-          body: JSON.stringify({ paletteId, allowNonPursue: allow }),
-        });
-        state.detail = result.candidate || (await api(`/api/candidates/${encodeURIComponent(d.id)}`));
+        if (hasConfig) {
+          const result = await api(`/api/candidates/${encodeURIComponent(d.id)}/site-config/brand`, {
+            method: 'POST',
+            body: JSON.stringify({ paletteId, fontTheme, allowNonPursue: false }),
+          });
+          state.detail = result.candidate || (await api(`/api/candidates/${encodeURIComponent(d.id)}`));
+        }
+        if (!state.siteConfigSoftDone) state.siteConfigSoftDone = {};
+        state.siteConfigSoftDone.look = true;
         state.tab = 'site-config';
+        advancePanelStep('site-config', 'details');
         renderDetail();
-        await showModal({
-          title: 'Palette applied',
-          confirmLabel: 'OK',
-          bodyHtml: `<p>Set <code>${esc(result.paletteId || paletteId)}</code> on draft${
-            result.brand?.primary ? ` · primary <code>${esc(result.brand.primary)}</code>` : ''
-          }. Re-Stage / Assemble to refresh the site preview.</p>`,
-        });
+        showToast(
+          hasConfig
+            ? `Look applied · ${paletteId} · ${fontTheme}`
+            : `Look saved · ${paletteId} · ${fontTheme} — applied when you Load draft`,
+          { tone: 'ok' },
+        );
       } catch (error) {
         await showModal({
-          title: 'Palette failed',
+          title: 'Look failed',
           confirmLabel: 'OK',
           bodyHtml: `<p>${esc(error.message)}</p>`,
         });
-        applyPaletteBtn.disabled = false;
+        applyLookBtn.disabled = false;
       }
     });
   }
@@ -5310,7 +7667,6 @@ function wireSiteConfigTab(d) {
     copyBtn.addEventListener('click', async () => {
       try {
         const nap = saveSiteConfigNapFromForm();
-        const allow = Boolean(document.getElementById('sc-allow-non-pursue')?.checked);
         const qs = new URLSearchParams({
           domain: nap.domain || '',
           businessName: nap.businessName || '',
@@ -5318,84 +7674,22 @@ function wireSiteConfigTab(d) {
           email: nap.email || '',
           radiusMiles: nap.radiusMiles || '40',
           siteArchetype: nap.siteArchetype || 'multi_service',
+          paletteId: nap.paletteId || 'slate-gold',
+          fontTheme: nap.fontTheme || 'archivo-source',
         });
-        if (allow) qs.set('allowNonPursue', '1');
         const data = await api(
           `/api/candidates/${encodeURIComponent(d.id)}/site-config/prompt?${qs}`,
         );
         await navigator.clipboard.writeText(data.prompt || '');
-        await showModal({
-          title: 'Copied',
-          confirmLabel: 'OK',
-          bodyHtml: '<p>Site-config Claude prompt is on your clipboard (includes approved package).</p>',
-        });
+        showToast('Site-config prompt copied — paste Claude’s reply → Load draft → Accept.');
+        advancePanelStep('site-config', 'paste');
+        renderDetail();
       } catch (error) {
         await showModal({
           title: 'Copy failed',
           confirmLabel: 'OK',
           bodyHtml: `<p>${esc(error.message)}</p>`,
         });
-      }
-    });
-  }
-  const showPack = document.getElementById('sc-open-approved');
-  if (showPack) {
-    showPack.addEventListener('click', async () => {
-      const pack = d.approved;
-      if (!pack) return;
-      await showModal({
-        title: 'Approved package',
-        confirmLabel: 'OK',
-        bodyHtml: `<div class="json-block" style="max-height:50vh;overflow:auto">${esc(
-          JSON.stringify(pack, null, 2),
-        )}</div>`,
-      });
-    });
-  }
-  const pasteBtn = document.getElementById('site-config-paste-btn');
-  if (pasteBtn) {
-    pasteBtn.addEventListener('click', async () => {
-      const text = document.getElementById('site-config-paste')?.value || '';
-      if (!text.trim()) {
-        await showModal({
-          title: 'Nothing to paste',
-          confirmLabel: 'OK',
-          bodyHtml: '<p>Paste site-config JSON first.</p>',
-        });
-        return;
-      }
-      pasteBtn.disabled = true;
-      try {
-        const nap = saveSiteConfigNapFromForm();
-        const allow = Boolean(document.getElementById('sc-allow-non-pursue')?.checked);
-        const result = await api(`/api/candidates/${encodeURIComponent(d.id)}/site-config/paste`, {
-          method: 'POST',
-          body: JSON.stringify({ json: text, ...nap, allowNonPursue: allow }),
-        });
-        state.detail = result.candidate || (await api(`/api/candidates/${encodeURIComponent(d.id)}`));
-        state.tab = 'site-config';
-        renderDetail();
-        const notes = [];
-        if (result.placeholders?.length) {
-          notes.push(`Placeholders: ${result.placeholders.join(', ')}`);
-        }
-        if (result.suburbCheck?.warnings?.length) {
-          notes.push(result.suburbCheck.warnings.join('; '));
-        }
-        if (notes.length) {
-          await showModal({
-            title: 'Draft saved',
-            confirmLabel: 'OK',
-            bodyHtml: `<p>${esc(notes.join(' · '))}</p><p class="muted">Edit draft fields below, then Save draft.</p>`,
-          });
-        }
-      } catch (error) {
-        await showModal({
-          title: 'Paste failed',
-          confirmLabel: 'OK',
-          bodyHtml: `<p>${esc(error.message)}</p>`,
-        });
-        pasteBtn.disabled = false;
       }
     });
   }
@@ -5406,7 +7700,6 @@ function wireSiteConfigTab(d) {
       saveDraftBtn.disabled = true;
       try {
         const nap = saveSiteConfigNapFromForm();
-        const allow = Boolean(document.getElementById('sc-allow-non-pursue')?.checked);
         const patch = {
           businessName: document.getElementById('sc-edit-businessName')?.value?.trim() || '',
           domain: document.getElementById('sc-edit-domain')?.value?.trim() || '',
@@ -5423,18 +7716,23 @@ function wireSiteConfigTab(d) {
           targetSuburbs: document.getElementById('sc-edit-suburbs')?.value || '',
           services: document.getElementById('sc-edit-services')?.value || '',
           commercialServices: document.getElementById('sc-edit-commercial')?.value || '',
-          homepageServicesLimit: document.getElementById('sc-edit-svc-limit')?.value || '12',
+          homepageServicesLimit: document.getElementById('sc-edit-svc-limit')?.value || '8',
           brand: {
             paletteId: document.getElementById('sc-brand-palette')?.value?.trim() || '',
+            fontTheme: document.getElementById('sc-font-theme')?.value?.trim() || '',
             primary: document.getElementById('sc-edit-brand-primary')?.value?.trim() || '',
             accent: document.getElementById('sc-edit-brand-accent')?.value?.trim() || '',
             ink: document.getElementById('sc-edit-brand-ink')?.value?.trim() || '',
           },
+          address: siteConfigAddressFromForm(
+            document.getElementById('sc-edit-primaryCity')?.value?.trim() || '',
+            document.getElementById('sc-edit-state')?.value?.trim() || '',
+          ),
           siteArchetype: nap.siteArchetype,
         };
         const result = await api(`/api/candidates/${encodeURIComponent(d.id)}/site-config/draft`, {
           method: 'POST',
-          body: JSON.stringify({ patch, ...nap, allowNonPursue: allow }),
+          body: JSON.stringify({ patch, ...nap, allowNonPursue: false }),
         });
         state.detail = result.candidate || (await api(`/api/candidates/${encodeURIComponent(d.id)}`));
         state.tab = 'site-config';
@@ -5458,151 +7756,421 @@ function wireSiteConfigTab(d) {
     });
   }
 
-  const acceptBtn = document.getElementById('site-config-accept-btn');
-  if (acceptBtn) {
-    acceptBtn.addEventListener('click', async () => {
-      acceptBtn.disabled = true;
-      try {
-        const nap = saveSiteConfigNapFromForm();
-        const allow = Boolean(document.getElementById('sc-allow-non-pursue')?.checked);
-        const isPh = (v, known) => {
-          const s = String(v || '').trim();
-          return (
-            !s ||
-            s === known ||
-            /^tbd\b/i.test(s) ||
-            /^REPLACE_/i.test(s) ||
-            /^YOUR_WEB3FORMS/i.test(s) ||
-            s === 'example.com' ||
-            s === '+1XXXXXXXXXX' ||
-            s === 'leads@example.com'
-          );
-        };
+  async function acceptSiteConfigFromUi(triggerBtn, { clearCommercial = false } = {}) {
+    if (triggerBtn) triggerBtn.disabled = true;
+    try {
+      const nap = saveSiteConfigNapFromForm();
+      const isPh = (v, known) => {
+        const s = String(v || '').trim();
+        return (
+          !s ||
+          s === known ||
+          /^tbd\b/i.test(s) ||
+          /^REPLACE_/i.test(s) ||
+          /^YOUR_WEB3FORMS/i.test(s) ||
+          s === 'example.com' ||
+          s === '+1XXXXXXXXXX' ||
+          s === 'leads@example.com'
+        );
+      };
 
-        let remaining =
-          d.siteConfigDraft?._ops?.placeholders ||
-          state.detail?.siteConfigDraft?._ops?.placeholders ||
-          [];
+      let remaining =
+        d.siteConfigDraft?._ops?.placeholders ||
+        state.detail?.siteConfigDraft?._ops?.placeholders ||
+        [];
 
-        const hasEditForm = Boolean(document.getElementById('sc-edit-businessName'));
+      const hasEditForm = Boolean(document.getElementById('sc-edit-businessName'));
+      const needsDraftSeed =
+        !hasEditForm &&
+        !d.siteConfigDraft &&
+        !state.detail?.siteConfigDraft &&
+        Boolean(d.siteConfig || state.detail?.siteConfig);
+
+      if (hasEditForm || needsDraftSeed || clearCommercial) {
+        const patch = hasEditForm
+          ? {
+              businessName:
+                document.getElementById('sc-edit-businessName')?.value?.trim() ||
+                nap.businessName ||
+                '',
+              domain: document.getElementById('sc-edit-domain')?.value?.trim() || nap.domain || '',
+              phone: document.getElementById('sc-edit-phone')?.value?.trim() || nap.phone || '',
+              email: document.getElementById('sc-edit-email')?.value?.trim() || nap.email || '',
+              tagline: document.getElementById('sc-edit-tagline')?.value?.trim() || '',
+              primaryCta: document.getElementById('sc-edit-primaryCta')?.value?.trim() || '',
+              niche: document.getElementById('sc-edit-niche')?.value?.trim() || '',
+              primaryCity: document.getElementById('sc-edit-primaryCity')?.value?.trim() || '',
+              state: document.getElementById('sc-edit-state')?.value?.trim() || '',
+              serviceRadiusMiles:
+                document.getElementById('sc-edit-radius')?.value?.trim() || nap.radiusMiles || '',
+              web3FormsAccessKey: document.getElementById('sc-edit-web3')?.value?.trim() || '',
+              turnstileSiteKey: document.getElementById('sc-edit-turnstile')?.value?.trim() || '',
+              targetSuburbs: document.getElementById('sc-edit-suburbs')?.value || '',
+              services: document.getElementById('sc-edit-services')?.value || '',
+              commercialServices: clearCommercial
+                ? ''
+                : document.getElementById('sc-edit-commercial')?.value || '',
+              homepageServicesLimit: document.getElementById('sc-edit-svc-limit')?.value || '8',
+              brand: {
+                paletteId: document.getElementById('sc-brand-palette')?.value?.trim() || '',
+                fontTheme: document.getElementById('sc-font-theme')?.value?.trim() || '',
+                primary: document.getElementById('sc-edit-brand-primary')?.value?.trim() || '',
+                accent: document.getElementById('sc-edit-brand-accent')?.value?.trim() || '',
+                ink: document.getElementById('sc-edit-brand-ink')?.value?.trim() || '',
+              },
+              address: siteConfigAddressFromForm(
+                document.getElementById('sc-edit-primaryCity')?.value?.trim() || '',
+                document.getElementById('sc-edit-state')?.value?.trim() || '',
+              ),
+              siteArchetype: nap.siteArchetype,
+            }
+          : clearCommercial
+            ? { commercialServices: '' }
+            : {};
+
         if (hasEditForm) {
-          const patch = {
-            businessName:
-              document.getElementById('sc-edit-businessName')?.value?.trim() ||
-              nap.businessName ||
-              '',
-            domain: document.getElementById('sc-edit-domain')?.value?.trim() || nap.domain || '',
-            phone: document.getElementById('sc-edit-phone')?.value?.trim() || nap.phone || '',
-            email: document.getElementById('sc-edit-email')?.value?.trim() || nap.email || '',
-            tagline: document.getElementById('sc-edit-tagline')?.value?.trim() || '',
-            primaryCta: document.getElementById('sc-edit-primaryCta')?.value?.trim() || '',
-            niche: document.getElementById('sc-edit-niche')?.value?.trim() || '',
-            primaryCity: document.getElementById('sc-edit-primaryCity')?.value?.trim() || '',
-            state: document.getElementById('sc-edit-state')?.value?.trim() || '',
-            serviceRadiusMiles:
-              document.getElementById('sc-edit-radius')?.value?.trim() || nap.radiusMiles || '',
-            web3FormsAccessKey: document.getElementById('sc-edit-web3')?.value?.trim() || '',
-            turnstileSiteKey: document.getElementById('sc-edit-turnstile')?.value?.trim() || '',
-            targetSuburbs: document.getElementById('sc-edit-suburbs')?.value || '',
-            services: document.getElementById('sc-edit-services')?.value || '',
-            commercialServices: document.getElementById('sc-edit-commercial')?.value || '',
-            homepageServicesLimit: document.getElementById('sc-edit-svc-limit')?.value || '12',
-            brand: {
-              paletteId: document.getElementById('sc-brand-palette')?.value?.trim() || '',
-              primary: document.getElementById('sc-edit-brand-primary')?.value?.trim() || '',
-              accent: document.getElementById('sc-edit-brand-accent')?.value?.trim() || '',
-              ink: document.getElementById('sc-edit-brand-ink')?.value?.trim() || '',
-            },
-            siteArchetype: nap.siteArchetype,
-          };
           if (nap.domain && isPh(patch.domain, 'example.com')) patch.domain = nap.domain;
           if (nap.phone && isPh(patch.phone, '+1XXXXXXXXXX')) patch.phone = nap.phone;
           if (nap.email && isPh(patch.email, 'leads@example.com')) patch.email = nap.email;
           if (nap.businessName && isPh(patch.businessName, 'TBD Business')) {
             patch.businessName = nap.businessName;
           }
-
-          const synced = await api(`/api/candidates/${encodeURIComponent(d.id)}/site-config/draft`, {
-            method: 'POST',
-            body: JSON.stringify({ patch, ...nap, allowNonPursue: allow }),
-          });
-          state.detail = synced.candidate || state.detail;
-          d.siteConfigDraft = synced.draft || d.siteConfigDraft;
-          remaining = synced.placeholders || synced.draft?._ops?.placeholders || [];
         }
 
-        // Client-side scan if _ops list missing/stale
-        if (!remaining.length && hasEditForm) {
-          const checks = [
-            ['tagline', document.getElementById('sc-edit-tagline')?.value, null],
-            ['domain', document.getElementById('sc-edit-domain')?.value, 'example.com'],
-            ['phone', document.getElementById('sc-edit-phone')?.value, '+1XXXXXXXXXX'],
-            ['email', document.getElementById('sc-edit-email')?.value, 'leads@example.com'],
-            ['web3FormsAccessKey', document.getElementById('sc-edit-web3')?.value, 'REPLACE_WEB3FORMS_KEY'],
-          ];
-          remaining = checks.filter(([_, v, known]) => isPh(v, known)).map(([k]) => k);
-        }
-
-        const ok = await showModal({
-          title: 'Write site-config.json?',
-          confirmLabel: remaining.length ? 'Write with placeholders' : 'Write file',
-          bodyHtml: remaining.length
-            ? `<p>Writes to <code>src/config/site-config.json</code> (backs up previous).</p>
-               <p>Still placeholders: <code>${esc(remaining.join(', '))}</code> — OK for an early build; fill later in Edit draft.</p>`
-            : '<p>Writes draft to <code>src/config/site-config.json</code> (backs up previous). Next step is content markdown.</p>',
+        const synced = await api(`/api/candidates/${encodeURIComponent(d.id)}/site-config/draft`, {
+          method: 'POST',
+          body: JSON.stringify({ patch, ...nap, allowNonPursue: false }),
         });
-        if (!ok) {
-          acceptBtn.disabled = false;
-          renderDetail();
-          return;
-        }
+        state.detail = synced.candidate || state.detail;
+        d.siteConfigDraft = synced.draft || d.siteConfigDraft;
+        remaining = synced.placeholders || synced.draft?._ops?.placeholders || [];
+      }
 
-        // Rover draft handoff: always allow placeholders once the operator confirmed.
-        const postAccept = (extra = {}) =>
-          api(`/api/candidates/${encodeURIComponent(d.id)}/site-config/accept`, {
-            method: 'POST',
-            body: JSON.stringify({
-              allowNonPursue: allow,
-              allowPlaceholders: true,
-              ...extra,
-            }),
+      if (!remaining.length && hasEditForm) {
+        const checks = [
+          ['tagline', document.getElementById('sc-edit-tagline')?.value, null],
+          ['domain', document.getElementById('sc-edit-domain')?.value, 'example.com'],
+          ['phone', document.getElementById('sc-edit-phone')?.value, '+1XXXXXXXXXX'],
+          ['email', document.getElementById('sc-edit-email')?.value, 'leads@example.com'],
+          ['web3FormsAccessKey', document.getElementById('sc-edit-web3')?.value, 'REPLACE_WEB3FORMS_KEY'],
+        ];
+        remaining = checks.filter(([_, v, known]) => isPh(v, known)).map(([k]) => k);
+      }
+
+      const ok = await showModal({
+        title: 'Write site-config.json?',
+        confirmLabel: remaining.length ? 'Write with placeholders' : 'Write file',
+        bodyHtml: remaining.length
+          ? `<p>Writes to <code>src/config/site-config.json</code> (backs up previous).</p>
+               <p>Still placeholders: <code>${esc(remaining.join(', '))}</code> — OK for an early build; fill later in Edit draft.</p>`
+          : clearCommercial
+            ? '<p>Writes site-config with <strong>commercialServices cleared</strong> (one What we do grid). No Claude re-prompt.</p>'
+            : '<p>Writes draft to <code>src/config/site-config.json</code> (backs up previous). Next step is content markdown.</p>',
+      });
+      if (!ok) {
+        if (triggerBtn) triggerBtn.disabled = false;
+        renderDetail();
+        return false;
+      }
+
+      const postAccept = (extra = {}) =>
+        api(`/api/candidates/${encodeURIComponent(d.id)}/site-config/accept`, {
+          method: 'POST',
+          body: JSON.stringify({
+            allowNonPursue: false,
+            allowPlaceholders: true,
+            ...extra,
+          }),
+        });
+      let result;
+      try {
+        result = await postAccept();
+      } catch (error) {
+        if (error.suburbCheck) {
+          const force = await showModal({
+            title: 'Suburb warnings',
+            confirmLabel: 'Write anyway',
+            bodyHtml: `<p>${esc(error.message)}</p>`,
           });
-        let result;
-        try {
-          result = await postAccept();
-        } catch (error) {
-          if (error.suburbCheck) {
-            const force = await showModal({
-              title: 'Suburb warnings',
-              confirmLabel: 'Write anyway',
-              bodyHtml: `<p>${esc(error.message)}</p>`,
+          if (!force) throw error;
+          result = await postAccept({ ignoreSuburbWarnings: true });
+        } else if (/placeholder/i.test(String(error.message || ''))) {
+          result = await postAccept({ allowPlaceholders: true });
+        } else {
+          throw error;
+        }
+      }
+      state.detail = result.candidate || (await api(`/api/candidates/${encodeURIComponent(d.id)}`));
+      advancePanelStep('site-config', 'service-area');
+      state.tab = 'site-config';
+      renderDetail();
+      await showModal({
+        title: 'Site config written',
+        confirmLabel: 'OK',
+        bodyHtml: `<p>Wrote <code>${esc(result.path || 'src/config/site-config.json')}</code>${
+          clearCommercial ? ' with residential services only' : ''
+        }. Next: <strong>5 · Service area</strong> (map + radius), then <strong>6 · Provision phone</strong> / Content.</p>${
+          result.domainWarn?.mismatch
+            ? `<div class="callout warn" style="margin-top:0.75rem"><strong>Domain vs brand:</strong> ${esc(
+                result.domainWarn.reason ||
+                  'Hostname does not match niche/brand/city — set the final client domain before go-live.',
+              )}</div>`
+            : ''
+        }`,
+      });
+      return true;
+    } catch (error) {
+      await showModal({
+        title: 'Accept failed',
+        confirmLabel: 'OK',
+        bodyHtml: `<p>${esc(error.message)}</p>`,
+      });
+      if (triggerBtn) triggerBtn.disabled = false;
+      renderDetail();
+      return false;
+    }
+  }
+
+  const pasteLoadBtn = document.getElementById('site-config-paste-load-btn');
+  if (pasteLoadBtn) {
+    pasteLoadBtn.addEventListener('click', async () => {
+      const text = document.getElementById('site-config-paste')?.value || '';
+      if (!text.trim()) {
+        await showModal({
+          title: 'Nothing to paste',
+          confirmLabel: 'OK',
+          bodyHtml: '<p>Paste site-config JSON first.</p>',
+        });
+        return;
+      }
+      pasteLoadBtn.disabled = true;
+      try {
+        const nap = saveSiteConfigNapFromForm();
+        const result = await api(`/api/candidates/${encodeURIComponent(d.id)}/site-config/paste`, {
+          method: 'POST',
+          body: JSON.stringify({ json: text, ...nap, allowNonPursue: false }),
+        });
+        state.detail = result.candidate || (await api(`/api/candidates/${encodeURIComponent(d.id)}`));
+        d.siteConfigDraft = result.draft || state.detail?.siteConfigDraft;
+        if (nap.paletteId || nap.fontTheme) {
+          try {
+            const look = await api(`/api/candidates/${encodeURIComponent(d.id)}/site-config/brand`, {
+              method: 'POST',
+              body: JSON.stringify({
+                paletteId: nap.paletteId || 'slate-gold',
+                fontTheme: nap.fontTheme || 'archivo-source',
+                allowNonPursue: false,
+              }),
             });
-            if (!force) throw error;
-            result = await postAccept({ ignoreSuburbWarnings: true });
-          } else if (/placeholder/i.test(String(error.message || ''))) {
-            // Defensive retry if an older server ignored the flag
-            result = await postAccept({ allowPlaceholders: true });
-          } else {
-            throw error;
+            state.detail = look.candidate || state.detail;
+            d.siteConfigDraft = look.draft || state.detail?.siteConfigDraft;
+          } catch {
+            /* draft loaded; look apply optional */
           }
         }
-        state.detail = result.candidate || (await api(`/api/candidates/${encodeURIComponent(d.id)}`));
         state.tab = 'site-config';
+        const notes = [];
+        if (result.placeholders?.length) {
+          notes.push(`Placeholders: ${result.placeholders.join(', ')}`);
+        }
+        if (result.suburbCheck?.warnings?.length) {
+          notes.push(result.suburbCheck.warnings.join('; '));
+        }
+        showToast(
+          notes.length
+            ? `Draft loaded — review services, then Accept. ${notes.join(' · ')}`
+            : 'Draft loaded — review residential vs commercial, then Accept.',
+          { tone: notes.length ? 'warn' : 'ok' },
+        );
         renderDetail();
-        await showModal({
-          title: 'Site config written',
-          confirmLabel: 'OK',
-          bodyHtml: `<p>Wrote <code>${esc(result.path || 'src/config/site-config.json')}</code>. Open the <strong>Content</strong> tab next.</p>`,
-        });
       } catch (error) {
         await showModal({
-          title: 'Accept failed',
+          title: 'Paste failed',
           confirmLabel: 'OK',
           bodyHtml: `<p>${esc(error.message)}</p>`,
         });
-        acceptBtn.disabled = false;
+        const btn = document.getElementById('site-config-paste-load-btn');
+        if (btn) btn.disabled = false;
         renderDetail();
       }
+    });
+  }
+
+  const bindAccept = (id, opts = {}) => {
+    const btn = document.getElementById(id);
+    if (btn) {
+      btn.addEventListener('click', () => {
+        acceptSiteConfigFromUi(btn, opts);
+      });
+    }
+  };
+  bindAccept('site-config-accept-btn');
+  bindAccept('site-config-reaccept-btn');
+  bindAccept('site-config-accept-with-commercial', { clearCommercial: false });
+  bindAccept('site-config-accept-keep-commercial', { clearCommercial: false });
+  bindAccept('site-config-accept-residential-only', { clearCommercial: true });
+  bindAccept('site-config-accept-residential-only-update', { clearCommercial: true });
+
+  document.getElementById('sc-provision-twilio')?.addEventListener('click', async () => {
+    const cid = d.id;
+    if (!cid) return;
+    const areaCode = String(document.getElementById('sc-twilio-area')?.value || '')
+      .replace(/\D/g, '')
+      .slice(0, 3);
+    const ok = await showModal({
+      title: 'Provision Twilio ranking number?',
+      confirmLabel: 'Buy number',
+      bodyHtml: `<p>Buys one US local number (~$1.15/mo), writes accepted site-config phone, and sets whisper from business name.</p>
+        <p class="muted small">Area: ${areaCode ? esc(areaCode) : 'locality from site-config city/state'}</p>`,
+    });
+    if (!ok) return;
+    const btn = document.getElementById('sc-provision-twilio');
+    const status = document.getElementById('sc-phone-tracking-status');
+    if (btn) btn.disabled = true;
+    if (status) status.textContent = 'Provisioning…';
+    try {
+      const result = await api(`/api/candidates/${encodeURIComponent(cid)}/phone/provision-twilio`, {
+        method: 'POST',
+        body: JSON.stringify({
+          confirm: true,
+          ...(areaCode.length === 3 ? { areaCode } : {}),
+        }),
+      });
+      state.sitePhoneProvisioned = { ...(state.sitePhoneProvisioned || {}), [cid]: true };
+      markSoftDonePrior('siteConfigSoftDone', SITE_CONFIG_STEP_ORDER, 'phone');
+      if (!state.siteConfigSoftDone) state.siteConfigSoftDone = {};
+      state.siteConfigSoftDone.phone = true;
+      state.detail = result.candidate || (await api(`/api/candidates/${encodeURIComponent(cid)}`));
+      renderDetail();
+      await showModal({
+        title: 'Number provisioned',
+        confirmLabel: 'OK',
+        hideCancel: true,
+        bodyHtml: `<p><strong>${esc(result.provisioned?.phone || result.provisioned?.e164 || '')}</strong> written to site-config.</p>
+          <p class="muted small">Continue Content, then Website Prepare / Launch. Use Launched Sites → Update site phone number if you need to re-ship later.</p>`,
+      });
+    } catch (error) {
+      if (status) status.textContent = '';
+      if (btn) btn.disabled = false;
+      await showModal({
+        title: 'Provision failed',
+        confirmLabel: 'OK',
+        bodyHtml: `<p>${esc(error.message)}</p>`,
+      });
+    }
+  });
+
+  document.getElementById('sc-skip-phone')?.addEventListener('click', async () => {
+    const cid = d.id;
+    if (!cid) return;
+    const btn = document.getElementById('sc-skip-phone');
+    if (btn) btn.disabled = true;
+    try {
+      const result = await api(`/api/candidates/${encodeURIComponent(cid)}/phone/skip`, {
+        method: 'POST',
+        body: JSON.stringify({}),
+      });
+      if (!state.siteConfigSoftDone) state.siteConfigSoftDone = {};
+      state.siteConfigSoftDone.phone = true;
+      markSoftDonePrior('siteConfigSoftDone', SITE_CONFIG_STEP_ORDER, 'phone');
+      state.detail = result.candidate || (await api(`/api/candidates/${encodeURIComponent(cid)}`));
+      renderDetail();
+    } catch (error) {
+      if (btn) btn.disabled = false;
+      await showModal({
+        title: 'Skip phone failed',
+        confirmLabel: 'OK',
+        hideCancel: true,
+        bodyHtml: `<p>${esc(error.message)}</p>`,
+      });
+    }
+  });
+
+  // Reflect existing portfolio phoneTracking if present
+  void (async () => {
+    const status = document.getElementById('sc-phone-tracking-status');
+    const btn = document.getElementById('sc-provision-twilio');
+    if (!status || !d.id) return;
+    try {
+      const data = await api('/api/sites');
+      const row = (data.sites || []).find((s) => s.candidateId === d.id);
+      const pt = row?.phoneTracking;
+      if (pt?.provider === 'twilio' && pt.twilioSid) {
+        status.textContent = `Twilio ${pt.e164 || ''} provisioned${
+          pt.provisionedAt ? ` · ${String(pt.provisionedAt).slice(0, 10)}` : ''
+        }`;
+        if (btn) btn.disabled = true;
+        if (!state.sitePhoneProvisioned?.[d.id]) {
+          state.sitePhoneProvisioned = { ...(state.sitePhoneProvisioned || {}), [d.id]: true };
+          if (!state.siteConfigSoftDone) state.siteConfigSoftDone = {};
+          state.siteConfigSoftDone.phone = true;
+          renderDetail();
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+  })();
+
+  const saHost = document.getElementById('sa-host');
+  const saMapCanvas = document.getElementById('sa-map-canvas');
+  const serviceAreaOpen =
+    state.siteConfigOpenStep === 'service-area' &&
+    Boolean(d.siteConfig?.primaryCity && d.siteConfig?.state);
+
+  if (serviceAreaMount) {
+    try {
+      serviceAreaMount.destroy();
+    } catch {
+      /* ignore */
+    }
+    serviceAreaMount = null;
+  }
+  setServiceAreaTableMode(false);
+
+  if (serviceAreaOpen && saHost && saMapCanvas) {
+    setServiceAreaTableMode(true);
+    const accepted = d.siteConfig;
+    void mountServiceAreaMap({
+      mapHost: saMapCanvas,
+      controlsHost: saHost,
+      api,
+      esc,
+      primaryCity: accepted.primaryCity,
+      state: accepted.state,
+      radiusMiles: accepted.serviceRadiusMiles || 40,
+      initialSelected: Array.isArray(accepted.coverageAreas)
+        ? accepted.coverageAreas
+        : (accepted.targetSuburbs || []).map((name) => ({ name, state: accepted.state })),
+      claudeOrder: Array.isArray(accepted.targetSuburbs) ? accepted.targetSuburbs : [],
+      onAccept: async ({ radiusMiles, selectedCities }) => {
+        const result = await api(
+          `/api/candidates/${encodeURIComponent(d.id)}/site-config/service-area`,
+          {
+            method: 'POST',
+            body: JSON.stringify({
+              radiusMiles,
+              selectedCities,
+              claudeOrder: accepted.targetSuburbs || [],
+            }),
+          },
+        );
+        if (!state.siteConfigSoftDone) state.siteConfigSoftDone = {};
+        state.siteConfigSoftDone['service-area'] = true;
+        markSoftDonePrior('siteConfigSoftDone', SITE_CONFIG_STEP_ORDER, 'service-area');
+        state.detail = result.candidate || (await api(`/api/candidates/${encodeURIComponent(d.id)}`));
+        showToast(
+          `Service area saved · ${result.coverageAreas?.length || 0} coverage · ${
+            result.targetSuburbs?.length || 0
+          } location pages`,
+          { tone: 'ok' },
+        );
+        advancePanelStep('site-config', 'phone');
+        renderDetail();
+      },
+    }).then((m) => {
+      serviceAreaMount = m;
+      m?.invalidateSize?.();
     });
   }
 }
@@ -5635,14 +8203,29 @@ function renderDetail() {
   const title = [niche, place].filter(Boolean).join(' · ') || d.id;
   const titleEl = document.getElementById('detail-title');
   titleEl.textContent = title;
-  setElementTip(titleEl, d.id || '');
+  setElementTip(titleEl, '');
   if (d.id && title !== d.id) {
     titleEl.setAttribute('aria-label', `${title} (${d.id})`);
+  } else {
+    titleEl.removeAttribute('aria-label');
   }
   const srcBatch = d.meta?.source?.batchId;
-  document.getElementById('detail-sub').textContent = srcBatch ? `discovery ${srcBatch}` : '';
-  document.getElementById('stage-chip').textContent = d.stage;
-
+  document.getElementById('detail-sub').textContent = '';
+  const tipBits = [];
+  if (d.id) tipBits.push(`Id: ${d.id}`);
+  if (srcBatch) tipBits.push(`Discovery: ${srcBatch}`);
+  const idTip = document.getElementById('detail-id-tip');
+  if (idTip) {
+    if (tipBits.length) {
+      idTip.classList.remove('hidden');
+      setElementTip(idTip, tipBits.join('\n'));
+      idTip.setAttribute('aria-label', 'Candidate id');
+    } else {
+      idTip.classList.add('hidden');
+      setElementTip(idTip, '');
+      idTip.setAttribute('aria-label', 'Candidate id');
+    }
+  }
   renderActions();
   updateTabCompletion();
 
@@ -5692,6 +8275,28 @@ function renderDetail() {
           bodyHtml: `<p>${esc(error.message)}</p>`,
         });
         pasteBtn.disabled = false;
+      }
+    });
+  }
+
+  const outreachCopyBtn = document.getElementById('prospects-copy-outreach-prompt');
+  if (outreachCopyBtn) {
+    outreachCopyBtn.addEventListener('click', async () => {
+      outreachCopyBtn.disabled = true;
+      try {
+        const data = await api(
+          `/api/candidates/${encodeURIComponent(d.id)}/copy-outreach-prompt`,
+        );
+        await navigator.clipboard.writeText(data.prompt || '');
+        showToast('Outreach prompt copied — paste in Claude.ai.');
+      } catch (error) {
+        await showModal({
+          title: 'Copy failed',
+          confirmLabel: 'OK',
+          bodyHtml: `<p>${esc(error.message)}</p>`,
+        });
+      } finally {
+        outreachCopyBtn.disabled = false;
       }
     });
   }
@@ -5758,6 +8363,11 @@ function wireUi() {
     renderList();
     renderActions();
   });
+  document.getElementById('candidate-visibility-filter')?.addEventListener('change', (e) => {
+    state.candidateVisibilityFilter = e.target.value || 'active';
+    renderList();
+    renderActions();
+  });
   document.getElementById('candidate-filter-text')?.addEventListener('input', (e) => {
     state.candidateTextFilter = e.target.value;
     renderList();
@@ -5806,7 +8416,7 @@ function wireUi() {
         }`,
       });
       if (openSites) {
-        setView('sites');
+        setView('launched-sites');
         await loadSites();
       }
     } catch (error) {
@@ -5857,6 +8467,12 @@ function wireUi() {
   document.getElementById('candidate-group-manage-btn')?.addEventListener('click', () => {
     manageCandidateGroups();
   });
+  document.getElementById('candidate-archive-btn')?.addEventListener('click', () => {
+    applyCandidateArchive(true);
+  });
+  document.getElementById('candidate-unarchive-btn')?.addEventListener('click', () => {
+    applyCandidateArchive(false);
+  });
   document.querySelectorAll('.tab').forEach((tab) => {
     tab.addEventListener('click', () => {
       state.tab = tab.dataset.tab;
@@ -5867,22 +8483,88 @@ function wireUi() {
   wireDiscoveryUi();
 }
 
+function normalizeAppView(view) {
+  if (view === 'candidates') return 'research';
+  if (view === 'sites') return 'launched-sites';
+  return view;
+}
+
+function isCandidatesShellView(view) {
+  return view === 'research' || view === 'website-builder';
+}
+
+function applyPipelineTabMode() {
+  const tabs = document.getElementById('tabs');
+  if (!tabs) return;
+  const mode = state.view === 'website-builder' ? 'website-builder' : 'research';
+  state.pipelineMode = mode;
+  tabs.dataset.pipelineMode = mode;
+
+  const researchTabs = new Set(['serp', 'keywords', 'enrichment', 'narrative', 'prospects']);
+  const buildTabs = new Set(['site-config', 'content', 'website']);
+  if (mode === 'research' && buildTabs.has(state.tab)) {
+    state.tab = 'overview';
+  }
+  if (mode === 'website-builder' && researchTabs.has(state.tab)) {
+    state.tab = state.detail?.stageFlags?.hasSiteConfig ? 'site-config' : 'overview';
+  }
+
+  const titleEl =
+    document.getElementById('candidates-view-title') ||
+    document.querySelector('#view-candidates .panel-head h1');
+  if (titleEl) {
+    titleEl.textContent = mode === 'website-builder' ? 'Website Builder' : 'Research';
+  }
+  const subEl = document.getElementById('candidates-view-sub');
+  if (subEl) {
+    subEl.textContent =
+      mode === 'website-builder'
+        ? 'Committed Candidates (pursue) — Site-Config, Content, Prepare / Launch'
+        : 'Potential Candidates — SERP, enrich, narrative, prospects';
+  }
+}
+
 function setView(view) {
+  view = normalizeAppView(view);
   state.view = view;
   hideOpsTooltip();
-  document.getElementById('view-candidates').classList.toggle('hidden', view !== 'candidates');
+  const onCandidates = isCandidatesShellView(view);
+  document.getElementById('view-candidates').classList.toggle('hidden', !onCandidates);
   document.getElementById('view-discovery').classList.toggle('hidden', view !== 'discovery');
-  document.getElementById('view-sites')?.classList.toggle('hidden', view !== 'sites');
+  document.getElementById('view-sites')?.classList.toggle('hidden', view !== 'launched-sites');
+  document.getElementById('view-phone')?.classList.toggle('hidden', view !== 'phone');
+  document.getElementById('view-map')?.classList.toggle('hidden', view !== 'map');
   document.querySelectorAll('.nav-btn').forEach((btn) => {
     btn.classList.toggle('active', btn.dataset.view === view);
   });
-  if (view === 'candidates') {
+  if (onCandidates) {
+    applyPipelineTabMode();
     fillCandidateBatchFilterSelect();
+    renderList();
     renderActions();
     syncCandidatesDetailVisibility();
+    if (state.detail) renderDetail();
   }
-  if (view === 'sites') {
+  if (view === 'launched-sites') {
     loadSites().catch(() => {});
+  }
+  if (view === 'phone') {
+    loadPhoneView().catch(() => {});
+  }
+  if (view === 'map') {
+    // Shared readyPromise with openResearchMap — no second init / US fit race.
+    ensureResearchMapReady({ api, esc, showModal })
+      .then(() => invalidateResearchMapSize())
+      .catch((error) => {
+        const n = document.getElementById('rm-status');
+        if (n) {
+          n.textContent = error.message || 'Map failed';
+          n.dataset.kind = 'err';
+        }
+      });
+  }
+  if (view !== 'discovery') {
+    closeDiscoveryCitiesMap();
   }
 }
 
@@ -6050,6 +8732,142 @@ function selectedSite() {
   return state.sites.find((s) => s.id === state.selectedSiteId) || null;
 }
 
+/** Portfolio or hydrate flags: already shipped / live enough for Push (not first Launch). */
+function sitePortfolioIsLive(s) {
+  if (!s) return false;
+  if (['live', 'listed', 'rented'].includes(String(s.status || ''))) return true;
+  return Boolean(s.lastShipAt || s.lastLaunchAt || s.cloudflarePagesDone);
+}
+
+/**
+ * Sites: Prepare-equivalent (Stage → Assemble with ship) + Push when already live.
+ * Does not Run launch (domain/email) — hand off to Website tab for first go-live.
+ */
+async function publishSitePhoneFromSites(s) {
+  const id = s?.candidateId;
+  if (!id) return;
+
+  const statusEl = document.getElementById('sites-phone-publish-status');
+  const provisionBtn = document.getElementById('sites-provision-twilio');
+  const updateBtn = document.getElementById('sites-update-site-phone');
+  const setStatus = (text) => {
+    if (!statusEl) return;
+    if (!text) {
+      statusEl.hidden = true;
+      statusEl.textContent = '';
+      return;
+    }
+    statusEl.hidden = false;
+    statusEl.textContent = text;
+  };
+  const setBusy = (busy) => {
+    if (updateBtn) updateBtn.disabled = busy;
+    if (provisionBtn) {
+      // Stay disabled while busy or when already provisioned
+      provisionBtn.disabled =
+        busy || Boolean(s.phoneTracking?.provider === 'twilio' && s.phoneTracking?.twilioSid);
+    }
+  };
+
+  const alreadyLive = sitePortfolioIsLive(s);
+  setBusy(true);
+  setStatus('Staging full launch package…');
+
+  try {
+    await api(`/api/candidates/${encodeURIComponent(id)}/staging`, {
+      method: 'POST',
+      body: JSON.stringify({ mode: 'full', openPreview: false }),
+    });
+
+    setStatus('Assembling (npm install + build; auto-ship if credentials set)…');
+    const assembled = await api(`/api/candidates/${encodeURIComponent(id)}/assemble`, {
+      method: 'POST',
+      body: JSON.stringify({ force: true, build: true, ship: true }),
+    });
+
+    const buildOk = assembled.build?.ok !== false;
+    let ship = assembled.ship || null;
+    const shipNeedsPush =
+      alreadyLive &&
+      (!ship?.ok || ship?.skipped || ship?.error);
+
+    if (shipNeedsPush) {
+      setStatus('Pushing updates to GitHub + Cloudflare…');
+      try {
+        const pushed = await api(`/api/candidates/${encodeURIComponent(id)}/ship`, {
+          method: 'POST',
+          body: JSON.stringify({}),
+        });
+        ship = {
+          ok: Boolean(pushed.ok),
+          ...(pushed.ok ? {} : { error: pushed.error || 'Push incomplete' }),
+          pushed: true,
+          human: pushed.human,
+        };
+      } catch (error) {
+        ship = { ok: false, error: error.message, pushed: true };
+      }
+    }
+
+    await loadSites();
+    renderSitesTable();
+    renderSitesDetail();
+
+    if (!alreadyLive) {
+      const goWebsite = await showModal({
+        title: 'Package prepared',
+        confirmLabel: 'Open Website tab',
+        cancelLabel: 'Stay on Launched Sites',
+        bodyHtml: `<p>Stage → Assemble finished${
+          buildOk ? '' : ' (build reported a problem — check Website Builder)'
+        }. Assembled site-config includes the new phone.</p>
+          <p>This listing is <strong>not live yet</strong>. Finish first go-live with <strong>Website Builder → Run launch</strong> (domain / email / Web3Forms). Launch is not run from Launched Sites.</p>`,
+      });
+      if (goWebsite) {
+        setView('website-builder');
+        await selectCandidate(id);
+        state.tab = 'website';
+        if (typeof advancePanelStep === 'function') {
+          try {
+            advancePanelStep('website', 'launch');
+          } catch {
+            /* ignore */
+          }
+        }
+        renderDetail();
+      }
+      return;
+    }
+
+    const shipLine = ship?.ok
+      ? ship.pushed
+        ? 'Push updates ok'
+        : 'Auto-ship ok'
+      : ship?.skipped
+        ? `Ship skipped — ${ship.reason || 'credentials missing'}`
+        : ship?.error
+          ? `Ship issue: ${ship.error}`
+          : 'Ship status unknown';
+
+    await showModal({
+      title: ship?.ok ? 'Live phone updated' : 'Prepared (check ship)',
+      confirmLabel: 'OK',
+      hideCancel: true,
+      bodyHtml: `<p>Stage → Assemble complete for <code>${esc(id)}</code>.</p>
+        <p>${esc(shipLine)}</p>
+        <p class="muted small">Live CTAs should show <code>${esc(s.phoneTracking?.e164 || s.phone || '')}</code> after Cloudflare finishes the deploy.</p>`,
+    });
+  } catch (error) {
+    await showModal({
+      title: 'Update site phone failed',
+      confirmLabel: 'OK',
+      bodyHtml: `<p>${esc(error.message)}</p>`,
+    });
+    setStatus('');
+    renderSitesDetail();
+  }
+}
+
 function renderSitesDetail() {
   const empty = document.getElementById('sites-empty-detail');
   const body = document.getElementById('sites-detail-body');
@@ -6095,6 +8913,18 @@ function renderSitesDetail() {
       ${s.web3FormsDashboardUrl ? `<a href="${esc(s.web3FormsDashboardUrl)}" target="_blank" rel="noopener">Web3Forms</a>${s.web3FormsAccessKeySet ? ' · key set' : ' · no key'}` : ''}
       ${s.githubRepoUrl ? `<a href="${esc(s.githubRepoUrl)}" target="_blank" rel="noopener">GitHub</a>` : ''}
     </div>
+    ${
+      s.candidateId
+        ? `<div class="narrative-actions" style="margin:0.6rem 0 0.8rem">
+            <button type="button" class="btn primary" id="sites-visual-edit" data-tip="Operator visual editor — visitors never see this">Edit site</button>
+            ${
+              s.status === 'paused' || s.status === 'retired'
+                ? `<span class="muted small">Site is ${esc(s.status)} — edits still go to candidate source, then Publish to ship.</span>`
+                : ''
+            }
+          </div>`
+        : `<p class="muted small">No candidate id — cannot visual-edit this row.</p>`
+    }
     <form id="sites-edit-form" class="sites-edit-form">
       <h3>Portfolio</h3>
       <label>Status <select name="status">${statusOpts}</select></label>
@@ -6121,7 +8951,172 @@ function renderSitesDetail() {
     <p class="muted small">Site NAP: ${esc(s.phone || '—')} · ${esc(s.email || '—')}${
       s.launchCostUsd != null ? ` · Launch costs ~${esc(formatMoney(s.launchCostUsd))}` : ''
     }</p>
+    <div class="sites-phone-tracking" style="margin-top:0.75rem;padding-top:0.75rem;border-top:1px solid var(--border, #333)">
+      <h3>Phone tracking</h3>
+      ${
+        s.phoneTracking?.provider === 'twilio' && s.phoneTracking?.e164
+          ? `<p class="muted small">Twilio <code>${esc(s.phoneTracking.e164)}</code>${
+              s.phoneTracking.phase ? ` · ${esc(s.phoneTracking.phase)}` : ''
+            }${
+              s.phoneTracking.provisionedAt
+                ? ` · ${esc(String(s.phoneTracking.provisionedAt).slice(0, 10))}`
+                : ''
+            }${
+              s.phoneTracking.forwardTo
+                ? ` · forwards to ${esc(s.phoneTracking.forwardTo)}`
+                : ''
+            }</p>`
+          : `<p class="muted small">No ranking number yet. Buys a local Twilio DID (~$1.15/mo), whispers site name, forwards to <code>TWILIO_FORWARD_TO</code>.</p>`
+      }
+      <div class="narrative-actions" style="align-items:center;gap:0.5rem;flex-wrap:wrap">
+        <label class="muted small" style="display:inline-flex;align-items:center;gap:0.35rem">
+          Area code (optional)
+          <input id="sites-twilio-area" type="text" inputmode="numeric" maxlength="3" placeholder="auto" style="width:4rem" />
+        </label>
+        <button type="button" class="btn primary" id="sites-provision-twilio" ${
+          !s.candidateId || (s.phoneTracking?.provider === 'twilio' && s.phoneTracking?.twilioSid)
+            ? 'disabled'
+            : ''
+        }>Provision ranking number</button>
+        <button type="button" class="btn" id="sites-update-site-phone" ${
+          s.candidateId && s.phoneTracking?.provider === 'twilio' && s.phoneTracking?.twilioSid
+            ? ''
+            : 'disabled'
+        } data-tip="Stage → Assemble (and Push if already live) so CTAs show the new NAP">Update site phone number</button>
+        <button type="button" class="btn" id="sites-forward-renter" ${
+          s.phoneTracking?.provider === 'twilio' &&
+          s.phoneTracking?.twilioSid &&
+          String(s.renter?.phone || '').trim()
+            ? ''
+            : 'disabled'
+        } data-tip="Keep same DID; dial renter.phone instead of TWILIO_FORWARD_TO">Set forward to renter</button>
+        <button type="button" class="btn" id="sites-view-calls" ${
+          s.phoneTracking?.provider === 'twilio' && s.phoneTracking?.e164 ? '' : 'disabled'
+        }>View calls →</button>
+      </div>
+      <p class="muted small" id="sites-phone-publish-status" hidden></p>
+      ${
+        !s.candidateId
+          ? `<p class="muted small">Link a candidate first (accepted site-config required).</p>`
+          : s.phoneTracking?.provider === 'twilio' && s.phoneTracking?.twilioSid
+            ? `<p class="muted small">After provision, use <strong>Update site phone number</strong> to Prepare (and Push if live). First go-live still needs Website → Run launch. Call review lives on the <strong>Phone</strong> tab.</p>`
+            : ''
+      }
+    </div>
   `;
+
+  document.getElementById('sites-visual-edit')?.addEventListener('click', async () => {
+    if (!s.candidateId) return;
+    if (s.status === 'paused' || s.status === 'retired') {
+      const go = await showModal({
+        title: `Site is ${s.status}`,
+        confirmLabel: 'Edit anyway',
+        bodyHtml: `<p>This listing is <strong>${esc(s.status)}</strong>. Visual edits still write candidate source, then Publish ships if credentials are set.</p>`,
+      });
+      if (!go) return;
+    }
+    await openVisualEditor(s.candidateId, { api, esc, showModal });
+  });
+
+  document.getElementById('sites-provision-twilio')?.addEventListener('click', async () => {
+    if (!s.candidateId) return;
+    const areaEl = document.getElementById('sites-twilio-area');
+    const areaCode = String(areaEl?.value || '')
+      .replace(/\D/g, '')
+      .slice(0, 3);
+    const ok = await showModal({
+      title: 'Provision Twilio ranking number?',
+      confirmLabel: 'Buy number',
+      bodyHtml: `<p>Buys one US local number (~$1.15/mo + per-minute usage), sets site NAP, and forwards calls to your <code>TWILIO_FORWARD_TO</code> with a whisper.</p>
+        <p class="muted small">${esc([s.city, s.state].filter(Boolean).join(', ') || 'geo from site-config')}${
+          areaCode ? ` · area ${esc(areaCode)}` : ' · locality search'
+        }</p>`,
+    });
+    if (!ok) return;
+    try {
+      const result = await api(`/api/sites/${encodeURIComponent(s.id)}/phone/provision-twilio`, {
+        method: 'POST',
+        body: JSON.stringify({
+          confirm: true,
+          ...(areaCode.length === 3 ? { areaCode } : {}),
+        }),
+      });
+      const idx = state.sites.findIndex((x) => x.id === s.id);
+      if (idx >= 0) state.sites[idx] = result.site;
+      else await loadSites();
+      renderSitesTable();
+      renderSitesDetail();
+      await showModal({
+        title: 'Number provisioned',
+        confirmLabel: 'OK',
+        bodyHtml: `<p><strong>${esc(result.provisioned?.phone || result.provisioned?.e164 || '')}</strong> written to site-config.</p>
+          <p class="muted small">Next: click <strong>Update site phone number</strong> to Stage → Assemble (and Push if already live).</p>`,
+      });
+    } catch (error) {
+      await showModal({
+        title: 'Provision failed',
+        confirmLabel: 'OK',
+        bodyHtml: `<p>${esc(error.message)}</p>`,
+      });
+    }
+  });
+
+  document.getElementById('sites-update-site-phone')?.addEventListener('click', async () => {
+    if (!s.candidateId || !(s.phoneTracking?.provider === 'twilio' && s.phoneTracking?.twilioSid)) return;
+    const alreadyLive = sitePortfolioIsLive(s);
+    const ok = await showModal({
+      title: 'Update site phone number?',
+      confirmLabel: alreadyLive ? 'Prepare + Push' : 'Prepare package',
+      bodyHtml: alreadyLive
+        ? `<p>Runs <strong>Prepare preview</strong> (Stage → Assemble) and <strong>Push updates</strong> if auto-ship did not finish — so live CTAs show <code>${esc(s.phoneTracking.e164 || s.phone || '')}</code>.</p>
+           <p class="muted small">Can take several minutes.</p>`
+        : `<p>Runs <strong>Prepare preview</strong> (Stage → Assemble) so the assembled package has the new phone.</p>
+           <p class="muted small">This site is not live yet — after Prepare you still need <strong>Website → Run launch</strong> for first go-live (domain / email). Launch is not run from here.</p>`,
+    });
+    if (!ok) return;
+    await publishSitePhoneFromSites(s);
+  });
+
+  document.getElementById('sites-forward-renter')?.addEventListener('click', async () => {
+    if (!(s.phoneTracking?.provider === 'twilio' && s.phoneTracking?.twilioSid)) return;
+    if (!String(s.renter?.phone || '').trim()) return;
+    const ok = await showModal({
+      title: 'Forward to renter?',
+      confirmLabel: 'Update Twilio',
+      bodyHtml: `<p>Keeps the same tracking DID <code>${esc(s.phoneTracking.e164 || '')}</code> and dials <code>${esc(s.renter.phone)}</code> instead of your ranking forward.</p>
+        <p class="muted small">Sets phone phase to <strong>rented</strong>. Whisper still plays to whoever answers.</p>`,
+    });
+    if (!ok) return;
+    try {
+      const result = await api(`/api/sites/${encodeURIComponent(s.id)}/phone/forward-renter`, {
+        method: 'POST',
+        body: JSON.stringify({ confirm: true }),
+      });
+      const idx = state.sites.findIndex((x) => x.id === s.id);
+      if (idx >= 0) state.sites[idx] = result.site;
+      else await loadSites();
+      renderSitesTable();
+      renderSitesDetail();
+      await showModal({
+        title: 'Forward updated',
+        confirmLabel: 'OK',
+        bodyHtml: `<p>Now forwarding to <code>${esc(result.forward?.forwardTo || s.renter.phone)}</code>.</p>`,
+      });
+    } catch (error) {
+      await showModal({
+        title: 'Forward failed',
+        confirmLabel: 'OK',
+        bodyHtml: `<p>${esc(error.message)}</p>`,
+      });
+    }
+  });
+
+  document.getElementById('sites-view-calls')?.addEventListener('click', () => {
+    if (!(s.phoneTracking?.provider === 'twilio' && s.phoneTracking?.e164)) return;
+    state.phone.selectedSiteId = s.id;
+    state.phone.selectedCallId = null;
+    setView('phone');
+  });
 
   document.getElementById('sites-edit-form')?.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -6182,6 +9177,289 @@ function renderSitesDetail() {
         bodyHtml: `<p>${esc(error.message)}</p>`,
       });
     }
+  });
+}
+
+function formatPhoneDuration(sec) {
+  const n = Math.max(0, Number(sec) || 0);
+  const m = Math.floor(n / 60);
+  const s = n % 60;
+  return `${m}:${String(s).padStart(2, '0')}`;
+}
+
+function formatPhoneWhen(iso) {
+  if (!iso) return '—';
+  try {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return String(iso).slice(0, 16);
+    return d.toLocaleString(undefined, {
+      month: 'short',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+    });
+  } catch {
+    return String(iso).slice(0, 16);
+  }
+}
+
+function phoneAnsweredLabel(call) {
+  if (call?.answered === true) return { text: 'Answered', cls: 'answered' };
+  if (call?.answered === false) return { text: 'Missed', cls: 'missed' };
+  const st = String(call?.status || '').toLowerCase();
+  if (['completed', 'answered', 'in-progress'].includes(st)) {
+    return { text: 'Answered', cls: 'answered' };
+  }
+  if (['no-answer', 'busy', 'failed', 'canceled', 'cancelled'].includes(st)) {
+    return { text: 'Missed', cls: 'missed' };
+  }
+  return { text: st || 'Unknown', cls: '' };
+}
+
+async function loadPhoneView() {
+  const syncStatus = document.getElementById('phone-sync-status');
+  if (syncStatus) {
+    syncStatus.hidden = false;
+    syncStatus.textContent = 'Syncing from Twilio…';
+  }
+  let syncError = null;
+  try {
+    const syncBody = {};
+    if (state.phone.selectedSiteId) syncBody.siteId = state.phone.selectedSiteId;
+    const syncRes = await api('/api/phone/sync', {
+      method: 'POST',
+      body: JSON.stringify(syncBody),
+    });
+    if (syncStatus) {
+      const n = Number(syncRes.upserted || 0);
+      const q = Number(syncRes.summarizedQueued || 0);
+      syncStatus.textContent =
+        n || q
+          ? `Synced ${n} call${n === 1 ? '' : 's'} from Twilio${q ? ` · ${q} summar${q === 1 ? 'y' : 'ies'} queued` : ''}`
+          : 'Synced with Twilio — no new calls in range';
+    }
+  } catch (error) {
+    syncError = error?.message || String(error);
+    if (syncStatus) {
+      syncStatus.textContent = `Sync skipped: ${syncError}`;
+    }
+  }
+
+  try {
+    const sitesRes = await api('/api/phone/sites');
+    state.phone.sites = sitesRes.sites || [];
+    const q = state.phone.selectedSiteId
+      ? `?siteId=${encodeURIComponent(state.phone.selectedSiteId)}`
+      : '';
+    const callsRes = await api(`/api/phone/calls${q}`);
+    state.phone.calls = callsRes.calls || [];
+    state.phone.stats = callsRes.stats || sitesRes.stats || null;
+  } catch (error) {
+    if (syncStatus && !syncError) {
+      syncStatus.hidden = false;
+      syncStatus.textContent = error?.message || 'Failed to load calls';
+    }
+    throw error;
+  }
+
+  renderPhoneSites();
+  renderPhoneStats();
+  renderPhoneCalls();
+  renderPhoneDetail();
+}
+
+function filteredPhoneSites() {
+  const text = String(state.phone.filterText || '')
+    .trim()
+    .toLowerCase();
+  const phase = String(state.phone.filterPhase || '').trim();
+  return (state.phone.sites || []).filter((s) => {
+    if (phase && s.phase !== phase) return false;
+    if (!text) return true;
+    const hay = `${s.businessName || ''} ${s.niche || ''} ${s.e164 || ''} ${s.city || ''} ${s.state || ''}`.toLowerCase();
+    return hay.includes(text);
+  });
+}
+
+function renderPhoneSites() {
+  const root = document.getElementById('phone-sites-list');
+  if (!root) return;
+  const rows = filteredPhoneSites();
+  const allActive = !state.phone.selectedSiteId;
+  const parts = [
+    `<button type="button" class="phone-site-row${allActive ? ' active' : ''}" data-phone-site="">
+      <span class="phone-site-name">All sites</span>
+      <span class="phone-site-meta muted small">Portfolio scope</span>
+    </button>`,
+  ];
+  for (const s of rows) {
+    const st = s.stats || {};
+    const active = state.phone.selectedSiteId === s.id ? ' active' : '';
+    parts.push(`<button type="button" class="phone-site-row${active}" data-phone-site="${esc(s.id)}">
+      <span class="phone-site-name">${esc(s.businessName || s.niche || s.id)}</span>
+      <span class="phone-site-meta muted small">${esc(s.e164 || '—')} · ${esc(s.phase || '—')}</span>
+      <span class="phone-site-meta muted small">${Number(st.answered || 0)} answered · ${Number(st.missed || 0)} missed</span>
+    </button>`);
+  }
+  if (!rows.length) {
+    parts.push(`<p class="muted small" style="padding:0.5rem">No Twilio DIDs yet — provision from Launched Sites.</p>`);
+  }
+  root.innerHTML = parts.join('');
+  root.querySelectorAll('[data-phone-site]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const id = btn.getAttribute('data-phone-site') || '';
+      state.phone.selectedSiteId = id || null;
+      state.phone.selectedCallId = null;
+      try {
+        await loadPhoneView();
+      } catch (error) {
+        console.warn(error);
+      }
+    });
+  });
+}
+
+function renderPhoneStats() {
+  const strip = document.getElementById('phone-stats-strip');
+  const label = document.getElementById('phone-scope-label');
+  if (label) {
+    if (!state.phone.selectedSiteId) label.textContent = 'All sites';
+    else {
+      const site = (state.phone.sites || []).find((s) => s.id === state.phone.selectedSiteId);
+      label.textContent = site?.businessName || site?.niche || state.phone.selectedSiteId;
+    }
+  }
+  if (!strip) return;
+  const st = state.phone.stats || {};
+  const rate = st.answerRate != null ? `${Math.round(Number(st.answerRate) * 100)}%` : '—';
+  strip.innerHTML = `
+    <span>Answered <strong>${Number(st.answered || 0)}</strong></span>
+    <span>Missed <strong>${Number(st.missed || 0)}</strong></span>
+    <span>Answer rate <strong>${esc(rate)}</strong></span>
+    <span>Talk min <strong>${Number(st.talkMinutes || 0)}</strong></span>
+    <span>Summaries <strong>${Number(st.withSummary || 0)}</strong></span>
+  `;
+}
+
+function renderPhoneCalls() {
+  const tbody = document.querySelector('#phone-calls-table tbody');
+  const empty = document.getElementById('phone-calls-empty');
+  if (!tbody) return;
+  const calls = state.phone.calls || [];
+  if (empty) empty.classList.toggle('hidden', calls.length > 0);
+  tbody.innerHTML = calls
+    .map((c) => {
+      const chip = phoneAnsweredLabel(c);
+      const when = formatPhoneWhen(c.endedAt || c.startedAt || c.createdAt || c.updatedAt);
+      const active = state.phone.selectedCallId === c.id || state.phone.selectedCallId === c.callSid;
+      return `<tr data-call-id="${esc(c.id || c.callSid)}" class="${active ? 'active' : ''}">
+        <td>${esc(when)}</td>
+        <td>${esc(c.from || '—')}</td>
+        <td><span class="phone-status-chip ${chip.cls}">${esc(chip.text)}</span></td>
+        <td>${esc(formatPhoneDuration(c.durationSec || c.recordingDurationSec))}</td>
+        <td>${c.summary ? '✓' : c.error ? '!' : '—'}</td>
+      </tr>`;
+    })
+    .join('');
+  tbody.querySelectorAll('tr[data-call-id]').forEach((tr) => {
+    tr.addEventListener('click', () => {
+      state.phone.selectedCallId = tr.getAttribute('data-call-id');
+      renderPhoneCalls();
+      renderPhoneDetail();
+    });
+  });
+}
+
+function renderPhoneDetail() {
+  const empty = document.getElementById('phone-empty-detail');
+  const body = document.getElementById('phone-detail-body');
+  if (!empty || !body) return;
+  const call = (state.phone.calls || []).find(
+    (c) => c.id === state.phone.selectedCallId || c.callSid === state.phone.selectedCallId,
+  );
+  if (!call) {
+    empty.classList.remove('hidden');
+    body.classList.add('hidden');
+    body.innerHTML = '';
+    return;
+  }
+  empty.classList.add('hidden');
+  body.classList.remove('hidden');
+  const chip = phoneAnsweredLabel(call);
+  const site = (state.phone.sites || []).find((s) => s.id === call.siteId);
+  const hasRec = Boolean(call.recordingSid || call.recordingUrl);
+  body.innerHTML = `
+    <div class="sites-detail-head">
+      <h2>${esc(formatPhoneWhen(call.endedAt || call.startedAt || call.createdAt))}</h2>
+      <p class="muted small">${esc(call.from || '—')} → ${esc(call.to || '—')}</p>
+    </div>
+    <p><span class="phone-status-chip ${chip.cls}">${esc(chip.text)}</span>
+      · ${esc(formatPhoneDuration(call.durationSec || call.recordingDurationSec))}
+      ${call.forwardTo ? ` · forward ${esc(call.forwardTo)}` : ''}</p>
+    ${
+      hasRec
+        ? `<audio controls preload="metadata" src="/api/phone/calls/${encodeURIComponent(call.id || call.callSid)}/recording"></audio>`
+        : `<p class="muted small">No recording on this call.</p>`
+    }
+    <h3>Summary</h3>
+    ${
+      call.summary
+        ? `<p class="phone-summary">${esc(call.summary)}</p>`
+        : `<p class="muted small">${call.error ? esc(call.error) : 'No summary yet — appears a few minutes after hangup when recording + webhook are configured.'}</p>
+           <button type="button" class="btn" id="phone-resummarize" ${hasRec ? '' : 'disabled'}>Generate summary</button>`
+    }
+    <details>
+      <summary class="muted small">Transcript</summary>
+      <pre class="phone-transcript">${esc(call.transcript || '—')}</pre>
+    </details>
+    <div class="narrative-actions" style="margin-top:0.75rem">
+      ${
+        call.siteId
+          ? `<button type="button" class="btn" id="phone-open-site">Open site in Launched Sites</button>`
+          : ''
+      }
+    </div>
+  `;
+  document.getElementById('phone-open-site')?.addEventListener('click', () => {
+    if (!call.siteId) return;
+    state.selectedSiteId = call.siteId;
+    setView('launched-sites');
+  });
+  document.getElementById('phone-resummarize')?.addEventListener('click', async () => {
+    try {
+      const result = await api(`/api/phone/calls/${encodeURIComponent(call.id || call.callSid)}/summarize`, {
+        method: 'POST',
+        body: JSON.stringify({}),
+      });
+      const idx = state.phone.calls.findIndex(
+        (c) => c.id === call.id || c.callSid === call.callSid,
+      );
+      if (idx >= 0 && result.call) state.phone.calls[idx] = result.call;
+      else await loadPhoneView();
+      renderPhoneCalls();
+      renderPhoneDetail();
+      renderPhoneStats();
+    } catch (error) {
+      await showModal({
+        title: 'Summary failed',
+        confirmLabel: 'OK',
+        bodyHtml: `<p>${esc(error.message)}</p>`,
+      });
+    }
+  });
+}
+
+function wirePhoneUi() {
+  document.getElementById('phone-refresh-btn')?.addEventListener('click', () => {
+    loadPhoneView().catch(() => {});
+  });
+  document.getElementById('phone-filter-text')?.addEventListener('input', (e) => {
+    state.phone.filterText = e.target.value;
+    renderPhoneSites();
+  });
+  document.getElementById('phone-filter-phase')?.addEventListener('change', (e) => {
+    state.phone.filterPhase = e.target.value;
+    renderPhoneSites();
   });
 }
 
@@ -6255,18 +9533,389 @@ async function loadDiscoveryPresets() {
   }
   const census = state.discoveryPresets?.census || {};
   const el = document.getElementById('census-status');
-  if (!el) return;
-  if (census.ok) {
-    const n = Number(census.placeCount);
-    const places = Number.isFinite(n) ? n.toLocaleString() : String(census.placeCount ?? '');
-    el.textContent = `Census ok · ${places} places`;
-    setElementTip(el, census.path || '');
-    el.classList.remove('warn-text');
-  } else {
-    el.textContent = `Census missing — set CENSUS_POP_CSV`;
-    setElementTip(el, census.error || census.path || '');
-    el.classList.add('warn-text');
+  if (el) {
+    if (census.ok) {
+      const n = Number(census.placeCount);
+      const places = Number.isFinite(n) ? n.toLocaleString() : String(census.placeCount ?? '');
+      el.textContent = `Census ok · ${places} places`;
+      setElementTip(el, census.path || '');
+      el.classList.remove('warn-text');
+    } else {
+      el.textContent = `Census missing — set CENSUS_POP_CSV`;
+      setElementTip(el, census.error || census.path || '');
+      el.classList.add('warn-text');
+    }
   }
+  bindDiscoveryPlaceAutofill();
+  bindDiscoveryUseMap();
+}
+
+function normalizeDiscoveryStateInput(raw) {
+  const s = String(raw || '').trim();
+  if (!s) return '';
+  if (/^[A-Za-z]{2}$/.test(s)) return s.toUpperCase();
+  const states = state.discoveryPresets?.states || [];
+  const hit = states.find(
+    (st) =>
+      String(st.name || '').toLowerCase() === s.toLowerCase() ||
+      String(st.abbr || '').toLowerCase() === s.toLowerCase(),
+  );
+  return hit ? hit.abbr : s.toUpperCase().slice(0, 2);
+}
+
+function splitDiscoveryCities(raw) {
+  return String(raw || '')
+    .split(/[,|]/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+/** Discovery niches textarea: newlines / semicolons (keep commas inside names). */
+function parseDiscoveryNicheList(raw) {
+  const out = [];
+  const seen = new Set();
+  for (const part of String(raw || '').split(/[\n;]+/)) {
+    const n = part.trim();
+    if (!n) continue;
+    const key = n.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(n);
+  }
+  return out;
+}
+
+function joinDiscoveryCities(parts) {
+  return parts.map((s) => String(s || '').trim()).filter(Boolean).join(', ');
+}
+
+function hideSuggestList(listEl) {
+  if (!listEl) return;
+  listEl.innerHTML = '';
+  listEl.classList.add('hidden');
+  listEl.hidden = true;
+}
+
+/** Stop Chrome history/autofill chips from covering custom geo suggest lists. */
+function disableBrowserGeoAutofill(input) {
+  if (!input || input.dataset.geoAutofillBound === '1') return;
+  input.dataset.geoAutofillBound = '1';
+  input.setAttribute('autocomplete', 'new-password');
+  input.setAttribute('readonly', 'readonly');
+  input.addEventListener('focus', () => {
+    // Unlock only after Chrome has seen readonly on focus (no mousedown unlock).
+    setTimeout(() => {
+      input.removeAttribute('readonly');
+    }, 0);
+  });
+  input.addEventListener('blur', () => {
+    input.setAttribute('readonly', 'readonly');
+  });
+}
+
+function showSuggestList(listEl, items) {
+  if (!listEl) return;
+  if (!items.length) {
+    hideSuggestList(listEl);
+    return;
+  }
+  listEl.innerHTML = items
+    .map(
+      (it, i) =>
+        `<li role="option" data-value="${esc(it.value)}" aria-selected="${i === 0 ? 'true' : 'false'}">${esc(
+          it.label,
+        )}</li>`,
+    )
+    .join('');
+  listEl.classList.remove('hidden');
+  listEl.hidden = false;
+}
+
+function moveSuggestSelection(listEl, delta) {
+  const opts = [...(listEl?.querySelectorAll('li[role="option"]') || [])];
+  if (!opts.length) return;
+  let idx = opts.findIndex((el) => el.getAttribute('aria-selected') === 'true');
+  if (idx < 0) idx = 0;
+  opts[idx].setAttribute('aria-selected', 'false');
+  idx = (idx + delta + opts.length) % opts.length;
+  opts[idx].setAttribute('aria-selected', 'true');
+  opts[idx].scrollIntoView({ block: 'nearest' });
+}
+
+function selectedSuggestValue(listEl) {
+  const el = listEl?.querySelector('li[aria-selected="true"]');
+  return el ? el.getAttribute('data-value') || '' : '';
+}
+
+function bindDiscoveryPlaceAutofill() {
+  if (bindDiscoveryPlaceAutofill._done) return;
+  bindDiscoveryPlaceAutofill._done = true;
+
+  const stateInput = document.getElementById('discovery-state');
+  const citiesInput = document.getElementById('discovery-cities');
+  const stateSuggest = document.getElementById('discovery-state-suggest');
+  const citySuggest = document.getElementById('discovery-city-suggest');
+  if (!stateInput || !citiesInput || !stateSuggest || !citySuggest) return;
+
+  disableBrowserGeoAutofill(stateInput);
+  disableBrowserGeoAutofill(citiesInput);
+
+  const normalizeStateField = () => {
+    const next = normalizeDiscoveryStateInput(stateInput.value);
+    if (next !== stateInput.value) stateInput.value = next;
+  };
+
+  const refreshStateSuggestions = () => {
+    const q = String(stateInput.value || '').trim().toLowerCase();
+    const states = state.discoveryPresets?.states || [];
+    const items = states
+      .filter((st) => {
+        if (!q) return true;
+        return (
+          String(st.abbr || '').toLowerCase().startsWith(q) ||
+          String(st.name || '').toLowerCase().startsWith(q) ||
+          String(st.name || '').toLowerCase().includes(q)
+        );
+      })
+      .slice(0, 20)
+      .map((st) => ({ value: st.abbr, label: `${st.abbr} — ${st.name}` }));
+    showSuggestList(stateSuggest, items);
+  };
+
+  const pickState = (abbr) => {
+    if (!abbr) return;
+    stateInput.value = abbr;
+    hideSuggestList(stateSuggest);
+    normalizeStateField();
+  };
+
+  stateInput.addEventListener('focus', refreshStateSuggestions);
+  stateInput.addEventListener('input', refreshStateSuggestions);
+  stateInput.addEventListener('keydown', (event) => {
+    if (stateSuggest.hidden) return;
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      moveSuggestSelection(stateSuggest, 1);
+    } else if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      moveSuggestSelection(stateSuggest, -1);
+    } else if (event.key === 'Enter') {
+      const v = selectedSuggestValue(stateSuggest);
+      if (v) {
+        event.preventDefault();
+        pickState(v);
+      }
+    } else if (event.key === 'Escape') {
+      hideSuggestList(stateSuggest);
+    }
+  });
+  stateSuggest.addEventListener('mousedown', (event) => {
+    const li = event.target?.closest?.('li[data-value]');
+    if (!li) return;
+    event.preventDefault();
+    pickState(li.getAttribute('data-value'));
+  });
+  stateInput.addEventListener('blur', () => {
+    setTimeout(() => {
+      hideSuggestList(stateSuggest);
+      normalizeStateField();
+    }, 120);
+  });
+
+  let cityTimer = null;
+  let cityReq = 0;
+  let cityPrefix = [];
+
+  const refreshCitySuggestions = async () => {
+    const raw = citiesInput.value;
+    const trailingSep = /[,|]\s*$/.test(raw);
+    const parts = splitDiscoveryCities(raw);
+    const q = trailingSep ? '' : String(parts[parts.length - 1] || '');
+    cityPrefix = trailingSep ? parts : parts.slice(0, -1);
+    const st = normalizeDiscoveryStateInput(stateInput.value);
+    const reqId = ++cityReq;
+    try {
+      const qs = new URLSearchParams({ q, state: st, limit: '40' });
+      const data = await api(`/api/discovery/places?${qs.toString()}`);
+      if (reqId !== cityReq) return;
+      const places = data?.places || [];
+      showSuggestList(
+        citySuggest,
+        places.map((p) => ({
+          value: p.city,
+          label: st ? p.city : `${p.city}, ${p.state}`,
+        })),
+      );
+    } catch {
+      if (reqId !== cityReq) return;
+      hideSuggestList(citySuggest);
+    }
+  };
+
+  const pickCity = (city) => {
+    if (!city) return;
+    citiesInput.value = joinDiscoveryCities([...cityPrefix, city]);
+    hideSuggestList(citySuggest);
+    citiesInput.focus();
+  };
+
+  citiesInput.addEventListener('focus', () => {
+    refreshCitySuggestions().catch(() => {});
+  });
+  citiesInput.addEventListener('input', () => {
+    clearTimeout(cityTimer);
+    cityTimer = setTimeout(() => {
+      refreshCitySuggestions().catch(() => {});
+    }, 200);
+  });
+  citiesInput.addEventListener('keydown', (event) => {
+    if (citySuggest.hidden) return;
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      moveSuggestSelection(citySuggest, 1);
+    } else if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      moveSuggestSelection(citySuggest, -1);
+    } else if (event.key === 'Enter') {
+      const v = selectedSuggestValue(citySuggest);
+      if (v) {
+        event.preventDefault();
+        pickCity(v);
+      }
+    } else if (event.key === 'Escape') {
+      hideSuggestList(citySuggest);
+    }
+  });
+  citySuggest.addEventListener('mousedown', (event) => {
+    const li = event.target?.closest?.('li[data-value]');
+    if (!li) return;
+    event.preventDefault();
+    pickCity(li.getAttribute('data-value'));
+  });
+  citiesInput.addEventListener('blur', () => {
+    setTimeout(() => hideSuggestList(citySuggest), 120);
+  });
+
+  document.addEventListener('click', (event) => {
+    if (!event.target?.closest?.('.suggest-wrap')) {
+      hideSuggestList(stateSuggest);
+      hideSuggestList(citySuggest);
+    }
+  });
+}
+
+function closeDiscoveryCitiesMap() {
+  if (discoveryCitiesMount) {
+    try {
+      discoveryCitiesMount.destroy();
+    } catch {
+      /* ignore */
+    }
+    discoveryCitiesMount = null;
+  }
+  setDiscoveryTableMapMode(false);
+  const controls = document.getElementById('discovery-map-controls');
+  const useBtn = document.getElementById('discovery-use-map');
+  const doneBtn = document.getElementById('discovery-map-done');
+  if (controls) {
+    controls.classList.add('hidden');
+    controls.innerHTML = '';
+  }
+  if (useBtn) useBtn.classList.remove('hidden');
+  if (doneBtn) doneBtn.classList.add('hidden');
+}
+
+function syncDiscoveryCitiesFromMap(selectedCities) {
+  const citiesInput = document.getElementById('discovery-cities');
+  if (!citiesInput) return;
+  const names = (selectedCities || []).map((c) => (typeof c === 'string' ? c : c?.name)).filter(Boolean);
+  citiesInput.value = joinDiscoveryCities(names);
+}
+
+function readDiscoveryPackPopRange() {
+  const minEl = document.getElementById('discovery-min-pop');
+  const maxEl = document.getElementById('discovery-max-pop');
+  const minPop = Number(minEl?.value);
+  const maxPop = Number(maxEl?.value);
+  return {
+    minPop: Number.isFinite(minPop) ? minPop : 70000,
+    maxPop: Number.isFinite(maxPop) ? maxPop : 200000,
+  };
+}
+
+async function openDiscoveryCitiesMap() {
+  const stateInput = document.getElementById('discovery-state');
+  const citiesInput = document.getElementById('discovery-cities');
+  const mapHost = document.getElementById('discovery-map-canvas');
+  const controlsHost = document.getElementById('discovery-map-controls');
+  const useBtn = document.getElementById('discovery-use-map');
+  const doneBtn = document.getElementById('discovery-map-done');
+  if (!mapHost || !controlsHost) return;
+
+  const st = normalizeDiscoveryStateInput(stateInput?.value || '');
+  if (stateInput && st) stateInput.value = st;
+  if (!st) {
+    showToast('Pick a State first to use the map.', { tone: 'warn' });
+    return;
+  }
+
+  const cityParts = splitDiscoveryCities(citiesInput?.value || '');
+  const primaryCity = cityParts[0] || '';
+  const { minPop, maxPop } = readDiscoveryPackPopRange();
+
+  closeDiscoveryCitiesMap();
+  setDiscoveryTableMapMode(true);
+  controlsHost.classList.remove('hidden');
+  if (useBtn) useBtn.classList.add('hidden');
+  if (doneBtn) doneBtn.classList.remove('hidden');
+
+  try {
+    discoveryCitiesMount = await mountDiscoveryCitiesMap({
+      mapHost,
+      controlsHost,
+      api,
+      esc,
+      primaryCity,
+      state: st,
+      radiusMiles: 40,
+      minPop,
+      maxPop,
+      initialSelected: cityParts.map((name) => ({ name, state: st })),
+      onSelectionChange: ({ selectedCities }) => {
+        syncDiscoveryCitiesFromMap(selectedCities);
+      },
+    });
+    discoveryCitiesMount?.invalidateSize?.();
+    requestAnimationFrame(() => discoveryCitiesMount?.invalidateSize?.());
+  } catch (error) {
+    closeDiscoveryCitiesMap();
+    showToast(error?.message || 'Map failed to open', { tone: 'warn' });
+  }
+}
+
+function bindDiscoveryUseMap() {
+  if (bindDiscoveryUseMap._done) return;
+  bindDiscoveryUseMap._done = true;
+  document.getElementById('discovery-use-map')?.addEventListener('click', () => {
+    openDiscoveryCitiesMap().catch((e) => showToast(e?.message || 'Map failed', { tone: 'warn' }));
+  });
+  document.getElementById('discovery-map-done')?.addEventListener('click', () => {
+    closeDiscoveryCitiesMap();
+  });
+
+  let popTimer = null;
+  const onPopChange = () => {
+    if (!discoveryCitiesMount?.setPopRange) return;
+    clearTimeout(popTimer);
+    popTimer = setTimeout(() => {
+      const { minPop, maxPop } = readDiscoveryPackPopRange();
+      discoveryCitiesMount
+        .setPopRange({ minPop, maxPop })
+        ?.catch?.((e) => showToast(e?.message || 'Pop filter failed', { tone: 'warn' }));
+    }, 280);
+  };
+  document.getElementById('discovery-min-pop')?.addEventListener('input', onPopChange);
+  document.getElementById('discovery-max-pop')?.addEventListener('input', onPopChange);
 }
 
 function shortDiscoveryStage(stage) {
@@ -6279,7 +9928,23 @@ function shortDiscoveryStage(stage) {
 function formatDiscoveryBatchOption(b) {
   const stage = shortDiscoveryStage(b.stage) || 'pack';
   const rows = `${b.rowCount ?? 0} rows`;
-  return `${b.id} · ${stage} · ${rows}`;
+  const processed = b.lastProcess ? ' · processed' : '';
+  return `${b.id} · ${stage} · ${rows}${processed}`;
+}
+
+function discoveryRowProcessStatus(row) {
+  const status = String(row?.process_status || '').trim().toLowerCase();
+  if (status === 'promoted' || status === 'tracked') return status;
+  if (String(row?.candidateId || '').trim()) return 'promoted';
+  return '';
+}
+
+function isDiscoveryRowProcessed(row) {
+  return Boolean(discoveryRowProcessStatus(row));
+}
+
+function isDiscoveryRowPendingProcess(row) {
+  return Boolean(String(row?.human_decision || '').trim()) && !isDiscoveryRowProcessed(row);
 }
 
 function fillCandidateBatchFilterSelect() {
@@ -6424,6 +10089,59 @@ async function applyGroupMembership(op) {
   }
 }
 
+async function applyCandidateArchive(archived) {
+  const ids = [...state.selectedIds];
+  if (!ids.length) return;
+  const verb = archived ? 'Archive' : 'Unarchive';
+  const ok = await showModal({
+    title: `${verb} selection?`,
+    confirmLabel: `${verb} (${ids.length})`,
+    bodyHtml: archived
+      ? `<p>Archive <strong>${esc(String(ids.length))}</strong> selected candidate(s). They leave the Active list; research files stay. Switch Visibility to <strong>Archived</strong> to view or restore.</p>`
+      : `<p>Unarchive <strong>${esc(String(ids.length))}</strong> selected candidate(s) back to the Active list.</p>`,
+  });
+  if (!ok) return;
+  try {
+    const result = await api('/api/candidates/archive', {
+      method: 'POST',
+      body: JSON.stringify({ ids, archived }),
+    });
+    await loadCandidates();
+    const visible = new Set(filteredCandidates().map((c) => c.id));
+    for (const id of [...state.selectedIds]) {
+      if (!visible.has(id)) state.selectedIds.delete(id);
+    }
+    if (state.selectedId && !visible.has(state.selectedId)) {
+      state.selectedId = null;
+      state.detail = null;
+      syncCandidatesDetailVisibility();
+    } else if (state.selectedId) {
+      state.detail = await api(`/api/candidates/${encodeURIComponent(state.selectedId)}`);
+      if (state.selectedIds.size > 1) renderMultiDetail();
+      else renderDetail();
+    }
+    renderList();
+    renderActions();
+    if (result.errors?.length) {
+      const bits = result.errors
+        .slice(0, 8)
+        .map((e) => `<li>${esc(e.id)}: ${esc(e.error)}</li>`)
+        .join('');
+      await showModal({
+        title: `${verb} partial`,
+        confirmLabel: 'OK',
+        bodyHtml: `<p>Some rows failed:</p><ul>${bits}</ul>`,
+      });
+    }
+  } catch (error) {
+    await showModal({
+      title: `${verb} failed`,
+      confirmLabel: 'OK',
+      bodyHtml: `<p>${esc(error.message)}</p>`,
+    });
+  }
+}
+
 async function manageCandidateGroups() {
   const groups = [...(state.candidateGroups || [])].sort((a, b) =>
     String(a.name).localeCompare(String(b.name), undefined, { sensitivity: 'base' }),
@@ -6522,7 +10240,6 @@ const DISCOVERY_SOURCES = {
   claude: { id: 'claude', label: 'Claude', tip: 'From Claude narrative CSV' },
   census: { id: 'census', label: 'Census', tip: 'US Census population lookup on import' },
   dfs: { id: 'dfs', label: 'DFS', tip: 'DataForSEO Discovery SERP probe' },
-  gemini: { id: 'gemini', label: 'Gemini', tip: 'Gemini volume / keyword estimates' },
   ops: { id: 'ops', label: 'Rover', tip: 'Computed or set in Rover UI' },
 };
 
@@ -6570,17 +10287,9 @@ const DISCOVERY_TABLE_COLS = [
     key: 'Map Pack',
     label: 'Map Pack',
     sortable: true,
-    tip: 'Yes/No from DFS SERP probe (preferred). Gemini estimates only if no probe yet.',
+    tip: 'Yes/No from DFS SERP probe',
     cellClass: 'col-short',
     source: 'dfs',
-  },
-  {
-    key: 'Est. Cluster Volume',
-    label: 'Est. Volume',
-    sortable: true,
-    tip: 'Gemini estimated monthly search volume band (not Stage 1 Ads volumes)',
-    cellClass: 'col-truncate',
-    source: 'gemini',
   },
   {
     key: 'Average Job Cost',
@@ -6592,7 +10301,7 @@ const DISCOVERY_TABLE_COLS = [
   },
   {
     key: 'Organic Home Page',
-    label: 'Org Home',
+    label: 'Homepages',
     sortable: true,
     tip: 'Organic homepage count from DFS SERP probe (URL path / only; directories excluded). Not niche-title filtered.',
     cellClass: 'col-short',
@@ -6600,7 +10309,7 @@ const DISCOVERY_TABLE_COLS = [
   },
   {
     key: 'Organic Sub Page',
-    label: 'Org Sub',
+    label: 'Subpages',
     sortable: true,
     tip: 'Organic subpage count from DFS SERP probe (non-homepage URLs; directories excluded). Not niche-title filtered.',
     cellClass: 'col-short',
@@ -6610,7 +10319,7 @@ const DISCOVERY_TABLE_COLS = [
     key: 'confidence_serp',
     label: 'Conf SERP',
     sortable: true,
-    tip: 'high after DFS probe; otherwise Gemini confidence on estimates',
+    tip: 'high after DFS SERP probe',
     cellClass: 'col-short',
     source: 'dfs',
   },
@@ -6650,7 +10359,7 @@ const DISCOVERY_TABLE_COLS = [
     key: 'candidateId',
     label: 'Candidate',
     sortable: true,
-    tip: 'Linked candidate id after Process',
+    tip: 'Candidate id after promote, or “tracked” for pass/deprioritize',
     cellClass: 'col-truncate',
     source: 'ops',
   },
@@ -6681,7 +10390,7 @@ function renderSourceLegend(elId, { exclude = [] } = {}) {
 
 function renderDiscoverySourceLegend() {
   renderSourceLegend('discovery-source-legend');
-  renderSourceLegend('candidate-source-legend', { exclude: ['gemini'] });
+  renderSourceLegend('candidate-source-legend');
 }
 
 function normalizeMapPackFilterValue(raw) {
@@ -6727,10 +10436,6 @@ function parseDiscoverySortValue(row, key) {
   if (key === 'Organic Sub Page') {
     const n = Number(String(row['Organic Sub Page'] || '').replace(/[^0-9.-]/g, ''));
     return Number.isFinite(n) ? n : -1;
-  }
-  if (key === 'Est. Cluster Volume') {
-    const m = String(row['Est. Cluster Volume'] || '').match(/(\d+)/);
-    return m ? Number(m[1]) : -1;
   }
   return String(row[key] ?? '').toLowerCase();
 }
@@ -6837,12 +10542,43 @@ function flushDiscoveryNotesAutosave(idx) {
   return persistDiscoveryRowFromDom(idx);
 }
 
+async function reopenDiscoveryIndices(indices) {
+  if (!state.discoveryBatchId || !indices?.length) return;
+  try {
+    const result = await api(
+      `/api/discovery/batches/${encodeURIComponent(state.discoveryBatchId)}/reopen`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ indices }),
+      },
+    );
+    state.discoveryRows = result.rows;
+    await loadDiscoveryBatches();
+    renderDiscoveryTable();
+    updateDiscoveryStepChecks(
+      state.discoveryBatches.find((b) => b.id === state.discoveryBatchId) || {
+        id: state.discoveryBatchId,
+      },
+      state.discoveryRows,
+    );
+    showToast(
+      `Reopened ${result.reopened?.length || 0} row(s). Change Human if needed, then Process batch.`,
+    );
+  } catch (error) {
+    await showModal({
+      title: 'Reopen failed',
+      confirmLabel: 'OK',
+      bodyHtml: `<p>${esc(error.message)}</p>`,
+    });
+  }
+}
+
 async function acceptDiscoveryIndices(indices) {
   const updates = [];
   for (const idx of indices) {
     const row = state.discoveryRows[idx];
     if (!row?.recommended_decision) continue;
-    if (String(row.candidateId || '').trim()) continue;
+    if (isDiscoveryRowProcessed(row)) continue;
     updates.push({
       index: idx,
       human_decision: row.recommended_decision,
@@ -6900,26 +10636,29 @@ function renderDiscoveryTable() {
   }
 
   const view = getDiscoveryViewRows();
-  const pendingProcessCount = state.discoveryRows.filter(
-    (r) =>
-      String(r.human_decision || '').trim() && !String(r.candidateId || '').trim(),
-  ).length;
+  const pendingProcessCount = state.discoveryRows.filter(isDiscoveryRowPendingProcess).length;
   tbody.innerHTML = view
     .map(({ row, index: idx }) => {
       const checked = state.discoverySelected.has(idx) ? 'checked' : '';
-      const processed = Boolean(String(row.candidateId || '').trim());
+      const processStatus = discoveryRowProcessStatus(row);
+      const processed = Boolean(processStatus);
+      const tracked = processStatus === 'tracked';
       const cells = DISCOVERY_TABLE_COLS.map((col) => {
         const tdClass = col.cellClass ? ` class="${esc(col.cellClass)}"` : '';
         if (col.key === '_select') {
-          return `<td${tdClass}><input type="checkbox" data-disc-idx="${idx}" class="disc-row-check" ${checked} ${
-            processed ? 'disabled' : ''
-          } /></td>`;
+          return `<td${tdClass}><input type="checkbox" data-disc-idx="${idx}" class="disc-row-check" ${checked} /></td>`;
         }
         if (col.key === '_accept') {
-          const disabled = processed || !row.recommended_decision ? 'disabled' : '';
-          return `<td${tdClass}><button type="button" class="btn btn-accept" data-accept-idx="${idx}" data-tip="${
-            processed ? 'Already promoted to Candidates' : 'Copy Recommend → Human'
-          }" ${disabled}>${processed ? 'Done' : 'Accept'}</button></td>`;
+          if (tracked) {
+            return `<td${tdClass}><button type="button" class="btn btn-sm" data-reopen-idx="${idx}" data-tip="Clear tracked status so you can change Human and Process again">Reopen</button></td>`;
+          }
+          if (processed) {
+            return `<td${tdClass}><span class="metric metric-good" data-tip="In Candidates as ${esc(
+              row.candidateId || '',
+            )}">✓ Candidates</span></td>`;
+          }
+          const disabled = !row.recommended_decision ? 'disabled' : '';
+          return `<td${tdClass}><button type="button" class="btn btn-accept" data-accept-idx="${idx}" data-tip="Copy Recommend → Human" ${disabled}>Accept</button></td>`;
         }
         if (col.key === 'recommended_decision') {
           const rec = row.recommended_decision || '—';
@@ -6929,9 +10668,14 @@ function renderDiscoveryTable() {
         }
         if (col.key === 'human_decision') {
           const v = row.human_decision || '';
+          if (tracked) {
+            return `<td${tdClass}><span class="metric disc-tracked-mark" data-tip="Tracked (${esc(
+              v || '—',
+            )}) — not in Candidates. Reopen to change.">○ Tracked · ${esc(v || '—')}</span></td>`;
+          }
           if (processed) {
-            return `<td${tdClass}><span class="metric metric-good" data-tip="Already in Candidates as ${esc(
-              row.candidateId,
+            return `<td${tdClass}><span class="metric metric-good" data-tip="In Candidates as ${esc(
+              row.candidateId || '',
             )}">✓ ${esc(v || '—')}</span></td>`;
           }
           return `<td${tdClass}><select data-idx="${idx}" data-field="human_decision">${DISCOVERY_DECISION_OPTS.map(
@@ -6949,12 +10693,23 @@ function renderDiscoveryTable() {
             notes,
           )}" /></td>`;
         }
+        if (col.key === 'candidateId') {
+          if (tracked) {
+            return `<td${tdClass} data-tip="Tracked only — not a Candidate"><span class="cell-text muted">tracked</span></td>`;
+          }
+          const val = row.candidateId || '';
+          return `<td${tdClass} data-tip="${esc(val)}"><span class="cell-text">${esc(val || '—')}</span></td>`;
+        }
         const val = row[col.key] ?? '';
         return `<td${tdClass} data-tip="${esc(val)}"><span class="cell-text">${esc(val)}</span></td>`;
       });
-      return `<tr data-row-idx="${idx}" class="${processed ? 'disc-row-processed' : ''}">${cells.join(
-        '',
-      )}</tr>`;
+      const rowClass = [
+        processed ? 'disc-row-processed' : '',
+        tracked ? 'disc-row-tracked' : '',
+      ]
+        .filter(Boolean)
+        .join(' ');
+      return `<tr data-row-idx="${idx}" class="${rowClass}">${cells.join('')}</tr>`;
     })
     .join('');
 
@@ -6964,13 +10719,20 @@ function renderDiscoveryTable() {
       processBtn,
       pendingProcessCount === 0
         ? 'No unprocessed rows with a human decision'
-        : `Promote ${pendingProcessCount} decided row(s) not yet in Candidates`,
+        : `Process ${pendingProcessCount} decided row(s): pursue/maybe/review/hold → Candidates; pass/deprioritize → tracked`,
     );
+  }
+  const reopenSel = document.getElementById('discovery-reopen-selected');
+  if (reopenSel) {
+    const canReopen = [...state.discoverySelected].some((idx) =>
+      isDiscoveryRowProcessed(state.discoveryRows[idx]),
+    );
+    reopenSel.disabled = !canReopen;
   }
   if (acceptSel) acceptSel.disabled = state.discoverySelected.size === 0;
   if (acceptAll) {
     acceptAll.disabled = !view.some(
-      ({ row }) => row.recommended_decision && !String(row.candidateId || '').trim(),
+      ({ row }) => row.recommended_decision && !isDiscoveryRowProcessed(row),
     );
   }
   syncDiscoveryFilterInputs();
@@ -6997,11 +10759,22 @@ function renderDiscoveryTable() {
       if (cb.checked) state.discoverySelected.add(idx);
       else state.discoverySelected.delete(idx);
       if (acceptSel) acceptSel.disabled = state.discoverySelected.size === 0;
+      const reopenBtn = document.getElementById('discovery-reopen-selected');
+      if (reopenBtn) {
+        reopenBtn.disabled = ![...state.discoverySelected].some((i) =>
+          isDiscoveryRowProcessed(state.discoveryRows[i]),
+        );
+      }
     });
   });
   tbody.querySelectorAll('[data-accept-idx]').forEach((btn) => {
     btn.addEventListener('click', async () => {
       await acceptDiscoveryIndices([Number(btn.dataset.acceptIdx)]);
+    });
+  });
+  tbody.querySelectorAll('[data-reopen-idx]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      await reopenDiscoveryIndices([Number(btn.dataset.reopenIdx)]);
     });
   });
 }
@@ -7022,7 +10795,9 @@ async function selectDiscoveryBatch(id) {
       ? `SERP $${serp.costUsd ?? '?'} · MP ${serp.mapPackYes ?? '?'}/${serp.mapPackNo ?? '?'}`
       : null,
     data.batch.lastProcess
-      ? `process +${data.batch.lastProcess.promoted?.length || 0}/−${data.batch.lastProcess.skipped?.length || 0}`
+      ? `process +${data.batch.lastProcess.promoted?.length || 0} · ○${
+          data.batch.lastProcess.tracked?.length || 0
+        } · −${data.batch.lastProcess.skipped?.length || 0}`
       : null,
   ]
     .filter(Boolean)
@@ -7031,11 +10806,6 @@ async function selectDiscoveryBatch(id) {
   if (batchSel && batchSel.value !== data.batch.id) {
     batchSel.value = data.batch.id;
   }
-  // Collapse SERP/Gemini tools when a batch is loaded to keep sidebar short
-  const serpSec = document.getElementById('discovery-serp-section');
-  const gemSec = document.getElementById('discovery-gemini-section');
-  if (serpSec) serpSec.open = false;
-  if (gemSec) gemSec.open = false;
   const logEl = document.getElementById('discovery-process-log');
   if (logEl) {
     const lp = data.batch.lastProcess;
@@ -7044,9 +10814,11 @@ async function selectDiscoveryBatch(id) {
       const linked = (lp.promoted || []).filter((p) => p.linkedExisting).length;
       logEl.innerHTML = `<p class="muted">Last process: +${esc(
         String(lp.promoted?.length || 0),
-      )}${linked ? ` (${esc(String(linked))} linked)` : ''} · −${esc(
-        String(lp.skipped?.length || 0),
-      )} · Stage 1 ×${esc(String(lp.pursueQueued?.length || 0))}</p>`;
+      )} Candidates${linked ? ` (${esc(String(linked))} linked)` : ''} · ○${esc(
+        String(lp.tracked?.length || 0),
+      )} tracked · −${esc(String(lp.skipped?.length || 0))} skipped · Stage 1 ×${esc(
+        String(lp.pursueQueued?.length || 0),
+      )}</p>`;
     } else {
       logEl.classList.add('hidden');
       logEl.innerHTML = '';
@@ -7072,23 +10844,54 @@ async function selectDiscoveryBatch(id) {
 }
 
 function updateDiscoveryStepChecks(batch, rows) {
-  const rail = document.getElementById('discovery-steps');
-  if (!rail) return;
   const hasRows = (rows?.length || 0) > 0;
+  const serpDone =
+    Boolean(batch?.lastSerpProbe) ||
+    (hasRows && rows.some((r) => String(r.serp_source || '').includes('dataforseo')));
   const steps = {
     claude: hasRows || Boolean(batch?.files?.lastImport) || Boolean(batch?.rowCount),
-    serpProbe:
-      Boolean(batch?.lastSerpProbe) ||
-      (hasRows && rows.some((r) => String(r.serp_source || '').includes('dataforseo'))),
-    geminiVolumes:
-      hasRows && rows.some((r) => String(r['Est. Cluster Volume'] || '').trim() !== ''),
+    enrich: serpDone,
     decisions: hasRows && rows.some((r) => String(r.human_decision || '').trim() !== ''),
-    processed: batch?.stage === 'discovery_processed' || Boolean(batch?.lastProcess),
+    processed:
+      batch?.stage === 'discovery_processed' ||
+      Boolean(batch?.lastProcess) ||
+      (hasRows && rows.some((r) => isDiscoveryRowProcessed(r))),
   };
-  rail.querySelectorAll('.disc-step').forEach((el) => {
+  const rail = document.getElementById('discovery-steps');
+  rail?.querySelectorAll('.disc-step').forEach((el) => {
     const key = el.dataset.step;
     el.classList.toggle('done', Boolean(steps[key]));
   });
+
+  const packDone =
+    Boolean(state.lastDiscoveryPack) ||
+    Boolean(batch?.id) ||
+    Boolean(state.discoveryBatchId);
+  const flowDone = {
+    pack: packDone,
+    claude: Boolean(state.discoveryClaudeSent) || steps.claude,
+    import: steps.claude,
+    enrich: serpDone,
+  };
+  document.querySelectorAll('.discovery-flow-step[data-flow-step]').forEach((el) => {
+    const key = el.dataset.flowStep;
+    el.classList.toggle('done', Boolean(flowDone[key]));
+  });
+}
+
+function showDiscoverySidebarStep(step) {
+  const sections = {
+    pack: document.getElementById('discovery-new-pack-section'),
+    claude: document.getElementById('discovery-claude-pack-section'),
+    import: document.getElementById('discovery-import-section'),
+    enrich: document.getElementById('discovery-enrich-section'),
+  };
+  for (const [key, el] of Object.entries(sections)) {
+    if (!el) continue;
+    const isCurrent = key === step;
+    el.open = isCurrent;
+    el.classList.toggle('current', isCurrent);
+  }
 }
 
 function wireDiscoveryUi() {
@@ -7098,13 +10901,18 @@ function wireDiscoveryUi() {
       if (btn.dataset.view === 'discovery') {
         loadDiscoveryBatches().catch(() => {});
       }
-      if (btn.dataset.view === 'sites') {
+      if (btn.dataset.view === 'launched-sites' || btn.dataset.view === 'sites') {
         loadSites().catch(() => {});
+      }
+      if (btn.dataset.view === 'phone') {
+        loadPhoneView().catch(() => {});
       }
     });
   });
 
+  showDiscoverySidebarStep('pack');
   wireSitesUi();
+  wirePhoneUi();
 
   document.getElementById('discovery-batch-select')?.addEventListener('change', (event) => {
     const id = event.target.value;
@@ -7114,21 +10922,21 @@ function wireDiscoveryUi() {
   document.getElementById('discovery-form').addEventListener('submit', async (event) => {
     event.preventDefault();
     const fd = new FormData(event.target);
-    const niches = [...event.target.querySelectorAll('input[name="niche"]:checked')].map(
-      (el) => el.value,
-    );
-    const custom = String(fd.get('customNiche') || '').trim();
-    if (custom) niches.push(custom);
-    const cities = String(fd.get('cities') || '')
-      .split('|')
-      .map((s) => s.trim())
-      .filter(Boolean);
+    const niches = [
+      ...event.target.querySelectorAll('input[name="niche"]:checked'),
+    ].map((el) => el.value);
+    for (const n of parseDiscoveryNicheList(fd.get('suggestedNiches'))) {
+      if (!niches.some((x) => String(x).toLowerCase() === n.toLowerCase())) niches.push(n);
+    }
+    const requiredNiches = parseDiscoveryNicheList(fd.get('requiredNiches'));
+    const cities = splitDiscoveryCities(fd.get('packCities'));
     try {
       const pack = await api('/api/discovery/pack', {
         method: 'POST',
         body: JSON.stringify({
-          state: String(fd.get('state') || '').toUpperCase(),
+          state: normalizeDiscoveryStateInput(String(fd.get('packState') || '')),
           niches,
+          requiredNiches,
           cities,
           categories: [...event.target.querySelectorAll('input[name="category"]:checked')].map(
             (el) => el.value,
@@ -7146,56 +10954,34 @@ function wireDiscoveryUi() {
       });
       state.lastDiscoveryPack = pack;
       state.discoveryBatchId = pack.batch.id;
+      state.discoveryClaudeSent = false;
       const box = document.getElementById('discovery-pack-result');
+      const empty = document.getElementById('discovery-pack-empty');
+      if (empty) empty.classList.add('hidden');
       box.classList.remove('hidden');
-      const claudeCsv = pack.claudeCsvName || pack.batch?.files?.claudeCsv || '';
-      const geminiCsv = pack.geminiCsvName || pack.batch?.files?.geminiCsv || '';
       box.innerHTML = `
-        <div class="callout">Pack ready · <strong>${esc(pack.batch.id)}</strong> · empty CSV · max ${esc(String(pack.batch.filters?.maxRows ?? ''))}<br/>
-          Claude file: <code>${esc(claudeCsv)}</code> · Gemini file: <code>${esc(geminiCsv)}</code>
-          ${
-            pack.knownCandidatesCount
-              ? `<br/><span class="muted">Known candidates injected into Claude prompt: ${esc(
-                  String(pack.knownCandidatesCount),
-                )} (research/known-candidates.csv)</span>`
-              : ''
-          }
-        </div>
-        <div class="narrative-actions">
-          <button type="button" class="btn primary" id="dl-discovery-csv">Download CSV template</button>
-          <button type="button" class="btn" id="dl-discovery-claude">Download Claude prompt</button>
-          <button type="button" class="btn" id="dl-discovery-gemini">Download Gemini prompt</button>
-          <button type="button" class="btn" id="copy-discovery-claude">Copy Claude prompt</button>
-          <button type="button" class="btn" id="copy-discovery-gemini">Copy Gemini prompt</button>
-        </div>
-        <ol class="discovery-steps">
-          <li>Claude → import CSV</li>
-          <li><strong>DFS SERP probe</strong> (~$0.002/row) → Map Pack + organic · Recommend</li>
-          <li>Gemini volumes · Accept / Process · pursue → Stage 1</li>
+        <ol class="discovery-pack-next">
+          <li><button type="button" class="btn primary" id="dl-discovery-csv">Download Discovery Pack Template</button></li>
+          <li><button type="button" class="btn" id="copy-discovery-claude">Copy Claude Prompt</button></li>
+          <li>Paste both in <a href="https://claude.ai" target="_blank" rel="noopener noreferrer">Claude.ai</a></li>
         </ol>
       `;
       document.getElementById('dl-discovery-csv').onclick = () =>
         downloadText(pack.csvName || 'discovery.csv', pack.csv, 'text/csv');
-      document.getElementById('dl-discovery-claude').onclick = () =>
-        downloadText('prompt-claude.md', pack.claudePrompt);
-      document.getElementById('dl-discovery-gemini').onclick = () =>
-        downloadText('prompt-gemini.md', pack.geminiPrompt);
+      const markClaudeSent = () => {
+        state.discoveryClaudeSent = true;
+        updateDiscoveryStepChecks(pack.batch, state.discoveryRows);
+        showDiscoverySidebarStep('import');
+      };
       document.getElementById('copy-discovery-claude').onclick = async () => {
         await navigator.clipboard.writeText(pack.claudePrompt);
-        await showModal({
-          title: 'Copied',
-          confirmLabel: 'OK',
-          bodyHtml: '<p>Claude prompt is on your clipboard.</p>',
-        });
+        showToast('Claude prompt copied to clipboard.');
       };
-      document.getElementById('copy-discovery-gemini').onclick = async () => {
-        await navigator.clipboard.writeText(pack.geminiPrompt);
-        await showModal({
-          title: 'Copied',
-          confirmLabel: 'OK',
-          bodyHtml: '<p>Gemini prompt is on your clipboard.</p>',
-        });
-      };
+      box.querySelector('a[href="https://claude.ai"]')?.addEventListener('click', () => {
+        markClaudeSent();
+      });
+      showDiscoverySidebarStep('claude');
+      updateDiscoveryStepChecks(pack.batch, state.discoveryRows);
       await loadDiscoveryBatches();
       await selectDiscoveryBatch(pack.batch.id);
     } catch (error) {
@@ -7235,11 +11021,11 @@ function wireDiscoveryUi() {
       });
       state.lastDiscoveryPack = {
         ...(state.lastDiscoveryPack || {}),
-        geminiPrompt: result.geminiPrompt || state.lastDiscoveryPack?.geminiPrompt,
         batch: result.batch,
       };
       await loadDiscoveryBatches();
       await selectDiscoveryBatch(result.batch.id);
+      showDiscoverySidebarStep('enrich');
       const warns = result.batch.popBandWarnings || [];
       const warnHtml = warns.length
         ? `<p class="muted">${esc(String(warns.length))} row(s) outside preferred pop band.</p>`
@@ -7247,7 +11033,7 @@ function wireDiscoveryUi() {
       await showModal({
         title: 'Claude CSV imported',
         confirmLabel: 'OK',
-        bodyHtml: `<p>Loaded <strong>${esc(String(result.rows.length))}</strong> rows. Gemini prompt rebuilt with these rows — use <strong>Copy Gemini prompt (with rows)</strong>.</p>${warnHtml}`,
+        bodyHtml: `<p>Loaded <strong>${esc(String(result.rows.length))}</strong> rows. Next: <strong>SERP probe</strong>.</p>${warnHtml}`,
       });
     } catch (error) {
       await showModal({
@@ -7258,7 +11044,11 @@ function wireDiscoveryUi() {
     }
   });
 
-  document.getElementById('copy-batch-gemini-prompt')?.addEventListener('click', async () => {
+  document.getElementById('discovery-enrich-pack-btn')?.addEventListener('click', () =>
+    runDiscoverySerpProbeUi(),
+  );
+
+  async function runDiscoverySerpProbeUi() {
     if (!state.discoveryBatchId) {
       await showModal({
         title: 'No batch',
@@ -7267,217 +11057,121 @@ function wireDiscoveryUi() {
       });
       return;
     }
+    const progress = document.getElementById('discovery-probe-progress');
+    const bar = document.getElementById('discovery-probe-bar');
+    const labelEl = document.getElementById('discovery-probe-label');
+    const detailEl = document.getElementById('discovery-probe-detail');
+    showDiscoverySidebarStep('enrich');
     try {
-      const data = await api(
-        `/api/discovery/batches/${encodeURIComponent(state.discoveryBatchId)}/gemini-prompt`,
+      const preview = await api(
+        `/api/discovery/batches/${encodeURIComponent(state.discoveryBatchId)}/serp-probe/preview`,
       );
-      await navigator.clipboard.writeText(data.geminiPrompt);
-      await showModal({
-        title: 'Copied',
-        confirmLabel: 'OK',
-        bodyHtml: '<p>Gemini prompt (with Claude rows embedded) is on your clipboard.</p>',
-      });
-    } catch (error) {
-      await showModal({
-        title: 'Copy failed',
-        confirmLabel: 'OK',
-        bodyHtml: `<p>${esc(error.message)}</p>`,
-      });
-    }
-  });
-
-  document.getElementById('discovery-serp-probe-btn')?.addEventListener('click', () =>
-    runDiscoverySerpProbeUi(),
-  );
-
-  async function runDiscoverySerpProbeUi() {
-  if (!state.discoveryBatchId) {
-    await showModal({
-      title: 'No batch',
-      confirmLabel: 'OK',
-      bodyHtml: '<p>Select a batch and import Claude CSV first.</p>',
-    });
-    return;
-  }
-  const progress = document.getElementById('discovery-probe-progress');
-  const bar = document.getElementById('discovery-probe-bar');
-  const labelEl = document.getElementById('discovery-probe-label');
-  const detailEl = document.getElementById('discovery-probe-detail');
-  try {
-    const preview = await api(
-      `/api/discovery/batches/${encodeURIComponent(state.discoveryBatchId)}/serp-probe/preview`,
-    );
-    if (!preview.hasDataForSeo) {
-      await showModal({
-        title: 'DataForSEO required',
-        confirmLabel: 'OK',
-        bodyHtml:
-          '<p>Add <code>DATAFORSEO_LOGIN</code> / <code>DATAFORSEO_PASSWORD</code> to <code>.env</code> to run the Discovery SERP probe.</p>',
-      });
-      return;
-    }
-    const bal =
-      state.dfsBalance?.ok && state.dfsBalance.balance != null
-        ? `<p class="muted">DFS balance: ${esc(formatMoney(state.dfsBalance.balance))}</p>`
-        : '';
-    const ok = await showModal({
-      title: 'Run Discovery SERP probe?',
-      confirmLabel: preview.confirmLabel || 'Probe',
-      bodyHtml: `
+      if (!preview.hasDataForSeo) {
+        await showModal({
+          title: 'DataForSEO required',
+          confirmLabel: 'OK',
+          bodyHtml:
+            '<p>Add <code>DATAFORSEO_LOGIN</code> / <code>DATAFORSEO_PASSWORD</code> to <code>.env</code> to run the Discovery SERP probe.</p>',
+        });
+        return;
+      }
+      const bal =
+        state.dfsBalance?.ok && state.dfsBalance.balance != null
+          ? `<p class="muted">DFS balance: ${esc(formatMoney(state.dfsBalance.balance))}</p>`
+          : '';
+      const ok = await showModal({
+        title: 'Run Discovery SERP probe?',
+        confirmLabel: preview.confirmLabel || 'Probe',
+        bodyHtml: `
           <p>${esc(preview.estimateLabel || '')}</p>
           <p class="muted">${esc(preview.estimateDetail || '')}</p>
           ${bal}
           <p class="muted">Overwrites Map Pack + organic/directory counts, then re-runs Recommend.</p>
         `,
-    });
-    if (!ok) return;
-    for (const id of ['discovery-serp-probe-btn']) {
-      const b = document.getElementById(id);
-      if (b) b.disabled = true;
-    }
-    if (progress) progress.classList.remove('hidden');
-    if (bar) {
-      bar.style.width = '0%';
-      bar.style.animation = 'none';
-    }
-    if (labelEl) labelEl.textContent = 'Starting SERP probe…';
-    if (detailEl) detailEl.textContent = `0 / ${preview.probeCount}`;
-
-    const started = await api(
-      `/api/discovery/batches/${encodeURIComponent(state.discoveryBatchId)}/serp-probe`,
-      { method: 'POST', body: JSON.stringify({ concurrency: 1 }) },
-    );
-    const jobId = started.jobId;
-    if (!jobId) throw new Error('Probe did not return a job id');
-
-    await new Promise((resolve, reject) => {
-      const tick = async () => {
-        try {
-          const job = await api(`/api/discovery/serp-probe-jobs/${encodeURIComponent(jobId)}`);
-          const pct = job.total ? Math.round((100 * (job.done || 0)) / job.total) : 0;
-          if (bar) bar.style.width = `${pct}%`;
-          if (labelEl) {
-            labelEl.textContent =
-              job.status === 'running'
-                ? `Probing ${job.done || 0} / ${job.total}`
-                : `Probe ${job.status}`;
-          }
-          if (detailEl) {
-            detailEl.textContent = job.currentLabel
-              ? job.currentLabel
-              : `ok ${job.ok || 0} · errors ${job.errors || 0} · ${formatMoney(job.costUsd || 0)}`;
-          }
-          if (job.status === 'running') {
-            setTimeout(tick, 400);
-            return;
-          }
-          resolve(job);
-        } catch (error) {
-          reject(error);
-        }
-      };
-      tick();
-    }).then(async (job) => {
-      await loadDiscoveryBatches();
-      await selectDiscoveryBatch(job.batchId || state.discoveryBatchId);
-      if (progress) progress.classList.add('hidden');
-      const p = job.probe || job;
-      await showModal({
-        title: 'SERP probe complete',
-        confirmLabel: 'OK',
-        bodyHtml: `<p>Probed <strong>${esc(String(p.probed || job.total || 0))}</strong> · ok ${esc(
-          String(p.ok ?? job.ok ?? 0),
-        )} · errors ${esc(String(p.errors ?? job.errors ?? 0))}</p>
-        <p>Map Pack Yes ${esc(String(p.mapPackYes ?? job.mapPackYes ?? 0))} · No ${esc(
-          String(p.mapPackNo ?? job.mapPackNo ?? 0),
-        )} · flips to Yes ${esc(String(p.flipsToYes ?? job.flipsToYes ?? 0))} · flips to No ${esc(
-          String(p.flipsToNo ?? job.flipsToNo ?? 0),
-        )}</p>
-        <p><strong>Cost:</strong> ${
-          (p.costUsd ?? job.costUsd) != null
-            ? esc(formatMoney(p.costUsd ?? job.costUsd))
-            : '—'
-        }</p>`,
       });
-      await loadDfsBalance();
-    });
-  } catch (error) {
-    if (progress) progress.classList.add('hidden');
-    await showModal({
-      title: 'SERP probe failed',
-      confirmLabel: 'OK',
-      bodyHtml: `<p>${esc(error.message)}</p>`,
-    });
-  } finally {
-    for (const id of ['discovery-serp-probe-btn']) {
-      const b = document.getElementById(id);
-      if (b) b.disabled = false;
-    }
-  }
-}
+      if (!ok) return;
+      const enrichBtn = document.getElementById('discovery-enrich-pack-btn');
+      if (enrichBtn) enrichBtn.disabled = true;
+      if (progress) progress.classList.remove('hidden');
+      if (bar) {
+        bar.style.width = '0%';
+        bar.style.animation = 'none';
+      }
+      if (labelEl) labelEl.textContent = 'Starting SERP probe…';
+      if (detailEl) detailEl.textContent = `0 / ${preview.probeCount}`;
 
-  document.getElementById('discovery-gemini-merge-btn')?.addEventListener('click', async () => {
-    const paste = document.getElementById('discovery-gemini-paste')?.value || '';
-    if (!state.discoveryBatchId) {
-      await showModal({
-        title: 'No batch',
-        confirmLabel: 'OK',
-        bodyHtml: '<p>Select a batch and import Claude CSV first.</p>',
-      });
-      return;
-    }
-    if (!paste.trim()) {
-      await showModal({
-        title: 'Nothing to merge',
-        confirmLabel: 'OK',
-        bodyHtml: '<p>Paste Gemini’s full DONE + CSV reply first.</p>',
-      });
-      return;
-    }
-    try {
-      const result = await api(
-        `/api/discovery/batches/${encodeURIComponent(state.discoveryBatchId)}/gemini-merge`,
-        {
-          method: 'POST',
-          body: JSON.stringify({ paste }),
-        },
+      const started = await api(
+        `/api/discovery/batches/${encodeURIComponent(state.discoveryBatchId)}/serp-probe`,
+        { method: 'POST', body: JSON.stringify({ concurrency: 1 }) },
       );
-      await loadDiscoveryBatches();
-      await selectDiscoveryBatch(result.batch.id);
-      const unmatched = result.unmatched || [];
-      const unmatchedHtml = unmatched.length
-        ? `<p class="muted">${esc(String(unmatched.length))} Claude row(s) had no Gemini match:</p><ul>${unmatched
-            .slice(0, 8)
-            .map((u) => `<li>${esc(u)}</li>`)
-            .join('')}</ul>`
-        : '';
-      const warnings = result.mergeWarnings || result.batch?.geminiMerge?.warnings || [];
-      const warnCount = result.batch?.geminiMerge?.warningCount ?? warnings.length;
-      const warningsHtml = warnings.length
-        ? `<p class="warn-text">${esc(String(warnCount))} field warning(s) — invalid/shifted cells were skipped or healed:</p><ul class="merge-warn-list">${warnings
-            .slice(0, 12)
-            .map((w) => `<li>${esc(w)}</li>`)
-            .join('')}</ul>${
-            warnCount > 12
-              ? `<p class="muted">…and ${esc(String(warnCount - 12))} more</p>`
-              : ''
-          }`
-        : '';
-      await showModal({
-        title: 'Gemini merged',
-        confirmLabel: 'OK',
-        bodyHtml: `<p>Matched <strong>${esc(String(result.matched))}</strong> / ${esc(
-          String(result.batch.rowCount),
-        )} rows. Wrote <code>${esc(result.batch.files?.geminiCsv || '')}</code>.</p>${unmatchedHtml}${warningsHtml}`,
+      const jobId = started.jobId;
+      if (!jobId) throw new Error('Probe did not return a job id');
+
+      await new Promise((resolve, reject) => {
+        const tick = async () => {
+          try {
+            const job = await api(`/api/discovery/serp-probe-jobs/${encodeURIComponent(jobId)}`);
+            const pct = job.total ? Math.round((100 * (job.done || 0)) / job.total) : 0;
+            if (bar) bar.style.width = `${pct}%`;
+            if (labelEl) {
+              labelEl.textContent =
+                job.status === 'running'
+                  ? `Probing ${job.done || 0} / ${job.total}`
+                  : `Probe ${job.status}`;
+            }
+            if (detailEl) {
+              detailEl.textContent = job.currentLabel
+                ? job.currentLabel
+                : `ok ${job.ok || 0} · errors ${job.errors || 0} · ${formatMoney(job.costUsd || 0)}`;
+            }
+            if (job.status === 'running') {
+              setTimeout(tick, 400);
+              return;
+            }
+            resolve(job);
+          } catch (error) {
+            reject(error);
+          }
+        };
+        tick();
+      }).then(async (job) => {
+        await loadDiscoveryBatches();
+        await selectDiscoveryBatch(job.batchId || state.discoveryBatchId);
+        if (progress) progress.classList.add('hidden');
+        const p = job.probe || job;
+        await showModal({
+          title: 'SERP probe complete',
+          confirmLabel: 'OK',
+          bodyHtml: `<p>Probed <strong>${esc(String(p.probed || job.total || 0))}</strong> · ok ${esc(
+            String(p.ok ?? job.ok ?? 0),
+          )} · errors ${esc(String(p.errors ?? job.errors ?? 0))}</p>
+          <p>Map Pack Yes ${esc(String(p.mapPackYes ?? job.mapPackYes ?? 0))} · No ${esc(
+            String(p.mapPackNo ?? job.mapPackNo ?? 0),
+          )} · flips to Yes ${esc(String(p.flipsToYes ?? job.flipsToYes ?? 0))} · flips to No ${esc(
+            String(p.flipsToNo ?? job.flipsToNo ?? 0),
+          )}</p>
+          <p><strong>Cost:</strong> ${
+            (p.costUsd ?? job.costUsd) != null
+              ? esc(formatMoney(p.costUsd ?? job.costUsd))
+              : '—'
+          }</p>`,
+        });
+        showDiscoverySidebarStep(null);
+        await loadDfsBalance();
       });
     } catch (error) {
+      if (progress) progress.classList.add('hidden');
       await showModal({
-        title: 'Gemini merge failed',
+        title: 'SERP probe failed',
         confirmLabel: 'OK',
         bodyHtml: `<p>${esc(error.message)}</p>`,
       });
+    } finally {
+      const enrichBtn = document.getElementById('discovery-enrich-pack-btn');
+      if (enrichBtn) enrichBtn.disabled = false;
     }
-  });
+  }
+
   document.getElementById('discovery-accept-selected')?.addEventListener('click', async () => {
     await acceptDiscoveryIndices([...state.discoverySelected]);
   });
@@ -7555,6 +11249,28 @@ function wireDiscoveryUi() {
   bindFilter('discovery-filter-rec', 'rec');
   bindFilter('discovery-filter-mappack', 'mapPack');
 
+  document.getElementById('discovery-reopen-selected')?.addEventListener('click', async () => {
+    const indices = [...state.discoverySelected].filter((idx) =>
+      isDiscoveryRowProcessed(state.discoveryRows[idx]),
+    );
+    if (!indices.length) {
+      await showModal({
+        title: 'Nothing to reopen',
+        confirmLabel: 'OK',
+        bodyHtml: '<p>Select processed or tracked rows first.</p>',
+      });
+      return;
+    }
+    const ok = await showModal({
+      title: 'Reopen selected rows?',
+      confirmLabel: `Reopen ${indices.length}`,
+      bodyHtml:
+        '<p>Clears processed/tracked markers so you can change Human and Process again. Existing Candidate files are kept.</p>',
+    });
+    if (!ok) return;
+    await reopenDiscoveryIndices(indices);
+  });
+
   document.getElementById('discovery-process-btn')?.addEventListener('click', async () => {
     if (!state.discoveryBatchId) return;
     // Flush any pending notes timers, then persist all DOM edits
@@ -7565,20 +11281,21 @@ function wireDiscoveryUi() {
       .filter(Boolean);
     await persistDiscoveryDecisions(updates);
 
-    const withDecision = state.discoveryRows.filter(
-      (r) =>
-        String(r.human_decision || '').trim() && !String(r.candidateId || '').trim(),
-    );
-    const alreadyCount = state.discoveryRows.filter((r) =>
-      String(r.candidateId || '').trim(),
-    ).length;
+    const withDecision = state.discoveryRows.filter(isDiscoveryRowPendingProcess);
+    const alreadyCount = state.discoveryRows.filter(isDiscoveryRowProcessed).length;
     const pursueCount = withDecision.filter((r) => r.human_decision === 'pursue').length;
+    const promoteCount = withDecision.filter((r) =>
+      ['pursue', 'maybe', 'review', 'hold'].includes(r.human_decision),
+    ).length;
+    const trackCount = withDecision.filter((r) =>
+      ['pass', 'deprioritize', 'pass_unless_gbp_angle'].includes(r.human_decision),
+    ).length;
     if (!withDecision.length) {
       await showModal({
         title: 'Nothing to process',
         confirmLabel: 'OK',
         bodyHtml: alreadyCount
-          ? '<p>All decided rows are already in Candidates. Set decisions on remaining rows, or open Candidates.</p>'
+          ? '<p>All decided rows are already processed. Set decisions on remaining rows, Reopen tracked rows, or open Candidates.</p>'
           : '<p>Set human decisions (or Accept recommendations) first.</p>',
       });
       return;
@@ -7592,19 +11309,19 @@ function wireDiscoveryUi() {
             adsMode === 'standard'
               ? 'Standard queue (cheaper, slower — overnight OK)'
               : 'Live (faster)'
-          }. Change on Candidates → Run research.</p>`
+          }. Change on Candidates → Ad volumes.</p>`
         : '';
     const ok = await showModal({
       title: 'Process discovery batch?',
       confirmLabel: pursueCount
         ? `Process + Stage 1 (${pursueCount} pursue)`
-        : 'Process (no Stage 1)',
-      bodyHtml: `<p>Promote <strong>${esc(String(withDecision.length))}</strong> new decided rows into Candidates${
-        alreadyCount ? ` (skipping ${esc(String(alreadyCount))} already processed)` : ''
-      }.</p>
+        : 'Process',
+      bodyHtml: `<p><strong>${esc(String(promoteCount))}</strong> → Candidates · <strong>${esc(
+        String(trackCount),
+      )}</strong> tracked (pass/deprioritize/…) · already done ${esc(String(alreadyCount))}.</p>
         <p><strong>Pursue → Stage 1:</strong> ${esc(String(pursueCount))} · est. $${esc(estLow)}–$${esc(estHigh)} DFS</p>
         ${adsLine}
-        <p class="muted">maybe/review/hold/pass land in Candidates without research.</p>`,
+        <p class="muted">Blank Human rows are ignored. Pass does not create Candidates.</p>`,
     });
     if (!ok) return;
     try {
@@ -7623,6 +11340,7 @@ function wireDiscoveryUi() {
       state.discoveryRows = result.rows;
       renderDiscoveryTable();
       await loadCandidates();
+      await loadDiscoveryBatches();
       if (result.batchJob?.id) {
         state.activeBatchJobId = result.batchJob.id;
         state.activeAct = 'research';
@@ -7633,13 +11351,15 @@ function wireDiscoveryUi() {
       ).length;
       const fullyDone =
         (result.rows || []).length > 0 &&
-        (result.rows || []).every((r) => String(r.candidateId || '').trim());
+        (result.rows || []).every((r) => isDiscoveryRowProcessed(r));
+      const openCandidates =
+        fullyDone && (result.promoted?.length || 0) > 0;
       await showModal({
         title: fullyDone ? 'Batch fully processed' : 'Batch processed',
-        confirmLabel: fullyDone ? 'Open Candidates' : 'OK',
-        bodyHtml: `<p>Promoted <strong>${esc(String(result.promoted.length))}</strong> · skipped ${esc(
-          String(result.skipped.length),
-        )}${
+        confirmLabel: openCandidates ? 'Open Research' : 'OK',
+        bodyHtml: `<p>+<strong>${esc(String(result.promoted?.length || 0))}</strong> Candidates · ○<strong>${esc(
+          String(result.tracked?.length || 0),
+        )}</strong> tracked · skipped ${esc(String(result.skipped?.length || 0))}${
           alreadySkipped
             ? ` (${esc(String(alreadySkipped))} already processed)`
             : ''
@@ -7650,15 +11370,16 @@ function wireDiscoveryUi() {
               )} linked to existing candidates (anti-dupe).`
             : ''
         }</p><p class="muted">${
-          fullyDone
-            ? 'Every row is in Candidates — switching to that tab filtered to this batch.'
-            : 'pass / deprioritize land in Candidates decision groups (filterable archives).'
+          openCandidates
+            ? 'Switching to Research filtered to this batch.'
+            : 'Tracked passes stay out of Research — Reopen a row to change your mind.'
         }</p>`,
       });
-      if (fullyDone) {
+      updateDiscoveryStepChecks(result.batch, result.rows);
+      if (openCandidates) {
         state.candidateBatchFilter = batchId;
         fillCandidateBatchFilterSelect();
-        setView('candidates');
+        setView('research');
         renderList();
         renderActions();
       }

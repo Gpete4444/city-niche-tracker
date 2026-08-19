@@ -218,3 +218,141 @@ export function pushAssembledSiteToGithub(siteRoot, opts = {}) {
     human,
   };
 }
+
+const DIFF_FILE_CAP = 80;
+const DIFF_DIRTY_CAP = 40;
+const DIFF_STAT_CAP = 4000;
+
+/**
+ * Ensure origin points at the known GitHub repo (force Assemble wipes remotes).
+ * Does not create the repo — only attaches remote for fetch/diff.
+ */
+function ensureOriginRemote(siteRoot, githubFullName) {
+  const abs = path.resolve(siteRoot);
+  const existing = remoteUrl(abs);
+  if (existing) return { ok: true, remoteUrl: existing, added: false };
+
+  const full = String(githubFullName || '').trim().replace(/^https?:\/\/github\.com\//i, '').replace(/\.git$/i, '');
+  if (!full || !full.includes('/')) {
+    return { ok: false, remoteUrl: null, added: false };
+  }
+  const url = `https://github.com/${full}.git`;
+  const add = runGit(['remote', 'add', 'origin', url], abs, { allowFail: true });
+  if (!add.ok) {
+    // Remote name exists but URL missing/broken — try set-url
+    runGit(['remote', 'set-url', 'origin', url], abs, { allowFail: true });
+  }
+  const after = remoteUrl(abs);
+  return { ok: Boolean(after), remoteUrl: after, added: true };
+}
+
+/**
+ * Compare assembled site working tree / HEAD to origin/main after fetch.
+ * Tree diff (not ancestry) — force Assemble rewrites history.
+ *
+ * @param {string} siteRoot
+ * @param {{ githubFullName?: string }} [opts]
+ */
+export function diffAssembledAgainstRemote(siteRoot, opts = {}) {
+  const abs = path.resolve(siteRoot);
+  if (!existsSync(abs)) {
+    return {
+      status: 'no_assembled',
+      fetchOk: false,
+      dirty: [],
+      files: [],
+      stat: '',
+      summary: 'Assembled site folder not found.',
+      remoteUrl: null,
+    };
+  }
+  if (!existsSync(path.join(abs, '.git'))) {
+    return {
+      status: 'unknown',
+      fetchOk: false,
+      dirty: [],
+      files: [],
+      stat: '',
+      summary: 'Assembled site has no git repo yet.',
+      remoteUrl: null,
+    };
+  }
+
+  const ensured = ensureOriginRemote(abs, opts.githubFullName);
+  let origin = remoteUrl(abs);
+  if (!origin) {
+    return {
+      status: 'no_remote',
+      fetchOk: false,
+      dirty: [],
+      files: [],
+      stat: '',
+      summary: 'No GitHub remote yet — first Push / Launch will create it.',
+      remoteUrl: null,
+      remoteAttached: ensured.added,
+    };
+  }
+
+  const fetch = runGit(['fetch', 'origin'], abs, { allowFail: true });
+  const fetchOk = fetch.ok;
+
+  const porcelain = runGit(['status', '--porcelain'], abs, { allowFail: true });
+  const dirty = String(porcelain.stdout || '')
+    .split(/\r?\n/)
+    .map((l) => l.trimEnd())
+    .filter(Boolean)
+    .slice(0, DIFF_DIRTY_CAP);
+
+  const hasRemoteMain = runGit(['rev-parse', '--verify', 'origin/main'], abs, { allowFail: true });
+  if (!hasRemoteMain.ok) {
+    return {
+      status: 'behind',
+      fetchOk,
+      dirty,
+      files: [],
+      stat: '',
+      summary: fetchOk
+        ? 'Remote has no main branch yet — Push updates to publish.'
+        : `Could not fetch origin (${(fetch.stderr || 'network/auth').slice(0, 120)}). Local changes may still need Push.`,
+      remoteUrl: origin,
+      remoteAttached: ensured.added,
+    };
+  }
+
+  const nameStatus = runGit(['diff', '--name-status', 'origin/main'], abs, { allowFail: true });
+  const files = String(nameStatus.stdout || '')
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .slice(0, DIFF_FILE_CAP)
+    .map((line) => {
+      const tab = line.indexOf('\t');
+      if (tab < 0) return { status: '?', path: line };
+      return { status: line.slice(0, tab).trim(), path: line.slice(tab + 1).trim() };
+    });
+
+  const statRes = runGit(['diff', '--stat', 'origin/main'], abs, { allowFail: true });
+  let stat = String(statRes.stdout || '').trim();
+  if (stat.length > DIFF_STAT_CAP) stat = `${stat.slice(0, DIFF_STAT_CAP)}\n…`;
+
+  const behind = dirty.length > 0 || files.length > 0;
+  return {
+    status: behind ? 'behind' : 'current',
+    fetchOk,
+    dirty,
+    files,
+    stat,
+    summary: behind
+      ? dirty.length && !files.length
+        ? 'Assembled has uncommitted local changes — Push updates will commit and publish.'
+        : `Assembled differs from GitHub (${files.length || dirty.length} path${(files.length || dirty.length) === 1 ? '' : 's'}) — Push updates.`
+      : 'Assembled matches GitHub origin/main.',
+    remoteUrl: origin,
+    remoteAttached: ensured.added,
+    truncated: {
+      dirty: dirty.length >= DIFF_DIRTY_CAP,
+      files: files.length >= DIFF_FILE_CAP,
+    },
+  };
+}
+

@@ -385,7 +385,7 @@ export const SCORE_INPUT_TIPS = {
     '300–499 → 8',
     '500–699 → 9',
     '700+ → 10',
-    'Not Gemini-style geo-phrase ranges.',
+    'Not rough geo-phrase ranges.',
   ].join('\n'),
   competition: [
     'Organic openness (score field: competition).',

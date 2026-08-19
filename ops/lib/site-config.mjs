@@ -12,6 +12,7 @@ import {
   readPromptFile,
   saveMeta,
 } from './candidates.mjs';
+import { buildGoogleStyleSocialProof, socialProofNeedsSeed } from '../../scripts/lib/review-seed.mjs';
 import {
   applyArchetypeDefaults,
   listArchetypes,
@@ -19,6 +20,12 @@ import {
   suggestArchetype,
 } from '../../scripts/lib/site-archetypes.mjs';
 import { applyPaletteToBrand, getPalette, SITE_PALETTES } from '../../scripts/lib/site-palettes.mjs';
+import {
+  applyFontThemeToBrand,
+  getFontTheme,
+  SITE_FONT_THEMES,
+} from '../../scripts/lib/site-fonts.mjs';
+import { mergeLocationPages, toCoverageAreas } from './geo-neighbors.mjs';
 
 const ROOT = process.cwd();
 const SITE_CONFIG_PATH = path.join(ROOT, 'src', 'config', 'site-config.json');
@@ -42,6 +49,157 @@ export const SITE_CONFIG_PLACEHOLDERS = {
     ink: '#0F1720',
   },
 };
+
+/**
+ * Optional street NAP: keep only a complete address; otherwise omit.
+ * Incomplete `{ street: "", zip: "" }` breaks Astro Zod at build time.
+ */
+export function normalizeSiteAddress(addr, { primaryCity, state } = {}) {
+  if (addr == null) return undefined;
+  if (typeof addr !== 'object' || Array.isArray(addr)) return undefined;
+  const street = String(addr.street || '').trim();
+  const zip = String(addr.zip || '').trim();
+  const city = String(addr.city || primaryCity || '').trim();
+  const st = String(addr.state || state || '')
+    .trim()
+    .toUpperCase();
+  if (!street || !zip || !city || !st) return undefined;
+  return { street, city, state: st, zip };
+}
+
+function applyNormalizedAddress(config) {
+  if (!config || typeof config !== 'object') return config;
+  const next = { ...config };
+  const addr = normalizeSiteAddress(next.address, {
+    primaryCity: next.primaryCity,
+    state: next.state,
+  });
+  if (addr) next.address = addr;
+  else delete next.address;
+  return next;
+}
+
+/** Consumer inboxes must not ship as the public site contact address. */
+const PERSONAL_EMAIL_HOST_RE =
+  /@(gmail|googlemail|yahoo|ymail|hotmail|outlook|live|msn|icloud|me|mac|aol)\./i;
+
+function normNameKey(s) {
+  return String(s || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '');
+}
+
+/**
+ * Public NAP email: prefer leads@domain; never print personal Gmail/Yahoo/etc on the site.
+ */
+export function publicLeadsEmail(email, domain) {
+  const d = String(domain || '')
+    .trim()
+    .toLowerCase()
+    .replace(/^www\./, '')
+    .replace(/\/$/, '');
+  const e = String(email || '').trim();
+  const lower = e.toLowerCase();
+  if (d && (!e || PERSONAL_EMAIL_HOST_RE.test(lower) || /@example\.com$/i.test(lower))) {
+    return `leads@${d}`;
+  }
+  return e || (d ? `leads@${d}` : '');
+}
+
+/**
+ * Avoid shipping the niche label as the company name (weak brand on every page).
+ */
+export function ensureBusinessNameNotNiche(config) {
+  const c = { ...(config && typeof config === 'object' ? config : {}) };
+  const niche = String(c.niche || '').trim();
+  let name = String(c.businessName || '').trim();
+  if (!niche) return c;
+  const nicheKey = normNameKey(niche);
+  const nameKey = normNameKey(name);
+  const looksLikeNiche =
+    !name ||
+    nameKey === nicheKey ||
+    nameKey === normNameKey(`${niche} services`) ||
+    nameKey === normNameKey(`${niche} service`);
+  if (looksLikeNiche) {
+    c.businessName = /pros$/i.test(niche) ? niche : `${niche} Pros`;
+  }
+  return c;
+}
+
+/**
+ * Soft SEO warn when public hostname tokens don't overlap niche / brand / primary city.
+ * Does not block Accept or Launch (test hosts must still ship).
+ * @returns {{ mismatch: boolean, domain: string, reason: string|null }}
+ */
+export function domainBrandMismatch(domain, { niche, businessName, primaryCity } = {}) {
+  const host = String(domain || '')
+    .trim()
+    .toLowerCase()
+    .replace(/^https?:\/\//, '')
+    .replace(/\/$/, '')
+    .replace(/^www\./, '');
+  if (!host || host === 'example.com' || /^tbd\b/i.test(host)) {
+    return { mismatch: false, domain: host, reason: null };
+  }
+  const label = host.split('.')[0] || host;
+  const hostTokens = label
+    .split(/[^a-z0-9]+/)
+    .map((t) => t.trim())
+    .filter((t) => t.length > 2);
+  const stop = new Set([
+    'the',
+    'and',
+    'for',
+    'pros',
+    'llc',
+    'inc',
+    'com',
+    'net',
+    'org',
+    'www',
+    'services',
+    'service',
+    'local',
+    'home',
+  ]);
+  const meaningful = hostTokens.filter((t) => !stop.has(t));
+  if (!meaningful.length) return { mismatch: false, domain: host, reason: null };
+
+  const hay = `${niche || ''} ${businessName || ''} ${primaryCity || ''}`
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ');
+  const hayTokens = new Set(
+    hay
+      .split(/\s+/)
+      .map((t) => t.trim())
+      .filter((t) => t.length > 2 && !stop.has(t)),
+  );
+  const hit = meaningful.some((t) =>
+    [...hayTokens].some((h) => h.includes(t) || t.includes(h)),
+  );
+  if (hit) return { mismatch: false, domain: host, reason: null };
+  return {
+    mismatch: true,
+    domain: host,
+    reason: `Hostname “${host}” does not share tokens with niche/brand/city — use the final client domain before go-live (test hosts are OK for preview).`,
+  };
+}
+
+/** Seed social proof so trust strip / reviews render when config omits them. */
+export function defaultPlaceholderSocialProof(city = 'Local', state = '', opts = {}) {
+  return buildGoogleStyleSocialProof(city, state, {
+    businessName: opts.businessName,
+    niche: opts.niche,
+    services: opts.services,
+    primaryCity: opts.primaryCity || city,
+    targetSuburbs: opts.targetSuburbs,
+    coverageAreas: opts.coverageAreas,
+    seedKey:
+      opts.seedKey ||
+      [opts.businessName, city, state, opts.niche].filter(Boolean).join('|'),
+  });
+}
 
 const WEB3_PLACEHOLDER_RE = /^(REPLACE_WEB3FORMS_KEY|YOUR_WEB3FORMS_ACCESS_KEY)$/i;
 
@@ -192,6 +350,10 @@ export function validateSuburbsForSiteConfig(config) {
     }
   }
 
+  if (suburbs.length > 8) {
+    warnings.push(`targetSuburbs has ${suburbs.length} entries (prefer ≤8 SEO location pages)`);
+  }
+
   for (const area of coverage) {
     const name = String(area?.name || '').trim();
     const st = String(area?.state || '').trim().toUpperCase();
@@ -244,24 +406,37 @@ export function buildSiteConfigPrompt(candidateId, nap = {}) {
         suggestedServices: pack.suggestedServices,
       }),
   );
+  const palette = getPalette(nap.paletteId || 'slate-gold');
+  const fontTheme = getFontTheme(nap.fontTheme || 'archivo-source');
   const md = readPromptFile('prompts/claude-site-config.md');
   const template = extractPromptTemplate(md);
   const filled = template
     .replace('{{PASTE_APPROVED_CANDIDATE_JSON}}', JSON.stringify(pack, null, 2))
     .replace('{{DOMAIN}}', String(nap.domain || '').trim() || 'example.com')
-    .replace('{{BUSINESS_NAME}}', String(nap.businessName || '').trim() || pack.niche || 'Business')
+    .replace('{{BUSINESS_NAME}}', String(nap.businessName || '').trim() || (pack.niche ? `${pack.niche} Pros` : 'Business'))
     .replace('{{PHONE}}', String(nap.phone || '').trim() || '+1XXXXXXXXXX')
-    .replace('{{EMAIL}}', String(nap.email || '').trim() || 'leads@example.com')
+    .replace(
+      '{{EMAIL}}',
+      publicLeadsEmail(nap.email, nap.domain) || 'leads@example.com',
+    )
     .replace(
       '{{RADIUS_MILES}}',
       nap.radiusMiles != null && nap.radiusMiles !== '' ? String(nap.radiusMiles) : '40',
     )
-    .replace('{{SITE_ARCHETYPE}}', suggested);
+    .replace('{{SITE_ARCHETYPE}}', suggested)
+    .replaceAll('{{PALETTE_ID}}', palette.id)
+    .replaceAll('{{PALETTE_LABEL}}', palette.label)
+    .replaceAll('{{BRAND_PRIMARY}}', palette.brand.primary)
+    .replaceAll('{{BRAND_ACCENT}}', palette.brand.accent)
+    .replaceAll('{{BRAND_INK}}', palette.brand.ink)
+    .replaceAll('{{FONT_THEME}}', fontTheme.id);
   return {
     prompt: filled,
     package: pack,
     suggestedArchetype: suggested,
     archetypes: listArchetypes(),
+    paletteId: palette.id,
+    fontTheme: fontTheme.id,
   };
 }
 
@@ -356,7 +531,7 @@ export function withSiteConfigPlaceholders(config, nap = {}, pack = null) {
   setIfNeeded('domain', nap.domain);
   setIfNeeded('businessName', nap.businessName);
   setIfNeeded('phone', nap.phone);
-  setIfNeeded('email', nap.email);
+  setIfNeeded('email', publicLeadsEmail(nap.email, nap.domain || base.domain));
   if (isBlank(base.serviceRadiusMiles) && nap.radiusMiles != null && nap.radiusMiles !== '') {
     const n = Number(nap.radiusMiles);
     if (Number.isFinite(n) && n > 0) base.serviceRadiusMiles = n;
@@ -429,10 +604,35 @@ export function withSiteConfigPlaceholders(config, nap = {}, pack = null) {
     nap.siteArchetype || base.siteArchetype || suggestArchetype(base),
   );
 
-  const configOut = applyArchetypeDefaults(base);
+  const proof = base.socialProof && typeof base.socialProof === 'object' ? base.socialProof : null;
+  // Empty OR still Local homeowner / Neighborhood customer / Repeat client trio
+  if (socialProofNeedsSeed(base)) {
+    base.socialProof = defaultPlaceholderSocialProof(base.primaryCity, base.state, {
+      businessName: base.businessName,
+      niche: base.niche,
+      services: base.services,
+      primaryCity: base.primaryCity,
+      targetSuburbs: base.targetSuburbs,
+      coverageAreas: base.coverageAreas,
+      seedKey: base.domain || base.businessName || `${base.primaryCity}|${base.state}`,
+    });
+    filledKeys.push('socialProof');
+  } else if (proof && 'status' in proof) {
+    const { status: _drop, ...rest } = proof;
+    base.socialProof = rest;
+  }
+
+  const configOut = ensureBusinessNameNotNiche(applyArchetypeDefaults(base));
+  if (!isBlank(configOut.domain)) {
+    configOut.email = publicLeadsEmail(configOut.email, configOut.domain);
+  }
   // Prefer live scan so known placeholder tokens (even if pasted) stay flagged
   const placeholders = scanSiteConfigPlaceholders(configOut);
-  return { config: configOut, placeholders, filledKeys: [...new Set(filledKeys)] };
+  return {
+    config: applyNormalizedAddress(configOut),
+    placeholders,
+    filledKeys: [...new Set(filledKeys)],
+  };
 }
 
 function writeDraftFile(candidateId, config, opsExtra = {}) {
@@ -499,11 +699,19 @@ export function getSiteConfigDraft(candidateId) {
 export function updateSiteConfigDraft(candidateId, patch = {}, nap = {}) {
   assertSiteConfigHandoffReady(candidateId, { allowNonPursue: Boolean(nap.allowNonPursue) });
   const p = pathsFor(candidateId);
-  const existing = readJson(p.siteConfigDraft);
+  let existing = readJson(p.siteConfigDraft);
+  // Seed from accepted config when draft was cleared after Accept (forever: update commercial without re-paste).
   if (!existing) {
-    const err = new Error('No site-config draft — paste JSON first');
-    err.status = 400;
-    throw err;
+    const accepted = stripSiteConfigOps(readJson(p.siteConfig));
+    if (!accepted) {
+      const err = new Error('No site-config draft — paste JSON first');
+      err.status = 400;
+      throw err;
+    }
+    existing = {
+      ...accepted,
+      _ops: { source: 'from-accepted', seededAt: new Date().toISOString() },
+    };
   }
 
   const { _ops: prevOps, ...prev } = existing;
@@ -549,8 +757,25 @@ export function updateSiteConfigDraft(candidateId, patch = {}, nap = {}) {
   if (patch.brand && typeof patch.brand === 'object') {
     next.brand = { ...(next.brand || {}), ...patch.brand };
   }
-  if (patch.address && typeof patch.address === 'object') {
-    next.address = { ...(next.address || {}), ...patch.address };
+  if (patch.address !== undefined) {
+    if (patch.address === null) {
+      delete next.address;
+    } else if (typeof patch.address === 'object') {
+      const merged = { ...(next.address || {}), ...patch.address };
+      const norm = normalizeSiteAddress(merged, {
+        primaryCity: next.primaryCity,
+        state: next.state,
+      });
+      if (norm) next.address = norm;
+      else delete next.address;
+    }
+  } else {
+    const norm = normalizeSiteAddress(next.address, {
+      primaryCity: next.primaryCity,
+      state: next.state,
+    });
+    if (norm) next.address = norm;
+    else delete next.address;
   }
 
   const pack = getApprovedPackage(candidateId);
@@ -596,7 +821,12 @@ export function acceptSiteConfig(
     throw err;
   }
   const { _ops, ...cleanRaw } = draft;
-  const clean = applyArchetypeDefaults(cleanRaw);
+  const clean = applyNormalizedAddress(
+    ensureBusinessNameNotNiche(applyArchetypeDefaults(cleanRaw)),
+  );
+  if (!isBlank(clean.domain)) {
+    clean.email = publicLeadsEmail(clean.email, clean.domain);
+  }
   const placeholders = scanSiteConfigPlaceholders(clean);
   if (placeholders.length && !allowPlaceholders) {
     const err = new Error(
@@ -649,6 +879,103 @@ export function acceptSiteConfig(
     path: 'src/config/site-config.json',
     suburbCheck,
     placeholders,
+    domainWarn: domainBrandMismatch(clean.domain, {
+      niche: clean.niche,
+      businessName: clean.businessName,
+      primaryCity: clean.primaryCity,
+    }),
+    candidate: getCandidateDetail(candidateId),
+  };
+}
+
+/**
+ * Persist Service area Accept: coverageAreas + radius + Claude-first targetSuburbs (≤8).
+ */
+export function acceptServiceArea(
+  candidateId,
+  { radiusMiles, selectedCities = [], claudeOrder = null } = {},
+) {
+  const p = pathsFor(candidateId);
+  const acceptedRaw = readJson(p.siteConfig);
+  const accepted = stripSiteConfigOps(acceptedRaw);
+  if (!accepted) {
+    const err = new Error('Accept Site config first, then set Service area');
+    err.status = 400;
+    throw err;
+  }
+
+  const primaryCity = String(accepted.primaryCity || '').trim();
+  const state = String(accepted.state || '').trim().toUpperCase();
+  if (!primaryCity || !state) {
+    const err = new Error('Site config needs primaryCity and state');
+    err.status = 400;
+    throw err;
+  }
+
+  const miles = Number(radiusMiles);
+  const serviceRadiusMiles =
+    Number.isFinite(miles) && miles > 0
+      ? Math.min(120, Math.max(1, miles))
+      : Number(accepted.serviceRadiusMiles) || 40;
+
+  const selected = Array.isArray(selectedCities) ? selectedCities : [];
+  if (!selected.length) {
+    const err = new Error('Select at least one coverage city');
+    err.status = 400;
+    throw err;
+  }
+
+  const coverageAreas = toCoverageAreas(selected, primaryCity, state);
+  const claude =
+    Array.isArray(claudeOrder) && claudeOrder.length
+      ? claudeOrder
+      : Array.isArray(accepted.targetSuburbs)
+        ? accepted.targetSuburbs
+        : [];
+
+  const targetSuburbs = mergeLocationPages({
+    coverage: coverageAreas,
+    claudeOrder: claude,
+    primaryCity,
+    state,
+    max: 8,
+  });
+
+  const next = {
+    ...accepted,
+    serviceRadiusMiles,
+    coverageAreas,
+    targetSuburbs,
+  };
+
+  const suburbCheck = validateSuburbsForSiteConfig(next);
+
+  writeJson(p.siteConfig, {
+    ...next,
+    _ops: {
+      ...(acceptedRaw?._ops && typeof acceptedRaw._ops === 'object' ? acceptedRaw._ops : {}),
+      serviceAreaAcceptedAt: new Date().toISOString(),
+      suburbCheck,
+    },
+  });
+
+  mkdirSync(path.dirname(SITE_CONFIG_PATH), { recursive: true });
+  writeJson(SITE_CONFIG_PATH, next);
+
+  saveMeta(candidateId, {
+    lastServiceAreaAt: new Date().toISOString(),
+    serviceRadiusMiles,
+    coverageCount: coverageAreas.length,
+    locationPageCount: targetSuburbs.length,
+  });
+
+  return {
+    ok: true,
+    config: next,
+    suburbCheck,
+    coverageAreas,
+    targetSuburbs,
+    serviceRadiusMiles,
     candidate: getCandidateDetail(candidateId),
   };
 }
@@ -699,19 +1026,32 @@ function backupTemplateSiteConfig() {
 }
 
 /**
- * Apply a named palette to draft (seeded from accepted/template if needed).
+ * Apply a named palette and/or font theme to draft (seeded from accepted/template if needed).
  * Also syncs brand into research accepted + src/config/site-config.json when present.
  */
 export function applySiteConfigBrand(candidateId, paletteId, nap = {}) {
   assertSiteConfigHandoffReady(candidateId, { allowNonPursue: Boolean(nap.allowNonPursue) });
-  const key = String(paletteId || '').trim();
-  const known = SITE_PALETTES.find((p) => p.id === key);
-  if (!known) {
+  const paletteKey = String(paletteId || nap.paletteId || '').trim();
+  const fontKey = String(nap.fontTheme || '').trim();
+  const knownPalette = paletteKey
+    ? SITE_PALETTES.find((p) => p.id === paletteKey)
+    : null;
+  const knownFont = fontKey ? SITE_FONT_THEMES.find((t) => t.id === fontKey) : null;
+  if (paletteKey && !knownPalette) {
     const err = new Error('Unknown palette id');
     err.status = 400;
     throw err;
   }
-  const palette = getPalette(known.id);
+  if (fontKey && !knownFont) {
+    const err = new Error('Unknown font theme id');
+    err.status = 400;
+    throw err;
+  }
+  if (!knownPalette && !knownFont) {
+    const err = new Error('Provide paletteId and/or fontTheme');
+    err.status = 400;
+    throw err;
+  }
 
   const p = pathsFor(candidateId);
   const draftExisting = readJson(p.siteConfigDraft);
@@ -721,20 +1061,31 @@ export function applySiteConfigBrand(candidateId, paletteId, nap = {}) {
     stripSiteConfigOps(draftExisting) || stripSiteConfigOps(accepted) || stripSiteConfigOps(template);
   if (!base) {
     const err = new Error(
-      'No site-config draft or accepted config — paste/load a draft before picking a palette',
+      'No site-config draft or accepted config — paste/load a draft before picking colors or fonts',
     );
     err.status = 400;
     throw err;
   }
 
+  let brand = { ...(base.brand || {}) };
+  if (knownPalette) {
+    brand = applyPaletteToBrand(brand, knownPalette.id);
+  }
+  if (knownFont) {
+    brand = applyFontThemeToBrand(brand, knownFont.id);
+  } else if (!brand.fontTheme) {
+    brand = applyFontThemeToBrand(brand, 'archivo-source');
+  }
+
   const next = {
     ...base,
-    brand: applyPaletteToBrand(base.brand || {}, palette.id),
+    brand,
   };
 
   const { draft, placeholders, suburbCheck } = writeDraftFile(candidateId, next, {
-    source: 'palette',
-    paletteId: palette.id,
+    source: 'look',
+    paletteId: brand.paletteId || null,
+    fontTheme: brand.fontTheme || null,
   });
 
   if (accepted) {
@@ -744,8 +1095,9 @@ export function applySiteConfigBrand(candidateId, paletteId, nap = {}) {
       brand: next.brand,
       _ops: {
         ...(prevOps && typeof prevOps === 'object' ? prevOps : {}),
-        lastBrandPaletteAt: new Date().toISOString(),
-        paletteId: palette.id,
+        lastBrandLookAt: new Date().toISOString(),
+        paletteId: brand.paletteId || null,
+        fontTheme: brand.fontTheme || null,
       },
     });
   }
@@ -760,7 +1112,8 @@ export function applySiteConfigBrand(candidateId, paletteId, nap = {}) {
     ok: true,
     draft,
     brand: next.brand,
-    paletteId: palette.id,
+    paletteId: brand.paletteId || null,
+    fontTheme: brand.fontTheme || null,
     placeholders,
     suburbCheck,
     candidate: getCandidateDetail(candidateId),

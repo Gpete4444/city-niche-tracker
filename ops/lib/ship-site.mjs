@@ -9,7 +9,7 @@ import path from 'node:path';
 import { getCandidateDetail, saveMeta } from './candidates.mjs';
 import { getAssembleChecklist } from './assemble-site.mjs';
 import { cloudflareConfigured, cfFetch, getCloudflareCredentials } from './cloudflare-launch.mjs';
-import { pushAssembledSiteToGithub, ghAvailable, ghAuthStatus, resolveGithubOwner } from './github-site.mjs';
+import { pushAssembledSiteToGithub, ghAvailable, ghAuthStatus, resolveGithubOwner, diffAssembledAgainstRemote } from './github-site.mjs';
 
 const ROOT = process.cwd();
 
@@ -20,13 +20,13 @@ function resolveAssembledRoot(detail) {
   return existsSync(abs) ? abs : null;
 }
 
-function runNpm(args, cwd, timeoutMs = 600_000) {
+function runNpm(args, cwd, timeoutMs = 600_000, envExtra = {}) {
   const npmCmd = process.platform === 'win32' ? 'npm.cmd' : 'npm';
   const res = spawnSync(npmCmd, args, {
     cwd,
     encoding: 'utf8',
     shell: process.platform === 'win32',
-    env: process.env,
+    env: { ...process.env, ...envExtra },
     timeout: timeoutMs,
     maxBuffer: 20 * 1024 * 1024,
   });
@@ -46,18 +46,21 @@ function runNpm(args, cwd, timeoutMs = 600_000) {
 
 /**
  * npm install + npm run build in assembled folder.
+ * @param {string} siteRoot
+ * @param {{ visualEdit?: boolean }} [opts] — set visualEdit for local preview builds only (loads rover-visual-bridge.js)
  */
-export function buildAssembledSite(siteRoot) {
+export function buildAssembledSite(siteRoot, { visualEdit = false } = {}) {
   const abs = path.resolve(siteRoot);
   if (!existsSync(abs)) {
     const err = new Error(`Assembled site not found: ${abs}`);
     err.status = 400;
     throw err;
   }
-  runNpm(['install'], abs);
-  runNpm(['run', 'build'], abs);
+  const envExtra = visualEdit ? { PUBLIC_ROVER_VE: '1' } : { PUBLIC_ROVER_VE: '' };
+  runNpm(['install'], abs, 600_000, envExtra);
+  runNpm(['run', 'build'], abs, 600_000, envExtra);
   const hasDist = existsSync(path.join(abs, 'dist', 'index.html'));
-  return { ok: true, built: hasDist, siteRoot: abs };
+  return { ok: true, built: hasDist, siteRoot: abs, visualEdit: Boolean(visualEdit) };
 }
 
 /**
@@ -319,5 +322,71 @@ export function getShipStatus(candidateId) {
     ghAuthenticated: ghAuthStatus(),
     githubOwner: resolveGithubOwner(),
     cloudflareConfigured: cloudflareConfigured(),
+  };
+}
+
+/**
+ * Whether assembled site is ahead of GitHub (and timestamp hint vs lastShipAt).
+ * Fetches origin — may be slow; use dedicated GET /ship-diff.
+ */
+export function getAssembledShipDiff(candidateId) {
+  const detail = getCandidateDetail(candidateId);
+  const assembledRoot = resolveAssembledRoot(detail);
+  const lastAssembleAt = detail.meta?.lastAssembleAt || null;
+  const lastShipAt = detail.meta?.lastShipAt || null;
+  const assembleNewerThanShip = Boolean(
+    lastAssembleAt && (!lastShipAt || new Date(lastAssembleAt) > new Date(lastShipAt)),
+  );
+  const timestampHint = {
+    assembleNewerThanShip,
+    lastAssembleAt,
+    lastShipAt,
+  };
+
+  if (!assembledRoot) {
+    return {
+      candidateId,
+      status: 'no_assembled',
+      fetchOk: false,
+      dirty: [],
+      files: [],
+      stat: '',
+      summary: 'Assemble the site first.',
+      timestampHint,
+      githubRepo: detail.meta?.githubRepo || null,
+      needsPush: assembleNewerThanShip,
+    };
+  }
+
+  const githubFullName =
+    detail.meta?.githubRepo ||
+    (detail.meta?.assembledSiteSlug
+      ? `${resolveGithubOwner() || ''}/${detail.meta.assembledSiteSlug}`.replace(/^\//, '')
+      : '');
+
+  const diff = diffAssembledAgainstRemote(assembledRoot, { githubFullName });
+  const needsPush =
+    diff.status === 'behind' ||
+    diff.status === 'no_remote' ||
+    (diff.status !== 'current' && assembleNewerThanShip);
+
+  let summary = diff.summary;
+  if (diff.status === 'current' && assembleNewerThanShip) {
+    summary = 'Assembled matches GitHub; Assemble timestamp is newer than last ship (usually already pushed).';
+  } else if (diff.status === 'no_remote') {
+    summary = assembleNewerThanShip
+      ? 'No GitHub remote yet — Push updates will create the repo and publish.'
+      : diff.summary;
+  }
+
+  return {
+    candidateId,
+    assembledSitePath: detail.meta?.assembledSitePath || null,
+    githubRepo: detail.meta?.githubRepo || null,
+    githubRepoUrl: detail.meta?.githubRepoUrl || null,
+    ...diff,
+    summary,
+    timestampHint,
+    needsPush: Boolean(needsPush),
   };
 }

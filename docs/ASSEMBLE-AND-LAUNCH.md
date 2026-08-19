@@ -52,7 +52,7 @@ Creates a sibling folder (default):
 c:\Repos\rover-sites\{domain-or-slug}\
 ```
 
-Override with `ASSEMBLED_SITES_DIR`.
+Override with `ASSEMBLED_SITES_DIR` in `.env` (Rover UI and `npm run assemble-site` both load it).
 
 What happens:
 
@@ -74,7 +74,7 @@ Checklist marks **build** done when `dist/index.html` exists.
 
 ## 4. GitHub + Cloudflare Worker deploy (automated by Launch)
 
-**Per-site** GitHub create/push and first Worker deploy are part of Rover **Launch** (checkbox **Auto ship**, on by default). You should not run `gh` / `wrangler` yourself for each site.
+**Per-site** GitHub create/push and Worker deploy run via Rover **Launch** (**Auto ship**) or **Push updates** (ship only, for sites already live). You should not run `gh` / `wrangler` yourself for each site.
 
 ### One-time machine setup
 
@@ -114,6 +114,15 @@ Summary of what Launch does:
 - Auto ship: GitHub repo + build + Wrangler deploy + Workers Builds connect (§4)
 - Cloudflare: Email Routing (`leads@` → destination) + custom domain attach to the Worker
 - Sets checklist meta flags (`formsDone`, `dnsDone`, `emailRoutingDone`, …)
+
+### Already live — Push updates
+
+After the first Launch, Website shows **Push updates** (primary). It calls ship only (`POST /api/candidates/:id/ship`): GitHub push + build + Wrangler — **no** domain/email API. Flow for template or content forever-fixes:
+
+1. **Prepare preview** (Stage + Assemble) so the assembled tree picks up shared template changes
+2. **Push updates**
+
+**Run Cloudflare** defaults **off** when the candidate already looks live. Use **Run launch** only when changing keys or intentionally re-running CF helpers.
 
 CLI:
 

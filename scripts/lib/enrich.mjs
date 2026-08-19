@@ -263,8 +263,6 @@ export async function enrichResearchReport(research, { includeMapPackPages = tru
 
   const enrichment = {
     generatedAt: new Date().toISOString(),
-    metricDisclaimer:
-      'DataForSEO Rank is a 0–100 backlink-based authority score. It is NOT Moz Domain Authority or Ahrefs Domain Rating.',
     domains: domainStats,
     pages: pageRows,
     displaceability,

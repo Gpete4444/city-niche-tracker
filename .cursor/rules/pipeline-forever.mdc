@@ -1,0 +1,11 @@
+---
+description: Every product/pipeline fix must apply to current and future candidates
+alwaysApply: true
+---
+
+# Pipeline forever
+
+- Every product / pipeline change must fix the **pipeline** for **current and future candidates** — not one-off site patches in assembled folders (`rank-and-rent-sites/…`, `rover-sites/…`).
+- Prefer prompts, Structure, `ops/lib/*`, shared Astro template (`src/`), and Rover Website UX over hand-editing a single assembled tree.
+- When a bug appears on one candidate, the fix must prevent the same class of failure on the next Assemble / Write / Pull / Stage.
+- Candidate-specific backfills are allowed only as temporary recovery after the forever fix ships — never as the sole remedy.

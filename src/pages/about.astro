@@ -12,7 +12,7 @@ const { Content } = await render(entry);
 ---
 
 <BaseLayout title={entry.data.title} description={entry.data.description} pageType="page">
-  <Hero h1={entry.data.h1} supporting={entry.data.description} image={entry.data.heroImage} />
+  <Hero h1={entry.data.h1} supporting={entry.data.description} image={entry.data.heroImage} editFile="src/content/pages/about.md" supportingKey="description" />
   <section class="mx-auto max-w-5xl px-4 py-10 sm:px-6">
     <div class="prose-site max-w-3xl about-prose">
       <Content />

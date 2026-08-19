@@ -12,10 +12,12 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadEnvFile, fetchUserBalance } from '../scripts/lib/dataforseo.mjs';
 import { listPalettes } from '../scripts/lib/site-palettes.mjs';
+import { listFontThemes } from '../scripts/lib/site-fonts.mjs';
 import {
   acceptNarrative,
   acceptNarratives,
   buildCopyPrompt,
+  buildOutreachCopyPrompt,
   createCandidate,
   decisionGroupCounts,
   ensureConfigFromResearch,
@@ -24,8 +26,10 @@ import {
   listCandidates,
   rejectNarrative,
   rejectNarratives,
+  saveMeta,
   setDecision,
   setDecisions,
+  setArchived,
   pathsFor,
   CANDIDATE_DECISIONS,
 } from './lib/candidates.mjs';
@@ -44,6 +48,7 @@ import {
 } from './lib/claude.mjs';
 import {
   acceptSiteConfig,
+  acceptServiceArea,
   buildSiteConfigPrompt,
   getSiteConfigDraft,
   pasteSiteConfigDraft,
@@ -57,17 +62,30 @@ import {
   buildContentPrompt,
   getContentDraft,
   pasteContentDraft,
+  seedTargetSuburbLocationStubs,
 } from './lib/content-markdown.mjs';
 import {
   fillSiteImages,
   getImagesManifest,
   structureHasPhotosEnabled,
+  listImageSlotStatus,
+  repullImageSlot,
+  uploadImageSlot,
+  readSiteImageFile,
 } from './lib/fill-site-images.mjs';
+import { generateSiteLogo } from './lib/generate-site-logo.mjs';
+import { generateCoverageMapForCandidate } from './lib/generate-coverage-map.mjs';
+import {
+  buildBeforeAfterPrompts,
+  importBeforeAfterPair,
+} from './lib/chatgpt-before-after.mjs';
 import {
   buildResearcherPrompt,
   buildOutlinePrompt,
   buildWriterPrompt,
   buildEditorPrompt,
+  getContentSpeechLint,
+  getContentSeoLint,
   buildContentBriefDraft,
   getContentBrief,
   saveContentBrief,
@@ -111,13 +129,43 @@ import {
   PAYMENT_METHODS,
   SITE_STATUSES,
   updateSite,
+  setSitePhoneTracking,
+  listSitesWithPhone,
   upsertSiteAfterLaunch,
   upsertSiteFromCandidate,
   upsertSitesFromCandidates,
 } from './lib/sites.mjs';
+import {
+  provisionRankingNumber,
+  setForwardToRenter,
+  updateForwardTarget,
+} from './lib/phone-tracking-twilio.mjs';
+import {
+  assertPhoneWebhookSecret,
+  enqueueSummarizePhoneCall,
+  getPhoneCall,
+  getRecordingStream,
+  handleDialStatusWebhook,
+  handleRecordingWebhook,
+  listPhoneCalls,
+  phoneCallStats,
+  summarizePhoneCall,
+  syncCallsFromTwilio,
+} from './lib/phone-calls.mjs';
 import { cloudflareConfigured } from './lib/cloudflare-launch.mjs';
-import { buildAssembledSite, getShipStatus, shipAssembledSite } from './lib/ship-site.mjs';
+import { buildAssembledSite, getShipStatus, getAssembledShipDiff, shipAssembledSite } from './lib/ship-site.mjs';
 import { ghAuthStatus } from './lib/github-site.mjs';
+import {
+  applyVisualEditPatches,
+  beginVisualEditSession,
+  getVisualEditSnapshot,
+  publishVisualEdit,
+  refreshVisualEditPreview,
+  restoreVisualEditUndo,
+  uploadVisualEditImage,
+} from './lib/visual-edit.mjs';
+import { findPlaceFeature, getMapGeojson, getMapStatus } from './lib/research-map.mjs';
+import { placesIntersectingRadius } from './lib/geo-neighbors.mjs';
 import { getBatchCostPreview, getCostPreview } from './lib/cost-estimates.mjs';
 import {
   getJob,
@@ -131,15 +179,15 @@ import {
   createDiscoveryPack,
   discoveryPresets,
   getBatch,
-  getBatchGeminiPrompt,
   importDiscoveryCsv,
   listBatches,
-  mergeGeminiPaste,
   processDiscoveryBatch,
   recommendBatch,
+  reopenDiscoveryRows,
   updateBatchDecisions,
 } from './lib/discovery.mjs';
 import { previewSerpProbe, runDiscoverySerpProbe, startDiscoverySerpProbe, getSerpProbeJob, discoveryStepStatus } from './lib/discovery-serp-probe.mjs';
+import { suggestPlaces } from './lib/census.mjs';
 import { aggregateStageFlags, getBatchJob, startBatchJobs } from './lib/batch-jobs.mjs';
 import { regenerateKnownCandidates } from './lib/known-candidates.mjs';
 import { existsSync, writeFileSync, readFileSync } from 'node:fs';
@@ -152,7 +200,7 @@ const HOST = '127.0.0.1';
 const PORT = Number(process.env.OPS_PORT) || 8787;
 
 const app = express();
-app.use(express.json({ limit: '8mb' }));
+app.use(express.json({ limit: '16mb' }));
 app.use((req, res, next) => {
   if (req.path === '/' || /\.(?:html?|js|mjs|css|map|json|svg|png|ico)$/i.test(req.path)) {
     res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
@@ -169,23 +217,150 @@ function sendError(res, error) {
   if (error.details) payload.details = error.details;
   if (error.suburbCheck) payload.suburbCheck = error.suburbCheck;
   if (error.check) payload.check = error.check;
+  if (error.speechLint) payload.speechLint = error.speechLint;
+  if (error.seoLint) payload.seoLint = error.seoLint;
   res.status(status).json(payload);
 }
 
 app.get('/api/health', (_req, res) => {
+  const envSet = (...keys) => keys.every((k) => Boolean(String(process.env[k] || '').trim()));
+  const checks = [
+    { name: 'DataForSEO', ok: envSet('DATAFORSEO_LOGIN', 'DATAFORSEO_PASSWORD') },
+    { name: 'Anthropic', ok: envSet('ANTHROPIC_API_KEY') },
+    { name: 'OpenAI', ok: envSet('OPENAI_API_KEY') },
+    {
+      name: 'Twilio',
+      ok: envSet(
+        'TWILIO_ACCOUNT_SID',
+        'TWILIO_AUTH_TOKEN',
+        'TWILIO_FORWARD_TO',
+        'TWILIO_VOICE_WEBHOOK_URL',
+      ),
+    },
+    { name: 'Cloudflare', ok: envSet('CLOUDFLARE_ACCOUNT_ID', 'CLOUDFLARE_API_TOKEN') },
+    { name: 'Web3Forms email', ok: envSet('WEB3FORMS_DEFAULT_NOTIFY_EMAIL') },
+    { name: 'Unsplash', ok: envSet('UNSPLASH_ACCESS_KEY') },
+    { name: 'Pexels', ok: envSet('PEXELS_API_KEY') },
+    { name: 'GitHub owner', ok: envSet('GITHUB_OWNER') },
+    { name: 'Template repo', ok: envSet('TEMPLATE_GITHUB_REPO') },
+    { name: 'Assembled sites dir', ok: envSet('ASSEMBLED_SITES_DIR') },
+  ];
+  const missing = checks.filter((c) => !c.ok).map((c) => c.name);
+  const total = checks.length;
+  const okCount = total - missing.length;
   res.json({
     ok: true,
     host: HOST,
     port: PORT,
-    hasDataForSeo: Boolean(process.env.DATAFORSEO_LOGIN && process.env.DATAFORSEO_PASSWORD),
-    hasAnthropic: Boolean(process.env.ANTHROPIC_API_KEY),
-    model: process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-20250514',
+    connections: {
+      total,
+      ok: okCount,
+      missing,
+      items: checks.map((c) => ({ name: c.name, ok: c.ok })),
+    },
   });
+});
+
+app.get('/api/map/status', (_req, res) => {
+  try {
+    res.json(getMapStatus());
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.get('/api/map/geojson', (req, res) => {
+  try {
+    const layer = String(req.query.layer || 'places');
+    const minPop = req.query.minPop != null ? Number(req.query.minPop) : undefined;
+    const maxPop = req.query.maxPop != null ? Number(req.query.maxPop) : undefined;
+    const state = req.query.state ? String(req.query.state) : '';
+    res.json(getMapGeojson({ layer, minPop, maxPop, state }));
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.get('/api/map/place', (req, res) => {
+  try {
+    const city = String(req.query.city || '').trim();
+    const state = String(req.query.state || '').trim();
+    const feature = findPlaceFeature(city, state);
+    if (!feature) {
+      return res.status(404).json({ error: `No place match for ${city}, ${state}` });
+    }
+    res.json({ feature });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.get('/api/map/coverage-preview', (req, res) => {
+  try {
+    const city = String(req.query.city || '').trim();
+    const state = String(req.query.state || '').trim();
+    const radiusMiles = Number(req.query.radiusMiles ?? 40);
+    const minPop = req.query.minPop != null ? Number(req.query.minPop) : 5000;
+    const maxPopRaw = req.query.maxPop != null ? Number(req.query.maxPop) : null;
+    if (!city || !state) {
+      return res.status(400).json({ error: 'city and state required' });
+    }
+    const preview = placesIntersectingRadius(city, state, radiusMiles, {
+      minPop: Number.isFinite(minPop) ? minPop : 5000,
+      maxPop: Number.isFinite(maxPopRaw) ? maxPopRaw : null,
+    });
+    res.json({
+      type: 'FeatureCollection',
+      features: preview.features,
+      primary: preview.primary,
+      places: preview.places,
+      radiusMiles: preview.radiusMiles,
+    });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/candidates/:id/site-config/service-area', async (req, res) => {
+  try {
+    const body = req.body || {};
+    const result = acceptServiceArea(req.params.id, {
+      radiusMiles: body.radiusMiles,
+      selectedCities: body.selectedCities,
+      claudeOrder: body.claudeOrder,
+    });
+    let locationStubs = null;
+    try {
+      locationStubs = seedTargetSuburbLocationStubs(result.config);
+    } catch (e) {
+      locationStubs = { error: e.message || String(e) };
+    }
+    let coverageMap = null;
+    try {
+      coverageMap = await generateCoverageMapForCandidate(req.params.id);
+    } catch (e) {
+      coverageMap = { error: e.message || String(e) };
+    }
+    res.json({ ...result, locationStubs, coverageMap });
+  } catch (error) {
+    sendError(res, error);
+  }
 });
 
 app.get('/api/discovery/presets', (_req, res) => {
   try {
     res.json(discoveryPresets());
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.get('/api/discovery/places', (req, res) => {
+  try {
+    const q = String(req.query.q || '').trim();
+    const state = String(req.query.state || '').trim();
+    const limit = Number(req.query.limit) || 20;
+    res.json(suggestPlaces({ q, state, limit }));
   } catch (error) {
     sendError(res, error);
   }
@@ -216,6 +391,12 @@ app.post('/api/discovery/pack', (req, res) => {
           .split(',')
           .map((s) => s.trim())
           .filter(Boolean);
+    const requiredNiches = Array.isArray(body.requiredNiches)
+      ? body.requiredNiches
+      : String(body.requiredNiches || '')
+          .split(/[\n;]+/)
+          .map((s) => s.trim())
+          .filter(Boolean);
     const cities = Array.isArray(body.cities)
       ? body.cities
       : String(body.cities || '')
@@ -231,6 +412,7 @@ app.post('/api/discovery/pack', (req, res) => {
     const pack = createDiscoveryPack({
       state: body.state,
       niches,
+      requiredNiches,
       cities,
       categories,
       minPopulation: body.minPopulation,
@@ -257,26 +439,8 @@ app.post('/api/discovery/import', (req, res) => {
   try {
     const csv = req.body?.csv ?? req.body?.text ?? '';
     const batchId = req.body?.batchId || null;
-    const role = req.body?.role === 'gemini' ? 'gemini' : 'claude';
-    const result = importDiscoveryCsv(batchId, csv, { createIfMissing: true, role });
+    const result = importDiscoveryCsv(batchId, csv, { createIfMissing: true });
     res.json(result);
-  } catch (error) {
-    sendError(res, error);
-  }
-});
-
-app.post('/api/discovery/batches/:id/gemini-merge', (req, res) => {
-  try {
-    const paste = req.body?.paste ?? req.body?.text ?? req.body?.csv ?? '';
-    res.json(mergeGeminiPaste(req.params.id, paste));
-  } catch (error) {
-    sendError(res, error);
-  }
-});
-
-app.get('/api/discovery/batches/:id/gemini-prompt', (req, res) => {
-  try {
-    res.json(getBatchGeminiPrompt(req.params.id));
   } catch (error) {
     sendError(res, error);
   }
@@ -389,6 +553,15 @@ app.post('/api/discovery/batches/:id/process', (req, res) => {
   }
 });
 
+app.post('/api/discovery/batches/:id/reopen', (req, res) => {
+  try {
+    const indices = Array.isArray(req.body?.indices) ? req.body.indices : [];
+    res.json(reopenDiscoveryRows(req.params.id, indices));
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
 app.post('/api/jobs/batch', (req, res) => {
   try {
     const body = req.body || {};
@@ -477,11 +650,13 @@ app.get('/api/candidates', (_req, res) => {
   try {
     const candidates = attachGroupIds(listCandidates());
     const groups = listGroups();
+    const archivedCount = candidates.filter((c) => c.archived).length;
     res.json({
       candidates,
       groups,
       decisionCounts: decisionGroupCounts(candidates),
       decisions: CANDIDATE_DECISIONS,
+      archivedCount,
     });
   } catch (error) {
     sendError(res, error);
@@ -578,6 +753,18 @@ app.post('/api/candidates/decisions', (req, res) => {
     } catch {
       /* ignore */
     }
+    res.json(result);
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/candidates/archive', (req, res) => {
+  try {
+    const body = req.body || {};
+    const ids = Array.isArray(body.ids) ? body.ids : [];
+    const archived = body.archived !== false && body.archived !== 'false';
+    const result = setArchived(ids, archived);
     res.json(result);
   } catch (error) {
     sendError(res, error);
@@ -723,6 +910,8 @@ app.get('/api/candidates/:id/site-config/prompt', (req, res) => {
       email: req.query.email,
       radiusMiles: req.query.radiusMiles,
       siteArchetype: req.query.siteArchetype,
+      paletteId: req.query.paletteId,
+      fontTheme: req.query.fontTheme,
       allowNonPursue: req.query.allowNonPursue === '1' || req.query.allowNonPursue === 'true',
     };
     res.json(buildSiteConfigPrompt(req.params.id, nap));
@@ -806,11 +995,19 @@ app.post('/api/candidates/:id/site-config/brand', (req, res) => {
     const body = req.body || {};
     const nap = {
       allowNonPursue: Boolean(body.allowNonPursue),
+      fontTheme: body.fontTheme || body.brand?.fontTheme || '',
+      paletteId: body.paletteId || body.brand?.paletteId || '',
     };
-    res.json(applySiteConfigBrand(req.params.id, body.paletteId || body.brand?.paletteId, nap));
+    res.json(
+      applySiteConfigBrand(req.params.id, body.paletteId || body.brand?.paletteId || nap.paletteId, nap),
+    );
   } catch (error) {
     sendError(res, error);
   }
+});
+
+app.get('/api/font-themes', (_req, res) => {
+  res.json({ themes: listFontThemes(), defaultId: 'archivo-source' });
 });
 
 app.get('/api/candidates/:id/content/prompt', (req, res) => {
@@ -852,6 +1049,7 @@ app.post('/api/candidates/:id/content/accept', async (req, res) => {
     const body = req.body || {};
     const result = acceptContent(req.params.id, {
       ignoreWarnings: Boolean(body.ignoreWarnings),
+      ignoreSeoWarnings: Boolean(body.ignoreSeoWarnings),
     });
     let images = null;
     if (structureHasPhotosEnabled(req.params.id)) {
@@ -866,16 +1064,53 @@ app.post('/api/candidates/:id/content/accept', async (req, res) => {
         };
       }
     }
+    let logo = null;
+    try {
+      logo = generateSiteLogo(req.params.id);
+    } catch (logoErr) {
+      logo = {
+        ok: false,
+        warning: logoErr.message || String(logoErr),
+      };
+    }
+    let coverageMap = null;
+    try {
+      coverageMap = await generateCoverageMapForCandidate(req.params.id);
+    } catch (mapErr) {
+      coverageMap = {
+        ok: false,
+        skipped: /no coverage areas|suburbs/i.test(String(mapErr.message || '')),
+        warning: mapErr.message || String(mapErr),
+      };
+    }
+    const assetNotes = [];
+    if (logo?.ok !== false && logo?.path) assetNotes.push(`Logo: ${logo.path}`);
+    else if (logo?.warning) assetNotes.push(`Logo skipped: ${logo.warning}`);
+    if (coverageMap?.ok && coverageMap?.path) {
+      assetNotes.push(`Coverage map: ${coverageMap.path}`);
+    } else if (coverageMap?.skipped) {
+      assetNotes.push('Coverage map skipped (no Areas / suburbs yet)');
+    } else if (coverageMap?.warning) {
+      assetNotes.push(`Coverage map skipped: ${coverageMap.warning}`);
+    }
+    if (images && Array.isArray(images.human) && assetNotes.length) {
+      images = { ...images, human: [...images.human, ...assetNotes] };
+    } else if (!images && assetNotes.length) {
+      images = { ok: true, human: assetNotes };
+    }
     res.json({
       ...result,
       images,
+      logo,
+      coverageMap,
       candidate: getCandidateDetail(req.params.id),
     });
   } catch (error) {
-    if (error.check) {
+    if (error.check || error.seoLint) {
       return res.status(error.status || 400).json({
         error: error.message,
         check: error.check,
+        seoLint: error.seoLint,
       });
     }
     sendError(res, error);
@@ -890,11 +1125,92 @@ app.get('/api/candidates/:id/images', (req, res) => {
   }
 });
 
+app.get('/api/candidates/:id/images/slots', (req, res) => {
+  try {
+    res.json(listImageSlotStatus(req.params.id));
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.get('/api/candidates/:id/images/file/:filename', (req, res) => {
+  try {
+    const { abs, filename } = readSiteImageFile(req.params.id, req.params.filename);
+    const ext = path.extname(filename).toLowerCase();
+    const type =
+      ext === '.png'
+        ? 'image/png'
+        : ext === '.webp'
+          ? 'image/webp'
+          : ext === '.gif'
+            ? 'image/gif'
+            : ext === '.svg'
+              ? 'image/svg+xml'
+              : 'image/jpeg';
+    res.setHeader('Content-Type', type);
+    res.setHeader('Cache-Control', 'no-store');
+    res.sendFile(abs);
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
 app.post('/api/candidates/:id/images/pull', async (req, res) => {
   try {
     const replace = Boolean(req.body?.replace || req.query?.replace);
     const result = await fillSiteImages(req.params.id, { replace });
     res.json(result);
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/candidates/:id/images/slots/:slotKey/repull', async (req, res) => {
+  try {
+    const result = await repullImageSlot(req.params.id, req.params.slotKey);
+    res.json(result);
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/candidates/:id/images/slots/:slotKey/upload', (req, res) => {
+  try {
+    const result = uploadImageSlot(req.params.id, req.params.slotKey, req.body || {});
+    res.json(result);
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/candidates/:id/logo/generate', (req, res) => {
+  try {
+    res.json(generateSiteLogo(req.params.id));
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/candidates/:id/coverage-map/generate', async (req, res) => {
+  try {
+    const result = await generateCoverageMapForCandidate(req.params.id);
+    res.json(result);
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.get('/api/candidates/:id/images/before-after-prompts', (req, res) => {
+  try {
+    res.json(buildBeforeAfterPrompts(req.params.id));
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/candidates/:id/images/before-after-import', (req, res) => {
+  try {
+    res.json(importBeforeAfterPair(req.params.id, req.body || {}));
   } catch (error) {
     sendError(res, error);
   }
@@ -961,9 +1277,9 @@ app.post('/api/candidates/:id/content/structure/compose', (req, res) => {
   }
 });
 
-app.get('/api/candidates/:id/content/structure/prompt', (req, res) => {
+app.get('/api/candidates/:id/content/structure/prompt', async (req, res) => {
   try {
-    res.json(buildStructurePrompt(req.params.id));
+    res.json(await buildStructurePrompt(req.params.id));
   } catch (error) {
     sendError(res, error);
   }
@@ -978,17 +1294,17 @@ app.post('/api/candidates/:id/content/structure/outline', (req, res) => {
   }
 });
 
-app.post('/api/candidates/:id/content/structure/confirm', (req, res) => {
+app.post('/api/candidates/:id/content/structure/confirm', async (req, res) => {
   try {
-    res.json(confirmContentOutline(req.params.id));
+    res.json(await confirmContentOutline(req.params.id));
   } catch (error) {
     sendError(res, error);
   }
 });
 
-app.get('/api/candidates/:id/content/structure/write-prompt', (req, res) => {
+app.get('/api/candidates/:id/content/structure/write-prompt', async (req, res) => {
   try {
-    res.json(buildFullWritePrompt(req.params.id));
+    res.json(await buildFullWritePrompt(req.params.id));
   } catch (error) {
     sendError(res, error);
   }
@@ -1106,6 +1422,22 @@ app.get('/api/candidates/:id/content/editor/prompt', (req, res) => {
   }
 });
 
+app.get('/api/candidates/:id/content/speech-lint', (req, res) => {
+  try {
+    res.json(getContentSpeechLint(req.params.id));
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.get('/api/candidates/:id/content/seo-lint', (req, res) => {
+  try {
+    res.json(getContentSeoLint(req.params.id));
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
 app.post('/api/candidates/:id/content/agent-paste', (req, res) => {
   try {
     const body = req.body || {};
@@ -1131,7 +1463,7 @@ app.post('/api/candidates/:id/content/import-disk', (req, res) => {
     const body = req.body || {};
     res.json(
       importContentDraftFromDisk(req.params.id, {
-        mode: body.mode || 'homepage_first',
+        mode: body.mode || undefined,
       }),
     );
   } catch (error) {
@@ -1323,6 +1655,62 @@ app.post('/api/candidates/:id/assembled/preview', async (req, res) => {
   }
 });
 
+app.get('/api/candidates/:id/visual-edit', (req, res) => {
+  try {
+    if (req.query.begin !== '0') beginVisualEditSession(req.params.id);
+    res.json(getVisualEditSnapshot(req.params.id));
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/candidates/:id/visual-edit', (req, res) => {
+  try {
+    res.json(applyVisualEditPatches(req.params.id, req.body?.patches || []));
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/candidates/:id/visual-edit/image', (req, res) => {
+  try {
+    res.json(uploadVisualEditImage(req.params.id, req.body || {}));
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/candidates/:id/visual-edit/preview', async (req, res) => {
+  try {
+    const result = await refreshVisualEditPreview(req.params.id, {
+      rebuild: req.body?.rebuild !== false,
+    });
+    res.json(result);
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/candidates/:id/visual-edit/publish', async (req, res) => {
+  try {
+    const result = await publishVisualEdit(req.params.id, {
+      ignoreSeoWarnings: Boolean(req.body?.ignoreSeoWarnings),
+      ship: req.body?.ship !== false,
+    });
+    res.json(result);
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/candidates/:id/visual-edit/undo', (req, res) => {
+  try {
+    res.json(restoreVisualEditUndo(req.params.id));
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
 app.get('/api/candidates/:id/launch', (req, res) => {
   try {
     res.json(getLaunchStatus(req.params.id));
@@ -1423,9 +1811,252 @@ app.delete('/api/sites/:id', (req, res) => {
   }
 });
 
+/**
+ * Phase A: buy Twilio local DID, attach voice webhook, patch site-config.phone.
+ * Body: { confirm: true, areaCode?: "801", force?: false }
+ */
+app.post('/api/sites/:id/phone/provision-twilio', async (req, res) => {
+  try {
+    const body = req.body || {};
+    if (body.confirm !== true) {
+      const err = new Error('Set confirm:true to buy a Twilio number (~$1.15/mo).');
+      err.status = 400;
+      throw err;
+    }
+    const site = getSite(req.params.id);
+    const provisioned = await provisionRankingNumber({
+      site,
+      areaCode: body.areaCode,
+      force: body.force === true,
+    });
+    const updated = setSitePhoneTracking(site.id, provisioned.phoneTracking);
+    res.json({ site: updated, provisioned });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+/**
+ * Website Builder / Site-Config: mark phone step skipped (persist across reload).
+ */
+app.post('/api/candidates/:id/phone/skip', (req, res) => {
+  try {
+    const meta = saveMeta(req.params.id, {
+      phoneSkippedAt: new Date().toISOString(),
+    });
+    res.json({ meta, candidate: getCandidateDetail(req.params.id) });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+/**
+ * Website Builder / Site-Config: upsert portfolio row, then Twilio provision (Option A).
+ */
+app.post('/api/candidates/:id/phone/provision-twilio', async (req, res) => {
+  try {
+    const body = req.body || {};
+    if (body.confirm !== true) {
+      const err = new Error('Set confirm:true to buy a Twilio number (~$1.15/mo).');
+      err.status = 400;
+      throw err;
+    }
+    const site = upsertSiteFromCandidate({ candidateId: req.params.id });
+    const provisioned = await provisionRankingNumber({
+      site: getSite(site.id),
+      areaCode: body.areaCode,
+      force: body.force === true,
+    });
+    const updated = setSitePhoneTracking(site.id, provisioned.phoneTracking);
+    res.json({
+      site: updated,
+      provisioned,
+      candidate: getCandidateDetail(req.params.id),
+    });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+/**
+ * Same DID: set forwardTo to renter.phone and phase → rented.
+ * Body: { confirm: true }
+ */
+app.post('/api/sites/:id/phone/forward-renter', async (req, res) => {
+  try {
+    const body = req.body || {};
+    if (body.confirm !== true) {
+      const err = new Error('Set confirm:true to forward this DID to the renter phone.');
+      err.status = 400;
+      throw err;
+    }
+    const site = getSite(req.params.id);
+    const result = await setForwardToRenter(site);
+    const updated = setSitePhoneTracking(site.id, result.phoneTracking);
+    res.json({ site: updated, forward: result });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+/**
+ * Optional: set an arbitrary forward target (ranking or custom).
+ * Body: { confirm: true, forwardTo: "+1…", phase?: "ranking"|"rented" }
+ */
+app.post('/api/sites/:id/phone/forward', async (req, res) => {
+  try {
+    const body = req.body || {};
+    if (body.confirm !== true) {
+      const err = new Error('Set confirm:true to update the forward target.');
+      err.status = 400;
+      throw err;
+    }
+    const site = getSite(req.params.id);
+    const result = await updateForwardTarget({
+      site,
+      forwardTo: body.forwardTo,
+      phase: body.phase,
+    });
+    const updated = setSitePhoneTracking(site.id, result.phoneTracking);
+    res.json({ site: updated, forward: result });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+function readPhoneWebhookSecret(req) {
+  return (
+    req.get('x-rover-phone-secret') ||
+    req.body?.secret ||
+    req.query?.secret ||
+    ''
+  );
+}
+
+app.post('/api/phone/webhooks/status', (req, res) => {
+  try {
+    assertPhoneWebhookSecret(readPhoneWebhookSecret(req));
+    const row = handleDialStatusWebhook(req.body || {});
+    res.json({ ok: true, call: row });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/phone/webhooks/recording', (req, res) => {
+  try {
+    assertPhoneWebhookSecret(readPhoneWebhookSecret(req));
+    const row = handleRecordingWebhook(req.body || {});
+    if (row?.callSid && row.recordingSid) {
+      enqueueSummarizePhoneCall(row.callSid);
+    }
+    res.json({ ok: true, call: row });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+/**
+ * Durable backfill from Twilio REST (Calls + Recordings).
+ * Body: { siteId?, sinceDays? } — Phone tab runs this on load/refresh.
+ */
+app.post('/api/phone/sync', async (req, res) => {
+  try {
+    const body = req.body || {};
+    const siteId = body.siteId ? String(body.siteId) : null;
+    const sinceDays = body.sinceDays != null ? Number(body.sinceDays) : 30;
+    const sync = await syncCallsFromTwilio({ siteId, sinceDays });
+    res.json({
+      ...sync,
+      calls: listPhoneCalls({ siteId, limit: 200 }),
+      stats: phoneCallStats({ siteId }),
+    });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.get('/api/phone/calls', (req, res) => {
+  try {
+    const siteId = req.query.siteId ? String(req.query.siteId) : null;
+    const limit = req.query.limit ? Number(req.query.limit) : 200;
+    res.json({
+      calls: listPhoneCalls({ siteId, limit }),
+      stats: phoneCallStats({ siteId }),
+    });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.get('/api/phone/calls/:id', (req, res) => {
+  try {
+    const call = getPhoneCall(req.params.id);
+    if (!call) {
+      const err = new Error('Call not found');
+      err.status = 404;
+      throw err;
+    }
+    res.json({ call });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.get('/api/phone/calls/:id/recording', async (req, res) => {
+  try {
+    const { buf, contentType } = await getRecordingStream(req.params.id);
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Cache-Control', 'private, max-age=300');
+    res.send(buf);
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/phone/calls/:id/summarize', async (req, res) => {
+  try {
+    const call = await summarizePhoneCall(req.params.id);
+    res.json({ call });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.get('/api/phone/sites', (req, res) => {
+  try {
+    const sites = listSitesWithPhone().map((s) => {
+      const stats = phoneCallStats({ siteId: s.id });
+      return {
+        id: s.id,
+        businessName: s.businessName || s.niche || s.id,
+        niche: s.niche,
+        city: s.city,
+        state: s.state,
+        status: s.status,
+        e164: s.phoneTracking?.e164 || '',
+        phase: s.phoneTracking?.phase || 'none',
+        forwardTo: s.phoneTracking?.forwardTo || '',
+        stats,
+      };
+    });
+    res.json({ sites, stats: phoneCallStats({}) });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
 app.get('/api/candidates/:id/ship', (req, res) => {
   try {
     res.json(getShipStatus(req.params.id));
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.get('/api/candidates/:id/ship-diff', (req, res) => {
+  try {
+    res.json(getAssembledShipDiff(req.params.id));
   } catch (error) {
     sendError(res, error);
   }
@@ -1455,6 +2086,14 @@ app.post('/api/candidates/:id/ship', async (req, res) => {
 app.get('/api/candidates/:id/copy-prompt', (req, res) => {
   try {
     res.json({ prompt: buildCopyPrompt(req.params.id) });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.get('/api/candidates/:id/copy-outreach-prompt', (req, res) => {
+  try {
+    res.json({ prompt: buildOutreachCopyPrompt(req.params.id) });
   } catch (error) {
     sendError(res, error);
   }

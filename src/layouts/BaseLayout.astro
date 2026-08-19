@@ -5,6 +5,8 @@ import Footer from '../components/Footer.astro';
 import LocalSchema from '../components/LocalSchema.astro';
 import StickyCallBar from '../components/StickyCallBar.astro';
 import { site } from '../config/site';
+import { getFontTheme } from '../config/fonts';
+import { resolvePageTitle } from '../lib/page-title';
 
 interface Props {
   title: string;
@@ -12,6 +14,9 @@ interface Props {
   pageType?: 'home' | 'service' | 'location' | 'page';
   serviceName?: string;
   locationCity?: string;
+  /** Absolute or site-relative path for og:image / twitter:image */
+  ogImage?: string;
+  faqs?: Array<{ question: string; answer: string }>;
 }
 
 const {
@@ -20,10 +25,27 @@ const {
   pageType = 'page',
   serviceName,
   locationCity,
+  ogImage,
+  faqs = [],
 } = Astro.props;
 
-const fullTitle = title.includes(site.businessName) ? title : `${title} | ${site.businessName}`;
-const canonical = Astro.url.pathname;
+const fullTitle = resolvePageTitle(title, site.businessName, 60);
+const pathname = Astro.url.pathname || '/';
+/** Root has no trailing slash; every other path ends with `/`. */
+const canonicalPath =
+  pathname === '/' ? '' : pathname.endsWith('/') ? pathname : `${pathname}/`;
+const canonicalUrl = `https://${site.domain}${canonicalPath}`;
+
+const defaultOg =
+  site.logo?.src ||
+  '/favicon.svg';
+const ogImageRaw = String(ogImage || defaultOg).trim();
+const ogImageAbs = ogImageRaw.startsWith('http')
+  ? ogImageRaw
+  : `https://${site.domain}${ogImageRaw.startsWith('/') ? '' : '/'}${ogImageRaw}`;
+
+const loadVisualBridge = import.meta.env.PUBLIC_ROVER_VE === '1';
+const fontTheme = getFontTheme(site.brand?.fontTheme);
 ---
 
 <!doctype html>
@@ -33,18 +55,22 @@ const canonical = Astro.url.pathname;
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="description" content={description} />
     <meta name="generator" content={Astro.generator} />
-    <link rel="canonical" href={`https://${site.domain}${canonical === '/' ? '' : canonical}`} />
+    <link rel="canonical" href={canonicalUrl} />
+    <link rel="sitemap" type="application/xml" href="/sitemap.xml" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=Source+Sans+3:wght@400;600;700&display=swap"
-      rel="stylesheet"
-    />
+    <link id="rover-site-fonts" href={fontTheme.googleHref} rel="stylesheet" />
     <meta property="og:title" content={fullTitle} />
     <meta property="og:description" content={description} />
     <meta property="og:type" content="website" />
-    <meta property="og:url" content={`https://${site.domain}${canonical === '/' ? '' : canonical}`} />
+    <meta property="og:url" content={canonicalUrl} />
+    <meta property="og:image" content={ogImageAbs} />
+    <meta property="og:site_name" content={site.businessName} />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={fullTitle} />
+    <meta name="twitter:description" content={description} />
+    <meta name="twitter:image" content={ogImageAbs} />
     <title>{fullTitle}</title>
     <LocalSchema
       pageTitle={title}
@@ -52,20 +78,17 @@ const canonical = Astro.url.pathname;
       pageType={pageType}
       serviceName={serviceName}
       locationCity={locationCity}
+      faqs={faqs}
+      imageUrl={ogImageAbs}
     />
-    <style
-      define:vars={{
-        brandPrimary: site.brand.primary,
-        brandAccent: site.brand.accent,
-        brandInk: site.brand.ink,
-      }}
-    >
-      :root {
-        --brand-primary: var(--brandPrimary);
-        --brand-accent: var(--brandAccent);
-        --brand-ink: var(--brandInk);
-      }
-    </style>
+    <style is:inline set:html={`:root {
+        --brand-primary: ${site.brand.primary};
+        --brand-accent: ${site.brand.accent};
+        --brand-ink: ${site.brand.ink};
+        --font-display: ${fontTheme.displayStack};
+        --font-body: ${fontTheme.bodyStack};
+      }`}
+    />
   </head>
   <body class="min-h-screen pb-20 md:pb-0">
     <Header />
@@ -74,5 +97,6 @@ const canonical = Astro.url.pathname;
     </main>
     <Footer />
     <StickyCallBar />
+    {loadVisualBridge && <script is:inline src="/rover-visual-bridge.js"></script>}
   </body>
 </html>

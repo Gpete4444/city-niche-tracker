@@ -65,10 +65,12 @@ export function getPalette(id) {
 
 export function applyPaletteToBrand(brand = {}, paletteId) {
   const palette = getPalette(paletteId || brand.paletteId);
-  return {
+  const next = {
     ...palette.brand,
     paletteId: palette.id,
   };
+  if (brand.fontTheme) next.fontTheme = brand.fontTheme;
+  return next;
 }
 
 export function listPalettes() {

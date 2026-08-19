@@ -26,8 +26,17 @@ src/config/site-config.backup-*.json
 # cached API lookups
 .cache/
 
+# research map: raw shapefiles + generated GeoJSON (rebuild with npm run build-research-map)
+data/census/boundaries/
+data/census/map/
+
 # editor / OS
 .DS_Store
 .idea/
 .vscode/
 .claude/
+
+# local audit / video review scratch (not product)
+_audit-*/
+_video-review-*/
+

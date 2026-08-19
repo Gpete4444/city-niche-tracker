@@ -445,8 +445,12 @@ export function buildResearchScoring({
 
 /**
  * Recompute scoring after Stage 2 enrichment attaches page Rank / displaceability.
+ * @param {object} research - research used for volumes/SERP (may be a fresh Stage 1 report)
+ * @param {object} enrichment - Stage 2 enrichment block
+ * @param {object|null} jobSource - optional prior research/narrative carrier for jobValue
+ *   (Stage 1 rewrite passes priorResearch so null jobValue on the fresh report is not used)
  */
-export function applyEnrichmentToScoring(research, enrichment) {
+export function applyEnrichmentToScoring(research, enrichment, jobSource = null) {
   const displaceability = enrichment.displaceability;
   const scoring = buildResearchScoring({
     clusterVolumeSum: research.volumes?.clusterVolumeSum ?? 0,
@@ -457,25 +461,69 @@ export function applyEnrichmentToScoring(research, enrichment) {
     displaceability,
   });
 
-  // Preserve Claude/human jobValue if already present on the research JSON.
-  const priorJob = research.scoring?.scoreInputs?.jobValue;
-  if (priorJob != null) {
-    scoring.scoreInputs.jobValue = priorJob;
-    scoring.ticketClass = research.scoring.ticketClass ?? scoring.ticketClass;
-    scoring.proposedScore = proposedScore(scoring.scoreInputs);
-    scoring.decision = applyDecisionRules({
-      demandBandId: scoring.demandBand.id,
-      serpSoftnessId: scoring.serpSoftness.id,
-      ticketClass: scoring.ticketClass,
-      displaceabilityBandId: scoring.displaceability?.band?.id ?? null,
-    });
-    scoring.enrichmentRecommended = shouldAutoEnrich(scoring);
-    scoring.scoreInputs.notes = [
-      scoring.scoreInputs.notes,
-      `Preserved prior jobValue=${priorJob} from research JSON.`,
-      `Decision after enrich (${scoring.decision.ruleId}): ${scoring.decision.summary}`,
-    ].join(' ');
+  const source = jobSource || research;
+  const priorJob =
+    source?.scoring?.scoreInputs?.jobValue ?? source?.scoreInputs?.jobValue ?? null;
+  if (priorJob != null && priorJob !== '') {
+    const jobValue = Number(priorJob);
+    if (Number.isFinite(jobValue)) {
+      scoring.scoreInputs.jobValue = jobValue;
+      scoring.ticketClass =
+        source?.scoring?.ticketClass ?? research.scoring?.ticketClass ?? scoring.ticketClass;
+      scoring.proposedScore = proposedScore(scoring.scoreInputs);
+      scoring.decision = applyDecisionRules({
+        demandBandId: scoring.demandBand.id,
+        serpSoftnessId: scoring.serpSoftness.id,
+        ticketClass: scoring.ticketClass,
+        displaceabilityBandId: scoring.displaceability?.band?.id ?? null,
+      });
+      scoring.enrichmentRecommended = shouldAutoEnrich(scoring);
+      scoring.scoreInputs.notes = [
+        scoring.scoreInputs.notes,
+        `Preserved prior jobValue=${jobValue} from research/narrative.`,
+        `Decision after enrich (${scoring.decision.ruleId}): ${scoring.decision.summary}`,
+      ].join(' ');
+    }
   }
 
   return scoring;
+}
+
+/** Pick jobValue + averageJobCostUsd from prior research, else accepted narrative. */
+export function resolvePreservedJobFields({ priorResearch = null, narrative = null } = {}) {
+  const priorJob =
+    priorResearch?.scoring?.scoreInputs?.jobValue ?? priorResearch?.scoreInputs?.jobValue;
+  const narrJob =
+    narrative?.scoring?.scoreInputs?.jobValue ?? narrative?.scoreInputs?.jobValue;
+  let jobValue = null;
+  if (priorJob != null && priorJob !== '' && Number.isFinite(Number(priorJob))) {
+    jobValue = Number(priorJob);
+  } else if (narrJob != null && narrJob !== '' && Number.isFinite(Number(narrJob))) {
+    jobValue = Number(narrJob);
+  }
+  const averageJobCostUsd =
+    priorResearch?.averageJobCostUsd ?? narrative?.averageJobCostUsd ?? null;
+  const ticketClass =
+    (jobValue != null &&
+      (priorResearch?.scoring?.ticketClass ?? narrative?.scoring?.ticketClass)) ||
+    null;
+  return { jobValue, averageJobCostUsd, ticketClass };
+}
+
+/** Attach preserved Narrative/prior job fields onto a Stage 1 research report. */
+export function attachPreservedJobFields(report, fields) {
+  if (!report?.scoring?.scoreInputs || !fields || fields.jobValue == null) return report;
+  report.scoring.scoreInputs.jobValue = fields.jobValue;
+  if (fields.ticketClass) report.scoring.ticketClass = fields.ticketClass;
+  if (fields.averageJobCostUsd) report.averageJobCostUsd = fields.averageJobCostUsd;
+  report.scoring.proposedScore = proposedScore(report.scoring.scoreInputs);
+  report.scoreInputs = report.scoring.scoreInputs;
+  report.proposedScore = report.scoring.proposedScore;
+  const note = `Preserved jobValue=${fields.jobValue} from prior research/narrative.`;
+  if (!String(report.scoring.scoreInputs.notes || '').includes(note)) {
+    report.scoring.scoreInputs.notes = [report.scoring.scoreInputs.notes, note]
+      .filter(Boolean)
+      .join(' ');
+  }
+  return report;
 }

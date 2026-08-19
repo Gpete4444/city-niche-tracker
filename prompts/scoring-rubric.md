@@ -19,7 +19,7 @@ Stage 2 is recommended when Stage 1 `enrichmentRecommended` is true (mid+ demand
 
 `volumes.clusterVolumeSum` = Google Ads Keyword Planner monthly volume for the selected keyword set, measured **per city geo**, then **summed** across Ads-targetable cities in the cluster.
 
-- Not Gemini-style ranges on `…louisville ky` phrases.
+- Not rough geo-phrase ranges on `…louisville ky` phrases.
 - `primaryVolume` = searches **from** that city geo.
 - Ads buckets (10, 20, 30, 50…) are noisy at the low end.
 - Ads `competition` / CPC ≠ organic difficulty.

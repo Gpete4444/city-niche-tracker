@@ -7,15 +7,15 @@ export interface EqualGridResult<T> {
   items: T[];
   cols: number;
   trimmed: number;
-  /** Tailwind classes: 1 col on mobile, exact cols from sm up */
+  /** Tailwind classes: denser mobile (2-col) when cols ≥ 2; exact cols from sm/lg up */
   className: string;
 }
 
 const COL_CLASS: Record<number, string> = {
   1: 'grid-cols-1',
-  2: 'grid-cols-1 sm:grid-cols-2',
-  3: 'grid-cols-1 sm:grid-cols-3',
-  4: 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-4',
+  2: 'grid-cols-2',
+  3: 'grid-cols-2 sm:grid-cols-3',
+  4: 'grid-cols-2 lg:grid-cols-4',
 };
 
 function gridClassName(cols: number): string {
@@ -28,7 +28,7 @@ function gridClassName(cols: number): string {
  */
 export function fitEqualGrid<T>(
   items: T[],
-  { maxCols = 3 }: { maxCols?: number } = {},
+  { maxCols = 4 }: { maxCols?: number } = {},
 ): EqualGridResult<T> {
   const list = Array.isArray(items) ? items : [];
   const n = list.length;
@@ -39,7 +39,7 @@ export function fitEqualGrid<T>(
     return { items: list.slice(0, 1), cols: 1, trimmed: 0, className: gridClassName(1) };
   }
 
-  const max = Math.max(1, Math.min(4, Math.floor(maxCols) || 3));
+  const max = Math.max(1, Math.min(4, Math.floor(maxCols) || 4));
 
   for (let keep = n; keep >= 1; keep -= 1) {
     if (keep === 1) {

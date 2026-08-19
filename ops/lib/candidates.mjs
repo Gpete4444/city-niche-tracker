@@ -84,6 +84,7 @@ export function defaultMeta(partial = {}) {
     updatedAt: new Date().toISOString(),
     decision: partial.decision ?? null,
     decisionNotes: partial.decisionNotes ?? null,
+    archivedAt: partial.archivedAt ?? null,
     lastResearchAt: partial.lastResearchAt ?? null,
     lastEnrichAt: partial.lastEnrichAt ?? null,
     lastNarrativeAt: partial.lastNarrativeAt ?? null,
@@ -169,7 +170,7 @@ export function ensureConfigFromResearch(id) {
 }
 
 export function decisionGroupCounts(candidates = null) {
-  const list = candidates || listCandidates();
+  const list = (candidates || listCandidates()).filter((c) => !c.archived);
   const counts = { __all: list.length, __undecided: 0 };
   for (const d of CANDIDATE_DECISIONS) counts[d] = 0;
   for (const c of list) {
@@ -302,39 +303,71 @@ function formatJobCostRange(avg) {
   return null;
 }
 
+/** Filename suffixes under research/ that belong to a candidate id (longest first). */
+const RESEARCH_ARTIFACT_SUFFIXES = [
+  '-content-outline-package.json',
+  '-content-structure.json',
+  '-content-research.json',
+  '-content-outline.json',
+  '-content-brief.json',
+  '-content.draft.json',
+  '-site-config.draft.json',
+  '-images-manifest.json',
+  '-images-pull.json',
+  '-build-package.json',
+  '-discovery-seed.json',
+  '-narrative.draft.json',
+  '-prospects.draft.json',
+  '-site-config.json',
+  '-content.json',
+  '-narrative.json',
+  '-prospects.json',
+  '-approved.json',
+  '.meta.json',
+  '.config.json',
+  '.json',
+];
+
+const RESEARCH_REGISTRY_FILES = new Set(['candidate-groups.json', 'known-candidates.json']);
+
+/** Map a research/ filename to a candidate id, or null if not a candidate artifact. */
+export function candidateIdFromResearchFile(file) {
+  const name = String(file || '');
+  if (!name.endsWith('.json') || RESEARCH_REGISTRY_FILES.has(name)) return null;
+  for (const suffix of RESEARCH_ARTIFACT_SUFFIXES) {
+    if (name.endsWith(suffix)) {
+      const id = name.slice(0, -suffix.length);
+      return id || null;
+    }
+  }
+  return null;
+}
+
+function candidateHasCoreFiles(id) {
+  const p = pathsFor(id);
+  return (
+    existsSync(p.research) ||
+    existsSync(p.config) ||
+    existsSync(p.meta) ||
+    existsSync(p.narrative) ||
+    existsSync(p.prospects)
+  );
+}
+
 export function listCandidates() {
   ensureResearchDir();
   const files = readdirSync(RESEARCH_DIR);
   const cleaned = new Set();
 
   for (const file of files) {
-    if (!file.endsWith('.json')) continue;
-    // Registry / index files living in research/ — not candidates.
-    if (file === 'candidate-groups.json' || file === 'known-candidates.json') continue;
-    if (file.endsWith('.meta.json') || file.endsWith('.config.json')) {
-      cleaned.add(file.replace(/\.(meta|config)\.json$/, ''));
-      continue;
-    }
-    if (file.endsWith('-narrative.draft.json')) {
-      cleaned.add(file.replace(/-narrative\.draft\.json$/, ''));
-      continue;
-    }
-    if (file.endsWith('-narrative.json')) {
-      cleaned.add(file.replace(/-narrative\.json$/, ''));
-      continue;
-    }
-    if (file.endsWith('-prospects.draft.json')) {
-      cleaned.add(file.replace(/-prospects\.draft\.json$/, ''));
-      continue;
-    }
-    if (file.endsWith('-prospects.json')) {
-      cleaned.add(file.replace(/-prospects\.json$/, ''));
-      continue;
-    }
-    cleaned.add(file.replace(/\.json$/, ''));
+    const id = candidateIdFromResearchFile(file);
+    if (!id) continue;
+    if (!/^[a-zA-Z0-9_-]+$/.test(id)) continue;
+    cleaned.add(id);
   }
 
   return [...cleaned]
+    .filter((id) => candidateHasCoreFiles(id))
     .sort()
     .map((id) => {
       const p = pathsFor(id);
@@ -344,12 +377,35 @@ export function listCandidates() {
       const prospects = readJson(p.prospects);
       const narrative = readJson(p.narrative);
       const stageInfo = deriveStage(id);
-      const summary = summarizeResearch(research) || {
+      let summary = summarizeResearch(research) || {
         niche: config?.niche ?? meta.niche ?? null,
         primaryCity: config?.primary?.split(',')[0]?.trim() ?? null,
         state: config?.primary?.split(',')[1]?.trim() ?? null,
         cityCluster: config?.cluster ?? [],
       };
+      const narrJob =
+        narrative?.scoring?.scoreInputs?.jobValue ?? narrative?.scoreInputs?.jobValue;
+      if (
+        (summary.scoreInputs?.jobValue == null || summary.scoreInputs?.jobValue === '') &&
+        narrJob != null &&
+        narrJob !== '' &&
+        Number.isFinite(Number(narrJob))
+      ) {
+        const jobValue = Number(narrJob);
+        summary = {
+          ...summary,
+          scoreInputs: { ...(summary.scoreInputs || {}), jobValue },
+          overallProvisional: false,
+          proposedScore:
+            computeProposedScore({
+              demand: summary.scoreInputs?.demand,
+              competition: summary.scoreInputs?.competition,
+              jobValue,
+              mapPackGap: summary.scoreInputs?.mapPackGap,
+              displaceability: summary.scoreInputs?.displaceability ?? summary.displaceability,
+            }) ?? summary.proposedScore,
+        };
+      }
       const prospectSummary = summarizeProspects(prospects);
       const city = summary.primaryCity;
       const state = summary.state;
@@ -371,6 +427,8 @@ export function listCandidates() {
         stage: stageInfo.stage,
         stageFlags: stageInfo,
         decision: meta.decision ?? summary.decision ?? null,
+        archived: Boolean(meta.archivedAt),
+        archivedAt: meta.archivedAt ?? null,
         source: meta.source ?? null,
         lastCosts: meta.lastCosts ?? null,
         researchCostUsd: meta.lastCosts?.research ?? summary.estimatedApiCostUsd ?? null,
@@ -393,6 +451,8 @@ export function getCandidateDetail(id) {
     err.status = 404;
     throw err;
   }
+
+  healResearchJobValueFromNarrative(id);
 
   const research = readJson(p.research);
   const config = readJson(p.config);
@@ -437,6 +497,10 @@ export function getCandidateDetail(id) {
       hasContentOutlineConfirmed: Boolean(contentOutlinePackage?.status === 'confirmed'),
       hasBuildPackage: Boolean(buildPackage),
       hasImages: Boolean(imagesManifest?.files?.length),
+      hasLogo:
+        Boolean(siteConfigAccepted?.logo) ||
+        existsSync(path.join(p.siteImages, 'logo.svg')),
+      hasCoverageMap: existsSync(path.join(p.siteImages, 'coverage-map.svg')),
     },
     meta,
     config,
@@ -458,6 +522,8 @@ export function getCandidateDetail(id) {
     imagesManifest,
     prospects,
     summary: summarizeResearch(research),
+    archived: Boolean(meta.archivedAt),
+    archivedAt: meta.archivedAt ?? null,
   };
 }
 
@@ -531,7 +597,7 @@ export function saveNarrativeDraft(id, draft, extra = {}) {
   return readJson(p.narrativeDraft);
 }
 
-function mergeNarrativeIntoResearch(research, narrative) {
+export function mergeNarrativeIntoResearch(research, narrative) {
   if (!research || !narrative) return research;
   const scoring = narrative.scoring || {};
   const inputs = scoring.scoreInputs || {};
@@ -579,6 +645,24 @@ function mergeNarrativeIntoResearch(research, narrative) {
     suggestedSuburbs: narrative.suggestedSuburbs ?? research.suggestedSuburbs ?? null,
     estTimeToRankMonths: narrative.estTimeToRankMonths ?? research.estTimeToRankMonths ?? null,
   };
+}
+
+/** If accepted narrative has jobValue but research does not, merge and persist. */
+export function healResearchJobValueFromNarrative(id) {
+  const p = pathsFor(id);
+  const research = readJson(p.research);
+  const narrative = readJson(p.narrative);
+  if (!research || !narrative) return null;
+  const researchJob = research.scoring?.scoreInputs?.jobValue ?? research.scoreInputs?.jobValue;
+  const narrJob = narrative.scoring?.scoreInputs?.jobValue ?? narrative.scoreInputs?.jobValue;
+  const researchMissing =
+    researchJob == null || researchJob === '' || !Number.isFinite(Number(researchJob));
+  const narrHas =
+    narrJob != null && narrJob !== '' && Number.isFinite(Number(narrJob));
+  if (!researchMissing || !narrHas) return null;
+  const merged = mergeNarrativeIntoResearch(research, narrative);
+  writeJson(p.research, merged);
+  return merged;
 }
 
 /** Parse "$8,000 – $22,000" or similar into { low, high }. */
@@ -828,6 +912,35 @@ export function setDecisions(ids = [], decision, notes = null) {
   return { updated, errors, decision };
 }
 
+export function setArchived(ids = [], archived = true) {
+  const wantArchived = Boolean(archived);
+  const updated = [];
+  const errors = [];
+  for (const raw of ids) {
+    const id = String(raw || '').trim();
+    if (!id) continue;
+    try {
+      const p = pathsFor(id);
+      if (
+        !existsSync(p.research) &&
+        !existsSync(p.config) &&
+        !existsSync(p.meta) &&
+        !existsSync(p.narrative) &&
+        !existsSync(p.prospects)
+      ) {
+        throw new Error(`Candidate not found: ${id}`);
+      }
+      const meta = saveMeta(id, {
+        archivedAt: wantArchived ? new Date().toISOString() : null,
+      });
+      updated.push({ id: p.id, archived: Boolean(meta.archivedAt), archivedAt: meta.archivedAt });
+    } catch (error) {
+      errors.push({ id, error: error.message });
+    }
+  }
+  return { updated, errors, archived: wantArchived };
+}
+
 function bumpKnownCandidates() {
   import('./known-candidates.mjs')
     .then((m) => m.safeRegenerateKnownCandidates())
@@ -866,4 +979,17 @@ export function buildCopyPrompt(id) {
     )
     .replace('{{DISCOVERY_NARRATIVE_SEED}}', seedBlock);
   return filled;
+}
+
+export function buildOutreachCopyPrompt(id) {
+  const detail = getCandidateDetail(id);
+  if (!detail.prospects) {
+    throw Object.assign(new Error('No prospects JSON — run Stage 4 first'), { status: 400 });
+  }
+  const md = readPromptFile('prompts/claude-prospect-renters.md');
+  const template = extractPromptTemplate(md);
+  return template.replace(
+    '{{PASTE_OUTPUT_OF_npm_run_prospect_renters}}',
+    JSON.stringify(detail.prospects, null, 2),
+  );
 }

@@ -119,6 +119,11 @@
     @apply mb-1.5 block text-sm font-medium text-ink;
   }
 
+  /* Section labels above display H2s — readable at a glance */
+  .section-eyebrow {
+    @apply text-sm font-bold uppercase tracking-[0.12em] text-accent;
+  }
+
   /* Section ground bands — alternate for page rhythm */
   .section-surface-paper {
     @apply bg-paper;
@@ -143,4 +148,44 @@
   .section-surface-ink {
     @apply bg-ink text-white;
   }
+}
+
+/* Footer social icons — brand (default) or mono (currentColor). Swap --brand → --mono on FooterSocial. */
+.footer-social {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.65rem;
+  margin-top: 1.25rem;
+}
+
+.footer-social__icon {
+  display: inline-flex;
+  line-height: 0;
+}
+
+.footer-social__icon svg {
+  width: 1.35rem;
+  height: 1.35rem;
+  display: block;
+}
+
+/* X brand black is invisible on dark footers — lift to white when footer is ink. */
+footer.bg-ink .footer-social--brand .footer-social__icon--x path {
+  fill: #ffffff;
+}
+
+/* TikTok center mark: lighten black note on dark footer so cyan/magenta offsets read. */
+footer.bg-ink .footer-social--brand .footer-social__icon--tiktok path[fill='#010101'] {
+  fill: #ffffff;
+}
+
+.footer-social--mono {
+  color: currentColor;
+}
+
+.footer-social--mono .footer-social__icon path,
+.footer-social--mono .footer-social__icon stop {
+  fill: currentColor !important;
+  stop-color: currentColor !important;
 }

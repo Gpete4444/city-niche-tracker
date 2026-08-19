@@ -3,7 +3,7 @@
  * Accepts real ## headings or plain-line section titles (common in older writes).
  */
 
-import { normTitle, stripLeadingTitleEcho } from './content-body';
+import { normTitle, simpleProseToHtml, stripLeadingTitleEcho } from './content-body';
 
 export type ServiceSectionKind =
   | 'intro'
@@ -16,6 +16,7 @@ export type ServiceSectionKind =
   | 'diy'
   | 'whenToCall'
   | 'codes'
+  | 'beforeAfter'
   | 'cta'
   | 'other';
 
@@ -53,9 +54,12 @@ function classifyHeading(heading: string): ServiceSectionKind {
   if (/how long|timeline|duration/.test(t)) return 'timeline';
   // "schedule" alone is too broad (matches process step lines); require timeline-ish phrasing
   if (/\bschedule\b/.test(t) && /how long|timeline|duration|take\?/.test(t)) return 'timeline';
-  if (/diy|hiring a pro|hire a pro/.test(t)) return 'diy';
+  // Lone column titles belong inside a diyVsPro H2 — do not open a second DIY band
+  if (/^(diy|hire a pro|hiring a pro|do it yourself)$/i.test(t.trim())) return 'other';
+  if (/diy\s+vs|vs\s+hiring|hiring a pro|hire a pro|\bdiy\b/.test(t)) return 'diy';
   if (/when to call|when to book|warning signs/.test(t)) return 'whenToCall';
   if (/permit|code|codes/.test(t)) return 'codes';
+  if (/before\s*(&|and)\s*after|before.after/.test(t)) return 'beforeAfter';
   if (/get a .+ estimate|ready for|request .+ estimate|contact us/.test(t)) return 'cta';
   if (/^professional |^about /.test(t) || /\bintro\b/.test(t)) return 'intro';
   return 'other';
@@ -63,21 +67,21 @@ function classifyHeading(heading: string): ServiceSectionKind {
 
 /** True if a non-heading line looks like a section title (plain-text writers). */
 function looksLikePlainHeading(line: string): boolean {
-  const t = line.trim();
+  const t = line.trim().replace(/^\*\*|\*\*$/g, '');
   if (!t || t.length > 110) return false;
-  if (/^#{1,3}\s/.test(t)) return true;
-  if (/^[-*•]\s/.test(t) || /^\d+[.)]\s/.test(t)) return false;
-  // Process steps: "Consult & Measure — We assess..."
+  if (/^#{1,2}\s/.test(t)) return true;
+  // ### stays inside a section (DIY / codes columns)
+  if (/^#{3}\s/.test(t)) return false;
+  if (/^[-*•]\s+/.test(t) || /^\d+[.)]\s+/.test(t)) return false;
   if (/\s[—–]\s/.test(t) || /\s-\s/.test(t)) return false;
-  // Question lines are usually FAQ items; allow only known question-form section titles
-  if (/\?\s*$/.test(t)) {
-    return /^(what does|how long does|how much (does|is|are))\b/i.test(t);
-  }
+  // Never promote FAQ questions or bold subheads into new sections
+  if (/\?\s*$/.test(t)) return false;
+  if (/^typically included\b/i.test(t)) return false;
   if (/[.!]$/.test(t) && t.split(/\s+/).length > 12) return false;
   const kind = classifyHeading(t);
-  if (kind === 'other') return false;
-  // Avoid treating short body sentences as headings
-  if (kind === 'intro') return /^(professional |about )/i.test(t);
+  if (kind === 'other' || kind === 'intro') return false;
+  if (kind === 'cost' && !/^(what does|cost|pricing)\b/i.test(t)) return false;
+  if (kind === 'timeline' && !/^(how long|timeline)\b/i.test(t)) return false;
   return true;
 }
 
@@ -96,28 +100,19 @@ function splitIntoRawSections(text: string): Array<{ heading: string; body: stri
   };
 
   for (const raw of lines) {
-    const md = raw.match(/^#{1,3}\s+(.+)$/);
+    // ## boundaries only — ### DIY / ### Hire a pro stay in body
+    const md = raw.match(/^#{1,2}\s+(.+)$/);
     if (md) {
       flush();
       heading = md[1].trim();
       continue;
     }
     const trimmed = raw.trim();
-    if (trimmed && looksLikePlainHeading(trimmed) && buf.length > 0) {
-      // Only treat as a new section heading when we already have content
-      // OR when classify is strong (not 'other')
+    if (trimmed && looksLikePlainHeading(trimmed) && (buf.length > 0 || !heading)) {
       const kind = classifyHeading(trimmed);
       if (kind !== 'other' && kind !== 'intro') {
         flush();
-        heading = trimmed;
-        continue;
-      }
-    }
-    if (!heading && trimmed && looksLikePlainHeading(trimmed)) {
-      const kind = classifyHeading(trimmed);
-      if (kind !== 'other') {
-        flush();
-        heading = trimmed;
+        heading = trimmed.replace(/^\*\*|\*\*$/g, '');
         continue;
       }
     }
@@ -125,6 +120,14 @@ function splitIntoRawSections(text: string): Array<{ heading: string; body: stri
   }
   flush();
   return chunks;
+}
+
+function stripBold(s: string): string {
+  return String(s || '')
+    .replace(/\*\*(.+?)\*\*/g, '$1')
+    .replace(/^\*\*|\*\*$/g, '')
+    .replace(/\*\*/g, '')
+    .trim();
 }
 
 function parseProcessSteps(body: string): ServiceProcessStep[] {
@@ -135,7 +138,7 @@ function parseProcessSteps(body: string): ServiceProcessStep[] {
     .filter(Boolean);
 
   for (const line of lines) {
-    const cleaned = line.replace(/^[-*•]\s+/, '').replace(/^\d+[.)]\s+/, '');
+    const cleaned = stripBold(line.replace(/^[-*•]\s+/, '').replace(/^\d+[.)]\s+/, ''));
     const em = cleaned.match(/^(.+?)\s+[—–-]\s+(.+)$/);
     if (em) {
       steps.push({ title: em[1].trim(), description: em[2].trim() });
@@ -150,6 +153,15 @@ function parseProcessSteps(body: string): ServiceProcessStep[] {
   return steps;
 }
 
+function looksLikeQuestion(line: string): boolean {
+  const q = String(line || '').trim();
+  if (!q) return false;
+  return (
+    /\?$/.test(q) ||
+    /^(how|what|when|why|do |does |can |is |are |should |will )/i.test(q)
+  );
+}
+
 function parseFaqs(body: string): ServiceFaqItem[] {
   const faqs: ServiceFaqItem[] = [];
   const blocks = body
@@ -161,77 +173,37 @@ function parseFaqs(body: string): ServiceFaqItem[] {
   while (i < blocks.length) {
     const block = blocks[i];
     const lines = block.split(/\n/).map((l) => l.trim()).filter(Boolean);
-    const qLine = lines[0] || '';
-    const isQuestion =
-      /\?$/.test(qLine) ||
-      /^(how|what|when|why|do |does |can |is |are |should |will )/i.test(qLine);
+    let qLine = stripBold((lines[0] || '').replace(/^#{1,3}\s+/, ''));
+    let answer = stripBold(lines.slice(1).join(' ').trim());
 
-    if (isQuestion) {
-      const question = qLine.replace(/^#{1,3}\s+/, '').replace(/^\*\*|\*\*$/g, '').trim();
-      let answer = lines.slice(1).join(' ').trim();
-      if (!answer && i + 1 < blocks.length) {
-        const next = blocks[i + 1];
-        const nextFirst = (next.split(/\n/)[0] || '').trim();
-        const nextIsQ =
-          /\?$/.test(nextFirst) ||
-          /^(how|what|when|why|do |does |can |is |are |should |will )/i.test(nextFirst);
-        if (!nextIsQ) {
-          answer = next.replace(/\n+/g, ' ').trim();
-          i += 1;
-        }
+    if (!answer && i + 1 < blocks.length) {
+      const next = blocks[i + 1];
+      const nextFirst = stripBold((next.split(/\n/)[0] || '').trim());
+      if (!looksLikeQuestion(nextFirst)) {
+        answer = stripBold(next.replace(/\n+/g, ' ').trim());
+        i += 1;
       }
-      if (question && answer) faqs.push({ question, answer });
+    }
+
+    // Heal inverted pairs: first line is answer-ish, second block/line is the question
+    if (qLine && answer && !looksLikeQuestion(qLine) && looksLikeQuestion(answer)) {
+      const swappedQ = answer;
+      const swappedA = qLine;
+      qLine = swappedQ;
+      answer = swappedA;
+    }
+
+    if (looksLikeQuestion(qLine) && qLine && answer) {
+      faqs.push({ question: qLine, answer });
     }
     i += 1;
   }
   return faqs;
 }
 
-/** Escape + light markdown (paragraphs, lists, bold/italic) → HTML. */
+/** Escape + light markdown (paragraphs, lists, bold/italic, links) → HTML. */
 export function simpleMarkdownToHtml(src: string): string {
-  const text = String(src || '').trim();
-  if (!text) return '';
-
-  const esc = (s: string) =>
-    s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-
-  const inline = (s: string) =>
-    esc(s)
-      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-      .replace(/\*(.+?)\*/g, '<em>$1</em>');
-
-  const blocks = text.split(/\n{2,}/);
-  const html: string[] = [];
-
-  for (const block of blocks) {
-    const lines = block.split(/\n/).map((l) => l.trimEnd());
-    const isUl = lines.every((l) => !l.trim() || /^[-*•]\s+/.test(l.trim()));
-    const isOl = lines.every((l) => !l.trim() || /^\d+[.)]\s+/.test(l.trim()));
-
-    if (isUl && lines.some((l) => l.trim())) {
-      html.push(
-        `<ul>${lines
-          .filter((l) => l.trim())
-          .map((l) => `<li>${inline(l.trim().replace(/^[-*•]\s+/, ''))}</li>`)
-          .join('')}</ul>`,
-      );
-      continue;
-    }
-    if (isOl && lines.some((l) => l.trim())) {
-      html.push(
-        `<ol>${lines
-          .filter((l) => l.trim())
-          .map((l) => `<li>${inline(l.trim().replace(/^\d+[.)]\s+/, ''))}</li>`)
-          .join('')}</ol>`,
-      );
-      continue;
-    }
-
-    const para = lines.map((l) => l.trim()).filter(Boolean).join(' ');
-    if (para) html.push(`<p>${inline(para)}</p>`);
-  }
-
-  return html.join('\n');
+  return simpleProseToHtml(src);
 }
 
 export function parseServiceBody(
@@ -247,6 +219,7 @@ export function parseServiceBody(
 
   const raw = splitIntoRawSections(text);
   const sections: ServiceBodySection[] = [];
+  const seenKinds = new Set<ServiceSectionKind>();
   let intro = '';
 
   for (const chunk of raw) {
@@ -262,7 +235,11 @@ export function parseServiceBody(
       continue;
     }
 
-    if (kind === 'cta') continue;
+    // One band per kind (cost/timeline/scope/…) — extra FAQ-shaped headings stay out
+    if (seenKinds.has(kind) && kind !== 'other' && kind !== 'faq') {
+      continue;
+    }
+    seenKinds.add(kind);
 
     if (kind === 'process') {
       const steps = parseProcessSteps(chunk.body);

@@ -12,6 +12,12 @@ import {
 } from './candidates.mjs';
 import { loadAcceptedSiteConfig } from './content-markdown.mjs';
 import { parseJsonLoose } from './claude.mjs';
+import {
+  buildCityContextPackage,
+  cityContextPromptRules,
+  compactCityContextForPrompt,
+  getCachedCityContext,
+} from './city-context.mjs';
 
 // Mirror content-markdown slugifyContentName (avoid circular import)
 function slugifyContentName(name) {
@@ -72,15 +78,44 @@ function outlinePath(candidateId) {
 }
 
 function siteVars(config = {}) {
+  const businessName = config.businessName || 'Business';
+  const niche = config.niche || 'service';
   return {
-    businessName: config.businessName || 'Business',
-    niche: config.niche || 'service',
+    businessName,
+    niche,
     city: config.primaryCity || 'City',
     state: config.state || 'ST',
     // Left as placeholders for Claude to fill per FILE
     serviceName: '{serviceName}',
     suburb: '{suburb}',
+    brandEqualsNiche: namesRoughlyEqual(businessName, niche),
   };
+}
+
+function namesRoughlyEqual(a, b) {
+  const norm = (s) =>
+    String(s || '')
+      .toLowerCase()
+      .replace(/&/g, ' and ')
+      .replace(/\b(pros|llc|inc|co|company|services|service)\b/g, ' ')
+      .replace(/[^a-z0-9]+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  return Boolean(norm(a) && norm(a) === norm(b));
+}
+
+function headingForSection(def, vars) {
+  let tpl = def.defaultHeading || def.label || def.id;
+  // Avoid "Niche: Niche in City" when businessName matches niche
+  if (def.id === 'hero' && vars.brandEqualsNiche) {
+    tpl = '{niche} in {city}, {state}';
+  } else if (
+    vars.brandEqualsNiche &&
+    /\{businessName\}:\s*\{niche\}/i.test(String(tpl))
+  ) {
+    tpl = String(tpl).replace(/\{businessName\}:\s*\{niche\}/i, '{niche}');
+  }
+  return fillTemplate(tpl, vars);
 }
 
 function configuredServiceNames(config = {}) {
@@ -97,9 +132,11 @@ function configuredServiceNames(config = {}) {
 
 function configuredSuburbNames(config = {}) {
   const names = [];
+  const primary = String(config.primaryCity || '').trim();
+  if (primary) names.push(primary);
   for (const name of config.targetSuburbs || []) {
     const n = String(name || '').trim();
-    if (n && !names.includes(n)) names.push(n);
+    if (n && !names.some((x) => x.toLowerCase() === n.toLowerCase())) names.push(n);
   }
   return names;
 }
@@ -108,11 +145,15 @@ function buildRequiredFileRules(outline, config = {}) {
   const pageIds = new Set(outline.pageIds || (outline.pages || []).map((p) => p.id));
   const lines = [];
   const pageMeta = new Map((outline.pages || []).map((p) => [p.id, p]));
+  const paths = [];
 
   for (const id of ['home', 'about', 'contact']) {
     if (!pageIds.has(id)) continue;
     const p = pageMeta.get(id);
-    lines.push(`- ${p?.label || id}: \`### FILE: ${p?.route || `src/content/pages/${id === 'home' ? 'index' : id}.md`}\``);
+    const route =
+      p?.route || `src/content/pages/${id === 'home' ? 'index' : id}.md`;
+    paths.push(route);
+    lines.push(`- ${p?.label || id}: \`### FILE: ${route}\``);
   }
 
   if (pageIds.has('services')) {
@@ -124,7 +165,9 @@ function buildRequiredFileRules(outline, config = {}) {
       for (const name of services) {
         const slug = slugifyContentName(name);
         if (!slug) continue;
-        lines.push(`  - ${name}: \`### FILE: src/content/services/${slug}.md\``);
+        const route = `src/content/services/${slug}.md`;
+        paths.push(route);
+        lines.push(`  - ${name}: \`### FILE: ${route}\``);
       }
     } else {
       lines.push(
@@ -142,7 +185,9 @@ function buildRequiredFileRules(outline, config = {}) {
       for (const name of suburbs) {
         const slug = slugifyContentName(name);
         if (!slug) continue;
-        lines.push(`  - ${name}: \`### FILE: src/content/locations/${slug}.md\``);
+        const route = `src/content/locations/${slug}.md`;
+        paths.push(route);
+        lines.push(`  - ${name}: \`### FILE: ${route}\``);
       }
     } else {
       lines.push(
@@ -151,7 +196,7 @@ function buildRequiredFileRules(outline, config = {}) {
     }
   }
 
-  return lines.join('\n');
+  return { markdown: lines.join('\n'), paths, count: paths.length };
 }
 
 function normalizeSelection(input = {}, registry = loadSectionRegistry()) {
@@ -179,6 +224,14 @@ function normalizeSelection(input = {}, registry = loadSectionRegistry()) {
     const def = sectionById.get(id);
     return (def?.pages || []).some((pid) => pages.includes(pid));
   });
+
+  // Mutual exclusion: Services pages (multi-service) use `process`; single-offer uses `offerProcess`
+  const hasServicesPage = pages.includes('services');
+  if (hasServicesPage) {
+    sections = sections.filter((id) => id !== 'offerProcess');
+  } else if (sections.includes('process') && sections.includes('offerProcess')) {
+    sections = sections.filter((id) => id !== 'process');
+  }
 
   const photos = {};
   const photoIn = input.photos && typeof input.photos === 'object' ? input.photos : {};
@@ -265,30 +318,29 @@ function composeSections(selection, registry, vars) {
     const def = sectionById.get(id);
     if (!def) continue;
     const photo = selection.photos?.[id];
+    // Paths come from Pull / ChatGPT BA / operator upload — never invent placeholder files
     const images = [];
     if (photo?.enabled) {
       const n = photo.count || 1;
-      const hint = String(def.id || 'photo')
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, '-')
-        .replace(/^-|-$/g, '');
       for (let i = 1; i <= n; i += 1) {
         images.push({
-          path: `public/images/${def.id}-${i}-${hint}.jpg`,
-          alt: `TODO alt for ${def.label} image ${i}`,
+          path: null,
+          alt: '',
           caption: '',
+          slot: `${def.id}-${i}`,
         });
       }
     }
     out.push({
       id: def.id,
       level: def.level,
-      heading: fillTemplate(def.defaultHeading, vars),
+      heading: headingForSection(def, vars),
       kind: def.kind,
       pages: def.pages,
       astroKey: def.astroKey,
       instructions: def.writeInstructions,
       photoCapable: Boolean(def.photoCapable),
+      photoCount: photo?.enabled ? photo.count || 1 : 0,
       images,
     });
   }
@@ -302,7 +354,7 @@ function outlineToBriefSections(outlineSections) {
     heading: s.heading,
     instructions: s.instructions,
     kind: s.kind,
-    ...(s.images?.length ? { images: s.images } : {}),
+    ...(s.photoCapable ? { photoCapable: true, photoCount: s.photoCount || s.images?.length || 0 } : {}),
   }));
 }
 
@@ -326,10 +378,10 @@ export function outlineToMarkdown(outline) {
     lines.push(`- id: \`${s.id}\``);
     if (s.astroKey) lines.push(`- astroKey: \`${s.astroKey}\``);
     if (s.instructions) lines.push(`- instructions: ${s.instructions}`);
-    if (s.images?.length) {
-      lines.push('- images:');
-      for (const img of s.images) {
-        lines.push(`  - \`${img.path}\` — alt: ${img.alt || 'TODO'}; caption: ${img.caption || ''}`);
+    if (s.photoCapable || s.images?.length) {
+      const n = s.photoCount || s.images?.length || 0;
+      if (n) {
+        lines.push(`- photos: ${n} slot(s) — filled by Rover Pull / BA import / Upload (do not invent paths)`);
       }
     }
   }
@@ -414,12 +466,14 @@ export function composeContentOutline(candidateId, selectionPatch = null) {
     throw Object.assign(new Error('Accept site-config first'), { status: 400 });
   }
   const prior = getContentStructure(candidateId) || {};
-  const selection = normalizeSelection(
-    selectionPatch
-      ? { ...prior, ...selectionPatch, photos: selectionPatch.photos || prior.photos }
-      : prior,
-    registry,
-  );
+  const inputSelection = selectionPatch
+    ? { ...prior, ...selectionPatch, photos: selectionPatch.photos || prior.photos }
+    : prior;
+  const inputPages = Array.isArray(inputSelection.pages) ? inputSelection.pages : [];
+  const inputSections = Array.isArray(inputSelection.sections) ? inputSelection.sections : [];
+  const droppedOfferForServices =
+    inputPages.includes('services') && inputSections.includes('offerProcess');
+  const selection = normalizeSelection(inputSelection, registry);
   const vars = siteVars(config);
   const sections = composeSections(selection, registry, vars);
   const pages = (registry.pages || []).filter((p) => selection.pages.includes(p.id));
@@ -437,24 +491,31 @@ export function composeContentOutline(candidateId, selectionPatch = null) {
     homepageSections: homepageAstroKeys(selection, registry),
     sections,
     seoNotes: [
-      'Map primary + supporting keywords from research into H1/H2s.',
+      'Map primary + supporting keywords from research into H1/H2s (see keywordTargets).',
+      'FAQ questions must follow faqSeeds (SERP PAA when available).',
+      'Use organicTitleHints for H1/H2 phrasing cues — do not copy competitor brand names.',
       'Prefer helpful depth: methods, cost drivers, timelines, when to call, DIY vs pro.',
       'Internal links: Home ↔ Services ↔ Locations ↔ Contact.',
-      'Do not invent licenses, years in business, or review counts.',
+      'Use site-config socialProof for trust/reviews — do not invent testimonials. Rover seeds placeholders when empty; operator replaces before launch.',
+      'Use City context briefs (Wikipedia + local seed) for climate/neighborhood flavor — paraphrase only; keep each location FILE distinct; name concrete materials/methods.',
     ],
     keywords: {
       primary: config.niche || null,
+      supporting: [],
       city: `${config.primaryCity || ''}, ${config.state || ''}`.trim(),
+      niche: config.niche || null,
+      volumeHints: [],
       fromApproved: null,
     },
+    keywordTargets: [],
+    faqSeeds: [],
+    organicTitleHints: [],
   };
 
-  const approved = getCandidateDetail(candidateId).approved;
-  if (approved?.topTargetKeywordsAndVolumesText) {
-    outline.keywords.fromApproved = approved.topTargetKeywordsAndVolumesText;
-  } else if (Array.isArray(approved?.keywords)) {
-    outline.keywords.fromApproved = approved.keywords;
-  }
+  applyResearchSeoSeeds(outline, getCandidateDetail(candidateId), selection);
+
+  // Warm city-context cache for Outline refine / Full write (non-blocking)
+  void buildCityContextPackage(candidateId).catch(() => {});
 
   writeJson(outlinePath(candidateId), outline);
   writeJson(structurePath(candidateId), {
@@ -496,16 +557,30 @@ export function composeContentOutline(candidateId, selectionPatch = null) {
     lastContentBriefAt: nowIso(),
   });
 
+  const photoSectionCount = Object.keys(selection.photos || {}).length;
+  const warnings = [];
+  if (selection.sections.length >= 28 || photoSectionCount >= 8) {
+    warnings.push(
+      'Large outline — Full write must include every page FILE (about, contact, each service, each location) or Accept will fail. Prefer Preset C unless you need every section.',
+    );
+  }
+  if (droppedOfferForServices) {
+    warnings.push(
+      'Removed Deep offer process — Services pages use How we work (process) instead.',
+    );
+  }
+
   return {
     outline,
     structure: getContentStructure(candidateId),
     brief,
     markdown: outlineToMarkdown(outline),
+    warnings,
     candidate: getCandidateDetail(candidateId),
   };
 }
 
-export function buildStructurePrompt(candidateId) {
+export async function buildStructurePrompt(candidateId) {
   const outline = getContentOutlinePackage(candidateId);
   if (!outline?.sections?.length) {
     throw Object.assign(new Error('Compose an outline first (Continue from Structure)'), {
@@ -513,6 +588,13 @@ export function buildStructurePrompt(candidateId) {
     });
   }
   const config = loadAcceptedSiteConfig(candidateId)?.config || {};
+  let cityContext = getCachedCityContext(candidateId);
+  try {
+    cityContext = await buildCityContextPackage(candidateId);
+  } catch {
+    // keep cached / null
+  }
+  const cityCompact = compactCityContextForPrompt(cityContext);
   const prompt = `You are an SEO content strategist for a local rank-and-rent website.
 
 ## Goal
@@ -537,21 +619,40 @@ ${JSON.stringify(
 ## Keyword / research hints
 ${JSON.stringify(outline.keywords || {}, null, 2)}
 
+## Keyword targets (must map into H1/H2)
+${JSON.stringify(outline.keywordTargets || [], null, 2)}
+
+## FAQ seeds (from SERP PAA when available — lock FAQ topics to these)
+${JSON.stringify(outline.faqSeeds || [], null, 2)}
+
+## Organic SERP title hints (phrasing cues only — do not copy brands)
+${JSON.stringify(outline.organicTitleHints || [], null, 2)}
+
+${cityContextPromptRules()}
+
+## City context JSON
+\`\`\`json
+${JSON.stringify(cityCompact || { note: 'unavailable — use site-config suburbs only' }, null, 2)}
+\`\`\`
+
 ## Current outline JSON
 \`\`\`json
 ${JSON.stringify(outline, null, 2)}
 \`\`\`
 
 ## Instructions
-1. Improve H1/H2 headings for search intent and clarity (keep section ids stable).
-2. Strengthen each section's \`instructions\` for value SEO: methods, costs/ranges, timelines, materials, DIY vs pro, when to call — where relevant to that section.
-3. Keep \`images\` slots; improve alt/caption TODOs if photos are enabled.
-4. Preserve pages and section ids unless a heading is clearly wrong.
-5. Return ONLY the full updated outline JSON object (same shape). No markdown fences unless needed.
+1. Improve H1/H2 headings for search intent and clarity (keep section ids stable). Place each keywordTargets[].keyword into the named headingHint / section.
+2. Keep or refine keywordTargets (primary + at least 2 supporting) and faqSeeds (6–10 PAA-style). Prefer SERP faqSeeds wording.
+3. Strengthen each section's \`instructions\` for value SEO: methods, costs/ranges, timelines, materials, DIY vs pro, when to call — where relevant to that section. For loc* / materials / intro / areas / aboutStory, require local climate + housing/neighborhood cues from City context (when present) and concrete method/product names.
+4. Keep \`images\` slots; improve alt/caption TODOs if photos are enabled.
+5. Preserve pages and section ids unless a heading is clearly wrong. Do not add \`offerProcess\` when Services pages are selected (use \`process\` only).
+6. Use organicTitleHints to sound competitive in titles/H2s without copying brand names.
+7. Keep every section \`id\`, page list, and image path — refine headings, instructions, alts, and keyword/FAQ maps only.
+8. Return ONLY the full updated outline JSON object (same shape) in one response. No markdown fences unless needed.
 
 Return the complete JSON outline.`;
 
-  return { prompt, outline };
+  return { prompt, outline, cityContext: cityCompact };
 }
 
 export function pasteContentOutlinePackage(candidateId, raw) {
@@ -574,6 +675,13 @@ export function pasteContentOutlinePackage(candidateId, raw) {
     status: 'uploaded',
     uploadedAt: nowIso(),
   };
+  const gate = outlineSeoGateErrors(next);
+  if (gate.length) {
+    throw Object.assign(new Error(`Outline SEO incomplete: ${gate.join('; ')}`), {
+      status: 400,
+      outlineErrors: gate,
+    });
+  }
   writeJson(outlinePath(candidateId), next);
 
   const brief = {
@@ -599,12 +707,25 @@ export function pasteContentOutlinePackage(candidateId, raw) {
   };
 }
 
-export function confirmContentOutline(candidateId) {
+export async function confirmContentOutline(candidateId) {
   const outline = getContentOutlinePackage(candidateId);
   if (!outline?.sections?.length) {
     throw Object.assign(new Error('No outline to confirm — Compose or paste first'), {
       status: 400,
     });
+  }
+  const gate = outlineSeoGateErrors(outline);
+  if (gate.length) {
+    throw Object.assign(new Error(`Cannot confirm outline: ${gate.join('; ')}`), {
+      status: 400,
+      outlineErrors: gate,
+    });
+  }
+  // Ensure city briefs are ready before Full write
+  try {
+    await buildCityContextPackage(candidateId);
+  } catch {
+    // non-fatal — Full write still runs with soft rules
   }
   const confirmed = {
     ...outline,
@@ -636,7 +757,7 @@ export function confirmContentOutline(candidateId) {
   };
 }
 
-export function buildFullWritePrompt(candidateId) {
+export async function buildFullWritePrompt(candidateId) {
   const outline = getContentOutlinePackage(candidateId);
   if (!outline?.sections?.length) {
     throw Object.assign(new Error('Compose/confirm an outline before full write'), {
@@ -650,6 +771,8 @@ export function buildFullWritePrompt(candidateId) {
   }
   const config = loadAcceptedSiteConfig(candidateId)?.config || {};
   const fileRules = buildRequiredFileRules(outline, config);
+  const requiredCount = fileRules.count || 0;
+  const servicesLimit = Number(config.homepageServicesLimit) || 6;
   const svcSections = (outline.sections || []).filter((s) =>
     (s.pages || []).includes('services'),
   );
@@ -657,10 +780,18 @@ export function buildFullWritePrompt(candidateId) {
     (s.pages || []).includes('locations'),
   );
 
+  let cityContext = getCachedCityContext(candidateId);
+  try {
+    cityContext = await buildCityContextPackage(candidateId);
+  } catch {
+    // soft fail
+  }
+  const cityCompact = compactCityContextForPrompt(cityContext);
+
   const prompt = `You are an expert local SEO copywriter for a rank-and-rent service website.
 
 ## Goal
-Write FULL page content that follows the confirmed OUTLINE. Prioritize helpful, specific value Google rewards: methods, cost drivers and ranges (not fake quotes), timelines, materials, DIY vs pro, when to call a pro, local proof without invented stats.
+Write FULL page content that follows the confirmed OUTLINE. Prioritize helpful, specific value Google rewards: methods, cost drivers and ranges (not fake quotes), timelines, materials, DIY vs pro, when to call a pro, and local proof from site-config socialProof.
 
 ## Site config
 \`\`\`json
@@ -672,6 +803,13 @@ ${JSON.stringify(config, null, 2)}
 ${JSON.stringify(outline, null, 2)}
 \`\`\`
 
+${cityContextPromptRules()}
+
+## City context JSON
+\`\`\`json
+${JSON.stringify(cityCompact || { note: 'unavailable — use site-config suburbs + honest general local conditions' }, null, 2)}
+\`\`\`
+
 ## Output format
 Emit markdown files using blocks:
 
@@ -681,8 +819,12 @@ Emit markdown files using blocks:
 ---
 <body markdown>
 
-Required files for this job:
-${fileRules || '- Home: `### FILE: src/content/pages/index.md`\n- About: `### FILE: src/content/pages/about.md`\n- Contact: `### FILE: src/content/pages/contact.md`'}
+**Emit all ${requiredCount} ### FILE blocks listed below in one reply.** If length-limited, continue in the next message with only the remaining FILE paths — same format, no recap.
+Homepage may show only ${servicesLimit} service cards (\`homepageServicesLimit\`); still write **every** service FILE listed.
+Reviews/trust come from site-config socialProof (Rover seeds placeholders when empty; replace with real reviews before launch) — do not invent testimonials in copy.
+
+Required files for this job (${requiredCount}):
+${fileRules.markdown || '- Home: `### FILE: src/content/pages/index.md`\n- About: `### FILE: src/content/pages/about.md`\n- Contact: `### FILE: src/content/pages/contact.md`'}
 
 ## Shared templates
 ${
@@ -696,46 +838,234 @@ ${
     : '- No location-page sections enabled.'
 }
 
+## Dual-source contract (home vs service)
+- **Homepage:** \`whyChooseUs[]\`, \`process[]\`, \`faqs[]\`, and \`gallery\` live in **frontmatter only**. Do NOT dump process steps, FAQ Q&As, or why-reasons into the homepage body.
+- **Homepage body:** intro (~2 paras) + \`##\` sections for enabled **educational** bands only (cost, materials, timeline, codes, diyVsPro, whenToCall).
+- **Service pages:** there are **no** \`process\` / \`faqs\` / \`whyChooseUs\` frontmatter arrays. After a short unmarked intro, every enabled service band is a body \`##\` (What's included, process, cost, materials, timeline, codes, DIY, whenToCall, FAQs, before/after, CTA).
+- Do **not** invent service-page \`process:\` or \`faqs:\` YAML arrays.
+
 ## Frontmatter expectations (homepage index.md)
 - title, description, h1
 - sectionHeading (intro H2)
 - whyChooseUs: [{ title, description }] when whyChooseUs section enabled
-- process: [{ title, description, image? }] when process/offerProcess enabled
+- process: [{ title, description, image? }] when process/offerProcess enabled — prefer **4, 6, or 8** steps (even under 4-col grid); each \`description\` = one short line (~8–14 words), not a paragraph
 - faqs: [{ question, answer }] when faqs enabled
 - gallery: [{ src, alt }] when beforeAfter/gallery photos enabled
-- **Homepage body:** write **intro prose only** (1–3 short paragraphs). Do NOT repeat whyChooseUs, process, FAQs, or the services list in the body — those belong in frontmatter / dedicated sections only.
+- materialsImages: [{ src, alt }] is Pull-owned — omit or preserve existing; do not invent image paths
+- **Homepage body:**
+  1. Start with intro prose only (max ~2 short salesperson paragraphs). Do NOT repeat whyChooseUs, process, FAQs, or the services list in the body — those belong in frontmatter / dedicated sections only.
+  2. After the intro, add a \`##\` Markdown section for **each enabled educational homepage section** (cost, materials, timeline, codes, diyVsPro, whenToCall, and similar) using that section’s outline heading + writeInstructions. Do **not** re-dump process/why/FAQs as body prose.
 - Do **not** repeat the h1 as the first body line.
-- **Images:** omit \`heroImage\` / \`featureImage\` / \`cardImage\` when there is no real file under public/images. Never write \`heroImage: ""\`. When present use object form only:
+- **Images:** omit \`heroImage\` / \`featureImage\` / \`cardImage\` / \`gallery\` / \`process[].image\` / \`materialsImages\` unless a real file already exists (Rover Pull, ChatGPT BA import, or operator upload). Never invent paths. Never write \`heroImage: ""\`. When present use object form only:
 \`\`\`yaml
 heroImage:
   src: /images/example.jpg
   alt: "Descriptive alt text"
 \`\`\`
-- Map \`public/images/...\` outline paths to \`/images/...\` in frontmatter src.
+- Outline photo slots list counts only (paths are null until Pull) — do not invent \`public/images/...\` placeholders.
+- **Never** put markdown body images (\`![alt](/images/...)\`) in page bodies. Materials / process / before-after / gallery rely on frontmatter + Rover Pull images only.
 
 ## Frontmatter expectations (each services/*.md)
 - title, description, h1, serviceName
-- heroImage / cardImage only as \`{ src, alt }\` objects when photos enabled; otherwise omit
-- Body: use real Markdown headings (\`##\`) for each enabled service section (What's included, process, cost, FAQs, etc.); do not echo h1 as the first body line
-- Process steps: one line each as \`Step title — description\`
-- FAQs: question line ending with \`?\`, then answer paragraph(s) before the next question
+- \`description\` = ONE meta-length sentence (~140–160 chars): serviceName + primaryCity + 2–3 offer terms + free estimates (hero supporting under H1)
+- heroImage / cardImage only as \`{ src, alt }\` objects when files already exist; otherwise omit
+- \`materialsImages: [{ src, alt }]\` is Pull-owned when svcMaterials photos are on — omit or preserve existing; do not invent image paths
+- \`processImages: [{ src, alt }]\` is Pull-owned when svcProcess photos are on — omit or preserve existing; do not invent image paths
+- **No** \`process:\` / \`faqs:\` / \`whyChooseUs:\` / \`gallery:\` frontmatter on service pages
+- Body:
+  1. Unmarked intro: max ~2 concise paragraphs (service-first; one natural city mention OK)
+  2. A \`##\` heading for **each enabled** service section (svcWhatsIncluded, svcProcess, svcCost, svcMaterials, svcTimeline, svcCodes, svcDiyVsPro, svcWhenToCall, svcFaqs, svcBeforeAfter, svcCta, etc.)
+- Process (when enabled): prefer **4, 6, or 8** steps; lines shaped \`Step title — short description\` (description ~8–14 words; timing cue OK); no body images — thumbs come from Pull \`processImages\` frontmatter (one per step, same compact cards as homepage)
+- What’s included / Scope (when enabled): **at least 3 real scope bullets specific to this serviceName** (methods, materials, verification — e.g. CIPP = candidacy camera + liner cure + post-CCTV; camera inspection = full pass + findings write-up). Do **not** use the same generic “labor/materials/cleanup” trio on every service. Optional add-ons and Customer prep may follow as extra bullets — never leave the section with only Optional / Customer prep lines
+- FAQs (when enabled): question line ending with \`?\`, then answer paragraph(s) before the next question
+- Cost (when enabled): 3–5 bullets \`**Tier** — $low–$high — what’s included\` (ballparks, not a fixed quote)
+- Codes (when enabled): \`### Usually needs a permit\` then \`### Usually no permit\`, one bullet per item
+- DIY vs pro (when enabled): \`### DIY\` first, then \`### Hire a pro\`, each with balanced bullets
+- Timeline (when enabled): stage bullets \`**Stage title** — duration\` where duration is a complete phrase (\`same day\`, \`1–2 days\`, \`3–7 days\`). Keep en-dashes in ranges. Never write hedges like \"or next day\" / \"usually\" / \"in most cases\" / \"varies by city\" that can drop mid-phrase
+- Before/after (when enabled): short problem → solution text lines only; photos live on the **homepage** gallery — do not invent image paths; optionally link to \`/\` for photo examples
+- Materials (when enabled): short intro + option bullets (\`title — why it matters\`); each title must name a **concrete product, system, or method** (not “professional grade” alone) and tie durability to local climate from City context when available; no body images — thumbs come from Pull \`materialsImages\` frontmatter (one per bullet, same as homepage)
+
+## Frontmatter expectations (about.md)
+- title, description, h1
+- **h1 MUST be** \`About ${config.businessName || 'Business'}\` (full business name — never niche alone)
+- title should include the business name; keep the keyword lead short so SERP title stays ≤~60 chars after any \`| brand\` suffix
+
+## Frontmatter expectations (contact.md)
+- title, description, h1
+- **h1 MUST be** \`Contact ${config.businessName || 'Business'}\` (full business name — never niche alone)
+- title should include the business name; keep SERP title ≤~60 chars
 
 ## Frontmatter expectations (each locations/*.md)
+- Filename slug = city kebab only (e.g. \`riverton.md\` → \`/locations/riverton\`); never append state (\`riverton-ut\` is wrong)
 - title, description, h1, city, state
+- **Target ~600+ words** of useful local copy (intro + local notes + proof + FAQs + CTA when those sections are enabled) — not a thin stub. Accept rejects bodies under ~450 words and near-duplicate location pages.
+- Use City context for **this** city: climate/housing/neighborhood hints when present; paraphrase into niche work (access, moisture, finish durability, common jobs) — never invent neighborhoods not listed.
+- **Every location FILE must differ** in local notes and examples (do not swap only the city name).
+- **Primary city** (\`${config.primaryCity || 'primary'}\`): do **not** reuse the homepage head pattern (“${config.niche || 'niche'} in ${config.primaryCity || 'city'}, ST”). Prefer “${config.niche || 'Niche'} for ${config.primaryCity || 'City'}, ${config.state || 'ST'} homeowners” (or “${config.businessName || 'Business'} serving ${config.primaryCity || 'City'}”). Always include the **niche** and **city**; never geo-only (“{City} Service Areas & Neighborhoods”) and avoid awkward “{niche} in {city} neighborhoods” as the sole H1. Emphasize local conditions in the body; link up to \`/\` plus out to suburb / service pages.
+- **Suburb cities:** keep “${config.niche || 'niche'} in {suburb}, ${config.state || 'ST'}”
 - heroImage only as \`{ src, alt }\` or omit
 - Do not echo h1 as the first body line
+- Do **not** add off-niche partner cross-sells or country/trivia digressions
 
 ## Rules
 1. Honor every enabled outline section for the matching page type; skip disabled ones.
 2. Use outline headings (you may lightly polish wording; replace placeholders).
-3. Fill image alt/captions from outline slots; keep src paths as \`/images/...\` objects — never empty strings. Omit image fields when the file does not exist.
-4. Never invent licenses, years, ratings, or review counts not in site-config.
-5. Write for ${config.primaryCity || 'the city'}, ${config.state || ''} and listed suburbs.
-6. Internal links between Home, About, Contact, and service/location pages when those pages are in the outline.
+3. Never invent image \`src\` paths. Omit image frontmatter until Pull / BA import / operator upload supplies files. Preserve existing Pull-owned image fields when present. Do **not** emit body \`![](...)\` placeholders.
+4. For cost/timeline headings with \`{serviceName}\`, prefer “What does **a** {serviceName} cost…” / “How long does **a** {serviceName} take…” (article “a” + singular-ish name).
+5. Use site-config socialProof for reviews/licenses/ratings — do not invent testimonials, license ID numbers, or founding years not in site-config.
+6. Write for ${config.primaryCity || 'the city'}, ${config.state || ''} and listed suburbs.
+7. **Keywords:** Put each keywordTargets[].keyword into the mapped H1/H2. Primary must appear in homepage title + h1.
+8. **FAQs:** When FAQs enabled, questions must follow faqSeeds (SERP PAA) closely — paraphrase OK, topic lock required.
+9. **Organic title hints:** Use for competitive phrasing; do not copy competitor brand names.
+10. **Company subject:** Always use the full business name (“${config.businessName || 'Business'}”) when the company acts (provides, manages, files, handles, offers). Niche labels (“${config.niche || 'the niche'}”) are for H1s, section titles, and service-type nouns — do **not** shorten “${config.businessName || 'Business'}” to the niche alone in body prose.
+11. **Titles:** Prefer a keyword-led \`title\` ≤~50 characters, or include the business name in \`title\` so the layout does not need a long \`| brand\` suffix. Aim for final browser title ≤~60 characters.
+12. **Required internal links** (include as markdown \`[Label](/path)\`):
+${buildLinkChecklistMarkdown(outline, config)}
 
 Return ONLY the ### FILE blocks.`;
 
-  return { prompt, outline, config };
+  return { prompt, outline, config, requiredFileCount: requiredCount, cityContext: cityCompact };
+}
+
+function buildLinkChecklistMarkdown(outline, config) {
+  const pageIds = new Set(outline.pageIds || []);
+  const lines = [
+    '- Homepage (`src/content/pages/index.md`): `[Contact](/contact)`, `[About](/about)`',
+  ];
+  const services = Array.isArray(config.services) ? config.services : [];
+  for (const svc of services.slice(0, 6)) {
+    const name = typeof svc === 'string' ? svc : svc?.name;
+    const slug = slugifyContentName(name);
+    if (slug) lines.push(`- Homepage: \`[${name}](/services/${slug})\``);
+  }
+  if (pageIds.has('locations')) {
+    const primary = String(config.primaryCity || '').trim();
+    if (primary) {
+      const pslug = slugifyContentName(primary);
+      if (pslug) lines.push(`- Homepage: \`[${primary} (primary area)](/locations/${pslug})\``);
+    }
+    for (const sub of (config.targetSuburbs || []).slice(0, 8)) {
+      const label = typeof sub === 'string' ? sub : sub?.name || sub?.city;
+      const slug = slugifyContentName(label);
+      if (slug) lines.push(`- Homepage: \`[${label}](/locations/${slug})\``);
+    }
+  }
+  lines.push('- Each service page: `[Home](/)` and `[Contact](/contact)` (+ one sibling service link when ≥2 services)');
+  return lines.join('\n');
+}
+
+/**
+ * Seed keywords / faqSeeds / organic titles from research + optional content-research pack.
+ */
+function applyResearchSeoSeeds(outline, detail, selection) {
+  const research = detail?.research || {};
+  const approved = detail?.approved || {};
+  const serp = research.serp || {};
+  const volumeRows = Array.isArray(research.volumes?.keywords) ? research.volumes.keywords : [];
+  const volumeHints = volumeRows
+    .map((row) => ({
+      keyword: row.keyword || row.Keyword || '',
+      volume: row.searchVolume ?? row.search_volume ?? row.volume ?? null,
+    }))
+    .filter((r) => r.keyword)
+    .slice(0, 12);
+
+  const supporting = volumeHints
+    .map((r) => r.keyword)
+    .filter((k) => normalizeLoose(k) !== normalizeLoose(outline.keywords.primary))
+    .slice(0, 5);
+
+  outline.keywords.supporting = supporting;
+  outline.keywords.volumeHints = volumeHints;
+  if (approved?.topTargetKeywordsAndVolumesText || research.spreadsheetFields?.topTargetKeywordsAndVolumesText) {
+    outline.keywords.fromApproved =
+      approved.topTargetKeywordsAndVolumesText ||
+      research.spreadsheetFields.topTargetKeywordsAndVolumesText;
+  } else if (Array.isArray(approved?.keywords)) {
+    outline.keywords.fromApproved = approved.keywords;
+  }
+
+  const city = String(outline.keywords.city || '').split(',')[0].trim();
+  const primary = outline.keywords.primary || 'service';
+  outline.keywordTargets = [
+    {
+      keyword: primary,
+      headingHint: `${primary} in ${city}`,
+      sectionId: 'hero',
+    },
+    ...supporting.slice(0, 3).map((keyword, i) => ({
+      keyword,
+      headingHint: keyword,
+      sectionId: i === 0 ? 'cost' : i === 1 ? 'faqs' : 'intro',
+    })),
+  ];
+
+  const contentResearch = detail?.contentResearch || readJson(pathsFor(detail?.id || outline.candidateId).contentResearch);
+  const paaFromSerp = Array.isArray(serp.peopleAlsoAskQuestions) ? serp.peopleAlsoAskQuestions : [];
+  const paaFromPack = Array.isArray(contentResearch?.paaStyleQuestions)
+    ? contentResearch.paaStyleQuestions
+    : [];
+  let faqSeeds = [...paaFromSerp];
+  if (faqSeeds.length < 6) faqSeeds = [...faqSeeds, ...paaFromPack];
+  const faqPad = [
+    `How much does ${primary} cost in ${city}?`,
+    `How long does ${primary} take?`,
+    `Do I need a permit for ${primary}?`,
+    `Is DIY ${primary} a good idea?`,
+    `When should I call a ${primary} pro?`,
+    `What affects ${primary} pricing?`,
+    `What is typically included in ${primary}?`,
+    `How do I prepare my home for ${primary}?`,
+  ];
+  for (const q of faqPad) {
+    if (faqSeeds.length >= 8) break;
+    const key = normalizeLoose(q);
+    if (faqSeeds.some((existing) => normalizeLoose(existing) === key)) continue;
+    faqSeeds.push(q);
+  }
+  outline.faqSeeds = [...new Set(faqSeeds.map((q) => String(q).trim()).filter(Boolean))].slice(0, 10);
+
+  let organicTitles = Array.isArray(serp.organicTitles) ? serp.organicTitles : [];
+  if (!organicTitles.length) {
+    organicTitles = [
+      ...(serp.organicHomePages?.links || []).map((l) => l.title),
+      ...(serp.organicSubPages?.links || []).map((l) => l.title),
+    ].filter(Boolean);
+  }
+  outline.organicTitleHints = [...new Set(organicTitles.map((t) => String(t).trim()).filter(Boolean))].slice(
+    0,
+    10,
+  );
+
+  // Ensure faqs section gets seed note in instructions when enabled
+  if (selection.sections?.includes('faqs')) {
+    const faqs = outline.sections.find((s) => s.id === 'faqs');
+    if (faqs) {
+      faqs.instructions = `${faqs.instructions || ''}\nFAQ questions must cover these seeds:\n- ${outline.faqSeeds.join('\n- ')}`.trim();
+    }
+  }
+}
+
+function outlineSeoGateErrors(outline) {
+  const errors = [];
+  const targets = Array.isArray(outline.keywordTargets) ? outline.keywordTargets : [];
+  if (targets.length < 3) {
+    errors.push('keywordTargets needs primary + at least 2 supporting entries');
+  }
+  const faqsOn = (outline.sectionIds || []).includes('faqs') ||
+    (outline.sections || []).some((s) => s.id === 'faqs');
+  const seeds = Array.isArray(outline.faqSeeds) ? outline.faqSeeds : [];
+  if (faqsOn && seeds.length < 6) {
+    errors.push('faqSeeds needs at least 6 PAA-style questions when FAQs are enabled');
+  }
+  return errors;
+}
+
+function normalizeLoose(s) {
+  return String(s || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
 }
 
 export function listStructureCatalog() {

@@ -16,7 +16,7 @@ const hasExtraProse = bodyWithoutEcho.trim().length > 80;
 ---
 
 <BaseLayout title={entry.data.title} description={entry.data.description} pageType="page">
-  <Hero h1={entry.data.h1} supporting={entry.data.description} image={entry.data.heroImage} />
+  <Hero h1={entry.data.h1} supporting={entry.data.description} image={entry.data.heroImage} editFile="src/content/pages/contact.md" supportingKey="description" />
   <LeadForm heading="Get a Free Estimate" />
   {
     hasExtraProse && (

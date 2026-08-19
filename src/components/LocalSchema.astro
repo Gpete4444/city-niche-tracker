@@ -7,6 +7,8 @@ interface Props {
   pageType?: 'home' | 'service' | 'location' | 'page';
   serviceName?: string;
   locationCity?: string;
+  faqs?: Array<{ question: string; answer: string }>;
+  imageUrl?: string;
 }
 
 const {
@@ -14,45 +16,53 @@ const {
   pageType = 'page',
   serviceName,
   locationCity,
+  faqs = [],
+  imageUrl,
 } = Astro.props;
+
+const proof = site.socialProof;
 
 const areaServed = [
   { '@type': 'City', name: site.primaryCity },
   ...site.targetSuburbs.map((name) => ({ '@type': 'City', name })),
 ];
 
+const address: Record<string, string> = {
+  '@type': 'PostalAddress',
+  addressLocality: site.address?.city || site.primaryCity,
+  addressRegion: site.address?.state || site.state,
+  addressCountry: 'US',
+};
+if (site.address?.street) address.streetAddress = site.address.street;
+if (site.address?.zip) address.postalCode = site.address.zip;
+
 const baseBusiness = {
-  '@type': site.address ? 'LocalBusiness' : 'ProfessionalService',
+  '@type': site.address?.street ? 'LocalBusiness' : 'ProfessionalService',
   '@id': `https://${site.domain}/#business`,
   name: site.businessName,
   description: pageDescription ?? site.tagline,
   url: `https://${site.domain}`,
   telephone: site.phone,
   email: site.email,
-  image: `https://${site.domain}/favicon.svg`,
+  image: imageUrl || `https://${site.domain}/favicon.svg`,
   areaServed,
   priceRange: '$$',
-  address: site.address
-    ? {
-        '@type': 'PostalAddress',
-        streetAddress: site.address.street,
-        addressLocality: site.address.city,
-        addressRegion: site.address.state,
-        postalCode: site.address.zip,
-        addressCountry: 'US',
-      }
-    : {
-        '@type': 'PostalAddress',
-        addressLocality: site.primaryCity,
-        addressRegion: site.state,
-        addressCountry: 'US',
-      },
+  address,
   ...(site.geo
     ? {
         geo: {
           '@type': 'GeoCoordinates',
           latitude: site.geo.lat,
           longitude: site.geo.lng,
+        },
+      }
+    : {}),
+  ...(proof?.rating
+    ? {
+        aggregateRating: {
+          '@type': 'AggregateRating',
+          ratingValue: proof.rating.value,
+          reviewCount: proof.rating.reviewCount,
         },
       }
     : {}),
@@ -71,13 +81,42 @@ if (pageType === 'service' && serviceName) {
 }
 
 if (pageType === 'location' && locationCity) {
+  const primary = String(site.primaryCity || '').trim().toLowerCase();
+  const loc = String(locationCity || '').trim().toLowerCase();
+  const isPrimary = Boolean(primary && loc && primary === loc);
   graph.push({
     '@type': 'Service',
-    name: `${site.niche} in ${locationCity}`,
+    name: isPrimary
+      ? `${site.niche} neighborhoods in ${locationCity}`
+      : `${site.niche} in ${locationCity}`,
     provider: { '@id': `https://${site.domain}/#business` },
     areaServed: [{ '@type': 'City', name: locationCity }],
     description:
-      pageDescription ?? `${site.niche} serving ${locationCity}, ${site.state}`,
+      pageDescription ??
+      (isPrimary
+        ? `${site.niche} serving neighborhoods across ${locationCity}, ${site.state}`
+        : `${site.niche} serving ${locationCity}, ${site.state}`),
+  });
+}
+
+const cleanFaqs = (faqs || [])
+  .map((f) => ({
+    question: String(f?.question || '').trim(),
+    answer: String(f?.answer || '').trim(),
+  }))
+  .filter((f) => f.question && f.answer);
+
+if (cleanFaqs.length) {
+  graph.push({
+    '@type': 'FAQPage',
+    mainEntity: cleanFaqs.map((f) => ({
+      '@type': 'Question',
+      name: f.question,
+      acceptedAnswer: {
+        '@type': 'Answer',
+        text: f.answer,
+      },
+    })),
   });
 }
 

@@ -16,6 +16,7 @@ import {
 } from './cloudflare-launch.mjs';
 import { shipAssembledSite } from './ship-site.mjs';
 import { upsertSiteAfterLaunch } from './sites.mjs';
+import { publicLeadsEmail, ensureBusinessNameNotNiche } from './site-config.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
@@ -76,6 +77,11 @@ export function patchLaunchSiteConfig(candidateId, patch = {}) {
   }
   if (patch.turnstileSiteKey !== undefined) {
     next.turnstileSiteKey = String(patch.turnstileSiteKey || '').trim();
+  }
+
+  Object.assign(next, ensureBusinessNameNotNiche(next));
+  if (next.domain) {
+    next.email = publicLeadsEmail(next.email, next.domain);
   }
 
   const researchPath = pathsFor(candidateId).siteConfig;
@@ -141,8 +147,11 @@ export async function launchSite(candidateId, opts = {}) {
   const base = loaded?.config || {};
   const domain = normalizeDomain(opts.domain || base.domain);
   const email =
-    String(opts.email || base.email || (domain ? `leads@${domain}` : '')).trim() ||
-    '';
+    publicLeadsEmail(
+      opts.email || base.email,
+      domain || base.domain,
+    ) ||
+    (domain ? `leads@${domain}` : '');
   const destinationEmail =
     String(opts.destinationEmail || defaultNotifyEmail() || '').trim() || '';
 

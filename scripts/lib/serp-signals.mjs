@@ -120,6 +120,90 @@ export function detectSerpFeatures(itemTypes = [], items = []) {
   };
 }
 
+/**
+ * Extract People Also Ask question strings from DataForSEO organic items.
+ * @param {any[]} items
+ * @param {number} [limit=10]
+ * @returns {string[]}
+ */
+export function extractPeopleAlsoAskQuestions(items = [], limit = 10) {
+  const out = [];
+  const seen = new Set();
+  const push = (q) => {
+    const t = String(q || '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (!t || t.length < 8) return;
+    const key = t.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push(t);
+  };
+
+  const walk = (node, inPaa = false) => {
+    if (!node || out.length >= limit) return;
+    if (Array.isArray(node)) {
+      for (const child of node) walk(child, inPaa);
+      return;
+    }
+    if (typeof node !== 'object') return;
+    const type = String(node.type || '').toLowerCase();
+    const paa =
+      inPaa ||
+      type === 'people_also_ask' ||
+      type === 'people_also_ask_element' ||
+      type.includes('people_also_ask');
+    if (paa) {
+      if (node.title) push(node.title);
+      if (node.question) push(node.question);
+      if (node.expanded_element?.title) push(node.expanded_element.title);
+    }
+    if (node.items) walk(node.items, paa);
+    if (node.element) walk(node.element, paa);
+    if (Array.isArray(node.elements)) walk(node.elements, paa);
+  };
+
+  walk(items, false);
+  return out.slice(0, limit);
+}
+
+/**
+ * Top organic result titles for outline phrasing cues.
+ * Prefers classified home/sub links; falls back to raw organic items.
+ * @param {{ organicHomePages?: any, organicSubPages?: any }} [classified]
+ * @param {any[]} [items]
+ * @param {number} [limit=10]
+ * @returns {string[]}
+ */
+export function extractOrganicTitles(classified = {}, items = [], limit = 10) {
+  const out = [];
+  const seen = new Set();
+  const push = (title) => {
+    const t = String(title || '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (!t || t.length < 6) return;
+    const key = t.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push(t);
+  };
+
+  for (const link of classified?.organicHomePages?.links || []) push(link.title);
+  for (const link of classified?.organicSubPages?.links || []) {
+    if (out.length >= limit) break;
+    push(link.title);
+  }
+  if (out.length < limit) {
+    for (const item of items || []) {
+      if (out.length >= limit) break;
+      if (String(item?.type || '').toLowerCase() !== 'organic') continue;
+      push(item.title);
+    }
+  }
+  return out.slice(0, limit);
+}
+
 export function averageKeywordCpc(keywords = []) {
   const vals = (keywords || [])
     .map((k) => Number(k.cpc))
@@ -138,6 +222,8 @@ export function enrichClassifiedSerp(classified, { niche = null, itemTypes = [],
   const mapPackWebsiteCount = localPack.filter((b) => b.hasWebsite).length;
   const mapPackReviews = summarizeMapPackReviews(localPack);
   const features = detectSerpFeatures(itemTypes, items);
+  const peopleAlsoAskQuestions = extractPeopleAlsoAskQuestions(items);
+  const organicTitles = extractOrganicTitles(withNiche, items);
   return {
     ...withNiche,
     localPack,
@@ -146,5 +232,11 @@ export function enrichClassifiedSerp(classified, { niche = null, itemTypes = [],
     mapPackNoWebsiteCount: mapPackSlotCount - mapPackWebsiteCount,
     mapPackReviews,
     features,
+    peopleAlsoAskQuestions:
+      peopleAlsoAskQuestions.length > 0
+        ? peopleAlsoAskQuestions
+        : classified?.peopleAlsoAskQuestions || [],
+    organicTitles:
+      organicTitles.length > 0 ? organicTitles : classified?.organicTitles || [],
   };
 }

@@ -25,10 +25,14 @@ const { Content } = await render(entry);
   description={entry.data.description}
   pageType="location"
   locationCity={entry.data.city}
+  ogImage={entry.data.heroImage?.src}
 >
   <Hero
     h1={entry.data.h1}
-    supporting={`${site.niche} for homeowners and property managers in ${entry.data.city}, ${entry.data.state}.`}
+    supporting={
+      entry.data.description ||
+      `${site.niche} for homeowners and property managers in ${entry.data.city}, ${entry.data.state}.`
+    }
     image={entry.data.heroImage}
   />
   <section class="mx-auto max-w-5xl px-4 py-10 sm:px-6">
@@ -36,6 +40,6 @@ const { Content } = await render(entry);
       <Content />
     </div>
   </section>
-  <ServiceCards heading={`Services in ${entry.data.city}`} limit={4} />
+  <ServiceCards heading={`Services in ${entry.data.city}`} limit={4} city={entry.data.city} />
   <LeadForm heading={`Get an estimate in ${entry.data.city}`} />
 </BaseLayout>

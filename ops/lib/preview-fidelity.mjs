@@ -37,6 +37,11 @@ function configuredServiceNames(config = {}) {
 function configuredSuburbNames(config = {}) {
   const out = [];
   const seen = new Set();
+  const primary = String(config.primaryCity || '').trim();
+  if (primary) {
+    seen.add(primary.toLowerCase());
+    out.push(primary);
+  }
   for (const raw of config.targetSuburbs || []) {
     const name = String(raw || '').trim();
     if (!name) continue;
@@ -119,6 +124,32 @@ function bodyLooksLikeStub(rel, markdown) {
     /is part of our .+ offering in .+\. Call or use the estimate form/i.test(body)
   ) {
     return true;
+  }
+  if (rel.includes('/locations/')) {
+    // Suburb seed stub fingerprint
+    if (
+      /is part of our .+ service area for .+\. We help homeowners and property managers with clear estimates/i.test(
+        body,
+      )
+    ) {
+      return true;
+    }
+    // Primary-city differentiated seed stub fingerprint
+    if (
+      /neighborhoods are part of how .+ plans .+\. From older streets to newer subdivisions/i.test(body)
+    ) {
+      return true;
+    }
+    // Generic geo boilerplate that swaps only the city name
+    if (
+      /we also serve nearby .+\./i.test(body) &&
+      /housing stock tends to include|residential neighborhoods include a (mix|range)|established neighborhoods often include/i.test(
+        body,
+      ) &&
+      body.length < 900
+    ) {
+      return true;
+    }
   }
   return false;
 }

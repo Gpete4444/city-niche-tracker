@@ -4,6 +4,8 @@ Shareable overview of the full project: how a market becomes a live lead-gen sit
 
 **What this is:** **Rover** finds local niches worth ranking for, then ships a static lead-gen website per market (rank-and-rent style). You rent the site (or its leads) to a local operator. One **master template** plus the local **Rover dashboard** drive the pipeline; each live site is its **own GitHub repo** hosted on **Cloudflare Workers**. Forms go through **Web3Forms**; `leads@` mail uses **Cloudflare Email Routing**.
 
+**Operator funnel (Discovery → Research → Website Builder → Launched Sites):** see [PIPELINE-STAGES.md](PIPELINE-STAGES.md).
+
 **Repo:** [github.com/7D7D/Rover](https://github.com/7D7D/Rover)
 
 ---
@@ -44,9 +46,10 @@ flowchart TB
 
     subgraph cont [5 Content]
       direction TB
-      c1["Structure H2 checklist"] --> c2["Outline SEO prompt"]
+      c1["Structure H2 checklist"] --> c2["Outline Load and confirm"]
       c2 --> c3["Full-write FILE paste"]
-      c3 --> c4["Accept markdown"]
+      c3 --> c4["Auto speech check"]
+      c4 --> c5["Accept"]
     end
 
     disc --> res --> dec --> scfg --> cont
@@ -101,12 +104,12 @@ Open on GitHub or [mermaid.live](https://mermaid.live) to view the rendered boxe
 | **2 · Research SERP** | DataForSEO SERP/keywords (and related signals) score opportunity. | Prove search demand and that competition is beatable before spending content time. |
 | **3 · Decide pursue** | Claude narrative + human Accept; decision = pursue / skip. | Gate expensive work (site-config, content, domain) to winners only. |
 | **4 · Site config** | Lock business name, domain, phone, email, services, suburbs, brand. | One JSON source of truth so pages, schema, and CTAs stay consistent. |
-| **5 · Content** | **Structure** (pages + H2s grouped by Home / Service template / About / Contact / Locations + presets/photos) → outline SEO prompt → Confirm → full-write FILE paste → Accept. Service pages share one H2 template applied to every service FILE. | Best SEO value: operator-chosen sections, then Claude fills with methods/costs/timelines. Astro comes after Accept. |
+| **5 · Content** | **Structure** → outline SEO (keywords + SERP PAA/organic titles) → **Load & confirm** → full-write FILE paste (auto speech check) → **Editor** only if leftovers → Accept (critical SEO needs override). Prefer Preset C. Content SEO letter grade: [SEO-RATING.md](SEO-RATING.md). | Best SEO value: operator-chosen sections, SERP-grounded FAQs/keywords, human-speech pass before Accept. |
 | **6 · Stage preview** | Stage **full** site (all Structure-selected pages including every service/location FILE) into `site-staging/`, then Assemble + open **every** preview sitemap URL on :4322. Re-Assemble after every Stage (stale warning if skipped). | Catch wrong market/content before Launch — preview must match what ships. |
 | **7 · Assemble** | Copy template + inject staging into `rover-sites/{slug}`. | Isolate each domain in its own folder/repo (clone-per-site). |
-| **8 · GitHub + CF Worker** | Launch Auto ship: create/push GitHub repo, build, Wrangler deploy (optional Builds connect). | Cheap global hosting with one Worker project per site — no per-site terminal. |
+| **8 · GitHub + CF Worker** | First go-live: Launch Auto ship. Later updates: **Push updates** (ship only) after Prepare preview. | Cheap global hosting with one Worker project per site — no per-site terminal. |
 | **9 · Launch** | Paste Web3Forms key; Rover Launch ships + attaches domain + Email Routing (API). Full button reference: [LAUNCH.md](LAUNCH.md). | Go live on the real domain with working form and `leads@` inbox. |
-| **10 · Live / rent** | Leads hit inbox/form; hand site or leads to a local renter. Track inventory on the **Sites** tab (rent status, pricing, payment method, CF/Web3Forms links). | The business model: ranked site → rented asset. |
+| **10 · Live / rent** | Leads hit inbox/form; hand site or leads to a local renter. Track inventory on the **Sites** tab (rent status, pricing, payment method, CF/Web3Forms links). Day-one indexing (GSC, sitemap, Request indexing): [SITE-INDEXING.md](SITE-INDEXING.md). | The business model: ranked site → rented asset. |
 
 ### Still human (API cannot fully automate)
 
@@ -115,7 +118,7 @@ Open on GitHub or [mermaid.live](https://mermaid.live) to view the rendered boxe
 - **Verify** Email Routing destination once (click link in Gmail) (step 9).
 - **One-time machine setup:** `gh auth login` + `.env` (`GITHUB_OWNER`, `CLOUDFLARE_*`) — not per site.
 
-Detailed runbook: [ASSEMBLE-AND-LAUNCH.md](ASSEMBLE-AND-LAUNCH.md). **Run launch** button reference: [LAUNCH.md](LAUNCH.md).
+Detailed runbook: [ASSEMBLE-AND-LAUNCH.md](ASSEMBLE-AND-LAUNCH.md). **Run launch** button reference: [LAUNCH.md](LAUNCH.md). After go-live indexing: [SITE-INDEXING.md](SITE-INDEXING.md).
 
 ---
 
@@ -183,7 +186,7 @@ Estimates align with Rover pre-run modals ([`ops/lib/cost-estimates.mjs`](../ops
 | 6–7 Stage / Assemble | Rover, Astro, local machine | $0 | No paid API |
 | 8 Ship | GitHub, CF Workers, Wrangler | $0 on free tiers | Still buy domain separately |
 | 9 Launch | Web3Forms, CF Email Routing, Turnstile, registrar | Domain ~$10–15/yr; APIs $0 | Web3Forms free ~250 submissions/mo |
-| 10 Live / rent | Web3Forms, Email Routing, Gmail | $0 until form volume / paid CF | Optional later: call tracking (Twilio/CallRail) not in this table |
+| 10 Live / rent | Web3Forms, Email Routing, Gmail | $0 until form volume / paid CF | Call tracking: Twilio intelligence — see [`docs/PHONE-TRACKING.md`](PHONE-TRACKING.md); not in this cost table |
 
 ### Per-tool billing
 
@@ -203,10 +206,10 @@ Estimates align with Rover pre-run modals ([`ops/lib/cost-estimates.mjs`](../ops
 | Domain registrar | Annual | ~$10–15/site/year |
 | Gmail | Free | $0 |
 
-Does not include your time, phone tracking (Twilio/CallRail), or analytics add-ons.
+Does not include your time, phone tracking (Twilio), or analytics add-ons.
 
 ---
 
 ## Out of scope
 
-Images polish, template design tweaks, and deep SEO compare work are parked in [BACKLOG.md](BACKLOG.md). This flowchart is the **production path** from discovery to a rentable live site.
+Images polish, template design tweaks, and deep SEO compare work are parked in [BACKLOG.md](BACKLOG.md). Current content-pipeline SEO letter grade: [SEO-RATING.md](SEO-RATING.md). Post-launch Google indexing: [SITE-INDEXING.md](SITE-INDEXING.md). This flowchart is the **production path** from discovery to a rentable live site.

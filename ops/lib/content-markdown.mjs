@@ -22,9 +22,16 @@ import {
 } from './candidates.mjs';
 import {
   assertLaunchContentComplete,
+  expectedLaunchContentPaths,
+  missingLaunchContentPaths,
   outlineRequiresFullContent,
   resolveStructurePageIds,
 } from './preview-fidelity.mjs';
+import { buildRequiredLinksByFile, lintContentSeo } from './content-seo-lint.mjs';
+import {
+  extractSocialProofSidecar,
+  ensureRoverSocialProofSeed,
+} from './content-social-proof.mjs';
 
 const ROOT = process.cwd();
 const CONTENT_ROOT = path.join(ROOT, 'src', 'content');
@@ -292,6 +299,321 @@ function splitFrontmatter(markdown) {
 
 const IMAGE_FM_KEYS = ['heroImage', 'featureImage', 'cardImage', 'coverageMap'];
 
+/** Top-level keys allowed in pages/services/locations frontmatter (Astro content.config). */
+const KNOWN_CONTENT_FM_KEYS = new Set([
+  'title',
+  'description',
+  'h1',
+  'draft',
+  'sectionHeading',
+  'heroImage',
+  'featureImage',
+  'cardImage',
+  'coverageMap',
+  'gallery',
+  'materialsImages',
+  'processImages',
+  'whyChooseUs',
+  'process',
+  'faqs',
+  'serviceName',
+  'order',
+  'city',
+  'state',
+  'parentCity',
+]);
+
+/**
+ * Move top-level FM lines whose key is not a known content field into the body.
+ * Recovers orphans like `Optional: …` / `Customer prep: …` left inside YAML after
+ * an unscoped processImages replace ate the closing fence.
+ * Scope orphans are placed under What’s included (not dumped above the first H2).
+ */
+function healUnknownFrontmatterProse(fm, body) {
+  const lines = String(fm || '').split(/\r?\n/);
+  const keep = [];
+  const moved = [];
+  for (const L of lines) {
+    // Top-level only (no indent). Allow multi-word bogus keys like "Customer prep".
+    const top = L.match(/^([A-Za-z][^:\n]*?)\s*:/);
+    if (top && !KNOWN_CONTENT_FM_KEYS.has(top[1].trim())) {
+      moved.push(L);
+      continue;
+    }
+    keep.push(L);
+  }
+  let nextBody = String(body || '');
+  if (moved.length) {
+    nextBody = placeScopeOrphanLines(nextBody, moved);
+  }
+  // Also relocate bare Optional/Customer prep lines already sitting above the first H2
+  nextBody = relocateLeadingScopeOrphans(nextBody);
+  const serviceName = fmScalar(keep.join('\n'), 'serviceName');
+  nextBody = healHollowWhatsIncluded(nextBody, { serviceName });
+  nextBody = healTimelineDurationPhrases(nextBody);
+  nextBody = healFaqLeadingGlitches(nextBody);
+  return {
+    fm: keep.join('\n').replace(/\n{3,}/g, '\n\n').trimEnd(),
+    body: nextBody,
+  };
+}
+
+const SCOPE_ORPHAN_LINE_RE = /^(Optional|Customer prep)\s*:\s*(.+)$/i;
+const INCLUDED_H2_RE = /^##\s+.*(what'?s included|what is included|\bscope\b)/im;
+
+function scopeOrphanToBullets(line) {
+  const t = String(line || '').trim();
+  if (!t) return [];
+  const both = t.match(
+    /^Optional\s*:\s*(.+?)\s*[.]\s*Customer prep\s*:\s*(.+)$/i,
+  ) || t.match(/^Optional\s*:\s*(.+?)\s+Customer prep\s*:\s*(.+)$/i);
+  if (both) {
+    return [
+      `- **Optional:** ${both[1].trim().replace(/[.]\s*$/, '')}`,
+      `- **Customer prep:** ${both[2].trim()}`,
+    ];
+  }
+  const m = t.match(SCOPE_ORPHAN_LINE_RE);
+  if (!m) return [];
+  const label = /^optional$/i.test(m[1]) ? 'Optional' : 'Customer prep';
+  return [`- **${label}:** ${m[2].trim()}`];
+}
+
+/**
+ * Insert scope orphan lines under What’s included / Scope, or create that H2.
+ */
+function placeScopeOrphanLines(body, orphanLines) {
+  const bullets = (orphanLines || []).flatMap(scopeOrphanToBullets);
+  const other = (orphanLines || []).filter((L) => !SCOPE_ORPHAN_LINE_RE.test(String(L || '').trim()));
+  let text = String(body || '').replace(/^\r?\n/, '');
+  if (bullets.length) {
+    if (INCLUDED_H2_RE.test(text)) {
+      text = text.replace(INCLUDED_H2_RE, (heading) => `${heading}\n\n${bullets.join('\n')}`);
+    } else {
+      const block = `## What's Included\n\n${bullets.join('\n')}\n`;
+      const firstH2 = text.search(/^##\s+/m);
+      if (firstH2 >= 0) {
+        text = `${text.slice(0, firstH2).replace(/\s+$/, '')}\n\n${block}\n${text.slice(firstH2)}`;
+      } else {
+        text = `${block}\n${text}`;
+      }
+    }
+  }
+  if (other.length) {
+    text = `${other.join('\n')}\n${text}`;
+  }
+  return text.startsWith('\n') ? text : `\n${text}`;
+}
+
+/** Move leading bare Optional/Customer prep lines into What’s included. */
+function relocateLeadingScopeOrphans(body) {
+  const raw = String(body || '').replace(/^\r?\n/, '');
+  const lines = raw.split(/\r?\n/);
+  const orphans = [];
+  let i = 0;
+  while (i < lines.length && !lines[i].trim()) i += 1;
+  while (i < lines.length) {
+    const t = lines[i].trim();
+    if (!t) {
+      i += 1;
+      continue;
+    }
+    if (SCOPE_ORPHAN_LINE_RE.test(t) && !t.startsWith('-') && !t.startsWith('#')) {
+      orphans.push(t);
+      i += 1;
+      continue;
+    }
+    break;
+  }
+  if (!orphans.length) return body.startsWith('\n') || !body ? body : `\n${body}`;
+  const rest = lines.slice(i).join('\n');
+  return placeScopeOrphanLines(rest, orphans);
+}
+
+const SCOPE_META_BULLET_RE =
+  /^\s*[-*•]\s+(?:\*\*)?(?:Optional|Customer prep)(?:\*\*)?\s*[:—–-]/i;
+
+function isScopeMetaBullet(line) {
+  return SCOPE_META_BULLET_RE.test(String(line || '').trim());
+}
+
+function isScopeContentBullet(line) {
+  const t = String(line || '').trim();
+  if (!/^[-*•]\s+/.test(t) && !/^\d+[.)]\s+/.test(t)) return false;
+  return !isScopeMetaBullet(t);
+}
+
+const GENERIC_SCOPE_SEED_RE =
+  /camera-verified diagnosis before work begins|written estimate with clear scope and pricing|labor, materials, and cleanup for the agreed scope/i;
+
+const THIN_TEMPLATE_SCOPE_RE =
+  /camera-verified diagnosis for .+|spot or sectional repair matched to the damage found|scope and materials for .+ as quoted|written estimate before work begins$/i;
+
+function isGenericScopeOnly(contentBullets) {
+  if (!contentBullets.length) return false;
+  return contentBullets.every(
+    (l) => GENERIC_SCOPE_SEED_RE.test(String(l || '')) || THIN_TEMPLATE_SCOPE_RE.test(String(l || '')),
+  );
+}
+
+/**
+ * Service-aware What’s included seeds (heal last resort when Optional/prep-only
+ * or only the prior generic scaffold remains).
+ */
+function scopeSeedsForService(serviceName = '') {
+  const s = String(serviceName || '').toLowerCase();
+  const name = String(serviceName || '').trim() || 'this service';
+
+  if (/\bcipp\b|cured-?in-?place|pipe lining|liner/.test(s)) {
+    return [
+      '- Camera inspection to confirm the pipe is a lining candidate',
+      '- Resin-saturated CIPP liner installed and cured in place',
+      '- Post-install camera pass to verify a sealed, clear line',
+    ];
+  }
+  if (/camera inspection|sewer camera|pipe camera|cctv/.test(s)) {
+    return [
+      '- Full camera pass of the accessible main line',
+      '- On-screen diagnosis of cracks, roots, offsets, and blockages',
+      '- Written findings summary with repair options',
+    ];
+  }
+  if (/pipe bursting|bursting/.test(s)) {
+    return [
+      '- Camera-verified layout before bursting begins',
+      '- Pipe bursting pull with new HDPE pipe in place',
+      '- Tie-in to home plumbing and final camera verification',
+    ];
+  }
+  if (/trenchless/.test(s) && /replace/.test(s)) {
+    return [
+      '- Camera diagnosis to choose bursting vs CIPP vs open trench',
+      '- Trenchless replacement through limited access points',
+      '- Backfill, cleanup, and closing camera verification',
+    ];
+  }
+  if (/hydro|jet|cleaning|clean(ing)?$/.test(s) && !/repair|replace/.test(s)) {
+    return [
+      '- Pre-clean camera check to locate the restriction',
+      '- Hydro-jet or mechanical clearing of the main line',
+      '- Post-clean camera confirmation the line is open',
+    ];
+  }
+  if (/root/.test(s)) {
+    return [
+      '- Camera location of root intrusion points',
+      '- Root cutting and line clearing',
+      '- Repair recommendation (spot fix, lining, or replacement)',
+    ];
+  }
+  if (/emergency|backup/.test(s)) {
+    return [
+      '- Priority response for active backups or overflows',
+      '- Camera diagnosis of the failure point',
+      '- Temporary relief plus a written repair plan',
+    ];
+  }
+  if (/backflow/.test(s)) {
+    return [
+      '- Functional test of the backflow prevention device',
+      '- Compliance documentation for your records',
+      '- Repair or replacement options when the device fails',
+    ];
+  }
+  if (/grease/.test(s)) {
+    return [
+      '- Inspection of the grease trap and connected lines',
+      '- Cleaning of grease buildup that restricts flow',
+      '- Recommendations to reduce repeat grease blockages',
+    ];
+  }
+  if (/repair/.test(s)) {
+    return [
+      '- Camera inspection to locate the break, offset, or root intrusion',
+      '- Spot repair, sectional replacement, or trenchless option matched to the damage',
+      '- Written estimate before work; cleanup of the access area when finished',
+    ];
+  }
+  return [
+    `- Camera-verified diagnosis before quoting ${name}`,
+    `- Labor and materials for the agreed ${name} scope`,
+    '- Written estimate and job-site cleanup when the work is done',
+  ];
+}
+
+/**
+ * When What’s included only has Optional/Customer prep (or only the old generic
+ * scaffold), seed service-aware scope bullets ahead of the meta lines.
+ */
+function healHollowWhatsIncluded(body, { serviceName = '' } = {}) {
+  const text = String(body || '').replace(/\r\n/g, '\n');
+  if (!INCLUDED_H2_RE.test(text)) return String(body || '');
+  const seeds = scopeSeedsForService(serviceName);
+  const parts = text.split(/(?=^##\s+)/m);
+  let changed = false;
+  const next = parts.map((part) => {
+    const nl = part.indexOf('\n');
+    const headingLine = (nl < 0 ? part : part.slice(0, nl)).trim();
+    if (!/what'?s included|what is included|\bscope\b/i.test(headingLine)) return part;
+    const sectionBody = nl < 0 ? '' : part.slice(nl + 1);
+    const lines = sectionBody.split('\n');
+    const bullets = lines.filter((l) => /^[-*•]\s+/.test(l.trim()) || /^\d+[.)]\s+/.test(l.trim()));
+    if (!bullets.length) return part;
+    const content = bullets.filter(isScopeContentBullet);
+    const meta = bullets.filter(isScopeMetaBullet);
+    const needsSeed =
+      (content.length === 0 && meta.length > 0) ||
+      (meta.length > 0 && isGenericScopeOnly(content)) ||
+      (content.length > 0 && content.length < 3 && isGenericScopeOnly(content));
+    if (!needsSeed) return part;
+    changed = true;
+    const seeded = [...seeds, ...meta.map((l) => l.trim())];
+    return `${headingLine}\n\n${seeded.join('\n')}\n`;
+  });
+  return changed ? next.join('') : String(body || '').replace(/\r\n/g, '\n');
+}
+
+/** Fix mangled timeline duration phrases left in markdown bodies. */
+function healTimelineDurationPhrases(body) {
+  return String(body || '')
+    .replace(
+      /\bsame\s+day\s+to\s+(?:next\s+day\s+)?in\s+most\s+cases\b/gi,
+      'same day to next day',
+    )
+    .replace(/\bsame\s+day\s+to\s+in\s+most\s+cases\b/gi, 'same day')
+    .replace(/\bto\s+in\s+most\s+cases\b/gi, '')
+    .replace(/\bin\s+most\s+cases\b/gi, '')
+    .replace(/[^\S\n]{2,}/g, ' ')
+    .replace(/[ \t]+\n/g, '\n');
+}
+
+/** Strip orphaned FAQ answer prefixes like `, yes — a permit…` and capitalize. */
+function healFaqLeadingGlitches(body) {
+  let text = String(body || '');
+  // `, yes — foo` / `yes, foo` / `yes — foo` at line start → capitalize remainder
+  text = text.replace(
+    /(^|\n)([ \t]*)(?:,\s*)?(?:yes|no)\s*[—–,]\s*([A-Za-z])/gi,
+    (_, br, sp, ch) => `${br}${sp}${ch.toUpperCase()}`,
+  );
+  // Bare leading comma before answer text
+  text = text.replace(
+    /(^|\n)([ \t]*),\s+([A-Za-z])/g,
+    (_, br, sp, ch) => `${br}${sp}${ch.toUpperCase()}`,
+  );
+  // Answer line still lowercase right after a question (prior heal orphan)
+  text = text.replace(/(\?\s*\n)([ \t]*)([a-z])/g, (_, q, sp, ch) => `${q}${sp}${ch.toUpperCase()}`);
+  return text;
+}
+
+function collectUnknownFrontmatterKeys(fm) {
+  const unknown = [];
+  for (const L of String(fm || '').split(/\r?\n/)) {
+    const top = L.match(/^([A-Za-z][^:\n]*?)\s*:/);
+    if (top && !KNOWN_CONTENT_FM_KEYS.has(top[1].trim())) unknown.push(top[1].trim());
+  }
+  return [...new Set(unknown)];
+}
+
 function normalizePublicImageSrc(raw) {
   let s = String(raw || '')
     .trim()
@@ -314,6 +636,122 @@ function altFromImageSrc(src) {
   return base ? `${base} photo` : 'Project photo';
 }
 
+const STOCK_SCRAPE_ALT_RE =
+  /\b(brazil|nigeria|mexico|acapulco|warri|tacoma|bratislava|sarajevo|california|elk grove|ribeir|new bern|what i like|this pictures|free photo|overhead view|detailed view|taking a walk|one of those|discover just|perches|seagull|beach|farm field|plowing|industrial wall art|graffiti backdrop|check my bio|follow me|drone shot|coastal construction|laying on the ground|t\u00fcrkiye|turkiye|ukraine|esp[i\u00ed]ritu|beijing|ad[i\u0131]yaman|lviv|nyc|radiator|jackhammer|cinematic|creative projects|geometric pattern|factory setting|urban decay|monochrome|clear skies|clear blue sky)\b/i;
+
+const STOCK_EDITORIAL_OPENER_RE =
+  /^(close-?up|aerial|top view|high angle|dramatic|artistic|perspective|exterior view|team of|adult male|two construction|construction workers?|mini excavator|yellow mini|drone aerial|angle grinder|bright red pipes|aged metal|composite pipe|red pipes|two coiled|two large rusty|sprinker|triangular caution|road construction|pipes|large industrial|stacked industrial|the wall with|rusty outdoor|multiple water|colorful industrial|industrial building|industrial construction)\b/i;
+
+const STOCK_MARKETING_FLUFF_RE =
+  /\b(showcasing|evoking|capturing|featuring|cinematic feel|creative projects|geometric patterns?|industrial design|planning essence|hard work|teamwork)\b/i;
+
+/** True when alt looks like Unsplash/Pexels scrapy or filename garbage (not niche slot text). */
+export function looksLikeStockScrapeAlt(alt) {
+  const a = String(alt || '').trim();
+  if (!a) return true;
+  if (/^(materials|process|project) photo$/i.test(a)) return false;
+  if (/\b(materials|process|project) photo$/i.test(a) && !STOCK_SCRAPE_ALT_RE.test(a) && !STOCK_MARKETING_FLUFF_RE.test(a)) {
+    return false;
+  }
+  // Niche-prefixed filename stems: "… — black and gray metal pipes" (any dash variant)
+  if (/[—–―−]/.test(a)) return true;
+  if (/\s+-\s+[a-z0-9]/i.test(a) && !/\b(materials|process|project) photo$/i.test(a)) return true;
+  if (a.length > 100) return true;
+  if (a.length < 8 && !/\b(map|logo)\b/i.test(a)) return true;
+  if (STOCK_SCRAPE_ALT_RE.test(a)) return true;
+  if (STOCK_EDITORIAL_OPENER_RE.test(a)) return true;
+  if (STOCK_MARKETING_FLUFF_RE.test(a)) return true;
+  if (/\bin\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?\s*,?\s*[A-Z]{2}\.?$/.test(a)) return true;
+  if (/\bin\s+[A-Z][a-zà-ü]+(?:\s+[A-Z][a-zà-ü]+)?\s*\.?$/i.test(a)) return true;
+  // Filename-stem garbage: "… — 4 a out of a tr", "… — 5 a cat high"
+  if (/—\s*\d+\s+[a-z](\s+[a-z]+){0,6}$/i.test(a)) return true;
+  if (/\b\d+\s+a\s+(out|cat|man|pipe)\b/i.test(a)) return true;
+  // Service-prefixed filename stem: "Sewer Line Repair — sewer line 2 root"
+  if (/—\s*(sewer|cipp|pipe|materials?|process)\b/i.test(a) && /\d/.test(a)) return true;
+  if (/—\s*(view of|close[-\s]?up|photo of)\b/i.test(a)) return true;
+  if (/—\s*[a-z0-9].*\b\d+\b/.test(a) && a.split(/—/).pop().trim().split(/\s+/).length <= 8) {
+    return true;
+  }
+  // Truncated after em-dash (cutoff mid-phrase)
+  if (/—/.test(a)) {
+    const after = a.split(/—/).pop()?.trim() || '';
+    if (
+      /\b(site with an|two city|this close|white and black|a and at|pipes at a|at a cons|water fluid|top view of)\b/i.test(
+        after,
+      ) ||
+      /\s(an|a|the|of|in|roa|roun|coa|cons|ri|metal)$/i.test(after) ||
+      (after.length > 0 && after.length < 16) ||
+      /^\d+\s/.test(after) ||
+      /^(top view|close[-\s]?up|two large|two coiled)\b/i.test(after)
+    ) {
+      return true;
+    }
+  }
+  // Ultra-short all-lowercase captions (e.g. "excavator beside large pipes")
+  if (
+    a.length < 40 &&
+    a === a.toLowerCase() &&
+    !/[.!?']/.test(a) &&
+    a.split(/\s+/).length <= 6
+  ) {
+    return true;
+  }
+  // Truncated scrape leftovers
+  if (/\b(at a cons|at a site in|pipes at a cons)\b/i.test(a)) return true;
+  if (/—\s*\w+(\s+\w+){0,3}\s+(at|in|of)\s*$/i.test(a)) return true;
+  // Generic Unsplash-style openers unrelated to niche work
+  if (/^(a|an)\s+.+\b(water|sunset|coastal|drone|machinery|welding|sparks)\b/i.test(a) && a.length > 40) {
+    return true;
+  }
+  // Long prose stock captions (sentence-like, no slot shape)
+  if (
+    a.length > 70 &&
+    !/\b(materials|process|project) photo\b/i.test(a) &&
+    /[,.]/.test(a)
+  ) {
+    return true;
+  }
+  const afterEm = a.split(/—/).pop()?.trim() || '';
+  if (afterEm && afterEm.length < 22 && /\d/.test(afterEm) && afterEm.split(/\s+/).length <= 6) {
+    return true;
+  }
+  if (afterEm && /^(pipes at a|at a cons|a\s|an\s)/i.test(afterEm)) return true;
+  if (afterEm && /\b(in the water|at a coa|on the in the)\b/i.test(afterEm)) return true;
+  return false;
+}
+
+function slotAltFromSrc(src, serviceName = '') {
+  const svc = String(serviceName || '').trim();
+  if (!svc) return altFromImageSrc(src);
+  if (/svcHero|\/hero/i.test(src) || /\/(?:hero)[-.]/i.test(src)) {
+    return `${svc} project photo`.slice(0, 120);
+  }
+  if (/materials/i.test(src)) return `${svc} materials photo`.slice(0, 120);
+  if (/process/i.test(src)) return `${svc} process photo`.slice(0, 120);
+  return `${svc} photo`.slice(0, 120);
+}
+
+/** Rewrite Unsplash/Pexels scrapy captions to service-shaped alts. */
+function healStockScrapeAlts(fm) {
+  const serviceName = fmScalar(fm, 'serviceName') || fmScalar(fm, 'h1') || '';
+  const lines = String(fm || '').replace(/\r\n/g, '\n').split('\n');
+  let lastSrc = '';
+  for (let i = 0; i < lines.length; i += 1) {
+    const srcM = lines[i].match(/^[ \t]*(?:-[ \t]+)?src[ \t]*:[ \t]*("([^"]+)"|'([^']+)'|(\S+))\s*$/i);
+    if (srcM) {
+      lastSrc = srcM[2] || srcM[3] || srcM[4] || '';
+      continue;
+    }
+    const altM = lines[i].match(/^([ \t]*(?:-[ \t]+)?alt[ \t]*:[ \t]*)("([^"]*)"|'([^']*)'|(\S.*))\s*$/i);
+    if (!altM) continue;
+    const alt = String(altM[3] || altM[4] || altM[5] || '').trim();
+    if (!looksLikeStockScrapeAlt(alt)) continue;
+    const next = slotAltFromSrc(lastSrc, serviceName);
+    lines[i] = `${altM[1]}${JSON.stringify(next)}`;
+  }
+  return lines.join('\n');
+}
+
 function formatImageYaml(indent, key, src) {
   const alt = altFromImageSrc(src);
   return `${indent}${key}:\n${indent}  src: ${JSON.stringify(src)}\n${indent}  alt: ${JSON.stringify(alt)}`;
@@ -325,7 +763,7 @@ function formatImageYaml(indent, key, src) {
  * - convert bare path strings → { src, alt }
  * - repair Claude list blocks (whyChooseUs/process/faqs/gallery) missing `-` markers
  */
-export function sanitizeMarkdownImageFrontmatter(markdown) {
+export function sanitizeMarkdownImageFrontmatter(markdown, opts = {}) {
   const ensured = ensureYamlFrontmatter(markdown);
   const split = splitFrontmatter(ensured);
   if (!split.ok) return ensured;
@@ -393,10 +831,14 @@ export function sanitizeMarkdownImageFrontmatter(markdown) {
   );
 
   fm = repairFrontmatterListBlocks(fm);
-  fm = omitMissingImageFrontmatter(fm);
+  fm = omitMissingImageFrontmatter(fm, opts);
+  fm = healStockScrapeAlts(fm);
 
   fm = fm.replace(/\n{3,}/g, '\n\n').replace(/[ \t]+\n/g, '\n').trimEnd();
   let body = stripDuplicateLeadingTitle(split.body || '', fm);
+  // Body images are banned — strip leftover `![]()` so preview never shows raw markdown
+  body = String(body || '').replace(/!\[[^\]]*\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g, '').replace(/\n{3,}/g, '\n\n');
+  ({ fm, body } = healUnknownFrontmatterProse(fm, body));
   const bodyOut = body.startsWith('\n') ? body : `\n${body}`;
   const out = `---\n${fm}\n---${bodyOut}`;
   return out.endsWith('\n') ? out : `${out}\n`;
@@ -435,18 +877,30 @@ function stripDuplicateLeadingTitle(body, fm) {
   return body;
 }
 
-function publicImageExists(src) {
+function publicImageExists(src, opts = {}) {
   const s = normalizePublicImageSrc(src);
   if (!s) return false;
   if (/^https?:\/\//i.test(s)) return true;
   const rel = s.replace(/^\//, '').replace(/^public\//, '');
-  return existsSync(path.join(ROOT, 'public', ...rel.split('/')));
+  const parts = rel.split('/');
+  if (existsSync(path.join(ROOT, 'public', ...parts))) return true;
+  // Candidate site-images roots: files live as basename under research/{id}/site-images/
+  const base = parts[parts.length - 1];
+  for (const root of opts.extraRoots || []) {
+    if (!root) continue;
+    if (existsSync(path.join(root, ...parts))) return true;
+    if (base && existsSync(path.join(root, base))) return true;
+    // Also accept root/images/...
+    if (existsSync(path.join(root, 'images', ...parts.filter((p) => p !== 'images')))) return true;
+  }
+  return false;
 }
 
-/** Drop image objects whose src file is missing from public/. */
-function omitMissingImageFrontmatter(fm) {
+/** Drop image objects whose src file is missing from public/ (and optional extraRoots). */
+function omitMissingImageFrontmatter(fm, opts = {}) {
   let out = String(fm || '');
   const keyAlt = IMAGE_FM_KEYS.join('|');
+  const exists = (raw) => publicImageExists(raw, opts);
 
   // Multiline objects:
   // key:
@@ -460,7 +914,7 @@ function omitMissingImageFrontmatter(fm) {
     (block, indent, key) => {
       const srcM = block.match(/^[ \t]*src[ \t]*:[ \t]*("([^"]+)"|'([^']+)'|(\S+))/m);
       const raw = srcM ? srcM[2] || srcM[3] || srcM[4] || '' : '';
-      if (!raw || publicImageExists(raw)) return block;
+      if (!raw || exists(raw)) return block;
       return '';
     },
   );
@@ -471,26 +925,308 @@ function omitMissingImageFrontmatter(fm) {
     (block) => {
       const srcM = block.match(/src[ \\t]*:[ \\t]*["']?([^"',}\\s]+)/);
       const raw = srcM?.[1] || '';
-      if (!raw || publicImageExists(raw)) return block;
+      if (!raw || exists(raw)) return block;
       return '';
     },
   );
 
-  // Gallery list items with missing src
+  // Nested process[].image (and similar list-item image objects)
+  //   image:
+  //     src: "..."
+  //     alt: "..."
+  out = out.replace(
+    /^([ \t]*)image[ \t]*:[ \t]*\n(?:[ \t]+(?:src|alt)[ \t]*:[ \t]*[^\n]*\n?){1,4}/gim,
+    (block) => {
+      const srcM = block.match(/^[ \t]*src[ \t]*:[ \t]*("([^"]+)"|'([^']+)'|(\S+))/m);
+      const raw = srcM ? srcM[2] || srcM[3] || srcM[4] || '' : '';
+      if (!raw || exists(raw)) return block;
+      return '';
+    },
+  );
+  out = out.replace(
+    /^([ \t]*)image[ \t]*:[ \t]*\{[^\n]*src[^\n]*\}[ \t]*$/gim,
+    (block) => {
+      const srcM = block.match(/src[ \t]*:[ \t]*["']?([^"',}\\s]+)/);
+      const raw = srcM?.[1] || '';
+      if (!raw || exists(raw)) return block;
+      return '';
+    },
+  );
+
+  // Gallery / materials list items with missing src
+  // Heal misnested materialsImages→gallery BEFORE dropping missing list items
+  out = healMisnestedMaterialsImages(out);
+
   out = out.replace(
     /^([ \t]*)-[ \t]+src[ \t]*:[ \t]*("([^"]+)"|'([^']+)'|(\S+))[ \t]*\n[ \t]+alt[ \t]*:[ \t]*[^\n]*$/gim,
     (block, indent, _q, d1, d2, bare) => {
       const raw = d1 || d2 || bare || '';
-      if (!raw || publicImageExists(raw)) return block;
+      if (!raw || exists(raw)) return block;
       return '';
     },
   );
 
-  // If gallery/process image keys are left empty (all items omitted), drop the key
-  out = out.replace(/^(gallery)[ \t]*:[ \t]*\n(?![ \t]*-)/im, '');
+  // Heal orphan image list items that lost their parent key
+  out = healOrphanImageListFrontmatter(out);
+  // Heal orphan indented src/alt object children (missing heroImage/cardImage parent)
+  out = healOrphanImageObjectFrontmatter(out);
+
+  // Drop empty `gallery:` / `materialsImages:` only when no list items follow.
+  for (const key of ['gallery', 'materialsImages']) {
+    const re = new RegExp(`^(${key})[ \\t]*:[ \\t]*\\n(?:[ \\t]*\\n)*`, 'im');
+    out = out.replace(re, (match, _k, offset, full) => {
+      const after = String(full).slice(offset + match.length);
+      const peek = after.split(/\n/).slice(0, 12);
+      const hasItem = peek.some((line) => /^[ \t]+-[ \t]/.test(line));
+      if (hasItem) return `${key}:\n`;
+      return '';
+    });
+  }
   out = out.replace(/\n{3,}/g, '\n\n');
 
   return out;
+}
+
+/**
+ * Fix:
+ * materialsImages:
+ * gallery:
+ *   - src: "/images/materials-1-..."
+ * → move materials-* items under materialsImages; keep gallery only for gallery-* items.
+ */
+function healMisnestedMaterialsImages(fm) {
+  let text = String(fm || '');
+  if (!/^materialsImages[ \t]*:/m.test(text) || !/^gallery[ \t]*:/m.test(text)) return text;
+
+  const lines = text.split(/\n/);
+  const matIdx = lines.findIndex((l) => /^materialsImages[ \t]*:/i.test(l));
+  const galIdx = lines.findIndex((l) => /^gallery[ \t]*:/i.test(l));
+  if (matIdx < 0 || galIdx < 0 || galIdx <= matIdx) return text;
+  const between = lines.slice(matIdx + 1, galIdx);
+  if (galIdx !== matIdx + 1 && !between.every((l) => !String(l).trim())) return text;
+
+  // Collect gallery list items after gallery:
+  const gStart = galIdx;
+  let i = gStart + 1;
+  while (i < lines.length && !String(lines[i]).trim()) i += 1;
+  const itemStart = i;
+  let itemEnd = itemStart - 1;
+  for (; i < lines.length; i += 1) {
+    if (/^[ \t]+-[ \t]+src[ \t]*:/i.test(lines[i])) {
+      itemEnd = i;
+      if (i + 1 < lines.length && /^[ \t]+alt[ \t]*:/i.test(lines[i + 1])) {
+        itemEnd = i + 1;
+        i += 1;
+      }
+    } else if (itemEnd >= itemStart && /^[ \t]+alt[ \t]*:/i.test(lines[i])) {
+      itemEnd = i;
+    } else if (/^\S/.test(lines[i])) {
+      break;
+    } else if (itemEnd >= itemStart) {
+      // blank inside list — keep scanning until next key
+      continue;
+    } else {
+      break;
+    }
+  }
+  if (itemEnd < itemStart) return text;
+
+  const items = [];
+  let cur = null;
+  for (let j = itemStart; j <= itemEnd; j += 1) {
+    const line = lines[j];
+    if (/^[ \t]+-[ \t]+src[ \t]*:/i.test(line)) {
+      if (cur) items.push(cur);
+      cur = [line];
+    } else if (cur) {
+      cur.push(line);
+    }
+  }
+  if (cur) items.push(cur);
+  if (!items.length) return text;
+
+  const materialsItems = [];
+  const galleryItems = [];
+  for (const item of items) {
+    const blob = item.join('\n');
+    if (/\/images\/materials-/i.test(blob) || /materials-\d+/i.test(blob)) {
+      materialsItems.push(...item);
+    } else {
+      galleryItems.push(...item);
+    }
+  }
+  if (!materialsItems.length) return text;
+
+  const mKeyIdx = lines.findIndex((l) => /^materialsImages[ \t]*:/i.test(l));
+  const before = lines.slice(0, mKeyIdx);
+  const after = lines.slice(itemEnd + 1);
+  const out = [
+    ...before,
+    'materialsImages:',
+    ...materialsItems,
+  ];
+  if (galleryItems.length) {
+    out.push('gallery:', ...galleryItems);
+  }
+  out.push(...after);
+  return out.join('\n');
+}
+
+/**
+ * Restore parent key when `- src:` list items lost theirs.
+ * Never steal a list already under materialsImages / process / etc.
+ */
+function healOrphanImageListFrontmatter(fm) {
+  let text = String(fm || '');
+  const lines = text.split(/\n/);
+
+  let start = -1;
+  let end = -1;
+  for (let i = 0; i < lines.length; i += 1) {
+    if (/^[ \t]+-[ \t]+src[ \t]*:/i.test(lines[i])) {
+      if (start < 0) start = i;
+      end = i;
+      if (i + 1 < lines.length && /^[ \t]+alt[ \t]*:/i.test(lines[i + 1])) {
+        end = i + 1;
+        i += 1;
+      }
+    } else if (start >= 0 && /^[ \t]+alt[ \t]*:/i.test(lines[i])) {
+      end = i;
+    } else if (start >= 0 && /^\S/.test(lines[i])) {
+      break;
+    }
+  }
+  if (start < 0) return text;
+
+  // Previous non-blank line is the owner key
+  let prev = start - 1;
+  while (prev >= 0 && !String(lines[prev]).trim()) prev -= 1;
+  const prevLine = prev >= 0 ? lines[prev] : '';
+  if (/^(materialsImages|gallery|process|whyChooseUs|faqs|heroImage|featureImage|cardImage|coverageMap)[ \t]*:/i.test(prevLine)) {
+    return text;
+  }
+
+  const blockLines = lines.slice(start, end + 1);
+  const blockText = blockLines.join('\n');
+  if (!/\/images\//i.test(blockText)) return text;
+
+  let parentKey = 'gallery';
+  if (/\/images\/materials-|materials-\d+/i.test(blockText) && !/gallery-ba-|\/images\/gallery-/i.test(blockText)) {
+    parentKey = 'materialsImages';
+  } else if (!/gallery-ba-|\/images\/gallery-/i.test(blockText) && /\/images\/materials-/i.test(blockText)) {
+    parentKey = 'materialsImages';
+  } else if (!/gallery-ba-|\/images\/gallery-/i.test(blockText)) {
+    // Non-gallery orphans under /images/ — only heal as gallery when explicitly gallery-like
+    return text;
+  }
+
+  // Don't duplicate an existing parent key
+  if (new RegExp(`^${parentKey}[ \\t]*:`, 'im').test(text)) return text;
+
+  return [...lines.slice(0, start), `${parentKey}:`, ...blockLines, ...lines.slice(end + 1)].join('\n');
+}
+
+const IMAGE_OBJECT_PARENT_RE =
+  /^(heroImage|cardImage|featureImage|coverageMap|image)[ \t]*:/i;
+const ORPHAN_SRC_RE = /^[ \t]+src[ \t]*:[ \t]*/i;
+const ORPHAN_ALT_RE = /^[ \t]+alt[ \t]*:[ \t]*/i;
+const LIST_SRC_RE = /^[ \t]+-[ \t]+src[ \t]*:/i;
+
+/**
+ * Drop or re-parent bare indented `src`/`alt` blocks that lost their parent key:
+ *
+ * serviceName: "…"
+ *
+ *   src: "/images/…"
+ *   alt: "…"
+ *
+ * heroImage:
+ *   src: …
+ *
+ * When heroImage/cardImage already exist, orphans are removed. Otherwise the first
+ * orphan becomes heroImage and the second cardImage.
+ */
+function healOrphanImageObjectFrontmatter(fm) {
+  const text = String(fm || '').replace(/\r\n/g, '\n');
+  const lines = text.split('\n');
+  const orphans = []; // { start, end, srcLine, altLine? }
+
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    if (LIST_SRC_RE.test(line)) {
+      i += 1;
+      continue;
+    }
+    if (!ORPHAN_SRC_RE.test(line)) {
+      i += 1;
+      continue;
+    }
+
+    // Previous non-blank owner?
+    let prev = i - 1;
+    while (prev >= 0 && !String(lines[prev]).trim()) prev -= 1;
+    const prevLine = prev >= 0 ? lines[prev] : '';
+    if (IMAGE_OBJECT_PARENT_RE.test(prevLine)) {
+      i += 1;
+      continue;
+    }
+    // Nested under a list item image: already handled / legal under `-` blocks
+    if (/^[ \t]+image[ \t]*:/i.test(prevLine)) {
+      i += 1;
+      continue;
+    }
+
+    const start = i;
+    let end = i;
+    if (i + 1 < lines.length && ORPHAN_ALT_RE.test(lines[i + 1]) && !LIST_SRC_RE.test(lines[i + 1])) {
+      end = i + 1;
+    }
+    orphans.push({ start, end, srcLine: lines[start], altLine: end > start ? lines[end] : null });
+    i = end + 1;
+  }
+
+  if (!orphans.length) return String(fm || '');
+
+  const drop = new Set();
+  for (const o of orphans) {
+    for (let j = o.start; j <= o.end; j += 1) drop.add(j);
+  }
+
+  let next = lines.filter((_, idx) => !drop.has(idx));
+
+  // After drop: promote orphans only when parent keys are still missing
+  const stillNoHero = !/^heroImage[ \t]*:/m.test(next.join('\n'));
+  const stillNoCard = !/^cardImage[ \t]*:/m.test(next.join('\n'));
+  const promote = [];
+  if (stillNoHero && orphans[0]) {
+    promote.push(
+      'heroImage:',
+      orphans[0].srcLine.replace(/^[ \t]+/, '  '),
+      ...(orphans[0].altLine ? [orphans[0].altLine.replace(/^[ \t]+/, '  ')] : []),
+    );
+  }
+  const cardSrc = stillNoHero ? orphans[1] || orphans[0] : orphans[0];
+  if (stillNoCard && cardSrc) {
+    // Prefer second orphan for card; else duplicate first when only one orphan exists
+    promote.push(
+      'cardImage:',
+      cardSrc.srcLine.replace(/^[ \t]+/, '  '),
+      ...(cardSrc.altLine ? [cardSrc.altLine.replace(/^[ \t]+/, '  ')] : []),
+    );
+  }
+
+  if (promote.length) {
+    let insertAt = next.findIndex((l) =>
+      /^(materialsImages|processImages|gallery|heroImage|cardImage|featureImage|coverageMap)[ \t]*:/i.test(
+        l,
+      ),
+    );
+    if (insertAt < 0) insertAt = next.length;
+    next = [...next.slice(0, insertAt), ...promote, ...next.slice(insertAt)];
+  }
+
+  return next.join('\n').replace(/\n{3,}/g, '\n\n');
 }
 
 const LIST_BLOCK_SPECS = {
@@ -498,6 +1234,7 @@ const LIST_BLOCK_SPECS = {
   process: { fields: ['title', 'description', 'image'], startKeys: ['title'] },
   faqs: { fields: ['question', 'answer'], startKeys: ['question'] },
   gallery: { fields: ['src', 'alt'], startKeys: ['src'] },
+  materialsImages: { fields: ['src', 'alt'], startKeys: ['src'] },
 };
 
 /**
@@ -719,12 +1456,79 @@ export function ensureYamlFrontmatter(markdown) {
   return out;
 }
 
-function normalizeContentFilesMap(files) {
+export function normalizeContentFilesMap(files, siteConfig = null) {
+  const niche = String(siteConfig?.niche || '').trim();
+  const primaryCity = String(siteConfig?.primaryCity || '').trim();
+  const primarySlug = slugifyContentName(primaryCity);
   const out = {};
   for (const [rel, markdown] of Object.entries(files || {})) {
-    out[rel] = sanitizeMarkdownImageFrontmatter(ensureYamlFrontmatter(markdown));
+    let md = sanitizeMarkdownImageFrontmatter(ensureYamlFrontmatter(markdown));
+    if (niche && /locations\/.+\.md$/i.test(rel)) {
+      const slug = String(rel).replace(/^.*\//, '').replace(/\.md$/i, '');
+      md = healLocationNicheHeadings(md, {
+        niche,
+        city: slug === primarySlug ? primaryCity : slug.replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
+        state: String(siteConfig?.state || '').trim(),
+        isPrimary: Boolean(primarySlug && slug === primarySlug),
+      });
+    }
+    out[rel] = md;
   }
   return out;
+}
+
+/**
+ * Geo-only or awkward primary “neighborhoods” title/h1 → niche + city (homeowners).
+ */
+function healLocationNicheHeadings(markdown, { niche, city, state, isPrimary }) {
+  const split = splitFrontmatter(markdown);
+  if (!split.ok || !niche || !city) return markdown;
+  let fm = split.frontmatter;
+  const h1 = fmScalar(fm, 'h1');
+  const title = fmScalar(fm, 'title');
+  const head = `${title} ${h1}`;
+  const nicheN = niche.toLowerCase();
+  const st = state ? `, ${state}` : '';
+  const awkwardPrimary =
+    isPrimary &&
+    /\bneighborhoods?\b/i.test(head) &&
+    !/\bhomeowners?\b|\bserving\b/i.test(head);
+  const geoOnly =
+    !head.toLowerCase().includes(nicheN) &&
+    (/\bservice areas?\b|\bneighborhoods?\b/i.test(head) || !head.trim());
+  const primaryTitleAwkward =
+    isPrimary &&
+    /\|\s*.+\s+homeowners\b/i.test(title || '') &&
+    !new RegExp(`\\bin\\s+${city.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'i').test(title || '');
+  if (!awkwardPrimary && !geoOnly) {
+    if (primaryTitleAwkward && fmHasKey(fm, 'title')) {
+      const nextTitle = `${niche} in ${city}${st}`.replace(/,\s*,/g, ',');
+      fm = fm.replace(/^title\s*:.*$/im, `title: ${yamlDoubleQuote(nextTitle)}`);
+      const body = split.body || '';
+      const bodyOut = body.startsWith('\n') ? body : `\n${body}`;
+      const out = `---\n${fm.trim()}\n---${bodyOut}`;
+      return out.endsWith('\n') ? out : `${out}\n`;
+    }
+    return markdown;
+  }
+  const nextH1 = isPrimary
+    ? `${niche} for ${city}${st} homeowners`.replace(/,\s*,/g, ',')
+    : `${niche} in ${city}${st}`;
+  const nextTitle = isPrimary
+    ? `${niche} in ${city}${st}`.replace(/,\s*,/g, ',')
+    : `${niche} | ${city}${st ? st.replace(/^,\s*/, ', ') : ''}`;
+  if (fmHasKey(fm, 'h1')) {
+    fm = fm.replace(/^h1\s*:.*$/im, `h1: ${yamlDoubleQuote(nextH1)}`);
+  } else {
+    fm = `${fm.trimEnd()}\nh1: ${yamlDoubleQuote(nextH1)}`;
+  }
+  if (fmHasKey(fm, 'title')) {
+    fm = fm.replace(/^title\s*:.*$/im, `title: ${yamlDoubleQuote(nextTitle)}`);
+  }
+  const body = split.body || '';
+  const bodyOut = body.startsWith('\n') ? body : `\n${body}`;
+  const out = `---\n${fm.trim()}\n---${bodyOut}`;
+  return out.endsWith('\n') ? out : `${out}\n`;
 }
 
 function fmHasKey(fm, key) {
@@ -733,9 +1537,9 @@ function fmHasKey(fm, key) {
 
 /**
  * Lightweight frontmatter + required-file checks against site-config.
- * @param {{ mode?: 'homepage_first'|'full' }} opts
+ * @param {{ mode?: 'homepage_first'|'full', pageIds?: string[] }} opts
  */
-export function validateContentBundle(files, siteConfig, { mode = 'full' } = {}) {
+export function validateContentBundle(files, siteConfig, { mode = 'full', pageIds = null } = {}) {
   const errors = [];
   const warnings = [];
   const paths = Object.keys(files || {});
@@ -752,31 +1556,60 @@ export function validateContentBundle(files, siteConfig, { mode = 'full' } = {})
     if (!files[req]) errors.push(`Missing required file: ${req}`);
   }
 
-  const serviceNames = Array.isArray(siteConfig?.services) ? siteConfig.services : [];
-  const expectedServiceSlugs = serviceNames.map(slugifyContentName).filter(Boolean);
+  const serviceNames = [
+    ...(Array.isArray(siteConfig?.services) ? siteConfig.services : []),
+    ...(Array.isArray(siteConfig?.commercialServices) ? siteConfig.commercialServices : []),
+  ];
+  const expectedServiceSlugs = [...new Set(serviceNames.map(slugifyContentName).filter(Boolean))];
   const serviceFiles = paths.filter((p) => p.startsWith('src/content/services/'));
   const locationFiles = paths.filter((p) => p.startsWith('src/content/locations/'));
+
+  const resolvedPageIds = Array.isArray(pageIds) && pageIds.length ? pageIds : null;
+  let launchExpected = [];
+  let launchMissing = [];
+  if (!homepageFirst && resolvedPageIds) {
+    launchExpected = expectedLaunchContentPaths(siteConfig, resolvedPageIds);
+    launchMissing = missingLaunchContentPaths(files, siteConfig, resolvedPageIds);
+    for (const rel of launchMissing) {
+      if (requiredPages.includes(rel)) continue;
+      warnings.push(`Missing required file: ${rel}`);
+    }
+  }
 
   if (!homepageFirst) {
     if (isSingle) {
       if (serviceFiles.length > 1) {
         warnings.push(`Type B: prefer ≤1 service page; got ${serviceFiles.length}`);
       }
-    } else if (!serviceFiles.length) {
-      errors.push('No services/*.md files (Type A requires service pages)');
-    } else if (expectedServiceSlugs.length && serviceFiles.length < expectedServiceSlugs.length) {
-      warnings.push(
-        `Expected ~${expectedServiceSlugs.length} service file(s); got ${serviceFiles.length}`,
-      );
+    } else if (resolvedPageIds?.includes('services') || !resolvedPageIds) {
+      if (!serviceFiles.length) {
+        errors.push('No services/*.md files (Type A requires service pages)');
+      } else if (expectedServiceSlugs.length && serviceFiles.length < expectedServiceSlugs.length) {
+        warnings.push(
+          `Expected ~${expectedServiceSlugs.length} service file(s); got ${serviceFiles.length}`,
+        );
+      }
     }
     for (const slug of expectedServiceSlugs) {
       const expected = `src/content/services/${slug}.md`;
-      if (!files[expected] && !isSingle) {
+      if (
+        !files[expected] &&
+        !isSingle &&
+        (resolvedPageIds?.includes('services') || !resolvedPageIds)
+      ) {
         warnings.push(`No exact match for service slug "${slug}"`);
       }
     }
-    if (locationFiles.length < 4 || locationFiles.length > 6) {
-      warnings.push(`Location pages: got ${locationFiles.length}, prefer 4–6`);
+    const suburbNames = Array.isArray(siteConfig?.targetSuburbs) ? siteConfig.targetSuburbs : [];
+    if (resolvedPageIds?.includes('locations') && suburbNames.length) {
+      for (const name of suburbNames) {
+        const slug = slugifyContentName(name);
+        if (!slug) continue;
+        const expected = `src/content/locations/${slug}.md`;
+        if (!files[expected]) warnings.push(`Missing required file: ${expected}`);
+      }
+    } else if (!resolvedPageIds && (locationFiles.length < 4 || locationFiles.length > 8)) {
+      warnings.push(`Location pages: got ${locationFiles.length}, prefer 4–8`);
     }
   } else if (serviceFiles.length > 1 && isSingle) {
     warnings.push('homepage_first Type B: unexpected multiple service files');
@@ -791,6 +1624,13 @@ export function validateContentBundle(files, siteConfig, { mode = 'full' } = {})
     const { frontmatter: fm, body } = split;
     for (const key of ['title', 'description', 'h1']) {
       if (!fmHasKey(fm, key)) errors.push(`${rel}: missing frontmatter key "${key}"`);
+    }
+
+    const unknownFm = collectUnknownFrontmatterKeys(fm);
+    if (unknownFm.length) {
+      errors.push(
+        `${rel}: invalid frontmatter key(s) ${unknownFm.map((k) => `"${k}"`).join(', ')} (body prose leaked into YAML — re-Load or re-Stage after sanitize)`,
+      );
     }
 
     for (const key of IMAGE_FM_KEYS) {
@@ -842,6 +1682,12 @@ export function validateContentBundle(files, siteConfig, { mode = 'full' } = {})
       services: serviceFiles.length,
       locations: locationFiles.length,
     },
+    launch: {
+      expected: launchExpected,
+      missing: [...new Set(launchMissing)],
+      have: paths.length,
+      expectedCount: launchExpected.length,
+    },
   };
 }
 
@@ -857,10 +1703,13 @@ export function buildContentPrompt(candidateId) {
 
 export function pasteContentDraft(candidateId, raw) {
   const { config } = assertContentHandoffReady(candidateId);
-  const files = parseContentFileBlocks(raw);
+  const pageIds = resolveStructurePageIds(candidateId);
+  const extracted = extractSocialProofSidecar(raw);
+  const files = parseContentFileBlocks(extracted.textWithoutSidecar);
   const onlyPages = Object.keys(files).every((p) => p.startsWith('src/content/pages/'));
   const resolvedMode = onlyPages ? 'homepage_first' : 'full';
-  const check = validateContentBundle(files, config, { mode: resolvedMode });
+  const check = validateContentBundle(files, config, { mode: resolvedMode, pageIds });
+  const socialProofMerge = ensureRoverSocialProofSeed(candidateId, config);
   const p = pathsFor(candidateId);
   writeJson(p.contentDraft, {
     files,
@@ -871,6 +1720,7 @@ export function pasteContentDraft(candidateId, raw) {
       siteArchetype: config.siteArchetype || null,
       check,
       fileList: Object.keys(files).sort(),
+      socialProofMerge,
     },
   });
   saveMeta(candidateId, { lastContentDraftAt: new Date().toISOString() });
@@ -878,6 +1728,7 @@ export function pasteContentDraft(candidateId, raw) {
     ok: true,
     draft: readJson(p.contentDraft),
     check,
+    socialProofMerge,
     candidate: getCandidateDetail(candidateId),
   };
 }
@@ -936,12 +1787,39 @@ function readMdFrontmatterField(absPath, key) {
     .replace(/^["']|["']$/g, '');
 }
 
-function buildLocationStubMarkdown({ city, state, niche, primaryCity }) {
+function buildLocationStubMarkdown({ city, state, niche, primaryCity, businessName }) {
   const stateUp = String(state || '').trim().toUpperCase();
-  const title = `${niche} in ${city}, ${stateUp}`;
-  const h1 = `${niche} in ${city}`;
-  const description = `${niche} for ${city} homeowners and property owners near ${primaryCity}. Request a free estimate.`;
-  const body = `${city} is part of our ${primaryCity} service area for ${niche}. Call or use the estimate form to schedule a visit.\n`;
+  const primary = String(primaryCity || city).trim() || city;
+  const brand = String(businessName || '').trim();
+  const isPrimary =
+    String(city || '')
+      .trim()
+      .toLowerCase() === String(primary).trim().toLowerCase();
+  let title;
+  let h1;
+  let description;
+  let body;
+  if (isPrimary) {
+    // Differentiated from homepage head term "{niche} in {city}, {ST}"
+    title = `${niche} | ${city} homeowners`;
+    h1 = `${niche} for ${city}, ${stateUp} homeowners`;
+    description = `Local ${niche} for ${city}, ${stateUp} homeowners — clear estimates and careful workmanship. Request a free estimate.`;
+    body = [
+      `${city} neighborhoods are part of how ${brand || 'our team'} plans ${niche} work around ${primary}. From older streets to newer subdivisions, access, soil, and permit rules shape the right repair or trenchless option.`,
+      `This page is for homeowners and property managers who want local context for ${city}, ${stateUp} — not a second copy of the main ${niche} homepage. Browse services for the work you need, then use the estimate form or call to schedule a camera-backed visit.`,
+      `We will walk through options, timeline, and next steps before any work begins. Link back to the homepage for the full service menu, or jump to a nearby suburb page if you are just outside city limits.`,
+    ].join('\n\n');
+  } else {
+    title = `${niche} in ${city}, ${stateUp}`;
+    h1 = `${niche} in ${city}`;
+    description = `${niche} for ${city} homeowners and property owners near ${primary}. Request a free estimate.`;
+    // Stock fingerprint detected by preview-fidelity bodyLooksLikeStub
+    body = [
+      `${city} is part of our ${primary} service area for ${niche}. We help homeowners and property managers with clear estimates, careful workmanship, and scheduling that fits busy households.`,
+      `Whether you need a straightforward repair or a larger project, local knowledge of ${city}, ${stateUp} conditions matters — soil, access, permits, and typical home styles in the area all affect the plan.`,
+      `Browse our services for the work you need, then call or use the estimate form to schedule a visit. We will walk through options, timeline, and next steps before any work begins.`,
+    ].join('\n\n');
+  }
   return `---
 title: ${yamlDoubleQuote(title)}
 description: ${yamlDoubleQuote(description)}
@@ -951,7 +1829,56 @@ state: ${yamlDoubleQuote(stateUp)}
 draft: false
 ---
 
-${body}`;
+${body}
+`;
+}
+
+/**
+ * Cities that should have a locations/*.md page (primary + suburbs, de-duped).
+ */
+function configuredLocationCities(config = {}) {
+  const cities = [];
+  const primaryCity = String(config?.primaryCity || '').trim();
+  if (primaryCity) cities.push(primaryCity);
+  for (const suburb of config?.targetSuburbs || []) {
+    const city = String(suburb || '').trim();
+    if (!city) continue;
+    if (cities.some((c) => c.toLowerCase() === city.toLowerCase())) continue;
+    cities.push(city);
+  }
+  return cities;
+}
+
+/**
+ * Add missing primary/suburb location markdown into a content files map (in-memory).
+ * Does not write the template disk — Stage/Accept persist as needed.
+ * @returns {{ files: Record<string,string>, seeded: string[] }}
+ */
+export function ensureLocationFilesInMap(files = {}, config = {}) {
+  const next = { ...(files || {}) };
+  const seeded = [];
+  const niche = String(config?.niche || 'Local services').trim() || 'Local services';
+  const state = String(config?.state || '').trim().toUpperCase();
+  const primaryCity = String(config?.primaryCity || '').trim();
+  const businessName = String(config?.businessName || '').trim();
+
+  for (const city of configuredLocationCities(config)) {
+    const slug = slugifyContentName(city);
+    if (!slug) continue;
+    const rel = `src/content/locations/${slug}.md`;
+    if (next[rel]) continue;
+    const markdown = buildLocationStubMarkdown({
+      city,
+      state,
+      niche,
+      primaryCity,
+      businessName,
+    });
+    const body = markdown.endsWith('\n') ? markdown : `${markdown}\n`;
+    next[rel] = body;
+    seeded.push(rel);
+  }
+  return { files: next, seeded };
 }
 
 /** Remove location pages whose frontmatter state does not match site-config. */
@@ -977,7 +1904,7 @@ export function pruneWrongStateLocations(siteState) {
 }
 
 /**
- * Seed short location stubs for targetSuburbs (skips primary city; only if missing).
+ * Seed location stubs for primaryCity + targetSuburbs onto template disk (only if missing).
  * @returns {{ written: string[], seeded: string[], files: Record<string,string> }}
  */
 export function seedTargetSuburbLocationStubs(config) {
@@ -987,20 +1914,23 @@ export function seedTargetSuburbLocationStubs(config) {
   const niche = String(config?.niche || 'Local services').trim() || 'Local services';
   const state = String(config?.state || '').trim().toUpperCase();
   const primaryCity = String(config?.primaryCity || '').trim();
-  const primaryKey = primaryCity.toLowerCase();
+  const businessName = String(config?.businessName || '').trim();
   const locDir = path.join(CONTENT_ROOT, 'locations');
   mkdirSync(locDir, { recursive: true });
 
-  for (const suburb of config?.targetSuburbs || []) {
-    const city = String(suburb || '').trim();
-    if (!city) continue;
-    if (city.toLowerCase() === primaryKey) continue;
+  for (const city of configuredLocationCities(config)) {
     const slug = slugifyContentName(city);
     if (!slug) continue;
     const rel = `src/content/locations/${slug}.md`;
     const abs = path.join(ROOT, ...rel.split('/'));
     if (existsSync(abs)) continue;
-    const markdown = buildLocationStubMarkdown({ city, state, niche, primaryCity });
+    const markdown = buildLocationStubMarkdown({
+      city,
+      state,
+      niche,
+      primaryCity,
+      businessName,
+    });
     const body = markdown.endsWith('\n') ? markdown : `${markdown}\n`;
     writeFileSync(abs, body, 'utf8');
     written.push(rel);
@@ -1100,7 +2030,10 @@ export function seedServiceStubs(config) {
 /**
  * Write draft Markdown into src/content/, prune leftovers not in the bundle.
  */
-export function acceptContent(candidateId, { ignoreWarnings = false } = {}) {
+export function acceptContent(
+  candidateId,
+  { ignoreWarnings = false, ignoreSeoWarnings = false } = {},
+) {
   const { config } = assertContentHandoffReady(candidateId);
   const p = pathsFor(candidateId);
   const draft = readJson(p.contentDraft);
@@ -1110,7 +2043,15 @@ export function acceptContent(candidateId, { ignoreWarnings = false } = {}) {
     throw err;
   }
 
-  const files = normalizeContentFilesMap(draft.files);
+  if (!draft._ops?.lastSpeechCheckAt) {
+    const err = new Error(
+      'Run Speech check (Editor step) before Accept — human-speech pass is required.',
+    );
+    err.status = 400;
+    throw err;
+  }
+
+  const files = normalizeContentFilesMap(draft.files, config);
   const onlyPages = Object.keys(files).every((rel) => rel.startsWith('src/content/pages/'));
   const requireFull = outlineRequiresFullContent(candidateId);
   const mode = requireFull
@@ -1120,6 +2061,11 @@ export function acceptContent(candidateId, { ignoreWarnings = false } = {}) {
       : onlyPages
         ? 'homepage_first'
         : 'full';
+
+  // Primary + suburbs must exist before launch completeness assert (seed in-memory first).
+  const ensured = ensureLocationFilesInMap(files, config);
+  Object.assign(files, ensured.files);
+  const preAssertLocationSeeded = ensured.seeded;
 
   if (requireFull) {
     assertLaunchContentComplete(files, config, resolveStructurePageIds(candidateId), {
@@ -1140,6 +2086,49 @@ export function acceptContent(candidateId, { ignoreWarnings = false } = {}) {
     );
     err.status = 400;
     err.check = check;
+    throw err;
+  }
+
+  // SEO hard gate (critical findings)
+  const outline = readJson(path.join(RESEARCH_DIR, `${p.id}-content-outline-package.json`));
+  const sectionIds = outline?.sectionIds || (outline?.sections || []).map((s) => s?.id).filter(Boolean);
+  const materialsEnabled =
+    sectionIds.includes('materials') ||
+    sectionIds.includes('svcMaterials') ||
+    (config.homepageSections || []).includes('materials');
+  const seoLint = lintContentSeo(files, {
+    primaryKeyword:
+      outline?.keywords?.primary || outline?.keywordTargets?.[0]?.keyword || config.niche,
+    supportingKeywords:
+      outline?.keywords?.supporting ||
+      (outline?.keywordTargets || []).slice(1).map((t) => t.keyword),
+    faqSeeds: outline?.faqSeeds || [],
+    faqsEnabled:
+      sectionIds.includes('faqs') ||
+      (outline?.sections || []).some((s) => s.id === 'faqs') ||
+      (config.homepageSections || []).includes('faqs'),
+    requiredLinksByFile: buildRequiredLinksByFile(files, config, outline || {}),
+    businessName: config.businessName,
+    niche: config.niche,
+    primaryCity: config.primaryCity,
+    services: [
+      ...(Array.isArray(config.services) ? config.services : []),
+      ...(Array.isArray(config.commercialServices) ? config.commercialServices : []),
+    ],
+    locationMinWords: 450,
+    strictLocationDepth: true,
+    materialsEnabled,
+  });
+  const criticalSeo = (seoLint?.findings || []).filter((f) => f.severity === 'critical');
+  if (criticalSeo.length && !ignoreSeoWarnings) {
+    const err = new Error(
+      `SEO critical: ${criticalSeo
+        .slice(0, 3)
+        .map((f) => f.excerpt || f.rule)
+        .join('; ')}. Fix via Editor or pass ignoreSeoWarnings (Accept with SEO warnings).`,
+    );
+    err.status = 400;
+    err.seoLint = seoLint;
     throw err;
   }
 
@@ -1168,15 +2157,22 @@ export function acceptContent(candidateId, { ignoreWarnings = false } = {}) {
     pruned.push(file.rel);
   }
 
-  let seeded = [];
+  let seeded = [...preAssertLocationSeeded];
   if (mode === 'homepage_first') {
     pruned.push(...pruneWrongStateLocations(config.state));
     pruned.push(...pruneUnmatchedServices(configuredServiceNames(config)));
     const locationStubs = seedTargetSuburbLocationStubs(config);
     const serviceStubs = seedServiceStubs(config);
     written.push(...locationStubs.written, ...serviceStubs.written);
-    seeded = [...locationStubs.seeded, ...serviceStubs.seeded];
+    seeded.push(...locationStubs.seeded, ...serviceStubs.seeded);
     Object.assign(acceptedFiles, locationStubs.files, serviceStubs.files);
+  } else {
+    // Full accept: drop service MD not in site-config (orphans / invents)
+    pruned.push(...pruneUnmatchedServices(configuredServiceNames(config)));
+    const locationStubs = seedTargetSuburbLocationStubs(config);
+    written.push(...locationStubs.written);
+    seeded.push(...locationStubs.seeded);
+    Object.assign(acceptedFiles, locationStubs.files);
   }
 
   const accepted = {
@@ -1205,21 +2201,41 @@ export function acceptContent(candidateId, { ignoreWarnings = false } = {}) {
     const outlinePkg = existsSync(p.contentOutlinePackage)
       ? JSON.parse(readFileSync(p.contentOutlinePackage, 'utf8'))
       : null;
-    if (outlinePkg?.homepageSections?.length && existsSync(p.siteConfig)) {
-      const sc = JSON.parse(readFileSync(p.siteConfig, 'utf8'));
+    ensureRoverSocialProofSeed(candidateId, config, { alsoLive: true });
+    if (existsSync(p.siteConfig)) {
+      const scFresh = JSON.parse(readFileSync(p.siteConfig, 'utf8'));
       writeFileSync(
         p.siteConfig,
         `${JSON.stringify(
           {
-            ...sc,
-            homepageSections: outlinePkg.homepageSections,
-            ...(outlinePkg.siteArchetype ? { siteArchetype: outlinePkg.siteArchetype } : {}),
+            ...scFresh,
+            ...(outlinePkg?.homepageSections?.length
+              ? { homepageSections: outlinePkg.homepageSections }
+              : {}),
+            ...(outlinePkg?.siteArchetype ? { siteArchetype: outlinePkg.siteArchetype } : {}),
           },
           null,
           2,
         )}\n`,
         'utf8',
       );
+      const livePath = path.join(ROOT, 'src', 'config', 'site-config.json');
+      if (existsSync(livePath) && outlinePkg?.homepageSections?.length) {
+        const live = JSON.parse(readFileSync(livePath, 'utf8'));
+        writeFileSync(
+          livePath,
+          `${JSON.stringify(
+            {
+              ...live,
+              homepageSections: outlinePkg.homepageSections,
+              ...(outlinePkg.siteArchetype ? { siteArchetype: outlinePkg.siteArchetype } : {}),
+            },
+            null,
+            2,
+          )}\n`,
+          'utf8',
+        );
+      }
     }
   } catch {
     // non-fatal — content files already written

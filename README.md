@@ -102,7 +102,9 @@ JSON-LD is generated in [`src/components/LocalSchema.astro`](src/components/Loca
 
 ## Optional images
 
-Place optimized WebP or AVIF files in `public/images/`, then reference them from Markdown frontmatter:
+**Rover Website path (preferred):** On a candidate’s Website step, use **Pull images**, per-slot **Re-pull** / **Upload**, and **Before & after (ChatGPT)** import. Assets land in `research/{id}/site-images/`, wire into content frontmatter, then **Stage → Assemble**.
+
+Manual fallback: place optimized WebP or AVIF files in `public/images/` (or the candidate’s `site-images/`), then reference them from Markdown frontmatter:
 
 - `heroImage` — optional hero background on any page schema
 - `featureImage` — optional homepage intro image
@@ -111,7 +113,7 @@ Place optimized WebP or AVIF files in `public/images/`, then reference them from
 - `gallery[]` — optional homepage project gallery
 - `cardImage` — optional service-card thumbnail
 
-Every image object requires `src` and meaningful `alt` text. The included Unsplash files are demo placeholders only; see [`IMAGE-CREDITS.md`](IMAGE-CREDITS.md). Replace them with verified owner project photos before launch.
+Every image object requires `src` and meaningful `alt` text. The included Unsplash files are demo placeholders only; see [`IMAGE-CREDITS.md`](IMAGE-CREDITS.md). Replace them with niche stock (Pull) or verified owner project photos before launch.
 
 To regenerate the demo coverage map after changing `coverageAreas` in `site-config.json`:
 
@@ -156,7 +158,7 @@ npm run rover
 
 Open [http://127.0.0.1:8787](http://127.0.0.1:8787) — bound to localhost only. Do **not** expose this port or deploy it to Cloudflare Pages.
 
-**Flow:** Discovery = Claude (pick rows + narrative) → **cheap DataForSEO SERP probe** (~$0.002/row for Map Pack + organic counts) → Gemini volume estimates → decide → **Process batch** promotes rows into Candidates by `meta.decision`. Only `pursue` auto-queues Stage 1 (full cluster volumes + scoring; Live or Standard Ads queue).
+**Flow:** Discovery = Claude (pick rows + narrative) → **cheap DataForSEO SERP probe** (~$0.002/row for Map Pack + organic counts) → decide → **Process batch** promotes rows into Candidates by `meta.decision`. Only `pursue` auto-queues Stage 1 (full cluster volumes + scoring; Live or Standard Ads queue).
 
 **Anti-dupe:** Rover maintains `research/known-candidates.csv` from all candidates (any group). New Discovery Claude prompts include that list so city×niche pairs are not re-proposed; Process links to an existing candidate instead of creating a duplicate.
 
@@ -229,7 +231,7 @@ See [`prompts/README.md`](prompts/README.md). Outputs under `research/` are giti
 8. Assemble → this template + inject config/content
 9. Deploy → Pages
 10. Email Routing + Web3Forms (+ Turnstile)
-11. Twilio while ranking → CallRail when rented
+11. Twilio phone intelligence — ranking DID, rent forward (same number), Phone tab ([`docs/PHONE-TRACKING.md`](docs/PHONE-TRACKING.md); Website Builder Site-Config / Launched Sites / Phone, not Launch). Operator stages: [`docs/PIPELINE-STAGES.md`](docs/PIPELINE-STAGES.md).
 12. GSC + Looker / AgencyAnalytics later
 
 **Throughput note:** Expect more sites/day once Assemble + Launch are routine. First GitHub/Workers project connect is still manual; CF domain + Email Routing + Web3Forms paste are ops Launch. Ten “live” sites with real QA in one day is still usually fiction.

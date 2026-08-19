@@ -1,5 +1,5 @@
 /**
- * Discovery stage: free CSV pack + Claude/Gemini prompts + batch import.
+ * Discovery stage: free CSV pack + Claude prompt + batch import.
  */
 
 import {
@@ -10,7 +10,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import path from 'node:path';
-import { lookupPopulation, censusStatus } from './census.mjs';
+import { lookupPopulation, censusStatus, listUsStates } from './census.mjs';
 import { applyRecommendations, DISCOVERY_DECISIONS } from './discovery-recommend.mjs';
 import { createCandidate, setDecision, pathsFor, saveMeta } from './candidates.mjs';
 import {
@@ -18,6 +18,8 @@ import {
   formatKnownCandidatesForPrompt,
   knownCandidatesCount,
   regenerateKnownCandidates,
+  upsertTrackedDecision,
+  removeTrackedDecision,
 } from './known-candidates.mjs';
 import { startBatchJobs } from './batch-jobs.mjs';
 import { isSerpCacheFresh, readSerpCache, serpCachePath } from '../../scripts/lib/serp-cache.mjs';
@@ -58,9 +60,26 @@ export const DISCOVERY_COLUMNS = [
   'human_decision',
   'decision_notes',
   'candidateId',
+  'process_status',
   'source_mode',
   'serp_source',
 ];
+
+/** Human decisions that create/link Candidates. */
+export const PROMOTE_DECISIONS = ['pursue', 'maybe', 'review', 'hold'];
+/** Human decisions stored for anti-dupe only — not Candidates. */
+export const TRACK_ONLY_DECISIONS = ['pass', 'deprioritize', 'pass_unless_gbp_angle'];
+
+export function discoveryRowProcessStatus(row) {
+  const status = String(row?.process_status || '').trim().toLowerCase();
+  if (status === 'promoted' || status === 'tracked') return status;
+  if (String(row?.candidateId || '').trim()) return 'promoted';
+  return '';
+}
+
+export function isDiscoveryRowProcessed(row) {
+  return Boolean(discoveryRowProcessStatus(row));
+}
 
 const WIZARD_NICHES = [
   'Roof Repair',
@@ -213,12 +232,27 @@ function readPromptTemplate(relativePath) {
   return readFileSync(full, 'utf8');
 }
 
+function normalizeNicheList(rawList) {
+  const out = [];
+  const seen = new Set();
+  for (const item of rawList || []) {
+    const n = String(item || '').trim();
+    if (!n) continue;
+    const key = n.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(n);
+  }
+  return out;
+}
+
 function normalizeFilters(filters = {}) {
   const stateRaw = String(filters.state || '')
     .trim()
     .toUpperCase();
   const state = stateRaw.length === 2 ? stateRaw : '';
-  const niches = (filters.niches || []).map((n) => String(n).trim()).filter(Boolean);
+  const niches = normalizeNicheList(filters.niches);
+  const requiredNiches = normalizeNicheList(filters.requiredNiches);
   const cities = (filters.cities || []).map((c) => String(c).trim()).filter(Boolean);
   const categories = (filters.categories || [])
     .map((c) => String(c).trim())
@@ -249,6 +283,7 @@ function normalizeFilters(filters = {}) {
   return {
     state,
     niches,
+    requiredNiches,
     cities,
     categories,
     maxRows,
@@ -263,17 +298,17 @@ function normalizeFilters(filters = {}) {
 
 function autoLabel(f) {
   const statePart = f.state || 'us';
-  const nichePart = f.niches.length
-    ? f.niches
+  const nicheSource = f.requiredNiches.length
+    ? f.requiredNiches
+    : f.niches.length
+      ? f.niches
+      : f.categories;
+  const nichePart = nicheSource.length
+    ? nicheSource
         .slice(0, 2)
         .map((n) => n.toLowerCase().replace(/[^a-z0-9]+/g, '-'))
         .join('-')
-    : f.categories.length
-      ? f.categories
-          .slice(0, 2)
-          .map((n) => n.toLowerCase().replace(/[^a-z0-9]+/g, '-'))
-          .join('-')
-      : 'open-niches';
+    : 'open-niches';
   return `${statePart}-${nichePart}`;
 }
 
@@ -296,18 +331,24 @@ function mapPackLabel(v) {
   return 'Prefer Map Pack absent (soft — estimate after Claude)';
 }
 
-/** Human-readable filter brief injected into Claude/Gemini prompts. */
+/** Human-readable filter brief injected into Claude prompts. */
 export function buildFilterBrief(filters = {}) {
   const f = normalizeFilters(filters);
+  let nichesLine;
+  if (f.requiredNiches.length) {
+    nichesLine = `- **Required niches (exclusive):** ${f.requiredNiches.join('; ')}
+- **Niche rule:** Every row’s Niche MUST be one of the Required niches only — do not substitute catalog alternatives. Include each required niche in ≥1 row when Max rows allows. Custom names are valid even if absent from the High-Ticket catalog.`;
+  } else if (f.niches.length) {
+    nichesLine = `- **Niches (suggested):** ${f.niches.join('; ')}
+- **Niche rule:** Soft preference — prefer these niches when a strong city fit exists; you may still pick other High-Ticket catalog niches that match tiers/categories.`;
+  } else {
+    nichesLine = `- **Niches:** OPEN — choose from the High-Ticket catalog; include **at least 3 different niches** when possible`;
+  }
   const lines = [
     '## Operator filters (from Rover)',
     '',
     `- **State:** ${f.state || 'ANY (nationwide — pick the best US markets)'}`,
-    `- **Niches:** ${
-      f.niches.length
-        ? f.niches.join('; ')
-        : 'OPEN — choose from the High-Ticket catalog; include **at least 3 different niches** when possible'
-    }`,
+    nichesLine,
     `- **Catalog categories:** ${
       f.categories.length
         ? f.categories.join('; ')
@@ -322,7 +363,9 @@ export function buildFilterBrief(filters = {}) {
     }`,
     `- **Population band (prefer):** ${f.minPopulation.toLocaleString()} – ${f.maxPopulation.toLocaleString()} (incorporated place / city proper when known)`,
     `- **Seasonality:** ${seasonalityLabel(f.seasonality)}`,
-    `- **Ticket tiers allowed:** ${tiersLabel(f.tiers)} — only niches in these catalog tiers`,
+    f.requiredNiches.length
+      ? `- **Ticket tiers allowed:** ${tiersLabel(f.tiers)} — apply when picking cities/services framing; Required niches override catalog tier membership`
+      : `- **Ticket tiers allowed:** ${tiersLabel(f.tiers)} — only niches in these catalog tiers`,
     `- **Min job cost:** ${
       f.minJobCost != null
         ? `$${f.minJobCost.toLocaleString()}+ average job (approximate)`
@@ -374,7 +417,6 @@ export function createDiscoveryPack(filters = {}) {
   const outputBasename = `discovery-${label}-${stamp}`;
   const csvName = `${outputBasename}.csv`;
   const claudeCsvName = `${outputBasename}-claude.csv`;
-  const geminiCsvName = `${outputBasename}-gemini.csv`;
   writeFileSync(path.join(dir, csvName), csv, 'utf8');
 
   const filterBrief = buildFilterBrief(f);
@@ -384,7 +426,6 @@ export function createDiscoveryPack(filters = {}) {
     DISCOVERY_CSV: csv.trimEnd(),
     OUTPUT_BASENAME: outputBasename,
     CLAUDE_OUTPUT_CSV: claudeCsvName,
-    GEMINI_OUTPUT_CSV: geminiCsvName,
     BATCH_DIR: dir,
     HIGH_TICKET_NICHES: highTicketNiches,
     KNOWN_CANDIDATES: formatKnownCandidatesForPrompt({
@@ -393,14 +434,7 @@ export function createDiscoveryPack(filters = {}) {
     }),
   };
   const claudePrompt = fillPrompt('prompts/discovery-claude.md', promptVars);
-  const emptyDelta = rowsToGeminiDeltaCsv([]);
-  const geminiPrompt = fillPrompt('prompts/discovery-gemini.md', {
-    ...promptVars,
-    GEMINI_DELTA_CSV: emptyDelta.trimEnd(),
-    HIGH_TICKET_NICHES: '',
-  });
   writeFileSync(path.join(dir, 'prompt-claude.md'), claudePrompt, 'utf8');
-  writeFileSync(path.join(dir, 'prompt-gemini.md'), geminiPrompt, 'utf8');
   writeFileSync(path.join(dir, 'filters.md'), `${filterBrief}\n`, 'utf8');
 
   const meta = {
@@ -410,6 +444,7 @@ export function createDiscoveryPack(filters = {}) {
     filters: {
       state: f.state || null,
       niches: f.niches,
+      requiredNiches: f.requiredNiches,
       cities: f.cities,
       categories: f.categories,
       minPopulation: f.minPopulation,
@@ -424,9 +459,7 @@ export function createDiscoveryPack(filters = {}) {
     files: {
       csv: csvName,
       claudeCsv: claudeCsvName,
-      geminiCsv: geminiCsvName,
       claudePrompt: 'prompt-claude.md',
-      geminiPrompt: 'prompt-gemini.md',
       filters: 'filters.md',
     },
     outputBasename,
@@ -440,122 +473,13 @@ export function createDiscoveryPack(filters = {}) {
     csv,
     csvName,
     claudeCsvName,
-    geminiCsvName,
     outputBasename,
     batchDir: dir,
     claudePrompt,
-    geminiPrompt,
     filterBrief,
     rows,
     knownCandidatesCount: knownCandidatesCount(),
   };
-}
-
-export const GEMINI_MERGE_COLUMNS = [
-  'Est. Cluster Volume',
-  'Top Target Keywords & Volumes',
-  'Map Pack',
-  'GBP Serves Location',
-  'Directories',
-  'Organic Home Page',
-  'Organic Sub Page',
-  'Directories (Links)',
-  'Organic Home Page (Links)',
-  'Organic Sub Page (Links)',
-  'da_est',
-  'backlinks_est',
-  'confidence_serp',
-];
-
-/** Columns Gemini should fill when DFS owns Map Pack/organic (volume delta). */
-export const GEMINI_VOLUME_COLUMNS = [
-  'Est. Cluster Volume',
-  'Top Target Keywords & Volumes',
-];
-
-/** Preferred Gemini paste headers (volume delta). */
-export const GEMINI_DELTA_COLUMNS = [
-  'Niche',
-  'City',
-  'State',
-  ...GEMINI_VOLUME_COLUMNS,
-];
-
-/** Competition columns owned by DFS Discovery probe — Gemini must not overwrite after probe. */
-export const DFS_SERP_COLUMNS = [
-  'Map Pack',
-  'GBP Serves Location',
-  'Directories',
-  'Organic Home Page',
-  'Organic Sub Page',
-  'Directories (Links)',
-  'Organic Home Page (Links)',
-  'Organic Sub Page (Links)',
-];
-
-const CLAUDE_LOCK_COLUMNS = [
-  'Niche',
-  'City',
-  'State',
-  'Average Job Cost',
-  'Est. time to rank with GBP',
-  'Est. time to rank without GBP',
-  'pain_points',
-  'suggested_services',
-  'suggested_suburbs',
-  'confidence_narrative',
-];
-
-function isYesNoToken(raw) {
-  const s = String(raw ?? '').trim().toLowerCase();
-  return ['yes', 'y', 'true', '1', 'no', 'n', 'false', '0'].includes(s);
-}
-
-/** Word Yes/No only — digits 0/1 are valid count cells, not Map Pack swaps. */
-function isYesNoWord(raw) {
-  const s = String(raw ?? '').trim().toLowerCase();
-  return ['yes', 'y', 'true', 'no', 'n', 'false'].includes(s);
-}
-
-function normalizeMapPackValue(raw) {
-  const s = String(raw ?? '').trim().toLowerCase();
-  if (!s) return '';
-  if (['yes', 'y', 'true', '1'].includes(s)) return 'Yes';
-  if (['no', 'n', 'false', '0'].includes(s)) return 'No';
-  return null;
-}
-
-function isValidCountCell(raw) {
-  const s = String(raw ?? '').trim();
-  if (!s) return true;
-  if (/^n\/?a$/i.test(s)) return true;
-  // Accept numeric counts first (including 0 and 1)
-  if (/^\d+(\.\d+)?$/.test(s.replace(/,/g, ''))) return true;
-  // Reject Yes/No words that land here after a CSV column shift
-  if (isYesNoWord(s)) return false;
-  return false;
-}
-
-function isValidConfidenceSerp(raw) {
-  const s = String(raw ?? '').trim().toLowerCase();
-  if (!s) return true;
-  return ['high', 'medium', 'low'].includes(s);
-}
-
-function isValidClusterVolume(raw) {
-  const s = String(raw ?? '').trim();
-  if (!s) return true;
-  if (!/\d/.test(s)) return false;
-  // Claude-style "ESTIMATE 34,600" is population, not search volume
-  if (/^estimate\b/i.test(s)) return false;
-  // Reject pure fragments like "000" from split $15,000
-  if (/^\d{1,3}$/.test(s) && Number(s) < 50) return false;
-  // Bare city-size integers (e.g. "34600" / "34,600") without range or /mo
-  const digitsOnly = s.replace(/[,\s]/g, '');
-  if (/^\d{4,}$/.test(digitsOnly) && !/[-–—]|\/\s*mo|\bmo\b|\bper\b|\brange\b/i.test(s)) {
-    return false;
-  }
-  return true;
 }
 
 /** True when Population should be replaced by Census (blank or Claude ESTIMATE…). */
@@ -569,104 +493,12 @@ export function needsCensusPopulation(raw) {
   return false;
 }
 
-function isValidUrlish(raw) {
-  const s = String(raw ?? '').trim();
-  if (!s) return true;
-  return /^https?:\/\//i.test(s) || s.includes('.');
-}
-
-/**
- * @returns {{ ok: boolean, value: string, reason?: string }}
- */
-export function sanitizeGeminiField(col, raw) {
-  const s = raw == null ? '' : String(raw);
-  const trimmed = s.trim();
-  if (!trimmed) return { ok: true, value: '' };
-
-  if (col === 'Map Pack') {
-    const norm = normalizeMapPackValue(trimmed);
-    if (norm == null) return { ok: false, value: '', reason: `invalid Map Pack "${trimmed}"` };
-    return { ok: true, value: norm };
-  }
-  if (
-    col === 'Organic Home Page' ||
-    col === 'Organic Sub Page' ||
-    col === 'Directories' ||
-    col === 'GBP Serves Location'
-  ) {
-    if (!isValidCountCell(trimmed)) {
-      return { ok: false, value: '', reason: `invalid count in ${col}: "${trimmed}"` };
-    }
-    return { ok: true, value: trimmed };
-  }
-  if (col === 'confidence_serp') {
-    if (!isValidConfidenceSerp(trimmed)) {
-      return { ok: false, value: '', reason: `invalid confidence_serp "${trimmed}"` };
-    }
-    return { ok: true, value: trimmed.toLowerCase() };
-  }
-  if (col === 'Est. Cluster Volume') {
-    if (!isValidClusterVolume(trimmed)) {
-      return { ok: false, value: '', reason: `invalid Est. Cluster Volume "${trimmed}"` };
-    }
-    return { ok: true, value: trimmed };
-  }
-  if (
-    col === 'Directories (Links)' ||
-    col === 'Organic Home Page (Links)' ||
-    col === 'Organic Sub Page (Links)'
-  ) {
-    // Allow multi-line URLs; reject suburb-looking lists without URLs
-    if (/;/.test(trimmed) && !/https?:\/\//i.test(trimmed) && !/\.[a-z]{2,}/i.test(trimmed)) {
-      return { ok: false, value: '', reason: `${col} looks like suburbs, not links` };
-    }
-    return { ok: true, value: s };
-  }
-  if (col === 'da_est' || col === 'backlinks_est') {
-    if (isYesNoToken(trimmed)) {
-      return { ok: false, value: '', reason: `invalid ${col}` };
-    }
-    return { ok: true, value: trimmed };
-  }
-  if (col === 'Top Target Keywords & Volumes') {
-    return { ok: true, value: s };
-  }
-  return { ok: true, value: s };
-}
-
-/** Fix common CSV-shift damage: Map Pack got "000", Yes/No landed in Organic Home Page. */
-export function healShiftedGeminiRow(g, warnings, rowLabel) {
-  const next = { ...g };
-  const mapNorm = normalizeMapPackValue(next['Map Pack']);
-  const orgRaw = String(next['Organic Home Page'] ?? '').trim();
-  if (mapNorm == null && isYesNoWord(orgRaw)) {
-    next['Map Pack'] = normalizeMapPackValue(orgRaw);
-    next['Organic Home Page'] = '';
-    warnings.push(`${rowLabel}: healed Map Pack from Organic Home Page (CSV column shift)`);
-  }
-  const conf = String(next.confidence_serp ?? '').trim();
-  if (conf && !isValidConfidenceSerp(conf) && /;/.test(conf)) {
-    next.confidence_serp = '';
-    warnings.push(`${rowLabel}: cleared confidence_serp (looked like suburbs — CSV shift)`);
-  }
-  const vol = String(next['Est. Cluster Volume'] ?? '').trim();
-  if (vol && !isValidClusterVolume(vol)) {
-    next['Est. Cluster Volume'] = '';
-    warnings.push(`${rowLabel}: cleared bad Est. Cluster Volume "${vol}"`);
-  }
-  return next;
-}
-
-function rowsToGeminiDeltaCsv(rows) {
-  return rowsToCsv(rows, GEMINI_DELTA_COLUMNS);
-}
-/** Pull CSV out of Gemini/Claude chat paste (DONE header, fences, or bare CSV). */
 /** Header may be Niche,... or "Niche","City",... (Excel / Claude quoted CSV). */
 function isDiscoveryCsvHeaderLine(line) {
   return /^"?Niche"?\s*,/i.test(String(line || '').trim());
 }
 
-/** Pull CSV out of Gemini/Claude chat paste (DONE header, fences, or bare CSV). */
+/** Pull CSV out of Claude chat paste (DONE header, fences, or bare CSV). */
 export function extractCsvFromChatPaste(text) {
   const raw = String(text || '').replace(/^\uFEFF/, '');
   if (!raw.trim()) {
@@ -758,41 +590,10 @@ function attachDiscoveryArtifacts(candidateId, row, batchDir, batchId, rowIndex)
   return { serpCache: serpRel, discoverySeed: true };
 }
 
-function refreshGeminiPromptForBatch(dir, meta, rows) {
-  const fullCsv = rowsToCsv(rows);
-  // Volume-only delta — Map Pack/organic come from DFS probe
-  const deltaRows = rows.map((r) => {
-    const d = { Niche: r.Niche, City: r.City, State: r.State };
-    for (const col of GEMINI_VOLUME_COLUMNS) d[col] = r[col] || '';
-    return d;
-  });
-  const deltaCsv = rowsToGeminiDeltaCsv(deltaRows);
-  const filterBrief =
-    existsSync(path.join(dir, 'filters.md'))
-      ? readFileSync(path.join(dir, 'filters.md'), 'utf8').trimEnd()
-      : buildFilterBrief(meta.filters || {});
-  const outputBasename = meta.outputBasename || `discovery-${meta.filters?.label || 'batch'}`;
-  const claudeCsvName = meta.files?.claudeCsv || `${outputBasename}-claude.csv`;
-  const geminiCsvName = meta.files?.geminiCsv || `${outputBasename}-gemini.csv`;
-  const geminiPrompt = fillPrompt('prompts/discovery-gemini.md', {
-    FILTER_BRIEF: filterBrief,
-    DISCOVERY_CSV: fullCsv.trimEnd(),
-    GEMINI_DELTA_CSV: deltaCsv.trimEnd(),
-    OUTPUT_BASENAME: outputBasename,
-    CLAUDE_OUTPUT_CSV: claudeCsvName,
-    GEMINI_OUTPUT_CSV: geminiCsvName,
-    BATCH_DIR: dir,
-    HIGH_TICKET_NICHES: '',
-  });
-  writeFileSync(path.join(dir, 'prompt-gemini.md'), geminiPrompt, 'utf8');
-  return geminiPrompt;
-}
-
 /**
- * Import Claude (or full) CSV into a batch. Saves *-claude.csv and refreshes Gemini prompt
- * with the real rows embedded so Gemini does not need a separate file upload.
+ * Import Claude CSV into a batch. Saves *-claude.csv.
  */
-export function importDiscoveryCsv(batchId, csvText, { createIfMissing = true, role = 'claude' } = {}) {
+export function importDiscoveryCsv(batchId, csvText, { createIfMissing = true } = {}) {
   ensureBatchesDir();
   let id = batchId;
   let dir;
@@ -865,15 +666,13 @@ export function importDiscoveryCsv(batchId, csvText, { createIfMissing = true, r
 
   const outputBasename = prev.outputBasename || `discovery-${prev.filters?.label || id}-${stamp}`;
   const claudeCsvName = prev.files?.claudeCsv || `${outputBasename}-claude.csv`;
-  if (role !== 'gemini') {
-    writeFileSync(path.join(dir, claudeCsvName), rowsToCsv(scoredRows), 'utf8');
-  }
+  writeFileSync(path.join(dir, claudeCsvName), rowsToCsv(scoredRows), 'utf8');
 
   const meta = {
     ...prev,
     id,
     updatedAt: new Date().toISOString(),
-    stage: role === 'gemini' ? 'discovery_gemini' : 'discovery_claude',
+    stage: 'discovery_claude',
     rowCount: scoredRows.length,
     outputBasename: prev.outputBasename || outputBasename,
     files: {
@@ -881,7 +680,6 @@ export function importDiscoveryCsv(batchId, csvText, { createIfMissing = true, r
       candidates: 'candidates.csv',
       lastImport: csvName,
       claudeCsv: claudeCsvName,
-      geminiCsv: prev.files?.geminiCsv || `${outputBasename}-gemini.csv`,
     },
     census: {
       ...censusStatus(),
@@ -892,131 +690,8 @@ export function importDiscoveryCsv(batchId, csvText, { createIfMissing = true, r
   };
   if (!meta.createdAt) meta.createdAt = new Date().toISOString();
 
-  let geminiPrompt = null;
-  if (role !== 'gemini') {
-    geminiPrompt = refreshGeminiPromptForBatch(dir, meta, scoredRows);
-  }
-
   writeJson(path.join(dir, 'meta.json'), meta);
-  return { batch: meta, rows: scoredRows, geminiPrompt };
-}
-
-/**
- * Paste Gemini chat output (DONE + CSV / fence). Merges SERP columns onto Claude rows;
- * never overwrites Claude narrative/time-to-rank fields. Writes *-gemini.csv.
- * Validates fields to reject CSV column-shift damage (e.g. Map Pack = "000").
- */
-export function mergeGeminiPaste(batchId, pasteText) {
-  const { batch, rows, dir } = getBatch(batchId);
-  if (!rows.length) {
-    const err = new Error('Batch has no Claude rows yet — import Claude CSV first');
-    err.status = 400;
-    throw err;
-  }
-
-  const extracted = extractCsvFromChatPaste(pasteText);
-  const geminiRows = parseCsv(extracted);
-  if (!geminiRows.length) {
-    const err = new Error('Gemini paste has no data rows');
-    err.status = 400;
-    throw err;
-  }
-
-  const byKey = new Map(geminiRows.map((r) => [rowKey(r), r]));
-  let matched = 0;
-  const missing = [];
-  const mergeWarnings = [];
-
-  const mergedRaw = rows.map((base) => {
-    const label = `${base.City || '?'}, ${base.State || '?'} · ${base.Niche || '?'}`;
-    let g = byKey.get(rowKey(base));
-    if (!g) {
-      missing.push(label);
-      return { ...base };
-    }
-    matched += 1;
-    g = healShiftedGeminiRow(g, mergeWarnings, label);
-    const next = { ...base };
-    const dfsSerpLocked = String(base.serp_source || '').toLowerCase().includes('dataforseo');
-    for (const col of GEMINI_MERGE_COLUMNS) {
-      if (g[col] == null || String(g[col]).trim() === '') continue;
-      if (dfsSerpLocked && DFS_SERP_COLUMNS.includes(col)) {
-        mergeWarnings.push(`${label}: kept DFS ${col} (ignored Gemini)`);
-        continue;
-      }
-      const cleaned = sanitizeGeminiField(col, g[col]);
-      if (!cleaned.ok) {
-        mergeWarnings.push(`${label}: skipped ${col} — ${cleaned.reason}`);
-        continue;
-      }
-      if (cleaned.value !== '') next[col] = cleaned.value;
-    }
-    if ((!next['Google Search Link'] || !String(next['Google Search Link']).trim()) && g['Google Search Link']) {
-      const link = String(g['Google Search Link']).trim();
-      if (isValidUrlish(link)) next['Google Search Link'] = link;
-      else mergeWarnings.push(`${label}: skipped Google Search Link (invalid)`);
-    }
-    if ((!next.decision_notes || !String(next.decision_notes).trim()) && g.decision_notes) {
-      const notes = String(g.decision_notes).trim();
-      // Don't copy suburb lists into notes
-      if (notes && !(notes.includes(';') && /,\s*[A-Z]{2}\b/.test(notes) && notes.length > 80)) {
-        next.decision_notes = notes;
-      }
-    }
-    for (const col of CLAUDE_LOCK_COLUMNS) {
-      if (base[col] != null && String(base[col]).trim() !== '') next[col] = base[col];
-    }
-    return next;
-  });
-
-  const merged = applyRecommendations(mergedRaw);
-
-  const geminiCsvName = batch.files?.geminiCsv || `${batch.outputBasename || batch.id}-gemini.csv`;
-  writeFileSync(path.join(dir, geminiCsvName), rowsToCsv(merged), 'utf8');
-  writeFileSync(path.join(dir, 'candidates.csv'), rowsToCsv(merged), 'utf8');
-  const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-  const lastImport = `discovery-gemini-merge-${stamp}.csv`;
-  writeFileSync(path.join(dir, lastImport), rowsToCsv(merged), 'utf8');
-
-  const meta = {
-    ...batch,
-    updatedAt: new Date().toISOString(),
-    stage: 'discovery_gemini',
-    rowCount: merged.length,
-    files: {
-      ...(batch.files || {}),
-      candidates: 'candidates.csv',
-      geminiCsv: geminiCsvName,
-      lastImport,
-    },
-    geminiMerge: {
-      matched,
-      geminiRowCount: geminiRows.length,
-      claudeRowCount: rows.length,
-      unmatched: missing,
-      warnings: mergeWarnings.slice(0, 50),
-      warningCount: mergeWarnings.length,
-    },
-  };
-  writeJson(path.join(dir, 'meta.json'), meta);
-  return {
-    batch: meta,
-    rows: merged,
-    matched,
-    unmatched: missing,
-    mergeWarnings,
-  };
-}
-
-export function getBatchGeminiPrompt(batchId) {
-  const { batch, dir } = getBatch(batchId);
-  const promptPath = path.join(dir, batch.files?.geminiPrompt || 'prompt-gemini.md');
-  if (!existsSync(promptPath)) {
-    const err = new Error('Gemini prompt not found — import Claude CSV first');
-    err.status = 404;
-    throw err;
-  }
-  return { batch, geminiPrompt: readFileSync(promptPath, 'utf8') };
+  return { batch: meta, rows: scoredRows };
 }
 
 export function listBatches() {
@@ -1074,9 +749,6 @@ export function recommendBatch(batchId) {
   const { batch, rows, dir } = getBatch(batchId);
   const next = applyRecommendations(rows);
   writeFileSync(path.join(dir, 'candidates.csv'), rowsToCsv(next), 'utf8');
-  if (batch.files?.geminiCsv) {
-    writeFileSync(path.join(dir, batch.files.geminiCsv), rowsToCsv(next), 'utf8');
-  }
   const meta = {
     ...batch,
     updatedAt: new Date().toISOString(),
@@ -1099,7 +771,7 @@ function parseSuburbsCluster(text, state) {
 }
 
 /**
- * Promote rows with human_decision into candidates; optional Stage 1 batch for pursue.
+ * Promote or track rows with human_decision; optional Stage 1 batch for pursue.
  */
 export function processDiscoveryBatch(
   batchId,
@@ -1117,12 +789,23 @@ export function processDiscoveryBatch(
     : null;
 
   const promoted = [];
+  const tracked = [];
   const skipped = [];
   const pursueIds = [];
   let nextRows = applyRecommendations(rows);
 
   for (let i = 0; i < nextRows.length; i += 1) {
     const row = nextRows[i];
+    if (isDiscoveryRowProcessed(row)) {
+      skipped.push({
+        index: i,
+        reason: 'already processed',
+        process_status: discoveryRowProcessStatus(row),
+        candidateId: row.candidateId || null,
+        decision: row.human_decision || null,
+      });
+      continue;
+    }
     const decision = String(row.human_decision || '').trim();
     if (!decision) {
       skipped.push({ index: i, reason: 'no human_decision' });
@@ -1138,6 +821,36 @@ export function processDiscoveryBatch(
     }
     if (!row.Niche || !row.City || !row.State) {
       skipped.push({ index: i, reason: 'missing Niche/City/State' });
+      continue;
+    }
+
+    if (TRACK_ONLY_DECISIONS.includes(decision)) {
+      try {
+        upsertTrackedDecision({
+          niche: row.Niche,
+          city: row.City,
+          state: row.State,
+          decision,
+          batchId: batch.id,
+        });
+        row.process_status = 'tracked';
+        row.candidateId = '';
+        nextRows[i] = row;
+        tracked.push({
+          index: i,
+          decision,
+          niche: row.Niche,
+          city: row.City,
+          state: String(row.State).toUpperCase(),
+        });
+      } catch (error) {
+        skipped.push({ index: i, reason: error.message, decision });
+      }
+      continue;
+    }
+
+    if (!PROMOTE_DECISIONS.includes(decision)) {
+      skipped.push({ index: i, reason: 'invalid decision', decision });
       continue;
     }
 
@@ -1173,6 +886,9 @@ export function processDiscoveryBatch(
         setDecision(candidateId, decision, row.decision_notes || row.recommended_reason || null);
         saveMetaSource(candidateId, source);
         attachDiscoveryArtifacts(candidateId, row, dir, batch.id, i);
+        row.candidateId = candidateId;
+        row.process_status = 'promoted';
+        nextRows[i] = row;
         promoted.push({
           index: i,
           candidateId,
@@ -1181,8 +897,6 @@ export function processDiscoveryBatch(
           primary,
           linkedExisting: true,
         });
-        row.candidateId = candidateId;
-        nextRows[i] = row;
         if (decision === 'pursue') {
           const p = pathsFor(candidateId);
           if (!existsSync(p.research)) pursueIds.push(candidateId);
@@ -1206,6 +920,7 @@ export function processDiscoveryBatch(
       });
       candidateId = created.id;
       row.candidateId = candidateId;
+      row.process_status = 'promoted';
       nextRows[i] = row;
       promoted.push({ index: i, candidateId, decision, niche: row.Niche, primary });
       if (decision === 'pursue') {
@@ -1218,9 +933,6 @@ export function processDiscoveryBatch(
   }
 
   writeFileSync(path.join(dir, 'candidates.csv'), rowsToCsv(nextRows), 'utf8');
-  if (batch.files?.geminiCsv) {
-    writeFileSync(path.join(dir, batch.files.geminiCsv), rowsToCsv(nextRows), 'utf8');
-  }
 
   let batchJob = null;
   if (runStage1ForPursue && pursueIds.length) {
@@ -1235,6 +947,7 @@ export function processDiscoveryBatch(
   const processLog = {
     at: new Date().toISOString(),
     promoted,
+    tracked,
     skipped,
     pursueQueued: pursueIds,
     batchJobId: batchJob?.id || null,
@@ -1264,10 +977,61 @@ export function processDiscoveryBatch(
     batch: meta,
     rows: nextRows,
     promoted,
+    tracked,
     skipped,
     pursueIds,
     batchJob,
   };
+}
+
+/**
+ * Clear process_status on rows so Process can run again (e.g. change mind on pass).
+ */
+export function reopenDiscoveryRows(batchId, indices = []) {
+  const { batch, rows, dir } = getBatch(batchId);
+  const idxList = [...new Set((indices || []).map((n) => Number(n)))].filter(
+    (n) => Number.isInteger(n) && n >= 0 && n < rows.length,
+  );
+  if (!idxList.length) {
+    const err = new Error('No valid row indices to reopen');
+    err.status = 400;
+    throw err;
+  }
+
+  const reopened = [];
+  for (const i of idxList) {
+    const row = rows[i];
+    const status = discoveryRowProcessStatus(row);
+    if (!status) continue;
+    if (status === 'tracked') {
+      removeTrackedDecision({
+        niche: row.Niche,
+        city: row.City,
+        state: row.State,
+      });
+    }
+    // Keep candidate files on disk; clear Discovery markers so Process can run again.
+    row.process_status = '';
+    row.candidateId = '';
+    rows[i] = row;
+    reopened.push({
+      index: i,
+      previousStatus: status,
+      niche: row.Niche,
+      city: row.City,
+      state: row.State,
+      human_decision: row.human_decision || '',
+    });
+  }
+
+  writeFileSync(path.join(dir, 'candidates.csv'), rowsToCsv(rows), 'utf8');
+  const meta = {
+    ...batch,
+    updatedAt: new Date().toISOString(),
+    rowCount: rows.length,
+  };
+  writeJson(path.join(dir, 'meta.json'), meta);
+  return { batch: meta, rows, reopened };
 }
 
 export function discoveryPresets() {
@@ -1278,8 +1042,11 @@ export function discoveryPresets() {
     seasonality: ['year_round', 'allow_seasonal', 'seasonal_only'],
     mapPackPreferences: ['prefer_absent', 'allow_present', 'prefer_present'],
     decisions: DISCOVERY_DECISIONS,
+    promoteDecisions: PROMOTE_DECISIONS,
+    trackOnlyDecisions: TRACK_ONLY_DECISIONS,
     jobCosts: loadNicheJobCosts(),
     census: censusStatus(),
+    states: listUsStates(),
     columns: DISCOVERY_COLUMNS,
   };
 }

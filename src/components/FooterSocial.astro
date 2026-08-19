@@ -1,0 +1,95 @@
+---
+/**
+ * Decorative social marks only — no links.
+ * Default: brand colors (`.footer-social--brand`).
+ * Swap class to `.footer-social--mono` for white-on-dark / ink-on-light footers.
+ */
+---
+
+<div
+  class="footer-social footer-social--brand"
+  role="group"
+  aria-label="Social media"
+>
+  <span class="footer-social__icon footer-social__icon--facebook" role="img" aria-label="Facebook">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true">
+      <path
+        fill="#1877F2"
+        d="M22 12.07C22 6.48 17.52 2 11.93 2S1.86 6.48 1.86 12.07c0 5.02 3.66 9.18 8.44 9.93v-7.03H7.9v-2.9h2.4V9.84c0-2.37 1.4-3.69 3.56-3.69 1.03 0 2.12.19 2.12.19v2.33h-1.2c-1.18 0-1.55.74-1.55 1.49v1.79h2.64l-.42 2.9h-2.22V22c4.78-.75 8.44-4.91 8.44-9.93z"
+      ></path>
+    </svg>
+  </span>
+
+  <span class="footer-social__icon footer-social__icon--instagram" role="img" aria-label="Instagram">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true">
+      <defs>
+        <linearGradient id="footer-ig-grad" x1="0%" y1="100%" x2="100%" y2="0%">
+          <stop offset="0%" stop-color="#F58529"></stop>
+          <stop offset="50%" stop-color="#DD2A7B"></stop>
+          <stop offset="100%" stop-color="#8134AF"></stop>
+        </linearGradient>
+      </defs>
+      <path
+        fill="url(#footer-ig-grad)"
+        d="M7.8 2h8.4C19.4 2 22 4.6 22 7.8v8.4a5.8 5.8 0 0 1-5.8 5.8H7.8C4.6 22 2 19.4 2 16.2V7.8A5.8 5.8 0 0 1 7.8 2zm-.2 2A3.6 3.6 0 0 0 4 7.6v8.8A3.6 3.6 0 0 0 7.6 20h8.8a3.6 3.6 0 0 0 3.6-3.6V7.6A3.6 3.6 0 0 0 16.4 4H7.6zm9.65 1.5a1.25 1.25 0 1 1 0 2.5 1.25 1.25 0 0 1 0-2.5zM12 7a5 5 0 1 1 0 10 5 5 0 0 1 0-10zm0 2a3 3 0 1 0 0 6 3 3 0 0 0 0-6z"
+      ></path>
+    </svg>
+  </span>
+
+  <span class="footer-social__icon footer-social__icon--x" role="img" aria-label="X">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true">
+      <!-- Brand black; CSS lifts to white on dark footers -->
+      <path
+        fill="#000000"
+        d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"
+      ></path>
+    </svg>
+  </span>
+
+  <span class="footer-social__icon footer-social__icon--youtube" role="img" aria-label="YouTube">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true">
+      <path
+        fill="#FF0000"
+        d="M23.5 6.2a3 3 0 0 0-2.1-2.1C19.5 3.5 12 3.5 12 3.5s-7.5 0-9.4.6A3 3 0 0 0 .5 6.2 31.5 31.5 0 0 0 0 12a31.5 31.5 0 0 0 .5 5.8 3 3 0 0 0 2.1 2.1c1.9.6 9.4.6 9.4.6s7.5 0 9.4-.6a3 3 0 0 0 2.1-2.1A31.5 31.5 0 0 0 24 12a31.5 31.5 0 0 0-.5-5.8z"
+      ></path>
+      <path fill="#FFFFFF" d="M9.75 15.5V8.5L15.5 12l-5.75 3.5z"></path>
+    </svg>
+  </span>
+
+  <span class="footer-social__icon footer-social__icon--tiktok" role="img" aria-label="TikTok">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true">
+      <path
+        fill="#25F4EE"
+        d="M16.6 5.82A5.5 5.5 0 0 0 19.5 4h-2.1a3.4 3.4 0 0 1-2.8 2.8v9.35a4.85 4.85 0 1 1-4.85-4.85c.25 0 .5.03.74.08v2.2a2.65 2.65 0 1 0 1.91 2.55V2h2.2v3.82z"
+        transform="translate(0.6 0.4)"
+      ></path>
+      <path
+        fill="#FE2C55"
+        d="M16.6 5.82A5.5 5.5 0 0 0 19.5 4h-2.1a3.4 3.4 0 0 1-2.8 2.8v9.35a4.85 4.85 0 1 1-4.85-4.85c.25 0 .5.03.74.08v2.2a2.65 2.65 0 1 0 1.91 2.55V2h2.2v3.82z"
+        transform="translate(-0.6 -0.4)"
+      ></path>
+      <path
+        fill="#010101"
+        d="M16.6 5.82A5.5 5.5 0 0 0 19.5 4h-2.1a3.4 3.4 0 0 1-2.8 2.8v9.35a4.85 4.85 0 1 1-4.85-4.85c.25 0 .5.03.74.08v2.2a2.65 2.65 0 1 0 1.91 2.55V2h2.2v3.82z"
+      ></path>
+    </svg>
+  </span>
+
+  <span class="footer-social__icon footer-social__icon--linkedin" role="img" aria-label="LinkedIn">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true">
+      <path
+        fill="#0A66C2"
+        d="M20.45 20.45h-3.56v-5.57c0-1.33-.02-3.04-1.85-3.04-1.85 0-2.14 1.45-2.14 2.94v5.67H9.35V9h3.41v1.56h.05c.48-.9 1.64-1.85 3.37-1.85 3.6 0 4.27 2.37 4.27 5.46v6.28zM5.34 7.43a2.06 2.06 0 1 1 0-4.12 2.06 2.06 0 0 1 0 4.12zM7.12 20.45H3.56V9h3.56v11.45zM22.23 0H1.77C.79 0 0 .77 0 1.73v20.54C0 23.23.79 24 1.77 24h20.46c.98 0 1.77-.77 1.77-1.73V1.73C24 .77 23.21 0 22.23 0z"
+      ></path>
+    </svg>
+  </span>
+
+  <span class="footer-social__icon footer-social__icon--pinterest" role="img" aria-label="Pinterest">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true">
+      <path
+        fill="#E60023"
+        d="M12 0C5.37 0 0 5.37 0 12c0 5.08 3.16 9.42 7.63 11.17-.11-.95-.2-2.4.04-3.44.22-.94 1.4-5.97 1.4-5.97s-.36-.72-.36-1.78c0-1.67.97-2.92 2.17-2.92 1.02 0 1.52.77 1.52 1.69 0 1.03-.66 2.57-.99 4-.28 1.2.6 2.17 1.77 2.17 2.13 0 3.77-2.25 3.77-5.49 0-2.87-2.06-4.88-5.01-4.88-3.41 0-5.41 2.56-5.41 5.2 0 1.03.4 2.13.89 2.73a.36.36 0 0 1 .08.34c-.09.38-.3 1.2-.34 1.37-.05.22-.18.27-.41.16-1.54-.72-2.5-2.96-2.5-4.77 0-3.89 2.83-7.46 8.15-7.46 4.28 0 7.6 3.05 7.6 7.12 0 4.25-2.68 7.67-6.4 7.67-1.25 0-2.42-.65-2.82-1.42l-.77 2.93c-.28 1.07-1.03 2.41-1.54 3.23A12 12 0 0 0 12 24c6.63 0 12-5.37 12-12S18.63 0 12 0z"
+      ></path>
+    </svg>
+  </span>
+</div>

@@ -1,5 +1,5 @@
 /**
- * Agentic content stages: Brief → One-shot (default) + Researcher → Outline → Writer → Editor (legacy).
+ * Agentic content stages: Brief → One-shot (default) + Researcher → Outline → Writer → Editor (human-speech pass).
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs';
@@ -19,7 +19,19 @@ import {
   parseContentFileBlocks,
   validateContentBundle,
 } from './content-markdown.mjs';
+import {
+  extractSocialProofSidecar,
+  ensureRoverSocialProofSeed,
+} from './content-social-proof.mjs';
 import { runTemplateContract } from './template-contract.mjs';
+import { lintContentSpeech } from './content-speech-lint.mjs';
+import {
+  buildRequiredLinksByFile,
+  lintContentSeo,
+} from './content-seo-lint.mjs';
+import { autoFixContentDraft } from './content-auto-fix.mjs';
+import { getContentOutlinePackage } from './content-structure.mjs';
+import { resolveStructurePageIds } from './preview-fidelity.mjs';
 import {
   applyArchetypeDefaults,
   getArchetype,
@@ -580,24 +592,197 @@ export function buildWriterPrompt(candidateId, { siteArchetype, mode = 'homepage
   return { prompt, config, mode, archetype: arch };
 }
 
-export function buildEditorPrompt(candidateId) {
+/**
+ * Resolve markdown files from the content draft, or fall back to accepted content.
+ * When seedDraft is true and only accepted exists, writes a new draft JSON for lint/edit loops.
+ */
+function resolveContentFilesForEdit(candidateId, { seedDraft = false } = {}) {
   const detail = getCandidateDetail(candidateId);
   const draft = detail.contentDraft;
-  if (!draft?.files) {
-    const err = new Error('No content draft to edit — run Writer paste first');
+  if (draft?.files && typeof draft.files === 'object' && Object.keys(draft.files).length) {
+    return { files: draft.files, draft, seeded: false };
+  }
+  const accepted = detail.content;
+  if (accepted?.files && typeof accepted.files === 'object' && Object.keys(accepted.files).length) {
+    const files = { ...accepted.files };
+    if (seedDraft) {
+      const p = pathsFor(candidateId);
+      const next = {
+        files,
+        _ops: {
+          savedAt: new Date().toISOString(),
+          source: 'accepted_seed',
+          mode: accepted._ops?.mode || 'full',
+          siteArchetype: accepted._ops?.siteArchetype,
+          fileList: Object.keys(files).sort(),
+        },
+      };
+      writeJson(p.contentDraft, next);
+      return { files, draft: next, seeded: true };
+    }
+    return { files, draft: null, seeded: false };
+  }
+  return { files: null, draft: null, seeded: false };
+}
+
+export function buildEditorPrompt(candidateId) {
+  const { files } = resolveContentFilesForEdit(candidateId, { seedDraft: false });
+  if (!files) {
+    const err = new Error(
+      'No content draft or accepted content to edit — run Writer paste or Accept first',
+    );
     err.status = 400;
     throw err;
   }
   const config = resolveSiteConfigWithArchetype(candidateId);
   const arch = getArchetype(config.siteArchetype);
-  const blocks = Object.entries(draft.files)
-    .map(([rel, body]) => `### FILE: ${rel}\n${body.trim()}\n`)
+  const { speechLint, seoLint } = runDraftContentLints(candidateId, files, config);
+  const speechFindings = speechLint?.findings || [];
+  const seoFindings = seoLint?.findings || [];
+  const hasFindings = speechFindings.length > 0 || seoFindings.length > 0;
+
+  const findingFiles = new Set();
+  for (const f of [...speechFindings, ...seoFindings]) {
+    const rel = String(f.file || '').trim();
+    if (rel) findingFiles.add(rel);
+  }
+  const filesForPrompt =
+    hasFindings && findingFiles.size
+      ? Object.fromEntries(
+          Object.entries(files).filter(([rel]) => findingFiles.has(rel)),
+        )
+      : files;
+
+  const checklistLines = [];
+  for (const f of speechFindings) {
+    checklistLines.push(
+      `- [speech] ${f.file || '?'} · ${f.rule || 'flag'}${f.section ? ` · ${f.section}` : ''}: ${clipFindingExcerpt(f.excerpt)}`,
+    );
+  }
+  for (const f of seoFindings) {
+    const sev = f.severity === 'critical' ? 'critical' : 'soft';
+    checklistLines.push(
+      `- [seo:${sev}] ${f.file || '?'} · ${f.rule || 'flag'}: ${clipFindingExcerpt(f.excerpt)}`,
+    );
+  }
+  const findingsChecklist = checklistLines.length
+    ? checklistLines.join('\n')
+    : '(none — apply human-speech + SEO rules across the draft below)';
+
+  const blocks = Object.entries(filesForPrompt)
+    .map(([rel, body]) => `### FILE: ${rel}\n${String(body || '').trim()}\n`)
     .join('\n');
   const prompt = fillAgentPrompt('prompts/agents/content-editor.md', {
     SITE_ARCHETYPE: config.siteArchetype,
+    FINDINGS_CHECKLIST: findingsChecklist,
     CONTENT_DRAFT_TEXT: blocks,
+    SPEECH_LINT_JSON: speechFindings.length
+      ? JSON.stringify(speechLint, null, 2)
+      : '(none — still apply human-speech rules)',
+    SEO_LINT_JSON: seoFindings.length
+      ? JSON.stringify(seoLint, null, 2)
+      : '(none — still honor keywordTargets / faqSeeds / internal links)',
   });
-  return { prompt, config, archetype: arch };
+  return { prompt, config, archetype: arch, speechLint, seoLint };
+}
+
+function clipFindingExcerpt(excerpt, max = 100) {
+  const s = String(excerpt || '').replace(/\s+/g, ' ').trim();
+  if (!s) return '(no excerpt)';
+  return s.length > max ? `${s.slice(0, max - 1)}…` : s;
+}
+
+/** Run speech lint on the current content draft. Auto-fixes soft issues first. */
+export function getContentSpeechLint(candidateId) {
+  const resolved = resolveContentFilesForEdit(candidateId, { seedDraft: true });
+  if (!resolved.files) {
+    const err = new Error('No content draft or accepted content — load FILE blocks first');
+    err.status = 400;
+    throw err;
+  }
+  const draft = resolved.draft || getCandidateDetail(candidateId).contentDraft;
+  const config = resolveSiteConfigWithArchetype(candidateId);
+  const { files, speechLint, seoLint, autoFix } = autoFixAndLintDraft(
+    candidateId,
+    resolved.files,
+    config,
+  );
+  const p = pathsFor(candidateId);
+  const next = {
+    ...draft,
+    files,
+    _ops: {
+      ...(draft?._ops || {}),
+      speechLint,
+      seoLint,
+      autoFix,
+      lastSpeechCheckAt: new Date().toISOString(),
+      fileList: Object.keys(files).sort(),
+    },
+  };
+  writeJson(p.contentDraft, next);
+  return {
+    speechLint,
+    seoLint,
+    autoFix,
+    candidate: getCandidateDetail(candidateId),
+  };
+}
+
+/** Run SEO lint on the current content draft (also applies auto-fix). */
+export function getContentSeoLint(candidateId) {
+  return getContentSpeechLint(candidateId);
+}
+
+function autoFixAndLintDraft(candidateId, files, config) {
+  const outline = getContentOutlinePackage(candidateId) || {};
+  const requiredLinksByFile = buildRequiredLinksByFile(files, config, outline);
+  const p = pathsFor(candidateId);
+  const fixed = autoFixContentDraft(files, {
+    config,
+    outline,
+    requiredLinksByFile,
+    imageDirs: [p.siteImages, path.join(ROOT, 'public', 'images')].filter(Boolean),
+    rootDir: ROOT,
+  });
+  const { speechLint, seoLint } = runDraftContentLints(candidateId, fixed.files, config);
+  const autoFix = {
+    at: new Date().toISOString(),
+    changeCount: fixed.changes.length,
+    speechCount: fixed.speechCount ?? fixed.changes.filter((c) => c.kind === 'speech').length,
+    seoCount: fixed.seoCount ?? fixed.changes.filter((c) => c.kind === 'seo').length,
+    changes: fixed.changes.slice(0, 40),
+  };
+  return { files: fixed.files, speechLint, seoLint, autoFix };
+}
+
+function runDraftContentLints(candidateId, files, config) {
+  const outline = getContentOutlinePackage(candidateId) || {};
+  const speechLint = lintContentSpeech(files, {
+    primaryCity: config.primaryCity,
+    niche: config.niche,
+  });
+  const faqsEnabled =
+    (outline.sectionIds || []).includes('faqs') ||
+    (outline.sections || []).some((s) => s.id === 'faqs') ||
+    (config.homepageSections || []).includes('faqs');
+  const seoLint = lintContentSeo(files, {
+    primaryKeyword: outline.keywords?.primary || outline.keywordTargets?.[0]?.keyword || config.niche,
+    supportingKeywords:
+      outline.keywords?.supporting ||
+      (outline.keywordTargets || []).slice(1).map((t) => t.keyword),
+    faqSeeds: outline.faqSeeds || [],
+    faqsEnabled,
+    requiredLinksByFile: buildRequiredLinksByFile(files, config, outline),
+    businessName: config.businessName,
+    niche: config.niche,
+    primaryCity: config.primaryCity,
+    services: [
+      ...(Array.isArray(config.services) ? config.services : []),
+      ...(Array.isArray(config.commercialServices) ? config.commercialServices : []),
+    ],
+  });
+  return { speechLint, seoLint };
 }
 
 /**
@@ -605,10 +790,23 @@ export function buildEditorPrompt(candidateId) {
  */
 export function pasteAgentContentDraft(candidateId, raw, { mode = 'homepage_first' } = {}) {
   const config = resolveSiteConfigWithArchetype(candidateId);
-  const files = parseContentFileBlocks(raw);
-  const check = validateContentBundle(files, config, { mode });
-  const contract = runTemplateContract(files, config, { mode });
+  const pageIds = resolveStructurePageIds(candidateId);
+  const extracted = extractSocialProofSidecar(raw);
+  const parsed = parseContentFileBlocks(extracted.textWithoutSidecar);
   const p = pathsFor(candidateId);
+  const priorDraft = readJson(p.contentDraft);
+  const mergedFiles = {
+    ...(priorDraft?.files && typeof priorDraft.files === 'object' ? priorDraft.files : {}),
+    ...parsed,
+  };
+  const { files, speechLint, seoLint, autoFix } = autoFixAndLintDraft(
+    candidateId,
+    mergedFiles,
+    config,
+  );
+  const check = validateContentBundle(files, config, { mode, pageIds });
+  const contract = runTemplateContract(files, config, { mode });
+  const socialProofMerge = ensureRoverSocialProofSeed(candidateId, config);
   writeJson(p.contentDraft, {
     files,
     _ops: {
@@ -618,7 +816,12 @@ export function pasteAgentContentDraft(candidateId, raw, { mode = 'homepage_firs
       siteArchetype: config.siteArchetype,
       check,
       contract,
+      speechLint,
+      seoLint,
+      autoFix,
+      lastSpeechCheckAt: new Date().toISOString(),
       fileList: Object.keys(files).sort(),
+      socialProofMerge,
     },
   });
   saveMeta(candidateId, { lastContentDraftAt: new Date().toISOString() });
@@ -627,6 +830,10 @@ export function pasteAgentContentDraft(candidateId, raw, { mode = 'homepage_firs
     draft: readJson(p.contentDraft),
     check,
     contract,
+    speechLint,
+    seoLint,
+    autoFix,
+    socialProofMerge,
     candidate: getCandidateDetail(candidateId),
   };
 }
@@ -634,22 +841,41 @@ export function pasteAgentContentDraft(candidateId, raw, { mode = 'homepage_firs
 /**
  * Import live src/content markdown into research/{id}-content.draft.json
  * (Claude Code wrote disk; ops rehydrates the candidate draft — does not Accept).
+ * Uses full mode when Structure includes about/contact/services/locations.
  */
-export function importContentDraftFromDisk(candidateId, { mode = 'homepage_first' } = {}) {
+export function importContentDraftFromDisk(candidateId, { mode } = {}) {
   const config = resolveSiteConfigWithArchetype(candidateId);
-  const files = loadHomepageContentFromDisk(mode);
-  const check = validateContentBundle(files, config, { mode });
-  const contract = runTemplateContract(files, config, { mode });
+  const pageIds = resolveStructurePageIds(candidateId);
+  const structureWantsFull = pageIds.some((p) =>
+    ['about', 'contact', 'services', 'locations'].includes(p),
+  );
+  // Prefer explicit client mode, but never half-import when Structure expects more than homepage
+  const resolvedMode = structureWantsFull ? 'full' : mode === 'full' ? 'full' : 'homepage_first';
+  const parsed = loadHomepageContentFromDisk(resolvedMode);
+  const { files, speechLint, seoLint, autoFix } = autoFixAndLintDraft(
+    candidateId,
+    parsed,
+    config,
+  );
+  const check = validateContentBundle(files, config, {
+    mode: resolvedMode,
+    pageIds,
+  });
+  const contract = runTemplateContract(files, config, { mode: resolvedMode });
   const p = pathsFor(candidateId);
   writeJson(p.contentDraft, {
     files,
     _ops: {
       savedAt: new Date().toISOString(),
       source: 'import_disk',
-      mode,
+      mode: resolvedMode,
       siteArchetype: config.siteArchetype,
       check,
       contract,
+      speechLint,
+      seoLint,
+      autoFix,
+      lastSpeechCheckAt: new Date().toISOString(),
       fileList: Object.keys(files).sort(),
       note: 'Imported from live src/content into candidate draft — not yet Accepted',
     },
@@ -660,6 +886,9 @@ export function importContentDraftFromDisk(candidateId, { mode = 'homepage_first
     draft: readJson(p.contentDraft),
     check,
     contract,
+    speechLint,
+    seoLint,
+    autoFix,
     candidate: getCandidateDetail(candidateId),
   };
 }

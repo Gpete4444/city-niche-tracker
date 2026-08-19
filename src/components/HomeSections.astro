@@ -6,7 +6,13 @@ import {
   SURFACE_INK,
   bandSurface,
 } from '../lib/section-surfaces';
+import { defaultSectionCtaPrompt } from '../lib/section-ctas';
+import { WHY_ICON_PATHS, assignUniqueWhyIcons } from '../lib/why-icons';
+import { loadInlineCoverageMapHtml } from '../lib/coverage-map-links';
 import TwoToneHeading from './TwoToneHeading.astro';
+import TypedProseSection from './sections/TypedProseSection.astro';
+import GoogleReviewCard from './GoogleReviewCard.astro';
+import { ve } from '../lib/visual-edit';
 
 interface TextItem {
   title: string;
@@ -34,7 +40,7 @@ interface ImageItem {
 interface ProseSection {
   id: string;
   heading: string;
-  html: string;
+  body: string;
   eyebrow?: string;
 }
 
@@ -45,6 +51,7 @@ interface Props {
   locations?: LocationItem[];
   gallery?: ImageItem[];
   coverageMap?: ImageItem;
+  materialsImages?: ImageItem[];
   processHeading?: string;
   whyHeading?: string;
   showReviews?: boolean;
@@ -53,6 +60,7 @@ interface Props {
   bandStart?: number;
   /** Structure-enabled body sections (cost, materials, …) */
   proseSections?: ProseSection[];
+  editFile?: string;
 }
 
 const {
@@ -62,39 +70,73 @@ const {
   locations = [],
   gallery: galleryRaw = [],
   coverageMap,
+  materialsImages = [],
   processHeading,
   whyHeading,
   showReviews = true,
   showCta = true,
   bandStart = 0,
   proseSections = [],
+  editFile = 'src/content/pages/index.md',
 } = Astro.props;
 const reviewsRaw = showReviews ? (site.socialProof?.reviews ?? []) : [];
 
-const whyGrid = fitEqualGrid(whyChooseUsRaw, { maxCols: 3 });
-const processGrid = fitEqualGrid(processRaw, { maxCols: 3 });
-const galleryGrid = fitEqualGrid(galleryRaw, { maxCols: 3 });
-const reviewsGrid = fitEqualGrid(reviewsRaw, { maxCols: 3 });
+/** Why choose us: prefer 2×2 (maxCols 2); process/services keep default maxCols 4. */
+const whyGrid = fitEqualGrid(whyChooseUsRaw, { maxCols: 2 });
 const whyChooseUs = whyGrid.items;
+
+// Keep all authored process steps; attach images by index when present
+const processSource = processRaw.map((p) => ({
+  ...p,
+  image: p?.image?.src ? p.image : undefined,
+}));
+const processGrid = fitEqualGrid(processSource);
+const galleryRawFiltered = (galleryRaw || []).filter((img) =>
+  /gallery-ba-\d+-(before|after)\./i.test(String(img?.src || '')),
+);
+const baPairMap = new Map();
+for (const img of galleryRawFiltered) {
+  const m = String(img.src).match(/gallery-ba-(\d+)-(before|after)\./i);
+  if (!m) continue;
+  const idx = Number(m[1]);
+  const role = m[2].toLowerCase();
+  if (!baPairMap.has(idx)) baPairMap.set(idx, { before: null, after: null });
+  baPairMap.get(idx)[role] = img;
+}
+const baPairs = [...baPairMap.keys()]
+  .sort((a, b) => a - b)
+  .map((idx) => baPairMap.get(idx))
+  .filter((p) => p.before || p.after);
+const reviewsGrid = fitEqualGrid(reviewsRaw, { maxCols: 3 });
 const process = processGrid.items;
-const gallery = galleryGrid.items;
 const reviews = reviewsGrid.items;
 
 let band = bandStart;
 const whySurface = whyChooseUs.length ? bandSurface(band++) : null;
 const processSurface = process.length ? bandSurface(band++) : null;
 const proseSurfaces = proseSections.map(() => bandSurface(band++));
-const gallerySurface = gallery.length ? bandSurface(band++) : null;
+const gallerySurface = baPairs.length ? bandSurface(band++) : null;
 const reviewsSurface = reviews.length ? bandSurface(band++) : null;
 const faqSurface = faqs.length ? bandSurface(band++) : null;
+
+const areasCta = defaultSectionCtaPrompt('areas');
+const processCta = defaultSectionCtaPrompt('process');
+const whyCta = defaultSectionCtaPrompt('whyChooseUs');
+const whyIcons = assignUniqueWhyIcons(whyChooseUs.map((item) => item.title));
+
+/** Inline coverage SVG so area <a> links navigate (object/img cannot). */
+const coverageMapHtml = loadInlineCoverageMapHtml(
+  coverageMap?.src,
+  site.primaryCity || '',
+);
 ---
 
 {
   whyChooseUs.length > 0 && whySurface && (
-    <section class={whySurface} aria-labelledby="why-heading">
+    <section class={whySurface} aria-labelledby="why-heading" data-section="whyChooseUs">
       <div class="mx-auto max-w-6xl px-4 py-14 sm:px-6 sm:py-20">
         <div class="max-w-2xl">
-          <p class="text-xs font-bold uppercase tracking-[0.18em] text-accent">Why choose us</p>
+          <p class="section-eyebrow">Why choose us</p>
           <TwoToneHeading
             as="h2"
             id="why-heading"
@@ -103,13 +145,69 @@ const faqSurface = faqs.length ? bandSurface(band++) : null;
           />
         </div>
         <ul class:list={['mt-8 grid gap-6', whyGrid.className]}>
-          {whyChooseUs.map((item) => (
-            <li class="border-l-2 border-accent pl-5">
-              <h3 class="font-display text-lg font-semibold text-ink">{item.title}</h3>
-              <p class="mt-2 text-sm leading-relaxed text-muted">{item.description}</p>
-            </li>
-          ))}
+          {whyChooseUs.map((item, i) => {
+            const iconId = whyIcons[i];
+            const d = WHY_ICON_PATHS[iconId];
+            return (
+              <li
+                class="border-l-2 border-accent pl-5"
+                data-edit={ve({
+                  type: 'list',
+                  file: editFile,
+                  listKey: 'whyChooseUs',
+                  index: i,
+                  field: 'title',
+                  kind: 'heading',
+                  list: 'whyChooseUs',
+                })}
+              >
+                <div class="flex items-start gap-3">
+                  <span
+                    class="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-md bg-accent/15 text-accent"
+                    aria-hidden="true"
+                  >
+                    <svg class="size-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <path d={d} />
+                    </svg>
+                  </span>
+                  <div>
+                    <h3
+                      class="font-display text-lg font-semibold text-ink"
+                      data-edit={ve({
+                        type: 'list',
+                        file: editFile,
+                        listKey: 'whyChooseUs',
+                        index: i,
+                        field: 'title',
+                        kind: 'heading',
+                      })}
+                    >
+                      {item.title}
+                    </h3>
+                    <p
+                      class="mt-2 text-sm leading-relaxed text-muted"
+                      data-edit={ve({
+                        type: 'list',
+                        file: editFile,
+                        listKey: 'whyChooseUs',
+                        index: i,
+                        field: 'description',
+                        kind: 'body',
+                      })}
+                    >
+                      {item.description}
+                    </p>
+                  </div>
+                </div>
+              </li>
+            );
+          })}
         </ul>
+        <div class="mt-4 flex flex-wrap items-center gap-x-3 gap-y-2">
+          <p class="text-sm text-ink/80">{whyCta}</p>
+          <a href="#lead-form" class="btn-primary">{site.primaryCta}</a>
+          <a href={phoneHref()} class="btn-secondary">Call {formatPhoneDisplay()}</a>
+        </div>
       </div>
     </section>
   )
@@ -117,10 +215,10 @@ const faqSurface = faqs.length ? bandSurface(band++) : null;
 
 {
   process.length > 0 && processSurface && (
-    <section class={processSurface} aria-labelledby="process-heading">
+    <section class={processSurface} aria-labelledby="process-heading" data-section="process">
       <div class="mx-auto max-w-6xl px-4 py-14 sm:px-6 sm:py-20">
         <div class="max-w-2xl">
-          <p class="text-xs font-bold uppercase tracking-[0.18em] text-accent">How it works</p>
+          <p class="section-eyebrow">How it works</p>
           <TwoToneHeading
             as="h2"
             id="process-heading"
@@ -129,29 +227,67 @@ const faqSurface = faqs.length ? bandSurface(band++) : null;
             class="mt-2 text-2xl sm:text-3xl"
           />
         </div>
-        <ol class:list={['mt-8 grid gap-5', processGrid.className]}>
+        <ol class:list={['mt-8 grid gap-4', processGrid.className]}>
           {process.map((item, index) => (
             <li class="overflow-hidden rounded-lg border border-line bg-surface-raised shadow-sm">
               {item.image && (
                 <img
                   src={item.image.src}
                   alt={item.image.alt}
-                  class="aspect-[16/9] w-full object-cover"
-                  width="720"
-                  height="405"
+                  class="aspect-[4/3] w-full object-cover"
+                  width="480"
+                  height="360"
                   loading="lazy"
+                  data-edit={ve({
+                    type: 'image',
+                    file: editFile,
+                    listKey: 'process',
+                    index,
+                    nested: true,
+                    kind: 'image',
+                    slotKey: `process-${index + 1}`,
+                  })}
                 />
               )}
-              <div class="p-5">
-                <span class="inline-flex size-8 items-center justify-center rounded-full bg-brand text-sm font-bold text-white">
+              <div class="p-3 sm:p-4">
+                <span class="inline-flex size-7 items-center justify-center rounded-full bg-brand text-xs font-bold text-white">
                   {index + 1}
                 </span>
-                <h3 class="mt-4 font-display text-lg font-semibold text-ink">{item.title}</h3>
-                <p class="mt-2 text-sm leading-relaxed text-muted">{item.description}</p>
+                <h3
+                  class="mt-2 font-display text-base font-semibold leading-snug text-ink"
+                  data-edit={ve({
+                    type: 'list',
+                    file: editFile,
+                    listKey: 'process',
+                    index,
+                    field: 'title',
+                    kind: 'heading',
+                  })}
+                >
+                  {item.title}
+                </h3>
+                <p
+                  class="mt-1 text-xs leading-snug text-muted sm:text-sm"
+                  data-edit={ve({
+                    type: 'list',
+                    file: editFile,
+                    listKey: 'process',
+                    index,
+                    field: 'description',
+                    kind: 'body',
+                  })}
+                >
+                  {item.description}
+                </p>
               </div>
             </li>
           ))}
         </ol>
+        <div class="mt-4 flex flex-wrap items-center gap-x-3 gap-y-2">
+          <p class="text-sm text-ink/80">{processCta}</p>
+          <a href="#lead-form" class="btn-primary">{site.primaryCta}</a>
+          <a href={phoneHref()} class="btn-secondary">Call {formatPhoneDisplay()}</a>
+        </div>
       </div>
     </section>
   )
@@ -160,21 +296,19 @@ const faqSurface = faqs.length ? bandSurface(band++) : null;
 {
   proseSections.length > 0 &&
     proseSections.map((sec, i) => (
-      <section class={proseSurfaces[i]} aria-labelledby={`prose-${sec.id}-heading`}>
-        <div class="mx-auto max-w-3xl px-4 py-14 sm:px-6 sm:py-16">
-          <p class="text-xs font-bold uppercase tracking-[0.18em] text-accent">
-            {sec.eyebrow || sec.id}
-          </p>
-          <TwoToneHeading
-            as="h2"
-            id={`prose-${sec.id}-heading`}
-            mode="plain"
-            text={sec.heading}
-            class="mt-2 text-2xl sm:text-3xl"
-          />
-          <div class="prose-site mt-5" set:html={sec.html} />
-        </div>
-      </section>
+      <TypedProseSection
+        surface={proseSurfaces[i]}
+        headingId={`prose-${sec.id}-heading`}
+        eyebrow={sec.eyebrow || sec.id}
+        heading={sec.heading}
+        body={sec.body}
+        variant={sec.id}
+        showMiniCta
+        timelineCompact={sec.id === 'timeline'}
+        rowImages={sec.id === 'materials' ? materialsImages : []}
+        editFile={editFile}
+        imageListKey={sec.id === 'materials' ? 'materialsImages' : undefined}
+      />
     ))
 }
 
@@ -188,7 +322,7 @@ const faqSurface = faqs.length ? bandSurface(band++) : null;
         ]}
       >
         <div>
-          <p class="text-xs font-bold uppercase tracking-[0.18em] text-white/65">Where we work</p>
+          <p class="section-eyebrow !text-white/65">Where we work</p>
           <TwoToneHeading
             as="h2"
             id="areas-heading"
@@ -215,21 +349,42 @@ const faqSurface = faqs.length ? bandSurface(band++) : null;
               </li>
             ))}
           </ul>
+          <div class="mt-4 space-y-2">
+            <p class="text-sm text-white/85">{areasCta}</p>
+            <div class="flex flex-wrap gap-2">
+              <a href="#lead-form" class="btn-primary">{site.primaryCta}</a>
+              <a
+                href={phoneHref()}
+                class="btn-secondary border-white/30 bg-white/10 text-white hover:bg-white/20"
+              >
+                Call {formatPhoneDisplay()}
+              </a>
+            </div>
+          </div>
         </div>
-        {coverageMap && (
+        {coverageMapHtml ? (
           <figure class="mt-8 lg:mt-0">
-            <img
-              src={coverageMap.src}
-              alt={coverageMap.alt}
-              class="w-full rounded-xl bg-white shadow-2xl"
-              width="1000"
-              height="680"
-              loading="lazy"
-            />
+            <div class="coverage-map-embed" set:html={coverageMapHtml} />
             <figcaption class="mt-2 text-xs text-white/55">
               Coverage visualization is approximate; confirm availability for a specific address.
             </figcaption>
           </figure>
+        ) : (
+          coverageMap && (
+            <figure class="mt-8 lg:mt-0">
+              <img
+                src={coverageMap.src}
+                alt={coverageMap.alt}
+                class="w-full rounded-xl bg-white shadow-2xl"
+                width="1000"
+                height="680"
+                loading="lazy"
+              />
+              <figcaption class="mt-2 text-xs text-white/55">
+                Coverage visualization is approximate; confirm availability for a specific address.
+              </figcaption>
+            </figure>
+          )
         )}
       </div>
     </section>
@@ -237,11 +392,11 @@ const faqSurface = faqs.length ? bandSurface(band++) : null;
 }
 
 {
-  gallery.length > 0 && gallerySurface && (
+  baPairs.length > 0 && gallerySurface && (
     <section class={gallerySurface} aria-labelledby="gallery-heading">
       <div class="mx-auto max-w-6xl px-4 py-14 sm:px-6 sm:py-20">
         <div class="max-w-2xl">
-          <p class="text-xs font-bold uppercase tracking-[0.18em] text-accent">Project gallery</p>
+          <p class="section-eyebrow">Before &amp; after</p>
           <TwoToneHeading
             as="h2"
             id="gallery-heading"
@@ -249,22 +404,45 @@ const faqSurface = faqs.length ? bandSurface(band++) : null;
             emphasis="up close"
             class="mt-2 text-2xl sm:text-3xl"
           />
-          <p class="mt-2 text-sm text-muted">
-            Demo imagery shows how this section works. Replace it with verified owner project photos before launch.
-          </p>
         </div>
-        <ul class:list={['mt-8 grid gap-4', galleryGrid.className]}>
-          {gallery.map((image, index) => (
-            <li class:list={[index === 0 && 'sm:col-span-2 lg:col-span-1']}>
-              <img
-                src={image.src}
-                alt={image.alt}
-                class="aspect-[4/3] w-full rounded-lg object-cover shadow-sm"
-                width="800"
-                height="600"
-                loading="lazy"
-              />
-            </li>
+        <ul class="mt-8 grid gap-6 sm:grid-cols-2">
+          {baPairs.map((pair) => (
+            <>
+              {pair.before && (
+                <li>
+                  <figure>
+                    <img
+                      src={pair.before.src}
+                      alt={pair.before.alt}
+                      class="aspect-[4/3] w-full rounded-lg object-cover shadow-sm"
+                      width="800"
+                      height="600"
+                      loading="lazy"
+                    />
+                    <figcaption class="mt-3 text-center font-display text-2xl font-semibold tracking-tight text-ink sm:text-3xl">
+                      Before
+                    </figcaption>
+                  </figure>
+                </li>
+              )}
+              {pair.after && (
+                <li>
+                  <figure>
+                    <img
+                      src={pair.after.src}
+                      alt={pair.after.alt}
+                      class="aspect-[4/3] w-full rounded-lg object-cover shadow-sm"
+                      width="800"
+                      height="600"
+                      loading="lazy"
+                    />
+                    <figcaption class="mt-3 text-center font-display text-2xl font-semibold tracking-tight text-ink sm:text-3xl">
+                      After
+                    </figcaption>
+                  </figure>
+                </li>
+              )}
+            </>
           ))}
         </ul>
       </div>
@@ -277,7 +455,7 @@ const faqSurface = faqs.length ? bandSurface(band++) : null;
     <section class={reviewsSurface} aria-labelledby="reviews-heading">
       <div class="mx-auto max-w-6xl px-4 py-14 sm:px-6 sm:py-20">
         <div class="text-center">
-          <p class="text-xs font-bold uppercase tracking-[0.18em] text-accent">Customer feedback</p>
+          <p class="section-eyebrow">Customer feedback</p>
           <TwoToneHeading
             as="h2"
             id="reviews-heading"
@@ -288,23 +466,16 @@ const faqSurface = faqs.length ? bandSurface(band++) : null;
         </div>
         <ul class:list={['mt-8 grid gap-5', reviewsGrid.className]}>
           {reviews.map((review) => (
-            <li class="rounded-lg border border-line bg-surface-raised p-6 shadow-sm">
-              {review.rating && (
-                <>
-                  <span class="text-amber-500" aria-hidden="true">
-                    {'★'.repeat(review.rating)}
-                  </span>
-                  <span class="sr-only">{review.rating} out of 5 stars</span>
-                </>
-              )}
-              <blockquote class="mt-3 text-sm leading-relaxed text-ink/85">“{review.quote}”</blockquote>
-              <p class="mt-4 text-sm font-semibold text-ink">{review.author}</p>
-              {(review.location || review.source) && (
-                <p class="text-xs text-muted">
-                  {[review.location, review.source].filter(Boolean).join(' · ')}
-                </p>
-              )}
-            </li>
+            <GoogleReviewCard
+              quote={review.quote}
+              author={review.author}
+              rating={review.rating}
+              date={review.date}
+              avatarUrl={review.avatarUrl}
+              verified={review.verified}
+              source={review.source}
+              location={review.location}
+            />
           ))}
         </ul>
       </div>
@@ -314,10 +485,10 @@ const faqSurface = faqs.length ? bandSurface(band++) : null;
 
 {
   faqs.length > 0 && faqSurface && (
-    <section class={faqSurface} aria-labelledby="faq-heading">
+    <section class={faqSurface} aria-labelledby="faq-heading" data-section="faqs">
       <div class="mx-auto max-w-4xl px-4 py-14 sm:px-6 sm:py-20">
-        <div class="text-center">
-          <p class="text-xs font-bold uppercase tracking-[0.18em] text-accent">Common questions</p>
+        <div>
+          <p class="section-eyebrow">Common questions</p>
           <TwoToneHeading
             as="h2"
             id="faq-heading"
@@ -327,15 +498,37 @@ const faqSurface = faqs.length ? bandSurface(band++) : null;
           />
         </div>
         <div class="mt-8 divide-y divide-line border-y border-line">
-          {faqs.map((faq) => (
+          {faqs.map((faq, fi) => (
             <details class="group py-4">
-              <summary class="flex cursor-pointer list-none items-center justify-between gap-4 font-semibold text-ink">
+              <summary
+                class="flex cursor-pointer list-none items-center justify-between gap-4 font-semibold text-ink"
+                data-edit={ve({
+                  type: 'list',
+                  file: editFile,
+                  listKey: 'faqs',
+                  index: fi,
+                  field: 'question',
+                  kind: 'heading',
+                })}
+              >
                 {faq.question}
                 <span class="text-xl text-accent transition group-open:rotate-45" aria-hidden="true">
                   +
                 </span>
               </summary>
-              <p class="max-w-3xl pt-3 text-sm leading-relaxed text-muted">{faq.answer}</p>
+              <p
+                class="max-w-3xl pt-3 text-sm leading-relaxed text-muted"
+                data-edit={ve({
+                  type: 'list',
+                  file: editFile,
+                  listKey: 'faqs',
+                  index: fi,
+                  field: 'answer',
+                  kind: 'body',
+                })}
+              >
+                {faq.answer}
+              </p>
             </details>
           ))}
         </div>
@@ -346,7 +539,7 @@ const faqSurface = faqs.length ? bandSurface(band++) : null;
 
 {
   showCta && (
-    <section class={SURFACE_INK} aria-labelledby="final-cta-heading">
+    <section class={SURFACE_INK} aria-labelledby="final-cta-heading" data-section="cta">
       <div class="mx-auto max-w-5xl px-4 py-14 text-center sm:px-6 sm:py-16">
         <TwoToneHeading
           as="h2"

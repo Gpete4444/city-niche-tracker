@@ -1,6 +1,6 @@
 ---
 import { getCollection } from 'astro:content';
-import { site, homepageServicesDisplayLimit } from '../config/site';
+import { site, homepageServicesDisplayLimit, formatPhoneDisplay, phoneHref } from '../config/site';
 import {
   commercialServiceCardsForSite,
   serviceCardsForSite,
@@ -12,30 +12,36 @@ interface Props {
   heading?: string;
   limit?: number;
   surface?: string;
+  /** When set (location pages), blurbs use this city instead of primaryCity. */
+  city?: string;
 }
 
-const { heading = 'Services', limit, surface = 'section-surface-muted' } = Astro.props;
+const { heading = 'Services', limit, surface = 'section-surface-muted', city } = Astro.props;
 
 const entries = await getCollection('services');
 const displayLimit = limit ?? homepageServicesDisplayLimit();
-const residentialRaw = serviceCardsForSite(entries, site, displayLimit);
-const commercialRaw = commercialServiceCardsForSite(entries, site, displayLimit);
-const residentialGrid = fitEqualGrid(residentialRaw, { maxCols: 3 });
-const commercialGrid = fitEqualGrid(commercialRaw, { maxCols: 3 });
+const residentialRaw = serviceCardsForSite(entries, site, displayLimit, city);
+const commercialRaw = commercialServiceCardsForSite(entries, site, displayLimit, city);
+/** Default maxCols 4 → 8 cards = 2×4, 6 cards = 2×3 */
+const residentialGrid = fitEqualGrid(residentialRaw);
+const commercialGrid = fitEqualGrid(commercialRaw);
 const residential = residentialGrid.items;
 const commercial = commercialGrid.items;
 const splitSections = commercial.length > 0;
 const totalAvailable =
-  serviceCardsForSite(entries, site, 12).length +
-  commercialServiceCardsForSite(entries, site, 12).length;
-const shownCount = residential.length + commercial.length;
-const truncated = limit == null && totalAvailable > shownCount;
+  serviceCardsForSite(entries, site, 12, city).length +
+  commercialServiceCardsForSite(entries, site, 12, city).length;
+const truncated = limit == null && totalAvailable > residential.length + commercial.length;
+const blurbCity = String(city || site.primaryCity || '').trim() || 'your area';
+
+const cardClass =
+  'group flex w-full flex-col overflow-hidden rounded-lg border border-line bg-surface-raised shadow-sm transition hover:-translate-y-0.5 hover:border-brand/40 hover:shadow-md';
 ---
 
 <section class={surface} aria-labelledby="services-heading">
-  <div class="mx-auto max-w-6xl px-4 py-14 sm:px-6 sm:py-20">
-    <div class="mb-8 max-w-2xl">
-      <p class="text-xs font-bold uppercase tracking-[0.18em] text-accent">What we do</p>
+  <div class="mx-auto max-w-6xl px-4 py-12 sm:px-6 sm:py-14">
+    <div class="mb-6 max-w-2xl">
+      <p class="section-eyebrow">What we do</p>
       <TwoToneHeading
         as="h2"
         id="services-heading"
@@ -43,46 +49,45 @@ const truncated = limit == null && totalAvailable > shownCount;
         emphasis="services"
         class="text-2xl sm:text-3xl"
       />
-      <p class="mt-2 text-muted">
-        {site.niche} across {site.primaryCity} and the surrounding area.
+      <p class="mt-2 text-sm text-muted">
+        {site.niche} across {blurbCity} and the surrounding area.
       </p>
     </div>
 
     {
       splitSections ? (
-        <div class="space-y-12">
+        <div class="space-y-10">
           {
             residential.length > 0 && (
               <div>
-                <h3 class="font-display text-xl font-semibold tracking-tight text-ink">
+                <h3 class="font-display text-lg font-semibold tracking-tight text-ink">
                   Residential Services
                 </h3>
-                <ul class:list={['mt-5 grid gap-4', residentialGrid.className]}>
+                <ul class:list={['mt-4 grid gap-3', residentialGrid.className]}>
                   {residential.map((card, index) => (
                     <li class="flex">
-                      <a
-                        href={card.href}
-                        class="group flex w-full flex-col overflow-hidden rounded-lg border border-line bg-surface-raised shadow-sm transition hover:-translate-y-0.5 hover:border-brand/40 hover:shadow-md"
-                      >
-                        {card.image && (
+                      <a href={card.href} class={cardClass}>
+                        {card.image?.src && (
                           <img
                             src={card.image.src}
                             alt={card.image.alt}
-                            class="aspect-[4/3] w-full object-cover transition duration-300 group-hover:scale-[1.02]"
-                            width="600"
-                            height="450"
+                            class="aspect-[16/10] w-full object-cover transition duration-300 group-hover:scale-[1.02]"
+                            width="480"
+                            height="300"
                             loading="lazy"
                           />
                         )}
-                        <div class="flex grow flex-col p-5">
-                          <span class="text-xs font-bold tracking-[0.16em] text-accent">
+                        <div class="flex grow flex-col p-4">
+                          <span class="text-[10px] font-bold tracking-[0.16em] text-accent">
                             {String(index + 1).padStart(2, '0')}
                           </span>
-                          <h3 class="mt-1 font-display text-lg font-semibold text-ink group-hover:text-brand">
+                          <h3 class="mt-0.5 font-display text-base font-semibold leading-snug text-ink group-hover:text-brand">
                             {card.title}
                           </h3>
-                          <p class="mt-2 text-sm leading-relaxed text-muted">{card.description}</p>
-                          <span class="mt-auto pt-5 text-sm font-semibold text-accent group-hover:underline">
+                          <p class="mt-1.5 line-clamp-2 text-sm leading-snug text-muted">
+                            {card.description}
+                          </p>
+                          <span class="mt-auto pt-3 text-xs font-semibold text-accent group-hover:underline">
                             Learn more →
                           </span>
                         </div>
@@ -96,35 +101,34 @@ const truncated = limit == null && totalAvailable > shownCount;
           {
             commercial.length > 0 && (
               <div>
-                <h3 class="font-display text-xl font-semibold tracking-tight text-ink">
+                <h3 class="font-display text-lg font-semibold tracking-tight text-ink">
                   Commercial Services
                 </h3>
-                <ul class:list={['mt-5 grid gap-4', commercialGrid.className]}>
+                <ul class:list={['mt-4 grid gap-3', commercialGrid.className]}>
                   {commercial.map((card, index) => (
                     <li class="flex">
-                      <a
-                        href={card.href}
-                        class="group flex w-full flex-col overflow-hidden rounded-lg border border-line bg-surface-raised shadow-sm transition hover:-translate-y-0.5 hover:border-brand/40 hover:shadow-md"
-                      >
-                        {card.image && (
+                      <a href={card.href} class={cardClass}>
+                        {card.image?.src && (
                           <img
                             src={card.image.src}
                             alt={card.image.alt}
-                            class="aspect-[4/3] w-full object-cover transition duration-300 group-hover:scale-[1.02]"
-                            width="600"
-                            height="450"
+                            class="aspect-[16/10] w-full object-cover transition duration-300 group-hover:scale-[1.02]"
+                            width="480"
+                            height="300"
                             loading="lazy"
                           />
                         )}
-                        <div class="flex grow flex-col p-5">
-                          <span class="text-xs font-bold tracking-[0.16em] text-accent">
+                        <div class="flex grow flex-col p-4">
+                          <span class="text-[10px] font-bold tracking-[0.16em] text-accent">
                             {String(index + 1).padStart(2, '0')}
                           </span>
-                          <h3 class="mt-1 font-display text-lg font-semibold text-ink group-hover:text-brand">
+                          <h3 class="mt-0.5 font-display text-base font-semibold leading-snug text-ink group-hover:text-brand">
                             {card.title}
                           </h3>
-                          <p class="mt-2 text-sm leading-relaxed text-muted">{card.description}</p>
-                          <span class="mt-auto pt-5 text-sm font-semibold text-accent group-hover:underline">
+                          <p class="mt-1.5 line-clamp-2 text-sm leading-snug text-muted">
+                            {card.description}
+                          </p>
+                          <span class="mt-auto pt-3 text-xs font-semibold text-accent group-hover:underline">
                             Learn more →
                           </span>
                         </div>
@@ -137,32 +141,31 @@ const truncated = limit == null && totalAvailable > shownCount;
           }
         </div>
       ) : (
-        <ul class:list={['grid gap-4', residentialGrid.className]}>
+        <ul class:list={['grid gap-3', residentialGrid.className]}>
           {residential.map((card, index) => (
             <li class="flex">
-              <a
-                href={card.href}
-                class="group flex w-full flex-col overflow-hidden rounded-lg border border-line bg-surface-raised shadow-sm transition hover:-translate-y-0.5 hover:border-brand/40 hover:shadow-md"
-              >
-                {card.image && (
+              <a href={card.href} class={cardClass}>
+                {card.image?.src && (
                   <img
                     src={card.image.src}
                     alt={card.image.alt}
-                    class="aspect-[4/3] w-full object-cover transition duration-300 group-hover:scale-[1.02]"
-                    width="600"
-                    height="450"
+                    class="aspect-[16/10] w-full object-cover transition duration-300 group-hover:scale-[1.02]"
+                    width="480"
+                    height="300"
                     loading="lazy"
                   />
                 )}
-                <div class="flex grow flex-col p-5">
-                  <span class="text-xs font-bold tracking-[0.16em] text-accent">
+                <div class="flex grow flex-col p-4">
+                  <span class="text-[10px] font-bold tracking-[0.16em] text-accent">
                     {String(index + 1).padStart(2, '0')}
                   </span>
-                  <h3 class="mt-1 font-display text-lg font-semibold text-ink group-hover:text-brand">
+                  <h3 class="mt-0.5 font-display text-base font-semibold leading-snug text-ink group-hover:text-brand">
                     {card.title}
                   </h3>
-                  <p class="mt-2 text-sm leading-relaxed text-muted">{card.description}</p>
-                  <span class="mt-auto pt-5 text-sm font-semibold text-accent group-hover:underline">
+                  <p class="mt-1.5 line-clamp-2 text-sm leading-snug text-muted">
+                    {card.description}
+                  </p>
+                  <span class="mt-auto pt-3 text-xs font-semibold text-accent group-hover:underline">
                     Learn more →
                   </span>
                 </div>
@@ -175,10 +178,20 @@ const truncated = limit == null && totalAvailable > shownCount;
 
     {
       truncated && (
-        <p class="mt-8 text-sm text-muted">
-          Showing {shownCount} of {totalAvailable} services. Open{' '}
-          <span class="font-semibold text-ink">Services</span> in the menu for the full list.
-        </p>
+        <div class="mt-8 flex flex-col gap-4 border-t border-line pt-6 sm:flex-row sm:items-center sm:justify-between">
+          <p class="max-w-xl text-sm leading-relaxed text-muted">
+            Looking for something else? Browse all services in the menu, or tell us about a custom
+            project.
+          </p>
+          <div class="flex shrink-0 flex-col gap-2 sm:flex-row sm:items-center">
+            <a href="#lead-form" class="btn-primary">
+              {site.primaryCta}
+            </a>
+            <a href={phoneHref()} class="btn-secondary">
+              Call {formatPhoneDisplay()}
+            </a>
+          </div>
+        </div>
       )
     }
   </div>

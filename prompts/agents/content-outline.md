@@ -37,6 +37,12 @@ Rules:
 - Follow the default outline template structure for this archetype.
 - Type B (single_service): no multi-service section; emphasize offer process steps.
 - Type A (multi_service): allow services overview but do not invent services beyond site-config.
-- faqSeeds should prefer research paaStyleQuestions.
+- H1/title: high-ticket keywords left→right; service entity first, city secondary.
+- Prefer CONTENT RESEARCH `paaStyleQuestions` for `faqSeeds` when present.
+- faqSeeds / PAA must stay on-niche (cost, permits, timeline, DIY, methods). Drop city trivia, pets, civic officials, unrelated appliances.
+- Intro instructions: max ~2 concise salesperson paragraphs; industry entities/stats; NO street/landmark stuffing (geo belongs in areas).
+- Educational sections (cost/materials/timeline/codes/diyVsPro/whenToCall): instruct short intro + bullets (diyVsPro two-column headings). For **cost**, instruct 3–5 dollar-range rows (`Tier — $low–$high — included`) so writers fill a scannable table.
+- faqSeeds should prefer research paaStyleQuestions (filtered for niche relevance).
 - Operator may edit this JSON before Writer runs.
+- See docs/SECTION-UX.md for full section contracts.
 ```

@@ -1,0 +1,178 @@
+---
+import {
+  formatReviewRelativeDate,
+  reviewAvatarColor,
+  reviewInitials,
+} from '../lib/review-display';
+
+interface ReviewCardProps {
+  quote: string;
+  author: string;
+  rating?: number;
+  date?: string;
+  avatarUrl?: string;
+  verified?: boolean;
+  source?: string;
+  location?: string;
+}
+
+const {
+  quote,
+  author,
+  rating = 5,
+  date,
+  avatarUrl = '',
+  verified = true,
+  source = 'Google',
+  location = '',
+} = Astro.props as ReviewCardProps;
+
+const stars = Math.min(5, Math.max(1, Number(rating) || 5));
+const relative = formatReviewRelativeDate(date);
+const initials = reviewInitials(author);
+const avatarBg = reviewAvatarColor(author);
+const showG = !source || /google/i.test(source);
+const hasPhoto = Boolean(String(avatarUrl || '').trim());
+const quoteText = String(quote || '').trim();
+/** Short quotes don't need clamp / Read more (Google-style expand for longer bodies only). */
+const needsReadMore = quoteText.length >= 180;
+---
+
+<li class="google-review-card flex flex-col rounded-xl bg-white p-5 shadow-[0_1px_3px_rgba(60,64,67,0.2),0_1px_2px_rgba(60,64,67,0.12)]">
+  <div class="flex items-start gap-3">
+    {
+      hasPhoto ? (
+        <img
+          src={avatarUrl}
+          alt=""
+          width="40"
+          height="40"
+          class="h-10 w-10 shrink-0 rounded-full object-cover"
+          loading="lazy"
+        />
+      ) : (
+        <span
+          class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-sm font-semibold text-white"
+          style={`background:${avatarBg}`}
+          aria-hidden="true"
+        >
+          {initials}
+        </span>
+      )
+    }
+    <div class="min-w-0 flex-1">
+      <div class="flex items-start justify-between gap-2">
+        <div class="min-w-0">
+          <p class="truncate text-sm font-semibold text-[#202124]">{author}</p>
+          {
+            relative && (
+              <p class="text-xs text-[#70757a]">{relative}</p>
+            )
+          }
+        </div>
+        {
+          showG && (
+            <span class="mt-0.5 shrink-0" title="Google" aria-label="Google">
+              <svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true">
+                <path
+                  fill="#FFC107"
+                  d="M43.6 20.1H42V20H24v8h11.3C33.7 32.7 29.3 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.1 8 3l5.7-5.7C34.2 6.1 29.4 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.7-.4-3.9z"
+                ></path>
+                <path
+                  fill="#FF3D00"
+                  d="M6.3 14.7l6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.8 1.1 8 3l5.7-5.7C34.2 6.1 29.4 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"
+                ></path>
+                <path
+                  fill="#4CAF50"
+                  d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.3 35.9 26.8 37 24 37c-5.3 0-9.7-3.3-11.3-8H6.2C9.7 36.9 16.3 44 24 44z"
+                ></path>
+                <path
+                  fill="#1976D2"
+                  d="M43.6 20.1H42V20H24v8h11.3c-.8 2.2-2.3 4.1-4.2 5.5l.1.1 6.2 5.2C39.2 37.3 44 32 44 24c0-1.3-.1-2.7-.4-3.9z"
+                ></path>
+              </svg>
+            </span>
+          )
+        }
+      </div>
+      <div class="mt-1.5 flex items-center gap-1.5">
+        <span class="text-[15px] leading-none text-[#fabb05]" aria-hidden="true">
+          {'★'.repeat(stars)}
+        </span>
+        <span class="sr-only">{stars} out of 5 stars</span>
+        {
+          verified !== false && (
+            <span
+              class="inline-flex h-4 w-4 items-center justify-center rounded-full bg-[#1a73e8]"
+              title="Verified"
+              aria-label="Verified"
+            >
+              <svg width="10" height="10" viewBox="0 0 12 12" aria-hidden="true">
+                <path
+                  fill="#fff"
+                  d="M4.7 8.6 2.2 6.1l.9-.9 1.6 1.6 4-4 .9.9z"
+                ></path>
+              </svg>
+            </span>
+          )
+        }
+      </div>
+    </div>
+  </div>
+
+  {
+    needsReadMore ? (
+      <div class="google-review-body mt-3" data-review-expand>
+        <p class="google-review-clamp text-sm leading-relaxed text-[#3c4043]">{quoteText}</p>
+        <button
+          type="button"
+          class="google-review-toggle mt-1 text-xs text-[#70757a] hover:underline"
+          aria-expanded="false"
+        >
+          Read more
+        </button>
+      </div>
+    ) : (
+      <p class="mt-3 text-sm leading-relaxed text-[#3c4043]">{quoteText}</p>
+    )
+  }
+
+  {
+    location && (
+      <p class="mt-2 text-xs text-[#70757a]">{location}</p>
+    )
+  }
+</li>
+
+<style>
+  .google-review-clamp {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 4;
+    overflow: hidden;
+  }
+  .google-review-body.is-expanded .google-review-clamp {
+    display: block;
+    -webkit-line-clamp: unset;
+    overflow: visible;
+  }
+</style>
+
+<script>
+  function wireReviewExpand(root: ParentNode = document) {
+    root.querySelectorAll<HTMLElement>('[data-review-expand]').forEach((body) => {
+      if (body.dataset.wired === '1') return;
+      body.dataset.wired = '1';
+      const btn = body.querySelector<HTMLButtonElement>('.google-review-toggle');
+      if (!btn) return;
+      btn.addEventListener('click', () => {
+        const open = body.classList.toggle('is-expanded');
+        btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+        btn.textContent = open ? 'Show less' : 'Read more';
+      });
+    });
+  }
+
+  wireReviewExpand();
+  document.addEventListener('astro:page-load', () => wireReviewExpand());
+</script>

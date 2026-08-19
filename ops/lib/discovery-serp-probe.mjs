@@ -24,11 +24,8 @@ export const SERP_PROBE_ESTIMATE_USD = 0.002;
 
 const probeJobs = new Map();
 
-function writeBatchCsv(dir, batch, rows) {
+function writeBatchCsv(dir, _batch, rows) {
   writeFileSync(path.join(dir, 'candidates.csv'), rowsToCsv(rows), 'utf8');
-  if (batch.files?.geminiCsv) {
-    writeFileSync(path.join(dir, batch.files.geminiCsv), rowsToCsv(rows), 'utf8');
-  }
 }
 
 /**
@@ -61,7 +58,7 @@ export function previewSerpProbe(batchId, { indices = null } = {}) {
       1.5
     ).toFixed(3)} for ${n} organic SERPs`,
     estimateDetail:
-      'One DataForSEO Google organic live SERP per row (Map Pack + organic/directory counts). Volumes come from Gemini (Discovery) or Stage 1.',
+      'One DataForSEO Google organic live SERP per row (Map Pack + organic/directory counts). Volumes come from Stage 1.',
     hasDataForSeo: hasCreds,
     confirmLabel: hasCreds ? `Probe ${n} rows` : 'Cannot run — add DataForSEO credentials',
   };
@@ -320,8 +317,6 @@ export function discoveryStepStatus(batch, rows = []) {
   const probed =
     Boolean(batch?.lastSerpProbe) ||
     (hasRows && rows.some((r) => String(r.serp_source || '').includes('dataforseo')));
-  const hasVolumes =
-    hasRows && rows.some((r) => String(r['Est. Cluster Volume'] || '').trim() !== '');
   const hasDecisions =
     hasRows && rows.some((r) => String(r.human_decision || '').trim() !== '');
   const processed =
@@ -330,8 +325,8 @@ export function discoveryStepStatus(batch, rows = []) {
   return {
     pack: Boolean(batch?.id),
     claude: hasClaude,
+    enrich: probed,
     serpProbe: probed,
-    geminiVolumes: hasVolumes,
     decisions: hasDecisions,
     processed,
   };

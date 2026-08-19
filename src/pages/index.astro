@@ -1,6 +1,7 @@
 ---
 import { existsSync } from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { getEntry, getCollection, render } from 'astro:content';
 import BaseLayout from '../layouts/BaseLayout.astro';
 import Hero from '../components/Hero.astro';
@@ -8,16 +9,38 @@ import ServiceCards from '../components/ServiceCards.astro';
 import HomeSections from '../components/HomeSections.astro';
 import TrustSignals from '../components/TrustSignals.astro';
 import TwoToneHeading from '../components/TwoToneHeading.astro';
-import { site, siteShowsServiceCards } from '../config/site';
+import { site, siteShowsServiceCards, socialProofHasTrustStrip } from '../config/site';
 import { filterLocationsForSite } from '../lib/locations-for-site';
 import { bandSurface } from '../lib/section-surfaces';
+import { ve } from '../lib/visual-edit';
 import {
   extractHomepageIntro,
   extractHomepageProseSections,
   homepageUsesStructuredSections,
   proseSectionEyebrow,
-  simpleProseToHtml,
 } from '../lib/content-body';
+
+/** Prefer FM coverageMap; fall back when SVG is on disk (Accept/Stage may omit FM). */
+function resolveCoverageMap(
+  fmMap: { src?: string; alt?: string } | undefined,
+  primaryCity: string,
+): { src: string; alt: string } | undefined {
+  if (fmMap?.src) {
+    return { src: fmMap.src, alt: fmMap.alt || `Coverage map for ${primaryCity} area` };
+  }
+  const rel = ['public', 'images', 'coverage-map.svg'];
+  const candidates = [
+    path.join(process.cwd(), ...rel),
+    path.join(path.dirname(fileURLToPath(import.meta.url)), '..', ...rel),
+  ];
+  if (candidates.some((abs) => existsSync(abs))) {
+    return {
+      src: '/images/coverage-map.svg',
+      alt: `Coverage map for ${primaryCity} area`,
+    };
+  }
+  return undefined;
+}
 
 const indexEntry = await getEntry('pages', 'index');
 if (!indexEntry) {
@@ -45,12 +68,7 @@ const showOfferProcess =
   showSection('offerProcess') ||
   (site.siteArchetype === 'single_service' && showSection('process'));
 const social = site.socialProof;
-const hasTrustData = Boolean(
-  social?.rating ||
-    (social?.licenses && social.licenses.length) ||
-    (social?.statistics && social.statistics.length),
-);
-const showTrust = showSection('trust') && hasTrustData;
+const showTrust = showSection('trust') && socialProofHasTrustStrip(social);
 const showIntro = showSection('intro');
 const showWhy = showSection('whyChooseUs');
 const showProcess = showSection('process') || showOfferProcess;
@@ -72,7 +90,7 @@ const introParagraphs = structured
       h1: indexEntry.data.h1,
       title: indexEntry.data.title,
       sectionHeading: indexEntry.data.sectionHeading,
-      maxParagraphs: 3,
+      maxParagraphs: 2,
     })
   : [];
 
@@ -85,7 +103,7 @@ const proseSections = structured
     }).map((s) => ({
       id: s.id,
       heading: s.heading,
-      html: simpleProseToHtml(s.body),
+      body: s.body,
       eyebrow: proseSectionEyebrow(s.id),
     }))
   : [];
@@ -115,6 +133,8 @@ const homeSectionsBandStart = lightBand;
   title={indexEntry.data.title}
   description={indexEntry.data.description}
   pageType="home"
+  ogImage={indexEntry.data.heroImage?.src}
+  faqs={showFaqs ? indexEntry.data.faqs : []}
 >
   {
     showSection('hero') && (
@@ -123,6 +143,9 @@ const homeSectionsBandStart = lightBand;
         supporting={site.tagline}
         showForm
         image={indexEntry.data.heroImage}
+        editFile="src/content/pages/index.md"
+        supportingKey="tagline"
+        heroSlotKey="hero-1"
       />
     )
   }
@@ -130,7 +153,7 @@ const homeSectionsBandStart = lightBand;
 
   {
     showIntroSection && introSurface && (
-      <section class={introSurface} aria-labelledby="intro-heading">
+      <section class={introSurface} aria-labelledby="intro-heading" data-section="intro">
         <div
           class:list={[
             'mx-auto max-w-6xl px-4 py-12 sm:px-6 sm:py-16',
@@ -139,18 +162,27 @@ const homeSectionsBandStart = lightBand;
         >
           <div>
             <div class="max-w-3xl">
-              <p class="text-xs font-bold uppercase tracking-[0.18em] text-accent">
+              <p class="section-eyebrow">
                 {site.niche}
               </p>
               {
                 showIntro && (
-                  <TwoToneHeading
-                    as="h2"
-                    id="intro-heading"
-                    mode="plain"
-                    text={indexEntry.data.sectionHeading ?? `${site.niche} in ${site.primaryCity}`}
-                    class="mt-2 text-2xl sm:text-3xl"
-                  />
+                  <div
+                    data-edit={ve({
+                      type: 'fm',
+                      file: 'src/content/pages/index.md',
+                      key: 'sectionHeading',
+                      kind: 'heading',
+                    })}
+                  >
+                    <TwoToneHeading
+                      as="h2"
+                      id="intro-heading"
+                      mode="plain"
+                      text={indexEntry.data.sectionHeading ?? `${site.niche} in ${site.primaryCity}`}
+                      class="mt-2 text-2xl sm:text-3xl"
+                    />
+                  </div>
                 )
               }
             </div>
@@ -173,6 +205,12 @@ const homeSectionsBandStart = lightBand;
                 width="900"
                 height="675"
                 loading="lazy"
+                data-edit={ve({
+                  type: 'image',
+                  file: 'src/content/pages/index.md',
+                  key: 'featureImage',
+                  kind: 'image',
+                })}
               />
             )
           }
@@ -185,6 +223,7 @@ const homeSectionsBandStart = lightBand;
 
   <HomeSections
     bandStart={homeSectionsBandStart}
+    editFile="src/content/pages/index.md"
     whyChooseUs={showWhy ? indexEntry.data.whyChooseUs : []}
     process={showProcess ? indexEntry.data.process : []}
     processHeading={
@@ -193,7 +232,8 @@ const homeSectionsBandStart = lightBand;
     whyHeading={`Why choose ${site.businessName}`}
     faqs={showFaqs ? indexEntry.data.faqs : []}
     gallery={showGallery ? indexEntry.data.gallery : []}
-    coverageMap={showAreas ? indexEntry.data.coverageMap : undefined}
+    materialsImages={indexEntry.data.materialsImages || []}
+    coverageMap={showAreas ? resolveCoverageMap(indexEntry.data.coverageMap, site.primaryCity) : undefined}
     locations={showAreas ? locations : []}
     proseSections={proseSections}
     showReviews={showReviews}

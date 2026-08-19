@@ -61,7 +61,9 @@
     {
       "id": "hero",
       "label": "Hero",
-      "pages": ["home"],
+      "pages": [
+        "home"
+      ],
       "level": "H1",
       "defaultHeading": "{businessName}: {niche} in {city}, {state}",
       "required": true,
@@ -70,12 +72,14 @@
       "maxImages": 1,
       "astroKey": "hero",
       "kind": "hero",
-      "writeInstructions": "Lead with local intent and primary keywords. Problem → promise → CTA. Do not invent licenses, years, or review counts."
+      "writeInstructions": "H1 ≈ title; high-ticket keywords left→right. Problem→promise→CTA. Service is the central entity; city secondary. Do not invent license ID numbers or founding years as hard facts."
     },
     {
       "id": "trust",
       "label": "Trust / proof strip",
-      "pages": ["home"],
+      "pages": [
+        "home"
+      ],
       "level": "H2",
       "defaultHeading": "Trusted {niche} in {city}",
       "required": false,
@@ -83,12 +87,14 @@
       "photoCapable": false,
       "astroKey": "trust",
       "kind": "trust",
-      "writeInstructions": "Short proof points only from site-config socialProof. Skip fabricated awards."
+      "writeInstructions": "Proof strip filled from site-config socialProof (rating, licenses, stats). Never invent awards, ratings, or testimonials beyond config. Prefer concrete trust lines operators can stand behind."
     },
     {
       "id": "intro",
       "label": "Intro",
-      "pages": ["home"],
+      "pages": [
+        "home"
+      ],
       "level": "H2",
       "defaultHeading": "{niche} for homes and businesses in {city}",
       "required": true,
@@ -97,12 +103,14 @@
       "maxImages": 1,
       "astroKey": "intro",
       "kind": "intro",
-      "writeInstructions": "180–220 words defining the offer, who it’s for, and local relevance. Seed primary keywords naturally."
+      "writeInstructions": "Max ~2 concise salesperson paragraphs (not 180–220 words). Service-entity dense: materials/codes/equipment/stats. Allow ONE natural primaryCity mention; city remains secondary. When naming who does the work, use the full {businessName} (e.g. '{businessName} provides…'), not the niche alone. Weave one climate or housing cue from City context when available (paraphrase — never invent). Do NOT stuff streets/landmarks — put geo depth in areas. Do NOT pad the hero under-H1 (that stays the short tagline/description)."
     },
     {
       "id": "services",
       "label": "Services grid",
-      "pages": ["home"],
+      "pages": [
+        "home"
+      ],
       "level": "H2",
       "defaultHeading": "{niche} services",
       "required": false,
@@ -111,32 +119,36 @@
       "maxImages": 6,
       "astroKey": "services",
       "kind": "services",
-      "writeInstructions": "Section intro + H3 per residential/commercial service from site-config. Each H3: what it is, when needed, outcome. Optional photo per service."
+      "writeInstructions": "One short entity-rich paragraph per service card. High-ticket services first. What it is, when needed, outcome."
     },
     {
       "id": "process",
       "label": "Process / how we work",
-      "pages": ["home"],
+      "pages": [
+        "home"
+      ],
       "level": "H2",
       "defaultHeading": "How our {niche} process works",
       "required": false,
       "defaultOn": true,
       "photoCapable": true,
-      "maxImages": 4,
+      "maxImages": 8,
       "astroKey": "process",
       "kind": "process",
-      "writeInstructions": "Numbered steps: consult → plan → install → follow-up. Include realistic timing cues. Optional step images."
+      "writeInstructions": "Numbered steps: consult → plan → install → follow-up. Realistic timing cues. Step titles should name the actual work (photo-searchable: site visit, demolition, install — not only Step 1). Prefer 'Permit filing' / 'Camera inspection' wording that implies the trade job, not parking signs or cinema cameras."
     },
     {
       "id": "offerProcess",
       "label": "Deep offer process (single-offer)",
-      "pages": ["home"],
+      "pages": [
+        "home"
+      ],
       "level": "H2",
       "defaultHeading": "How {niche} works from start to finish",
       "required": false,
       "defaultOn": false,
       "photoCapable": true,
-      "maxImages": 4,
+      "maxImages": 8,
       "astroKey": "offerProcess",
       "kind": "process",
       "writeInstructions": "Deeper specialty process for single-offer niches. Methods, prep, install, cleanup. No multi-service grid."
@@ -144,7 +156,9 @@
     {
       "id": "whyChooseUs",
       "label": "Why choose us",
-      "pages": ["home"],
+      "pages": [
+        "home"
+      ],
       "level": "H2",
       "defaultHeading": "Why choose {businessName}",
       "required": false,
@@ -152,25 +166,29 @@
       "photoCapable": false,
       "astroKey": "whyChooseUs",
       "kind": "why",
-      "writeInstructions": "3–5 concrete reasons: craftsmanship, materials, local knowledge, communication. No fake awards."
+      "writeInstructions": "3–5 concrete mid-page reasons rooted in real process/materials/communication (experience signals). Name the full {businessName}. Condensed — not a hero essay. No fake awards, years, or licenses beyond site-config socialProof."
     },
     {
       "id": "areas",
-      "label": "Service areas",
-      "pages": ["home"],
+      "label": "Locations",
+      "pages": [
+        "home"
+      ],
       "level": "H2",
-      "defaultHeading": "Areas we serve near {city}",
+      "defaultHeading": "Locations we serve near {city}",
       "required": false,
       "defaultOn": true,
       "photoCapable": false,
       "astroKey": "areas",
       "kind": "areas",
-      "writeInstructions": "List target suburbs from site-config. Short local intent lines; link to location pages if enabled."
+      "writeInstructions": "Primary home for geo entities (suburbs, local flavor from City context). Short local intent lines naming suburbs and, when listed in City context, neighborhoods or housing eras; link location pages if enabled. No fabricated demographics; no street stuffing."
     },
     {
       "id": "cost",
       "label": "Cost & pricing guidance",
-      "pages": ["home"],
+      "pages": [
+        "home"
+      ],
       "level": "H2",
       "defaultHeading": "What does {niche} cost in {city}?",
       "required": false,
@@ -178,26 +196,30 @@
       "photoCapable": false,
       "astroKey": "cost",
       "kind": "cost",
-      "writeInstructions": "Honest ranges and cost drivers only. Never invent fixed quotes. Point to free estimate CTA."
+      "writeInstructions": "Short natural intro (no city-stuffed lead) + 3–5 ballpark range bullets: **Tier** — $low–$high — what is typically included. Example: **Entry-level updates** — $2,500–$8,000 — fixtures and single-surface swaps. Honest local ranges only (not a fixed quote). Point to free estimate."
     },
     {
       "id": "materials",
       "label": "Materials & methods",
-      "pages": ["home"],
+      "pages": [
+        "home"
+      ],
       "level": "H2",
       "defaultHeading": "Materials and methods we use",
       "required": false,
       "defaultOn": false,
       "photoCapable": true,
-      "maxImages": 3,
+      "maxImages": 6,
       "astroKey": "materials",
       "kind": "materials",
-      "writeInstructions": "Explain materials/options and why they matter for durability and local climate. Educational value for SEO."
+      "writeInstructions": "Short intro + material option bullets (title — why it matters). Do NOT include markdown body images — photos come from Pull/frontmatter. Each title must name a concrete product, system, or method (not “professional grade” alone) and tie durability to local climate from City context when available."
     },
     {
       "id": "timeline",
       "label": "Timeline",
-      "pages": ["home"],
+      "pages": [
+        "home"
+      ],
       "level": "H2",
       "defaultHeading": "How long does {niche} take?",
       "required": false,
@@ -205,26 +227,30 @@
       "photoCapable": false,
       "astroKey": "timeline",
       "kind": "planning",
-      "writeInstructions": "Realistic project timelines and stage expectations. No fabricated guarantees."
+      "writeInstructions": "Short natural human opener (e.g. how a typical project unfolds) — do NOT write \"Typical stages for {city}...\". Then stage bullets shaped `**Stage title** — duration` (e.g. Consult — same day; Permit approval — 1 week). Put timing ONLY in that duration cue — do NOT add \"or next-day\", \"usually\", or \"varies by city/county\" on the same bullet. Optional second clause only for real step description (what happens), not schedule hedging. Realistic timelines; no fabricated guarantees."
     },
     {
       "id": "beforeAfter",
       "label": "Before & after",
-      "pages": ["home"],
+      "pages": [
+        "home"
+      ],
       "level": "H2",
       "defaultHeading": "Before and after {niche} results",
       "required": false,
       "defaultOn": false,
-      "photoCapable": true,
+      "photoCapable": false,
       "maxImages": 6,
       "astroKey": "gallery",
       "kind": "gallery",
-      "writeInstructions": "Caption each pair with problem → solution. Photos required for this section to shine; write strong alt text."
+      "writeInstructions": "Problem → solution captions (→). Photos come from Rover ChatGPT before/after import — do not rely on stock Pull for this section."
     },
     {
       "id": "faqs",
       "label": "FAQs",
-      "pages": ["home"],
+      "pages": [
+        "home"
+      ],
       "level": "H2",
       "defaultHeading": "{niche} FAQs",
       "required": false,
@@ -232,12 +258,14 @@
       "photoCapable": false,
       "astroKey": "faqs",
       "kind": "faq",
-      "writeInstructions": "6–10 Q&As: when to call, cost drivers, timeline, DIY vs pro, maintenance. Match People Also Ask style."
+      "writeInstructions": "6–10 PAA-style Q&As about the niche/service only: when to call, cost drivers, timeline, DIY vs pro, maintenance, methods. Never city trivia, pets, civic officials, or unrelated appliances."
     },
     {
       "id": "reviews",
       "label": "Reviews",
-      "pages": ["home"],
+      "pages": [
+        "home"
+      ],
       "level": "H2",
       "defaultHeading": "What customers say",
       "required": false,
@@ -245,12 +273,14 @@
       "photoCapable": false,
       "astroKey": "reviews",
       "kind": "reviews",
-      "writeInstructions": "Only use reviews from site-config socialProof. Skip section if none."
+      "writeInstructions": "Only use reviews from site-config socialProof (not markdown body). Rover seeds exactly 3 Google-style cards (First L. names, 2 library avatars + 1 initials, staggered recent dates, business name / keyword / professional / affordable cues split across cards). Quote reviewer names/text from config; do not invent extra testimonials in markdown."
     },
     {
       "id": "codes",
       "label": "Codes & permits",
-      "pages": ["home"],
+      "pages": [
+        "home"
+      ],
       "level": "H2",
       "defaultHeading": "Permits, codes, and compliance",
       "required": false,
@@ -258,12 +288,14 @@
       "photoCapable": false,
       "astroKey": "codes",
       "kind": "codes",
-      "writeInstructions": "General educational guidance; tell readers to verify local rules. Do not invent jurisdiction-specific legal claims."
+      "writeInstructions": "Two columns (### Usually needs a permit, then ### Usually no permit) with one bullet per item — expand comma lists into separate bullets. Short disclaimer to verify with city/county. Do not invent jurisdiction-specific legal claims."
     },
     {
       "id": "diyVsPro",
       "label": "DIY vs hire a pro",
-      "pages": ["home"],
+      "pages": [
+        "home"
+      ],
       "level": "H2",
       "defaultHeading": "DIY vs hiring a {niche} pro",
       "required": false,
@@ -271,12 +303,14 @@
       "photoCapable": false,
       "astroKey": "diyVsPro",
       "kind": "value",
-      "writeInstructions": "Honest comparison: when DIY is fine, when a pro saves money/risk. High SEO value."
+      "writeInstructions": "Use ### DIY first, then ### Hire a pro (in that order), each with balanced bullet lists. Honest comparison: when DIY is fine vs when a pro saves money/risk. Do not use ## DIY / ## Hire a pro as separate H2s."
     },
     {
       "id": "whenToCall",
       "label": "When to call",
-      "pages": ["home"],
+      "pages": [
+        "home"
+      ],
       "level": "H2",
       "defaultHeading": "When to call for {niche}",
       "required": false,
@@ -284,12 +318,14 @@
       "photoCapable": false,
       "astroKey": "whenToCall",
       "kind": "value",
-      "writeInstructions": "Warning signs and scenarios that mean it’s time to book. Helpful, not alarmist."
+      "writeInstructions": "Warning-sign / scenario bullets + CTA. Helpful, not alarmist."
     },
     {
       "id": "cta",
       "label": "Closing CTA",
-      "pages": ["home"],
+      "pages": [
+        "home"
+      ],
       "level": "H2",
       "defaultHeading": "Get a free estimate in {city}",
       "required": true,
@@ -301,8 +337,10 @@
     },
     {
       "id": "svcHero",
-      "label": "Service hero (H1)",
-      "pages": ["services"],
+      "label": "Service hero + card photo",
+      "pages": [
+        "services"
+      ],
       "level": "H1",
       "defaultHeading": "{serviceName} in {city}, {state}",
       "required": true,
@@ -311,12 +349,14 @@
       "maxImages": 1,
       "astroKey": null,
       "kind": "hero",
-      "writeInstructions": "H1 + supporting line for this specific service. Local intent; no invented credentials. Frontmatter: title, description, h1, serviceName, heroImage optional."
+      "writeInstructions": "H1 + ONE supporting sentence (~140–160 chars) reused as meta description: {serviceName} + {city} + 2–3 offer terms + free estimates. Never multi-paragraph under H1. Service-central; local intent; no invented credentials. Photos: one svcHero slot per name in site-config services and commercialServices (homepage What we do + More Services cards)."
     },
     {
       "id": "svcIntro",
       "label": "Service intro",
-      "pages": ["services"],
+      "pages": [
+        "services"
+      ],
       "level": "H2",
       "defaultHeading": "Professional {serviceName} in {city}",
       "required": false,
@@ -325,12 +365,14 @@
       "maxImages": 1,
       "astroKey": null,
       "kind": "intro",
-      "writeInstructions": "150–200 words defining this service, who it’s for, and local relevance. Use {serviceName} naturally with city keywords."
+      "writeInstructions": "Max ~2 concise paragraphs defining this service. Service entity first; allow ONE natural {city} mention; city secondary. Unique materials/codes/stats. When the company acts, use full {businessName}. No street/landmark stuffing."
     },
     {
       "id": "svcWhatsIncluded",
       "label": "What’s included / scope",
-      "pages": ["services"],
+      "pages": [
+        "services"
+      ],
       "level": "H2",
       "defaultHeading": "What’s included with {serviceName}",
       "required": false,
@@ -338,80 +380,92 @@
       "photoCapable": false,
       "astroKey": null,
       "kind": "scope",
-      "writeInstructions": "Clear scope: what’s typically included, what’s optional, what the customer should prepare. Honest boundaries beat vague promises."
+      "writeInstructions": "Clear scope bullets under What’s included: **Typically included**, **Optional**, **Customer prep**. Honest boundaries. Never emit bare `Optional:` / `Customer prep:` lines outside this section (not after processImages or as free body prose)."
     },
     {
       "id": "svcProcess",
       "label": "Service process",
-      "pages": ["services"],
+      "pages": [
+        "services"
+      ],
       "level": "H2",
       "defaultHeading": "How our {serviceName} process works",
       "required": false,
       "defaultOn": true,
       "photoCapable": true,
-      "maxImages": 4,
+      "maxImages": 8,
       "astroKey": null,
       "kind": "process",
-      "writeInstructions": "Numbered steps for this service: consult → plan → work → follow-up. Include realistic timing cues."
+      "writeInstructions": "Numbered steps for this service with timing cues as body lines `Step title — description`. Do NOT invent a `process:` YAML array. Photos come from Pull `processImages` (one thumb per step, same card layout as homepage)."
     },
     {
       "id": "svcCost",
       "label": "Cost & pricing",
-      "pages": ["services"],
+      "pages": [
+        "services"
+      ],
       "level": "H2",
-      "defaultHeading": "What does {serviceName} cost in {city}?",
+      "defaultHeading": "What does a {serviceName} cost in {city}?",
       "required": false,
       "defaultOn": true,
       "photoCapable": false,
       "astroKey": null,
       "kind": "cost",
-      "writeInstructions": "Cost drivers and ranges for this service only. Never invent fixed quotes. Point to free estimate CTA."
+      "writeInstructions": "Short natural intro (no city-stuffed lead) + 3–5 ballpark range bullets: **Tier** — $low–$high — what is typically included. Example: **Entry-level updates** — $2,500–$8,000 — fixtures and single-surface swaps. Honest local ranges only (not a fixed quote). Point to free estimate."
     },
     {
       "id": "svcMaterials",
       "label": "Materials & methods",
-      "pages": ["services"],
+      "pages": [
+        "services"
+      ],
       "level": "H2",
       "defaultHeading": "Materials and methods for {serviceName}",
       "required": false,
       "defaultOn": false,
       "photoCapable": true,
-      "maxImages": 3,
+      "maxImages": 6,
       "astroKey": null,
       "kind": "materials",
-      "writeInstructions": "Materials/options relevant to this service and local climate. Educational SEO value."
+      "writeInstructions": "Short intro + material option bullets (title — why it matters). Do NOT include markdown body images — photos come from Pull/frontmatter materialsImages, one thumb per bullet. Each title must name a concrete product, system, or method for this serviceName (not “professional grade” alone) and tie durability to local climate from City context when available."
     },
     {
       "id": "svcTimeline",
       "label": "Timeline",
-      "pages": ["services"],
+      "pages": [
+        "services"
+      ],
       "level": "H2",
-      "defaultHeading": "How long does {serviceName} take?",
+      "defaultHeading": "How long does a {serviceName} take?",
       "required": false,
       "defaultOn": false,
       "photoCapable": false,
       "astroKey": null,
       "kind": "planning",
-      "writeInstructions": "Realistic timelines for this service. No fabricated guarantees."
+      "writeInstructions": "Short natural human opener (e.g. how a typical project unfolds) — do NOT write \"Typical stages for {city}...\". Then stage bullets shaped `**Stage title** — duration` (e.g. Consult — same day; Permit approval — 1 week). Put timing ONLY in that duration cue — do NOT add \"or next-day\", \"usually\", or \"varies by city/county\" on the same bullet. Optional second clause only for real step description (what happens), not schedule hedging. Realistic timelines; no fabricated guarantees."
     },
     {
       "id": "svcBeforeAfter",
       "label": "Before & after",
-      "pages": ["services"],
+      "pages": [
+        "services"
+      ],
       "level": "H2",
       "defaultHeading": "Before and after {serviceName}",
       "required": false,
       "defaultOn": false,
-      "photoCapable": true,
+      "photoCapable": false,
       "maxImages": 6,
       "astroKey": null,
       "kind": "gallery",
-      "writeInstructions": "Caption problem → solution pairs for this service. Strong alt text; paths may be placeholders."
+      "writeInstructions": "Short problem → solution text lines only (→ or —). Service pages render caption cards, not photos — point readers to the homepage gallery for photo examples (e.g. link to `/`). Never invent image paths; ChatGPT before/after import is homepage-only."
     },
     {
       "id": "svcFaqs",
       "label": "Service FAQs",
-      "pages": ["services"],
+      "pages": [
+        "services"
+      ],
       "level": "H2",
       "defaultHeading": "{serviceName} FAQs",
       "required": false,
@@ -419,12 +473,14 @@
       "photoCapable": false,
       "astroKey": null,
       "kind": "faq",
-      "writeInstructions": "5–8 Q&As specific to this service: when needed, cost drivers, timeline, DIY vs pro."
+      "writeInstructions": "5–8 service-specific PAA Q&As about this service only (cost, method, timeline, DIY, eligibility). Each FAQ: question alone on its own line ending with `?`, then the answer on following lines. Never wrap questions or answers in markdown bold (`**`). Never put the answer before the question. Never city trivia, pets, civic officials, or unrelated appliances."
     },
     {
       "id": "svcDiyVsPro",
       "label": "DIY vs hire a pro",
-      "pages": ["services"],
+      "pages": [
+        "services"
+      ],
       "level": "H2",
       "defaultHeading": "DIY vs hiring a pro for {serviceName}",
       "required": false,
@@ -432,12 +488,14 @@
       "photoCapable": false,
       "astroKey": null,
       "kind": "value",
-      "writeInstructions": "Honest comparison for this service: when DIY is fine, when a pro saves money/risk."
+      "writeInstructions": "Use ### DIY first, then ### Hire a pro (in that order), each with balanced bullet lists. Honest comparison: when DIY is fine vs when a pro saves money/risk. Do not use ## DIY / ## Hire a pro as separate H2s."
     },
     {
       "id": "svcWhenToCall",
       "label": "When to call",
-      "pages": ["services"],
+      "pages": [
+        "services"
+      ],
       "level": "H2",
       "defaultHeading": "When to call for {serviceName}",
       "required": false,
@@ -445,12 +503,14 @@
       "photoCapable": false,
       "astroKey": null,
       "kind": "value",
-      "writeInstructions": "Warning signs and scenarios that mean it’s time to book this service."
+      "writeInstructions": "Scenarios/warning signs + CTA for this service."
     },
     {
       "id": "svcCodes",
       "label": "Codes & permits",
-      "pages": ["services"],
+      "pages": [
+        "services"
+      ],
       "level": "H2",
       "defaultHeading": "Permits and codes for {serviceName}",
       "required": false,
@@ -458,12 +518,14 @@
       "photoCapable": false,
       "astroKey": null,
       "kind": "codes",
-      "writeInstructions": "General educational guidance for this service; tell readers to verify local rules."
+      "writeInstructions": "Two columns (### Usually needs a permit, then ### Usually no permit) with one bullet per item — expand comma lists into separate bullets. Short disclaimer to verify with city/county. Do not invent jurisdiction-specific legal claims."
     },
     {
       "id": "svcCta",
       "label": "Service closing CTA",
-      "pages": ["services"],
+      "pages": [
+        "services"
+      ],
       "level": "H2",
       "defaultHeading": "Get a {serviceName} estimate in {city}",
       "required": true,
@@ -471,12 +533,14 @@
       "photoCapable": false,
       "astroKey": null,
       "kind": "cta",
-      "writeInstructions": "Short close with phone/form CTA for this service. Reinforce local service area."
+      "writeInstructions": "Short ink-band CTA (phone + estimate) above the lead form."
     },
     {
       "id": "aboutStory",
       "label": "About — our story",
-      "pages": ["about"],
+      "pages": [
+        "about"
+      ],
       "level": "H2",
       "defaultHeading": "About {businessName}",
       "required": false,
@@ -485,12 +549,14 @@
       "maxImages": 2,
       "astroKey": null,
       "kind": "about",
-      "writeInstructions": "Company story without invented history. Focus on approach and local commitment."
+      "writeInstructions": "Company story without invented history. Lead with service experience: how estimates work, materials/climate knowledge from City context (paraphrase), what homeowners can expect. Use the full {businessName} as the company subject. Local commitment without street/landmark stuffing. Use only socialProof facts from site-config."
     },
     {
       "id": "contactInfo",
       "label": "Contact — how to reach us",
-      "pages": ["contact"],
+      "pages": [
+        "contact"
+      ],
       "level": "H2",
       "defaultHeading": "Contact {businessName}",
       "required": false,
@@ -503,7 +569,9 @@
     {
       "id": "locIntro",
       "label": "Location intro",
-      "pages": ["locations"],
+      "pages": [
+        "locations"
+      ],
       "level": "H2",
       "defaultHeading": "{niche} in {suburb}, {state}",
       "required": true,
@@ -511,12 +579,14 @@
       "photoCapable": false,
       "astroKey": null,
       "kind": "intro",
-      "writeInstructions": "Local landing intro for this suburb. Tie niche to community without inventing local facts."
+      "writeInstructions": "Local landing intro for this suburb (or primary-city page). Tie niche to community using City context climate/housing/neighborhood hints when present — paraphrase only; never invent local facts. Aim for substantive paragraphs — location pages should total ~600+ words across all loc* sections and must differ from other location files."
     },
     {
       "id": "locLocalNotes",
       "label": "Local notes",
-      "pages": ["locations"],
+      "pages": [
+        "locations"
+      ],
       "level": "H2",
       "defaultHeading": "Serving homeowners in {suburb}",
       "required": false,
@@ -524,12 +594,44 @@
       "photoCapable": false,
       "astroKey": null,
       "kind": "local",
-      "writeInstructions": "Short local relevance: housing stock, common jobs, nearby areas served. No fabricated demographics."
+      "writeInstructions": "Local relevance unique to this city: housing stock or eras, climate/access cues for the niche, common jobs, nearby areas served. Use named neighborhoods from City context when listed. No fabricated demographics. Do not reuse the same paragraph across location files."
+    },
+    {
+      "id": "locProof",
+      "label": "Why local",
+      "pages": [
+        "locations"
+      ],
+      "level": "H2",
+      "defaultHeading": "Why choose {businessName} in {suburb}",
+      "required": false,
+      "defaultOn": true,
+      "photoCapable": false,
+      "astroKey": null,
+      "kind": "proof",
+      "writeInstructions": "2–4 concrete reasons this team is a fit for this city (methods suited to local climate/housing, permits when relevant, written estimates). Use full businessName when the company acts. No invented awards or years. Keep reasons specific to {suburb} — not a clone of another city page."
+    },
+    {
+      "id": "locFaqs",
+      "label": "Location FAQs",
+      "pages": [
+        "locations"
+      ],
+      "level": "H2",
+      "defaultHeading": "{niche} FAQs for {suburb}",
+      "required": false,
+      "defaultOn": true,
+      "photoCapable": false,
+      "astroKey": null,
+      "kind": "faqs",
+      "writeInstructions": "3–5 FAQ Q&As specific to this city and the niche (permits, timeline, methods, cost ranges, climate/housing constraints). Question lines end with ?; answers are one short paragraph each. Never city trivia, pets, civic officials, or unrelated appliances."
     },
     {
       "id": "locCta",
       "label": "Location CTA",
-      "pages": ["locations"],
+      "pages": [
+        "locations"
+      ],
       "level": "H2",
       "defaultHeading": "Request a free estimate in {suburb}",
       "required": true,
@@ -546,7 +648,12 @@
       "label": "A",
       "name": "Multi-service local",
       "tip": "Home + shared service template (scope, process, cost, FAQs)",
-      "pages": ["home", "about", "contact", "services"],
+      "pages": [
+        "home",
+        "about",
+        "contact",
+        "services"
+      ],
       "sections": [
         "hero",
         "trust",
@@ -567,14 +674,21 @@
         "aboutStory",
         "contactInfo"
       ],
-      "photos": { "services": true, "svcHero": true }
+      "photos": {
+        "services": true,
+        "svcHero": true
+      }
     },
     {
       "id": "B",
       "label": "B",
       "name": "Single-offer specialty",
       "tip": "Deep offer process, no service pages",
-      "pages": ["home", "about", "contact"],
+      "pages": [
+        "home",
+        "about",
+        "contact"
+      ],
       "sections": [
         "hero",
         "trust",
@@ -588,14 +702,21 @@
         "aboutStory",
         "contactInfo"
       ],
-      "photos": { "offerProcess": true }
+      "photos": {
+        "offerProcess": true
+      }
     },
     {
       "id": "C",
       "label": "C",
       "name": "Value SEO heavy",
-      "tip": "Home + service pages with cost, materials, DIY, when-to-call",
-      "pages": ["home", "about", "contact", "services"],
+      "tip": "Ranking-focused: cost/timeline/materials/codes/DIY/FAQs + reviews + before/after — use for page-1 builds",
+      "pages": [
+        "home",
+        "about",
+        "contact",
+        "services"
+      ],
       "sections": [
         "hero",
         "trust",
@@ -605,10 +726,13 @@
         "materials",
         "cost",
         "timeline",
+        "codes",
         "diyVsPro",
         "whenToCall",
         "whyChooseUs",
         "areas",
+        "beforeAfter",
+        "reviews",
         "faqs",
         "cta",
         "svcHero",
@@ -618,14 +742,22 @@
         "svcCost",
         "svcMaterials",
         "svcTimeline",
+        "svcCodes",
         "svcFaqs",
         "svcDiyVsPro",
         "svcWhenToCall",
+        "svcBeforeAfter",
         "svcCta",
         "aboutStory",
         "contactInfo"
       ],
-      "photos": { "services": true, "materials": true, "svcMaterials": true }
+      "photos": {
+        "services": true,
+        "materials": true,
+        "process": true,
+        "svcMaterials": true,
+        "svcProcess": true
+      }
     }
   ]
 }

@@ -23,6 +23,7 @@ const pages = defineCollection({
     featureImage: imageSchema.optional(),
     coverageMap: imageSchema.optional(),
     gallery: z.array(imageSchema).optional(),
+    materialsImages: z.array(imageSchema).optional(),
     whyChooseUs: z
       .array(
         z.object({
@@ -58,6 +59,8 @@ const services = defineCollection({
     serviceName: z.string(),
     order: z.number().optional(),
     cardImage: imageSchema.optional(),
+    materialsImages: z.array(imageSchema).optional(),
+    processImages: z.array(imageSchema).optional(),
   }),
 });
 

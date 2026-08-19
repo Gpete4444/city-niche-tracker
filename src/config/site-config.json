@@ -1,75 +1,200 @@
 {
-  "businessName": "Egress Window Installation",
-  "tagline": "Code-compliant basement egress windows for Omaha homes — sized, installed, and drained right the first time.",
-  "domain": "omahaegresswindowpros.com",
-  "niche": "Egress Window Installation",
-  "primaryCity": "Omaha",
-  "state": "NE",
+  "businessName": "Company Brand Name",
+  "tagline": "Cabinet refinishing, refacing, and custom painting for Columbia, SC kitchens — remodeling done right. Free estimates.",
+  "domain": "domainfiller.com",
+  "niche": "Cabinet Refinishing & Remodeling",
+  "primaryCity": "Columbia",
+  "state": "SC",
   "targetSuburbs": [
-    "Bellevue",
-    "Papillion",
-    "La Vista",
-    "Elkhorn"
+    "Lexington",
+    "Cayce",
+    "West Columbia",
+    "Irmo",
+    "Forest Acres",
+    "Blythewood",
+    "St. Andrews",
+    "Seven Oaks"
   ],
   "coverageAreas": [
     {
-      "name": "Omaha",
-      "state": "NE"
+      "name": "Columbia",
+      "state": "SC"
     },
     {
-      "name": "Bellevue",
-      "state": "NE"
+      "name": "Blythewood",
+      "state": "SC"
     },
     {
-      "name": "Papillion",
-      "state": "NE"
+      "name": "Camden",
+      "state": "SC"
     },
     {
-      "name": "La Vista",
-      "state": "NE"
+      "name": "Cayce",
+      "state": "SC"
     },
     {
-      "name": "Elkhorn",
-      "state": "NE"
+      "name": "Dentsville",
+      "state": "SC"
+    },
+    {
+      "name": "Forest Acres",
+      "state": "SC"
+    },
+    {
+      "name": "Irmo",
+      "state": "SC"
+    },
+    {
+      "name": "Lake Murray of Richland",
+      "state": "SC"
+    },
+    {
+      "name": "Lexington",
+      "state": "SC"
+    },
+    {
+      "name": "Lugoff",
+      "state": "SC"
+    },
+    {
+      "name": "Oak Grove",
+      "state": "SC"
+    },
+    {
+      "name": "Red Bank",
+      "state": "SC"
+    },
+    {
+      "name": "Seven Oaks",
+      "state": "SC"
+    },
+    {
+      "name": "St. Andrews",
+      "state": "SC"
+    },
+    {
+      "name": "West Columbia",
+      "state": "SC"
+    },
+    {
+      "name": "White Knoll",
+      "state": "SC"
+    },
+    {
+      "name": "Woodfield",
+      "state": "SC"
     }
   ],
-  "serviceRadiusMiles": 40,
+  "serviceRadiusMiles": 28,
   "phone": "+13852212770",
-  "email": "rovergrowthpartners@gmail.com",
-  "web3FormsAccessKey": "REPLACE_WEB3FORMS_KEY",
+  "email": "leads@service.com",
+  "web3FormsAccessKey": "YOUR_WEB3FORMS_ACCESS_KEY",
   "turnstileSiteKey": "",
   "primaryCta": "Get a Free Estimate",
   "siteArchetype": "multi_service",
   "services": [
-    "Basement Egress Window Cutting & Installation",
-    "Egress Window Well Covers & Coverings",
-    "Window Well Excavation & Installation",
-    "Window Well Drainage Systems",
-    "Egress Window & Well Waterproofing",
-    "Basement Window Replacement",
-    "Basement Bedroom & Rental Conversion Permitting Support",
-    "Egress Window Sizing & Code Compliance Consultation"
+    "Cabinet Refinishing",
+    "Kitchen Cabinet Remodeling",
+    "Cabinet Refacing",
+    "Custom Cabinet Painting & Staining",
+    "Cabinet Hardware & Hinge Upgrades",
+    "Built-In & Custom Cabinetry",
+    "Cabinet Color Matching & Consultation",
+    "Cabinet Repair & Restoration"
   ],
   "homepageServicesLimit": 8,
   "brand": {
-    "primary": "#1C2B3A",
-    "accent": "#E8A317",
-    "ink": "#0F1720"
+    "primary": "#234E6D",
+    "accent": "#3BA3D9",
+    "ink": "#0B1220",
+    "paletteId": "ink-sky",
+    "fontTheme": "archivo-source"
   },
   "socialProof": {
-    "licenses": [],
-    "statistics": [],
-    "reviews": []
+    "rating": {
+      "value": 4.9,
+      "reviewCount": 47,
+      "source": "Google",
+      "url": ""
+    },
+    "licenses": [
+      {
+        "name": "Licensed & Insured",
+        "jurisdiction": "SC"
+      }
+    ],
+    "statistics": [
+      {
+        "value": "15+",
+        "label": "Years local experience"
+      },
+      {
+        "value": "500+",
+        "label": "Projects completed"
+      },
+      {
+        "value": "4.9★",
+        "label": "Average customer rating"
+      }
+    ],
+    "reviews": [
+      {
+        "quote": "Called Company Brand Name after a neighbor tip in Columbia. Super easy to deal with — clear answers, no runaround, and they actually cared about the details on our cabinet refinishing.",
+        "author": "Dorothy P.",
+        "rating": 5,
+        "source": "Google",
+        "date": "2026-08-07",
+        "verified": true,
+        "avatarUrl": "/images/review-avatars/f01.jpg",
+        "location": "Columbia, SC"
+      },
+      {
+        "quote": "Honestly did not expect such a professional team. They showed up on time, explained every step, and the cabinet refacing turned out better than I pictured.",
+        "author": "Lisa T.",
+        "rating": 5,
+        "source": "Google",
+        "date": "2026-08-15",
+        "verified": true,
+        "avatarUrl": "/images/review-avatars/f02.jpg",
+        "location": "Lexington, SC"
+      },
+      {
+        "quote": "Price was way more affordable than the other quotes we got for cabinet hardware & hinge upgrades. Still felt premium — clean jobsite, solid finish, and I'd hire them again without thinking twice.",
+        "author": "Richard W.",
+        "rating": 5,
+        "source": "Google",
+        "date": "2026-07-28",
+        "verified": true,
+        "avatarUrl": "/images/review-avatars/m02.jpg",
+        "location": "Cayce, SC"
+      }
+    ]
   },
   "homepageSections": [
     "hero",
     "trust",
     "intro",
     "services",
-    "process",
     "whyChooseUs",
+    "process",
+    "cost",
+    "materials",
+    "timeline",
+    "codes",
+    "diyVsPro",
+    "whenToCall",
     "areas",
+    "gallery",
+    "reviews",
     "faqs",
     "cta"
-  ]
+  ],
+  "address": {
+    "street": "",
+    "zip": ""
+  },
+  "logo": {
+    "src": "/images/logo.svg",
+    "alt": "Company Brand Name logo"
+  }
 }

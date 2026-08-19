@@ -1,13 +1,14 @@
 ---
-title: "Contact Us | Kitchen & Bathroom Remodeling in Spanish Fork, UT"
-description: "Get in touch for a free kitchen or bathroom remodeling estimate in Spanish Fork, UT and surrounding Utah County communities."
-h1: "Contact Us for a Kitchen & Bathroom Remodeling Estimate"
+title: "Contact Company Brand Name | Columbia, SC"
+description: "Contact Company Brand Name for a free Cabinet Refinishing & Remodeling estimate in Columbia, SC and the surrounding Midlands suburbs."
+h1: "Contact Company Brand Name"
 ---
-Ready to talk about your kitchen or bathroom project? Reach out using the information below or submit the form, and we'll follow up to schedule a free, no-obligation estimate.
+Ready to talk about your kitchen? Company Brand Name serves Columbia, SC and the surrounding Midlands suburbs, including Lexington, Cayce, West Columbia, Irmo, Forest Acres, Blythewood, St. Andrews, and Seven Oaks.
 
-**Phone:** [+1XXXXXXXXXX](tel:+1XXXXXXXXXX)
-**Email:** [leads@example.com](mailto:leads@example.com)
+- **Phone:** [+1 (385) 221-2770](tel:+13852212770)
+- **Email:** [leads@service.com](mailto:leads@service.com)
+- **Service area:** Columbia, SC and surrounding Midlands suburbs
 
-**Service area:** Spanish Fork, UT and surrounding communities including Springville, Payson, Salem, and Benjamin.
+Request your free cabinet estimate today, or browse our [Cabinet Refinishing & Remodeling services](/) and [service areas](/#areas) before reaching out. Fill out the form below or call directly to get a written estimate scheduled.
 
-Whether you're planning a full kitchen remodel or a single bathroom update, the first step is the same — tell us about your space and goals, and we'll take it from there. See our [services](/services) or learn more [about us](/about).
+[Home](/) | [About](/about)

@@ -27,7 +27,7 @@ import {
   readSerpCache,
 } from './lib/serp-cache.mjs';
 import { averageKeywordCpc, enrichClassifiedSerp } from './lib/serp-signals.mjs';
-import { applyEnrichmentToScoring, buildResearchScoring, shouldAutoEnrich } from './lib/scoring.mjs';
+import { applyEnrichmentToScoring, buildResearchScoring, shouldAutoEnrich, resolvePreservedJobFields, attachPreservedJobFields } from './lib/scoring.mjs';
 import { enrichResearchReport } from './lib/enrich.mjs';
 
 loadEnvFile();
@@ -84,7 +84,7 @@ function preservePriorEnrichment(report, priorResearch) {
   }
 
   report.enrichment = enrichment;
-  report.scoring = applyEnrichmentToScoring(report, enrichment);
+  report.scoring = applyEnrichmentToScoring(report, enrichment, priorResearch);
   report.scoreInputs = report.scoring.scoreInputs;
   report.proposedScore = report.scoring.proposedScore;
   report.decision = report.scoring.decision;
@@ -334,6 +334,20 @@ async function main() {
     }
   }
 
+  if (!serp && !args.forceSerp && priorResearch?.serp) {
+    console.error('SERP: reusing prior research SERP (no fresh Discovery cache)');
+    serp = priorResearch.serp;
+    serpRaw = {
+      cost: 0,
+      checkUrl: priorResearch.dataForSeoCheckUrl || null,
+      itemTypes: priorResearch.serp.itemTypes || priorResearch.serp.features?.itemTypes || [],
+      items: [],
+      endpoint: 'prior-research-reuse',
+    };
+    serpReused = true;
+    serpCacheAt = priorResearch.serp.discoverySerpAt || priorResearch.generatedAt || null;
+  }
+
   if (!serp) {
     if (args.volumesOnly) {
       throw new Error(
@@ -539,6 +553,25 @@ async function main() {
   if (!args.enrich && priorResearch?.enrichment) {
     preservePriorEnrichment(report, priorResearch);
     report.spreadsheetFields = buildSpreadsheetFields(report);
+  }
+
+  // Never drop Narrative/Claude jobValue when Stage 1 rewrites research JSON.
+  let narrative = null;
+  if (args.out) {
+    const narrPath = path.resolve(String(args.out).replace(/\.json$/i, '') + '-narrative.json');
+    if (existsSync(narrPath)) {
+      try {
+        narrative = JSON.parse(readFileSync(narrPath, 'utf8'));
+      } catch {
+        narrative = null;
+      }
+    }
+  }
+  const jobFields = resolvePreservedJobFields({ priorResearch, narrative });
+  if (jobFields.jobValue != null) {
+    attachPreservedJobFields(report, jobFields);
+    report.spreadsheetFields = buildSpreadsheetFields(report);
+    console.error(`Stage 1: preserved jobValue=${jobFields.jobValue} from prior research/narrative.`);
   }
 
   const json = `${JSON.stringify(report, null, 2)}\n`;

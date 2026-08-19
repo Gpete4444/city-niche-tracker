@@ -3,6 +3,9 @@
  * CLI: npm run assemble-site -- <candidateId> [--force] [--skip-git] [--slug=name]
  */
 import { assembleSite } from './assemble-site.mjs';
+import { loadEnvFile } from '../../scripts/lib/dataforseo.mjs';
+
+loadEnvFile();
 
 const args = process.argv.slice(2);
 const force = args.includes('--force');

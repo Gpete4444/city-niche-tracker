@@ -163,7 +163,7 @@ export function runResearch(candidateId, { adsMode = 'live', forceSerp = false, 
       saveMeta(candidateId, {
         lastResearchAt: new Date().toISOString(),
         lastAdsMode: mode,
-        lastResearchMode: volumesOnly ? 'volumes_only' : forceSerp ? 'force_serp' : 'default',
+        lastResearchMode: forceSerp ? 'force_serp' : 'default',
       });
     },
   });

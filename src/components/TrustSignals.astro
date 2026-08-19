@@ -3,6 +3,8 @@ import { site } from '../config/site';
 
 const rating = site.socialProof?.rating;
 const licenses = site.socialProof?.licenses ?? [];
+// Temporarily show rating-like stats alongside Google rating for operator comparison.
+// Re-enable dedupe filter after deciding whether to keep the 4.9★ stat.
 const statistics = site.socialProof?.statistics ?? [];
 const hasProof = Boolean(rating || licenses.length > 0 || statistics.length > 0);
 ---
@@ -43,9 +45,11 @@ const hasProof = Boolean(rating || licenses.length > 0 || statistics.length > 0)
         {licenses.map((license) => (
           <div class="min-w-44 flex-1 px-5 py-5 text-center">
             <strong class="block text-sm text-ink">{license.name}</strong>
-            <span class="block text-xs text-muted">
-              {[license.number, license.jurisdiction].filter(Boolean).join(' · ')}
-            </span>
+            {(license.number || license.jurisdiction) && (
+              <span class="block text-xs text-muted">
+                {[license.number, license.jurisdiction].filter(Boolean).join(' · ')}
+              </span>
+            )}
           </div>
         ))}
       </div>

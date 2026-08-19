@@ -52,6 +52,19 @@ function emptyRenter() {
   };
 }
 
+function emptyPhoneTracking() {
+  return {
+    phase: 'none', // none | ranking | rented
+    provider: null,
+    e164: '',
+    twilioSid: '',
+    voiceWebhookUrl: '',
+    forwardTo: '',
+    provisionedAt: null,
+    forwardedAt: null,
+  };
+}
+
 function defaultPortfolioFields(partial = {}) {
   return {
     status: SITE_STATUSES.includes(partial.status) ? partial.status : 'building',
@@ -71,6 +84,12 @@ function defaultPortfolioFields(partial = {}) {
     contractEnd: partial.contractEnd ?? null,
     nextInvoiceAt: partial.nextInvoiceAt ?? null,
     notes: partial.notes ?? '',
+    phoneTracking: {
+      ...emptyPhoneTracking(),
+      ...(partial.phoneTracking && typeof partial.phoneTracking === 'object'
+        ? partial.phoneTracking
+        : {}),
+    },
   };
 }
 
@@ -197,6 +216,10 @@ function mergeSiteRow(row) {
   return {
     ...row,
     renter: { ...emptyRenter(), ...(row.renter || {}) },
+    phoneTracking: {
+      ...emptyPhoneTracking(),
+      ...(row.phoneTracking && typeof row.phoneTracking === 'object' ? row.phoneTracking : {}),
+    },
     hydrated: Boolean(hydrated),
     ...(hydrated || {
       niche: row.niche || null,
@@ -445,6 +468,14 @@ export function updateSite(id, patch = {}) {
     };
   }
 
+  if (patch.phoneTracking && typeof patch.phoneTracking === 'object') {
+    row.phoneTracking = {
+      ...emptyPhoneTracking(),
+      ...(row.phoneTracking || {}),
+      ...patch.phoneTracking,
+    };
+  }
+
   // Manual rows may update identity fields
   if (!row.candidateId) {
     for (const key of ['niche', 'city', 'state', 'businessName', 'domain', 'phone', 'email']) {
@@ -455,6 +486,20 @@ export function updateSite(id, patch = {}) {
   row.updatedAt = nowIso();
   saveRegistry(registry);
   return mergeSiteRow(row);
+}
+
+/**
+ * Merge phoneTracking onto a portfolio row (Twilio provision / forward cutover).
+ */
+export function setSitePhoneTracking(id, phoneTracking = {}) {
+  return updateSite(id, { phoneTracking });
+}
+
+/** Sites with a Twilio DID (for Phone tab sidebar). */
+export function listSitesWithPhone() {
+  return listSites().filter(
+    (s) => s.phoneTracking?.provider === 'twilio' && s.phoneTracking?.e164,
+  );
 }
 
 export function deleteSite(id) {

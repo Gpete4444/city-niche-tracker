@@ -2,9 +2,16 @@
 import { getCollection } from 'astro:content';
 import { site, formatPhoneDisplay, phoneHref, siteShowsServicesNav } from '../config/site';
 import { filterLocationsForSite } from '../lib/locations-for-site';
-import { filterServicesForSite } from '../lib/services-for-site';
+import {
+  allConfiguredServiceNames,
+  filterServicesByNames,
+} from '../lib/services-for-site';
+import { ve } from '../lib/visual-edit';
 
-const services = filterServicesForSite(await getCollection('services'), site);
+const services = filterServicesByNames(
+  await getCollection('services'),
+  allConfiguredServiceNames(site),
+);
 const locations = filterLocationsForSite(
   (await getCollection('locations')).filter((e) => !e.data.draft),
   site,
@@ -23,12 +30,28 @@ const navLinkClass =
 
 <header class="sticky top-0 z-[100] border-b border-line/80 bg-paper/95 backdrop-blur-sm">
   <div class="mx-auto flex max-w-6xl items-center gap-3 px-4 py-3 sm:gap-4 sm:px-6">
-    <a href="/" class="min-w-0 shrink">
-      <span class="block truncate font-display text-sm font-bold tracking-tight text-brand sm:text-base lg:text-lg">
-        {site.businessName}
-      </span>
-      <span class="block truncate text-[0.7rem] text-muted sm:text-xs">
-        {brandSubtitle}
+    <a href="/" class="flex min-w-0 shrink items-center gap-2.5 sm:gap-3">
+      {
+        site.logo?.src && (
+          <img
+            src={site.logo.src}
+            alt={site.logo.alt || `${site.businessName} logo`}
+            class="size-9 shrink-0 rounded-lg object-cover sm:size-10"
+            width="40"
+            height="40"
+          />
+        )
+      }
+      <span class="min-w-0">
+        <span
+          class="block truncate font-display text-sm font-bold tracking-tight text-brand sm:text-base lg:text-lg"
+          data-edit={ve({ type: 'config', key: 'businessName', kind: 'text' })}
+        >
+          {site.businessName}
+        </span>
+        <span class="block truncate text-[0.7rem] text-muted sm:text-xs">
+          {brandSubtitle}
+        </span>
       </span>
     </a>
 
@@ -83,19 +106,19 @@ const navLinkClass =
                 class:list={[navLinkClass, 'nav-menu-trigger inline-flex items-center gap-1']}
                 aria-expanded="false"
                 aria-haspopup="true"
-                aria-controls="nav-areas-menu"
-                id="nav-areas-btn"
+                aria-controls="nav-locations-menu"
+                id="nav-locations-btn"
               >
-                Areas
+                Locations
                 <span class="text-[0.65em] text-muted" aria-hidden="true">
                   ▾
                 </span>
               </button>
               <ul
-                id="nav-areas-menu"
+                id="nav-locations-menu"
                 class="nav-menu-panel fixed z-[110] hidden max-h-[min(24rem,70vh)] min-w-[14rem] overflow-y-auto rounded-lg border border-line bg-paper py-1 shadow-xl"
                 role="menu"
-                aria-labelledby="nav-areas-btn"
+                aria-labelledby="nav-locations-btn"
               >
                 {locations.map((loc) => (
                   <li role="none">
@@ -121,6 +144,7 @@ const navLinkClass =
       href={phoneHref()}
       class="btn-primary shrink-0 px-3 py-2 text-xs sm:px-4 sm:text-sm"
       aria-label={`Call ${formatPhoneDisplay()}`}
+      data-edit={ve({ type: 'config', key: 'phone', kind: 'text' })}
     >
       {formatPhoneDisplay()}
     </a>

@@ -12,7 +12,7 @@ import {
 } from 'node:fs';
 import path from 'node:path';
 import { getCandidateDetail, pathsFor, saveMeta } from './candidates.mjs';
-import { loadAcceptedSiteConfig, sanitizeMarkdownImageFrontmatter } from './content-markdown.mjs';
+import { loadAcceptedSiteConfig, sanitizeMarkdownImageFrontmatter, ensureLocationFilesInMap } from './content-markdown.mjs';
 import { buildBuildPackage } from './build-package.mjs';
 import { runTemplateContract } from './template-contract.mjs';
 import { applyArchetypeDefaults } from '../../scripts/lib/site-archetypes.mjs';
@@ -22,12 +22,57 @@ import {
   resolveStructurePageIds,
 } from './preview-fidelity.mjs';
 import { syncSiteImagesToPublic } from './fill-site-images.mjs';
+import { setCoverageMapOnMarkdown } from './generate-coverage-map.mjs';
+import { defaultPlaceholderSocialProof } from './site-config.mjs';
 
 const ROOT = process.cwd();
 
 function writeJson(filePath, data) {
   mkdirSync(path.dirname(filePath), { recursive: true });
   writeFileSync(filePath, `${JSON.stringify(data, null, 2)}\n`, 'utf8');
+}
+
+function readJson(filePath) {
+  if (!existsSync(filePath)) return null;
+  try {
+    return JSON.parse(readFileSync(filePath, 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
+/** Ensure Google rating + 4.9★ comparison stat both exist on socialProof. */
+export function ensureTrustRatingStat(config) {
+  const next = { ...config };
+  const proof = { ...(next.socialProof || {}) };
+  const seed = defaultPlaceholderSocialProof(next.primaryCity, next.state, {
+    businessName: next.businessName,
+    niche: next.niche,
+    services: next.services,
+    primaryCity: next.primaryCity,
+    targetSuburbs: next.targetSuburbs,
+    coverageAreas: next.coverageAreas,
+    seedKey: next.domain || next.businessName || `${next.primaryCity}|${next.state}`,
+  });
+  if (!proof.rating && seed.rating) proof.rating = { ...seed.rating };
+  const stats = Array.isArray(proof.statistics) ? [...proof.statistics] : [];
+  const hasStarStat = stats.some((s) => {
+    const v = String(s?.value || '');
+    const label = String(s?.label || '').toLowerCase();
+    return (/★|⭐/.test(v) || /4\.9/.test(v)) && /rating|review/.test(label);
+  });
+  if (proof.rating && !hasStarStat) {
+    stats.push({ value: '4.9★', label: 'Average customer rating' });
+  }
+  if (!stats.length && seed.statistics?.length) {
+    proof.statistics = seed.statistics;
+  } else {
+    proof.statistics = stats;
+  }
+  if (!proof.licenses?.length && seed.licenses?.length) proof.licenses = seed.licenses;
+  if (!proof.reviews?.length && seed.reviews?.length) proof.reviews = seed.reviews;
+  next.socialProof = proof;
+  return next;
 }
 
 /**
@@ -48,7 +93,15 @@ export function stageSiteContent(candidateId, { mode = 'full', refreshPackage = 
     throw err;
   }
 
-  let config = applyArchetypeDefaults({ ...loaded.config });
+  let config = ensureTrustRatingStat(applyArchetypeDefaults({ ...loaded.config }));
+  // Persist patched socialProof onto accepted site-config so Assemble/Stage stay in sync
+  const p = pathsFor(candidateId);
+  if (existsSync(p.siteConfig)) {
+    const accepted = readJson(p.siteConfig);
+    if (accepted && typeof accepted === 'object') {
+      writeJson(p.siteConfig, { ...accepted, socialProof: config.socialProof });
+    }
+  }
   const files = { ...content.files };
   const pageIds = resolveStructurePageIds(candidateId, detail);
   const resolvedMode =
@@ -64,10 +117,52 @@ export function stageSiteContent(candidateId, { mode = 'full', refreshPackage = 
     }
   }
 
+  // Sync site-images → public/ before omit-missing so Pull assets are on disk
+  const imageSync = syncSiteImagesToPublic(candidateId);
+  const siteImagesRoot = pathsFor(candidateId).siteImages;
+  const sanitizeOpts = { extraRoots: [siteImagesRoot] };
+
+  // Inject coverageMap FM when SVG exists but homepage omitted it (Accept/sanitize race)
+  const coverageSvgExists =
+    existsSync(path.join(siteImagesRoot, 'coverage-map.svg')) ||
+    existsSync(path.join(ROOT, 'public', 'images', 'coverage-map.svg'));
+  if (coverageSvgExists) {
+    const alt = `Coverage map for ${String(config.primaryCity || 'service').trim()} area`;
+    for (const [rel, body] of Object.entries(files)) {
+      if (!/pages\/index\.md$/i.test(rel)) continue;
+      const md = String(body || '');
+      if (/^coverageMap:/m.test(md)) continue;
+      files[rel] = setCoverageMapOnMarkdown(md, '/images/coverage-map.svg', alt);
+    }
+  }
+
   // Heal frontmatter (e.g. missing closing ---) before contract + write
   for (const [rel, body] of Object.entries(files)) {
     if (rel.endsWith('.md')) {
-      files[rel] = sanitizeMarkdownImageFrontmatter(body);
+      files[rel] = sanitizeMarkdownImageFrontmatter(body, sanitizeOpts);
+    }
+  }
+
+  // Missing primary/suburb location pages (e.g. Accept before primary was required)
+  const ensuredLocs = ensureLocationFilesInMap(files, config);
+  Object.assign(files, ensuredLocs.files);
+  if (ensuredLocs.seeded.length && existsSync(p.content)) {
+    const acceptedContent = readJson(p.content);
+    if (acceptedContent && typeof acceptedContent === 'object') {
+      const mergedFiles = { ...(acceptedContent.files || {}), ...Object.fromEntries(
+        ensuredLocs.seeded.map((rel) => [rel, files[rel]]),
+      ) };
+      writeJson(p.content, {
+        ...acceptedContent,
+        files: mergedFiles,
+        _ops: {
+          ...(acceptedContent._ops || {}),
+          locationSeededAt: new Date().toISOString(),
+          locationSeeded: [
+            ...new Set([...(acceptedContent._ops?.locationSeeded || []), ...ensuredLocs.seeded]),
+          ],
+        },
+      });
     }
   }
 
@@ -91,8 +186,8 @@ export function stageSiteContent(candidateId, { mode = 'full', refreshPackage = 
 
   writeJson(path.join(stagingRoot, 'src', 'config', 'site-config.json'), config);
 
-  // Copy stock images before writing MD (omitMissing checks disk under public/)
-  const imageSync = syncSiteImagesToPublic(candidateId);
+  // Re-sync after staging wipe so public/images (incl. coverage-map.svg) land in staging
+  syncSiteImagesToPublic(candidateId);
 
   const written = [];
   for (const [rel, body] of Object.entries(files)) {

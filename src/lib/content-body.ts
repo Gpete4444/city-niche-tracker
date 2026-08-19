@@ -38,7 +38,7 @@ export function extractHomepageIntro(
   rawBody: string,
   opts: { h1?: string; title?: string; sectionHeading?: string; maxParagraphs?: number } = {},
 ): string[] {
-  const maxParagraphs = opts.maxParagraphs ?? 3;
+  const maxParagraphs = opts.maxParagraphs ?? 2;
   let text = stripLeadingTitleEcho(rawBody, opts.h1, opts.title, opts.sectionHeading);
   const blocks = text
     .split(/\n{2,}/)
@@ -88,19 +88,71 @@ export interface HomepageProseSection {
 
 function classifyProseHeading(heading: string): HomepageProseSectionId | null {
   const t = normTitle(heading);
+  // Lone column titles belong inside a diyVsPro H2 — do not open a band
+  if (/^(diy|hire a pro|hiring a pro)$/i.test(t.trim())) return null;
+  // DIY / yourself-vs before cost so hybrid “Cost … Yourself vs …” does not steal cost
+  if (
+    /\bdiy\b|hiring a pro|hire a pro|do[\s-]?it[\s-]?yourself|yourself\s+vs|vs\.?\s+(hire|a\s+pro|pro|professional|contractor)/.test(
+      t,
+    )
+  ) {
+    return 'diyVsPro';
+  }
   if (/\bcost\b|pricing|what does .+ cost|how much|estimate range/.test(t)) return 'cost';
   if (/^materials\b|materials and|methods we|\bmethods\b/.test(t)) return 'materials';
   if (/^how long\b|\btimeline\b|duration|schedule/.test(t)) return 'timeline';
-  if (/\bdiy\b|hiring a pro|hire a pro/.test(t)) return 'diyVsPro';
   if (/when to call|when to book|warning signs/.test(t)) return 'whenToCall';
   if (/\bpermit|\bcodes?\b|compliance/.test(t)) return 'codes';
   return null;
 }
 
+/** Same money shape as parseCostRows — avoid importing section-parse (circular). */
+const COST_MONEY_RE =
+  /\$[\d,]+(?:\.\d+)?(?:\s*[–—-]\s*\$?[\d,]+(?:\.\d+)?)?\+?(?:\s*[kK])?/;
+
+/** True when body bullets would yield at least one parseCostRows table row. */
+function bodyHasCostTableRows(body: string): boolean {
+  const bullets = String(body || '')
+    .replace(/\r\n/g, '\n')
+    .split('\n')
+    .map((l) => l.trim())
+    .filter((l) => /^[-*•]\s+/.test(l) || /^\d+[.)]\s+/.test(l))
+    .map((l) =>
+      l
+        .replace(/^[-*•]\s+/, '')
+        .replace(/^\d+[.)]\s+/, '')
+        .replace(/\*\*(.+?)\*\*/g, '$1')
+        .trim(),
+    );
+  for (const raw of bullets) {
+    const money = raw.match(COST_MONEY_RE);
+    if (!money) continue;
+    const withoutMoney = `${raw.slice(0, money.index)}${raw.slice((money.index || 0) + money[0].length)}`
+      .replace(/\(\s*\)/g, '')
+      .replace(/^\+?\s*[—–-]\s*/, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    const parts = withoutMoney
+      .split(/\s+[—–]\s+/)
+      .map((p) => p.trim())
+      .filter(Boolean);
+    let title = '';
+    if (parts.length >= 1) {
+      title = parts[0].replace(/[:\-–—]+$/, '').replace(/\(\s*$/, '').trim();
+      if (!title && parts[0]) {
+        const colon = parts[0].match(/^(.+?):\s*(.*)$/);
+        title = (colon ? colon[1] : parts[0]).replace(/\(\s*$/, '').trim();
+      }
+    }
+    if (title) return true;
+  }
+  return false;
+}
+
 /**
  * Pull Structure prose sections (cost/materials/timeline/…) out of homepage body
  * so they can render as designed bands instead of being dropped by intro-only extract.
- * Only markdown `#` / `##` / `###` lines are section boundaries (never body paragraphs).
+ * Only markdown `#` / `##` lines are section boundaries (`###` stays inside a section body).
  */
 export function extractHomepageProseSections(
   rawBody: string,
@@ -124,7 +176,7 @@ export function extractHomepageProseSections(
   };
 
   for (const raw of lines) {
-    const md = raw.match(/^#{1,3}\s+(.+)$/);
+    const md = raw.match(/^#{1,2}\s+(.+)$/);
     if (md) {
       flush();
       heading = md[1].trim();
@@ -138,8 +190,17 @@ export function extractHomepageProseSections(
   for (const chunk of chunks) {
     if (!chunk.heading || !chunk.body) continue;
     const id = classifyProseHeading(chunk.heading);
-    if (!id || !enabled.has(id) || found.has(id)) continue;
-    found.set(id, { id, heading: chunk.heading, body: chunk.body });
+    if (!id || !enabled.has(id)) continue;
+    const next: HomepageProseSection = { id, heading: chunk.heading, body: chunk.body };
+    const prev = found.get(id);
+    if (!prev) {
+      found.set(id, next);
+      continue;
+    }
+    // Prefer the cost chunk whose bullets parse as a cost table (teaser vs $ rows)
+    if (id === 'cost' && !bodyHasCostTableRows(prev.body) && bodyHasCostTableRows(next.body)) {
+      found.set(id, next);
+    }
   }
 
   // Stable Structure-ish order
@@ -154,16 +215,42 @@ export function extractHomepageProseSections(
   return order.map((id) => found.get(id)).filter(Boolean) as HomepageProseSection[];
 }
 
+const escHtml = (s: string) =>
+  s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+const escAttr = (s: string) =>
+  escHtml(s).replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+
+/**
+ * Inline light markdown: links, bold, italic. Strips image markdown
+ * (images belong in frontmatter / designed slots — never leave raw `![]()`).
+ */
+export function inlineLightMarkdown(src: string): string {
+  let s = String(src || '');
+  // Drop body images entirely (broken paths otherwise leak as literal text)
+  s = s.replace(/!\[([^\]]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g, '');
+  const links: string[] = [];
+  s = s.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (_m, label: string, href: string) => {
+    const i = links.length;
+    const safeHref = String(href || '').trim();
+    if (!safeHref || /^javascript:/i.test(safeHref)) {
+      links.push(escHtml(String(label || '')));
+    } else {
+      links.push(`<a href="${escAttr(safeHref)}">${escHtml(String(label || ''))}</a>`);
+    }
+    return `\u0000L${i}\u0000`;
+  });
+  return escHtml(s)
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*(.+?)\*/g, '<em>$1</em>')
+    .replace(/\u0000L(\d+)\u0000/g, (_m, i) => links[Number(i)] || '');
+}
+
 /** Light markdown → HTML for homepage prose bands. */
 export function simpleProseToHtml(src: string): string {
   const text = String(src || '').trim();
   if (!text) return '';
-  const esc = (s: string) =>
-    s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  const inline = (s: string) =>
-    esc(s)
-      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-      .replace(/\*(.+?)\*/g, '<em>$1</em>');
+  const inline = inlineLightMarkdown;
   const blocks = text.split(/\n{2,}/);
   const html: string[] = [];
   for (const block of blocks) {
