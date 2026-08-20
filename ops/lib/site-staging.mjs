@@ -12,7 +12,7 @@ import {
 } from 'node:fs';
 import path from 'node:path';
 import { getCandidateDetail, pathsFor, saveMeta } from './candidates.mjs';
-import { loadAcceptedSiteConfig, sanitizeMarkdownImageFrontmatter, ensureLocationFilesInMap } from './content-markdown.mjs';
+import { loadAcceptedSiteConfig, sanitizeMarkdownImageFrontmatter, ensureLocationFilesInMap, pruneLocationFilesToConfigured } from './content-markdown.mjs';
 import { buildBuildPackage } from './build-package.mjs';
 import { runTemplateContract } from './template-contract.mjs';
 import { applyArchetypeDefaults } from '../../scripts/lib/site-archetypes.mjs';
@@ -24,6 +24,7 @@ import {
 import { syncSiteImagesToPublic } from './fill-site-images.mjs';
 import { setCoverageMapOnMarkdown } from './generate-coverage-map.mjs';
 import { defaultPlaceholderSocialProof } from './site-config.mjs';
+import { rehydrateGalleryBaFrontmatter } from './chatgpt-before-after.mjs';
 
 const ROOT = process.cwd();
 
@@ -122,6 +123,9 @@ export function stageSiteContent(candidateId, { mode = 'full', refreshPackage = 
   const siteImagesRoot = pathsFor(candidateId).siteImages;
   const sanitizeOpts = { extraRoots: [siteImagesRoot] };
 
+  // Restore gallery-ba FM before sanitize/write (Accept may have dropped it)
+  const galleryBa = rehydrateGalleryBaFrontmatter(candidateId, { files });
+
   // Inject coverageMap FM when SVG exists but homepage omitted it (Accept/sanitize race)
   const coverageSvgExists =
     existsSync(path.join(siteImagesRoot, 'coverage-map.svg')) ||
@@ -146,21 +150,48 @@ export function stageSiteContent(candidateId, { mode = 'full', refreshPackage = 
   // Missing primary/suburb location pages (e.g. Accept before primary was required)
   const ensuredLocs = ensureLocationFilesInMap(files, config);
   Object.assign(files, ensuredLocs.files);
-  if (ensuredLocs.seeded.length && existsSync(p.content)) {
+  // Drop orphans left after targetSuburbs shrink (pre–4–6 serve/rank split)
+  const prunedLocs = pruneLocationFilesToConfigured(files, config);
+  Object.keys(files).forEach((k) => delete files[k]);
+  Object.assign(files, prunedLocs.files);
+
+  if ((ensuredLocs.seeded.length || prunedLocs.pruned.length) && existsSync(p.content)) {
     const acceptedContent = readJson(p.content);
     if (acceptedContent && typeof acceptedContent === 'object') {
-      const mergedFiles = { ...(acceptedContent.files || {}), ...Object.fromEntries(
-        ensuredLocs.seeded.map((rel) => [rel, files[rel]]),
-      ) };
+      let mergedFiles = { ...(acceptedContent.files || {}) };
+      for (const rel of ensuredLocs.seeded) {
+        if (files[rel]) mergedFiles[rel] = files[rel];
+      }
+      for (const rel of prunedLocs.pruned) {
+        delete mergedFiles[rel];
+      }
+      // Also drop any accepted location orphans not in current files map
+      for (const rel of Object.keys(mergedFiles)) {
+        if (!/^src\/content\/locations\/.+\.md$/i.test(rel.replace(/\\/g, '/'))) continue;
+        if (!files[rel]) delete mergedFiles[rel];
+      }
       writeJson(p.content, {
         ...acceptedContent,
         files: mergedFiles,
         _ops: {
           ...(acceptedContent._ops || {}),
-          locationSeededAt: new Date().toISOString(),
-          locationSeeded: [
-            ...new Set([...(acceptedContent._ops?.locationSeeded || []), ...ensuredLocs.seeded]),
-          ],
+          ...(ensuredLocs.seeded.length
+            ? {
+                locationSeededAt: new Date().toISOString(),
+                locationSeeded: [
+                  ...new Set([
+                    ...(acceptedContent._ops?.locationSeeded || []),
+                    ...ensuredLocs.seeded,
+                  ]),
+                ],
+              }
+            : {}),
+          ...(prunedLocs.pruned.length
+            ? {
+                locationPrunedAt: new Date().toISOString(),
+                locationPruned: prunedLocs.pruned,
+              }
+            : {}),
         },
       });
     }
@@ -219,6 +250,7 @@ export function stageSiteContent(candidateId, { mode = 'full', refreshPackage = 
     expectedCount: expected.length,
     serviceCount,
     locationCount,
+    locationPruned: prunedLocs.pruned,
     contract,
     nextSteps: [
       'Review research/{id}/site-staging/src/content/',
@@ -244,8 +276,10 @@ export function stageSiteContent(candidateId, { mode = 'full', refreshPackage = 
     pageIds,
     serviceCount,
     locationCount,
+    locationPruned: prunedLocs.pruned,
     contract,
     imageSync,
+    galleryBa,
     candidate: getCandidateDetail(candidateId),
   };
 }

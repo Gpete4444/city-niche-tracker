@@ -184,7 +184,11 @@ function pickPeople(rand, seedKey) {
     people.push({ gender, author, first, last, avatarUrl });
   }
 
-  return people;
+  // Google-style mix: 2 photoreal avatars + 1 initials circle
+  const initialsIdx = Math.floor(rand() * 3);
+  return people.map((p, i) =>
+    i === initialsIdx ? { ...p, avatarUrl: '' } : p,
+  );
 }
 
 /** First L. author pattern used by Rover seed (e.g. "Dorothy P."). */
@@ -203,8 +207,16 @@ function isRoverSeedReview(r) {
 
 function avatarNeedsUpgrade(avatarUrl) {
   const u = String(avatarUrl || '').trim();
-  if (!u) return true;
+  // Empty = intentional initials card; only SVG cartoons are stale.
+  if (!u) return false;
   return /\.svg(\?|$)/i.test(u);
+}
+
+function photoAvatarCount(reviews) {
+  return reviews.filter((r) => {
+    const u = String(r?.avatarUrl || '').trim();
+    return u && !/\.svg(\?|$)/i.test(u);
+  }).length;
 }
 
 /**
@@ -245,8 +257,8 @@ export function buildGoogleStyleSocialProof(city = 'Local', state = '', opts = {
       source: 'Google',
       date: dates[i],
       verified: true,
-      avatarUrl: p.avatarUrl,
     };
+    if (p.avatarUrl) row.avatarUrl = p.avatarUrl;
     if (locations[i]) row.location = locations[i];
     return row;
   });
@@ -295,6 +307,10 @@ export function socialProofNeedsSeed(config = {}) {
   if (reviews.length === 3 && reviews.every(isRoverSeedReview)) {
     if (reviews.some((r) => avatarNeedsUpgrade(r.avatarUrl))) return true;
     if (reviews.some((r) => !String(r.location || '').trim())) return true;
+    // All-three-photo packs → reseed to 2 photos + 1 initials
+    if (photoAvatarCount(reviews) === 3) return true;
+    // Zero photos (all initials) is also stale
+    if (photoAvatarCount(reviews) === 0) return true;
   }
   return false;
 }

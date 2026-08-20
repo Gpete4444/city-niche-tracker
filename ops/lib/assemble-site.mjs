@@ -11,11 +11,13 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
+  renameSync,
   rmSync,
   statSync,
   writeFileSync,
 } from 'node:fs';
 import path from 'node:path';
+import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { getCandidateDetail, pathsFor, saveMeta } from './candidates.mjs';
 import { loadAcceptedSiteConfig, sanitizeMarkdownImageFrontmatter } from './content-markdown.mjs';
@@ -28,8 +30,116 @@ import { stopAssembledPreviewSync } from './assembled-preview.mjs';
 
 const ROOT = process.cwd();
 
+/** Written under node_modules so buildAssembledSite can skip redundant npm install. */
+export const ROVER_DEPS_HASH_FILE = '.rover-deps-hash';
+
 function sleepSync(ms) {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+/**
+ * Stable identity of package.json + package-lock.json for install reuse.
+ * @param {string} siteRoot
+ */
+export function hashPackageDeps(siteRoot) {
+  const h = createHash('sha256');
+  for (const name of ['package.json', 'package-lock.json']) {
+    const p = path.join(siteRoot, name);
+    h.update(name);
+    h.update('\0');
+    if (existsSync(p)) h.update(readFileSync(p));
+    else h.update('missing');
+    h.update('\0');
+  }
+  return h.digest('hex');
+}
+
+/**
+ * @param {string} siteRoot
+ * @param {string} hash
+ */
+export function writeDepsHashMarker(siteRoot, hash) {
+  const nm = path.join(siteRoot, 'node_modules');
+  if (!existsSync(nm)) return;
+  writeFileSync(path.join(nm, ROVER_DEPS_HASH_FILE), `${hash}\n`, 'utf8');
+}
+
+/**
+ * @param {string} siteRoot
+ * @returns {boolean}
+ */
+export function depsHashMarkerMatches(siteRoot) {
+  const marker = path.join(siteRoot, 'node_modules', ROVER_DEPS_HASH_FILE);
+  if (!existsSync(marker)) return false;
+  const expected = hashPackageDeps(siteRoot);
+  const actual = readFileSync(marker, 'utf8').trim();
+  return Boolean(expected) && actual === expected;
+}
+
+/**
+ * Move node_modules aside before force-wipe so cold npm install is not required
+ * when package.json / lockfile are unchanged after template copy.
+ * @param {string} siteRoot
+ * @returns {{ stashDir: string, depsHash: string } | null}
+ */
+function stashNodeModules(siteRoot) {
+  const nm = path.join(siteRoot, 'node_modules');
+  if (!existsSync(nm) || !statSync(nm).isDirectory()) return null;
+  const depsHash = hashPackageDeps(siteRoot);
+  const stashDir = path.join(
+    path.dirname(siteRoot),
+    `.nm-stash-${path.basename(siteRoot)}-${process.pid}-${Date.now()}`,
+  );
+  if (existsSync(stashDir)) {
+    rmSync(stashDir, { recursive: true, force: true });
+  }
+  try {
+    renameSync(nm, stashDir);
+    return { stashDir, depsHash };
+  } catch {
+    try {
+      cpSync(nm, stashDir, { recursive: true });
+      rmSync(nm, { recursive: true, force: true });
+      return { stashDir, depsHash };
+    } catch {
+      return null;
+    }
+  }
+}
+
+/**
+ * Restore stashed node_modules only when dep files match the pre-wipe tree.
+ * @param {string} siteRoot
+ * @param {{ stashDir: string, depsHash: string } | null} stash
+ * @returns {{ restored: boolean }}
+ */
+function restoreOrDiscardNodeModules(siteRoot, stash) {
+  if (!stash?.stashDir || !existsSync(stash.stashDir)) return { restored: false };
+  const newHash = hashPackageDeps(siteRoot);
+  const dest = path.join(siteRoot, 'node_modules');
+  if (newHash && newHash === stash.depsHash) {
+    try {
+      if (existsSync(dest)) rmSync(dest, { recursive: true, force: true });
+      renameSync(stash.stashDir, dest);
+      writeDepsHashMarker(siteRoot, newHash);
+      return { restored: true };
+    } catch {
+      try {
+        cpSync(stash.stashDir, dest, { recursive: true });
+        rmSync(stash.stashDir, { recursive: true, force: true });
+        writeDepsHashMarker(siteRoot, newHash);
+        return { restored: true };
+      } catch {
+        /* fall through to discard */
+      }
+    }
+  }
+  try {
+    rmSync(stash.stashDir, { recursive: true, force: true });
+  } catch {
+    /* ignore */
+  }
+  return { restored: false };
 }
 
 /** Remove assembled site folder; stop :4322 first and retry on Windows locks. */
@@ -162,7 +272,73 @@ export function copyTemplateTree(destRoot) {
   walk('');
 }
 
-/** Overlay staging site-config + content onto assembled site. */
+/**
+ * True when assembled package.json + lock match the Rover template (safe to refresh in place).
+ * @param {string} siteRoot
+ */
+export function assembledPackageDepsMatchTemplate(siteRoot) {
+  if (!existsSync(siteRoot)) return false;
+  const templateHash = hashPackageDeps(ROOT);
+  const siteHash = hashPackageDeps(siteRoot);
+  return Boolean(templateHash) && templateHash === siteHash && Boolean(siteHash);
+}
+
+const TEMPLATE_LAYOUT_WATCH = [
+  'src/components',
+  'src/layouts',
+  'src/pages',
+  'src/lib',
+  'src/styles',
+];
+
+function newestMtimeUnder(absDir) {
+  let max = 0;
+  if (!existsSync(absDir)) return 0;
+  const walk = (dir) => {
+    let entries;
+    try {
+      entries = readdirSync(dir);
+    } catch {
+      return;
+    }
+    for (const name of entries) {
+      const p = path.join(dir, name);
+      let st;
+      try {
+        st = statSync(p);
+      } catch {
+        continue;
+      }
+      if (st.isDirectory()) walk(p);
+      else if (st.isFile()) max = Math.max(max, st.mtimeMs);
+    }
+  };
+  walk(absDir);
+  return max;
+}
+
+/**
+ * True when Rover template layout/code under src/ is newer than the assembled copy.
+ * Refresh injects content only — stale components need a full assemble.
+ * @param {string} siteRoot
+ */
+export function templateComponentsNewerThanAssembled(siteRoot) {
+  if (!existsSync(siteRoot)) return true;
+  let templateMax = 0;
+  let assembledMax = 0;
+  for (const rel of TEMPLATE_LAYOUT_WATCH) {
+    templateMax = Math.max(templateMax, newestMtimeUnder(path.join(ROOT, rel)));
+    assembledMax = Math.max(assembledMax, newestMtimeUnder(path.join(siteRoot, rel)));
+  }
+  if (!assembledMax) return true;
+  // 2s skew avoids false positives from near-simultaneous copies
+  return templateMax > assembledMax + 2000;
+}
+
+/**
+ * Overlay staging site-config + content onto assembled site.
+ * Skips rewriting files whose bytes are unchanged (keeps mtimes for skip-build).
+ */
 export function injectStagingIntoSite(siteRoot, stagingRoot) {
   const injected = [];
   const stagingSrc = path.join(stagingRoot, 'src');
@@ -184,13 +360,27 @@ export function injectStagingIntoSite(siteRoot, stagingRoot) {
         overlay(toRel);
       } else {
         mkdirSync(path.dirname(to), { recursive: true });
+        let nextBuf;
         if (name.endsWith('.md')) {
           const raw = readFileSync(from, 'utf8');
           const cleaned = sanitizeMarkdownImageFrontmatter(raw);
-          writeFileSync(to, cleaned.endsWith('\n') ? cleaned : `${cleaned}\n`, 'utf8');
+          const text = cleaned.endsWith('\n') ? cleaned : `${cleaned}\n`;
+          nextBuf = Buffer.from(text, 'utf8');
         } else {
-          cpSync(from, to);
+          nextBuf = readFileSync(from);
         }
+        if (existsSync(to)) {
+          try {
+            const prev = readFileSync(to);
+            if (prev.equals(nextBuf)) {
+              injected.push(toRel.replace(/\\/g, '/'));
+              continue;
+            }
+          } catch {
+            /* rewrite */
+          }
+        }
+        writeFileSync(to, nextBuf);
         injected.push(toRel.replace(/\\/g, '/'));
       }
     }
@@ -411,9 +601,16 @@ export function getAssembleChecklist(candidateId) {
 /**
  * Assemble a sibling site directory from this template + candidate staging.
  * @param {string} candidateId
- * @param {{ force?: boolean, skipGit?: boolean, siteSlug?: string }} [opts]
+ * @param {{ force?: boolean, refresh?: boolean, skipGit?: boolean, siteSlug?: string }} [opts]
+ *   - force: wipe + full template copy
+ *   - refresh: inject staging into existing site when package deps still match template;
+ *     falls back to full assemble if site missing or deps drifted
  */
-export function assembleSite(candidateId, { force = false, skipGit = false, siteSlug } = {}) {
+export function assembleSite(
+  candidateId,
+  { force = false, refresh = false, skipGit = false, siteSlug } = {},
+) {
+  const t0 = Date.now();
   const staging = getStagingSummary(candidateId);
   if (!staging) {
     const err = new Error('Stage content first (research/{id}/site-staging missing)');
@@ -424,7 +621,6 @@ export function assembleSite(candidateId, { force = false, skipGit = false, site
 
   const loaded = loadAcceptedSiteConfig(candidateId);
   const config = loaded?.config || {};
-  const detail = getCandidateDetail(candidateId);
   const slug =
     siteSlug ||
     (config.domain && !/^example\.com$/i.test(config.domain)
@@ -437,10 +633,11 @@ export function assembleSite(candidateId, { force = false, skipGit = false, site
 
   const sitesRoot = assembledSitesRoot();
   const siteRoot = path.join(sitesRoot, slug);
+  const siteExists = existsSync(siteRoot);
 
-  if (existsSync(siteRoot) && !force) {
+  if (siteExists && !force && !refresh) {
     const err = new Error(
-      `Assembled site already exists at ${siteRoot}. Pass force=true to replace.`,
+      `Assembled site already exists at ${siteRoot}. Pass force=true to replace or refresh=true to inject staging.`,
     );
     err.status = 409;
     err.siteRoot = siteRoot;
@@ -448,12 +645,42 @@ export function assembleSite(candidateId, { force = false, skipGit = false, site
     throw err;
   }
 
-  if (existsSync(siteRoot)) {
-    removeAssembledSiteRoot(siteRoot);
-  }
-  mkdirSync(sitesRoot, { recursive: true });
+  const canRefresh =
+    refresh &&
+    !force &&
+    siteExists &&
+    assembledPackageDepsMatchTemplate(siteRoot) &&
+    !templateComponentsNewerThanAssembled(siteRoot);
+  /** @type {'refresh'|'full'} */
+  const mode = canRefresh ? 'refresh' : 'full';
+  let nodeModulesRestored = false;
+  const fullReason =
+    mode === 'full' && refresh && !force
+      ? !siteExists
+        ? 'missing'
+        : !assembledPackageDepsMatchTemplate(siteRoot)
+          ? 'deps'
+          : templateComponentsNewerThanAssembled(siteRoot)
+            ? 'template'
+            : 'fallback'
+      : force
+        ? 'force'
+        : mode === 'full'
+          ? 'full'
+          : null;
 
-  copyTemplateTree(siteRoot);
+  if (mode === 'full') {
+    /** @type {{ stashDir: string, depsHash: string } | null} */
+    let nmStash = null;
+    if (existsSync(siteRoot)) {
+      nmStash = stashNodeModules(siteRoot);
+      removeAssembledSiteRoot(siteRoot);
+    }
+    mkdirSync(sitesRoot, { recursive: true });
+    copyTemplateTree(siteRoot);
+    nodeModulesRestored = restoreOrDiscardNodeModules(siteRoot, nmStash).restored;
+  }
+
   const stagingRoot = pathsFor(candidateId).siteStaging;
   const injected = injectStagingIntoSite(siteRoot, stagingRoot);
   const pruned = pruneUnstagedContentCollections(siteRoot, injected);
@@ -494,6 +721,7 @@ export function assembleSite(candidateId, { force = false, skipGit = false, site
   writeJson(path.join(siteRoot, '_assemble.json'), {
     candidateId,
     assembledAt: new Date().toISOString(),
+    assembleMode: mode,
     templateRoot: ROOT,
     templateRemote: getTemplateRemoteInfo(),
     stagingPath: path.relative(ROOT, stagingRoot).replace(/\\/g, '/'),
@@ -513,7 +741,7 @@ export function assembleSite(candidateId, { force = false, skipGit = false, site
     ],
   });
 
-  if (!skipGit) {
+  if (!skipGit && mode === 'full') {
     initGitRepo(siteRoot, {
       commitMessage: `Assemble ${slug} from staging (${candidateId})`,
     });
@@ -528,12 +756,16 @@ export function assembleSite(candidateId, { force = false, skipGit = false, site
 
   return {
     ok: true,
+    mode,
+    fullReason,
+    ms: Date.now() - t0,
     siteRoot: relPath,
     absoluteSiteRoot: siteRoot,
     slug,
     injected,
     prunedDemos: pruned,
     syncedContent: synced,
+    nodeModulesRestored,
     checklist: getAssembleChecklist(candidateId),
     candidate: getCandidateDetail(candidateId),
     nextSteps: [

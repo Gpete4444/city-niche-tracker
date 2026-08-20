@@ -1,6 +1,7 @@
 ---
 import { site, formatPhoneDisplay, phoneHref } from '../config/site';
 import FooterSocial from './FooterSocial.astro';
+import PhoneIcon from './PhoneIcon.astro';
 ---
 
 <footer class="border-t border-line bg-ink text-white">
@@ -29,7 +30,11 @@ import FooterSocial from './FooterSocial.astro';
     </div>
     <div class="space-y-2 text-sm">
       <p>
-        <a class="font-semibold text-white hover:text-accent" href={phoneHref()}>
+        <a
+          class="inline-flex items-center gap-2 font-semibold text-white hover:text-accent"
+          href={phoneHref()}
+        >
+          <PhoneIcon />
           {formatPhoneDisplay()}
         </a>
       </p>

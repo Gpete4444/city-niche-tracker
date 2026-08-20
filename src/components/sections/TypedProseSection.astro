@@ -1,5 +1,6 @@
 ---
 import TwoToneHeading from '../TwoToneHeading.astro';
+import PhoneIcon from '../PhoneIcon.astro';
 import { formatPhoneDisplay, phoneHref, site } from '../../config/site';
 import {
   extractMarkdownImage,
@@ -66,15 +67,12 @@ const optionRowsAll =
   variant === 'scope'
     ? parseOptionRows(bullets)
     : [];
-// Materials: zip rows to thumbs so box count matches photos when thumbs exist
-const optionRows =
-  isMaterials && rowImages.length > 0
-    ? optionRowsAll.slice(0, Math.min(optionRowsAll.length, rowImages.length))
-    : optionRowsAll;
-const materialsRowImages =
-  isMaterials && rowImages.length > 0
-    ? rowImages.slice(0, optionRows.length)
-    : rowImages;
+// Materials: all option rows; zip photos for first N only
+const MATERIALS_PHOTO_CAP = 6;
+const materialsThumbs = isMaterials
+  ? (rowImages || []).filter((img) => img?.src).slice(0, MATERIALS_PHOTO_CAP)
+  : [];
+const optionRows = optionRowsAll;
 const timelineStages = isTimeline ? parseTimelineStages(body) : [];
 const codesCompare = isCodes ? parseCodesColumns(body) : null;
 const codesIntroHtml =
@@ -117,11 +115,11 @@ const htmlFallback =
     : '';
 
 const wide =
-  isMaterials ||
   isDiy ||
   isTimeline ||
   isCodes ||
   isCost ||
+  isMaterials ||
   bullets.length > 3 ||
   Boolean(image) ||
   rowImages.length > 0;
@@ -144,7 +142,7 @@ const resolvedCta = showMiniCta
       id={headingId}
       mode="plain"
       text={heading}
-      class="mt-2 text-2xl sm:text-3xl"
+      class="mt-2 heading-section"
     />
 
     {
@@ -209,60 +207,54 @@ const resolvedCta = showMiniCta
           }
         </>
       ) : isMaterials ? (
-        <div class="mt-8">
-          {introHtml && <div class="prose-site max-w-3xl" set:html={introHtml} />}
+        <div class="mt-6">
+          {introHtml && <div class="prose-site max-w-3xl text-sm" set:html={introHtml} />}
           {
             optionRows.length > 0 ? (
-              <ul class="mt-6 space-y-3">
-                {optionRows.map((row, i) => (
-                  <li class="flex min-h-[4.5rem] overflow-hidden rounded-lg border border-line bg-surface-raised">
-                    <div class="flex min-w-0 flex-1 items-start gap-3 px-4 py-3">
-                      <span
-                        class="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full bg-accent/15 text-xs font-bold text-accent"
-                        aria-hidden="true"
-                      >
-                        ✓
-                      </span>
-                      <div class="min-w-0">
-                        <p class="font-semibold text-ink">{row.title}</p>
+              <ul class="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                {optionRows.map((row, i) => {
+                  const thumb = materialsThumbs[i] || null;
+                  return (
+                    <li class="overflow-hidden rounded-lg border border-line bg-surface-raised shadow-sm">
+                      {
+                        thumb ? (
+                          <img
+                            src={thumb.src}
+                            alt={thumb.alt || row.title}
+                            class="aspect-[4/3] w-full object-cover"
+                            width="480"
+                            height="360"
+                            loading="lazy"
+                            decoding="async"
+                            data-edit={
+                              editFile
+                                ? ve({
+                                    type: 'image',
+                                    file: editFile,
+                                    listKey: imageListKey || 'materialsImages',
+                                    index: i,
+                                    kind: 'image',
+                                    slotKey: `materials-${i + 1}`,
+                                  })
+                                : undefined
+                            }
+                          />
+                        ) : null
+                      }
+                      <div class="p-3 sm:p-4">
+                        <p class="font-display text-base font-semibold leading-snug text-ink">
+                          {row.title}
+                        </p>
                         {row.detail && (
-                          <p class="mt-0.5 text-sm leading-relaxed text-muted">{row.detail}</p>
+                          <p class="mt-2 text-sm leading-relaxed text-muted">{row.detail}</p>
                         )}
                       </div>
-                    </div>
-                      {
-                      materialsRowImages[i] && (
-                        <img
-                          src={materialsRowImages[i].src}
-                          alt={materialsRowImages[i].alt}
-                          class="h-auto w-24 shrink-0 self-stretch object-cover sm:w-28"
-                          width="112"
-                          height="84"
-                          loading="lazy"
-                          data-edit={
-                            editFile && imageListKey
-                              ? ve({
-                                  type: 'image',
-                                  file: editFile,
-                                  listKey: imageListKey,
-                                  index: i,
-                                  kind: 'image',
-                                  slotKey: imageListKey === 'materialsImages'
-                                    ? (editFile.includes('/services/')
-                                        ? `svcMaterials-${editFile.replace(/^.*\//, '').replace(/\.md$/, '')}-${i + 1}`
-                                        : `materials-${i + 1}`)
-                                    : undefined,
-                                })
-                              : undefined
-                          }
-                        />
-                      )
-                    }
-                  </li>
-                ))}
+                    </li>
+                  );
+                })}
               </ul>
             ) : htmlFallback ? (
-              <div class="prose-site mt-5" set:html={htmlFallback} />
+              <div class="prose-site mt-5 text-sm" set:html={htmlFallback} />
             ) : null
           }
         </div>
@@ -466,12 +458,13 @@ const resolvedCta = showMiniCta
 
     {
       showMiniCta && (
-        <div class="mt-4 flex flex-wrap items-center gap-x-3 gap-y-2">
+        <div class="mt-4 flex flex-col items-stretch gap-3 sm:flex-row sm:flex-wrap sm:items-center">
           {resolvedCta && <p class="text-sm text-ink/80">{resolvedCta}</p>}
-          <a href="#lead-form" class="btn-primary">
+          <a href="#lead-form" class="btn-primary w-full sm:w-auto">
             {site.primaryCta}
           </a>
-          <a href={phoneHref()} class="btn-secondary">
+          <a href={phoneHref()} class="btn-secondary hidden gap-2 md:inline-flex">
+            <PhoneIcon />
             Call {formatPhoneDisplay()}
           </a>
         </div>

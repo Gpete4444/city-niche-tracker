@@ -1,6 +1,6 @@
 ---
 title: "Cabinet Refacing in Columbia, SC"
-description: "Cabinet Refacing in Columbia, SC — new doors and veneer over your existing cabinet boxes. Licensed local team, free written estimates."
+description: "Cabinet Refacing in Columbia, SC — new doors and drawer fronts, licensed & insured, free written estimates. Free estimates available."
 h1: "Cabinet Refacing in Columbia, SC"
 serviceName: "Cabinet Refacing"
 heroImage:
@@ -10,14 +10,16 @@ cardImage:
   src: "/images/svcHero-3-bright-and-stylish-modern-kitchen-featur.jpg"
   alt: "Cabinet Refinishing & Remodeling Cabinet Refacing photo"
 materialsImages:
-  - src: "/images/materials-cabinet-refacing-1-wood-veneer-sheets.jpg"
-    alt: "Wood Plank Laminate Vinyl selection catalogue"
-  - src: "/images/materials-cabinet-refacing-2-rigid-thermofoil-doors.jpg"
-    alt: "Cabinet Refinishing & Remodeling Rigid thermofoil doors photo"
-  - src: "/images/materials-cabinet-refacing-3-solid-wood-doors.jpg"
-    alt: "Cabinet Refinishing & Remodeling Solid wood doors photo"
-  - src: "/images/materials-cabinet-refacing-4-soft-close-hinges-and-slides.jpg"
-    alt: "Cabinet Refinishing & Remodeling Soft-close hinges and slides photo"
+  - src: "/images/svcMaterials-1-wood-texture-background-surface-with-old-GtgdYsl2.jpg"
+    alt: "Cabinet Refinishing & Remodeling Wood veneer photo"
+  - src: "/images/svcMaterials-2-elegant-dining-area-featuring-light-blue-7546709.jpg"
+    alt: "Cabinet Refinishing & Remodeling Sprayed cabinet-grade enamel photo"
+  - src: "/images/svcMaterials-3-a-close-up-of-a-wood-grain-surface-N8CouWLR.jpg"
+    alt: "Cabinet Refinishing & Remodeling Conversion varnish topcoat photo"
+  - src: "/images/svcMaterials-4-close-up-view-of-an-orange-screwdriver-o-8478352.jpg"
+    alt: "Cabinet Refinishing & Remodeling Soft-close hinge hardware photo"
+  - src: "/images/svcMaterials-5-modern-minimalist-wooden-cabinet-with-in-12277217.jpg"
+    alt: "Cabinet Refinishing & Remodeling Contact adhesive rated for humidity photo"
 processImages:
   - src: "/images/process-cabinet-refacing-1-measure-and-select.jpg"
     alt: "Cabinet Refinishing & Remodeling Measure and select photo"
@@ -25,107 +27,103 @@ processImages:
     alt: "Cabinet Refinishing & Remodeling Order doors and veneer photo"
   - src: "/images/process-cabinet-refacing-3-door-and-hardware-removal.jpg"
     alt: "Cabinet Refinishing & Remodeling Door and hardware removal photo"
-  - src: "/images/process-cabinet-refacing-4-veneer-application.jpg"
-    alt: "Cabinet Refinishing & Remodeling Veneer application photo"
+  - src: "/images/svcProcess-4-black-leather-padded-chair-beside-brown-rETYyLQZ.jpg"
+    alt: "black leather padded chair beside brown wooden kitchen cabinet"
   - src: "/images/process-cabinet-refacing-5-new-door-installation.jpg"
     alt: "Cabinet Refinishing & Remodeling New door installation photo"
   - src: "/images/process-cabinet-refacing-6-hardware-installation.jpg"
     alt: "Cabinet Refinishing & Remodeling Hardware installation photo"
   - src: "/images/process-cabinet-refacing-7-trim-and-detail-work.jpg"
     alt: "Cabinet Refinishing & Remodeling Trim and detail work photo"
+  - src: "/images/process-cabinet-refacing-8-final-walkthrough.jpg"
+    alt: "Cabinet Refinishing & Remodeling Final walkthrough photo"
 ---
-Cabinet refacing replaces cabinet doors and drawer fronts and applies matching veneer to the existing boxes, giving a kitchen a full-replacement look without tearing out the cabinet structure. Company Brand Name handles refacing projects for Columbia homeowners who want new style without new-cabinet cost.
+Cabinet refacing replaces cabinet doors and drawer fronts while keeping the existing boxes in place, then refinishes the boxes so everything matches. Company Brand Name provides cabinet refacing for Columbia kitchens where the cabinet boxes are solid but the door style feels dated or worn.
+
+It sits between refinishing and full replacement in both cost and scope, giving homeowners a substantially new look without tearing out cabinetry that's still structurally sound.
 
 ## What's Included With Cabinet Refacing
 
-- **Typically included:** new doors and drawer fronts, matching veneer applied to exposed box surfaces, and new hardware
-- **Optional:** soft-close hinge and slide upgrades, interior organizers, crown molding additions
-- **Customer prep:** clearing cabinet contents and confirming door style before ordering
+- **Typically included:** new door and drawer fronts, box refinishing, new hinges, hardware installation
+- **Optional:** soft-close hinge upgrade, interior shelf refresh, matching veneer end panels
+- **Customer prep:** clearing cabinet interiors so boxes can be refinished in place
 
 ## How Our Cabinet Refacing Process Works
 
-**1. Consultation & measurements** — assess boxes and select door style, same day.
+- **Consultation** — Door style and finish selection based on cabinet condition
+- **Door removal** — Existing doors, drawer fronts, and hardware are removed
+- **Clean and repair** — Boxes are cleaned and any surface damage repaired
+- **Sanding** — Box surfaces are sanded for veneer or finish adhesion
+- **Priming** — Boxes are primed to accept the new finish
+- **Finishing** — New doors are installed and boxes refinished to match
+- **Cure** — Finish cures fully before hardware goes on
+- **Final walkthrough** — Doors and drawers are checked for even reveals and fit
 
-**2. Door & veneer ordering** — materials ordered to match, 1–2 weeks lead time.
+## What Does a Cabinet Refacing Cost in Columbia?
 
-**3. Old door removal** — doors and drawer fronts removed, same day.
+- **Small kitchen** — $4,500–$7,000 — fewer doors and drawer fronts
+- **Standard 10x10 kitchen** — $6,000–$12,000 — new doors/drawer fronts with boxes refinished
+- **Large kitchen** — $12,000–$18,000 — higher door count and larger box surface area
 
-**4. Veneer application** — exposed box surfaces veneered to match new doors, 1–2 days.
+These are estimate ranges — a free in-home visit gives an exact number for your kitchen.
 
-**5. New door install** — doors and drawer fronts hung, 1 day.
+## Materials and Methods for Cabinet Refacing
 
-**6. Hardware install** — new hinges, pulls, or knobs attached, same day.
-
-**7. Final walkthrough** — fit and finish inspected together, same day.
-
-## What Does a Cabinet Refacing Cost in Columbia, SC?
-
-- **Small kitchen (10x10)** — $6,000–$9,000 — standard door style and veneer
-- **Mid-size kitchen** — $9,000–$12,000 — additional cabinet runs and drawer fronts
-- **Premium door styles** — $12,000+ — solid wood doors and upgraded hardware
-
-Estimates vary with door count and material — [contact us](/contact) for a free written quote.
-
-## Materials & Methods for Cabinet Refacing
-
-- **Refacing veneer** — real-wood veneer matched to new doors for a smooth look
-- **Solid wood door fronts** — durable option that holds up well in humid kitchens
-- **Soft-close hinge hardware** — quieter, longer-lasting than standard hinges
-- **Moisture-resistant adhesive** — bonds veneer securely against Midlands humidity swings
+- **Stain-grade wood veneer for refacing** — Applied to existing boxes so the grain matches new solid-wood doors, avoiding the mismatched look of a laminate patch job.
+- **Sprayed cabinet-grade enamel** — Used on painted-finish refacing projects for a smooth, even coat across both new doors and refinished boxes.
+- **Conversion varnish topcoat** — Protects refaced surfaces from moisture and daily wear, a meaningful factor given the Midlands' humid summer stretch.
+- **Soft-close hinges and slides** — Nearly always installed with new doors, since old hinges rarely match new door thickness or hang properly.
+- **Cabinet-grade primer/sealer** — Prepares refinished box surfaces so the new finish bonds evenly with the veneer or new doors.
 
 ## How Long Does a Cabinet Refacing Take?
 
-Consult & measure — same day; Material lead time — 1–2 weeks; Door removal & veneer — 1–2 days; New door & hardware install — 1 day; Final walkthrough — same day.
+Refacing usually takes a bit longer than refinishing alone because of door fabrication time.
 
-## Permits & Codes for Cabinet Refacing in Columbia
+- **Consult and door selection** — same day
+- **Door fabrication lead time** — 1–2 weeks
+- **Box prep and refinishing** — 2–3 days
+- **Door install and adjustment** — 1–2 days
+
+## Permits and Codes for Cabinet Refacing
 
 ### Usually needs a permit
-- None — refacing does not alter the cabinet structure
+- Not typical for refacing on its own
 
 ### Usually no permit
-- Removing and replacing doors and drawer fronts
-- Applying veneer to existing cabinet boxes
-- Installing new hardware and hinges
+- Door and drawer front replacement on existing boxes
+- Refinishing the boxes to match new doors
+- Hardware and hinge upgrades done during refacing
 
-Confirm with your city or county if any structural changes are added to the project.
+Confirm with your local building department if the project adds electrical or plumbing scope.
 
 ## DIY vs Hiring a Pro for Cabinet Refacing
 
 ### DIY
-- Possible for a small number of doors with basic carpentry skills
-- Veneer application requires care to avoid bubbling or misalignment
+- Possible for a small number of cabinets with basic tools
+- Matching new door dimensions to existing hinges takes precise measuring
+- Uneven box refinishing next to new doors is a common DIY pitfall
 
 ### Hire a pro
-- Recommended for whole-kitchen refacing where veneer seams need to match smoothly
-- Ensures accurate door measurements and consistent hardware alignment
+- Coordinates door ordering with box refinishing so everything matches
+- Spray-finish equipment keeps box and door sheen consistent
+- Faster and more consistent result across a full kitchen
 
 ## When to Call for Cabinet Refacing
 
-- Cabinet boxes are structurally sound but doors look outdated or worn
-- Want a full-replacement look without full-replacement cost
-- Preparing a home for resale on a moderate renovation budget
+- Cabinet boxes are solid but doors look dated
+- You want a new look without a full cabinet replacement
+- Doors are damaged, warped, or no longer close flush
+- Preparing to sell and want a mid-range upgrade with strong resale return
 
-## Cabinet Refacing FAQs
+## Before and After Cabinet Refacing
 
-What is the average cost to reface a 10x10 kitchen cabinet?
-A standard 10x10 kitchen typically runs $6,000–$9,000 for refacing, including new doors, drawer fronts, and matching veneer.
+Dated raised-panel doors → New shaker-style doors with refinished boxes
+Worn laminate fronts → Stain-grade veneer refacing
 
-Is refacing cheaper than replacing cabinets?
-Refacing reuses the existing cabinet boxes, which is usually thousands of dollars less than a full cabinet replacement.
-
-How long does cabinet refacing take?
-Most refacing projects take two to three weeks total, largely due to lead time on ordering matching doors and veneer.
-
-Can any cabinet box be refaced?
-Solid, structurally sound boxes reface well. Water-damaged or warped boxes are usually better candidates for full remodeling instead.
-
-## Before & After Cabinet Refacing
-
-- Worn laminate doors → new veneer-matched wood doors
-- Mismatched hardware → coordinated soft-close hinges and pulls
-
-See more examples on our [homepage gallery](/).
+See more completed projects on the [homepage gallery](/).
 
 ## Get a Cabinet Refacing Estimate in Columbia
 
-Want the new-cabinet look without the full remodel? [Contact](/contact) Company Brand Name for a free estimate, or compare it with [Cabinet Refinishing](/services/cabinet-refinishing). [Home](/)
+Call **(385) 221-2770** for a free written estimate on cabinet refacing in Columbia, SC.
+
+[Home](/) | [Contact](/contact) | [Cabinet Refinishing](/services/cabinet-refinishing)

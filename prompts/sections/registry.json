@@ -212,7 +212,7 @@
       "maxImages": 6,
       "astroKey": "materials",
       "kind": "materials",
-      "writeInstructions": "Short intro + material option bullets (title — why it matters). Do NOT include markdown body images — photos come from Pull/frontmatter. Each title must name a concrete product, system, or method (not “professional grade” alone) and tie durability to local climate from City context when available."
+      "writeInstructions": "Short intro + 4–6 material option bullets. Each bullet: **Product/system name** — then 1–2 sentences (why it matters, climate or use cue from City context when available, durable outcome). Concrete photographable product names as titles (not “professional grade” alone). Do NOT include markdown body images — photos come from Rover Pull materialsImages (compact row thumbs)."
     },
     {
       "id": "timeline",
@@ -240,10 +240,9 @@
       "required": false,
       "defaultOn": false,
       "photoCapable": false,
-      "maxImages": 6,
       "astroKey": "gallery",
       "kind": "gallery",
-      "writeInstructions": "Problem → solution captions (→). Photos come from Rover ChatGPT before/after import — do not rely on stock Pull for this section."
+      "writeInstructions": "Optional short problem → solution captions (→). Photos come from Rover Website → ChatGPT before/after import (gallery-ba-*) — do not rely on stock Pull for this section. Never invent image paths."
     },
     {
       "id": "faqs",
@@ -361,8 +360,7 @@
       "defaultHeading": "Professional {serviceName} in {city}",
       "required": false,
       "defaultOn": true,
-      "photoCapable": true,
-      "maxImages": 1,
+      "photoCapable": false,
       "astroKey": null,
       "kind": "intro",
       "writeInstructions": "Max ~2 concise paragraphs defining this service. Service entity first; allow ONE natural {city} mention; city secondary. Unique materials/codes/stats. When the company acts, use full {businessName}. No street/landmark stuffing."
@@ -427,7 +425,7 @@
       "maxImages": 6,
       "astroKey": null,
       "kind": "materials",
-      "writeInstructions": "Short intro + material option bullets (title — why it matters). Do NOT include markdown body images — photos come from Pull/frontmatter materialsImages, one thumb per bullet. Each title must name a concrete product, system, or method for this serviceName (not “professional grade” alone) and tie durability to local climate from City context when available."
+      "writeInstructions": "Short intro + 4–6 material option bullets for this serviceName. Each bullet: **Product/system name** — then 1–2 sentences (why it matters for this service, climate or use cue from City context when available, durable outcome). Concrete product/system/method titles (not “professional grade” alone). Do NOT include markdown body images — photos come from Rover Pull materialsImages (compact row thumbs)."
     },
     {
       "id": "svcTimeline",
@@ -455,10 +453,9 @@
       "required": false,
       "defaultOn": false,
       "photoCapable": false,
-      "maxImages": 6,
       "astroKey": null,
       "kind": "gallery",
-      "writeInstructions": "Short problem → solution text lines only (→ or —). Service pages render caption cards, not photos — point readers to the homepage gallery for photo examples (e.g. link to `/`). Never invent image paths; ChatGPT before/after import is homepage-only."
+      "writeInstructions": "Optional short problem → solution caption lines (→ or —). Photos come from Rover Website → ChatGPT before/after import per service (svc-ba-{slug}-*) — never invent image paths or markdown body images. Do not rely on stock Pull."
     },
     {
       "id": "svcFaqs",
@@ -545,8 +542,7 @@
       "defaultHeading": "About {businessName}",
       "required": false,
       "defaultOn": true,
-      "photoCapable": true,
-      "maxImages": 2,
+      "photoCapable": false,
       "astroKey": null,
       "kind": "about",
       "writeInstructions": "Company story without invented history. Lead with service experience: how estimates work, materials/climate knowledge from City context (paraphrase), what homeowners can expect. Use the full {businessName} as the company subject. Local commitment without street/landmark stuffing. Use only socialProof facts from site-config."
@@ -752,9 +748,12 @@
         "contactInfo"
       ],
       "photos": {
+        "hero": true,
+        "intro": true,
         "services": true,
         "materials": true,
         "process": true,
+        "svcHero": true,
         "svcMaterials": true,
         "svcProcess": true
       }

@@ -1,14 +1,16 @@
 ---
-title: "About Company Brand Name | Columbia, SC"
-description: "Company Brand Name provides Cabinet Refinishing & Remodeling for Columbia, SC homeowners, with written estimates and finishes suited to Midlands humidity."
+title: "About Company Brand Name | Columbia Cabinet Refinishing"
+description: "Company Brand Name provides cabinet refinishing, refacing, and remodeling for Columbia, SC kitchens with free written estimates and a spray-finish process."
 h1: "About Company Brand Name"
 ---
-## About Company Brand Name — Columbia's Cabinet Refinishing Team
+Company Brand Name has spent over 15 years refinishing, refacing, and remodeling kitchen cabinets across Columbia and the Midlands, with more than 500 projects completed. The company is licensed and insured in South Carolina, and every job starts the same way: an in-home consultation, a walkthrough of the cabinets in question, and a color-match discussion before any pricing is put in writing.
 
-Company Brand Name focuses on one thing: cabinet refinishing, refacing, and remodeling for kitchens across Columbia, SC and the surrounding Midlands. Every project starts the same way — an in-home consultation where we measure the space, talk through color and finish options, and put together a written estimate before any work begins. Homeowners know the scope and price range up front, not after the job is underway.
+That in-home step matters. Columbia's housing stock ranges from older brick ranches with original wood cabinetry to newer construction with builder-grade boxes. Each condition calls for different prep.
 
-Columbia's warm, humid climate is part of how we choose materials. Cabinet finishes here take on more moisture stress than in drier regions, so we lean on catalyzed conversion varnishes and sprayed alkyd enamels that are built to resist swelling, peeling, and yellowing over time. That same approach carries into refacing and custom cabinetry work, where matching veneer and hardware need to hold up as well as they look on install day.
+Finish choice also has to hold up through the Midlands' humid summers. That's why Company Brand Name leans on cabinet-grade primers and conversion-varnish topcoats built to cure properly even in thick, humid air. Store-bought paint can stay tacky or yellow within a year.
 
-From first call to final walkthrough, homeowners can expect clear communication about timeline, masked-off work areas to contain dust and overspray, and a finished kitchen that matches what was discussed at the estimate. Company Brand Name is licensed and insured to work in South Carolina, with a 4.9-star average rating and more than 500 completed projects across Columbia and its suburbs.
+From the first consult, homeowners get a clear, written estimate before work begins — no verbal ballpark that changes once the crew arrives. During the project, doors and drawers are tagged and removed, surfaces are cleaned and repaired, and finish is applied with spray equipment for a smoother result than brush-only work. A final walkthrough confirms every door closes flush and every drawer glides before the job is considered done.
 
-[Contact](/contact) us today for a free estimate, or explore our [Cabinet Refinishing](/services/cabinet-refinishing) and [Kitchen Cabinet Remodeling](/services/kitchen-cabinet-remodeling) services.
+Company Brand Name's rating currently sits at 4.9 out of 5 across Google reviews, built on the same approach used on every job: clear communication, honest pricing, and a finish meant to last. Whether the project is a single accent cabinet or a full kitchen remodel, the goal is the same — a durable result homeowners are glad they called for.
+
+Ready to talk through your kitchen? [Contact](/contact) Company Brand Name for a free written estimate, or see the full range of [services](/) offered across Columbia and the surrounding Midlands.

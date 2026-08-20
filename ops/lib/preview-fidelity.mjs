@@ -114,7 +114,8 @@ export function missingLaunchContentPaths(files = {}, config = {}, pageIds = [])
   return expected.filter((rel) => !files[rel]);
 }
 
-function bodyLooksLikeStub(rel, markdown) {
+/** True when a service/location body is seed stub or too thin for Accept. */
+export function bodyLooksLikeStub(rel, markdown) {
   const raw = String(markdown || '');
   const m = raw.match(/^---\r?\n[\s\S]*?\r?\n---\r?\n?([\s\S]*)$/);
   const body = (m ? m[1] : raw).trim();
@@ -155,18 +156,33 @@ function bodyLooksLikeStub(rel, markdown) {
 }
 
 /**
- * Throw 400 with check payload when Structure-selected pages lack FILEs (or only stubs).
+ * Missing required paths + present stub/thin service/location files (Accept gate).
+ * @returns {{ expected: string[], missing: string[], stubs: string[], ok: boolean }}
  */
-export function assertLaunchContentComplete(files, config, pageIds, { label = 'Content' } = {}) {
-  const missing = missingLaunchContentPaths(files, config, pageIds);
+export function listLaunchContentGaps(files = {}, config = {}, pageIds = []) {
+  const expected = expectedLaunchContentPaths(config, pageIds);
+  const missing = expected.filter((rel) => !files[rel]);
   const stubs = [];
-  for (const rel of expectedLaunchContentPaths(config, pageIds)) {
+  for (const rel of expected) {
     if (!files[rel]) continue;
     if (!rel.includes('/services/') && !rel.includes('/locations/')) continue;
     if (bodyLooksLikeStub(rel, files[rel])) stubs.push(rel);
   }
-  if (!missing.length && !stubs.length) {
-    return { ok: true, missing: [], stubs: [], expected: expectedLaunchContentPaths(config, pageIds) };
+  return {
+    expected,
+    missing,
+    stubs,
+    ok: !missing.length && !stubs.length,
+  };
+}
+
+/**
+ * Throw 400 with check payload when Structure-selected pages lack FILEs (or only stubs).
+ */
+export function assertLaunchContentComplete(files, config, pageIds, { label = 'Content' } = {}) {
+  const { missing, stubs, expected, ok } = listLaunchContentGaps(files, config, pageIds);
+  if (ok) {
+    return { ok: true, missing: [], stubs: [], expected };
   }
   const parts = [];
   if (missing.length) {
@@ -192,6 +208,7 @@ export function assertLaunchContentComplete(files, config, pageIds, { label = 'C
     warnings: [],
     missing,
     stubs,
+    expected,
     mode: 'full',
   };
   throw err;

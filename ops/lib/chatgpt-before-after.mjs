@@ -68,24 +68,73 @@ function roomHint(niche, services) {
   return 'residential interior room';
 }
 
+function slugifyService(name) {
+  return String(name || '')
+    .toLowerCase()
+    .replace(/&/g, ' and ')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '');
+}
+
+/** Deduped residential + commercial services with slug + display name. */
+export function listConfiguredServiceTargets(candidateId) {
+  const config = loadConfig(candidateId);
+  const out = [];
+  const seen = new Set();
+  for (const name of [
+    ...(Array.isArray(config.services) ? config.services : []),
+    ...(Array.isArray(config.commercialServices) ? config.commercialServices : []),
+  ]) {
+    const serviceName = String(name || '').trim();
+    if (!serviceName) continue;
+    const slug = slugifyService(serviceName);
+    if (!slug || seen.has(slug)) continue;
+    seen.add(slug);
+    out.push({ slug, serviceName });
+  }
+  return out;
+}
+
+function resolveServiceTarget(candidateId, serviceSlug) {
+  const slug = slugifyService(serviceSlug);
+  if (!slug) {
+    throw Object.assign(new Error('serviceSlug required'), { status: 400 });
+  }
+  const hit = listConfiguredServiceTargets(candidateId).find((s) => s.slug === slug);
+  if (!hit) {
+    throw Object.assign(new Error(`Unknown service slug: ${slug}`), { status: 400 });
+  }
+  return hit;
+}
+
 /**
  * Build paste-ready ChatGPT image prompts for a candidate.
+ * Pass `{ serviceSlug }` for a service-page pair (scoped to that serviceName).
  */
-export function buildBeforeAfterPrompts(candidateId) {
+export function buildBeforeAfterPrompts(candidateId, opts = {}) {
   const config = loadConfig(candidateId);
   const niche = String(config.niche || 'home service').trim();
   const city = String(config.primaryCity || 'the local area').trim();
   const state = String(config.state || '').trim();
   const place = state ? `${city}, ${state}` : city;
-  const services = Array.isArray(config.services) ? config.services.slice(0, 3) : [];
+  const serviceSlug = opts.serviceSlug ? slugifyService(opts.serviceSlug) : '';
+  const serviceTarget = serviceSlug ? resolveServiceTarget(candidateId, serviceSlug) : null;
+  const focusName = serviceTarget?.serviceName || niche;
+  const services = serviceTarget
+    ? [serviceTarget.serviceName]
+    : Array.isArray(config.services)
+      ? config.services.slice(0, 3)
+      : [];
   const room = roomHint(niche, services);
-  const serviceLine = services.length
-    ? `Focus on ${services.slice(0, 2).join(' and ')}.`
-    : `Focus on typical ${niche.toLowerCase()} work.`;
+  const serviceLine = serviceTarget
+    ? `Focus specifically on ${serviceTarget.serviceName} (not other services).`
+    : services.length
+      ? `Focus on ${services.slice(0, 2).join(' and ')}.`
+      : `Focus on typical ${niche.toLowerCase()} work.`;
 
   const before = [
     `Create a single photorealistic BEFORE photo for a local ${niche} business website.`,
-    `Setting: a dated, worn ${room} in a real home in ${place}.`,
+    `Setting: a dated, worn ${room} in a real home in ${place} that needs ${focusName}.`,
     serviceLine,
     'Show clear need for professional work (wear, outdated finishes, clutter of materials OK).',
     'Straight-on documentary photo, natural window light, no people, no faces, no text, no logos, no watermarks, no UI.',
@@ -94,7 +143,7 @@ export function buildBeforeAfterPrompts(candidateId) {
 
   const after = [
     `Create a single photorealistic AFTER photo that matches the same camera angle and room layout as a before shot of a ${room} remodel.`,
-    `Setting: the same ${room} in ${place} after professional ${niche.toLowerCase()} work — clean, finished, inviting.`,
+    `Setting: the same ${room} in ${place} after professional ${focusName.toLowerCase()} work — clean, finished, inviting.`,
     serviceLine,
     'Same viewpoint and framing as a typical before photo of this room; only finishes and condition should change.',
     'Photoreal, natural light, no people, no faces, no text, no logos, no watermarks.',
@@ -103,7 +152,7 @@ export function buildBeforeAfterPrompts(candidateId) {
 
   const pair = [
     'I need a matched BEFORE and AFTER pair for a contractor website (two separate images).',
-    `Niche: ${niche}. Location vibe: ${place}. Room: ${room}.`,
+    `Niche: ${niche}. Service focus: ${focusName}. Location vibe: ${place}. Room: ${room}.`,
     serviceLine,
     '1) BEFORE: dated/worn room needing work.',
     '2) AFTER: same camera angle and layout after a professional remodel.',
@@ -115,6 +164,8 @@ export function buildBeforeAfterPrompts(candidateId) {
     city,
     state,
     room,
+    serviceSlug: serviceTarget?.slug || null,
+    serviceName: serviceTarget?.serviceName || null,
     before,
     after,
     pair,
@@ -286,24 +337,248 @@ function writeGalleryBaOnly(md, baEntries) {
   return patchGalleryOnMarkdown(md, galleryBaOnlyEntries(baEntries));
 }
 
-/**
- * Import a before+after pair from base64 data URLs into site-images + gallery FM.
- * Accepts either ordered before/after fields OR files[] with name/lastModified/dataUrl
- * (earlier filename time → Before).
- */
-export function importBeforeAfterPair(candidateId, body = {}) {
+function patchBeforeAfterImagesOnMarkdown(md, entries) {
+  if (!entries.length) {
+    const re = /^beforeAfterImages:\s*\n(?:(?:[ \t]+.*|-(?!-).*)\n)*/m;
+    if (re.test(md)) return md.replace(re, '');
+    return md;
+  }
+  const lines = entries.map(
+    (e) =>
+      `  - src: ${JSON.stringify(e.src)}\n    alt: ${JSON.stringify(e.alt)}`,
+  );
+  const block = `beforeAfterImages:\n${lines.join('\n')}`;
+  const re = /^beforeAfterImages:\s*\n(?:(?:[ \t]+.*|-(?!-).*)\n)*/m;
+  if (re.test(md)) return md.replace(re, `${block}\n`);
+  return md.replace(/^---\r?\n([\s\S]*?)\r?\n---/, (full, fm) => {
+    if (/^beforeAfterImages:/m.test(fm)) return full;
+    return `---\n${fm.trimEnd()}\n${block}\n---`;
+  });
+}
+
+function readExistingBeforeAfterImages(md) {
+  const m = String(md || '').match(
+    /^beforeAfterImages:\s*\n((?:(?:[ \t]+.*|-(?!-).*)\n)*)/m,
+  );
+  if (!m) return [];
+  const entries = [];
+  const chunks = m[1].split(/^[ \t]*-(?!-)[ \t]*/m).filter(Boolean);
+  for (const chunk of chunks) {
+    const src = chunk.match(/src:\s*["']?([^"'\n]+)["']?/);
+    const alt = chunk.match(/alt:\s*["']([^"']*)["']/) || chunk.match(/alt:\s*(.+)/);
+    if (src?.[1]) {
+      entries.push({
+        src: src[1].trim(),
+        alt: (alt?.[1] || '').trim() || 'Project photo',
+        filename: path.basename(src[1].trim()),
+      });
+    }
+  }
+  return entries;
+}
+
+function isSvcBaEntry(e, slug) {
+  const re = new RegExp(`^svc-ba-${slug}-\\d+-(before|after)\\.`, 'i');
+  return re.test(e.filename || path.basename(e.src || ''));
+}
+
+function svcBaPairFromDisk(siteImagesDir, slug, niche, serviceName) {
+  if (!existsSync(siteImagesDir)) return [];
+  const byRole = {};
+  for (const name of readdirSync(siteImagesDir)) {
+    const m = name.match(new RegExp(`^svc-ba-${slug}-(\\d+)-(before|after)\\.(\\w+)$`, 'i'));
+    if (!m) continue;
+    const role = m[2].toLowerCase();
+    byRole[role] = {
+      filename: name,
+      src: `/images/${name}`,
+      alt: `${role === 'before' ? 'Before' : 'After'} — ${serviceName || niche}`,
+    };
+  }
+  const out = [];
+  if (byRole.before) out.push(byRole.before);
+  if (byRole.after) out.push(byRole.after);
+  return out;
+}
+
+function findServiceFileKey(files, slug) {
+  return Object.keys(files || {}).find((k) => {
+    const norm = k.replace(/\\/g, '/');
+    return new RegExp(`content/services/${slug}\\.md$`, 'i').test(norm);
+  });
+}
+
+function deleteSvcBaFilesForSlug(dirs, slug) {
+  let deleted = 0;
+  const re = new RegExp(`^svc-ba-${slug}-\\d+-(before|after)\\.`, 'i');
+  for (const dir of dirs) {
+    if (!dir || !existsSync(dir)) continue;
+    for (const name of readdirSync(dir)) {
+      if (!re.test(name)) continue;
+      try {
+        unlinkSync(path.join(dir, name));
+        deleted += 1;
+      } catch {
+        // ignore
+      }
+    }
+  }
+  return deleted;
+}
+
+/** Collect gallery-ba-* entries from site-images, preserving alts from existing FM when present. */
+function collectGalleryBaFromDisk(candidateId) {
   const p = pathsFor(candidateId);
+  if (!existsSync(p.siteImages)) return [];
+
   const config = loadConfig(candidateId);
   const niche = String(config.niche || 'remodel').trim();
-  const city = String(config.primaryCity || '').trim();
 
-  mkdirSync(p.siteImages, { recursive: true });
+  const priorByName = new Map();
+  for (const key of ['content', 'contentDraft']) {
+    const file = p[key];
+    if (!existsSync(file)) continue;
+    try {
+      const doc = JSON.parse(readFileSync(file, 'utf8'));
+      const indexKey = Object.keys(doc.files || {}).find((k) => /pages\/index\.md$/i.test(k));
+      if (!indexKey) continue;
+      for (const e of readExistingGallery(doc.files[indexKey]).filter(isGalleryBaEntry)) {
+        if (e.filename) priorByName.set(e.filename, e.alt);
+      }
+    } catch {
+      // ignore
+    }
+  }
+  const liveIndex = path.join(ROOT, 'src', 'content', 'pages', 'index.md');
+  if (existsSync(liveIndex)) {
+    try {
+      for (const e of readExistingGallery(readFileSync(liveIndex, 'utf8')).filter(isGalleryBaEntry)) {
+        if (e.filename && !priorByName.has(e.filename)) priorByName.set(e.filename, e.alt);
+      }
+    } catch {
+      // ignore
+    }
+  }
 
-  let beforeDecoded;
-  let afterDecoded;
-  let beforeOrigName = '';
-  let afterOrigName = '';
+  const allBa = [];
+  for (const name of readdirSync(p.siteImages)) {
+    const m = name.match(/^gallery-ba-(\d+)-(before|after)\.(\w+)$/i);
+    if (!m) continue;
+    const role = m[2].toLowerCase();
+    allBa.push({
+      filename: name,
+      src: `/images/${name}`,
+      alt: priorByName.get(name) || `${role === 'before' ? 'Before' : 'After'} — ${niche}`,
+    });
+  }
+  return galleryBaOnlyEntries(allBa);
+}
 
+/**
+ * Restore homepage gallery: and service beforeAfterImages from site-images.
+ */
+export function rehydrateGalleryBaFrontmatter(candidateId, { files } = {}) {
+  const p = pathsFor(candidateId);
+  const homeEntries = collectGalleryBaFromDisk(candidateId);
+  let patched = 0;
+  const services = [];
+
+  if (homeEntries.length) {
+    if (files && typeof files === 'object') {
+      const indexKey = Object.keys(files).find((k) => /pages\/index\.md$/i.test(k));
+      if (indexKey && typeof files[indexKey] === 'string') {
+        const next = writeGalleryBaOnly(files[indexKey], homeEntries);
+        files[indexKey] = next.endsWith('\n') ? next : `${next}\n`;
+        patched += 1;
+      }
+    }
+    for (const key of ['content', 'contentDraft']) {
+      const file = p[key];
+      if (!existsSync(file)) continue;
+      try {
+        const doc = JSON.parse(readFileSync(file, 'utf8'));
+        if (!doc?.files) continue;
+        const indexKey = Object.keys(doc.files).find((k) => /pages\/index\.md$/i.test(k));
+        if (!indexKey) continue;
+        const next = writeGalleryBaOnly(doc.files[indexKey], homeEntries);
+        doc.files[indexKey] = next.endsWith('\n') ? next : `${next}\n`;
+        writeJson(file, doc);
+        patched += 1;
+      } catch {
+        // ignore
+      }
+    }
+    const liveIndex = path.join(ROOT, 'src', 'content', 'pages', 'index.md');
+    if (existsSync(liveIndex)) {
+      try {
+        const md = readFileSync(liveIndex, 'utf8');
+        const next = writeGalleryBaOnly(md, homeEntries);
+        writeFileSync(liveIndex, next.endsWith('\n') ? next : `${next}\n`, 'utf8');
+        patched += 1;
+      } catch {
+        // ignore
+      }
+    }
+  }
+
+  const niche = String(loadConfig(candidateId).niche || 'remodel').trim();
+  for (const target of listConfiguredServiceTargets(candidateId)) {
+    const entries = svcBaPairFromDisk(p.siteImages, target.slug, niche, target.serviceName);
+    if (!entries.length) continue;
+    services.push({ slug: target.slug, serviceName: target.serviceName, entries });
+    const withAlts = entries.map((e) => ({ ...e }));
+    const applyAltsFromMd = (md) => {
+      for (const prior of readExistingBeforeAfterImages(md).filter((x) =>
+        isSvcBaEntry(x, target.slug),
+      )) {
+        const hit = withAlts.find((x) => x.filename === prior.filename);
+        if (hit && prior.alt) hit.alt = prior.alt;
+      }
+    };
+    if (files && typeof files === 'object') {
+      const svcKey = findServiceFileKey(files, target.slug);
+      if (svcKey && typeof files[svcKey] === 'string') {
+        applyAltsFromMd(files[svcKey]);
+        const next = patchBeforeAfterImagesOnMarkdown(files[svcKey], withAlts);
+        files[svcKey] = next.endsWith('\n') ? next : `${next}\n`;
+        patched += 1;
+      }
+    }
+    for (const key of ['content', 'contentDraft']) {
+      const file = p[key];
+      if (!existsSync(file)) continue;
+      try {
+        const doc = JSON.parse(readFileSync(file, 'utf8'));
+        if (!doc?.files) continue;
+        const svcKey = findServiceFileKey(doc.files, target.slug);
+        if (!svcKey) continue;
+        applyAltsFromMd(doc.files[svcKey]);
+        const next = patchBeforeAfterImagesOnMarkdown(doc.files[svcKey], withAlts);
+        doc.files[svcKey] = next.endsWith('\n') ? next : `${next}\n`;
+        writeJson(file, doc);
+        patched += 1;
+      } catch {
+        // ignore
+      }
+    }
+    const liveSvc = path.join(ROOT, 'src', 'content', 'services', `${target.slug}.md`);
+    if (existsSync(liveSvc)) {
+      try {
+        const md = readFileSync(liveSvc, 'utf8');
+        applyAltsFromMd(md);
+        const next = patchBeforeAfterImagesOnMarkdown(md, withAlts);
+        writeFileSync(liveSvc, next.endsWith('\n') ? next : `${next}\n`, 'utf8');
+        patched += 1;
+      } catch {
+        // ignore
+      }
+    }
+  }
+
+  return { ok: true, count: homeEntries.length, patched, entries: homeEntries, services };
+}
+
+function decodeImportPair(body) {
   const files = Array.isArray(body.files) ? body.files.filter((f) => f?.dataUrl) : [];
   if (files.length >= 2) {
     const scored = files.slice(0, 2).map((f, i) => ({
@@ -312,12 +587,14 @@ export function importBeforeAfterPair(candidateId, body = {}) {
       i,
     }));
     scored.sort((a, b) => a.score - b.score || a.i - b.i);
-    beforeDecoded = decodeDataUrl(scored[0].dataUrl);
-    afterDecoded = decodeDataUrl(scored[1].dataUrl);
-    beforeOrigName = String(scored[0].name || '');
-    afterOrigName = String(scored[1].name || '');
-  } else if (body.beforeDataUrl && body.afterDataUrl) {
-    // Legacy: still sort if original names provided
+    return {
+      beforeDecoded: decodeDataUrl(scored[0].dataUrl),
+      afterDecoded: decodeDataUrl(scored[1].dataUrl),
+      beforeOrigName: String(scored[0].name || ''),
+      afterOrigName: String(scored[1].name || ''),
+    };
+  }
+  if (body.beforeDataUrl && body.afterDataUrl) {
     const a = {
       dataUrl: body.beforeDataUrl,
       name: body.beforeName || body.beforeAlt || '',
@@ -331,16 +608,101 @@ export function importBeforeAfterPair(candidateId, body = {}) {
     const scored = [a, b]
       .map((f, i) => ({ ...f, score: scoreOriginalFileTime(f.name, f.lastModified), i }))
       .sort((x, y) => x.score - y.score || x.i - y.i);
-    beforeDecoded = decodeDataUrl(scored[0].dataUrl);
-    afterDecoded = decodeDataUrl(scored[1].dataUrl);
-    beforeOrigName = String(scored[0].name || '');
-    afterOrigName = String(scored[1].name || '');
-  } else {
-    throw Object.assign(
-      new Error('Provide files[2] with dataUrl (or beforeDataUrl + afterDataUrl)'),
-      { status: 400 },
-    );
+    return {
+      beforeDecoded: decodeDataUrl(scored[0].dataUrl),
+      afterDecoded: decodeDataUrl(scored[1].dataUrl),
+      beforeOrigName: String(scored[0].name || ''),
+      afterOrigName: String(scored[1].name || ''),
+    };
   }
+  throw Object.assign(
+    new Error('Provide files[2] with dataUrl (or beforeDataUrl + afterDataUrl)'),
+    { status: 400 },
+  );
+}
+
+function importServiceBeforeAfterPair(candidateId, body = {}) {
+  const p = pathsFor(candidateId);
+  const config = loadConfig(candidateId);
+  const city = String(config.primaryCity || '').trim();
+  const target = resolveServiceTarget(candidateId, body.serviceSlug);
+  const { beforeDecoded, afterDecoded, beforeOrigName, afterOrigName } = decodeImportPair(body);
+  mkdirSync(p.siteImages, { recursive: true });
+  deleteSvcBaFilesForSlug(
+    [
+      p.siteImages,
+      path.join(ROOT, 'public', 'images'),
+      existsSync(p.siteStaging) ? path.join(p.siteStaging, 'public', 'images') : null,
+    ],
+    target.slug,
+  );
+  const beforeName = `svc-ba-${target.slug}-1-before.${beforeDecoded.ext}`;
+  const afterName = `svc-ba-${target.slug}-1-after.${afterDecoded.ext}`;
+  writeFileSync(path.join(p.siteImages, beforeName), beforeDecoded.buffer);
+  writeFileSync(path.join(p.siteImages, afterName), afterDecoded.buffer);
+  const label = `${target.serviceName}${city ? ` in ${city}` : ''}`;
+  const newEntries = [
+    {
+      filename: beforeName,
+      src: `/images/${beforeName}`,
+      alt: `Before — ${beforeOrigName || `${label} (ChatGPT)`}`.slice(0, 160),
+    },
+    {
+      filename: afterName,
+      src: `/images/${afterName}`,
+      alt: `After — ${afterOrigName || `${label} (ChatGPT)`}`.slice(0, 160),
+    },
+  ];
+  let patched = 0;
+  for (const key of ['content', 'contentDraft']) {
+    const file = p[key];
+    if (!existsSync(file)) continue;
+    try {
+      const doc = JSON.parse(readFileSync(file, 'utf8'));
+      if (!doc?.files) continue;
+      const svcKey = findServiceFileKey(doc.files, target.slug);
+      if (!svcKey) continue;
+      doc.files[svcKey] = patchBeforeAfterImagesOnMarkdown(doc.files[svcKey], newEntries);
+      writeJson(file, doc);
+      patched += 1;
+    } catch {
+      // ignore
+    }
+  }
+  const liveSvc = path.join(ROOT, 'src', 'content', 'services', `${target.slug}.md`);
+  if (existsSync(liveSvc)) {
+    const md = readFileSync(liveSvc, 'utf8');
+    writeFileSync(liveSvc, patchBeforeAfterImagesOnMarkdown(md, newEntries), 'utf8');
+    patched += 1;
+  }
+  syncSiteImagesToPublic(candidateId);
+  saveMeta(candidateId, { lastServiceBeforeAfterImportAt: new Date().toISOString() });
+  return {
+    ok: true,
+    scope: 'service',
+    serviceSlug: target.slug,
+    serviceName: target.serviceName,
+    pairIndex: 1,
+    files: newEntries,
+    orderedByTime: true,
+    patched,
+    candidate: getCandidateDetail(candidateId),
+  };
+}
+
+/**
+ * Import a before+after pair. Pass serviceSlug for service-page pairs.
+ */
+export function importBeforeAfterPair(candidateId, body = {}) {
+  if (body.serviceSlug) return importServiceBeforeAfterPair(candidateId, body);
+
+  const p = pathsFor(candidateId);
+  const config = loadConfig(candidateId);
+  const niche = String(config.niche || 'remodel').trim();
+  const city = String(config.primaryCity || '').trim();
+  const { beforeDecoded, afterDecoded, beforeOrigName, afterOrigName } = decodeImportPair(body);
+
+  mkdirSync(p.siteImages, { recursive: true });
 
   const deletedStock = deleteStockBeforeAfterFiles([
     p.siteImages,
@@ -348,7 +710,6 @@ export function importBeforeAfterPair(candidateId, body = {}) {
     existsSync(p.siteStaging) ? path.join(p.siteStaging, 'public', 'images') : null,
   ]);
 
-  // Heal any already-on-disk inverted pairs before writing new ones
   const existingBa = [];
   if (existsSync(p.siteImages)) {
     for (const name of readdirSync(p.siteImages)) {
@@ -357,7 +718,6 @@ export function importBeforeAfterPair(candidateId, body = {}) {
       }
     }
   }
-  // Prefer alts from content FM when healing
   for (const key of ['content', 'contentDraft']) {
     const file = p[key];
     if (!existsSync(file)) continue;
@@ -391,7 +751,6 @@ export function importBeforeAfterPair(candidateId, body = {}) {
     { filename: afterName, src: `/images/${afterName}`, alt: afterAlt },
   ];
 
-  // Collect all gallery-ba entries on disk after write
   const allBa = [];
   for (const name of readdirSync(p.siteImages)) {
     const m = name.match(/^gallery-ba-(\d+)-(before|after)\.(\w+)$/i);
@@ -416,7 +775,6 @@ export function importBeforeAfterPair(candidateId, body = {}) {
     if (!doc?.files) continue;
     const indexKey = Object.keys(doc.files).find((k) => /pages\/index\.md$/i.test(k));
     if (!indexKey) continue;
-    // Preserve alts from prior BA FM where possible
     const prior = readExistingGallery(doc.files[indexKey]).filter(isGalleryBaEntry);
     const merged = allBa.map((e) => {
       const old = prior.find((p0) => p0.filename === e.filename);
@@ -441,19 +799,62 @@ export function importBeforeAfterPair(candidateId, body = {}) {
     patched += 1;
   }
 
-  // Sync + remove stock copies that sync might have left
   syncSiteImagesToPublic(candidateId);
   deleteStockBeforeAfterFiles([path.join(ROOT, 'public', 'images')]);
-
   saveMeta(candidateId, { lastBeforeAfterImportAt: new Date().toISOString() });
 
   return {
     ok: true,
+    scope: 'home',
     pairIndex,
     files: newEntries,
     orderedByTime: true,
     deletedStock,
     patched,
     candidate: getCandidateDetail(candidateId),
+  };
+}
+
+/**
+ * Preview status for Website Review Images (home + per-service pairs on disk).
+ */
+export function listBeforeAfterStatus(candidateId) {
+  const p = pathsFor(candidateId);
+  const niche = String(loadConfig(candidateId).niche || 'remodel').trim();
+  let structure = null;
+  const structurePath = path.join(path.dirname(p.meta), `${p.id}-content-structure.json`);
+  if (existsSync(structurePath)) {
+    try {
+      structure = JSON.parse(readFileSync(structurePath, 'utf8'));
+    } catch {
+      // ignore
+    }
+  }
+  const svcBaEnabled = Boolean(structure?.sections?.includes('svcBeforeAfter'));
+  const pages = structure?.pages || [];
+  const servicesPageOn = !pages.length || pages.includes('services');
+  const homeEntries = collectGalleryBaFromDisk(candidateId);
+  const homeBefore = homeEntries.find((e) => /before\./i.test(e.filename));
+  const homeAfter = homeEntries.find((e) => /after\./i.test(e.filename));
+  const services = listConfiguredServiceTargets(candidateId).map((t) => {
+    const entries = svcBaPairFromDisk(p.siteImages, t.slug, niche, t.serviceName);
+    return {
+      slug: t.slug,
+      serviceName: t.serviceName,
+      before: entries.find((e) => /before\./i.test(e.filename)) || null,
+      after: entries.find((e) => /after\./i.test(e.filename)) || null,
+      complete: entries.length >= 2,
+    };
+  });
+  return {
+    ok: true,
+    home: {
+      before: homeBefore || null,
+      after: homeAfter || null,
+      complete: Boolean(homeBefore && homeAfter),
+      pairs: homeEntries,
+    },
+    svcBeforeAfterEnabled: svcBaEnabled && servicesPageOn,
+    services,
   };
 }

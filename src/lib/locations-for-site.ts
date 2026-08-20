@@ -24,22 +24,34 @@ function norm(s: string) {
     .toLowerCase();
 }
 
-function allowedCities(site: SiteGeo): Set<string> {
+/** Cities that get real /locations pages: primary + targetSuburbs. */
+export function seoLocationCities(site: SiteGeo): Set<string> {
   const cities = new Set<string>();
   if (site.primaryCity) cities.add(norm(site.primaryCity));
   for (const s of site.targetSuburbs || []) {
-    if (s) cities.add(norm(s));
-  }
-  for (const a of site.coverageAreas || []) {
-    if (a?.name) cities.add(norm(a.name));
+    if (s) cities.add(norm(String(s)));
   }
   return cities;
 }
 
+function coverageCityNames(site: SiteGeo): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const a of site.coverageAreas || []) {
+    const name = String(a?.name || '').trim();
+    if (!name) continue;
+    const key = norm(name);
+    if (seen.has(key)) continue;
+    if (a?.state && site.state && norm(a.state) !== norm(site.state)) continue;
+    seen.add(key);
+    out.push(name);
+  }
+  return out;
+}
+
 /**
- * Keep non-draft location entries for this site's state.
- * Prefer cities in primaryCity / targetSuburbs / coverageAreas when any are set;
- * if that preference empties the list, keep all same-state entries.
+ * Location MD entries for SEO pages only (primary + targetSuburbs).
+ * Prefer that set; if empty match, fall back to same-state entries filtered by SEO names only.
  */
 export function filterLocationsForSite<T extends LocationEntryLike>(
   entries: T[],
@@ -49,13 +61,24 @@ export function filterLocationsForSite<T extends LocationEntryLike>(
   const sameState = (entries || []).filter(
     (e) => !e.data.draft && norm(e.data.state) === siteState,
   );
-  const prefer = allowedCities(site);
+  const prefer = seoLocationCities(site);
   if (!prefer.size) return sameState;
   const preferred = sameState.filter((e) => prefer.has(norm(e.data.city)));
-  return preferred.length ? preferred : sameState;
+  return preferred.length ? preferred : sameState.filter((e) => prefer.has(norm(e.data.city)));
 }
 
-/** Fallback chips from site-config when no matching location Markdown exists. */
+/**
+ * Coverage cities without a location page — for “Also serving” (link to contact).
+ */
+export function alsoServingLinks(site: SiteGeo): LocationLink[] {
+  const state = String(site.state || '').trim().toUpperCase();
+  const seo = seoLocationCities(site);
+  return coverageCityNames(site)
+    .filter((name) => !seo.has(norm(name)))
+    .map((city) => ({ city, state, href: '/contact' }));
+}
+
+/** @deprecated Prefer alsoServingLinks + filterLocationsForSite */
 export function locationLinksFromSite(site: SiteGeo): LocationLink[] {
   const state = String(site.state || '').trim().toUpperCase();
   const seen = new Set<string>();
@@ -83,7 +106,7 @@ export function locationLinksFromSite(site: SiteGeo): LocationLink[] {
 }
 
 /**
- * Location links for homepage / nav: filtered MD pages, or site-config fallback.
+ * Location links for homepage / nav: filtered MD pages, or SEO city fallback to contact.
  */
 export function locationLinksForSite<T extends LocationEntryLike>(
   entries: T[],
@@ -98,5 +121,16 @@ export function locationLinksForSite<T extends LocationEntryLike>(
       href: `/locations/${e.id}`,
     }));
   }
-  return locationLinksFromSite(site);
+  const seo = seoLocationCities(site);
+  const state = String(site.state || '').trim().toUpperCase();
+  const out: LocationLink[] = [];
+  if (site.primaryCity && seo.has(norm(site.primaryCity))) {
+    out.push({ city: site.primaryCity, state, href: '/contact' });
+  }
+  for (const s of site.targetSuburbs || []) {
+    const name = String(s || '').trim();
+    if (!name) continue;
+    out.push({ city: name, state, href: '/contact' });
+  }
+  return out;
 }

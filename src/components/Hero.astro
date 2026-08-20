@@ -1,6 +1,7 @@
 ---
 import { site, formatPhoneDisplay, phoneHref, socialProofHasTrustStrip } from '../config/site';
 import LeadForm from './LeadForm.astro';
+import PhoneIcon from './PhoneIcon.astro';
 import TwoToneHeading from './TwoToneHeading.astro';
 import { ve } from '../lib/visual-edit';
 
@@ -33,7 +34,25 @@ const {
 const trustBits =
   socialProofHasTrustStrip(site.socialProof)
     ? [
-        ...(site.socialProof?.statistics ?? []).slice(0, 2).map((s) => `${s.value} ${s.label}`),
+        ...(site.socialProof?.statistics ?? [])
+          .filter((s) => {
+            const rating = site.socialProof?.rating;
+            if (!rating) return true;
+            const label = String(s.label || '');
+            const value = String(s.value || '');
+            if (/average\s+customer\s+rating/i.test(label)) return false;
+            const num = parseFloat(value.replace(/[^\d.]/g, ''));
+            if (
+              Number.isFinite(num) &&
+              Math.abs(num - rating.value) < 0.05 &&
+              /rating|★|\*/i.test(`${value} ${label}`)
+            ) {
+              return false;
+            }
+            return true;
+          })
+          .slice(0, 2)
+          .map((s) => `${s.value} ${s.label}`),
         ...(site.socialProof?.licenses ?? []).slice(0, 1).map((l) => l.name),
       ].slice(0, 3)
     : [];
@@ -76,8 +95,8 @@ const trustBits =
   </div>
   <div
     class:list={[
-      'relative mx-auto max-w-6xl px-4 py-12 sm:px-6 sm:py-16',
-      showForm && 'grid items-center gap-10 lg:grid-cols-[minmax(0,1fr)_minmax(320px,420px)] lg:gap-14',
+      'relative mx-auto max-w-6xl px-4 py-10 sm:px-6 sm:py-14 lg:py-16',
+      showForm && 'grid items-center gap-8 sm:gap-10 lg:grid-cols-[minmax(0,1fr)_minmax(320px,420px)] lg:gap-14',
     ]}
   >
     <div class="animate-rise">
@@ -103,7 +122,7 @@ const trustBits =
           site.primaryCity ? `in ${site.primaryCity}` : null,
           site.primaryCity,
         ]}
-        class="max-w-3xl text-3xl leading-tight sm:text-5xl"
+        class="heading-display max-w-3xl"
       />
       </div>
       <p
@@ -144,9 +163,10 @@ const trustBits =
             </a>
             <a
               href={phoneHref()}
-              class="btn-secondary border-white/30 bg-white/10 text-white hover:bg-white/20"
+              class="btn-secondary hidden gap-2 border-white/30 bg-white/10 text-white hover:bg-white/20 md:inline-flex"
               data-edit={ve({ type: 'config', key: 'phone', kind: 'text' })}
             >
+              <PhoneIcon />
               Call {formatPhoneDisplay()}
             </a>
           </div>
@@ -154,12 +174,13 @@ const trustBits =
       }
       {
         showCtas && showForm && (
-          <div class="mt-7">
+          <div class="mt-7 hidden md:block">
             <a
               href={phoneHref()}
-              class="btn-secondary border-white/30 bg-white/10 text-white hover:bg-white/20"
+              class="btn-secondary gap-2 border-white/30 bg-white/10 text-white hover:bg-white/20 md:inline-flex"
               data-edit={ve({ type: 'config', key: 'phone', kind: 'text' })}
             >
+              <PhoneIcon />
               Call {formatPhoneDisplay()}
             </a>
           </div>
@@ -171,8 +192,8 @@ const trustBits =
     </div>
     {
       showForm && (
-        <div class="animate-rise-delay">
-          <LeadForm compact heading="Get your free estimate" />
+        <div class="mx-auto w-full max-w-md animate-rise-delay lg:mx-0 lg:max-w-none">
+          <LeadForm compact heading="Get a free estimate" />
         </div>
       )
     }

@@ -1,114 +1,128 @@
 ---
 title: "Cabinet Repair & Restoration in Columbia, SC"
-description: "Cabinet Repair & Restoration in Columbia, SC — fix damaged doors, drawers, and finishes. Licensed local team, free written estimates."
+description: "Cabinet Repair & Restoration in Columbia, SC for water damage and wear, licensed & insured crews, and free written estimates. Free estimates."
 h1: "Cabinet Repair & Restoration in Columbia, SC"
 serviceName: "Cabinet Repair & Restoration"
 heroImage:
-  src: "/images/svcHero-8-top-view-of-vintage-tools-on-a-wooden-ta.jpg"
+  src: "/images/svcHero-8-a-kitchen-with-wooden-cabinets-and-a-whi-Q2Osqxoh.jpg"
   alt: "Cabinet Refinishing & Remodeling Cabinet Repair & Restoration photo"
 cardImage:
-  src: "/images/svcHero-8-top-view-of-vintage-tools-on-a-wooden-ta.jpg"
+  src: "/images/svcHero-8-a-kitchen-with-wooden-cabinets-and-a-whi-Q2Osqxoh.jpg"
   alt: "Cabinet Refinishing & Remodeling Cabinet Repair & Restoration photo"
 materialsImages:
-  - src: "/images/materials-cabinet-repair-and-restoration-1-wood-filler-and-epoxy.jpg"
-    alt: "Cabinet Refinishing & Remodeling Wood filler and epoxy photo"
-  - src: "/images/materials-cabinet-repair-and-restoration-2-moisture-resistant-sealant.jpg"
+  - src: "/images/svcMaterials-1-a-wooden-dresser-sitting-on-top-of-a-har-sv72NWiu.jpg"
+    alt: "Cabinet Refinishing & Remodeling Moisture-resistant wood filler photo"
+  - src: "/images/svcMaterials-2-a-close-up-of-a-wood-surface-DYfCW2Qm.jpg"
+    alt: "Cabinet Refinishing & Remodeling Structural wood glue photo"
+  - src: "/images/svcMaterials-3-organized-kitchen-drawer-with-plates-spi-BngKr53Z.jpg"
+    alt: "Cabinet Refinishing & Remodeling Soft-close hinges and slides photo"
+  - src: "/images/svcMaterials-4-macro-image-of-water-droplets-on-wet-woo-6961.jpg"
     alt: "Cabinet Refinishing & Remodeling Moisture-resistant sealant photo"
-  - src: "/images/materials-cabinet-repair-and-restoration-3-matching-stain-and-touch-up-finishes.jpg"
-    alt: "Cabinet Refinishing & Remodeling Matching stain and touch-up finishes photo"
-  - src: "/images/materials-cabinet-repair-and-restoration-4-replacement-hinges-and-slides.jpg"
-    alt: "Cabinet Refinishing & Remodeling Replacement hinges and slides photo"
+  - src: "/images/svcMaterials-5-closeup-of-white-drips-from-paint-on-gre-5691680.jpg"
+    alt: "Cabinet Refinishing & Remodeling Moisture-resistant primer photo"
 processImages:
-  - src: "/images/process-cabinet-repair-and-restoration-1-damage-assessment.jpg"
-    alt: "Cabinet Refinishing & Remodeling Damage assessment photo"
+  - src: "/images/svcProcess-1-white-kitchen-table-AwOG1tC5.jpg"
+    alt: "Cabinet Refinishing & Remodeling Step 1: Damage assessment photo"
   - src: "/images/process-cabinet-repair-and-restoration-2-repair-plan.jpg"
     alt: "Cabinet Refinishing & Remodeling Repair plan photo"
   - src: "/images/process-cabinet-repair-and-restoration-3-structural-repair.jpg"
     alt: "Cabinet Refinishing & Remodeling Structural repair photo"
   - src: "/images/process-cabinet-repair-and-restoration-4-door-and-drawer-repair.jpg"
     alt: "Cabinet Refinishing & Remodeling Door and drawer repair photo"
-  - src: "/images/process-cabinet-repair-and-restoration-5-moisture-sealing.jpg"
-    alt: "Cabinet Refinishing & Remodeling Moisture sealing photo"
+  - src: "/images/svcProcess-5-a-woman-measures-a-kitchen-drawer-with-a-jw1iy64k.jpg"
+    alt: "Cabinet Refinishing & Remodeling Step 5: Hardware & final check photo"
+  - src: "/images/process-cabinet-repair-and-restoration-6-primer-and-finish-application.jpg"
+    alt: "Cabinet Refinishing & Remodeling Primer and finish application photo"
+  - src: "/images/process-cabinet-repair-and-restoration-7-hardware-check.jpg"
+    alt: "CABINET MAKER"
+  - src: "/images/process-cabinet-repair-and-restoration-8-final-walkthrough.jpg"
+    alt: "white wooden kitchen cabinet with mirror"
 ---
-Cabinet repair and restoration fixes damaged doors, drawers, hinges, and finishes rather than replacing the whole cabinet. Company Brand Name handles repair work for Columbia homeowners dealing with water damage, loose joints, or worn finishes on otherwise sound cabinetry.
+Cabinet repair and restoration fixes damage — water swelling, loose joints, broken hinges, chipped panels — without replacing the cabinet itself. Company Brand Name provides cabinet repair and restoration for Columbia homeowners who want a targeted fix rather than a full refinishing or remodeling project.
+
+It's frequently the first step before refinishing, since repaired surfaces need to be structurally sound before a new finish goes on.
 
 ## What's Included With Cabinet Repair & Restoration
 
-- **Typically included:** structural repair of doors and drawer boxes, hinge and hardware replacement, and finish touch-up or spot refinishing
-- **Optional:** full drawer box rebuild, water-damage sealing and reinforcement
-- **Customer prep:** pointing out all known problem areas before the estimate visit
+- **Typically included:** damage assessment, wood repair or replacement of small components, hinge and hardware fixes, spot-finish touch-up
+- **Optional:** full refinishing of the repaired cabinet to blend the touch-up smoothly
+- **Customer prep:** clearing the area around the damaged cabinet for access
 
 ## How Our Cabinet Repair & Restoration Process Works
 
-Step 1: Damage assessment — inspect doors, drawers, and boxes, same day.
-Step 2: Repair plan — scope and cost outlined in writing, same day.
-Step 3: Structural repair — joints, water damage, or warping addressed, 1–2 days.
-Step 4: Finish touch-up — repaired areas blended into existing finish, 1 day.
-Step 5: Hardware & final check — hinges and hardware reattached, function tested, same day.
+- **Assessment** — Damage is inspected to determine repair vs. replacement needs
+- **Door removal** — Affected doors or drawers are removed if needed
+- **Cleaning** — Damaged areas are cleaned of moisture, mold, or debris
+- **Repair** — Wood filler, epoxy, or component replacement addresses the damage
+- **Sanding** — Repaired areas are sanded smooth
+- **Priming** — A cabinet-grade primer preps the repair for finish matching
+- **Finish touch-up** — Paint or stain is matched and applied to the repaired area
+- **Final walkthrough** — Repair is checked for structural fit and finish match
 
-## What Does a Cabinet Repair & Restoration Cost in Columbia, SC?
+## What Does a Cabinet Repair & Restoration Cost in Columbia?
 
-- **Minor repairs (hinges, small chips)** — $500–$1,200 — spot fixes and touch-up
-- **Moderate repairs (water damage, loose joints)** — $1,200–$2,200 — structural repair and finish blending
-- **Extensive restoration (multiple cabinets)** — $2,200–$3,000+ — broader structural and finish work
+- **Minor repair (a few doors or drawers)** — $250–$600 — small chips, loose hinges, minor swelling
+- **Moderate repair (water damage, multiple components)** — $600–$1,800 — sink-base water damage, panel replacement
+- **Extensive restoration (structural or multiple boxes)** — $1,800–$4,000 — larger structural or multi-cabinet repair
 
-Costs vary with damage extent — [contact us](/contact) for a free assessment and estimate.
+A free assessment provides an exact quote once the damage is inspected in person.
 
-## Materials & Methods for Cabinet Repair & Restoration
+## Materials and Methods for Cabinet Repair & Restoration
 
-- **Wood epoxy filler** — rebuilds damaged or rotted wood sections before finishing
-- **Moisture-resistant sealant** — applied to repaired joints to guard against future humidity damage
-- **Blended finish matching** — sprayed touch-up coats matched to the existing cabinet color
-- **Soft-close hinge hardware** — replaces worn or broken hinges during repair
+- **Wood filler and epoxy repair** — The primary tool for rebuilding chipped edges, swollen panel corners, and stripped screw holes before refinishing.
+- **Cabinet-grade primer/sealer** — Used to seal repaired areas so the finish match holds and doesn't peel at the repair line.
+- **Soft-close hinges and slides** — Often installed during hinge repair, since replacing old hinges with soft-close hardware fixes the underlying wear issue as well.
+- **Moisture-resistant sealant** — Applied around sink-base cabinets prone to water exposure, a common repair need given the Midlands' humid climate and frequent under-sink leaks.
+- **Conversion varnish topcoat** — Used on the finish touch-up so the repaired section matches the durability of the surrounding cabinet finish, not just the color.
 
 ## How Long Does a Cabinet Repair & Restoration Take?
 
-Assessment — same day; Structural repair — 1–2 days; Finish touch-up — 1 day; Hardware & final check — same day; most repairs complete within a few days.
+Repair timelines depend heavily on the extent of the damage found during assessment.
 
-## Permits & Codes for Cabinet Repair & Restoration in Columbia
+- **Assessment** — same day
+- **Repair and drying time** — 1–3 days
+- **Finish touch-up and cure** — 1–2 days
+
+## Permits and Codes for Cabinet Repair & Restoration
 
 ### Usually needs a permit
-- None — cabinet repair is corrective work on existing cabinetry
+- Not typical for cabinet-level repair work
 
 ### Usually no permit
-- Structural repair of doors, drawers, and boxes
-- Hinge and hardware replacement
-- Finish touch-up and spot refinishing
+- Wood repair and component replacement
+- Hinge and hardware fixes
+- Finish touch-up and color matching
+
+Confirm with your local building department if the underlying damage involves plumbing repair.
 
 ## DIY vs Hiring a Pro for Cabinet Repair & Restoration
 
 ### DIY
-- Workable for minor fixes like a loose hinge or small chip
-- Water damage and structural joint repair are harder to match invisibly on your own
+- Fine for very minor cosmetic chips with basic wood filler
+- Matching an existing finish color exactly is difficult without professional products
+- Water damage can hide worse issues behind the visible surface
 
 ### Hire a pro
-- Recommended for water damage, warping, or repairs where finish blending needs to be smooth
-- Reduces the risk of a repair that stands out against the surrounding finish
+- Proper assessment catches structural issues DIY repair often misses
+- Finish matching blends the repair invisibly into the rest of the cabinet
+- Faster, more durable fix for water damage or hinge failure
 
 ## When to Call for Cabinet Repair & Restoration
 
-- Water damage or swelling has appeared near the sink or dishwasher
-- Doors or drawers no longer close properly due to loose joints
-- Finish is chipped or worn in isolated spots rather than throughout the kitchen
+- Visible water damage or swelling near the sink base
+- Doors or drawers that no longer close flush due to hinge wear
+- Chipped, cracked, or loose cabinet panels
+- Wanting a repair before committing to a full refinishing project
 
-## Cabinet Repair & Restoration FAQs
+## Before and After Cabinet Repair & Restoration
 
-Is it cheaper to repair cabinets than replace them?
-Repair is almost always cheaper than replacement when the damage is isolated to a few doors, drawers, or joints rather than the whole kitchen.
+Water-swollen sink base → Repaired and refinished cabinet panel
+Loose, misaligned hinges → Restored, properly hung doors
 
-Can water-damaged cabinets be restored?
-Many water-damaged cabinets can be repaired if the wood hasn't fully rotted — epoxy filler and resealing address most moderate damage.
-
-How do you match a repaired area to the rest of the finish?
-Touch-up coats are color-matched and blended into the surrounding finish so the repair doesn't stand out.
-
-## Before & After Cabinet Repair & Restoration
-
-- Water-swollen door → repaired, resealed, and refinished to match
-- Loose, sagging drawer box → rebuilt joints with matching finish touch-up
-
-See more examples on our [homepage gallery](/).
+See more completed projects on the [homepage gallery](/).
 
 ## Get a Cabinet Repair & Restoration Estimate in Columbia
 
-Dealing with damaged cabinets? [Contact](/contact) Company Brand Name for a free assessment, or consider [Cabinet Refinishing](/services/cabinet-refinishing) if the whole kitchen needs an update. [Home](/)
+Call **(385) 221-2770** for a free written estimate on cabinet repair and restoration in Columbia, SC.
+
+[Home](/) | [Contact](/contact) | [Cabinet Refinishing](/services/cabinet-refinishing)

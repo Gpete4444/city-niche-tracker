@@ -84,10 +84,315 @@ function polygonsFromGeometry(geometry) {
   return geometry.type === 'Polygon' ? [geometry.coordinates] : geometry.coordinates;
 }
 
+const CLUSTER_PX = 110;
+const LABEL_PAD = 8;
+const LEADER_THRESHOLD = 18;
+const CHIP_H = 32;
+
+function estimateChip(name, state) {
+  const st = String(state || '')
+    .trim()
+    .toUpperCase();
+  const city = String(name || '').trim();
+  const text = st ? `${city}, ${st}` : city;
+  const w = Math.min(200, Math.max(68, Math.round(text.length * 8.2 + 18)));
+  return { w, h: CHIP_H, text };
+}
+
+function labelRectAt(cx, cy, w, h) {
+  return { x: cx - w / 2, y: cy - h / 2, w, h };
+}
+
+function rectsOverlap(a, b, pad = LABEL_PAD) {
+  return !(
+    a.x + a.w + pad <= b.x ||
+    b.x + b.w + pad <= a.x ||
+    a.y + a.h + pad <= b.y ||
+    b.y + b.h + pad <= a.y
+  );
+}
+
+function clampChipCenter(cx, cy, w, h, bounds) {
+  return [
+    Math.min(bounds.maxX - w / 2, Math.max(bounds.minX + w / 2, cx)),
+    Math.min(bounds.maxY - h / 2, Math.max(bounds.minY + h / 2, cy)),
+  ];
+}
+
+/** Nearest point on chip rect edge to the anchor (for leader endpoints). */
+function nearestPointOnChip(anchorX, anchorY, labelX, labelY, w, h) {
+  const left = labelX - w / 2;
+  const right = labelX + w / 2;
+  const top = labelY - h / 2;
+  const bottom = labelY + h / 2;
+  const x = Math.min(right, Math.max(left, anchorX));
+  const y = Math.min(bottom, Math.max(top, anchorY));
+  if (x === anchorX && y === anchorY) {
+    const toL = anchorX - left;
+    const toR = right - anchorX;
+    const toT = anchorY - top;
+    const toB = bottom - anchorY;
+    const m = Math.min(toL, toR, toT, toB);
+    if (m === toL) return [left, anchorY];
+    if (m === toR) return [right, anchorY];
+    if (m === toT) return [anchorX, top];
+    return [anchorX, bottom];
+  }
+  return [x, y];
+}
+
+function perimeterLength(bounds) {
+  const W = bounds.maxX - bounds.minX;
+  const H = bounds.maxY - bounds.minY;
+  return 2 * (W + H);
+}
+
+function pointOnPerimeter(bounds, t) {
+  const W = bounds.maxX - bounds.minX;
+  const H = bounds.maxY - bounds.minY;
+  const P = 2 * (W + H);
+  let u = ((t % P) + P) % P;
+  if (u <= W) return [bounds.minX + u, bounds.minY];
+  u -= W;
+  if (u <= H) return [bounds.maxX, bounds.minY + u];
+  u -= H;
+  if (u <= W) return [bounds.maxX - u, bounds.maxY];
+  u -= H;
+  return [bounds.minX, bounds.maxY - u];
+}
+
+function perimeterT(bounds, x, y) {
+  const W = bounds.maxX - bounds.minX;
+  const H = bounds.maxY - bounds.minY;
+  const dl = Math.abs(x - bounds.minX);
+  const dr = Math.abs(x - bounds.maxX);
+  const dt = Math.abs(y - bounds.minY);
+  const db = Math.abs(y - bounds.maxY);
+  const m = Math.min(dl, dr, dt, db);
+  if (m === dt) return Math.min(W, Math.max(0, x - bounds.minX));
+  if (m === dr) return W + Math.min(H, Math.max(0, y - bounds.minY));
+  if (m === db) return W + H + Math.min(W, Math.max(0, bounds.maxX - x));
+  return W + H + W + Math.min(H, Math.max(0, bounds.maxY - y));
+}
+
+function sideOfPoint(bounds, x, y) {
+  const dl = Math.abs(x - bounds.minX);
+  const dr = Math.abs(x - bounds.maxX);
+  const dt = Math.abs(y - bounds.minY);
+  const db = Math.abs(y - bounds.maxY);
+  const m = Math.min(dl, dr, dt, db);
+  if (m === dt) return 'top';
+  if (m === db) return 'bottom';
+  if (m === dl) return 'left';
+  return 'right';
+}
+
+/** Ray from origin through target, hit map content rectangle edge. */
+function rayHitEdge(bounds, ox, oy, tx, ty) {
+  let dx = tx - ox;
+  let dy = ty - oy;
+  let len = Math.hypot(dx, dy);
+  if (len < 1e-6) {
+    dx = tx - (bounds.minX + bounds.maxX) / 2;
+    dy = ty - (bounds.minY + bounds.maxY) / 2;
+    len = Math.hypot(dx, dy) || 1;
+  }
+  dx /= len;
+  dy /= len;
+
+  let bestT = Infinity;
+  let best = [tx, ty];
+  const tryEdge = (t, x, y) => {
+    if (t <= 0 || t >= bestT) return;
+    bestT = t;
+    best = [x, y];
+  };
+  if (Math.abs(dx) > 1e-9) {
+    const tL = (bounds.minX - ox) / dx;
+    const yL = oy + tL * dy;
+    if (yL >= bounds.minY - 0.5 && yL <= bounds.maxY + 0.5) tryEdge(tL, bounds.minX, yL);
+    const tR = (bounds.maxX - ox) / dx;
+    const yR = oy + tR * dy;
+    if (yR >= bounds.minY - 0.5 && yR <= bounds.maxY + 0.5) tryEdge(tR, bounds.maxX, yR);
+  }
+  if (Math.abs(dy) > 1e-9) {
+    const tT = (bounds.minY - oy) / dy;
+    const xT = ox + tT * dx;
+    if (xT >= bounds.minX - 0.5 && xT <= bounds.maxX + 0.5) tryEdge(tT, xT, bounds.minY);
+    const tB = (bounds.maxY - oy) / dy;
+    const xB = ox + tB * dx;
+    if (xB >= bounds.minX - 0.5 && xB <= bounds.maxX + 0.5) tryEdge(tB, xB, bounds.maxY);
+  }
+  return best;
+}
+
+function spreadSlotsOnSides(slots, bounds) {
+  const groups = { top: [], right: [], bottom: [], left: [] };
+  for (const s of slots) {
+    groups[sideOfPoint(bounds, s.x, s.y)].push(s);
+  }
+  for (const side of ['top', 'right', 'bottom', 'left']) {
+    const g = groups[side];
+    if (g.length < 2) continue;
+    const horizontal = side === 'top' || side === 'bottom';
+    g.sort((a, b) => (horizontal ? a.x - b.x : a.y - b.y));
+    const min = horizontal ? bounds.minX : bounds.minY;
+    const max = horizontal ? bounds.maxX : bounds.maxY;
+    const span = max - min;
+    const step = span / (g.length + 1);
+    g.forEach((s, i) => {
+      const pos = min + step * (i + 1);
+      if (side === 'top') {
+        s.x = pos;
+        s.y = bounds.minY;
+      } else if (side === 'bottom') {
+        s.x = pos;
+        s.y = bounds.maxY;
+      } else if (side === 'left') {
+        s.x = bounds.minX;
+        s.y = pos;
+      } else {
+        s.x = bounds.maxX;
+        s.y = pos;
+      }
+      const [cx, cy] = clampChipCenter(s.x, s.y, s.node.chip.w, s.node.chip.h, bounds);
+      s.x = cx;
+      s.y = cy;
+      s.t = perimeterT(bounds, s.x, s.y);
+    });
+  }
+}
+
 /**
- * @param {object} config site-config JSON
- * @param {string} outputPath absolute path for SVG
+ * Dense-cluster margin callouts + compact chips; sparse cities may sit on pin.
+ * @param {Array<{ area: object, anchor: [number, number] }>} items
+ * @param {{ minX: number, maxX: number, minY: number, maxY: number }} bounds
+ * @returns {Map<string, { anchor: [number, number], label: [number, number], useLeader: boolean, chipW: number, chipH: number, chipText: string }>}
  */
+function placeSeoLabels(items, bounds) {
+  const nodes = items.map((item) => {
+    const name = String(item.area.name || '').trim();
+    const state = String(item.area.state || '').trim();
+    const chip = estimateChip(name, state);
+    return {
+      area: item.area,
+      anchor: item.anchor,
+      key: `${item.area.name}|${item.area.state}`,
+      chip,
+      dense: false,
+    };
+  });
+
+  for (let i = 0; i < nodes.length; i += 1) {
+    for (let j = i + 1; j < nodes.length; j += 1) {
+      const d = Math.hypot(
+        nodes[i].anchor[0] - nodes[j].anchor[0],
+        nodes[i].anchor[1] - nodes[j].anchor[1],
+      );
+      if (d < CLUSTER_PX) {
+        nodes[i].dense = true;
+        nodes[j].dense = true;
+      }
+    }
+  }
+
+  const placedRects = [];
+  const result = new Map();
+  const peri = perimeterLength(bounds);
+
+  const collides = (rect) => placedRects.some((p) => rectsOverlap(rect, p, LABEL_PAD));
+
+  const commitSlot = (node, x, y, useLeader) => {
+    const [cx, cy] = clampChipCenter(x, y, node.chip.w, node.chip.h, bounds);
+    placedRects.push(labelRectAt(cx, cy, node.chip.w, node.chip.h));
+    result.set(node.key, {
+      anchor: [...node.anchor],
+      label: [cx, cy],
+      useLeader:
+        useLeader || Math.hypot(cx - node.anchor[0], cy - node.anchor[1]) >= LEADER_THRESHOLD,
+      chipW: node.chip.w,
+      chipH: node.chip.h,
+      chipText: node.chip.text,
+    });
+  };
+
+  const placeMarginFan = (group) => {
+    if (!group.length) return;
+    const cx = group.reduce((s, n) => s + n.anchor[0], 0) / group.length;
+    const cy = group.reduce((s, n) => s + n.anchor[1], 0) / group.length;
+
+    const ordered = [...group].sort((a, b) => {
+      const aa = Math.atan2(a.anchor[1] - cy, a.anchor[0] - cx);
+      const bb = Math.atan2(b.anchor[1] - cy, b.anchor[0] - cx);
+      return aa - bb;
+    });
+
+    const slots = ordered.map((n) => {
+      const edge = rayHitEdge(bounds, cx, cy, n.anchor[0], n.anchor[1]);
+      const [x, y] = clampChipCenter(edge[0], edge[1], n.chip.w, n.chip.h, bounds);
+      return { node: n, x, y, t: perimeterT(bounds, x, y) };
+    });
+
+    spreadSlotsOnSides(slots, bounds);
+
+    for (let iter = 0; iter < 100; iter += 1) {
+      let moved = false;
+      for (const s of slots) {
+        const [px, py] = pointOnPerimeter(bounds, s.t);
+        const [x, y] = clampChipCenter(px, py, s.node.chip.w, s.node.chip.h, bounds);
+        s.x = x;
+        s.y = y;
+      }
+      for (let i = 0; i < slots.length; i += 1) {
+        for (let j = i + 1; j < slots.length; j += 1) {
+          const a = slots[i];
+          const b = slots[j];
+          const ra = labelRectAt(a.x, a.y, a.node.chip.w, a.node.chip.h);
+          const rb = labelRectAt(b.x, b.y, b.node.chip.w, b.node.chip.h);
+          if (!rectsOverlap(ra, rb, LABEL_PAD)) continue;
+          const sep = (a.node.chip.w + b.node.chip.w) / 4 + LABEL_PAD;
+          const forward = ((b.t - a.t + peri) % peri) <= peri / 2;
+          if (forward) {
+            a.t = (a.t - sep + peri) % peri;
+            b.t = (b.t + sep) % peri;
+          } else {
+            a.t = (a.t + sep) % peri;
+            b.t = (b.t - sep + peri) % peri;
+          }
+          moved = true;
+        }
+      }
+      for (const s of slots) {
+        const rect = labelRectAt(s.x, s.y, s.node.chip.w, s.node.chip.h);
+        if (!collides(rect)) continue;
+        s.t = (s.t + s.node.chip.w / 2 + LABEL_PAD) % peri;
+        moved = true;
+      }
+      if (!moved) break;
+    }
+
+    for (const s of slots) {
+      const [px, py] = pointOnPerimeter(bounds, s.t);
+      const [x, y] = clampChipCenter(px, py, s.node.chip.w, s.node.chip.h, bounds);
+      commitSlot(s.node, x, y, true);
+    }
+  };
+
+  placeMarginFan(nodes.filter((n) => n.dense));
+
+  for (const n of nodes.filter((n) => !n.dense)) {
+    const [ax, ay] = n.anchor;
+    const atPin = labelRectAt(ax, ay, n.chip.w, n.chip.h);
+    if (!collides(atPin)) {
+      commitSlot(n, ax, ay, false);
+    } else {
+      placeMarginFan([n]);
+    }
+  }
+
+  return result;
+}
+
 export async function generateCoverageMapSvg(config, outputPath) {
   const areas = config.coverageAreas?.length
     ? config.coverageAreas
@@ -170,22 +475,75 @@ export async function generateCoverageMapSvg(config, outputPath) {
   }
 
   const fills = ['#e8a317', '#f2b83c', '#dc8f08', '#f6c65f', '#d9a11e', '#edb83d'];
+
+  // Label only SEO location pages (primary + targetSuburbs); still shade all coverage polygons.
+  const labelNames = new Set(
+    [config.primaryCity, ...(config.targetSuburbs || [])]
+      .map((n) =>
+        String(typeof n === 'string' ? n : n?.name || n?.city || '')
+          .trim()
+          .toLowerCase(),
+      )
+      .filter(Boolean),
+  );
+
+  const labelBounds = {
+    minX: padding * 0.55,
+    maxX: width - padding * 0.55,
+    minY: titleSpace + 6,
+    maxY: height - attributionSpace - 8,
+  };
+
+  const labeledItems = [];
+  for (const area of boundaries) {
+    if (!labelNames.has(String(area.name || '').trim().toLowerCase())) continue;
+    labeledItems.push({ area, anchor: areaCenter(area.geometry) });
+  }
+  const labelLayout = placeSeoLabels(labeledItems, labelBounds);
+
   const areaShapes = boundaries
     .map((area, index) => {
-      const [labelX, labelY] = areaCenter(area.geometry);
       const name = escapeXml(area.name);
       const state = escapeXml(area.state);
       const slug = slugifyAreaName(area.name);
+      const isLabeled = labelNames.has(String(area.name || '').trim().toLowerCase());
+      const layout = labelLayout.get(`${area.name}|${area.state}`);
+      const pathEl = `<path d="${areaPath(area.geometry)}" fill="${fills[index % fills.length]}" fill-opacity="${
+        isLabeled ? '0.52' : '0.28'
+      }" stroke="#17293a" stroke-width="${isLabeled ? '2.2' : '1.4'}" stroke-linejoin="round" fill-rule="evenodd"/>`;
+      if (!isLabeled) {
+        return `
+      <g class="cov-area cov-area-nolabel">
+        ${pathEl}
+      </g>`;
+      }
+      const [ax, ay] = layout?.anchor || areaCenter(area.geometry);
+      const [labelX, labelY] = layout?.label || [ax, ay];
+      const chipW = layout?.chipW || estimateChip(area.name, area.state).w;
+      const chipH = layout?.chipH || CHIP_H;
+      const chipText = escapeXml(
+        layout?.chipText || estimateChip(area.name, area.state).text,
+      );
+      const useLeader =
+        layout?.useLeader ??
+        Math.hypot(labelX - ax, labelY - ay) >= LEADER_THRESHOLD;
+      const [lx2, ly2] = nearestPointOnChip(ax, ay, labelX, labelY, chipW, chipH);
+      const pinEl = `<circle class="cov-pin" cx="${ax.toFixed(1)}" cy="${ay.toFixed(1)}" r="3.5"/>`;
+      const leaderEl = useLeader
+        ? `<line class="cov-leader" x1="${ax.toFixed(1)}" y1="${ay.toFixed(1)}" x2="${lx2.toFixed(1)}" y2="${ly2.toFixed(1)}"/>`
+        : '';
       const href = slug ? `/locations/${slug}` : '/';
+      const halfW = chipW / 2;
+      const halfH = chipH / 2;
       return `
       <a href="${escapeXml(href)}" target="_top" rel="noopener">
         <g class="cov-area">
-          <path d="${areaPath(area.geometry)}" fill="${fills[index % fills.length]}" fill-opacity="0.52"
-            stroke="#17293a" stroke-width="2.2" stroke-linejoin="round" fill-rule="evenodd"/>
+          ${pathEl}
+          ${leaderEl}
+          ${pinEl}
           <g transform="translate(${labelX.toFixed(1)} ${labelY.toFixed(1)})">
-            <rect class="label-bg" x="-78" y="-22" width="156" height="44" rx="8" fill="#ffffff" fill-opacity="0.92"/>
-            <text text-anchor="middle" y="-1" class="city">${name}</text>
-            <text text-anchor="middle" y="16" class="state">${state}</text>
+            <rect class="cov-chip" x="${(-halfW).toFixed(1)}" y="${(-halfH).toFixed(1)}" width="${chipW}" height="${chipH}" rx="7"/>
+            <text text-anchor="middle" dominant-baseline="central" y="0.5" class="cov-chip-text">${chipText}</text>
           </g>
         </g>
       </a>`;
@@ -197,23 +555,32 @@ export async function generateCoverageMapSvg(config, outputPath) {
   aria-label="${escapeXml(config.businessName || 'Service')} service coverage map">
   <style>
     a { text-decoration: none; }
-    .city { font: 700 18px Arial, sans-serif; fill: #0f1720; }
-    .state { font: 600 11px Arial, sans-serif; fill: #5a6570; }
     .heading { font: 700 24px Arial, sans-serif; fill: #0f1720; }
     .subheading { font: 400 12px Arial, sans-serif; fill: #5a6570; }
     .attribution { font: 400 10px Arial, sans-serif; fill: #65717d; }
+    .state { font: 600 11px Arial, sans-serif; fill: #5a6570; }
     .cov-area { cursor: pointer; transition: opacity 0.15s ease; }
+    .cov-area-nolabel { cursor: default; }
     .cov-area path { transition: fill-opacity 0.15s ease, stroke-width 0.15s ease; }
-    .cov-area .label-bg { transition: fill-opacity 0.15s ease; }
+    .cov-chip {
+      fill: #ffffff;
+      fill-opacity: 0.92;
+      stroke: #17293a;
+      stroke-width: 1;
+      transition: fill-opacity 0.15s ease;
+    }
+    .cov-chip-text { font: 600 14px Arial, sans-serif; fill: #0f1720; }
+    .cov-leader { stroke: #17293a; stroke-width: 1.2; fill: none; }
+    .cov-pin { fill: #17293a; stroke: #ffffff; stroke-width: 1.25; }
     a:hover .cov-area path, .cov-area:hover path { fill-opacity: 0.78; stroke-width: 3.2; }
-    a:hover .cov-area .label-bg, .cov-area:hover .label-bg { fill-opacity: 1; }
+    a:hover .cov-chip, .cov-area:hover .cov-chip { fill-opacity: 1; }
   </style>
   <rect width="100%" height="100%" rx="14" fill="#f7f9fb"/>
   <path d="M0 110 H1000 M0 220 H1000 M0 330 H1000 M0 440 H1000 M0 550 H1000
     M150 74 V650 M300 74 V650 M450 74 V650 M600 74 V650 M750 74 V650 M900 74 V650"
     stroke="#dce2e7" stroke-width="1"/>
   <text x="40" y="38" class="heading">Service coverage</text>
-  <text x="40" y="58" class="subheading">Highlighted municipal boundaries · confirm availability by address</text>
+  <text x="40" y="58" class="subheading">Named cities have local pages · shaded areas are also served</text>
   ${areaShapes}
   <g transform="translate(940 42)">
     <path d="M0 16 L8 -8 L16 16 L8 11 Z" fill="#17293a"/>

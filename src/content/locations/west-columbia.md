@@ -1,41 +1,43 @@
 ---
-title: "Cabinet Refinishing & Remodeling | West Columbia, SC"
-description: "Cabinet Refinishing & Remodeling in West Columbia, SC — free estimates for refacing, painting, and custom cabinetry from a licensed local team."
+title: "Cabinet Refinishing & Remodeling in West Columbia, SC"
+description: "Cabinet refinishing, refacing, and remodeling for West Columbia, SC kitchens. Spray-finish results, honest pricing, and free written estimates."
 h1: "Cabinet Refinishing & Remodeling in West Columbia, SC"
 city: "West Columbia"
 state: "SC"
 ---
-Company Brand Name provides Cabinet Refinishing & Remodeling for homeowners in West Columbia, South Carolina, a commuter city bordered by the Congaree River across from downtown Columbia and near the Congaree Vista district. West Columbia's location right across the river from Columbia's center means many homes here share the same humidity exposure as their downtown neighbors, while also housing a strong mix of commuter-friendly properties close to the Vista and State House area.
+West Columbia sits right across the Congaree River from downtown Columbia, near the State House and the Vista, and it functions as a commuter town within the Lexington County side of the metro. Company Brand Name provides cabinet refinishing, refacing, and remodeling for West Columbia kitchens, from homes close to the river to residential streets further into the city.
 
-As a sister city to Cayce and a close neighbor to Lexington, West Columbia has a varied housing stock that ranges from older homes near the riverfront to newer builds further out. We regularly work with both: refinishing solid wood cabinets in older West Columbia homes that have been through years of river-adjacent humidity, and refacing or painting newer builder-grade cabinets in more recently developed pockets of the city.
+As a close-in suburb, West Columbia sees a mix of older homes and infill construction, which means cabinet condition varies block to block more than in some of the newer outer suburbs.
 
 ## Serving Homeowners in West Columbia
 
-West Columbia's proximity to downtown Columbia across the Congaree River means homeowners here often want kitchens that feel current with the Vista's more modern aesthetic, even in older housing stock. That's led to a steady stream of custom cabinet painting and staining work — updating traditional wood tones to warmer whites or deeper accent colors that read more current without a full remodel.
+Homes closer to the river in West Columbia sometimes deal with higher humidity, which affects how a finish cures. Company Brand Name uses conversion-varnish topcoats chosen to hold up in that moisture rather than a standard paint that can stay tacky or cloud over.
 
-Because West Columbia borders both Cayce to the south and reaches toward Lexington to the west, we treat it as a central stop within our broader Midlands service route, which keeps scheduling flexible for West Columbia homeowners regardless of which part of the city they're in.
+Older West Columbia cabinetry generally responds well to straightforward refinishing, while newer infill homes often have laminate or thermofoil boxes that need a bonding primer first. Given the mix, an in-home consultation is where Company Brand Name determines which approach fits a given kitchen before any pricing is set.
+
+Company Brand Name also serves the neighboring communities around West Columbia, including Columbia, Cayce, and Lexington.
 
 ## Why Choose Company Brand Name in West Columbia
 
-- Experience with both older riverfront-area cabinets and newer builder-grade kitchens across West Columbia
-- Custom color options suited to homeowners wanting a more current look to match the nearby Vista district's aesthetic
-- Moisture-resistant finishes appropriate for West Columbia's Congaree River proximity
-- Central scheduling position within our Midlands service route, given West Columbia's location between Cayce and Lexington
+- Conversion-varnish topcoats suited to the higher humidity near the Congaree River
+- Assessment of both older and newer cabinet construction common in West Columbia's mixed housing stock
+- Free, written estimates before work begins
+- Quick access given West Columbia's proximity to downtown Columbia
 
 ## Cabinet Refinishing & Remodeling FAQs for West Columbia
 
-Does West Columbia's location near the river affect cabinet finishes?
-Proximity to the Congaree River means similar humidity exposure to downtown Columbia, which is why we recommend moisture-resistant primer and conversion varnish for most West Columbia refinishing jobs.
+**Does being near the river affect cabinet refinishing in West Columbia?**
+Higher humidity near the Congaree can slow cure time on lower-grade finishes. Company Brand Name uses cabinet-grade primers and conversion-varnish topcoats built to cure properly in that moisture.
 
-What's a popular cabinet update in West Columbia right now?
-Custom cabinet painting and staining to warmer whites or deeper accent colors is one of the most requested updates, especially in older homes near the riverfront.
+**Is refacing a good option for West Columbia's older homes?**
+Refacing works well when cabinet boxes are still solid but the doors look dated — common in West Columbia's older housing stock. It typically runs $6,000–$12,000 for a standard kitchen.
 
-How much does cabinet refacing cost in West Columbia?
-Refacing typically runs $6,000–$12,000 in the West Columbia area, consistent with broader Midlands pricing for a standard kitchen.
+**How long does a full remodel take in West Columbia?**
+A full remodel with new cabinetry usually runs several weeks total, factoring in design, material lead time, and installation — longer than a straightforward refinishing job, which typically wraps in about a week.
 
-Do I need a permit for a cabinet remodel in West Columbia?
-Cosmetic work generally doesn't require a permit; full remodels involving plumbing or electrical changes typically do — confirm with the City of West Columbia.
+**Do I need a permit for cabinet work in West Columbia?**
+Like-for-like refinishing or refacing usually doesn't require one. Layout changes, new electrical, or plumbing relocation typically do — confirm with the City of West Columbia building department.
 
 ## Request a Free Estimate in West Columbia
 
-Want a kitchen that feels current with the Vista's newer energy? [Contact](/contact) Company Brand Name for a free estimate, or explore [Custom Cabinet Painting & Staining](/services/custom-cabinet-painting-and-staining).
+Call **(385) 221-2770** or request a free, written estimate online. [Contact](/contact) Company Brand Name or return to the [homepage](/) to see the full range of services.

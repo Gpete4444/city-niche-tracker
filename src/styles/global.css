@@ -17,6 +17,8 @@
 @layer base {
   html {
     scroll-behavior: smooth;
+    /* ~22px if UA is 16px — matches former 110% root @ Chrome 125% zoom */
+    font-size: 125%;
   }
 
   body {
@@ -29,6 +31,17 @@
 }
 
 @layer components {
+  /* Fluid display headings (H1 / section H2) — not a second root zoom */
+  .heading-display {
+    font-size: clamp(1.75rem, 4.5vw, 3rem);
+    line-height: 1.15;
+  }
+
+  .heading-section {
+    font-size: clamp(1.35rem, 3vw, 1.85rem);
+    line-height: 1.2;
+  }
+
   @keyframes rise-in {
     from {
       opacity: 0;
@@ -60,7 +73,9 @@
   }
 
   .prose-site :where(h2) {
-    @apply mt-10 font-display text-2xl font-bold tracking-tight text-ink first:mt-0 sm:text-3xl;
+    @apply mt-10 font-display font-bold tracking-tight text-ink first:mt-0;
+    font-size: clamp(1.35rem, 3vw, 1.85rem);
+    line-height: 1.2;
   }
 
   .prose-site :where(h3) {

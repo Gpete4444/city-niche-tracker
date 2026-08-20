@@ -565,14 +565,7 @@ function scoreUploadedSlot(slot, { filename, alt, niche, services }) {
     processTitle: slot.processTitle,
   });
   const profile = resolveNicheProfile(niche, services, slot.serviceName);
-  const slotCtx = slotScoreContext(slot);
-  const rankOpts = {
-    scoreFloor: slotCtx.scoreFloor,
-    requireNicheHit: Boolean(profile?.requireNicheHit),
-    nicheTokens: nicheCoreTokens(niche, profile),
-    cameraSlot: slotCtx.cameraSlot,
-    permitSlot: slotCtx.permitSlot,
-  };
+  const rankOpts = buildRankOpts(slot, niche, profile);
   const score = scorePhoto({ description, tags: [] }, tokens, rankOpts);
   const queryHint = stripMaterialBold(slot.queryHint || slot.label || '');
   const graded = matchGradeFromScore(score, { query: queryHint });
@@ -596,6 +589,24 @@ const CAMERA_REJECT_RE =
 const PERMIT_REJECT_RE =
   /\b(road\s*closed|detour|traffic\s*light|street\s*cone|parking|boom\s*gate|caution\s*tape)\b/i;
 
+/** Materials slots: beauty, industrial hardware, decay, empty bokeh. */
+const MATERIALS_REJECT_RE =
+  /\b(makeup|cosmetic|skincare|skin\s*care|lipstick|mascara|serum|foundation\s*makeup|face\s*primer|glow\s*primer|beauty|dapop|nail\s*polish|perfume|moisturizer|chain|rigging|hoist|galvanized\s*bracket|deck\s*beam|industrial\s*chain|anchor\s*chain|rusty|rusted|corroded|corrosion|peeling\s*paint|oxidized\s*metal|haircut|cutting\s*hair|salon|barber|cooking\s*dinner|family\s*cooking|dining\s*room|open\s*concept\s*kitchen|luxury\s*kitchen\s*interior|airplane|aircraft|fuselage|jet\s*engine|aviation)\b/i;
+
+/** Product/process cues — bare "kitchen" alone is too weak (lifestyle rooms). */
+const MATERIALS_TRADE_CUE_RE =
+  /\b(cabinet|wood|wooden|lumber|paint|painted|varnish|enamel|primer|hinge|veneer|finish|coating|oak|plywood|drawer|door\s*hardware|brush|spray\s*gun|swatch|sample|stain|lacquer|filler|paint\s*can|soft[- ]?close|refinish|refacing)\b/i;
+
+const MATERIALS_BOKEH_ONLY_RE =
+  /\b(bokeh|blur(?:red)?|out[- ]of[- ]focus|abstract\s*macro)\b/i;
+
+/** Full kitchen lifestyle without a product cue — hard reject. */
+const MATERIALS_LIFESTYLE_KITCHEN_RE =
+  /\b((?:modern|traditional|stylish|spacious|contemporary|beautiful|bright|elegant)\s+kitchen|kitchen\s+(?:island|interior|corner|featuring|with|design)|remodeled\s*kitchen|white\s*cabinets|dark\s*wood\s*cabinets|apartment\s*interior|modern\s*interior|wooden\s*kitchen|kitchen\s*cabinets?\s+and|spacious\s*bathroom|bathroom\s+featuring)\b/i;
+
+const MATERIALS_PRODUCT_DETAIL_RE =
+  /\b(paint\s*can|varnish|enamel|primer|hinge|veneer|filler|brush|spray\s*gun|swatch|sample|coating|stain|lacquer|soft[- ]?close|door\s*hardware|wood\s*grain|plywood\s*sheet)\b/i;
+
 const LIFESTYLE_ALT_RE =
   /\b(taking a walk|one of those things|check my bio|follow me|walking tour|discover just)\b/i;
 
@@ -603,7 +614,7 @@ const LIFESTYLE_ALT_RE =
  * Camera / permit slot scoring context from slot labels.
  * Hard camera gates only for inspection-camera contexts — not materials that
  * merely mention "camera" (e.g. root-cutting camera equipment).
- * @returns {{ cameraSlot: boolean, permitSlot: boolean, scoreFloor: number }}
+ * @returns {{ cameraSlot: boolean, permitSlot: boolean, materialsSlot: boolean, scoreFloor: number }}
  */
 function slotScoreContext(slot = {}) {
   const sectionId = String(slot.sectionId || '');
@@ -626,10 +637,37 @@ function slotScoreContext(slot = {}) {
     (isMaterials && inspectionCameraProduct);
 
   const permitSlot = /permit/i.test(processTitle) || (/permit/i.test(label) && !isMaterials);
+  let scoreFloor = SCORE_FLOOR;
+  if (cameraSlot || permitSlot) scoreFloor = Math.max(SCORE_FLOOR, 4);
+  else if (isMaterials) scoreFloor = Math.max(SCORE_FLOOR, 3);
   return {
     cameraSlot,
     permitSlot,
-    scoreFloor: cameraSlot || permitSlot ? Math.max(SCORE_FLOOR, 4) : SCORE_FLOOR,
+    materialsSlot: isMaterials,
+    scoreFloor,
+  };
+}
+
+/** Product-title tokens for materials scoring (weighted above niche tokens). */
+function materialTitleTokenList(materialTitle) {
+  return stripMaterialBold(materialTitle || '')
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((w) => w.length > 2 && !AMBIGUOUS_SLOT_TOKEN_RE.test(w));
+}
+
+function buildRankOpts(slot, niche, profile) {
+  const slotCtx = slotScoreContext(slot);
+  return {
+    scoreFloor: slotCtx.scoreFloor,
+    requireNicheHit: Boolean(profile?.requireNicheHit),
+    nicheTokens: nicheCoreTokens(niche, profile),
+    cameraSlot: slotCtx.cameraSlot,
+    permitSlot: slotCtx.permitSlot,
+    materialsSlot: Boolean(slotCtx.materialsSlot),
+    materialTitleTokens: slotCtx.materialsSlot
+      ? materialTitleTokenList(slot.materialTitle)
+      : [],
   };
 }
 
@@ -843,6 +881,49 @@ function disambiguateSlotTitle(title, niche, profile) {
     }
   }
 
+  // Kitchen / cabinet materials — avoid beauty primer, industrial chain, rust macros
+  const kitchenish =
+    /kitchen|cabinet|countertop|cabinetr|refinish|refac|woodwork|carpentry|painting|stain/i.test(
+      hay,
+    ) ||
+    /\b(varnish|enamel|veneer|grain\s*filler|soft[- ]?close|alkyd|conversion\s*varnish)\b/i.test(raw);
+
+  if (kitchenish) {
+    if (/\b(soft[- ]?close|hinge)\b/i.test(raw)) {
+      return 'soft close cabinet door hinge hardware';
+    }
+    if (/\b(veneer|refacing)\b/i.test(raw)) {
+      return 'cabinet wood veneer sheet';
+    }
+    if (/\b(grain\s*filler)\b/i.test(raw)) {
+      return 'wood grain filler oak cabinet';
+    }
+    if (/\b(conversion\s*varnish|catalyzed\b.*\bvarnish|\bvarnish)\b/i.test(raw)) {
+      return 'cabinet wood varnish finish coating';
+    }
+    if (/\b(alkyd|enamel)\b/i.test(raw)) {
+      return 'sprayed cabinet paint enamel finish';
+    }
+    if (/\bprimer\b/i.test(raw)) {
+      return 'wood cabinet primer paint can';
+    }
+    if (/\bhardware\b/i.test(raw) && !/\b(hinge|knob|pull|drawer)\b/i.test(raw)) {
+      return 'cabinet door hardware knob hinge';
+    }
+    if (/\b(stain|staining)\b/i.test(raw) && !/\b(wood\s*stain|cabinet)\b/i.test(raw)) {
+      return 'wood cabinet stain finish';
+    }
+    if (/\b(degreas|cleaner|cleaning\s*solution)\b/i.test(raw)) {
+      return 'cabinet degreaser wood prep cleaner';
+    }
+    if (/\b(filler|wood\s*filler|epoxy)\b/i.test(raw) && !/\bgrain\b/i.test(raw)) {
+      return 'wood filler cabinet repair';
+    }
+    if (/\b(adhesive|glue|contact\s*cement)\b/i.test(raw)) {
+      return 'wood veneer contact adhesive cabinet';
+    }
+  }
+
   // Short bare verbs/nouns always stay attached to niche by caller — return as-is.
   return raw;
 }
@@ -951,12 +1032,38 @@ function tokenInHay(hay, token) {
   return new RegExp(`\\b${escaped}s?\\b`, 'i').test(hay);
 }
 
-function scorePhoto(photo, tokens, { requireNicheHit = false, nicheTokens = [], cameraSlot = false, permitSlot = false } = {}) {
+function scorePhoto(
+  photo,
+  tokens,
+  {
+    requireNicheHit = false,
+    nicheTokens = [],
+    cameraSlot = false,
+    permitSlot = false,
+    materialsSlot = false,
+    materialTitleTokens = [],
+  } = {},
+) {
   const hay = `${photo?.description || ''} ${(photo?.tags || []).join(' ')}`.toLowerCase();
   if (!hay.trim()) return 0;
   if (OFF_NICHE_STOCK_RE.test(hay)) return -20;
   if (cameraSlot && CAMERA_REJECT_RE.test(hay)) return -20;
   if (permitSlot && PERMIT_REJECT_RE.test(hay)) return -20;
+  if (materialsSlot && MATERIALS_REJECT_RE.test(hay)) return -20;
+  if (
+    materialsSlot &&
+    MATERIALS_BOKEH_ONLY_RE.test(hay) &&
+    !MATERIALS_TRADE_CUE_RE.test(hay)
+  ) {
+    return -20;
+  }
+  if (
+    materialsSlot &&
+    MATERIALS_LIFESTYLE_KITCHEN_RE.test(hay) &&
+    !MATERIALS_PRODUCT_DETAIL_RE.test(hay)
+  ) {
+    return -20;
+  }
   if (requireNicheHit && nicheTokens.length) {
     const hit = nicheTokens.some((t) => tokenInHay(hay, t));
     if (!hit) return 0;
@@ -965,6 +1072,39 @@ function scorePhoto(photo, tokens, { requireNicheHit = false, nicheTokens = [], 
   for (const t of tokens || []) {
     if (!t) continue;
     if (tokenInHay(hay, t)) score += 2;
+  }
+  // Extra weight: product title hits beat niche lifestyle matches
+  if (materialsSlot && materialTitleTokens.length) {
+    for (const t of materialTitleTokens) {
+      if (tokenInHay(hay, t)) score += 3;
+    }
+    if (
+      /\b(close[- ]?up|macro|product|swatch|sample|paint\s*can|varnish|enamel|primer|coating|hardware|hinge|finish)\b/.test(
+        hay,
+      )
+    ) {
+      score += 2;
+    }
+    if (MATERIALS_LIFESTYLE_KITCHEN_RE.test(hay) && !/\b(paint|varnish|enamel|primer|hinge|veneer|filler|brush|spray|swatch|can)\b/.test(hay)) {
+      score -= 6;
+    }
+    if (
+      /\b(modern\s*kitchen\s*island|family\s*cooking|dining\s*room|open\s*concept\s*kitchen|luxury\s*kitchen)\b/.test(
+        hay,
+      ) &&
+      !/\b(paint|varnish|enamel|primer|hardware|hinge|finish|coating|swatch|sample|close[- ]?up)\b/.test(hay)
+    ) {
+      score -= 4;
+    }
+    // Require a product/trade cue so lifestyle kitchen rooms don't win
+    if (!MATERIALS_TRADE_CUE_RE.test(hay)) {
+      score = Math.min(score, 1);
+    }
+  } else if (materialsSlot && !MATERIALS_TRADE_CUE_RE.test(hay)) {
+    score = Math.min(score, 1);
+  }
+  if (materialsSlot && MATERIALS_LIFESTYLE_KITCHEN_RE.test(hay) && !/\b(paint|varnish|enamel|primer|hinge|veneer|filler|brush|spray|swatch|can)\b/.test(hay)) {
+    score = Math.min(score, 2);
   }
   if (cameraSlot) {
     if (CAMERA_GEAR_RE.test(hay)) score += 4;
@@ -981,7 +1121,8 @@ function scorePhoto(photo, tokens, { requireNicheHit = false, nicheTokens = [], 
   if (tokens?.length >= 3) {
     if (/\b(coffee|latte|laptop|coworking|office desk)\b/.test(hay)) score -= 3;
     if (/\b(fashion|portrait|model|makeup|posing|walking tour)\b/.test(hay)) score -= 5;
-    if (/\b(abstract|texture|wallpaper pattern)\b/.test(hay)) score -= 2;
+    // Texture/abstract often *is* the right materials photo — skip that penalty there
+    if (!materialsSlot && /\b(abstract|texture|wallpaper pattern)\b/.test(hay)) score -= 2;
     if (/\b(sewing|train|medical|hospital|cinema|tripod|trash can|dumpster|parking|seagull|wildlife)\b/.test(hay)) {
       score -= 5;
     }
@@ -993,9 +1134,26 @@ function scorePhoto(photo, tokens, { requireNicheHit = false, nicheTokens = [], 
 function pickBestResult(results, usedIds, tokens, opts = {}) {
   const floor = opts.scoreFloor ?? SCORE_FLOOR;
   const candidates = (results || []).filter((r) => r?.id && !usedIds.has(r.id));
-  const clean = candidates.filter(
-    (r) => !OFF_NICHE_STOCK_RE.test(`${r?.description || ''} ${(r?.tags || []).join(' ')}`),
-  );
+  const clean = candidates.filter((r) => {
+    const hay = `${r?.description || ''} ${(r?.tags || []).join(' ')}`;
+    if (OFF_NICHE_STOCK_RE.test(hay)) return false;
+    if (opts.materialsSlot && MATERIALS_REJECT_RE.test(hay)) return false;
+    if (
+      opts.materialsSlot &&
+      MATERIALS_BOKEH_ONLY_RE.test(hay) &&
+      !MATERIALS_TRADE_CUE_RE.test(hay)
+    ) {
+      return false;
+    }
+    if (
+      opts.materialsSlot &&
+      MATERIALS_LIFESTYLE_KITCHEN_RE.test(hay) &&
+      !MATERIALS_PRODUCT_DETAIL_RE.test(hay)
+    ) {
+      return false;
+    }
+    return true;
+  });
   // Prefer non-denied; if none and allowDenied, use any unused (fail-soft last resort)
   const pool = clean.length ? clean : opts.allowDenied ? candidates : [];
   if (!pool.length) return null;
@@ -1149,8 +1307,9 @@ function buildQuery({ niche, sectionId, label, kind, services, index, serviceNam
 
   if (bucket === 'materials') {
     const title = disambiguateSlotTitle(materialTitle || '', niche, profile);
-    if (title) return `${base} ${title}`.replace(/\s+/g, ' ').trim();
-    return (profile?.kindHints?.materials || `${base} materials`).replace(/\s+/g, ' ').trim();
+    // Trade-worded title (never bare "{title} close up" — that hits beauty/industrial stock)
+    if (title) return title.replace(/\s+/g, ' ').trim();
+    return (profile?.kindHints?.materials || `${base} product close up`).replace(/\s+/g, ' ').trim();
   }
 
   if (bucket === 'gallery') {
@@ -1205,10 +1364,22 @@ function buildQueryVariants(slot, niche, services) {
   } else if (bucket === 'materials') {
     if (slot.materialTitle) {
       const mt = disambiguateSlotTitle(slot.materialTitle, niche, profile);
-      if (mt) variants.push(`${primary} ${mt}`.replace(/\s+/g, ' ').trim());
+      if (mt) {
+        // Prefer disambiguated trade phrases; avoid bare title / texture traps
+        variants.length = 0;
+        variants.push(mt);
+        variants.push(`${primary} ${mt}`.replace(/\s+/g, ' ').trim());
+        const kitchenNiche = /kitchen|cabinet|countertop|cabinetr|refinish|refac/i.test(
+          `${primary} ${niche || ''}`,
+        );
+        if (kitchenNiche) {
+          variants.push(`${mt} kitchen cabinet`.replace(/\s+/g, ' ').trim());
+          variants.push(`${mt} close up product`.replace(/\s+/g, ' ').trim());
+        }
+      }
     }
     if (profile?.kindHints?.materials) variants.push(profile.kindHints.materials);
-    variants.push(`${primary} materials`);
+    variants.push(`${primary} product close up`);
     variants.push(`${primary} product`);
   }
 
@@ -1681,13 +1852,7 @@ export async function fillSiteImages(candidateId, { replace = false } = {}) {
     });
     const profile = resolveNicheProfile(niche, services, slot.serviceName);
     const slotCtx = slotScoreContext(slot);
-    const rankOpts = {
-      scoreFloor: slotCtx.scoreFloor,
-      requireNicheHit: Boolean(profile?.requireNicheHit),
-      nicheTokens: nicheCoreTokens(niche, profile),
-      cameraSlot: slotCtx.cameraSlot,
-      permitSlot: slotCtx.permitSlot,
-    };
+    const rankOpts = buildRankOpts(slot, niche, profile);
     const isProcessSlot =
       slot.sectionId === 'process' ||
       slot.sectionId === 'offerProcess' ||
@@ -2072,14 +2237,7 @@ export async function repullImageSlot(candidateId, slotKey) {
     processTitle: slot.processTitle,
   });
   const profile = resolveNicheProfile(niche, services, slot.serviceName);
-  const slotCtx = slotScoreContext(slot);
-  const rankOpts = {
-    scoreFloor: slotCtx.scoreFloor,
-    requireNicheHit: Boolean(profile?.requireNicheHit),
-    nicheTokens: nicheCoreTokens(niche, profile),
-    cameraSlot: slotCtx.cameraSlot,
-    permitSlot: slotCtx.permitSlot,
-  };
+  const rankOpts = buildRankOpts(slot, niche, profile);
   // Extra short variants so Re-pull doesn't lock onto the same first-page hit
   const queries = [
     ...buildQueryVariants(slot, niche, services),

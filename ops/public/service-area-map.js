@@ -55,6 +55,10 @@ function normalizePlaceName(name) {
     .trim();
 }
 
+/** Prefer ≤6 location pages total (primary + suburbs). Hard suburb fill max still 8 elsewhere. */
+const PREFER_MAX_PAGES = 6;
+const PREFER_MAX_SUBURBS = PREFER_MAX_PAGES - 1;
+
 /** Flat 2D document glyph — easier to see than emoji on map labels. */
 const PAGE_ICON =
   '<span class="sa-page-icon" title="Gets a location page" aria-label="Gets a location page">' +
@@ -209,13 +213,14 @@ async function mountGeoSelectMap(opts) {
 
   const helpText = isDiscovery
     ? 'Click an in-range city (Min–Max pop) as center. Radius adds/drops in-range cities.'
-    : 'All cities on the map. Blue page icon = SEO location page (primary + up to 8 suburbs). Click to toggle.';
+    : 'Coverage = map selection. Blue page icon = SEO location page (prefer 4–6 including primary). Use Page to toggle pages without removing coverage.';
 
   const acceptBlock = isDiscovery
     ? ''
     : `<div class="narrative-actions" style="margin-top:0.75rem">
         <button type="button" class="btn primary" id="${uid}-accept">Accept selected cities</button>
       </div>
+      <div id="${uid}-page-picker" class="sa-page-picker hidden" hidden></div>
       <p class="muted small" id="${uid}-accept-status"></p>`;
 
   mapHost.innerHTML = `<div id="${uid}-map" class="sa-map-canvas" role="application" aria-label="${
@@ -239,10 +244,15 @@ async function mountGeoSelectMap(opts) {
   const listEl = controlsHost.querySelector(`#${uid}-list`);
   const countEl = controlsHost.querySelector(`#${uid}-count`);
   const acceptStatus = controlsHost.querySelector(`#${uid}-accept-status`);
+  const pagePickerEl = controlsHost.querySelector(`#${uid}-page-picker`);
   const slider = controlsHost.querySelector(`#${uid}-radius`);
   const radiusVal = controlsHost.querySelector(`#${uid}-radius-val`);
   const acceptBtn = controlsHost.querySelector(`#${uid}-accept`);
   const mapEl = mapHost.querySelector(`#${uid}-map`);
+
+  /** Operator-controlled SEO page keys (includes primary). */
+  let pageKeySet = new Set();
+  let pagesSeeded = false;
 
   function emitSelection() {
     onSelectionChange?.({
@@ -271,20 +281,75 @@ async function mountGeoSelectMap(opts) {
     return `${inRadiusKeys.size} in radius · ${selected.size} selected${pagesBit}`;
   }
 
-  function pageKeys() {
-    if (!showPages) return new Set();
-    return computePageKeys({
+  function ensurePagesSeeded() {
+    if (!showPages || pagesSeeded || !primaryCity) return;
+    pageKeySet = computePageKeys({
       selected,
       claudeOrder,
       primaryCity,
       state,
-      max: 8,
+      max: PREFER_MAX_SUBURBS,
       popByKey,
     });
+    pagesSeeded = true;
+  }
+
+  function syncPageKeysToSelection() {
+    if (!showPages) return;
+    ensurePagesSeeded();
+    const pk = primaryKey();
+    if (pk) pageKeySet.add(pk);
+    for (const key of [...pageKeySet]) {
+      if (pk && key === pk) continue;
+      if (!selected.has(key)) pageKeySet.delete(key);
+    }
+  }
+
+  function pageKeys() {
+    if (!showPages) return new Set();
+    syncPageKeysToSelection();
+    return new Set(pageKeySet);
+  }
+
+  function locationPageCitiesPayload() {
+    const pages = pageKeys();
+    const pk = primaryKey();
+    const names = [];
+    for (const [key, row] of selected) {
+      if (!pages.has(key)) continue;
+      if (pk && key === pk) continue;
+      names.push(row.name);
+    }
+    return names;
   }
 
   function primaryKey() {
     return primaryCity ? placeKey(primaryCity, state) : '';
+  }
+
+  function togglePageKey(key) {
+    if (!showPages || !key) return;
+    const pk = primaryKey();
+    if (pk && key === pk) {
+      setStatus('Primary city always gets a location page');
+      return;
+    }
+    if (!selected.has(key)) return;
+    if (pageKeySet.has(key)) {
+      pageKeySet.delete(key);
+    } else {
+      if (pageKeySet.size >= PREFER_MAX_PAGES) {
+        setStatus(
+          `Already ${PREFER_MAX_PAGES} location pages — turn off Page on another city first (prefer 4–6)`,
+          'err',
+        );
+        return;
+      }
+      pageKeySet.add(key);
+    }
+    renderList();
+    refreshLabels();
+    setStatus(statusLine());
   }
 
   /** Service area: primary always allowed. Discovery: Min/Max apply to center too. */
@@ -340,19 +405,35 @@ async function mountGeoSelectMap(opts) {
         const isPrimary = Boolean(pk) && key === pk;
         const hasPage = showPages && pages.has(key);
         const pop = popByKey.get(key);
+        const pageBtn = showPages
+          ? `<button type="button" class="sa-page-toggle${hasPage ? ' is-on' : ''}" data-page-key="${esc(
+              key,
+            )}" ${isPrimary ? 'disabled title="Primary always has a page"' : 'title="Toggle location page"'}>${
+              hasPage ? PAGE_ICON : 'Page'
+            }</button>`
+          : '';
         return `<li class="sa-list-item${isPrimary ? ' is-primary' : ''}${hasPage ? ' has-page' : ''}" data-key="${esc(key)}">
+          ${pageBtn}
           <button type="button" class="sa-list-btn" ${isPrimary ? 'disabled' : ''}>
-            <span class="sa-list-name">${hasPage ? `${PAGE_ICON} ` : ''}${esc(r.name)}, ${esc(r.state)}</span>
+            <span class="sa-list-name">${esc(r.name)}, ${esc(r.state)}</span>
             <span class="muted">${pop != null ? esc(fmtPop(pop)) : ''}${isPrimary ? ' · center' : ' · remove'}</span>
           </button>
         </li>`;
       })
       .join('');
+    listEl.querySelectorAll('.sa-page-toggle:not([disabled])').forEach((btn) => {
+      btn.addEventListener('click', (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        togglePageKey(btn.getAttribute('data-page-key'));
+      });
+    });
     listEl.querySelectorAll('.sa-list-btn:not([disabled])').forEach((btn) => {
       btn.addEventListener('click', () => {
         const key = btn.closest('[data-key]')?.getAttribute('data-key');
         if (!key || key === primaryKey()) return;
         selected.delete(key);
+        pageKeySet.delete(key);
         renderList();
         refreshLabels();
         styleLayers();
@@ -360,6 +441,88 @@ async function mountGeoSelectMap(opts) {
         emitSelection();
       });
     });
+  }
+
+  function hidePagePicker() {
+    if (!pagePickerEl) return;
+    pagePickerEl.hidden = true;
+    pagePickerEl.classList.add('hidden');
+    pagePickerEl.innerHTML = '';
+  }
+
+  function showPagePicker() {
+    if (!pagePickerEl) return;
+    const pk = primaryKey();
+    const rows = [...selected.values()].sort((a, b) => a.name.localeCompare(b.name));
+    const draft = new Set(pageKeys());
+    pagePickerEl.hidden = false;
+    pagePickerEl.classList.remove('hidden');
+    pagePickerEl.innerHTML = `
+      <div class="callout warn" style="margin-top:0.75rem">
+        <p><strong>Pick up to ${PREFER_MAX_PAGES} location pages</strong> (prefer 4–6). Others stay on the map as coverage only.</p>
+        <ul class="sa-page-picker-list" style="margin:0.5rem 0;max-height:12rem;overflow:auto">
+          ${rows
+            .map((r) => {
+              const key = placeKey(r.name, r.state);
+              const isPrimary = Boolean(pk) && key === pk;
+              const checked = draft.has(key) ? 'checked' : '';
+              return `<li><label style="display:flex;gap:0.4rem;align-items:center">
+                <input type="checkbox" data-pick-key="${esc(key)}" ${checked} ${isPrimary ? 'disabled' : ''}/>
+                <span>${esc(r.name)}, ${esc(r.state)}${isPrimary ? ' (primary)' : ''}</span>
+              </label></li>`;
+            })
+            .join('')}
+        </ul>
+        <div class="narrative-actions">
+          <button type="button" class="btn primary" id="${uid}-page-picker-confirm">Save with these pages</button>
+          <button type="button" class="btn" id="${uid}-page-picker-cancel">Cancel</button>
+        </div>
+      </div>`;
+    pagePickerEl.querySelector(`#${uid}-page-picker-cancel`)?.addEventListener('click', () => {
+      hidePagePicker();
+    });
+    pagePickerEl.querySelector(`#${uid}-page-picker-confirm`)?.addEventListener('click', async () => {
+      const next = new Set();
+      if (pk) next.add(pk);
+      pagePickerEl.querySelectorAll('input[data-pick-key]').forEach((input) => {
+        if (input.checked) next.add(input.getAttribute('data-pick-key'));
+      });
+      if (next.size > PREFER_MAX_PAGES) {
+        if (acceptStatus) {
+          acceptStatus.textContent = `Select at most ${PREFER_MAX_PAGES} pages (including primary).`;
+        }
+        return;
+      }
+      if (next.size < 1) {
+        if (acceptStatus) acceptStatus.textContent = 'Keep at least the primary city page.';
+        return;
+      }
+      pageKeySet = next;
+      pagesSeeded = true;
+      hidePagePicker();
+      renderList();
+      refreshLabels();
+      await doAccept();
+    });
+  }
+
+  async function doAccept() {
+    if (!onAccept) return;
+    if (acceptBtn) acceptBtn.disabled = true;
+    if (acceptStatus) acceptStatus.textContent = 'Saving…';
+    try {
+      await onAccept({
+        radiusMiles: radius,
+        selectedCities: [...selected.values()],
+        primaryCity,
+        locationPageCities: locationPageCitiesPayload(),
+      });
+      if (acceptStatus) acceptStatus.textContent = 'Saved coverage + location pages.';
+    } catch (e) {
+      if (acceptStatus) acceptStatus.textContent = e.message || String(e);
+    } finally {
+      if (acceptBtn) acceptBtn.disabled = false;
+    }
   }
 
   function refreshLabels() {
@@ -634,20 +797,16 @@ async function mountGeoSelectMap(opts) {
 
   acceptBtn?.addEventListener('click', async () => {
     if (!onAccept) return;
-    acceptBtn.disabled = true;
-    if (acceptStatus) acceptStatus.textContent = 'Saving…';
-    try {
-      await onAccept({
-        radiusMiles: radius,
-        selectedCities: [...selected.values()],
-        primaryCity,
-      });
-      if (acceptStatus) acceptStatus.textContent = 'Saved coverage + location pages.';
-    } catch (e) {
-      if (acceptStatus) acceptStatus.textContent = e.message || String(e);
-    } finally {
-      acceptBtn.disabled = false;
+    syncPageKeysToSelection();
+    if (showPages && pageKeys().size > PREFER_MAX_PAGES) {
+      if (acceptStatus) {
+        acceptStatus.textContent = `Too many location pages (${pageKeys().size}). Pick up to ${PREFER_MAX_PAGES} below.`;
+      }
+      showPagePicker();
+      return;
     }
+    hidePagePicker();
+    await doAccept();
   });
 
   try {

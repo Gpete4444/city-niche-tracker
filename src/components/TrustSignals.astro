@@ -3,9 +3,18 @@ import { site } from '../config/site';
 
 const rating = site.socialProof?.rating;
 const licenses = site.socialProof?.licenses ?? [];
-// Temporarily show rating-like stats alongside Google rating for operator comparison.
-// Re-enable dedupe filter after deciding whether to keep the 4.9★ stat.
-const statistics = site.socialProof?.statistics ?? [];
+/** Drop stats that duplicate the Google rating (e.g. "4.9★" / "Average customer rating"). */
+const statistics = (site.socialProof?.statistics ?? []).filter((stat) => {
+  if (!rating) return true;
+  const label = String(stat.label || '');
+  const value = String(stat.value || '');
+  if (/average\s+customer\s+rating/i.test(label)) return false;
+  const num = parseFloat(value.replace(/[^\d.]/g, ''));
+  if (Number.isFinite(num) && Math.abs(num - rating.value) < 0.05 && /rating|★|\*/i.test(`${value} ${label}`)) {
+    return false;
+  }
+  return true;
+});
 const hasProof = Boolean(rating || licenses.length > 0 || statistics.length > 0);
 ---
 

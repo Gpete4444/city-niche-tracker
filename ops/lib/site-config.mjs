@@ -350,8 +350,10 @@ export function validateSuburbsForSiteConfig(config) {
     }
   }
 
-  if (suburbs.length > 8) {
-    warnings.push(`targetSuburbs has ${suburbs.length} entries (prefer ≤8 SEO location pages)`);
+  if (suburbs.length > 5) {
+    warnings.push(
+      `targetSuburbs has ${suburbs.length} entries (prefer 3–5 suburbs / 4–6 location pages including primary)`,
+    );
   }
 
   for (const area of coverage) {
@@ -889,11 +891,17 @@ export function acceptSiteConfig(
 }
 
 /**
- * Persist Service area Accept: coverageAreas + radius + Claude-first targetSuburbs (≤8).
+ * Persist Service area Accept: coverageAreas + radius + location pages (targetSuburbs).
+ * Prefer ≤5 suburbs (6 pages with primary). Hard cap 8 suburbs.
  */
 export function acceptServiceArea(
   candidateId,
-  { radiusMiles, selectedCities = [], claudeOrder = null } = {},
+  {
+    radiusMiles,
+    selectedCities = [],
+    claudeOrder = null,
+    locationPageCities = null,
+  } = {},
 ) {
   const p = pathsFor(candidateId);
   const acceptedRaw = readJson(p.siteConfig);
@@ -926,20 +934,52 @@ export function acceptServiceArea(
   }
 
   const coverageAreas = toCoverageAreas(selected, primaryCity, state);
-  const claude =
-    Array.isArray(claudeOrder) && claudeOrder.length
-      ? claudeOrder
-      : Array.isArray(accepted.targetSuburbs)
-        ? accepted.targetSuburbs
-        : [];
+  const primaryNorm = String(primaryCity).trim().toLowerCase();
 
-  const targetSuburbs = mergeLocationPages({
-    coverage: coverageAreas,
-    claudeOrder: claude,
-    primaryCity,
-    state,
-    max: 8,
-  });
+  let targetSuburbs;
+  if (Array.isArray(locationPageCities) && locationPageCities.length) {
+    const covNames = new Set(
+      coverageAreas.map((a) => String(a.name || '').trim().toLowerCase()).filter(Boolean),
+    );
+    const seen = new Set();
+    targetSuburbs = [];
+    for (const raw of locationPageCities) {
+      const name = String(typeof raw === 'string' ? raw : raw?.name || '').trim();
+      if (!name) continue;
+      const key = name.toLowerCase();
+      if (key === primaryNorm) continue;
+      if (!covNames.has(key)) continue;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      targetSuburbs.push(name);
+      if (targetSuburbs.length >= 8) break;
+    }
+  } else {
+    const claude =
+      Array.isArray(claudeOrder) && claudeOrder.length
+        ? claudeOrder
+        : Array.isArray(accepted.targetSuburbs)
+          ? accepted.targetSuburbs
+          : [];
+    targetSuburbs = mergeLocationPages({
+      coverage: coverageAreas,
+      claudeOrder: claude,
+      primaryCity,
+      state,
+      max: 5,
+    });
+  }
+
+  const pageCount = 1 + targetSuburbs.length;
+  if (pageCount > 6) {
+    const err = new Error(
+      `Too many location pages (${pageCount}). Pick up to 6 cities for pages (others stay as coverage only).`,
+    );
+    err.status = 400;
+    err.code = 'LOCATION_PAGES_OVER_CAP';
+    err.pageCount = pageCount;
+    throw err;
+  }
 
   const next = {
     ...accepted,

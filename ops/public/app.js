@@ -31,7 +31,7 @@ import {
   mountDiscoveryCitiesMap,
   setServiceAreaTableMode,
   setDiscoveryTableMapMode,
-} from './service-area-map.js?v=20260818disc5';
+} from './service-area-map.js?v=20260819pages';
 
 /** @type {{ destroy: () => void, invalidateSize?: () => void } | null} */
 let serviceAreaMount = null;
@@ -369,6 +369,10 @@ const state = {
   contentSoftDone: {},
   websiteSoftDone: {},
   siteConfigSoftDone: {},
+  /** Sticky Website → Prepare/preview progress (survives accordion collapse + re-render). */
+  assembleProgress: { visible: false, detail: '' },
+  /** Keep Prepare step open while Prepare preview is running. */
+  preparePreviewHold: false,
   /** @type {Record<string, boolean>} candidateId → Twilio ranking number provisioned */
   sitePhoneProvisioned: {},
   phone: {
@@ -476,6 +480,7 @@ function showModal({
   cancelLabel = 'Cancel',
   danger = false,
   hideCancel = false,
+  afterOpen = null,
 }) {
   return new Promise((resolve) => {
     const root = document.getElementById('modal-root');
@@ -493,6 +498,14 @@ function showModal({
     cancelBtn.classList.toggle('hidden', Boolean(hideCancel));
     root.classList.remove('hidden');
     root.setAttribute('aria-hidden', 'false');
+
+    if (typeof afterOpen === 'function') {
+      try {
+        afterOpen(bodyEl);
+      } catch {
+        // ignore bind errors
+      }
+    }
 
     const close = (result) => {
       root.classList.add('hidden');
@@ -601,39 +614,101 @@ function missingDraftFilesListHtml(missing, { limit = 0 } = {}) {
   return `<ul class="narrative-list" style="margin:0.35rem 0 0">${items}${more}</ul>`;
 }
 
+/** Copy continue-write prompt (missing + stub/thin gaps). Safe from modals or Content step. */
+async function copyContinueWritePrompt(candidateId) {
+  try {
+    const data = await api(
+      `/api/candidates/${encodeURIComponent(candidateId)}/content/structure/continue-prompt`,
+    );
+    await navigator.clipboard.writeText(data.prompt || '');
+    const n = data.count || 0;
+    showToast(
+      n
+        ? `Continue prompt copied (${n} file${n === 1 ? '' : 's'}).`
+        : 'Continue prompt copied to clipboard.',
+    );
+  } catch (error) {
+    await showModal({
+      title: 'Copy failed',
+      confirmLabel: 'OK',
+      hideCancel: true,
+      bodyHtml: `<p>${esc(error.message)}</p>`,
+    });
+  }
+}
+
+function continueWriteControlsHtml({ sm = false } = {}) {
+  const cls = `btn primary${sm ? ' btn-sm' : ''} js-copy-continue-prompt`;
+  return `<div class="content-continue-actions" style="display:flex;flex-wrap:wrap;gap:0.5rem;align-items:center;margin:0.5rem 0 0">
+    <button type="button" class="${cls}" data-tip="Copy a Claude prompt scoped to missing and stub/thin FILEs only">Copy continue prompt</button>
+    ${openClaudeAiBtnHtml({ sm })}
+  </div>`;
+}
+
 /** Shared incomplete-draft copy for modal + Content callouts */
-function incompleteDraftExplainHtml({ have, expectedCount, missing, compact = false }) {
+function incompleteDraftExplainHtml({
+  have,
+  expectedCount,
+  missing,
+  stubs = [],
+  compact = false,
+  showContinueControls = true,
+} = {}) {
   const miss = Array.isArray(missing) ? missing : [];
-  if (!miss.length) return '';
+  const stubList = Array.isArray(stubs) ? stubs : [];
+  if (!miss.length && !stubList.length) return '';
   const haveN = Number(have) || 0;
   const expN = Number(expectedCount) || haveN + miss.length;
-  const progress = `<strong>Loaded ${esc(String(haveN))} of ${esc(String(expN))} required files.</strong>`;
+  const progress = miss.length
+    ? `<strong>Loaded ${esc(String(haveN))} of ${esc(String(expN))} required files.</strong>`
+    : `<strong>All ${esc(String(expN))} required files are present, but ${esc(String(stubList.length))} are stub/thin.</strong>`;
   const howTo = `<ol class="narrative-list" style="margin:0.4rem 0 0;padding-left:1.25rem">
       <li>Stay on <strong>Content → Full write</strong> (do not Accept yet).</li>
-      <li>In Claude.ai, ask it to <strong>continue</strong> with the remaining pages as more <code>### FILE:</code> blocks.</li>
-      <li>Copy those new blocks → paste into <strong>Paste FILE blocks</strong>.</li>
-      <li>Click <strong>Load FILE blocks as draft</strong> again (Rover merges; the count should rise).</li>
-      <li>Repeat until every required file is loaded, then <strong>Accept</strong> (Speech/SEO Refinement runs on complete Load).</li>
+      <li>Click <strong>Copy continue prompt</strong> → paste into Claude.ai (Open Claude.ai optional).</li>
+      <li>Copy Claude’s new <code>### FILE:</code> blocks → paste into <strong>Paste FILE blocks</strong>.</li>
+      <li>Click <strong>Load FILE blocks as draft</strong> again (Rover merges; gaps should clear).</li>
+      <li>Repeat if Claude truncates again, then <strong>Accept</strong>.</li>
     </ol>`;
-  const gate = `<p style="margin:0.35rem 0 0"><strong>Does this block you?</strong> Not on Content — you can keep loading chunks. You need all files before <strong>Accept</strong> / <strong>Prepare preview</strong> for a full site.</p>`;
+  const whyHappens = miss.length
+    ? `<p style="margin:0.35rem 0 0"><strong>Why this happens:</strong> Claude has a limit on how long a single reply can be. A full site write is large, so it often stops mid-way and leaves later pages (usually locations) out. That is normal — use <strong>Copy continue prompt</strong> to finish the rest.</p>`
+    : `<p style="margin:0.35rem 0 0"><strong>Why this happens:</strong> Seed stubs or a truncated Claude reply can leave service/location pages too thin for Accept. Use <strong>Copy continue prompt</strong> to rewrite those files fully.</p>`;
+  const gate = `<p style="margin:0.35rem 0 0"><strong>Does this block you?</strong> Not on Content — you can keep loading chunks. You need all non-stub files before <strong>Accept</strong> / <strong>Prepare preview</strong> for a full site.</p>`;
+  const controls = showContinueControls ? continueWriteControlsHtml({ sm: compact }) : '';
+  const missBlock = miss.length
+    ? `<details class="narrative-raw" style="margin-top:0.5rem" ${compact ? 'open' : ''}>
+        <summary>Missing files (${esc(String(miss.length))})</summary>
+        ${missingDraftFilesListHtml(miss, { limit: compact ? 8 : 0 })}
+      </details>`
+    : '';
+  const stubBlock = stubList.length
+    ? `<details class="narrative-raw" style="margin-top:0.35rem" ${compact && !miss.length ? 'open' : ''}>
+        <summary>Stub / thin (need rewrite) (${esc(String(stubList.length))})</summary>
+        ${missingDraftFilesListHtml(stubList, { limit: compact ? 8 : 0 })}
+      </details>`
+    : '';
   if (compact) {
     return `<div class="callout warn">
-      <p style="margin:0">${progress} Missing ${esc(String(miss.length))} file(s).</p>
+      <p style="margin:0">${progress}${
+        miss.length ? ` Missing ${esc(String(miss.length))} file(s).` : ''
+      }${stubList.length ? ` ${esc(String(stubList.length))} stub/thin.` : ''}</p>
+      ${whyHappens}
       ${gate}
       <p style="margin:0.35rem 0 0"><strong>How to finish</strong></p>
       ${howTo}
-      ${missingDraftFilesListHtml(miss, { limit: 8 })}
+      ${controls}
+      ${missBlock}
+      ${stubBlock}
     </div>`;
   }
   return `<div class="callout warn">
-      <p style="margin:0 0 0.35rem">${progress} Claude often returns pages in chunks — that is OK.</p>
+      <p style="margin:0 0 0.35rem">${progress}</p>
+      ${whyHappens}
       ${gate}
       <p style="margin:0.5rem 0 0"><strong>How to finish</strong></p>
       ${howTo}
-      <details class="narrative-raw" style="margin-top:0.5rem">
-        <summary>Missing files (${esc(String(miss.length))})</summary>
-        ${missingDraftFilesListHtml(miss)}
-      </details>
+      ${controls}
+      ${missBlock}
+      ${stubBlock}
     </div>`;
 }
 
@@ -653,11 +728,15 @@ function incompleteDraftCalloutHtml(d) {
       (d?.contentDraft?.files ? Object.keys(d.contentDraft.files) : []),
   );
   const missing = expected.filter((f) => !have.has(f));
-  if (!missing.length) return '';
+  const stubs = Array.isArray(d?.contentDraft?._ops?.check?.launch?.stubs)
+    ? d.contentDraft._ops.check.launch.stubs.filter((f) => have.has(f))
+    : [];
+  if (!missing.length && !stubs.length) return '';
   return incompleteDraftExplainHtml({
     have: have.size,
     expectedCount: expected.length,
     missing,
+    stubs,
     compact: true,
   });
 }
@@ -681,9 +760,15 @@ function previewSitemapEntries(d, baseUrl = 'http://127.0.0.1:4322') {
     }
   }
   if (pages.has('locations')) {
-    for (const name of cfg.targetSuburbs || []) {
-      const slug = slugifyPreviewName(name);
-      if (slug) push(`${name} (location)`, `/locations/${slug}`);
+    const seen = new Set();
+    for (const name of [cfg.primaryCity, ...(cfg.targetSuburbs || [])]) {
+      const label = String(name || '').trim();
+      if (!label) continue;
+      const key = label.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const slug = slugifyPreviewName(label);
+      if (slug) push(`${label} (location)`, `/locations/${slug}`);
     }
   }
   return entries;
@@ -1871,6 +1956,8 @@ async function selectCandidate(id) {
   state.contentSoftDone = {};
   state.websiteSoftDone = {};
   state.siteConfigSoftDone = {};
+  state.assembleProgress = { visible: false, detail: '' };
+  state.preparePreviewHold = false;
   if (state.selectedIds.size > 1) {
     renderList();
     renderMultiDetail();
@@ -2347,6 +2434,7 @@ function renderActions() {
           <button type="button" class="btn btn-sm primary" data-act="copy-prompt" ${
             busy || targetCount > 1 ? 'disabled' : ''
           } data-tip="Copy Claude.ai prompt, then paste the JSON result on the Narrative tab (default — no API cost)">Copy prompt</button>
+          ${openClaudeAiBtnHtml({ disabled: busy || targetCount > 1, sm: true })}
         </div>
       </div>
       <span class="stage-rail-sep" aria-hidden="true"></span>
@@ -3833,6 +3921,7 @@ function renderSiteConfig() {
         </div>
         <div class="narrative-actions" style="justify-content:flex-end">
           <button type="button" class="btn primary" id="sc-copy-prompt" data-tip="Copy Claude.ai site-config prompt" ${ready || f.hasApproved ? '' : 'disabled'}>Copy site-config prompt</button>
+          ${openClaudeAiBtnHtml({ disabled: !(ready || f.hasApproved) })}
         </div>`,
     }),
   );
@@ -3977,10 +4066,10 @@ function renderSiteConfig() {
       open: openId === 'service-area',
       current: currentId === 'service-area' && !serviceAreaDone,
       locked: !accepted,
-      info: 'Set radius on the map, toggle cities, Accept. Coverage list can be wide; SEO location pages stay Claude-first (max 8).',
+      info: 'Set radius on the map, toggle coverage cities. Use Page to choose SEO location pages (prefer 4–6 including primary). Extra cities stay as coverage / Also serving.',
       bodyHtml: accepted
         ? `
-          <p class="disc-tool-blurb">Map fills the left panel (all cities). Coverage can be wide; SEO pages stay Claude-first (max 8).</p>
+          <p class="disc-tool-blurb">Coverage can be wide. Blue Page = location page (prefer 4–6 including primary). Click Page to toggle without removing coverage.</p>
           ${
             serviceAreaDone
               ? `<p class="muted small">Saved · ${esc(String(covN))} coverage · ${esc(String(pageN))} location pages · ${esc(
@@ -4138,6 +4227,22 @@ function contentActionRow({ n, label, hint, controlsHtml = '', done = false }) {
     </div>
     ${controlsHtml ? `<div class="content-action-controls">${controlsHtml}</div>` : ''}
   </div>`;
+}
+
+/**
+ * Optional shortcut next to Copy prompt controls. Opens Claude.ai only —
+ * does not copy, advance steps, or change candidate state.
+ * @param {{ disabled?: boolean, sm?: boolean }} [opts]
+ */
+function openClaudeAiBtnHtml({ disabled = false, sm = false } = {}) {
+  const tip = tipAttr(
+    'Optional — open Claude.ai in a new tab. Does not copy the prompt or change this step.',
+  );
+  const cls = `btn${sm ? ' btn-sm' : ''} open-claude-ai`;
+  if (disabled) {
+    return `<span class="${cls}" aria-disabled="true" ${tip}>Open Claude.ai</span>`;
+  }
+  return `<a class="${cls}" href="https://claude.ai" target="_blank" rel="noopener noreferrer" ${tip}>Open Claude.ai</a>`;
 }
 
 /** Advisory speech-lint findings for Content → Editor panel */
@@ -4594,7 +4699,7 @@ function applyShipFreshnessUi(diff) {
       : '';
   const matchInfoTip =
     status === 'current'
-      ? ` <button type="button" class="tip-info" data-tip="Local assembled tree matches GitHub origin/main — already pushed. Prepare preview auto-ships when gh + Cloudflare are set, so a green match after Prepare (with new images) is expected. Use Push updates only when status shows a mismatch or auto-ship was skipped." aria-label="About matched GitHub status">i</button>`
+      ? ` <button type="button" class="tip-info" data-tip="Local assembled tree matches GitHub origin/main — already pushed. Prepare preview builds locally only; use Push updates to ship to GitHub + Cloudflare when status shows a mismatch." aria-label="About matched GitHub status">i</button>`
       : '';
   msg.innerHTML = `${esc(diff?.summary || 'Could not determine ship status.')}${assembleTip}${matchInfoTip}`;
 }
@@ -4845,11 +4950,8 @@ function renderContent() {
       Boolean(accepted?.files) ||
       Boolean(f.hasContentDraft) ||
       Boolean(f.hasContent),
-    // Done only when lint is clear (or already accepted) — keep step open for multi-pass
-    editor:
-      Boolean(accepted) ||
-      Boolean(f.hasContent) ||
-      (speechChecked && !editorNeeds.needed),
+    // Done only when lint is clear — keep open for multi-pass (incl. post-Accept rework)
+    editor: Boolean(speechChecked && !editorNeeds.needed),
     accepted: Boolean(accepted) || Boolean(f.hasContent),
     brief: brief?.status === 'confirmed' || Boolean(f.hasContentBriefConfirmed),
     oneshot:
@@ -4860,7 +4962,25 @@ function renderContent() {
     research: Boolean(research) || Boolean(f.hasContentResearch),
     outlineLegacy: Boolean(outline) || Boolean(f.hasContentOutline),
   };
-  const durableCurrent = stepDone.accepted ? null : firstIncompleteContentStep(stepDone);
+  // Findings win over Accept soft-advance so Speech/SEO stays the current open step
+  if (speechChecked && editorNeeds.needed) {
+    if (state.contentSoftDone?.editor) {
+      const nextSoft = { ...state.contentSoftDone };
+      delete nextSoft.editor;
+      state.contentSoftDone = nextSoft;
+    }
+    if (state.contentSoftCurrent === 'accept') {
+      state.contentSoftCurrent = 'editor';
+      state.contentFollowCurrent = 'editor';
+      state.contentOpenStep = 'editor';
+    }
+  }
+  const durableCurrent =
+    speechChecked && editorNeeds.needed
+      ? 'editor'
+      : stepDone.accepted
+        ? null
+        : firstIncompleteContentStep(stepDone);
   const currentId = resolvePanelCurrent('contentSoftCurrent', durableCurrent);
   if (state.contentFollowCurrent !== currentId) {
     state.contentOpenStep = currentId;
@@ -4870,7 +4990,10 @@ function renderContent() {
   const structureDone = stepDone.structure || isSoftDone('contentSoftDone', 'structure');
   const outlineDone = stepDone.outline || isSoftDone('contentSoftDone', 'outline');
   const writeDone = stepDone.write || isSoftDone('contentSoftDone', 'write');
-  const editorDone = stepDone.editor || isSoftDone('contentSoftDone', 'editor');
+  const editorDone =
+    speechChecked && editorNeeds.needed
+      ? false
+      : stepDone.editor || isSoftDone('contentSoftDone', 'editor');
   const acceptDone = stepDone.accepted || isSoftDone('contentSoftDone', 'accept');
   const parts = [];
 
@@ -4926,7 +5049,8 @@ function renderContent() {
           label: 'Copy structure prompt <span class="muted">(Required)</span>',
           controlsHtml: `<button type="button" class="btn primary" id="cs-copy-structure" ${
             outlinePkg?.sections?.length ? '' : 'disabled'
-          }>Copy structure prompt</button>`,
+          }>Copy structure prompt</button>
+          ${openClaudeAiBtnHtml({ disabled: !outlinePkg?.sections?.length })}`,
         })}
         ${contentActionRow({
           n: 2,
@@ -4958,7 +5082,8 @@ function renderContent() {
           label: 'Copy full-write prompt <span class="muted">(Required)</span>',
           controlsHtml: `<button type="button" class="btn primary" id="cs-copy-write" ${
             outlineConfirmed ? '' : 'disabled'
-          }>Copy full-write prompt</button>`,
+          }>Copy full-write prompt</button>
+          ${openClaudeAiBtnHtml({ disabled: !outlineConfirmed })}`,
         })}
         ${contentActionRow({
           n: 2,
@@ -5004,7 +5129,8 @@ function renderContent() {
           hint: 'Prompt includes only files with open findings — paste back only changed FILEs; Load merges. Works from draft or accepted content.',
           controlsHtml: `<button type="button" class="btn primary" id="ca-copy-editor" data-tip="Copy findings-scoped editor prompt for Claude.ai" ${
             ready ? '' : 'disabled'
-          }>Copy editor prompt</button>`,
+          }>Copy editor prompt</button>
+          ${openClaudeAiBtnHtml({ disabled: !ready })}`,
         })}
         ${contentActionRow({
           n: 3,
@@ -5141,7 +5267,8 @@ function renderContent() {
         label: 'Copy legacy one-shot prompt',
         controlsHtml: `<button type="button" class="btn" id="cb-copy-oneshot" ${
           stepDone.brief ? '' : 'disabled'
-        }>Copy one-shot prompt</button>`,
+        }>Copy one-shot prompt</button>
+        ${openClaudeAiBtnHtml({ disabled: !stepDone.brief })}`,
       })}
     </details>
   `);
@@ -5153,7 +5280,8 @@ function renderContent() {
       ${contentActionRow({
         n: 'A',
         label: 'Copy researcher prompt',
-        controlsHtml: `<button type="button" class="btn" id="ca-copy-researcher" data-tip="Copy researcher prompt for Claude" ${ready ? '' : 'disabled'}>Copy prompt</button>`,
+        controlsHtml: `<button type="button" class="btn" id="ca-copy-researcher" data-tip="Copy researcher prompt for Claude" ${ready ? '' : 'disabled'}>Copy prompt</button>
+        ${openClaudeAiBtnHtml({ disabled: !ready })}`,
       })}
       ${contentActionRow({
         n: 'B',
@@ -5170,13 +5298,15 @@ function renderContent() {
         n: 'D',
         label: 'Copy / paste outline',
         controlsHtml: `<button type="button" class="btn" id="ca-copy-outline" data-tip="Copy outline prompt for Claude" ${ready ? '' : 'disabled'}>Copy outline prompt</button>
+          ${openClaudeAiBtnHtml({ disabled: !ready })}
           <textarea id="ca-outline-paste" class="narrative-paste-input" rows="2" placeholder="Paste outline JSON" data-tip="Paste outline JSON"></textarea>
           <button type="button" class="btn" id="ca-paste-outline" data-tip="Save outline for this candidate" ${ready ? '' : 'disabled'}>Save outline</button>`,
       })}
       ${contentActionRow({
         n: 'E',
         label: 'Copy writer prompt (outline-based)',
-        controlsHtml: `<button type="button" class="btn" id="ca-copy-writer" data-tip="Copy writer prompt" ${outline ? '' : 'disabled'}>Copy writer prompt</button>`,
+        controlsHtml: `<button type="button" class="btn" id="ca-copy-writer" data-tip="Copy writer prompt" ${outline ? '' : 'disabled'}>Copy writer prompt</button>
+        ${openClaudeAiBtnHtml({ disabled: !outline })}`,
       })}
       ${
         outline
@@ -5195,6 +5325,7 @@ function renderContent() {
       <p class="disc-tool-blurb">Full-suite paste via <code>claude-markdown.md</code>.</p>
       <div class="narrative-actions">
         <button type="button" class="btn" id="content-copy-prompt" data-tip="Copy full one-shot markdown prompt" ${ready ? '' : 'disabled'}>Copy full markdown prompt</button>
+        ${openClaudeAiBtnHtml({ disabled: !ready })}
       </div>
       <textarea id="content-paste" class="narrative-paste-input" rows="2" placeholder="Optional: paste full ### FILE suite"></textarea>
       <div class="narrative-actions">
@@ -5374,6 +5505,103 @@ function imagesSlotCardHtml(slot) {
       </div>
     </div>
   </div>`;
+}
+
+function baThumbUrl(candidateId, filename) {
+  if (!filename) return '';
+  return `/api/candidates/${encodeURIComponent(candidateId)}/images/file/${encodeURIComponent(filename)}`;
+}
+
+function baPreviewStripHtml(candidateId, before, after, emptyLabel = 'No pair imported yet.') {
+  const beforeSrc = before?.filename ? baThumbUrl(candidateId, before.filename) : '';
+  const afterSrc = after?.filename ? baThumbUrl(candidateId, after.filename) : '';
+  if (!beforeSrc && !afterSrc) {
+    return `<p class="muted ba-preview-empty" style="margin:0.4rem 0 0;font-size:0.85rem">${esc(emptyLabel)}</p>`;
+  }
+  const cell = (src, label, alt) =>
+    src
+      ? `<figure style="margin:0;flex:1;min-width:120px;max-width:220px">
+          <img src="${esc(src)}" alt="${esc(alt || label)}" style="width:100%;aspect-ratio:4/3;object-fit:cover;border-radius:6px;border:1px solid var(--border);display:block" />
+          <figcaption class="muted" style="margin-top:0.25rem;font-size:0.75rem;text-align:center">${esc(label)}</figcaption>
+        </figure>`
+      : `<div class="muted" style="flex:1;min-width:120px;max-width:220px;aspect-ratio:4/3;border:1px dashed var(--border);border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:0.8rem">${esc(label)} missing</div>`;
+  return `<div class="ba-preview" style="display:flex;flex-wrap:wrap;gap:0.65rem;margin-top:0.5rem">${cell(
+    beforeSrc,
+    'Before',
+    before?.alt,
+  )}${cell(afterSrc, 'After', after?.alt)}</div>`;
+}
+
+function baServiceStepHtml(candidateId, service, stepN) {
+  const slug = service.slug;
+  const done = Boolean(service.complete);
+  return contentActionRow({
+    n: stepN,
+    label: `Before & after — ${service.serviceName} (ChatGPT)`,
+    hint: `Copy prompts → generate in ChatGPT → import two images for <strong>${esc(
+      service.serviceName,
+    )}</strong> (earlier filename time = Before).`,
+    done,
+    controlsHtml: `
+      <div class="flex-wrap gap-2" style="display:flex;flex-wrap:wrap;gap:0.4rem;align-items:center" data-ba-service="${esc(
+        slug,
+      )}">
+        <button type="button" class="btn ca-ba-svc-copy" data-ba-service="${esc(
+          slug,
+        )}" data-ba-kind="before" data-tip="Copy BEFORE prompt for this service">Copy before</button>
+        <button type="button" class="btn ca-ba-svc-copy" data-ba-service="${esc(
+          slug,
+        )}" data-ba-kind="after" data-tip="Copy AFTER prompt for this service">Copy after</button>
+        <a class="btn" href="https://chatgpt.com/" target="_blank" rel="noopener" data-tip="Open ChatGPT in a new tab">Open ChatGPT</a>
+        <label class="btn" style="cursor:pointer" data-tip="Choose before then after image files">
+          Import pair
+          <input type="file" class="ca-ba-svc-import" data-ba-service="${esc(
+            slug,
+          )}" accept="image/jpeg,image/png,image/webp" multiple hidden />
+        </label>
+      </div>
+      <p class="muted ca-ba-svc-status" data-ba-service="${esc(
+        slug,
+      )}" style="margin:0.35rem 0 0;font-size:0.85rem"></p>
+      <div class="ca-ba-svc-preview" data-ba-service="${esc(slug)}">${baPreviewStripHtml(
+        candidateId,
+        service.before,
+        service.after,
+        `No pair for ${service.serviceName} yet.`,
+      )}</div>`,
+  });
+}
+
+async function refreshBeforeAfterUi(candidateId) {
+  const homePreview = document.getElementById('ca-ba-preview');
+  const svcHost = document.getElementById('ca-svc-ba-steps');
+  try {
+    const status = await api(
+      `/api/candidates/${encodeURIComponent(candidateId)}/images/before-after-status`,
+    );
+    if (homePreview) {
+      homePreview.innerHTML = baPreviewStripHtml(
+        candidateId,
+        status.home?.before,
+        status.home?.after,
+      );
+    }
+    if (svcHost) {
+      if (status.svcBeforeAfterEnabled && (status.services || []).length) {
+        svcHost.innerHTML = (status.services || [])
+          .map((svc, i) => baServiceStepHtml(candidateId, svc, 5 + i))
+          .join('');
+      } else {
+        svcHost.innerHTML = '';
+      }
+    }
+  } catch (error) {
+    if (homePreview) {
+      homePreview.innerHTML = `<p class="muted" style="margin:0.4rem 0 0;font-size:0.85rem">${esc(
+        error.message || 'Could not load before/after status',
+      )}</p>`;
+    }
+  }
 }
 
 function imagesSlotsShellHtml() {
@@ -5652,7 +5880,11 @@ function renderWebsite() {
   const stepFlags = { imagesDone, prepareDone, launched: flags.launched };
   const durableCurrent = flags.launched ? null : firstIncompleteWebsiteStep(stepFlags);
   const currentId = resolvePanelCurrent('websiteSoftCurrent', durableCurrent);
-  if (state.websiteFollowCurrent !== currentId) {
+  if (state.preparePreviewHold) {
+    state.websiteOpenStep = 'prepare';
+    state.websiteSoftCurrent = 'prepare';
+    state.websiteFollowCurrent = 'prepare';
+  } else if (state.websiteFollowCurrent !== currentId) {
     state.websiteOpenStep = currentId;
     state.websiteFollowCurrent = currentId;
   }
@@ -5722,6 +5954,17 @@ function renderWebsite() {
     );
   }
 
+  const assembleProg = state.assembleProgress || { visible: false, detail: '' };
+  parts.push(`
+    <div id="ca-assemble-progress" class="job-progress${assembleProg.visible ? '' : ' hidden'}" aria-live="polite">
+      <div class="job-progress-track"><div class="job-progress-bar"></div></div>
+      <p class="job-progress-label" id="ca-assemble-progress-label">Preparing preview…</p>
+      <p class="job-progress-detail" id="ca-assemble-progress-detail">${esc(
+        assembleProg.detail || 'Working…',
+      )}</p>
+    </div>
+  `);
+
   parts.push(
     contentStepHtml({
       id: 'images',
@@ -5765,7 +6008,7 @@ function renderWebsite() {
         ${contentActionRow({
           n: 4,
           label: 'Before & after (ChatGPT)',
-          hint: 'Copy prompts → generate in ChatGPT (browser) → import two images (any order; earlier filename time = Before).',
+          hint: 'Homepage gallery: copy prompts → generate in ChatGPT (browser) → import two images (any order; earlier filename time = Before).',
           controlsHtml: `
             <div class="flex-wrap gap-2" style="display:flex;flex-wrap:wrap;gap:0.4rem;align-items:center">
               <button type="button" class="btn" id="ca-ba-copy-before" data-tip="Copy BEFORE image prompt">Copy before</button>
@@ -5776,8 +6019,10 @@ function renderWebsite() {
                 <input type="file" id="ca-ba-import-files" accept="image/jpeg,image/png,image/webp" multiple hidden />
               </label>
             </div>
-            <p class="muted" id="ca-ba-status" style="margin:0.35rem 0 0;font-size:0.85rem"></p>`,
+            <p class="muted" id="ca-ba-status" style="margin:0.35rem 0 0;font-size:0.85rem"></p>
+            <div id="ca-ba-preview"></div>`,
         })}
+        <div id="ca-svc-ba-steps"></div>
         <div id="ca-images-progress" class="job-progress hidden" aria-live="polite">
           <div class="job-progress-track"><div class="job-progress-bar" id="ca-images-progress-bar"></div></div>
           <p class="job-progress-label" id="ca-images-progress-label">Working…</p>
@@ -5793,7 +6038,7 @@ function renderWebsite() {
   if (wantsLocations) prepareInfoParts.push('every location page');
   const prepareInfo = `Prepare preview stages the full launch package (${prepareInfoParts.join(
     ' + ',
-  )}), assembles the sibling site, and opens the assembled preview on :4322.`;
+  )}), assembles the sibling site (full rebuild when template layout is newer; otherwise content refresh), stops any old :4322 preview, and opens the assembled preview (does not ship live — use Push updates or Run launch for that).`;
   parts.push(
     contentStepHtml({
       id: 'prepare',
@@ -5805,15 +6050,12 @@ function renderWebsite() {
       info: prepareInfo,
       bodyHtml: `
         <div class="narrative-actions" style="justify-content:center">
-          <button type="button" class="btn primary" id="ca-prepare-preview" data-tip="Full Stage → Assemble → open preview :4322" ${hasMarkdown ? '' : 'disabled'}>Prepare preview</button>
+          <button type="button" class="btn primary" id="ca-prepare-preview" data-tip="Stage → assemble (full if template newer) → open preview :4322" ${
+            hasMarkdown && !state.preparePreviewHold ? '' : 'disabled'
+          }>Prepare preview</button>
           <button type="button" class="btn" id="ca-open-assembled-preview" data-tip="Preview assembled site on 127.0.0.1:4322" ${flags.assembled ? '' : 'disabled'}>Open site preview</button>
           <button type="button" class="btn" id="ca-visual-edit" data-tip="Operator visual editor on the assembled preview" ${hasMarkdown ? '' : 'disabled'}>Edit visually</button>
           <button type="button" class="btn" id="ca-checklist" data-tip="Show assemble / deploy checklist">Checklist</button>
-        </div>
-        <div id="ca-assemble-progress" class="job-progress hidden" aria-live="polite">
-          <div class="job-progress-track"><div class="job-progress-bar"></div></div>
-          <p class="job-progress-label">Preparing…</p>
-          <p class="job-progress-detail" id="ca-assemble-progress-detail">Working…</p>
         </div>`,
     }),
   );
@@ -5988,11 +6230,17 @@ function setLaunchProgress(visible, label, detail) {
 }
 
 function setAssembleProgress(visible, detail) {
+  state.assembleProgress = {
+    visible: Boolean(visible),
+    detail: detail != null ? String(detail) : state.assembleProgress?.detail || '',
+  };
   const box = document.getElementById('ca-assemble-progress');
   const detailEl = document.getElementById('ca-assemble-progress-detail');
+  const labelEl = document.getElementById('ca-assemble-progress-label');
   if (!box) return;
   box.classList.toggle('hidden', !visible);
-  if (detailEl && detail) detailEl.textContent = detail;
+  if (detailEl && detail != null) detailEl.textContent = String(detail);
+  if (labelEl && visible) labelEl.textContent = 'Preparing preview…';
 }
 
 const ACCEPT_PROGRESS_STEPS = [
@@ -6326,6 +6574,10 @@ function wireContentTab(d) {
       ),
     );
 
+  document.querySelectorAll('.js-copy-continue-prompt').forEach((btn) => {
+    btn.addEventListener('click', () => copyContinueWritePrompt(id));
+  });
+
   document.getElementById('cb-generate')?.addEventListener('click', async () => {
     try {
       const result = await api(`/api/candidates/${encodeURIComponent(id)}/content/brief`, {
@@ -6487,11 +6739,14 @@ function wireContentTab(d) {
 
       if (missing.length) {
         await refresh(result.candidate, textareaId === 'ca-writer-paste' ? 'write' : 'editor');
+        const stubs = launch?.stubs || [];
         const incompleteHtml = incompleteDraftExplainHtml({
           have: launch?.have || 0,
           expectedCount: launch?.expectedCount || missing.length,
           missing,
+          stubs,
           compact: false,
+          showContinueControls: true,
         });
         const proofHtml = proofN
           ? `<p class="muted">Also seeded ${esc(String(proofN))} placeholder review(s) into site-config — replace with real reviews before launch.</p>`
@@ -6504,10 +6759,41 @@ function wireContentTab(d) {
           <p class="muted">Auto-fixed ${esc(String(fixN))} (${esc(String(fixSpeech))} speech · ${esc(
             String(fixSeo),
           )} SEO) · remaining ${esc(String(speechN))} speech · ${esc(String(seoN))} SEO.</p>`,
+          afterOpen: (body) => {
+            body.querySelectorAll('.js-copy-continue-prompt').forEach((btn) => {
+              btn.addEventListener('click', () => copyContinueWritePrompt(id));
+            });
+          },
         });
         return;
       }
 
+      // Full path count, but stub/thin may still block Accept — surface continue prompt
+      const stubsOnly = launch?.stubs || [];
+      if (stubsOnly.length) {
+        await refresh(result.candidate, textareaId === 'ca-writer-paste' ? 'write' : 'editor');
+        const incompleteHtml = incompleteDraftExplainHtml({
+          have: launch?.have || 0,
+          expectedCount: launch?.expectedCount || 0,
+          missing: [],
+          stubs: stubsOnly,
+          compact: false,
+          showContinueControls: true,
+        });
+        await showModal({
+          title: 'Draft needs rewrite',
+          confirmLabel: 'OK',
+          hideCancel: true,
+          bodyHtml: `${incompleteHtml}
+          <p class="muted">Files loaded, but Accept will reject stub/thin service or location pages until you continue-write them.</p>`,
+          afterOpen: (body) => {
+            body.querySelectorAll('.js-copy-continue-prompt').forEach((btn) => {
+              btn.addEventListener('click', () => copyContinueWritePrompt(id));
+            });
+          },
+        });
+        return;
+      }
       // Full draft: auto Speech/SEO Refinement, then advance
       let speechData = null;
       let needsRewrite = false;
@@ -6699,15 +6985,65 @@ function wireContentTab(d) {
     }
   };
 
-  const openAssembledPreview = async ({ quiet = false } = {}) => {
-    const previewUrlDefault = 'http://127.0.0.1:4322/';
-    let previewTab = null;
+  const writePreviewTabHtml = (tab, { title, body }) => {
+    if (!tab || tab.closed) return;
     try {
-      previewTab = window.open(previewUrlDefault, '_blank');
+      tab.document.open();
+      tab.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${title}</title>
+        <link rel="stylesheet" href="/brand/rover-loader.css" />
+        <style>
+          *{box-sizing:border-box}
+          body{
+            margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;
+            font:15px/1.45 system-ui,sans-serif;color:#e8e8e8;background:#000;
+            padding:1.5rem;
+          }
+          .wrap{display:flex;flex-direction:column;align-items:center;gap:1.25rem;max-width:28rem;text-align:center}
+          h1{font-size:1.05rem;font-weight:600;margin:0;color:#fff}
+          p{margin:0;color:rgba(255,255,255,0.72)}
+          code{font-size:0.9em;color:rgba(255,255,255,0.88)}
+        </style></head><body>
+        <div class="wrap">
+          <div class="rover-loader rover-loader--dark" role="img" aria-label="Loading">
+            <svg class="rover-loader-mark" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" focusable="false" aria-hidden="true">
+              <circle class="rover-loader-dot" cx="32" cy="32" r="7.5"></circle>
+              <g class="rover-loader-ring rover-loader-ring--inner">
+                <circle cx="32" cy="32" r="15" transform="rotate(-45 32 32)"></circle>
+              </g>
+              <g class="rover-loader-ring rover-loader-ring--outer">
+                <circle cx="32" cy="32" r="24" transform="rotate(-11 32 32)"></circle>
+              </g>
+            </svg>
+            <img class="rover-loader-word" src="/brand/rover-wordmark-dark.png" alt="" width="618" height="81" decoding="async" />
+          </div>
+          <h1>${title}</h1>
+          <p>${body}</p>
+        </div>
+        </body></html>`);
+      tab.document.close();
     } catch {
-      previewTab = null;
+      /* cross-origin or closed */
     }
-    if (!quiet) setAssembleProgress(true, 'Starting assembled preview…');
+  };
+
+  const openAssembledPreview = async ({ quiet = false, previewTab: existingTab = null } = {}) => {
+    const previewUrlDefault = 'http://127.0.0.1:4322/';
+    let previewTab = existingTab;
+    if (!previewTab || previewTab.closed) {
+      try {
+        previewTab = window.open('about:blank', '_blank');
+      } catch {
+        previewTab = null;
+      }
+    }
+    writePreviewTabHtml(previewTab, {
+      title: 'Starting assembled preview…',
+      body: 'Rover is starting the site preview on <code>127.0.0.1:4322</code>. This can take up to a couple of minutes — keep this tab open.',
+    });
+    if (!quiet) setAssembleProgress(true, 'Starting preview server on :4322…');
+    const waitTimer = setInterval(() => {
+      if (!quiet) setAssembleProgress(true, 'Waiting for preview on :4322 (astro preview)…');
+    }, 8000);
     try {
       const preview = await api(`/api/candidates/${encodeURIComponent(id)}/assembled/preview`, {
         method: 'POST',
@@ -6715,6 +7051,7 @@ function wireContentTab(d) {
       });
       const url = preview.url || previewUrlDefault;
       if (preview.ok) {
+        if (!quiet) setAssembleProgress(true, 'Preview server ready — opening site…');
         try {
           if (previewTab && !previewTab.closed) {
             previewTab.location.replace(url);
@@ -6725,60 +7062,117 @@ function wireContentTab(d) {
         } catch {
           window.open(url, '_blank');
         }
+      } else {
+        writePreviewTabHtml(previewTab, {
+          title: 'Assembled preview failed',
+          body: esc(String(preview.error || 'Could not start assembled preview on :4322.')),
+        });
       }
       return preview;
+    } catch (error) {
+      writePreviewTabHtml(previewTab, {
+        title: 'Assembled preview failed',
+        body: esc(String(error?.message || error || 'Could not start assembled preview.')),
+      });
+      throw error;
     } finally {
-      if (!quiet) setAssembleProgress(false);
+      clearInterval(waitTimer);
+      // Caller owns clearing sticky progress (Prepare / Open site preview finally).
     }
   };
 
   document.getElementById('ca-prepare-preview')?.addEventListener('click', async () => {
     const btn = document.getElementById('ca-prepare-preview');
     if (btn) btn.disabled = true;
+    state.preparePreviewHold = true;
+    state.websiteOpenStep = 'prepare';
+    state.websiteSoftCurrent = 'prepare';
+    state.websiteFollowCurrent = 'prepare';
+    let previewTab = null;
+    try {
+      previewTab = window.open('about:blank', '_blank');
+    } catch {
+      previewTab = null;
+    }
+    writePreviewTabHtml(previewTab, {
+      title: 'Prepare preview…',
+      body: 'Staging the full launch package. Rover will refresh the assembled site (or assemble if needed), then start the preview on <code>127.0.0.1:4322</code>.',
+    });
     setAssembleProgress(true, 'Staging full launch package…');
     try {
+      const stageT0 = Date.now();
       const staged = await api(`/api/candidates/${encodeURIComponent(id)}/staging`, {
         method: 'POST',
         body: JSON.stringify({ mode: 'full', openPreview: false }),
       });
+      const stageMs = Date.now() - stageT0;
       const serviceN = staged.serviceCount != null ? Number(staged.serviceCount) : null;
       const locationN = staged.locationCount != null ? Number(staged.locationCount) : null;
       if (staged.candidate) {
         state.detail = staged.candidate;
       }
+      writePreviewTabHtml(previewTab, {
+        title: 'Prepare preview…',
+        body: 'Assembling site (full rebuild when the template layout is newer; otherwise content refresh). Preview opens on <code>:4322</code> when ready.',
+      });
       setAssembleProgress(
         true,
-        `Staged ${staged.written?.length || 0} files${
+        `Staged ${staged.written?.length || 0} files in ${Math.round(stageMs / 1000)}s${
           serviceN != null ? ` · ${serviceN} service page(s)` : ''
         }${locationN != null ? ` · ${locationN} location page(s)` : ''} — assembling…`,
       );
       const assembleTimer = setInterval(() => {
-        setAssembleProgress(true, 'npm install + build (and ship if credentials set)…');
+        setAssembleProgress(
+          true,
+          'Assembling site (stops :4322 first; full copy when template is newer)…',
+        );
       }, 8000);
       let assembled;
       try {
         assembled = await api(`/api/candidates/${encodeURIComponent(id)}/assemble`, {
           method: 'POST',
-          body: JSON.stringify({ force: true, build: true, ship: true }),
+          body: JSON.stringify({ refresh: true, build: true, ship: false }),
         });
       } finally {
         clearInterval(assembleTimer);
       }
-      await refresh(assembled.candidate || staged.candidate, 'launch', 'website');
-      setAssembleProgress(true, 'Opening assembled preview on :4322…');
-      const preview = await openAssembledPreview({ quiet: true });
+      const modeLabel =
+        assembled.mode === 'refresh'
+          ? 'Refresh'
+          : assembled.fullReason === 'template'
+            ? 'Full assemble (template newer)'
+            : 'Full assemble';
+      const assembleMs =
+        assembled.ms != null ? `${Math.round(Number(assembled.ms) / 1000)}s` : '';
+      const buildMs =
+        assembled.build?.ms != null ? `${Math.round(Number(assembled.build.ms) / 1000)}s` : '';
+      let afterAssemble = `${modeLabel}${assembleMs ? ` ${assembleMs}` : ''}`;
+      if (assembled.build?.buildSkipped) afterAssemble += ' · dist reused';
+      else if (assembled.build?.ok) {
+        afterAssemble += assembled.build?.npmInstallSkipped
+          ? ` · build ${buildMs || 'ok'} (install skipped)`
+          : ` · build ${buildMs || 'ok'}`;
+      } else if (assembled.build?.error) {
+        afterAssemble += ` · build failed`;
+      }
+      setAssembleProgress(true, `${afterAssemble} — starting preview…`);
+      // Refresh detail but stay on Prepare with sticky progress visible
+      state.preparePreviewHold = true;
+      await refresh(assembled.candidate || staged.candidate, null, 'website');
+      setAssembleProgress(true, 'Starting preview server on :4322…');
+      const preview = await openAssembledPreview({ quiet: false, previewTab });
+      state.preparePreviewHold = false;
+      await refresh(assembled.candidate || staged.candidate || state.detail, 'launch', 'website');
+      setAssembleProgress(true, preview?.ok ? 'Preview ready' : 'Preview failed');
       const buildLine = assembled.build?.ok
-        ? 'Build ok'
+        ? assembled.build?.buildSkipped
+          ? `Build skipped (dist still fresh${buildMs ? ` · ${buildMs}` : ''})`
+          : assembled.build?.npmInstallSkipped
+            ? `Build ok (reused node_modules${buildMs ? ` · ${buildMs}` : ''})`
+            : `Build ok${buildMs ? ` · ${buildMs}` : ''}`
         : assembled.build?.error
           ? `Build failed: ${assembled.build.error}`
           : 'Build skipped';
-      const shipLine = assembled.ship?.ok
-        ? 'Auto-ship ok'
-        : assembled.ship?.skipped
-          ? `Auto-ship skipped — ${assembled.ship.reason || 'credentials missing'}`
-          : assembled.ship?.error
-            ? `Auto-ship failed: ${assembled.ship.error}`
-            : 'Auto-ship not run';
       const previewUrl = preview?.url || 'http://127.0.0.1:4322/';
       const map = previewSitemapHtml(state.detail);
       await showModal({
@@ -6790,7 +7184,9 @@ function wireContentTab(d) {
               : 'Prepared (preview failed)',
         confirmLabel: 'OK',
         hideCancel: true,
-        bodyHtml: `<p>Full Stage → Assemble complete.</p>
+        bodyHtml: `<p>Stage → ${esc(modeLabel)} complete (local preview only${
+          assembleMs ? ` · assemble ${esc(assembleMs)}` : ''
+        } · stage ${esc(String(Math.round(stageMs / 1000)))}s).</p>
           <p>${
             serviceN != null
               ? `<strong>${esc(String(serviceN))} service page(s)</strong> staged`
@@ -6798,7 +7194,7 @@ function wireContentTab(d) {
           }${
             locationN != null ? ` · <strong>${esc(String(locationN))} location page(s)</strong>` : ''
           }.</p>
-          <p>${esc(buildLine)}. ${esc(shipLine)}.</p>
+          <p>${esc(buildLine)}. Use <strong>Push updates</strong> or <strong>Run launch</strong> to ship live.</p>
           ${
             preview?.ok
               ? `<p>Opened <a href="${esc(previewUrl)}" target="_blank" rel="noopener">${esc(previewUrl)}</a> — click every Preview sitemap URL before Launch.</p>${map}`
@@ -6806,6 +7202,10 @@ function wireContentTab(d) {
           }`,
       });
     } catch (error) {
+      writePreviewTabHtml(previewTab, {
+        title: 'Prepare preview failed',
+        body: esc(String(error?.message || error || 'Prepare preview failed.')),
+      });
       const missing = error.check?.missing || error.check?.errors || [];
       await showModal({
         title: 'Prepare preview failed',
@@ -6821,14 +7221,16 @@ function wireContentTab(d) {
         }`,
       });
     } finally {
+      state.preparePreviewHold = false;
       setAssembleProgress(false);
-      if (btn) btn.disabled = false;
-      if (assembleBtn) assembleBtn.disabled = false;
+      const prepareBtn = document.getElementById('ca-prepare-preview');
+      if (prepareBtn) prepareBtn.disabled = false;
     }
   });
   document.getElementById('ca-pull-images')?.addEventListener('click', () => runPullImages());
   wireImageSlotActions(id, refresh);
   void refreshImageSlotsGrid(id);
+  void refreshBeforeAfterUi(id);
   document.getElementById('ca-generate-logo')?.addEventListener('click', async () => {
     const btn = document.getElementById('ca-generate-logo');
     if (btn) btn.disabled = true;
@@ -6914,16 +7316,26 @@ function wireContentTab(d) {
     const el = document.getElementById('ca-ba-status');
     if (el) el.textContent = msg || '';
   };
-  const copyBaPrompt = async (kind) => {
+  const baSvcStatus = (slug, msg) => {
+    const el = document.querySelector(`.ca-ba-svc-status[data-ba-service="${CSS.escape(slug)}"]`);
+    if (el) el.textContent = msg || '';
+  };
+  const copyBaPrompt = async (kind, serviceSlug = '') => {
     try {
+      const q = serviceSlug
+        ? `?service=${encodeURIComponent(serviceSlug)}`
+        : '';
       const prompts = await api(
-        `/api/candidates/${encodeURIComponent(id)}/images/before-after-prompts`,
+        `/api/candidates/${encodeURIComponent(id)}/images/before-after-prompts${q}`,
       );
       const text = prompts[kind] || prompts.pair || '';
       await navigator.clipboard.writeText(text);
-      baStatus(`Copied ${kind} prompt (${text.length} chars). Paste into ChatGPT.`);
+      const note = `Copied ${kind} prompt (${text.length} chars). Paste into ChatGPT.`;
+      if (serviceSlug) baSvcStatus(serviceSlug, note);
+      else baStatus(note);
     } catch (error) {
-      baStatus(error.message || 'Copy failed');
+      if (serviceSlug) baSvcStatus(serviceSlug, error.message || 'Copy failed');
+      else baStatus(error.message || 'Copy failed');
       await showModal({
         title: 'Prompt failed',
         confirmLabel: 'OK',
@@ -6947,6 +7359,23 @@ function wireContentTab(d) {
       reader.readAsDataURL(file);
     });
 
+  const importBaPair = async (files, serviceSlug = '') => {
+    const payloadFiles = [];
+    for (const file of files.slice(0, 2)) {
+      payloadFiles.push({
+        name: file.name,
+        lastModified: file.lastModified || 0,
+        dataUrl: await fileToDataUrl(file),
+      });
+    }
+    const body = { files: payloadFiles };
+    if (serviceSlug) body.serviceSlug = serviceSlug;
+    return api(`/api/candidates/${encodeURIComponent(id)}/images/before-after-import`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+  };
+
   document.getElementById('ca-ba-import-files')?.addEventListener('change', async (ev) => {
     const input = ev.target;
     const files = [...(input.files || [])];
@@ -6958,21 +7387,7 @@ function wireContentTab(d) {
     }
     baStatus('Importing before/after pair (ordering by filename time)…');
     try {
-      const payloadFiles = [];
-      for (const file of files.slice(0, 2)) {
-        payloadFiles.push({
-          name: file.name,
-          lastModified: file.lastModified || 0,
-          dataUrl: await fileToDataUrl(file),
-        });
-      }
-      const result = await api(
-        `/api/candidates/${encodeURIComponent(id)}/images/before-after-import`,
-        {
-          method: 'POST',
-          body: JSON.stringify({ files: payloadFiles }),
-        },
-      );
+      const result = await importBaPair(files);
       await refresh(result.candidate, 'images', 'website');
       baStatus(
         `Imported pair #${result.pairIndex}: ${result.files?.map((f) => f.filename).join(', ')}. Stage → Assemble to preview.`,
@@ -6998,6 +7413,59 @@ function wireContentTab(d) {
     }
   });
 
+  const svcBaRoot = document.getElementById('ca-svc-ba-steps');
+  if (svcBaRoot && svcBaRoot.dataset.baWired !== '1') {
+    svcBaRoot.dataset.baWired = '1';
+    svcBaRoot.addEventListener('click', (ev) => {
+      const btn = ev.target.closest('.ca-ba-svc-copy');
+      if (!btn || !svcBaRoot.contains(btn)) return;
+      const slug = btn.getAttribute('data-ba-service') || '';
+      const kind = btn.getAttribute('data-ba-kind') || 'before';
+      copyBaPrompt(kind, slug);
+    });
+    svcBaRoot.addEventListener('change', async (ev) => {
+      const input = ev.target.closest('.ca-ba-svc-import');
+      if (!input || !svcBaRoot.contains(input)) return;
+      const slug = input.getAttribute('data-ba-service') || '';
+      const files = [...(input.files || [])];
+      if (!files.length) return;
+      if (files.length < 2) {
+        baSvcStatus(slug, 'Select two images (any order — earlier filename time becomes Before).');
+        input.value = '';
+        return;
+      }
+      baSvcStatus(slug, 'Importing before/after pair…');
+      try {
+        const result = await importBaPair(files, slug);
+        await refresh(result.candidate, 'images', 'website');
+        baSvcStatus(
+          slug,
+          `Imported ${result.serviceName || slug}: ${result.files?.map((f) => f.filename).join(', ')}. Stage → Assemble to preview.`,
+        );
+        await showModal({
+          title: 'Service before/after imported',
+          confirmLabel: 'OK',
+          hideCancel: true,
+          bodyHtml: `<p>Saved for <strong>${esc(
+            result.serviceName || slug,
+          )}</strong>: <code>${esc(
+            (result.files || []).map((f) => f.filename).join('</code>, <code>'),
+          )}</code>. Stage → Assemble to preview.</p>`,
+        });
+      } catch (error) {
+        baSvcStatus(slug, error.message || 'Import failed');
+        await showModal({
+          title: 'Import failed',
+          confirmLabel: 'OK',
+          hideCancel: true,
+          bodyHtml: `<p>${esc(error.message)}</p>`,
+        });
+      } finally {
+        input.value = '';
+      }
+    });
+  }
+
   document.getElementById('ca-open-assembled-preview')?.addEventListener('click', async () => {
     if (isAssembleStaleClient(state.detail)) {
       const goPrepare = await showModal({
@@ -7018,7 +7486,7 @@ function wireContentTab(d) {
     }
     setAssembleProgress(true, 'Starting assembled preview…');
     try {
-      const preview = await openAssembledPreview({ quiet: true });
+      const preview = await openAssembledPreview({ quiet: false });
       const url = preview?.url || 'http://127.0.0.1:4322/';
       const map = previewSitemapHtml(state.detail);
       const bindNote = preview?.rebound
@@ -7521,11 +7989,40 @@ function wireContentTab(d) {
       } catch (error) {
         clearInterval(acceptTimer);
         setAcceptProgress(false);
+        const gapsMissing = error.check?.missing || [];
+        const gapsStubs = error.check?.stubs || [];
+        const isLaunchGap =
+          /incomplete for launch|stub\/thin|Missing required file/i.test(String(error.message || '')) ||
+          gapsMissing.length > 0 ||
+          gapsStubs.length > 0;
+        const gapHtml = isLaunchGap
+          ? incompleteDraftExplainHtml({
+              have: Math.max(
+                0,
+                (error.check?.expected?.length || gapsMissing.length + gapsStubs.length) -
+                  gapsMissing.length,
+              ),
+              expectedCount: error.check?.expected?.length || 0,
+              missing: gapsMissing,
+              stubs: gapsStubs,
+              compact: false,
+              showContinueControls: true,
+            })
+          : '';
         await showModal({
           title: 'Accept failed',
           confirmLabel: 'OK',
-          bodyHtml: `<p>${esc(error.message)}</p>`,
+          hideCancel: true,
+          bodyHtml: `<p>${esc(error.message)}</p>${gapHtml}`,
+          afterOpen: (body) => {
+            body.querySelectorAll('.js-copy-continue-prompt').forEach((btn) => {
+              btn.addEventListener('click', () => copyContinueWritePrompt(id));
+            });
+          },
         });
+        if (isLaunchGap) {
+          await refresh(state.detail, 'write');
+        }
         acceptBtn.disabled = false;
       }
     });
@@ -7548,6 +8045,7 @@ function renderProspects() {
           <button type="button" class="btn primary" id="prospects-copy-outreach-prompt" data-tip="Copy Claude.ai outreach prompt with this prospects JSON">
             Copy outreach prompt
           </button>
+          ${openClaudeAiBtnHtml()}
         </div>
       </div>
     `);
@@ -8143,7 +8641,7 @@ function wireSiteConfigTab(d) {
         ? accepted.coverageAreas
         : (accepted.targetSuburbs || []).map((name) => ({ name, state: accepted.state })),
       claudeOrder: Array.isArray(accepted.targetSuburbs) ? accepted.targetSuburbs : [],
-      onAccept: async ({ radiusMiles, selectedCities }) => {
+      onAccept: async ({ radiusMiles, selectedCities, locationPageCities }) => {
         const result = await api(
           `/api/candidates/${encodeURIComponent(d.id)}/site-config/service-area`,
           {
@@ -8152,6 +8650,7 @@ function wireSiteConfigTab(d) {
               radiusMiles,
               selectedCities,
               claudeOrder: accepted.targetSuburbs || [],
+              locationPageCities: locationPageCities || [],
             }),
           },
         );
@@ -9068,9 +9567,9 @@ function renderSitesDetail() {
       title: 'Update site phone number?',
       confirmLabel: alreadyLive ? 'Prepare + Push' : 'Prepare package',
       bodyHtml: alreadyLive
-        ? `<p>Runs <strong>Prepare preview</strong> (Stage → Assemble) and <strong>Push updates</strong> if auto-ship did not finish — so live CTAs show <code>${esc(s.phoneTracking.e164 || s.phone || '')}</code>.</p>
+        ? `<p>Runs Stage → Assemble (with ship when credentials allow) and <strong>Push updates</strong> if ship did not finish — so live CTAs show <code>${esc(s.phoneTracking.e164 || s.phone || '')}</code>.</p>
            <p class="muted small">Can take several minutes.</p>`
-        : `<p>Runs <strong>Prepare preview</strong> (Stage → Assemble) so the assembled package has the new phone.</p>
+        : `<p>Runs Stage → Assemble so the assembled package has the new phone.</p>
            <p class="muted small">This site is not live yet — after Prepare you still need <strong>Website → Run launch</strong> for first go-live (domain / email). Launch is not run from here.</p>`,
     });
     if (!ok) return;

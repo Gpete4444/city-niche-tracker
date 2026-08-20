@@ -10,6 +10,7 @@ import {
 } from '../lib/service-body';
 import TwoToneHeading from './TwoToneHeading.astro';
 import TypedProseSection from './sections/TypedProseSection.astro';
+import PhoneIcon from './PhoneIcon.astro';
 import { ve } from '../lib/visual-edit';
 
 interface RelatedCard {
@@ -27,6 +28,7 @@ interface Props {
   related?: RelatedCard[];
   materialsImages?: Array<{ src: string; alt: string }>;
   processImages?: Array<{ src: string; alt: string }>;
+  beforeAfterImages?: Array<{ src: string; alt: string }>;
   editFile?: string;
 }
 
@@ -38,9 +40,27 @@ const {
   related: relatedRaw = [],
   materialsImages = [],
   processImages = [],
+  beforeAfterImages = [],
   editFile = '',
 } = Astro.props;
 const parsed = parseServiceBody(body, { h1, title, serviceName });
+
+const baRaw = (beforeAfterImages || []).filter((img) =>
+  /svc-ba-.+-(before|after)\./i.test(String(img?.src || '')),
+);
+const baPairMap = new Map<number, { before: (typeof baRaw)[0] | null; after: (typeof baRaw)[0] | null }>();
+for (const img of baRaw) {
+  const m = String(img.src).match(/svc-ba-.+-(\d+)-(before|after)\./i);
+  if (!m) continue;
+  const idx = Number(m[1]);
+  const role = m[2].toLowerCase() as 'before' | 'after';
+  if (!baPairMap.has(idx)) baPairMap.set(idx, { before: null, after: null });
+  baPairMap.get(idx)![role] = img;
+}
+const photoBaPairs = [...baPairMap.keys()]
+  .sort((a, b) => a - b)
+  .map((idx) => baPairMap.get(idx)!)
+  .filter((p) => p.before && p.after);
 
 /** Ippei: intro = max ~2 concise paragraphs. */
 const introParagraphs = String(parsed.intro || '')
@@ -99,20 +119,6 @@ const typedVariant = (kind: ServiceBodySection['kind']): string => {
   return kind;
 };
 
-function parseBeforeAfterPairs(bodyText: string): Array<{ before: string; after: string }> {
-  const lines = String(bodyText || '')
-    .replace(/\r\n/g, '\n')
-    .split('\n')
-    .map((l) => l.trim().replace(/^[-*•]\s+/, ''))
-    .filter(Boolean);
-  const pairs: Array<{ before: string; after: string }> = [];
-  for (const line of lines) {
-    const m = line.match(/^(.+?)\s*(?:→|->|—|–)\s*(.+)$/);
-    if (m) pairs.push({ before: m[1].trim(), after: m[2].trim() });
-  }
-  return pairs;
-}
-
 let band = 0;
 /** Only advance for painted A/B bands — skip null sections and ink CTA. */
 function nextBandSurface() {
@@ -160,7 +166,7 @@ const introSurface = introParagraphs.length ? nextBandSurface() : null;
                 id={`svc-process-${sectionIndex}`}
                 mode="plain"
                 text={section.heading}
-                class="mt-2 text-2xl sm:text-3xl"
+                class="mt-2 heading-section"
               />
             </div>
             <ol class:list={['mt-8 grid gap-4', stepsGrid.className]}>
@@ -245,7 +251,7 @@ const introSurface = introParagraphs.length ? nextBandSurface() : null;
                 id={`svc-faq-${sectionIndex}`}
                 mode="plain"
                 text={section.heading}
-                class="mt-2 text-2xl sm:text-3xl"
+                class="mt-2 heading-section"
               />
             </div>
             <div class="mt-8 divide-y divide-line border-y border-line">
@@ -267,20 +273,8 @@ const introSurface = introParagraphs.length ? nextBandSurface() : null;
     }
 
     if (section.kind === 'beforeAfter') {
-      const pairs = parseBeforeAfterPairs(section.body);
+      if (!photoBaPairs.length) return null;
       const surface = nextBandSurface();
-      if (!pairs.length) {
-        return (
-          <TypedProseSection
-            surface={surface}
-            headingId={`svc-ba-${sectionIndex}`}
-            eyebrow={eyebrowFor('beforeAfter')}
-            heading={section.heading}
-            body={section.body}
-            variant="generic"
-          />
-        );
-      }
       return (
         <section class={surface} aria-labelledby={`svc-ba-${sectionIndex}`}>
           <div class="mx-auto max-w-6xl px-4 py-14 sm:px-6 sm:py-16">
@@ -291,17 +285,43 @@ const introSurface = introParagraphs.length ? nextBandSurface() : null;
                 id={`svc-ba-${sectionIndex}`}
                 mode="plain"
                 text={section.heading}
-                class="mt-2 text-2xl sm:text-3xl"
+                class="mt-2 heading-section"
               />
             </div>
-            <ul class="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {pairs.map((pair) => (
-                <li class="rounded-lg border border-line bg-surface-raised p-5 shadow-sm">
-                  <p class="text-xs font-bold uppercase tracking-[0.14em] text-muted">Before</p>
-                  <p class="mt-1 text-sm leading-relaxed text-ink/80">{pair.before}</p>
-                  <p class="mt-4 text-xs font-bold uppercase tracking-[0.14em] text-accent">After</p>
-                  <p class="mt-1 text-sm leading-relaxed text-ink">{pair.after}</p>
-                </li>
+            <ul class="mt-8 grid gap-6 sm:grid-cols-2">
+              {photoBaPairs.map((pair) => (
+                <>
+                  <li>
+                    <figure>
+                      <img
+                        src={pair.before!.src}
+                        alt={pair.before!.alt}
+                        class="aspect-[4/3] w-full rounded-lg object-cover shadow-sm"
+                        width="800"
+                        height="600"
+                        loading="lazy"
+                      />
+                      <figcaption class="heading-section mt-3 text-center font-display font-semibold tracking-tight text-ink">
+                        Before
+                      </figcaption>
+                    </figure>
+                  </li>
+                  <li>
+                    <figure>
+                      <img
+                        src={pair.after!.src}
+                        alt={pair.after!.alt}
+                        class="aspect-[4/3] w-full rounded-lg object-cover shadow-sm"
+                        width="800"
+                        height="600"
+                        loading="lazy"
+                      />
+                      <figcaption class="heading-section mt-3 text-center font-display font-semibold tracking-tight text-ink">
+                        After
+                      </figcaption>
+                    </figure>
+                  </li>
+                </>
               ))}
             </ul>
           </div>
@@ -322,7 +342,7 @@ const introSurface = introParagraphs.length ? nextBandSurface() : null;
                 tone="light"
                 mode="plain"
                 text={section.heading}
-                class="mt-2 text-2xl sm:text-3xl"
+                class="mt-2 heading-section"
               />
               {section.body && (
                 <div
@@ -337,8 +357,9 @@ const introSurface = introParagraphs.length ? nextBandSurface() : null;
               </a>
               <a
                 href={phoneHref()}
-                class="btn-secondary border-white/30 bg-white/10 text-white hover:bg-white/20"
+                class="btn-secondary hidden gap-2 border-white/30 bg-white/10 text-white hover:bg-white/20 md:inline-flex"
               >
+                <PhoneIcon />
                 Call {formatPhoneDisplay()}
               </a>
             </div>
@@ -357,11 +378,11 @@ const introSurface = introParagraphs.length ? nextBandSurface() : null;
           heading={section.heading}
           body={section.body}
           variant={typedVariant(section.kind)}
-          rowImages={section.kind === 'materials' ? materialsImages : []}
           showMiniCta
           ctaPrompt={defaultSectionCtaPrompt(typedVariant(section.kind))}
-          editFile={editFile}
+          rowImages={section.kind === 'materials' ? materialsImages : []}
           imageListKey={section.kind === 'materials' ? 'materialsImages' : undefined}
+          editFile={editFile}
         />
       );
     }

@@ -12,6 +12,7 @@ import { loadInlineCoverageMapHtml } from '../lib/coverage-map-links';
 import TwoToneHeading from './TwoToneHeading.astro';
 import TypedProseSection from './sections/TypedProseSection.astro';
 import GoogleReviewCard from './GoogleReviewCard.astro';
+import PhoneIcon from './PhoneIcon.astro';
 import { ve } from '../lib/visual-edit';
 
 interface TextItem {
@@ -49,6 +50,8 @@ interface Props {
   process?: TextItem[];
   faqs?: FaqItem[];
   locations?: LocationItem[];
+  /** Coverage cities without a location page — contact chips. */
+  alsoServing?: LocationItem[];
   gallery?: ImageItem[];
   coverageMap?: ImageItem;
   materialsImages?: ImageItem[];
@@ -68,6 +71,7 @@ const {
   process: processRaw = [],
   faqs = [],
   locations = [],
+  alsoServing = [],
   gallery: galleryRaw = [],
   coverageMap,
   materialsImages = [],
@@ -141,7 +145,7 @@ const coverageMapHtml = loadInlineCoverageMapHtml(
             as="h2"
             id="why-heading"
             text={whyHeading ?? `Straightforward ${site.niche} guidance`}
-            class="mt-2 text-2xl sm:text-3xl"
+            class="mt-2 heading-section"
           />
         </div>
         <ul class:list={['mt-8 grid gap-6', whyGrid.className]}>
@@ -203,10 +207,13 @@ const coverageMapHtml = loadInlineCoverageMapHtml(
             );
           })}
         </ul>
-        <div class="mt-4 flex flex-wrap items-center gap-x-3 gap-y-2">
+        <div class="mt-4 flex flex-col items-stretch gap-3 sm:flex-row sm:flex-wrap sm:items-center">
           <p class="text-sm text-ink/80">{whyCta}</p>
-          <a href="#lead-form" class="btn-primary">{site.primaryCta}</a>
-          <a href={phoneHref()} class="btn-secondary">Call {formatPhoneDisplay()}</a>
+          <a href="#lead-form" class="btn-primary w-full sm:w-auto">{site.primaryCta}</a>
+          <a href={phoneHref()} class="btn-secondary hidden gap-2 md:inline-flex">
+            <PhoneIcon />
+            Call {formatPhoneDisplay()}
+          </a>
         </div>
       </div>
     </section>
@@ -224,7 +231,7 @@ const coverageMapHtml = loadInlineCoverageMapHtml(
             id="process-heading"
             mode="plain"
             text={processHeading ?? `How our ${site.niche} process works`}
-            class="mt-2 text-2xl sm:text-3xl"
+            class="mt-2 heading-section"
           />
         </div>
         <ol class:list={['mt-8 grid gap-4', processGrid.className]}>
@@ -283,10 +290,13 @@ const coverageMapHtml = loadInlineCoverageMapHtml(
             </li>
           ))}
         </ol>
-        <div class="mt-4 flex flex-wrap items-center gap-x-3 gap-y-2">
+        <div class="mt-4 flex flex-col items-stretch gap-3 sm:flex-row sm:flex-wrap sm:items-center">
           <p class="text-sm text-ink/80">{processCta}</p>
-          <a href="#lead-form" class="btn-primary">{site.primaryCta}</a>
-          <a href={phoneHref()} class="btn-secondary">Call {formatPhoneDisplay()}</a>
+          <a href="#lead-form" class="btn-primary w-full sm:w-auto">{site.primaryCta}</a>
+          <a href={phoneHref()} class="btn-secondary hidden gap-2 md:inline-flex">
+            <PhoneIcon />
+            Call {formatPhoneDisplay()}
+          </a>
         </div>
       </div>
     </section>
@@ -306,8 +316,8 @@ const coverageMapHtml = loadInlineCoverageMapHtml(
         showMiniCta
         timelineCompact={sec.id === 'timeline'}
         rowImages={sec.id === 'materials' ? materialsImages : []}
-        editFile={editFile}
         imageListKey={sec.id === 'materials' ? 'materialsImages' : undefined}
+        editFile={editFile}
       />
     ))
 }
@@ -329,10 +339,10 @@ const coverageMapHtml = loadInlineCoverageMapHtml(
             text={`Serving ${site.primaryCity} and nearby communities`}
             tone="light"
             emphasis="and nearby communities"
-            class="mt-2 text-2xl sm:text-3xl"
+            class="mt-2 heading-section"
           />
           <p class="mt-3 text-sm leading-relaxed text-white/75">
-            Local pages cover {site.niche.toLowerCase()} options relevant to each community we serve.
+            Local pages for these communities. Nearby towns without a page are still in our service area.
           </p>
           <ul class="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
             {locations.map((location) => (
@@ -349,14 +359,35 @@ const coverageMapHtml = loadInlineCoverageMapHtml(
               </li>
             ))}
           </ul>
+          {
+            alsoServing.length > 0 && (
+              <div class="mt-5">
+                <p class="text-xs font-semibold uppercase tracking-wide text-white/55">Also serving</p>
+                <p class="mt-2 text-sm leading-relaxed text-white/70">
+                  {alsoServing.map((a, i) => (
+                    <>
+                      {i > 0 && <span class="text-white/35"> · </span>}
+                      <a
+                        class="underline decoration-white/30 underline-offset-2 hover:text-white"
+                        href="/contact"
+                      >
+                        {a.city}
+                      </a>
+                    </>
+                  ))}
+                </p>
+              </div>
+            )
+          }
           <div class="mt-4 space-y-2">
             <p class="text-sm text-white/85">{areasCta}</p>
-            <div class="flex flex-wrap gap-2">
-              <a href="#lead-form" class="btn-primary">{site.primaryCta}</a>
+            <div class="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+              <a href="#lead-form" class="btn-primary w-full sm:w-auto">{site.primaryCta}</a>
               <a
                 href={phoneHref()}
-                class="btn-secondary border-white/30 bg-white/10 text-white hover:bg-white/20"
+                class="btn-secondary hidden gap-2 border-white/30 bg-white/10 text-white hover:bg-white/20 md:inline-flex"
               >
+                <PhoneIcon />
                 Call {formatPhoneDisplay()}
               </a>
             </div>
@@ -366,7 +397,8 @@ const coverageMapHtml = loadInlineCoverageMapHtml(
           <figure class="mt-8 lg:mt-0">
             <div class="coverage-map-embed" set:html={coverageMapHtml} />
             <figcaption class="mt-2 text-xs text-white/55">
-              Coverage visualization is approximate; confirm availability for a specific address.
+              Named cities have local pages; shaded areas are also in our service area. Confirm
+              availability for a specific address.
             </figcaption>
           </figure>
         ) : (
@@ -381,7 +413,8 @@ const coverageMapHtml = loadInlineCoverageMapHtml(
                 loading="lazy"
               />
               <figcaption class="mt-2 text-xs text-white/55">
-                Coverage visualization is approximate; confirm availability for a specific address.
+                Named cities have local pages; shaded areas are also in our service area. Confirm
+                availability for a specific address.
               </figcaption>
             </figure>
           )
@@ -402,7 +435,7 @@ const coverageMapHtml = loadInlineCoverageMapHtml(
             id="gallery-heading"
             text="See the work up close"
             emphasis="up close"
-            class="mt-2 text-2xl sm:text-3xl"
+            class="mt-2 heading-section"
           />
         </div>
         <ul class="mt-8 grid gap-6 sm:grid-cols-2">
@@ -419,7 +452,7 @@ const coverageMapHtml = loadInlineCoverageMapHtml(
                       height="600"
                       loading="lazy"
                     />
-                    <figcaption class="mt-3 text-center font-display text-2xl font-semibold tracking-tight text-ink sm:text-3xl">
+                    <figcaption class="heading-section mt-3 text-center font-display font-semibold tracking-tight text-ink">
                       Before
                     </figcaption>
                   </figure>
@@ -436,7 +469,7 @@ const coverageMapHtml = loadInlineCoverageMapHtml(
                       height="600"
                       loading="lazy"
                     />
-                    <figcaption class="mt-3 text-center font-display text-2xl font-semibold tracking-tight text-ink sm:text-3xl">
+                    <figcaption class="heading-section mt-3 text-center font-display font-semibold tracking-tight text-ink">
                       After
                     </figcaption>
                   </figure>
@@ -461,7 +494,7 @@ const coverageMapHtml = loadInlineCoverageMapHtml(
             id="reviews-heading"
             text="What local customers say"
             emphasis="local customers say"
-            class="mt-2 text-2xl sm:text-3xl"
+            class="mt-2 heading-section"
           />
         </div>
         <ul class:list={['mt-8 grid gap-5', reviewsGrid.className]}>
@@ -494,7 +527,7 @@ const coverageMapHtml = loadInlineCoverageMapHtml(
             id="faq-heading"
             mode="plain"
             text={`${site.niche} FAQs`}
-            class="mt-2 text-2xl sm:text-3xl"
+            class="mt-2 heading-section"
           />
         </div>
         <div class="mt-8 divide-y divide-line border-y border-line">
@@ -547,7 +580,7 @@ const coverageMapHtml = loadInlineCoverageMapHtml(
           text="Ready for a clear estimate?"
           tone="light"
           emphasis="clear estimate?"
-          class="text-2xl sm:text-3xl"
+          class="heading-section"
         />
         <p class="mx-auto mt-3 max-w-2xl text-white/75">
           Tell us about the project, or call to talk through options in {site.primaryCity}.
@@ -557,9 +590,10 @@ const coverageMapHtml = loadInlineCoverageMapHtml(
             {site.primaryCta}
           </a>
           <a
-            class="btn-secondary border-white/25 bg-white/10 text-white hover:bg-white/20"
+            class="btn-secondary hidden gap-2 border-white/25 bg-white/10 text-white hover:bg-white/20 md:inline-flex"
             href={phoneHref()}
           >
+            <PhoneIcon />
             Call {formatPhoneDisplay()}
           </a>
         </div>

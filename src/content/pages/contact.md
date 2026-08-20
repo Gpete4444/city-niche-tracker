@@ -1,14 +1,14 @@
 ---
-title: "Contact Company Brand Name | Columbia, SC"
-description: "Contact Company Brand Name for a free Cabinet Refinishing & Remodeling estimate in Columbia, SC and the surrounding Midlands suburbs."
+title: "Contact Company Brand Name | Free Estimate"
+description: "Contact Company Brand Name for a free written cabinet refinishing and remodeling estimate in Columbia, SC and the surrounding Midlands suburbs."
 h1: "Contact Company Brand Name"
 ---
-Ready to talk about your kitchen? Company Brand Name serves Columbia, SC and the surrounding Midlands suburbs, including Lexington, Cayce, West Columbia, Irmo, Forest Acres, Blythewood, St. Andrews, and Seven Oaks.
+Ready to get a kitchen cabinet project moving? Company Brand Name serves Columbia, SC and the surrounding Midlands, including Cayce, Forest Acres, Irmo, Lexington, and West Columbia, within roughly a 30-mile service radius.
 
-- **Phone:** [+1 (385) 221-2770](tel:+13852212770)
-- **Email:** [leads@service.com](mailto:leads@service.com)
-- **Service area:** Columbia, SC and surrounding Midlands suburbs
+**Phone:** [(385) 221-2770](tel:+13852212770)
+**Email:** [leads@service.com](mailto:leads@service.com)
+**Service area:** Columbia, SC and the surrounding Midlands suburbs
 
-Request your free cabinet estimate today, or browse our [Cabinet Refinishing & Remodeling services](/) and [service areas](/#areas) before reaching out. Fill out the form below or call directly to get a written estimate scheduled.
+The fastest next step is a free, no-obligation written estimate. Call or use the form below to describe your cabinets — refinishing, refacing, a full remodel, or a smaller hardware upgrade — and Company Brand Name will schedule an in-home consultation to walk through options, materials, and pricing.
 
-[Home](/) | [About](/about)
+Explore [our services](/) or learn more [about](/about) how Company Brand Name approaches every cabinet project before you reach out.

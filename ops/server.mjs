@@ -78,6 +78,7 @@ import { generateCoverageMapForCandidate } from './lib/generate-coverage-map.mjs
 import {
   buildBeforeAfterPrompts,
   importBeforeAfterPair,
+  listBeforeAfterStatus,
 } from './lib/chatgpt-before-after.mjs';
 import {
   buildResearcherPrompt,
@@ -99,6 +100,7 @@ import {
 } from './lib/content-agents.mjs';
 import {
   applyPreset,
+  buildContinueWritePrompt,
   buildFullWritePrompt,
   buildStructurePrompt,
   composeContentOutline,
@@ -117,7 +119,7 @@ import {
   launchFidelitySummary,
 } from './lib/preview-fidelity.mjs';
 import { ensureAstroPreview, ASTRO_PREVIEW_URL } from './lib/astro-preview.mjs';
-import { ensureAssembledPreview, stopAssembledPreview } from './lib/assembled-preview.mjs';
+import { ensureAssembledPreview, stopAssembledPreview, contentNewerThanDist } from './lib/assembled-preview.mjs';
 import { assembleSite, getAssembleChecklist } from './lib/assemble-site.mjs';
 import { getLaunchStatus, launchSite } from './lib/launch-site.mjs';
 import {
@@ -328,6 +330,7 @@ app.post('/api/candidates/:id/site-config/service-area', async (req, res) => {
       radiusMiles: body.radiusMiles,
       selectedCities: body.selectedCities,
       claudeOrder: body.claudeOrder,
+      locationPageCities: body.locationPageCities,
     });
     let locationStubs = null;
     try {
@@ -1047,7 +1050,7 @@ app.post('/api/candidates/:id/content/paste', (req, res) => {
 app.post('/api/candidates/:id/content/accept', async (req, res) => {
   try {
     const body = req.body || {};
-    const result = acceptContent(req.params.id, {
+    const result = await acceptContent(req.params.id, {
       ignoreWarnings: Boolean(body.ignoreWarnings),
       ignoreSeoWarnings: Boolean(body.ignoreSeoWarnings),
     });
@@ -1202,7 +1205,19 @@ app.post('/api/candidates/:id/coverage-map/generate', async (req, res) => {
 
 app.get('/api/candidates/:id/images/before-after-prompts', (req, res) => {
   try {
-    res.json(buildBeforeAfterPrompts(req.params.id));
+    res.json(
+      buildBeforeAfterPrompts(req.params.id, {
+        serviceSlug: req.query?.service || req.query?.serviceSlug || '',
+      }),
+    );
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.get('/api/candidates/:id/images/before-after-status', (req, res) => {
+  try {
+    res.json(listBeforeAfterStatus(req.params.id));
   } catch (error) {
     sendError(res, error);
   }
@@ -1305,6 +1320,14 @@ app.post('/api/candidates/:id/content/structure/confirm', async (req, res) => {
 app.get('/api/candidates/:id/content/structure/write-prompt', async (req, res) => {
   try {
     res.json(await buildFullWritePrompt(req.params.id));
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.get('/api/candidates/:id/content/structure/continue-prompt', async (req, res) => {
+  try {
+    res.json(await buildContinueWritePrompt(req.params.id));
   } catch (error) {
     sendError(res, error);
   }
@@ -1578,20 +1601,35 @@ app.get('/api/candidates/:id/assemble/checklist', (req, res) => {
 app.post('/api/candidates/:id/assemble', async (req, res) => {
   try {
     const force = Boolean(req.body?.force);
+    const refresh = Boolean(req.body?.refresh);
     const skipGit = Boolean(req.body?.skipGit);
     const siteSlug = req.body?.siteSlug ? String(req.body.siteSlug) : undefined;
     const doBuild = req.body?.build !== false;
     const wantShip = req.body?.ship !== false;
-    // Release :4322 lock before force-replacing the assembled folder (Windows EPERM).
+    // Release :4322 lock before replacing/refreshing the assembled folder (Windows EPERM).
     await stopAssembledPreview();
-    const result = assembleSite(req.params.id, { force, skipGit, siteSlug });
+    const result = assembleSite(req.params.id, { force, refresh, skipGit, siteSlug });
 
     let build = null;
     if (doBuild && result.absoluteSiteRoot) {
-      try {
-        build = buildAssembledSite(result.absoluteSiteRoot);
-      } catch (error) {
-        build = { ok: false, error: error.message };
+      const needsBuild =
+        result.mode === 'full' ||
+        contentNewerThanDist(result.absoluteSiteRoot, { ignoreAssembleMeta: true });
+      if (!needsBuild) {
+        build = {
+          ok: true,
+          built: true,
+          buildSkipped: true,
+          npmInstallSkipped: true,
+          ms: 0,
+          siteRoot: result.absoluteSiteRoot,
+        };
+      } else {
+        try {
+          build = buildAssembledSite(result.absoluteSiteRoot);
+        } catch (error) {
+          build = { ok: false, error: error.message, buildSkipped: false };
+        }
       }
     }
 

@@ -13,7 +13,7 @@ I will paste site-config.json. Produce Markdown files that match the collection 
 
 Hard rules:
 1. Unique copy per page. Location pages must not be near-duplicates with city names swapped.
-2. Cap location pages at 4–8 suburbs from targetSuburbs (coverageAreas may list more cities for Areas/map only).
+2. Cap location pages at **4–6 total** (primary + 3–5 suburbs from targetSuburbs). coverageAreas may list more cities for the map / “Also serving” only.
 3. No fabricated reviews, ratings, licenses, years in business, project counts, or emergency claims.
 4. No fake street address.
 5. Image fields are OPTIONAL. For a new site without photos, omit heroImage, featureImage, gallery, coverageMap, cardImage, and process[].image — OR leave them pointing at /images/... only if I say to reuse demo paths.
@@ -27,7 +27,7 @@ Required files:
 - pages/about.md
 - pages/contact.md
 - services/{slug}.md for each item in config.services (order: 1..n)
-- locations/{slug}.md for 4–6 suburbs (slug = city kebab only; include city, state, parentCity = primaryCity)
+- locations/{slug}.md for primary + 3–5 suburbs from targetSuburbs (slug = city kebab only; include city, state, parentCity = primaryCity)
 
 ### pages collection frontmatter
 title, description, h1, draft (false)

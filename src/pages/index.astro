@@ -10,7 +10,7 @@ import HomeSections from '../components/HomeSections.astro';
 import TrustSignals from '../components/TrustSignals.astro';
 import TwoToneHeading from '../components/TwoToneHeading.astro';
 import { site, siteShowsServiceCards, socialProofHasTrustStrip } from '../config/site';
-import { filterLocationsForSite } from '../lib/locations-for-site';
+import { filterLocationsForSite, alsoServingLinks } from '../lib/locations-for-site';
 import { bandSurface } from '../lib/section-surfaces';
 import { ve } from '../lib/visual-edit';
 import {
@@ -53,13 +53,14 @@ const locationEntries = filterLocationsForSite(
   (await getCollection('locations')).filter((e) => !e.data.draft),
   site,
 );
-/** Real location pages only — never suburb fallback chips without MD. */
+/** Real location pages only (primary + targetSuburbs) — never full coverage list. */
 const locations = locationEntries.map((e) => ({
   id: e.id,
   city: e.data.city,
   state: e.data.state,
   href: `/locations/${e.id}`,
 }));
+const alsoServing = alsoServingLinks(site);
 
 const sectionList = Array.isArray(site.homepageSections) ? site.homepageSections : null;
 const showSection = (key: string) => !sectionList || sectionList.includes(key);
@@ -180,7 +181,7 @@ const homeSectionsBandStart = lightBand;
                       id="intro-heading"
                       mode="plain"
                       text={indexEntry.data.sectionHeading ?? `${site.niche} in ${site.primaryCity}`}
-                      class="mt-2 text-2xl sm:text-3xl"
+                      class="mt-2 heading-section"
                     />
                   </div>
                 )
@@ -235,6 +236,7 @@ const homeSectionsBandStart = lightBand;
     materialsImages={indexEntry.data.materialsImages || []}
     coverageMap={showAreas ? resolveCoverageMap(indexEntry.data.coverageMap, site.primaryCity) : undefined}
     locations={showAreas ? locations : []}
+    alsoServing={showAreas ? alsoServing : []}
     proseSections={proseSections}
     showReviews={showReviews}
     showCta={showCta}

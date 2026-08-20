@@ -1,30 +1,32 @@
 ---
 title: "Kitchen Cabinet Remodeling in Columbia, SC"
-description: "Kitchen Cabinet Remodeling in Columbia, SC — new cabinetry, layouts, and finishes from a licensed local team. Free written estimates."
+description: "Kitchen Cabinet Remodeling in Columbia, SC — new cabinetry, licensed & insured crews, and free written estimates. Free estimates available."
 h1: "Kitchen Cabinet Remodeling in Columbia, SC"
 serviceName: "Kitchen Cabinet Remodeling"
 heroImage:
-  src: "/images/svcHero-2-sleek-modern-kitchen-showcasing-a-neatly.jpg"
+  src: "/images/svcHero-2-modern-white-kitchen-with-marble-island-GliaHAJ3.jpg"
   alt: "Cabinet Refinishing & Remodeling Kitchen Cabinet Remodeling photo"
 cardImage:
-  src: "/images/svcHero-2-sleek-modern-kitchen-showcasing-a-neatly.jpg"
+  src: "/images/svcHero-2-modern-white-kitchen-with-marble-island-GliaHAJ3.jpg"
   alt: "Cabinet Refinishing & Remodeling Kitchen Cabinet Remodeling photo"
 materialsImages:
-  - src: "/images/materials-kitchen-cabinet-remodeling-1-plywood-cabinet-boxes.jpg"
-    alt: "Cabinet Refinishing & Remodeling Plywood cabinet boxes photo"
-  - src: "/images/materials-kitchen-cabinet-remodeling-2-soft-close-hinges-and-drawer-slides.jpg"
-    alt: "Cabinet Refinishing & Remodeling Soft-close hinges and drawer slides photo"
-  - src: "/images/materials-kitchen-cabinet-remodeling-3-custom-storage-inserts.jpg"
-    alt: "Cabinet Refinishing & Remodeling Custom storage inserts photo"
-  - src: "/images/materials-kitchen-cabinet-remodeling-4-cabinet-grade-laminate-or-wood-veneer-fr.jpg"
-    alt: "Cabinet Refinishing & Remodeling Cabinet-grade laminate or wood veneer fronts photo"
+  - src: "/images/svcMaterials-1-brown-wooden-cabinet-near-brown-wooden-d-nbGrXkig.jpg"
+    alt: "brown wooden cabinet near brown wooden door"
+  - src: "/images/svcMaterials-2-a-wooden-cabinet-with-ornate-carvings-on-5nc3d38P.jpg"
+    alt: "Cabinet Refinishing & Remodeling Conversion varnish topcoat photo"
+  - src: "/images/svcMaterials-3-focused-close-up-of-a-handyman-using-a-d-7285924.jpg"
+    alt: "Cabinet Refinishing & Remodeling Soft-close hinge hardware photo"
+  - src: "/images/svcMaterials-4-a-minimalist-composition-featuring-a-vin-21528807.jpg"
+    alt: "Cabinet Refinishing & Remodeling Cabinet-grade primer/sealer photo"
+  - src: "/images/svcMaterials-5-vintage-storage-cabinet-with-labeled-dra-1097015.jpg"
+    alt: "Cabinet Refinishing & Remodeling Engineered cabinet boxes photo"
 processImages:
   - src: "/images/process-kitchen-cabinet-remodeling-1-design-consult.jpg"
     alt: "Cabinet Refinishing & Remodeling Design consult photo"
   - src: "/images/process-kitchen-cabinet-remodeling-2-cabinet-selection.jpg"
     alt: "Cabinet Refinishing & Remodeling Cabinet selection photo"
-  - src: "/images/process-kitchen-cabinet-remodeling-3-demolition.jpg"
-    alt: "Cabinet Refinishing & Remodeling Demolition photo"
+  - src: "/images/svcProcess-3-a-kitchen-with-white-cabinets-and-marble-UTsUqbjP.jpg"
+    alt: "Cabinet Refinishing & Remodeling 3. Demolition photo"
   - src: "/images/process-kitchen-cabinet-remodeling-4-layout-prep.jpg"
     alt: "Cabinet Refinishing & Remodeling Layout prep photo"
   - src: "/images/process-kitchen-cabinet-remodeling-5-cabinet-installation.jpg"
@@ -36,101 +38,94 @@ processImages:
   - src: "/images/process-kitchen-cabinet-remodeling-8-final-walkthrough.jpg"
     alt: "Cabinet Refinishing & Remodeling Final walkthrough photo"
 ---
-Kitchen cabinet remodeling covers full cabinet replacement or layout changes — new boxes, doors, and hardware built around how a homeowner actually uses the kitchen. Company Brand Name manages the full scope for Columbia homeowners, from initial design through final installation, with a written estimate before work begins.
+Kitchen cabinet remodeling replaces cabinet boxes, doors, and hardware — and sometimes the layout itself — rather than refinishing what's already installed. Company Brand Name provides kitchen cabinet remodeling for Columbia homeowners whose existing boxes are too damaged to save, or who want a different footprint, more storage, or an upgraded style entirely.
+
+It's the most involved of the cabinet services and typically the one with the biggest impact on both daily function and resale value.
 
 ## What's Included With Kitchen Cabinet Remodeling
 
-- **Typically included:** removal of existing cabinetry, new cabinet boxes and doors, hardware, and coordination with countertop and appliance fit
-- **Optional:** layout changes, added storage features, lighting integration
-- **Customer prep:** clearing the kitchen and confirming appliance measurements ahead of installation
+- **Typically included:** design consultation, new cabinet boxes and doors, hardware, installation, and final finish work
+- **Optional:** layout changes, new under-cabinet lighting, soft-close upgrades throughout
+- **Customer prep:** clearing the kitchen and coordinating with any countertop or appliance work that overlaps
 
 ## How Our Kitchen Cabinet Remodeling Process Works
 
-**1. Consultation & design** — discuss layout and cabinet style, same day.
+- **Consultation** — Design walkthrough covering layout, storage needs, and budget
+- **Removal** — Existing cabinets, doors, and hardware are taken out
+- **Prep** — Walls and flooring are checked and prepped for new cabinetry
+- **Installation** — New cabinet boxes are set, leveled, and secured
+- **Door and drawer fit** — Doors and drawer fronts are hung and adjusted
+- **Finishing** — Any on-site paint or stain touch-up is applied
+- **Cure** — Finish work sets before final assembly
+- **Final walkthrough** — Hardware, doors, and drawers are checked and adjusted
 
-**2. Measurements & ordering** — final measurements taken and cabinets ordered, 1–2 weeks lead time.
+## What Does a Kitchen Cabinet Remodeling Cost in Columbia?
 
-**3. Demolition** — existing cabinets removed, 1 day.
+- **Partial remodel (new boxes and doors, same layout)** — $10,000–$16,000 — cabinetry and hardware, no layout change
+- **Full kitchen remodel** — $16,000–$25,000 — complete cabinet replacement and finish work
+- **Remodel with layout changes** — $25,000–$35,000+ — new footprint, added storage, or an island
 
-**4. Rough-in coordination** — plumbing/electrical adjustments if needed, 1–2 days.
+These are ballpark ranges — a free in-home estimate provides exact pricing for your kitchen.
 
-**5. Cabinet installation** — new boxes set and leveled, 2–3 days.
+## Materials and Methods for Kitchen Cabinet Remodeling
 
-**6. Doors & hardware** — doors hung and hardware attached, 1 day.
-
-**7. Countertop coordination** — templating and fit confirmed, 1 day.
-
-**8. Final walkthrough** — full inspection and touch-ups, same day.
-
-## What Does a Kitchen Cabinet Remodeling Cost in Columbia, SC?
-
-- **Partial remodel (select cabinets)** — $8,000–$14,000 — new cabinetry for part of the kitchen
-- **Full kitchen remodel** — $12,000–$25,000+ — complete cabinet replacement and hardware
-- **High-end custom remodel** — $25,000+ — premium materials and custom layout work
-
-Point of reference only — [contact us](/contact) for a written estimate based on your kitchen.
-
-## Materials & Methods for Kitchen Cabinet Remodeling
-
-- **Plywood cabinet boxes** — more stable than particleboard in humid conditions
-- **Sprayed alkyd enamel finish** — durable, factory-style painted look on new doors
-- **Soft-close hinge hardware** — quiet, long-lasting operation on new cabinetry
-- **Moisture-resistant sealant** — applied at box seams to help resist Midlands humidity
+- **Sprayed cabinet-grade enamel** — Applied to new cabinet doors and boxes for a factory-level finish that resists chipping under daily use.
+- **Conversion varnish topcoat** — A durable clear coat used on new cabinetry to protect against moisture near sinks and dishwashers, well suited to the Midlands' humid summer months.
+- **Soft-close hinges and slides** — Standard on most new cabinet installs, eliminating door and drawer slam from day one.
+- **Cabinet-grade primer/sealer** — Used on any site-finished components to ensure the topcoat bonds properly to new wood.
+- **Stain-grade wood veneer** — An option for homeowners who want a natural wood look on new cabinet boxes without the cost of solid hardwood throughout.
 
 ## How Long Does a Kitchen Cabinet Remodeling Take?
 
-Consult & design — same day; Cabinet order & lead time — 1–2 weeks; Demolition & install — 3–5 days; Countertop coordination — 1–2 days; Final walkthrough — 1 day.
+Full remodels take longer than refinishing or refacing since new cabinetry often has lead time before installation begins.
 
-## Permits & Codes for Kitchen Cabinet Remodeling in Columbia
+- **Design consult** — same day to a few days
+- **Cabinet lead time** — 2–4 weeks
+- **Removal and installation** — 3–5 days
+- **Finish and cure** — 2–3 days
+- **Final walkthrough** — half day
+
+## Permits and Codes for Kitchen Cabinet Remodeling
 
 ### Usually needs a permit
-- Relocating plumbing or electrical for a new layout
-- Removing or altering load-bearing walls
-- Structural changes to accommodate new cabinetry footprint
+- Structural layout changes to the kitchen
+- New electrical circuits for lighting or an island
+- Plumbing relocation for a sink or dishwasher move
 
 ### Usually no permit
-- Like-for-like cabinet replacement in the existing footprint
-- New doors, hardware, and finish on existing layouts
+- Cabinet replacement within the existing footprint
+- Hardware and finish work on new cabinetry
 
-Confirm specifics with your city or county building department before starting.
+Always confirm requirements with your city or county building department.
 
 ## DIY vs Hiring a Pro for Kitchen Cabinet Remodeling
 
 ### DIY
-- Reasonable for assembling and installing stock flat-pack cabinets in a simple layout
-- Requires accurate measuring, leveling tools, and patience with alignment
+- Realistic only for very small, single-cabinet swaps
+- Cabinet installation requires precise leveling and secure wall anchoring
+- Layout changes involve electrical and plumbing coordination best left to a licensed crew
 
 ### Hire a pro
-- Recommended when plumbing, electrical, or structural changes are involved
-- Reduces risk of misaligned cabinets, appliance fit issues, or code violations
+- Handles design, ordering, and installation as one coordinated project
+- Reduces risk of misaligned cabinets or code issues on layout changes
+- Delivers the biggest resale-value impact of any cabinet service
 
 ## When to Call for Kitchen Cabinet Remodeling
 
-- Current cabinets are damaged, water-warped, or structurally unsound
-- Kitchen layout no longer fits how the household cooks or stores items
-- Planning a broader kitchen renovation involving countertops or appliances
+- Cabinet boxes are damaged, warped, or water-stained beyond repair
+- You want more storage or a different kitchen layout
+- Planning a larger home renovation or preparing for sale
+- Current cabinets no longer fit updated appliances or countertops
 
-## Kitchen Cabinet Remodeling FAQs
+## Before and After Kitchen Cabinet Remodeling
 
-How much does a full kitchen cabinet remodel cost?
-Full kitchen cabinet remodels in the Columbia area typically run $12,000–$25,000+, depending on cabinet material, layout complexity, and hardware selections.
+Cramped, outdated kitchen → Reconfigured layout with new cabinetry
+Worn builder-grade boxes → Full custom cabinet remodel
 
-How long does a kitchen cabinet remodel take?
-Most full remodels take three to five weeks from consultation to final walkthrough, largely driven by cabinet order lead times.
-
-Do I need a permit for a kitchen cabinet remodel?
-Cosmetic replacement usually doesn't need one, but moving plumbing, electrical, or walls typically does — check with your local building department.
-
-Is it worth remodeling cabinets instead of refacing?
-A full remodel makes sense when boxes are damaged or the layout is changing; refacing is a lower-cost option when the existing boxes are still sound.
-
-## Before & After Kitchen Cabinet Remodeling
-
-- Cramped, dated layout → open cabinet configuration with added storage
-- Damaged, water-warped boxes → new plywood cabinetry throughout
-
-See more examples on our [homepage gallery](/).
+See more completed projects on the [homepage gallery](/).
 
 ## Get a Kitchen Cabinet Remodeling Estimate in Columbia
 
-Planning a full kitchen update? [Contact](/contact) Company Brand Name for a free estimate, or see [Built-In & Custom Cabinetry](/services/built-in-and-custom-cabinetry) for additional storage options. [Home](/)
+Call **(385) 221-2770** for a free written estimate on kitchen cabinet remodeling in Columbia, SC.
+
+[Home](/) | [Contact](/contact) | [Built-In & Custom Cabinetry](/services/built-in-and-custom-cabinetry)

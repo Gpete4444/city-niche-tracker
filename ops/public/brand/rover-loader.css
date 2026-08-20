@@ -1,0 +1,88 @@
+/* Rover loader: smooth SVG rings + static wordmark PNG */
+
+.rover-loader {
+  --rover-loader-accent: #2f6bff;
+  --rover-loader-ring: #1a3a8c;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 0.85rem;
+  width: max-content;
+  max-width: 100%;
+  line-height: 0;
+}
+
+.rover-loader--dark {
+  --rover-loader-ring: #ffffff;
+}
+
+.rover-loader--light {
+  --rover-loader-ring: #1a3a8c;
+}
+
+.rover-loader-mark {
+  width: 3.25rem;
+  height: 3.25rem;
+  flex-shrink: 0;
+  display: block;
+  overflow: visible;
+}
+
+.rover-loader-dot {
+  fill: var(--rover-loader-accent);
+}
+
+.rover-loader-ring circle {
+  fill: none;
+  stroke: var(--rover-loader-ring);
+  stroke-linecap: round;
+}
+
+.rover-loader-ring--inner circle {
+  stroke-width: 3.5;
+  stroke-dasharray: 12 11.5;
+}
+
+.rover-loader-ring--outer circle {
+  stroke-width: 3;
+  stroke-dasharray: 9.5 9.3;
+}
+
+.rover-loader-ring--inner {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: rover-spin-ccw 2.4s linear infinite;
+}
+
+.rover-loader-ring--outer {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: rover-spin-cw 3.2s linear infinite;
+}
+
+.rover-loader-word {
+  display: block;
+  height: 1.85rem;
+  width: auto;
+  max-width: min(14rem, 55vw);
+  object-fit: contain;
+}
+
+@keyframes rover-spin-cw {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes rover-spin-ccw {
+  to {
+    transform: rotate(-360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rover-loader-ring--inner,
+  .rover-loader-ring--outer {
+    animation: none;
+  }
+}

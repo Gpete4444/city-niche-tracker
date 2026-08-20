@@ -61,6 +61,7 @@ const services = defineCollection({
     cardImage: imageSchema.optional(),
     materialsImages: z.array(imageSchema).optional(),
     processImages: z.array(imageSchema).optional(),
+    beforeAfterImages: z.array(imageSchema).optional(),
   }),
 });
 

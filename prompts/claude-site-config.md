@@ -32,7 +32,7 @@ Use from research/narrative when present:
 - city / primaryCity → primaryCity
 - state → state
 - suggestedServices → starting labels for services; expand to related residential offers
-- suggestedSuburbs → targetSuburbs (prefer 4–8; Website Builder Service area may widen coverageAreas and keep ≤8 SEO pages)
+- suggestedSuburbs → targetSuburbs (prefer 3–5 suburbs / 4–6 location pages with primary; Website Builder Service area may widen coverageAreas and keep ≤5 SEO suburbs)
 - coverageAreas = primary city + service-area selections (map radius + toggles); each with correct state (cross-state OK)
 - localPainPoints may inform tagline wording only — do not invent stats
 - niche / keyword volumes (when present) → order services by expected search demand (highest first). Do NOT copy raw volume numbers into site-config.

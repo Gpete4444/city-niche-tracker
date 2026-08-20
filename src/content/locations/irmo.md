@@ -1,43 +1,47 @@
 ---
-title: "Cabinet Refinishing & Remodeling | Irmo, SC"
-description: "Cabinet Refinishing & Remodeling in Irmo, SC — free estimates for refacing, painting, and custom cabinetry from a licensed local team."
+title: "Cabinet Refinishing & Remodeling in Irmo, SC"
+description: "Cabinet refinishing, refacing, and remodeling for Irmo, SC kitchens. Spray-finish results, honest pricing, and free written estimates."
 h1: "Cabinet Refinishing & Remodeling in Irmo, SC"
 city: "Irmo"
 state: "SC"
 ---
-Company Brand Name provides Cabinet Refinishing & Remodeling for homeowners in Irmo, South Carolina, a town spanning Lexington and Richland counties located roughly 12 miles northwest of downtown Columbia. Irmo's distance from the immediate riverfront means slightly less intense humidity swings than Cayce or West Columbia, but Midlands summers still take a toll on cabinet finishes over a decade or more of use.
+Irmo sits about 12 miles northwest of downtown Columbia and spans parts of both Lexington and Richland counties. Company Brand Name provides cabinet refinishing, refacing, and remodeling for Irmo homeowners, working across the town's mix of established neighborhoods and newer subdivisions built as the Columbia metro has grown outward.
 
-Irmo's housing stock tends to include a solid share of established family homes, and cabinet calls here often center on kitchens that have simply aged past their original finish — cracking clear coats, worn hardware, or a color that no longer matches an updated countertop or flooring choice. We see fewer new-construction builder-grade kitchens in Irmo compared to faster-growing areas, and more solid wood cabinetry that responds well to a full refinishing rather than refacing.
+Given the distance from downtown, Irmo homeowners often ask about scheduling and travel time up front. Company Brand Name plans routes to keep Irmo projects on the same reliable timeline as work closer to Columbia.
+
+Lake Murray borders much of Irmo, and that shapes the housing stock in ways that matter for cabinet work. Lake-area homes built in the 1970s and 80s often still have their original wood cabinet boxes. Newer construction further from the shoreline tends to lean laminate or thermofoil.
 
 ## Serving Homeowners in Irmo
 
-Irmo sits a bit further from the Congaree River corridor. Cabinet wear here is typically driven more by general age and daily use than acute moisture damage.
+Cabinet age and condition in Irmo varies by when a neighborhood was built, with older sections having more solid wood cabinetry and newer construction leaning on laminate or thermofoil boxes. Refinishing suits the former well; the latter usually needs a bonding primer formulated for previously finished or laminate surfaces before a new topcoat goes on.
 
-Even so, moisture-resistant primer and conversion varnish remain part of every refinishing job here, since Midlands humidity affects the whole region regardless of exact distance from the river. Irmo homeowners frequently pair a cabinet refinishing project with a broader kitchen update, since many of the homes in this part of the Midlands are due for a refresh after years of consistent use.
+Humidity through the Midlands summer still factors into cure time in Irmo the same as anywhere in the metro, which is why conversion-varnish topcoats are part of the standard finish system here. Lake-adjacent homes see even more moisture in the air, so proper cure time between coats matters a bit more for kitchens close to the water.
 
-Given Irmo's position northwest of the city center, we schedule projects here alongside work in Seven Oaks and other nearby communities, keeping response times consistent for the northwest side of the metro.
+Kitchens in Irmo's older subdivisions, especially those built before cabinet styles shifted to shaker profiles, often have flat-panel or raised-panel doors that hold paint well once cleaned and properly primed. In newer builds, cabinet boxes are usually still structurally sound even when the finish looks dated, which makes refinishing or refacing a more practical option than a full replacement for most Irmo homeowners.
+
+Company Brand Name also serves the communities around Irmo, including Columbia, Lexington, and Forest Acres.
 
 ## Why Choose Company Brand Name in Irmo
 
-- Experience with the established, solid-wood cabinetry common in Irmo's family-home housing stock
-- Moisture-resistant finishes suited to Midlands humidity, even at Irmo's distance from the immediate riverfront
-- Written estimates that account for the age-related wear typical of longer-owned Irmo kitchens
-- Efficient scheduling for the northwest side of the Columbia metro area
+- Routing and scheduling that accounts for Irmo's distance from downtown Columbia
+- Bonding primers suited to the laminate and thermofoil boxes common in newer Irmo subdivisions
+- Free, written estimates from an in-home consultation
+- Spray-finish equipment for a factory-style result across a full kitchen
 
 ## Cabinet Refinishing & Remodeling FAQs for Irmo
 
-Are Irmo's cabinets typically good candidates for refinishing?
-Irmo's housing stock leans toward solid wood cabinetry that responds well to full refinishing rather than refacing, especially once the original finish has cracked or worn thin.
+**How far is Irmo from your service area?**
+Irmo is about 12 miles northwest of downtown Columbia and is part of Company Brand Name's regular Midlands service area — travel distance doesn't change project timelines.
 
-How does Irmo's distance from the river affect cabinet wear?
-Irmo sees somewhat less acute humidity swing than riverfront communities, but Midlands-wide humidity still affects finishes over time, so moisture-resistant coatings remain standard on every job.
+**Do newer Irmo homes need different prep than older ones?**
+Newer construction often has laminate or thermofoil cabinet boxes that need a bonding primer, while older wood cabinetry generally just needs cleaning, sanding, and repair before the new finish.
 
-What does a typical refinishing project cost in Irmo?
-Refinishing in Irmo generally runs $2,500–$6,000, consistent with broader Midlands pricing for a standard kitchen.
+**What's the cost difference between refinishing and refacing in Irmo?**
+Refinishing alone typically runs $2,500–$5,500, while refacing with new doors and drawer fronts runs $6,000–$12,000 for a standard kitchen.
 
-Do I need a permit for cabinet refinishing in Irmo?
-Cosmetic refinishing and refacing typically don't require a permit; confirm with Irmo's building department for projects involving structural or electrical changes.
+**Do I need a permit for cabinet work in Irmo?**
+Like-for-like refinishing or refacing usually doesn't require one. Layout changes, new electrical, or plumbing relocation typically do — confirm with your local building department.
 
 ## Request a Free Estimate in Irmo
 
-Have a kitchen that's due for a refresh? [Contact](/contact) Company Brand Name for a free estimate, or see our [Cabinet Refinishing](/services/cabinet-refinishing) service.
+Call **(385) 221-2770** or request a free, written estimate online. [Contact](/contact) Company Brand Name or return to the [homepage](/) to see the full range of services.

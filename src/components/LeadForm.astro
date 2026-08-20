@@ -6,7 +6,7 @@ interface Props {
   compact?: boolean;
 }
 
-const { heading = 'Request a free estimate', compact = false } = Astro.props;
+const { heading = 'Get a free estimate', compact = false } = Astro.props;
 const hasTurnstile = Boolean(site.turnstileSiteKey);
 const hasPlaceholderKey =
   /^(YOUR_|REPLACE_WEB3FORMS)/i.test(site.web3FormsAccessKey || '');
@@ -16,7 +16,7 @@ const hasPlaceholderKey =
   id="lead-form"
   class:list={[
     compact
-      ? 'rounded-xl bg-surface-raised p-5 text-ink shadow-2xl shadow-black/25 sm:p-6'
+      ? 'rounded-xl bg-surface-raised p-4 text-ink shadow-2xl shadow-black/25 sm:p-5 lg:p-6'
       : 'section-surface-raised',
   ]}
   aria-labelledby="form-heading"
@@ -27,7 +27,7 @@ const hasPlaceholderKey =
         id="form-heading"
         class:list={[
           'font-display font-bold tracking-tight text-ink',
-          compact ? 'text-xl sm:text-2xl' : 'text-2xl sm:text-3xl',
+          compact ? 'heading-section' : 'heading-section',
         ]}
       >
         {heading}
@@ -40,7 +40,7 @@ const hasPlaceholderKey =
     <form
       class:list={[
         'grid max-w-xl',
-        compact ? 'mt-5 gap-3' : 'mx-auto mt-8 gap-4',
+        compact ? 'mt-4 gap-3 lg:mt-5' : 'mx-auto mt-8 gap-4',
       ]}
       action="https://api.web3forms.com/submit"
       method="POST"
@@ -100,17 +100,10 @@ const hasPlaceholderKey =
         {site.primaryCta}
       </button>
       {
-        hasPlaceholderKey && import.meta.env.DEV ? (
+        hasPlaceholderKey && import.meta.env.DEV && (
           <p class="text-xs text-muted">
             Demo form: replace the Web3Forms key in{' '}
             <code class="rounded bg-paper px-1">site-config.json</code> before launch.
-          </p>
-        ) : (
-          <p class="text-xs text-muted">
-            No obligation. Your information is handled according to our <a
-              class="underline hover:text-brand"
-              href="/privacy">privacy policy</a
-            >.
           </p>
         )
       }

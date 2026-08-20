@@ -18,6 +18,7 @@ import {
   compactCityContextForPrompt,
   getCachedCityContext,
 } from './city-context.mjs';
+import { listLaunchContentGaps, resolveStructurePageIds } from './preview-fidelity.mjs';
 
 // Mirror content-markdown slugifyContentName (avoid circular import)
 function slugifyContentName(name) {
@@ -239,10 +240,11 @@ function normalizeSelection(input = {}, registry = loadSectionRegistry()) {
     const def = sectionById.get(id);
     if (!def?.photoCapable) continue;
     const raw = photoIn[id];
-    if (raw === true) photos[id] = { enabled: true, count: Math.min(def.maxImages || 1, 3) };
-    else if (raw && typeof raw === 'object' && raw.enabled) {
+    if (raw === true) {
+      photos[id] = { enabled: true, count: def.maxImages || 1 };
+    } else if (raw && typeof raw === 'object' && raw.enabled) {
       const max = def.maxImages || 1;
-      const count = Math.min(max, Math.max(1, Number(raw.count) || 1));
+      const count = Math.min(max, Math.max(1, Number(raw.count) || max));
       photos[id] = { enabled: true, count };
     }
   }
@@ -261,9 +263,12 @@ export function applyPreset(presetId) {
   if (!preset) {
     throw Object.assign(new Error(`Unknown preset: ${presetId}`), { status: 400 });
   }
+  const sectionById = new Map((registry.sections || []).map((s) => [s.id, s]));
   const photos = {};
   for (const [sid, on] of Object.entries(preset.photos || {})) {
-    if (on) photos[sid] = { enabled: true, count: 3 };
+    if (!on) continue;
+    const def = sectionById.get(sid);
+    photos[sid] = { enabled: true, count: def?.maxImages || 1 };
   }
   return normalizeSelection(
     {
@@ -851,7 +856,7 @@ ${
 - process: [{ title, description, image? }] when process/offerProcess enabled — prefer **4, 6, or 8** steps (even under 4-col grid); each \`description\` = one short line (~8–14 words), not a paragraph
 - faqs: [{ question, answer }] when faqs enabled
 - gallery: [{ src, alt }] when beforeAfter/gallery photos enabled
-- materialsImages: [{ src, alt }] is Pull-owned — omit or preserve existing; do not invent image paths
+- materialsImages: [{ src, alt }] is Pull-owned when materials photos are on — omit or preserve existing; do not invent image paths. Ranking builds pull materials thumbs for compact media rows.
 - **Homepage body:**
   1. Start with intro prose only (max ~2 short salesperson paragraphs). Do NOT repeat whyChooseUs, process, FAQs, or the services list in the body — those belong in frontmatter / dedicated sections only.
   2. After the intro, add a \`##\` Markdown section for **each enabled educational homepage section** (cost, materials, timeline, codes, diyVsPro, whenToCall, and similar) using that section’s outline heading + writeInstructions. Do **not** re-dump process/why/FAQs as body prose.
@@ -863,13 +868,13 @@ heroImage:
   alt: "Descriptive alt text"
 \`\`\`
 - Outline photo slots list counts only (paths are null until Pull) — do not invent \`public/images/...\` placeholders.
-- **Never** put markdown body images (\`![alt](/images/...)\`) in page bodies. Materials / process / before-after / gallery rely on frontmatter + Rover Pull images only.
+- **Never** put markdown body images (\`![alt](/images/...)\`) in page bodies. Materials / process / before-after / gallery rely on frontmatter + Rover Pull or ChatGPT BA import only. Service before/after photos use \`beforeAfterImages\` from Website ChatGPT import (never invent paths).
 
 ## Frontmatter expectations (each services/*.md)
 - title, description, h1, serviceName
 - \`description\` = ONE meta-length sentence (~140–160 chars): serviceName + primaryCity + 2–3 offer terms + free estimates (hero supporting under H1)
 - heroImage / cardImage only as \`{ src, alt }\` objects when files already exist; otherwise omit
-- \`materialsImages: [{ src, alt }]\` is Pull-owned when svcMaterials photos are on — omit or preserve existing; do not invent image paths
+- \`materialsImages: [{ src, alt }]\` is Pull-owned when svcMaterials photos are on — omit or preserve existing; do not invent image paths. Ranking builds pull materials thumbs for compact media rows.
 - \`processImages: [{ src, alt }]\` is Pull-owned when svcProcess photos are on — omit or preserve existing; do not invent image paths
 - **No** \`process:\` / \`faqs:\` / \`whyChooseUs:\` / \`gallery:\` frontmatter on service pages
 - Body:
@@ -883,7 +888,7 @@ heroImage:
 - DIY vs pro (when enabled): \`### DIY\` first, then \`### Hire a pro\`, each with balanced bullets
 - Timeline (when enabled): stage bullets \`**Stage title** — duration\` where duration is a complete phrase (\`same day\`, \`1–2 days\`, \`3–7 days\`). Keep en-dashes in ranges. Never write hedges like \"or next day\" / \"usually\" / \"in most cases\" / \"varies by city\" that can drop mid-phrase
 - Before/after (when enabled): short problem → solution text lines only; photos live on the **homepage** gallery — do not invent image paths; optionally link to \`/\` for photo examples
-- Materials (when enabled): short intro + option bullets (\`title — why it matters\`); each title must name a **concrete product, system, or method** (not “professional grade” alone) and tie durability to local climate from City context when available; no body images — thumbs come from Pull \`materialsImages\` frontmatter (one per bullet, same as homepage)
+- Materials (when enabled): short intro + 4–6 option bullets; each bullet \`**Product/system name** —\` then **1–2 sentences** (why it matters, climate/use cue from City context when available, durable outcome). Concrete product/system/method titles (not “professional grade” alone). No body images — Pull supplies \`materialsImages\` thumbs for compact text+photo rows
 
 ## Frontmatter expectations (about.md)
 - title, description, h1
@@ -925,6 +930,173 @@ ${buildLinkChecklistMarkdown(outline, config)}
 Return ONLY the ### FILE blocks.`;
 
   return { prompt, outline, config, requiredFileCount: requiredCount, cityContext: cityCompact };
+}
+
+/**
+ * Focused continue prompt for missing and/or stub/thin FILE paths after a partial Full write.
+ * Operator pastes Claude's ### FILE blocks into the same Load merge path.
+ */
+export async function buildContinueWritePrompt(candidateId) {
+  const outline = getContentOutlinePackage(candidateId);
+  if (!outline?.sections?.length) {
+    throw Object.assign(new Error('Compose/confirm an outline before continue write'), {
+      status: 400,
+    });
+  }
+  if (outline.status !== 'confirmed') {
+    throw Object.assign(new Error('Confirm the outline before copying the continue prompt'), {
+      status: 400,
+    });
+  }
+
+  const config = loadAcceptedSiteConfig(candidateId)?.config || {};
+  const pageIds = resolveStructurePageIds(candidateId);
+  const detail = getCandidateDetail(candidateId);
+  const files = detail?.contentDraft?.files || {};
+  const { missing, stubs, expected, ok } = listLaunchContentGaps(files, config, pageIds);
+
+  if (ok) {
+    throw Object.assign(
+      new Error('Nothing to continue — draft has all required non-stub files'),
+      { status: 400 },
+    );
+  }
+
+  const gapPaths = [...missing, ...stubs.filter((p) => !missing.includes(p))];
+  const gapCount = gapPaths.length;
+  const svcNeeded = gapPaths.some((p) => p.includes('/services/'));
+  const locNeeded = gapPaths.some((p) => p.includes('/locations/'));
+  const pageNeeded = gapPaths.some((p) => p.includes('/pages/'));
+  const svcSections = (outline.sections || []).filter((s) =>
+    (s.pages || []).includes('services'),
+  );
+  const locSections = (outline.sections || []).filter((s) =>
+    (s.pages || []).includes('locations'),
+  );
+
+  let cityContext = getCachedCityContext(candidateId);
+  try {
+    cityContext = await buildCityContextPackage(candidateId);
+  } catch {
+    // soft fail
+  }
+  const cityCompact = compactCityContextForPrompt(cityContext);
+
+  const pathLines = gapPaths
+    .map((rel) => {
+      const kind = stubs.includes(rel) && !missing.includes(rel) ? 'rewrite stub/thin' : 'missing';
+      return `- \`### FILE: ${rel}\` (${kind})`;
+    })
+    .join('\n');
+
+  const stubNote = stubs.length
+    ? `\n## Stub / thin rewrites\nThese paths exist in the draft but are seed stubs or too thin for Accept. **Replace the entire FILE** (frontmatter + body) with full launch-ready copy — do not append to the stub.\n${stubs.map((p) => `- \`${p}\``).join('\n')}\n`
+    : '';
+
+  const outlineSlice = {
+    pageIds: outline.pageIds || [],
+    sections: (outline.sections || []).filter((s) => {
+      const pages = s.pages || [];
+      if (svcNeeded && pages.includes('services')) return true;
+      if (locNeeded && pages.includes('locations')) return true;
+      if (pageNeeded && (pages.includes('home') || pages.includes('about') || pages.includes('contact'))) {
+        return true;
+      }
+      return false;
+    }),
+    keywords: outline.keywords || null,
+    keywordTargets: outline.keywordTargets || null,
+    faqSeeds: outline.faqSeeds || null,
+  };
+
+  const prompt = `You are an expert local SEO copywriter for a rank-and-rent service website.
+
+## Goal
+Finish an incomplete Full write. Emit **only** the FILE paths listed below. Rover **merges** them into the existing draft — do not recap files already loaded, and do not invent extra paths.
+
+## Site config
+\`\`\`json
+${JSON.stringify(config, null, 2)}
+\`\`\`
+
+## Outline sections for these pages
+\`\`\`json
+${JSON.stringify(outlineSlice, null, 2)}
+\`\`\`
+
+${cityContextPromptRules()}
+
+## City context JSON
+\`\`\`json
+${JSON.stringify(cityCompact || { note: 'unavailable — use site-config suburbs + honest general local conditions' }, null, 2)}
+\`\`\`
+
+## Output format
+Emit markdown using blocks:
+
+### FILE: <path>
+---
+<frontmatter yaml>
+---
+<body markdown>
+
+**Emit all ${gapCount} ### FILE blocks listed below in one reply.** If length-limited, continue in the next message with only the remaining paths from this list — same format, no recap.
+${stubNote}
+## Required files for this continue job (${gapCount})
+${pathLines}
+
+## Shared templates
+${
+  svcNeeded && svcSections.length
+    ? `- **Service pages:** Apply the svc* outline sections (${svcSections.map((s) => s.id).join(', ')}) to EVERY service FILE in this list. Substitute the real service name for \`{serviceName}\`.`
+    : svcNeeded
+      ? '- **Service pages:** Use service frontmatter + body ## bands from the outline when present.'
+      : '- No service FILEs in this continue job.'
+}
+${
+  locNeeded && locSections.length
+    ? `- **Location pages:** Apply the loc* outline sections (${locSections.map((s) => s.id).join(', ')}) to EVERY location FILE in this list. Substitute the suburb name for \`{suburb}\`.`
+    : locNeeded
+      ? '- **Location pages:** Use location frontmatter + loc* body sections when present.'
+      : '- No location FILEs in this continue job.'
+}
+
+## Dual-source contract (when writing service pages)
+- Service pages: **no** \`process\` / \`faqs\` / \`whyChooseUs\` frontmatter arrays. Short unmarked intro, then every enabled service band as body \`##\`.
+- Do **not** invent service-page \`process:\` or \`faqs:\` YAML.
+
+## Frontmatter / body expectations (services/*.md when listed)
+- title, description, h1, serviceName; \`description\` = ONE meta-length sentence (~140–160 chars)
+- Omit inventing image paths; preserve existing Pull-owned fields if you somehow see them (you will not — write full new FILEs)
+- Body: intro + ## for each enabled svc* section; Materials compact media rows (1–2 sentences per option bullet when enabled)
+
+## Frontmatter / body expectations (locations/*.md when listed)
+- Filename slug = city kebab only; title, description, h1, city, state
+- **Target ~600+ words** across loc* sections — Accept rejects bodies under ~450 words and near-duplicates
+- **Every location FILE must differ** (do not swap only the city name)
+- Primary city (\`${config.primaryCity || 'primary'}\`): do **not** reuse homepage “${config.niche || 'niche'} in ${config.primaryCity || 'city'}, ST” — prefer niche + city for homeowners / business serving city
+- Suburb cities: “${config.niche || 'niche'} in {suburb}, ${config.state || 'ST'}”
+- No seed stub phrasing (“is part of our … service area…”, “neighborhoods are part of how … plans…”)
+
+## Rules
+1. Honor enabled outline sections for each page type in this list; skip disabled ones.
+2. Never invent image \`src\` paths or body \`![](...)\` images.
+3. Use site-config socialProof only — do not invent testimonials or license IDs.
+4. Unique, honest local copy for ${config.primaryCity || 'the city'}, ${config.state || ''}.
+5. Return ONLY the ### FILE blocks for the paths listed above.
+
+Draft progress: ${Object.keys(files).length} of ${expected.length} required paths already loaded; finish the ${gapCount} gap(s).`;
+
+  return {
+    prompt,
+    outline,
+    config,
+    missing,
+    stubs,
+    count: gapCount,
+    expectedCount: expected.length,
+    cityContext: cityCompact,
+  };
 }
 
 function buildLinkChecklistMarkdown(outline, config) {

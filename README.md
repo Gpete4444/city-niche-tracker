@@ -35,7 +35,7 @@ Open [http://127.0.0.1:8787](http://127.0.0.1:8787).
 3. Replace Markdown under:
    - `src/content/pages/` — `index.md`, `about.md`, `contact.md`
    - `src/content/services/` — one file per service
-   - `src/content/locations/` — one file per suburb (keep 4–6; avoid thin duplicates)
+   - `src/content/locations/` — primary + suburbs as location pages (prefer **4–6 total**; avoid thin duplicates). Extra coverage cities show as “Also serving,” not separate pages.
 4. Update `public/robots.txt` sitemap host to the new domain.
 5. Commit, push to a **new** GitHub repo (one repo per domain).
 6. Create a Cloudflare Pages project → Framework: Astro → Build: `npm run build` → Output: `dist`.

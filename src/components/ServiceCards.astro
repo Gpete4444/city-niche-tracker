@@ -7,6 +7,7 @@ import {
 } from '../lib/services-for-site';
 import { fitEqualGrid } from '../lib/equal-grid';
 import TwoToneHeading from './TwoToneHeading.astro';
+import PhoneIcon from './PhoneIcon.astro';
 
 interface Props {
   heading?: string;
@@ -47,7 +48,7 @@ const cardClass =
         id="services-heading"
         text={heading}
         emphasis="services"
-        class="text-2xl sm:text-3xl"
+        class="heading-section"
       />
       <p class="mt-2 text-sm text-muted">
         {site.niche} across {blurbCity} and the surrounding area.
@@ -187,7 +188,8 @@ const cardClass =
             <a href="#lead-form" class="btn-primary">
               {site.primaryCta}
             </a>
-            <a href={phoneHref()} class="btn-secondary">
+            <a href={phoneHref()} class="btn-secondary hidden gap-2 md:inline-flex">
+              <PhoneIcon />
               Call {formatPhoneDisplay()}
             </a>
           </div>

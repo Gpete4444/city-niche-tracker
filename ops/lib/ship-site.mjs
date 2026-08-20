@@ -7,7 +7,12 @@ import { existsSync, readFileSync } from 'node:fs';
 import { execFileSync, spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { getCandidateDetail, saveMeta } from './candidates.mjs';
-import { getAssembleChecklist } from './assemble-site.mjs';
+import {
+  depsHashMarkerMatches,
+  getAssembleChecklist,
+  hashPackageDeps,
+  writeDepsHashMarker,
+} from './assemble-site.mjs';
 import { cloudflareConfigured, cfFetch, getCloudflareCredentials } from './cloudflare-launch.mjs';
 import { pushAssembledSiteToGithub, ghAvailable, ghAuthStatus, resolveGithubOwner, diffAssembledAgainstRemote } from './github-site.mjs';
 
@@ -45,11 +50,12 @@ function runNpm(args, cwd, timeoutMs = 600_000, envExtra = {}) {
 }
 
 /**
- * npm install + npm run build in assembled folder.
+ * npm install (skipped when node_modules matches package lock identity) + npm run build.
  * @param {string} siteRoot
  * @param {{ visualEdit?: boolean }} [opts] — set visualEdit for local preview builds only (loads rover-visual-bridge.js)
  */
 export function buildAssembledSite(siteRoot, { visualEdit = false } = {}) {
+  const t0 = Date.now();
   const abs = path.resolve(siteRoot);
   if (!existsSync(abs)) {
     const err = new Error(`Assembled site not found: ${abs}`);
@@ -57,10 +63,23 @@ export function buildAssembledSite(siteRoot, { visualEdit = false } = {}) {
     throw err;
   }
   const envExtra = visualEdit ? { PUBLIC_ROVER_VE: '1' } : { PUBLIC_ROVER_VE: '' };
-  runNpm(['install'], abs, 600_000, envExtra);
+  const nmDir = path.join(abs, 'node_modules');
+  const skipInstall = existsSync(nmDir) && depsHashMarkerMatches(abs);
+  if (!skipInstall) {
+    runNpm(['install'], abs, 600_000, envExtra);
+    writeDepsHashMarker(abs, hashPackageDeps(abs));
+  }
   runNpm(['run', 'build'], abs, 600_000, envExtra);
   const hasDist = existsSync(path.join(abs, 'dist', 'index.html'));
-  return { ok: true, built: hasDist, siteRoot: abs, visualEdit: Boolean(visualEdit) };
+  return {
+    ok: true,
+    built: hasDist,
+    siteRoot: abs,
+    visualEdit: Boolean(visualEdit),
+    npmInstallSkipped: skipInstall,
+    buildSkipped: false,
+    ms: Date.now() - t0,
+  };
 }
 
 /**

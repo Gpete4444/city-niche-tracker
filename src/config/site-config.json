@@ -6,18 +6,19 @@
   "primaryCity": "Columbia",
   "state": "SC",
   "targetSuburbs": [
-    "Lexington",
     "Cayce",
-    "West Columbia",
-    "Irmo",
     "Forest Acres",
-    "Blythewood",
-    "St. Andrews",
-    "Seven Oaks"
+    "Irmo",
+    "Lexington",
+    "West Columbia"
   ],
   "coverageAreas": [
     {
       "name": "Columbia",
+      "state": "SC"
+    },
+    {
+      "name": "Batesburg-Leesville",
       "state": "SC"
     },
     {
@@ -73,6 +74,10 @@
       "state": "SC"
     },
     {
+      "name": "Sumter",
+      "state": "SC"
+    },
+    {
       "name": "West Columbia",
       "state": "SC"
     },
@@ -85,7 +90,7 @@
       "state": "SC"
     }
   ],
-  "serviceRadiusMiles": 28,
+  "serviceRadiusMiles": 30,
   "phone": "+13852212770",
   "email": "leads@service.com",
   "web3FormsAccessKey": "YOUR_WEB3FORMS_ACCESS_KEY",
@@ -139,31 +144,30 @@
     ],
     "reviews": [
       {
-        "quote": "Called Company Brand Name after a neighbor tip in Columbia. Super easy to deal with — clear answers, no runaround, and they actually cared about the details on our cabinet refinishing.",
+        "quote": "Price was way more affordable than the other quotes we got for kitchen cabinet remodeling. Still felt premium — clean jobsite, solid finish, and I'd hire them again without thinking twice.",
         "author": "Dorothy P.",
         "rating": 5,
         "source": "Google",
-        "date": "2026-08-07",
+        "date": "2026-08-08",
         "verified": true,
-        "avatarUrl": "/images/review-avatars/f01.jpg",
         "location": "Columbia, SC"
       },
       {
-        "quote": "Honestly did not expect such a professional team. They showed up on time, explained every step, and the cabinet refacing turned out better than I pictured.",
+        "quote": "Called Company Brand Name after a neighbor tip in Columbia. Super easy to deal with — clear answers, no runaround, and they actually cared about the details on our cabinet refinishing.",
         "author": "Lisa T.",
         "rating": 5,
         "source": "Google",
-        "date": "2026-08-15",
+        "date": "2026-08-16",
         "verified": true,
         "avatarUrl": "/images/review-avatars/f02.jpg",
         "location": "Lexington, SC"
       },
       {
-        "quote": "Price was way more affordable than the other quotes we got for cabinet hardware & hinge upgrades. Still felt premium — clean jobsite, solid finish, and I'd hire them again without thinking twice.",
+        "quote": "Honestly did not expect such a professional team. They showed up on time, explained every step, and the custom cabinet painting & staining turned out better than I pictured.",
         "author": "Richard W.",
         "rating": 5,
         "source": "Google",
-        "date": "2026-07-28",
+        "date": "2026-07-29",
         "verified": true,
         "avatarUrl": "/images/review-avatars/m02.jpg",
         "location": "Cayce, SC"

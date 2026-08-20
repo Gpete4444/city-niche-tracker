@@ -22,8 +22,7 @@ import {
 } from './candidates.mjs';
 import {
   assertLaunchContentComplete,
-  expectedLaunchContentPaths,
-  missingLaunchContentPaths,
+  listLaunchContentGaps,
   outlineRequiresFullContent,
   resolveStructurePageIds,
 } from './preview-fidelity.mjs';
@@ -313,6 +312,7 @@ const KNOWN_CONTENT_FM_KEYS = new Set([
   'gallery',
   'materialsImages',
   'processImages',
+  'beforeAfterImages',
   'whyChooseUs',
   'process',
   'faqs',
@@ -971,8 +971,8 @@ function omitMissingImageFrontmatter(fm, opts = {}) {
   // Heal orphan indented src/alt object children (missing heroImage/cardImage parent)
   out = healOrphanImageObjectFrontmatter(out);
 
-  // Drop empty `gallery:` / `materialsImages:` only when no list items follow.
-  for (const key of ['gallery', 'materialsImages']) {
+  // Drop empty `gallery:` / `materialsImages:` / `beforeAfterImages:` only when no list items follow.
+  for (const key of ['gallery', 'materialsImages', 'beforeAfterImages', 'processImages']) {
     const re = new RegExp(`^(${key})[ \\t]*:[ \\t]*\\n(?:[ \\t]*\\n)*`, 'im');
     out = out.replace(re, (match, _k, offset, full) => {
       const after = String(full).slice(offset + match.length);
@@ -1218,7 +1218,7 @@ function healOrphanImageObjectFrontmatter(fm) {
 
   if (promote.length) {
     let insertAt = next.findIndex((l) =>
-      /^(materialsImages|processImages|gallery|heroImage|cardImage|featureImage|coverageMap)[ \t]*:/i.test(
+      /^(materialsImages|processImages|beforeAfterImages|gallery|heroImage|cardImage|featureImage|coverageMap)[ \t]*:/i.test(
         l,
       ),
     );
@@ -1235,6 +1235,8 @@ const LIST_BLOCK_SPECS = {
   faqs: { fields: ['question', 'answer'], startKeys: ['question'] },
   gallery: { fields: ['src', 'alt'], startKeys: ['src'] },
   materialsImages: { fields: ['src', 'alt'], startKeys: ['src'] },
+  processImages: { fields: ['src', 'alt'], startKeys: ['src'] },
+  beforeAfterImages: { fields: ['src', 'alt'], startKeys: ['src'] },
 };
 
 /**
@@ -1567,12 +1569,18 @@ export function validateContentBundle(files, siteConfig, { mode = 'full', pageId
   const resolvedPageIds = Array.isArray(pageIds) && pageIds.length ? pageIds : null;
   let launchExpected = [];
   let launchMissing = [];
+  let launchStubs = [];
   if (!homepageFirst && resolvedPageIds) {
-    launchExpected = expectedLaunchContentPaths(siteConfig, resolvedPageIds);
-    launchMissing = missingLaunchContentPaths(files, siteConfig, resolvedPageIds);
+    const gaps = listLaunchContentGaps(files, siteConfig, resolvedPageIds);
+    launchExpected = gaps.expected;
+    launchMissing = gaps.missing;
+    launchStubs = gaps.stubs;
     for (const rel of launchMissing) {
       if (requiredPages.includes(rel)) continue;
       warnings.push(`Missing required file: ${rel}`);
+    }
+    for (const rel of launchStubs) {
+      warnings.push(`Stub/thin content (not launch-ready): ${rel}`);
     }
   }
 
@@ -1608,8 +1616,8 @@ export function validateContentBundle(files, siteConfig, { mode = 'full', pageId
         const expected = `src/content/locations/${slug}.md`;
         if (!files[expected]) warnings.push(`Missing required file: ${expected}`);
       }
-    } else if (!resolvedPageIds && (locationFiles.length < 4 || locationFiles.length > 8)) {
-      warnings.push(`Location pages: got ${locationFiles.length}, prefer 4–8`);
+    } else if (!resolvedPageIds && (locationFiles.length < 4 || locationFiles.length > 6)) {
+      warnings.push(`Location pages: got ${locationFiles.length}, prefer 4–6`);
     }
   } else if (serviceFiles.length > 1 && isSingle) {
     warnings.push('homepage_first Type B: unexpected multiple service files');
@@ -1685,6 +1693,7 @@ export function validateContentBundle(files, siteConfig, { mode = 'full', pageId
     launch: {
       expected: launchExpected,
       missing: [...new Set(launchMissing)],
+      stubs: [...new Set(launchStubs)],
       have: paths.length,
       expectedCount: launchExpected.length,
     },
@@ -1881,6 +1890,35 @@ export function ensureLocationFilesInMap(files = {}, config = {}) {
   return { files: next, seeded };
 }
 
+/**
+ * Drop location MD that is not primary + targetSuburbs (orphans from older suburb sets).
+ * @returns {{ files: Record<string,string>, pruned: string[] }}
+ */
+export function pruneLocationFilesToConfigured(files = {}, config = {}) {
+  const next = { ...(files || {}) };
+  const pruned = [];
+  const allowedSlugs = new Set(
+    configuredLocationCities(config)
+      .map((city) => slugifyContentName(city))
+      .filter(Boolean),
+  );
+  // If config has no SEO cities yet, do not wipe the map
+  if (!allowedSlugs.size) return { files: next, pruned };
+
+  for (const rel of Object.keys(next)) {
+    const m = String(rel || '')
+      .replace(/\\/g, '/')
+      .match(/^src\/content\/locations\/([^/]+)\.md$/i);
+    if (!m) continue;
+    const slug = m[1];
+    if (slug.startsWith('_')) continue;
+    if (allowedSlugs.has(slug)) continue;
+    delete next[rel];
+    pruned.push(rel.replace(/\\/g, '/'));
+  }
+  return { files: next, pruned };
+}
+
 /** Remove location pages whose frontmatter state does not match site-config. */
 export function pruneWrongStateLocations(siteState) {
   const pruned = [];
@@ -2030,7 +2068,7 @@ export function seedServiceStubs(config) {
 /**
  * Write draft Markdown into src/content/, prune leftovers not in the bundle.
  */
-export function acceptContent(
+export async function acceptContent(
   candidateId,
   { ignoreWarnings = false, ignoreSeoWarnings = false } = {},
 ) {
@@ -2241,6 +2279,15 @@ export function acceptContent(
     // non-fatal — content files already written
   }
 
+  // Restore ChatGPT before/after gallery FM when PNGs exist (Claude drafts omit gallery)
+  let galleryBa = null;
+  try {
+    const { rehydrateGalleryBaFrontmatter } = await import('./chatgpt-before-after.mjs');
+    galleryBa = rehydrateGalleryBaFrontmatter(candidateId);
+  } catch {
+    // non-fatal
+  }
+
   saveMeta(candidateId, {
     lastContentAt: new Date().toISOString(),
     contentBackup: backup.backupRoot,
@@ -2255,6 +2302,7 @@ export function acceptContent(
     backup: backup.backupRoot,
     check,
     mode,
+    galleryBa,
     nextStep: accepted._ops.nextStep,
     candidate: getCandidateDetail(candidateId),
   };

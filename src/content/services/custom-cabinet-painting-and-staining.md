@@ -1,6 +1,6 @@
 ---
-title: "Custom Cabinet Painting in Columbia, SC"
-description: "Custom Cabinet Painting & Staining in Columbia, SC — color-matched sprayed finishes from a licensed local team. Free written estimates."
+title: "Custom Cabinet Painting & Staining Columbia, SC"
+description: "Custom Cabinet Painting & Staining in Columbia, SC with spray-finish color matching, licensed & insured crews, and free written estimates."
 h1: "Custom Cabinet Painting & Staining in Columbia, SC"
 serviceName: "Custom Cabinet Painting & Staining"
 heroImage:
@@ -10,14 +10,16 @@ cardImage:
   src: "/images/svcHero-4-modern-kitchen-with-wooden-cabinets-and.jpg"
   alt: "Cabinet Refinishing & Remodeling Custom Cabinet Painting & Staining photo"
 materialsImages:
-  - src: "/images/materials-custom-cabinet-painting-and-staining-1-cabinet-grade-enamel.jpg"
-    alt: "Luxury Kitchen and wine nook in bright sunlight Credit: @upgradeur_life"
-  - src: "/images/materials-custom-cabinet-painting-and-staining-2-wood-stain-blends.jpg"
-    alt: "Cabinet Refinishing & Remodeling Wood stain blends photo"
-  - src: "/images/materials-custom-cabinet-painting-and-staining-3-catalyzed-conversion-varnish-topcoat.jpg"
-    alt: "Cabinet Refinishing & Remodeling Catalyzed conversion varnish topcoat photo"
-  - src: "/images/materials-custom-cabinet-painting-and-staining-4-bonding-primer.jpg"
-    alt: "Cabinet Refinishing & Remodeling Bonding primer photo"
+  - src: "/images/svcMaterials-1-close-up-of-a-roller-brush-painting-an-i-26953859.jpg"
+    alt: "Cabinet Refinishing & Remodeling Sprayed alkyd enamel photo"
+  - src: "/images/svcMaterials-2-stylish-indoor-wine-cabinet-with-an-eleg-35170923.jpg"
+    alt: "Cabinet Refinishing & Remodeling Catalyzed conversion varnish photo"
+  - src: "/images/svcMaterials-3-a-cabinet-with-a-television-on-top-of-it-A2CvFJNg.jpg"
+    alt: "Cabinet Refinishing & Remodeling Cabinet-grade primer/sealer photo"
+  - src: "/images/svcMaterials-4-overhead-view-of-textured-backdrop-repre-6159738.jpg"
+    alt: "Cabinet Refinishing & Remodeling Color-matched stain systems photo"
+  - src: "/images/svcMaterials-5-detailed-close-up-of-natural-wood-textur-11826862.jpg"
+    alt: "Cabinet Refinishing & Remodeling Grain filler photo"
 processImages:
   - src: "/images/process-custom-cabinet-painting-and-staining-1-color-consultation.jpg"
     alt: "Cabinet Refinishing & Remodeling Color consultation photo"
@@ -29,88 +31,98 @@ processImages:
     alt: "Cabinet Refinishing & Remodeling Priming photo"
   - src: "/images/process-custom-cabinet-painting-and-staining-5-custom-paint-or-stain-application.jpg"
     alt: "Cabinet Refinishing & Remodeling Custom paint or stain application photo"
-  - src: "/images/process-custom-cabinet-painting-and-staining-6-topcoat-application.jpg"
-    alt: "Cabinet Refinishing & Remodeling Topcoat application photo"
+  - src: "/images/svcProcess-6-a-kitchen-with-green-cabinets-and-stainl-ghHkI5gS.jpg"
+    alt: "Cabinet Refinishing & Remodeling Step 6: Reinstall photo"
+  - src: "/images/process-custom-cabinet-painting-and-staining-7-cure-time.jpg"
+    alt: "Cabinet Refinishing & Remodeling Cure time photo"
+  - src: "/images/process-custom-cabinet-painting-and-staining-8-final-walkthrough.jpg"
+    alt: "Cabinet Refinishing & Remodeling Final walkthrough photo"
 ---
-Custom cabinet painting and staining applies a color-matched, sprayed finish directly to existing cabinet doors and boxes. Company Brand Name offers this service for Columbia homeowners who want a specific color or stain tone without replacing or refacing their cabinets.
+Custom cabinet painting and staining is a focused finish service for homeowners who already know the look they want — a specific paint color, a two-tone kitchen, or a custom stain match on existing wood. Company Brand Name provides custom cabinet painting and staining throughout Columbia using the same spray equipment and cabinet-grade products used on full refinishing jobs.
+
+It's a fit for accent pieces, kitchen islands, or full cabinet sets where the goal is a precise color result rather than repair work.
 
 ## What's Included With Custom Cabinet Painting & Staining
 
-- **Typically included:** color consultation, cabinet prep and sanding, primer, and sprayed paint or stain finish coats
-- **Optional:** two-tone color schemes, glaze accents, interior cabinet painting
-- **Customer prep:** clearing cabinet contents and countertop items before work starts
+- **Typically included:** color/stain consultation, surface prep, priming, spray or brush application, topcoat
+- **Optional:** two-tone color schemes, glaze or distressed finish techniques, matching hardware selection
+- **Customer prep:** clearing cabinet interiors and providing access to the work area
 
 ## How Our Custom Cabinet Painting & Staining Process Works
 
-Step 1: Color consultation — select paint or stain tone, same day.
-Step 2: Prep & masking — surrounding surfaces protected, same day.
-Step 3: Sanding & cleaning — cabinet surfaces prepped for paint adhesion, 1 day.
-Step 4: Primer application — even base coat applied, 1 day.
-Step 5: Color coats — sprayed paint or stain applied in multiple coats, 1–2 days.
-Step 6: Reinstall — doors and hardware reattached, same day.
+- **Consultation** — Color or stain samples reviewed against cabinetry and lighting
+- **Door removal** — Doors and drawers are removed for off-site finishing
+- **Clean and repair** — Surfaces cleaned and any small imperfections filled
+- **Sanding** — Doors and boxes lightly sanded for finish adhesion
+- **Priming** — A cabinet-grade primer applied where paint is going on
+- **Finishing** — Custom color or stain applied with spray equipment
+- **Cure** — Finish cures fully to reach its final hardness
+- **Final walkthrough** — Doors reinstalled and color checked in natural light
 
-## What Does a Custom Cabinet Painting & Staining Cost in Columbia, SC?
+## What Does a Custom Cabinet Painting & Staining Cost in Columbia?
 
-- **Single color, small kitchen** — $2,000–$3,200 — standard sprayed enamel finish
-- **Two-tone or accent finish** — $3,200–$4,500 — multiple colors or glaze detailing
-- **Large kitchen or island** — $4,500–$6,000+ — expanded surface area
+- **Accent cabinet or island only** — $800–$1,500 — single feature piece
+- **Full kitchen paint** — $3,000–$6,000 — all doors and boxes in one color
+- **Custom stain-grade finish** — $4,500–$8,000 — matched stain across wood cabinetry
 
-Final pricing depends on door count and finish complexity — [contact us](/contact) for a free estimate.
+Final pricing depends on door count and finish complexity — a free estimate confirms the number.
 
-## Materials & Methods for Custom Cabinet Painting & Staining
+## Materials and Methods for Custom Cabinet Painting & Staining
 
-- **Sprayed alkyd enamel** — smooth, brush-mark-free painted finish
-- **Catalyzed conversion varnish topcoat** — adds durability against humidity and daily wear
-- **Wood grain filler** — smooths oak grain before a painted finish for a cleaner look
-- **Gel stain** — deepens or updates wood tone without full stripping
+- **Sprayed cabinet-grade enamel** — The primary system for custom paint colors, giving a level, brush-mark-free finish that holds color well over time.
+- **Conversion varnish topcoat** — Protects custom stain and paint finishes from moisture and sun exposure, particularly useful during Columbia's humid summer months.
+- **Cabinet-grade primer/sealer** — Ensures true, consistent color coverage, especially important when going from a dark existing finish to a lighter custom shade.
+- **Custom stain blends** — Mixed to match existing wood tones elsewhere in the home, such as flooring or trim, for a cohesive look.
+- **Wood filler and epoxy repair** — Used ahead of paint on any small dents or nicks so they don't show through the new color.
 
 ## How Long Does a Custom Cabinet Painting & Staining Take?
 
-Consult — same day; Prep & masking — same day; Sanding & priming — 1 day; Color coats & cure — 1–2 days; Reinstall — same day.
+Color-focused projects move at a similar pace to standard refinishing, with cure time still the longest single stage.
 
-## Permits & Codes for Custom Cabinet Painting & Staining in Columbia
+- **Color/stain consult** — same day
+- **Prep and priming** — 1–2 days
+- **Custom color or stain application** — 1–2 days
+- **Cure and reinstall** — 1–2 days
+
+## Permits and Codes for Custom Cabinet Painting & Staining
 
 ### Usually needs a permit
-- None — this is a cosmetic finish update
+- Not typical for painting or staining alone
 
 ### Usually no permit
-- Sanding, priming, and painting or staining cabinet surfaces
-- Reinstalling existing doors and hardware
+- Custom color or stain application on existing cabinetry
+- Two-tone or accent finish work
+
+Verify with your local building department if the project is bundled with electrical or structural work.
 
 ## DIY vs Hiring a Pro for Custom Cabinet Painting & Staining
 
 ### DIY
-- Workable for a small accent piece or single cabinet run
-- Requires careful masking and multiple thin coats to avoid drips
+- Feasible for a single small accent piece with careful prep
+- Matching a custom color exactly is harder without spray equipment
+- Brush strokes are more visible on dark or high-gloss colors
 
 ### Hire a pro
-- Recommended for a full-kitchen color change where an even sheen matters
-- Spray equipment produces a smoother, more consistent finish than brushing
+- Spray application gives the smoothest, most professional-looking color
+- Custom color matching benefits from experience mixing and testing samples
+- More reliable result on two-tone or glazed finishes
 
 ## When to Call for Custom Cabinet Painting & Staining
 
-- Want a specific color that doesn't match any pre-made cabinet finish
-- Current stain or paint looks dated or has started to fade
-- Updating a kitchen for resale without a full remodel budget
+- You have a specific color or stain in mind for the kitchen
+- Current finish clashes with new countertops or flooring
+- Want a two-tone look without a full remodel
+- Refreshing a single feature cabinet or island
 
-## Custom Cabinet Painting & Staining FAQs
+## Before and After Custom Cabinet Painting & Staining
 
-Can any cabinet color be custom matched?
-Most colors can be matched using standard paint and stain systems, though very dark-to-light transitions may need extra prep coats.
+Plain white cabinets → Custom sage-green painted finish
+Mismatched stain tones → Color-matched custom stain across all cabinetry
 
-How long does custom cabinet painting take to cure?
-Sprayed enamel typically needs a few days to fully cure before cabinets see heavy daily use.
-
-Is staining better than painting for older wood cabinets?
-Staining preserves wood grain and works well on solid wood in good condition; painting is often better for covering mismatched or damaged wood tones.
-
-## Before & After Custom Cabinet Painting & Staining
-
-- Dated honey-oak stain → deep espresso gel stain finish
-- Yellowed white paint → fresh warm-white sprayed enamel
-
-See more examples on our [homepage gallery](/).
+See more completed projects on the [homepage gallery](/).
 
 ## Get a Custom Cabinet Painting & Staining Estimate in Columbia
 
-Have a color in mind? [Contact](/contact) Company Brand Name for a free estimate, or see [Cabinet Color Matching & Consultation](/services/cabinet-color-matching-and-consultation) to narrow down options first. [Home](/)
+Call **(385) 221-2770** for a free written estimate on custom cabinet painting and staining in Columbia, SC.
+
+[Home](/) | [Contact](/contact) | [Cabinet Color Matching & Consultation](/services/cabinet-color-matching-and-consultation)

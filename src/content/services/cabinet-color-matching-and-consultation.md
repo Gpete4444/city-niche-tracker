@@ -1,6 +1,6 @@
 ---
-title: "Cabinet Color Matching in Columbia, SC"
-description: "Cabinet Color Matching & Consultation in Columbia, SC — see finish samples on your own cabinets. Licensed local team, free estimates."
+title: "Cabinet Color Matching & Consultation Columbia"
+description: "Cabinet Color Matching & Consultation in Columbia, SC — sample matching, licensed & insured guidance, and free written estimates. Free estimates."
 h1: "Cabinet Color Matching & Consultation in Columbia, SC"
 serviceName: "Cabinet Color Matching & Consultation"
 heroImage:
@@ -10,12 +10,14 @@ cardImage:
   src: "/images/svcHero-7-elegant-modern-kitchen-featuring-minimal.jpg"
   alt: "Cabinet Refinishing & Remodeling Cabinet Color Matching & Consultation photo"
 materialsImages:
-  - src: "/images/materials-cabinet-color-matching-and-consultation-1-paint-and-stain-sample-cards.jpg"
-    alt: "Paint brush and paint colors on table top with notepad"
-  - src: "/images/materials-cabinet-color-matching-and-consultation-2-cabinet-grade-enamel-and-conversion-varn.jpg"
-    alt: "Paint samples on display for color selection"
-  - src: "/images/materials-cabinet-color-matching-and-consultation-3-test-swatch-application.jpg"
-    alt: "Cabinet Refinishing & Remodeling Test swatch application photo"
+  - src: "/images/svcMaterials-1-detailed-view-of-a-wooden-cabinet-drawer-7484801.jpg"
+    alt: "Cabinet Refinishing & Remodeling Physical paint and stain samples photo"
+  - src: "/images/svcMaterials-2-white-boards-placed-on-floor-near-wooden-6373661.jpg"
+    alt: "White boards placed on floor near wooden wall and potted green plant in loft empty room"
+  - src: "/images/svcMaterials-3-a-man-in-black-examines-a-kitchen-cabine-34558043.jpg"
+    alt: "Cabinet Refinishing & Remodeling Lighting assessment photo"
+  - src: "/images/svcMaterials-4-neat-storage-in-a-kitchen-cabinet-using-33784616.jpg"
+    alt: "Cabinet Refinishing & Remodeling Digital color mockup tools photo"
 processImages:
   - src: "/images/process-cabinet-color-matching-and-consultation-1-initial-contact.jpg"
     alt: "Cabinet Refinishing & Remodeling Initial contact photo"
@@ -25,82 +27,98 @@ processImages:
     alt: "Cabinet Refinishing & Remodeling Sample presentation photo"
   - src: "/images/process-cabinet-color-matching-and-consultation-4-test-swatch-application.jpg"
     alt: "Cabinet Refinishing & Remodeling Test swatch application photo"
+  - src: "/images/process-cabinet-color-matching-and-consultation-5-final-recommendation.jpg"
+    alt: "Luxury Kitchen"
+  - src: "/images/process-cabinet-color-matching-and-consultation-6-written-estimate.jpg"
+    alt: "white wooden kitchen cabinet with kitchen sink"
+  - src: "/images/process-cabinet-color-matching-and-consultation-7-scheduling.jpg"
+    alt: "Cabinet Refinishing & Remodeling Scheduling photo"
+  - src: "/images/process-cabinet-color-matching-and-consultation-8-follow-up.jpg"
+    alt: "Cabinet Refinishing & Remodeling Follow-up photo"
 ---
-Cabinet color matching and consultation helps homeowners choose the right paint, stain, or veneer tone before committing to a larger refinishing, refacing, or remodeling project. Company Brand Name brings sample boards and finish swatches into the home so Columbia homeowners can see options against their own cabinets and lighting.
+Cabinet color matching and consultation helps homeowners choose a finish before committing to a full refinishing, refacing, or remodeling project. Company Brand Name provides cabinet color matching and consultation for Columbia kitchens, reviewing samples against existing countertops, flooring, and lighting so the final color decision holds up once it's on the cabinets.
+
+It's often bundled into a larger project estimate but is also available on its own for homeowners still deciding on direction.
 
 ## What's Included With Cabinet Color Matching & Consultation
 
-- **Typically included:** in-home color consultation, finish sample boards, and a written recommendation for the chosen service
-- **Optional:** small test-patch application on an inconspicuous cabinet area
-- **Customer prep:** having current cabinet photos or countertop/flooring samples on hand for reference
+- **Typically included:** in-home consultation, sample review against existing finishes, color and sheen recommendations
+- **Optional:** physical sample boards, two-tone color scheme planning, coordination with a broader remodel plan
+- **Customer prep:** having countertop, flooring, and backsplash samples on hand if already selected
 
 ## How Our Cabinet Color Matching & Consultation Process Works
 
-Step 1: In-home visit — bring sample boards and swatches to the kitchen, same day.
-Step 2: Lighting review — colors reviewed under the kitchen's actual lighting, same day.
-Step 3: Sample selection — homeowner narrows down finish options, same day.
-Step 4: Written recommendation — final color and finish documented for the next step, same day.
+- **Consultation** — Initial walkthrough of the kitchen and existing finishes
+- **Sample review** — Paint and stain samples viewed in the space's natural light
+- **Discussion** — Sheen level and durability trade-offs explained
+- **Sample boards** — Physical samples provided for larger color decisions
+- **Follow-up** — Final color and finish confirmed before project scheduling
+- **Documentation** — Color choice recorded for the eventual refinishing crew
+- **Coordination** — Consultation notes handed off to the project team
+- **Final confirmation** — Homeowner signs off before finish work begins
 
-## What Does a Cabinet Color Matching & Consultation Cost in Columbia, SC?
+## What Does a Cabinet Color Matching & Consultation Cost in Columbia?
 
-- **Standard consultation** — $150–$300 — in-home visit with sample boards
-- **Consultation with test patch** — $300–$500 — includes a small applied sample area
+- **In-home consult** — $0–$150 — often waived when bundled with a project estimate
+- **Color match sample set** — $150–$350 — physical sample boards for larger decisions
+- **Full design and consult package** — $350–$750 — extended planning for a full remodel
 
-Consultation fees are often credited toward a booked refinishing, refacing, or painting project — [contact us](/contact) for details.
+Consultation costs are frequently credited toward the project once work is scheduled.
 
-## Materials & Methods for Cabinet Color Matching & Consultation
+## Materials and Methods for Cabinet Color Matching & Consultation
 
-- **Sprayed enamel sample boards** — show the true sheen and color of alkyd enamel finishes
-- **Stain sample swatches** — demonstrate gel stain tones on comparable wood grain
-- **Veneer sample chips** — help compare refacing veneer options side by side
+- **Sample sheens (matte, satin, semi-gloss)** — Reviewed side by side so homeowners can see how light and daily wear will affect the final look before committing.
+- **Cabinet-grade enamel swatches** — Physical paint-out boards using the same enamel used on actual refinishing jobs, not generic hardware-store chips.
+- **Custom stain blends** — Sample boards mixed to match existing wood tones, useful for matching new built-ins or refaced doors to existing cabinetry.
+- **Humidity-tested topcoat samples** — Reviewed with the Midlands' humid summers in mind, since some clear coats yellow or haze faster in high-moisture kitchens.
 
 ## How Long Does a Cabinet Color Matching & Consultation Take?
 
-In-home visit — same day; most consultations take under two hours from arrival to written recommendation.
+Consultations are typically a single visit, with sample review sometimes following a few days later if physical boards are ordered.
 
-## Permits & Codes for Cabinet Color Matching & Consultation in Columbia
+- **Initial consult** — same day, roughly an hour
+- **Sample board turnaround** — 3–5 days if ordered
+- **Final color confirmation** — same day as follow-up visit
+
+## Permits and Codes for Cabinet Color Matching & Consultation
 
 ### Usually needs a permit
-- None — consultations do not involve any cabinet work
+- Not applicable — consultation involves no construction work
 
 ### Usually no permit
-- In-home color and finish consultation
-- Small test-patch application on an existing cabinet
+- Color and finish consultation
+- Sample review and selection
+
+This service does not require permitting on its own.
 
 ## DIY vs Hiring a Pro for Cabinet Color Matching & Consultation
 
 ### DIY
-- Fine for browsing paint chips or online color inspiration on your own
-- Limited by not seeing the actual sheen or finish type on real cabinet material
+- Fine for homeowners comfortable comparing paint chips independently
+- Store-bought sample chips don't always reflect the actual cabinet-grade enamel sheen
+- Easy to underestimate how a color shifts under kitchen lighting
 
 ### Hire a pro
-- Recommended before a full refinishing or refacing project to avoid costly color mismatches
-- Sample boards under real kitchen lighting give a more accurate preview than paint chips
+- Access to the same enamel and stain products used on the actual project
+- Guidance on sheen and durability trade-offs, not just color
+- Reduces the risk of an expensive refinishing job in the wrong color
 
 ## When to Call for Cabinet Color Matching & Consultation
 
-- Unsure whether to refinish, reface, or fully replace cabinets
-- Want to see finish options against real countertops and flooring before committing
-- Planning a broader kitchen remodel and need a starting color direction
+- Undecided on a color before committing to a refinishing or refacing project
+- Coordinating cabinet color with new countertops or flooring
+- Considering a two-tone kitchen and unsure how to split the colors
+- Want sample options before a full remodel begins
 
-## Cabinet Color Matching & Consultation FAQs
+## Before and After Cabinet Color Matching & Consultation
 
-Is the color consultation fee applied to future work?
-Many homeowners have the consultation fee credited toward a booked refinishing, refacing, or painting project — confirm details when scheduling.
+Undecided color direction → Confirmed two-tone paint and stain plan
+Mismatched paint chip guess → Cabinet-grade sample matched to lighting
 
-How long does a color consultation take?
-Most in-home consultations take under two hours, ending with a written color and finish recommendation.
+See more completed projects on the [homepage gallery](/).
 
-Do I need a consultation before refinishing my cabinets?
-It's not required, but it helps avoid an unwanted color mismatch, especially with sprayed enamel or gel stain finishes that look different than paint chips suggest.
+## Get a Cabinet Color Matching & Consultation Estimate in Columbia
 
-## Before & After Cabinet Color Matching & Consultation
+Call **(385) 221-2770** to schedule a free color and finish consultation in Columbia, SC.
 
-- Uncertain color direction → confirmed warm-white enamel finish selection
-- Mismatched stain samples → color-matched veneer selected for refacing
-
-See more examples on our [homepage gallery](/).
-
-## Get a Cabinet Color Matching & Consultation in Columbia
-
-Not sure which color is right for your kitchen? [Contact](/contact) Company Brand Name to schedule a consultation, or move straight to [Custom Cabinet Painting & Staining](/services/custom-cabinet-painting-and-staining). [Home](/)
+[Home](/) | [Contact](/contact) | [Custom Cabinet Painting & Staining](/services/custom-cabinet-painting-and-staining)

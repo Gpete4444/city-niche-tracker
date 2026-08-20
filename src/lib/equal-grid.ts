@@ -7,15 +7,15 @@ export interface EqualGridResult<T> {
   items: T[];
   cols: number;
   trimmed: number;
-  /** Tailwind classes: denser mobile (2-col) when cols ≥ 2; exact cols from sm/lg up */
+  /** Tailwind classes: 1-col on phone; target cols from sm/lg up */
   className: string;
 }
 
 const COL_CLASS: Record<number, string> = {
   1: 'grid-cols-1',
-  2: 'grid-cols-2',
-  3: 'grid-cols-2 sm:grid-cols-3',
-  4: 'grid-cols-2 lg:grid-cols-4',
+  2: 'grid-cols-1 sm:grid-cols-2',
+  3: 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3',
+  4: 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-4',
 };
 
 function gridClassName(cols: number): string {

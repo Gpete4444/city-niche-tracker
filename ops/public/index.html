@@ -4,6 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Rover</title>
+  <link rel="icon" type="image/svg+xml" href="/brand/rover-favicon.svg" />
   <script>
     try {
       var t = localStorage.getItem('ops.theme');
@@ -14,6 +15,7 @@
     } catch (_) {}
   </script>
   <link rel="stylesheet" href="/styles.css?v=20260819sc6" />
+  <link rel="stylesheet" href="/brand/rover-loader.css" />
 </head>
 <body>
   <header class="top">
@@ -813,7 +815,18 @@
       <div class="ve-stage">
         <div id="ve-stage-loading" class="ve-stage-loading hidden" aria-hidden="true">
           <div class="ve-stage-loading-card">
-            <div class="ve-stage-spinner" aria-hidden="true"></div>
+            <div class="rover-loader rover-loader--dark" role="img" aria-label="Loading">
+              <svg class="rover-loader-mark" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" focusable="false" aria-hidden="true">
+                <circle class="rover-loader-dot" cx="32" cy="32" r="7.5" />
+                <g class="rover-loader-ring rover-loader-ring--inner">
+                  <circle cx="32" cy="32" r="15" transform="rotate(-45 32 32)" />
+                </g>
+                <g class="rover-loader-ring rover-loader-ring--outer">
+                  <circle cx="32" cy="32" r="24" transform="rotate(-11 32 32)" />
+                </g>
+              </svg>
+              <img class="rover-loader-word" src="/brand/rover-wordmark-dark.png" alt="" width="618" height="81" decoding="async" />
+            </div>
             <p id="ve-stage-loading-text" class="ve-stage-loading-text">Loading…</p>
           </div>
         </div>

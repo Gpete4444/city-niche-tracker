@@ -172,7 +172,6 @@ export function defaultSeedSocialProof(
         source: 'Google',
         date: new Date(Date.now() - 24 * 86400000).toISOString().slice(0, 10),
         verified: true,
-        avatarUrl: '/images/review-avatars/m02.jpg',
         location: locList[2] || locList[0],
       },
     ],

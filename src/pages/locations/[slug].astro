@@ -5,10 +5,11 @@ import Hero from '../../components/Hero.astro';
 import LeadForm from '../../components/LeadForm.astro';
 import ServiceCards from '../../components/ServiceCards.astro';
 import { site } from '../../config/site';
+import { filterLocationsForSite } from '../../lib/locations-for-site';
 
 export async function getStaticPaths() {
   const locations = await getCollection('locations');
-  return locations
+  return filterLocationsForSite(locations, site)
     .filter((entry) => !entry.data.draft)
     .map((entry) => ({
       params: { slug: entry.id },

@@ -134,11 +134,14 @@ export async function stopAssembledPreview() {
   return !(await portOpen(ASSEMBLED_PREVIEW_PORT));
 }
 
-function contentNewerThanDist(siteRoot) {
+export function contentNewerThanDist(siteRoot, { ignoreAssembleMeta = false } = {}) {
   const distIndex = path.join(siteRoot, 'dist', 'index.html');
   if (!existsSync(distIndex)) return true;
   const distMtime = statSync(distIndex).mtimeMs;
-  for (const rel of ['_assemble.json', 'src/config/site-config.json', 'src/components/Header.astro']) {
+  const metaFiles = ignoreAssembleMeta
+    ? ['src/config/site-config.json', 'src/components/Header.astro']
+    : ['_assemble.json', 'src/config/site-config.json', 'src/components/Header.astro'];
+  for (const rel of metaFiles) {
     const abs = path.join(siteRoot, ...rel.split('/'));
     if (existsSync(abs) && statSync(abs).mtimeMs > distMtime) return true;
   }

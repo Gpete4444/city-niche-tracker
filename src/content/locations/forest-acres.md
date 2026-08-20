@@ -1,41 +1,43 @@
 ---
-title: "Cabinet Refinishing & Remodeling | Forest Acres, SC"
-description: "Cabinet Refinishing & Remodeling in Forest Acres, SC — free estimates for refacing, painting, and custom cabinetry from a licensed local team."
+title: "Cabinet Refinishing & Remodeling in Forest Acres, SC"
+description: "Cabinet refinishing, refacing, and remodeling for Forest Acres, SC kitchens. Spray-finish results, honest pricing, and free written estimates."
 h1: "Cabinet Refinishing & Remodeling in Forest Acres, SC"
 city: "Forest Acres"
 state: "SC"
 ---
-Company Brand Name provides Cabinet Refinishing & Remodeling for homeowners in Forest Acres, South Carolina, a city in Richland County that functions as an enclave within Columbia itself. Because Forest Acres is surrounded by the larger city, its housing stock tends to reflect an earlier, more established era of Columbia-area development — solid mid-century construction that's now well past the age where original cabinet finishes need attention.
+Forest Acres is a close-in enclave surrounded by the city of Columbia, and its established streets tend to have older homes with original cabinetry that's been through decades of daily use. Company Brand Name provides cabinet refinishing, refacing, and remodeling for Forest Acres kitchens, with a lot of that work centered on bringing older wood cabinet boxes back to a like-new look rather than tearing them out.
 
-Cabinets in Forest Acres homes are frequently original wood cabinetry that has simply outlasted its finish. We see a lot of refinishing work here rather than full replacement, since the underlying cabinet boxes in these established homes are often still structurally sound — just showing decades of cracked lacquer, sun fading, or an outdated stain color that no longer fits the homeowner's style.
+Because the city sits within Columbia proper, response time is short and scheduling around an established household's routine is straightforward.
 
 ## Serving Homeowners in Forest Acres
 
-Forest Acres' enclave position within Columbia means homeowners here get the benefit of an established, walkable community while dealing with cabinet issues typical of mid-century housing — narrower cabinet openings, solid wood construction, and original hardware that's often decades old. Refinishing these cabinets usually means stripping old lacquer entirely and rebuilding the finish with a moisture-resistant primer and catalyzed conversion varnish system, since original coatings weren't built for the humidity cycles Midlands homes see today.
+Original wood cabinetry is common in Forest Acres homes, and it usually responds well to refinishing — cleaning, sanding, repair, and a sprayed cabinet-grade finish bring back a look that's often hiding under decades of grease and worn topcoat. Where boxes have chipped edges or water damage near the sink, repair work typically comes first so the new finish holds.
 
-Because Forest Acres sits fully within Columbia's city limits, we treat it as a core part of our primary service area, with the same scheduling responsiveness as in-town Columbia projects.
+The Midlands' humid summers still apply here, so Company Brand Name uses conversion-varnish topcoats built to cure fully rather than staying tacky in thick summer air.
+
+Company Brand Name also serves the surrounding communities near Forest Acres, including Columbia, Cayce, and West Columbia.
 
 ## Why Choose Company Brand Name in Forest Acres
 
-- Deep familiarity with the mid-century solid-wood cabinetry common throughout Forest Acres' established housing stock
-- Refinishing systems designed to replace original, non-humidity-rated coatings with a modern moisture-resistant finish
-- Written estimates that reflect the realistic condition of decades-old original cabinetry
-- Central scheduling as part of our core Columbia service area
+- Experience with the original wood cabinetry common in Forest Acres' established homes
+- Repair work — wood filler, epoxy, hinge fixes — handled before any new finish goes on
+- Free, written estimates set after an in-home walkthrough
+- Close proximity to downtown Columbia keeps scheduling flexible
 
 ## Cabinet Refinishing & Remodeling FAQs for Forest Acres
 
-Are Forest Acres' cabinets usually original to the home?
-Many are — Forest Acres' established mid-century housing stock often still has original solid-wood cabinetry, which is typically a strong candidate for full refinishing.
+**Are older Forest Acres cabinets a good fit for refinishing?**
+Original wood cabinet boxes common in Forest Acres homes typically respond well to cleaning, sanding, repair, and a new sprayed finish, which is usually more cost-effective than replacement.
 
-Why do original Forest Acres cabinets need more finish work?
-Original coatings on older cabinets weren't designed for today's humidity cycles, so they tend to show more cracking and fading than cabinets finished with modern moisture-resistant systems.
+**What if my cabinets have chips or water damage?**
+Wood filler and epoxy repair address chipped edges and swollen panel corners before priming, so the repaired area doesn't show through the new finish. Sink-base water damage is common in older homes and gets addressed the same way.
 
-What does refinishing typically cost in Forest Acres?
-Refinishing in the Forest Acres area generally runs $2,500–$6,000 for a standard kitchen, in line with broader Columbia pricing.
+**How much does refinishing cost for a Forest Acres kitchen?**
+Most standard kitchens run $2,500–$5,500 for refinishing alone. Refacing with new doors runs $6,000–$12,000, and a full remodel typically starts around $10,000.
 
-Do I need a permit for cabinet refinishing in Forest Acres?
-Cosmetic refinishing generally doesn't require a permit; confirm with the City of Forest Acres for any project involving structural changes.
+**Do I need a permit for cabinet refinishing in Forest Acres?**
+Like-for-like refinishing or refacing usually doesn't need one. Structural changes, new electrical, or plumbing work typically do — confirm with the local building department.
 
 ## Request a Free Estimate in Forest Acres
 
-Have original cabinets that need a modern finish? [Contact](/contact) Company Brand Name for a free estimate, or see our [Cabinet Refinishing](/services/cabinet-refinishing) service.
+Call **(385) 221-2770** or request a free, written estimate online. [Contact](/contact) Company Brand Name or return to the [homepage](/) to see the full range of services.

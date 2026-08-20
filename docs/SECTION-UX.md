@@ -11,6 +11,15 @@ Design + writer rules for Structure sections. Informed by contractor conversion 
 - **socialProof** is treated as real site data (rating, licenses, stats, reviews). Seed defaults when empty so trust/reviews never look blank; AggregateRating emits when rating exists. Operator replaces values with owner data before launch — no demo banners or placeholder mode.
 - Public service-area copy stays soft (“nearby communities” + suburb links). Do not put hard mile radii (“within 30 miles”) in visitor-facing sentences; `serviceRadiusMiles` may stay in config for ops/maps only.
 
+### Type scale (not browser zoom)
+
+- Root rem in `global.css`: **`html { font-size: 125%; }`** (~20px if the UA default is 16px). Matches original site type at Chrome 125% zoom, baked so you judge at **browser zoom 100%** only.
+- Do **not** chase per-monitor zoom % or add a second mobile root zoom. Respect user zoom/accessibility.
+- **H1** uses `.heading-display` (`clamp(1.75rem, 4.5vw, 3rem)`). **Section H2s** use `.heading-section` (`clamp(1.35rem, 3vw, 1.85rem)`). Body/labels stay stepped Tailwind (`text-sm` / `text-base`).
+- Typical industry body is 16–18px; our body lands larger (~22px) on purpose for lead-gen readability. Captions stay smaller steps (`text-sm` / `text-xs`).
+- **Half-screen / tablet:** hero copy + form stay **side-by-side only from `lg` (~1024px) up**. Below that they stack; compact LeadForm is **centered** (`mx-auto max-w-md`) so the card does not pin full-bleed left. Phone keeps the same stack + sticky call bar (`pb-24` on `body`). On phone, header/mid-page Call buttons are hidden — sticky bar is the call CTA; estimate buttons stay.
+- **Equal card grids (`fitEqualGrid`):** always **1 column on phone**; target columns from `sm`/`lg` up (why 2×2 from sm; process/reviews denser only from tablet).
+
 ## Ippei copy rules (homepage first half)
 
 1. Intro/hero body = **max ~2 concise paragraphs** — salesperson tone; humans skim.
@@ -68,22 +77,22 @@ Seed `socialProof` with rating, 2–3 stats, license line, and **exactly 3** Goo
 | whyChooseUs | 3–5 reasons mid-page; **`fitEqualGrid({ maxCols: 2 })` → 2×2 when 4 reasons** | Condensed; not a hero essay |
 | process / offerProcess | Numbered step cards with photos (`process[].image` via Pull); **`fitEqualGrid` default max 4** (8 → 2×4 on lg) | Prefer 4/6/8 steps; short title + one short line (~8–14 words). **Mutual exclusion:** Services pages → `process` only; single-offer sites → `offerProcess`; never both. |
 | cost | Wide ranges table (type / \$ range / included) + mini-CTA | 3–5 ballpark `$` bands; never a single fixed quote |
-| materials | Photo rows from frontmatter `materialsImages` (Pull) + option bullets | Industry materials + stats; never body `![]()` images |
+| materials | Process-style card grid (bordered/raised; 2-col tablet / 3-col desktop); optional full-bleed top photo; denser `text-sm` body; up to 6 thumbs | Industry materials + stats; never body `![]()` images |
 | timeline | Vertical stage rail + duration chips | Realistic durations |
 | codes | Checklist + disclaimer strip | Educational; verify locally |
 | diyVsPro | Comparison table or two-column check lists | When DIY vs pro |
 | whenToCall | Symptom bullets + CTA | Scenarios |
 | areas | Brand band + suburb links | Primary home for geo entities; soft nearby language, not mile cutoffs |
-| beforeAfter | Gallery + captions | Problem→solution |
+| beforeAfter | Gallery + captions | ChatGPT homepage pairs (`gallery-ba-*`) |
 | reviews | Google-style cards (avatar/initials, G, stars, verified, relative date, Read more) | From socialProof (seeded trio) |
 | faqs | Left-aligned accordion | 6–10 PAA-style |
 | cta | Ink band | Phone + estimate |
 
-**Equal card grids:** Most equal box/card lists (services, process, reviews, related) use [`fitEqualGrid`](../src/lib/equal-grid.ts) with **default `maxCols: 4`** — no ragged last row; 8 items → 2×4 on large screens. **Why choose us** is an exception: `maxCols: 2` so four reasons stay **2×2**.
+**Equal card grids:** Most equal box/card lists (services, process, reviews, related) use [`fitEqualGrid`](../src/lib/equal-grid.ts) with **default `maxCols: 4`** — no ragged last row; **1-col on phone**, then denser from `sm`/`lg` (8 items → 2×4 on large screens). **Why choose us** is an exception: `maxCols: 2` so four reasons stay **2×2 from `sm` up** (still stacked on phone).
 
 ## Service sections
 
-Reuse the same typed layouts for cost/materials/timeline/codes/diy/whenToCall. `svcIntro` follows 2-paragraph service-entity rules. Service process/FAQs/cost live in **markdown body** (no FM copy arrays). `svcProcess` uses the same numbered step cards as homepage (`processImages[]` via Pull, one photo per step). `svcMaterials` uses the same copy + photo row as homepage (`materialsImages[]` via Pull, one thumb per option bullet). `svcBeforeAfter` = text caption cards; photo gallery is homepage ChatGPT import. `svcCta` = short ink band above LeadForm.
+Reuse the same typed layouts for cost/materials/timeline/codes/diy/whenToCall. `svcIntro` follows 2-paragraph service-entity rules. Service process/FAQs/cost live in **markdown body** (no FM copy arrays). `svcProcess` uses the same numbered step cards as homepage (`processImages[]` via Pull, one photo per step). `svcMaterials` uses the same Process-style card grid as homepage (`materialsImages[]` via Pull, up to 6 full-bleed top photos — bordered raised cards). `svcBeforeAfter` = homepage-style photo gallery from Website → ChatGPT import (`svc-ba-{slug}-*` / `beforeAfterImages`); show only when that service has a complete before+after pair — omit the section if either image is missing (no caption-only fallback). `svcCta` = short ink band above LeadForm.
 
 ## External LLM critique prompt
 
