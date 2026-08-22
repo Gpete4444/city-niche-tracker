@@ -12,7 +12,7 @@ import {
 } from 'node:fs';
 import path from 'node:path';
 import { getCandidateDetail, pathsFor, saveMeta } from './candidates.mjs';
-import { loadAcceptedSiteConfig, sanitizeMarkdownImageFrontmatter, ensureLocationFilesInMap, pruneLocationFilesToConfigured } from './content-markdown.mjs';
+import { loadAcceptedSiteConfig, sanitizeMarkdownImageFrontmatter, ensureLocationFilesInMap, pruneLocationFilesToConfigured, pruneFilesToStructure } from './content-markdown.mjs';
 import { buildBuildPackage } from './build-package.mjs';
 import { runTemplateContract } from './template-contract.mjs';
 import { applyArchetypeDefaults } from '../../scripts/lib/site-archetypes.mjs';
@@ -100,11 +100,34 @@ export function stageSiteContent(candidateId, { mode = 'full', refreshPackage = 
   if (existsSync(p.siteConfig)) {
     const accepted = readJson(p.siteConfig);
     if (accepted && typeof accepted === 'object') {
-      writeJson(p.siteConfig, { ...accepted, socialProof: config.socialProof });
+      const seededReviews = Array.isArray(config.socialProof?.reviews)
+        ? config.socialProof.reviews.length
+        : 0;
+      const alreadyHadReviews = Array.isArray(accepted.socialProof?.reviews)
+        ? accepted.socialProof.reviews.length > 0
+        : false;
+      const nextAccepted = { ...accepted, socialProof: config.socialProof };
+      if (!alreadyHadReviews && seededReviews > 0) {
+        nextAccepted._ops = {
+          ...(accepted._ops && typeof accepted._ops === 'object' ? accepted._ops : {}),
+          roverSeededSocialProof: true,
+          roverSeededSocialProofAt: new Date().toISOString(),
+          roverSeededReviewCount: seededReviews,
+          roverSeededSocialProofSource: 'ensureTrustRatingStat',
+        };
+      }
+      writeJson(p.siteConfig, nextAccepted);
     }
   }
-  const files = { ...content.files };
   const pageIds = resolveStructurePageIds(candidateId, detail);
+  const files = pruneFilesToStructure(
+    { ...content.files },
+    {
+      pageIds,
+      siteConfig: config,
+      siteArchetype: config.siteArchetype,
+    },
+  );
   const resolvedMode =
     mode === 'homepage_first'
       ? 'homepage_first'
@@ -201,7 +224,7 @@ export function stageSiteContent(candidateId, { mode = 'full', refreshPackage = 
     assertLaunchContentComplete(files, config, pageIds, { label: 'Staging' });
   }
 
-  const contract = runTemplateContract(files, config, { mode: resolvedMode });
+  const contract = runTemplateContract(files, config, { mode: resolvedMode, pageIds });
   if (!contract.ok) {
     const err = new Error(`Staging blocked: ${contract.errors.slice(0, 3).join('; ')}`);
     err.status = 400;

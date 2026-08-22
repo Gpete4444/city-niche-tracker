@@ -167,6 +167,31 @@ export function commercialServiceCardsForSite<T extends ServiceEntryLike>(
   return cardsFromNames(entries, names, site, cap, cityOverride);
 }
 
+/** Attach homepage serviceCardImages to cards missing card/hero art (by display order). */
+export function applyServiceCardImages<T extends ServiceCard>(
+  cards: T[],
+  images: Array<{ src?: string; alt?: string } | null | undefined> | null | undefined,
+  startIndex = 0,
+): { cards: T[]; nextIndex: number } {
+  const list = Array.isArray(images) ? images : [];
+  let i = startIndex;
+  const out = cards.map((card) => {
+    const img = list[i];
+    i += 1;
+    if (card.image?.src) return card;
+    const src = String(img?.src || '').trim();
+    if (!src) return card;
+    return {
+      ...card,
+      image: {
+        src,
+        alt: String(img?.alt || card.title || 'Service').trim() || card.title,
+      },
+    };
+  });
+  return { cards: out, nextIndex: i };
+}
+
 /** All configured service names (residential + commercial) for prune/seed. */
 export function allConfiguredServiceNames(site: SiteServices): string[] {
   const seen = new Set<string>();

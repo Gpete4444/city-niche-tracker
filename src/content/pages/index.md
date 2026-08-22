@@ -1,198 +1,211 @@
 ---
-title: "Cabinet Refinishing & Remodeling in Columbia, SC"
-description: "Cabinet refinishing, refacing, and remodeling for Columbia, SC kitchens. Spray-finish results, honest pricing, and free written estimates."
-h1: "Company Brand Name: Cabinet Refinishing & Remodeling in Columbia, SC"
-sectionHeading: "Kitchen Cabinet Resurfacing Cost, Refinishing & Remodeling in Columbia"
+title: "Egress Window Installation Omaha, NE"
+description: "Code-compliant egress window installation in Omaha, NE — basement cutting, window wells, and drainage grading. Licensed & insured. Free estimates."
+h1: "Omaha Egress Window Pros: Egress Window Installation in Omaha, NE"
+sectionHeading: "Basement Egress Window Installation for Omaha Homes"
 whyChooseUs:
-  - title: "Free written estimates"
-    description: "Every project starts with an in-home consult and a clear, itemized estimate — no surprise line items later."
-  - title: "Spray-finish equipment, not just a brush"
-    description: "A sprayed cabinet-grade finish levels smoother and holds up longer than brush-only work from general painters."
-  - title: "Color-match consultation included"
-    description: "We help homeowners pick a finish that fits the kitchen and holds its color through Midlands humidity."
-  - title: "Dust-controlled, punctual process"
-    description: "Doors and drawers are finished off-site or in a contained area, and crews show up on the schedule we give you."
+  - title: "Code-First Approach"
+    description: "Every job starts with a code check against Nebraska egress minimums, so you're not left with a failed inspection."
+  - title: "Drainage-Conscious Well Design"
+    description: "We grade and layer gravel drainage for Omaha's clay soils, keeping wells and basements dry through spring rain."
+  - title: "Clear, Written Estimates"
+    description: "Free written estimates spell out cutting, framing, well, and drainage costs before any work begins."
+  - title: "Licensed & Insured Locally"
+    description: "Licensed and insured in Nebraska with 15+ years of local experience and 500+ completed egress projects."
 process:
-  - title: "Consultation and color match"
-    description: "In-home visit to scope the job and pick a finish"
+  - title: "Site Assessment & Code Check"
+    description: "We inspect the basement wall and check it against egress code minimums."
     image:
-      src: "/images/process-1-a-modern-kitchen-with-grey-cabinets-a-wh.jpg"
-      alt: "Cabinet Refinishing & Remodeling Process / how we work photo"
-  - title: "Door and hardware removal"
-    description: "Doors, drawers, and hardware are tagged and removed"
+      src: "/images/process-1-site-assessment-code-check.jpg"
+      alt: "View through window frame of construction site"
+  - title: "Marking the Opening"
+    description: "The foundation wall is marked to code-required opening dimensions."
     image:
-      src: "/images/process-2-a-modern-kitchen-with-white-cabinets-a-d.jpg"
-      alt: "Cabinet Refinishing & Remodeling Process / how we work photo"
-  - title: "Cleaning and degreasing"
-    description: "Cabinet surfaces are stripped of grease and grime"
+      src: "/images/offerProcess-2-upload-mt3qiorb.png"
+      alt: "ChatGPT Image Aug 21, 2026, 08_03_51 PM"
+  - title: "Cutting the Foundation"
+    description: "A concrete saw opens the wall for the new egress window."
     image:
-      src: "/images/process-3-a-bright-kitchen-with-white-cabinets-hex.jpg"
-      alt: "Cabinet Refinishing & Remodeling Process / how we work photo"
-  - title: "Sanding and repair"
-    description: "Boxes and doors are sanded and wood repairs made"
+      src: "/images/offerProcess-3-upload-mt3qis1a.png"
+      alt: "ChatGPT Image Aug 21, 2026, 08_02_36 PM"
+  - title: "Framing & Window Set"
+    description: "We frame the rough opening and set the egress-rated window."
     image:
-      src: "/images/process-4-white-wooden-kitchen-cabinet-and-white-k.jpg"
-      alt: "white wooden kitchen cabinet and white kitchen counter"
-  - title: "Priming"
-    description: "A cabinet-grade primer seals and preps the surface"
+      src: "/images/offerProcess-4-upload-mt3qi548.png"
+      alt: "ChatGPT Image Aug 21, 2026, 08_02_41 PM"
+  - title: "Window Well Installation"
+    description: "A corrugated steel or composite well is set outside the opening."
     image:
-      src: "/images/process-5-white-wooden-kitchen-cabinet-with-black.jpg"
-      alt: "white wooden kitchen cabinet with black pendant lamp"
-  - title: "Spray or brush finishing"
-    description: "Paint or stain is applied with spray or brush equipment"
+      src: "/images/offerProcess-5-upload-mt3qier6.png"
+      alt: "ChatGPT Image Aug 21, 2026, 07_59_42 PM"
+  - title: "Drainage & Grading"
+    description: "Gravel drainage base and grading route water away from the wall."
     image:
-      src: "/images/process-6-a-kitchen-with-white-cabinets.jpg"
-      alt: "Cabinet Refinishing & Remodeling Process / how we work photo"
-  - title: "Topcoat cure"
-    description: "A clear topcoat is applied and left to cure fully"
+      src: "/images/offerProcess-6-upload-mt3qjtxo.png"
+      alt: "ChatGPT Image Aug 21, 2026, 08_04_42 PM"
+  - title: "Backfill & Cleanup"
+    description: "We backfill, regrade the yard, and clear the jobsite."
     image:
-      src: "/images/process-7-white-wooden-kitchen-cabinet-with-stainl.jpg"
-      alt: "white wooden kitchen cabinet with stainless steel faucet"
-  - title: "Hardware reinstall and walkthrough"
-    description: "Doors and hardware go back on for a final check"
+      src: "/images/offerProcess-7-upload-mt3qk3p7.png"
+      alt: "ChatGPT Image Aug 21, 2026, 08_04_59 PM"
+  - title: "Final Walkthrough & Inspection Prep"
+    description: "We walk the finished install with you and prep it for city inspection."
     image:
-      src: "/images/process-8-a-kitchen-with-white-cabinets-and-a-stov.jpg"
-      alt: "Cabinet Refinishing & Remodeling Process / how we work photo"
+      src: "/images/offerProcess-8-upload-mt3qlbek.png"
+      alt: "ChatGPT Image Aug 21, 2026, 08_05_55 PM"
 faqs:
-  - question: "What's the average cost to refinish cabinets?"
-    answer: "Most cabinet refinishing projects in the Columbia area run $2,500–$5,500 for a standard kitchen, covering cleaning, sanding, priming, and a sprayed or brushed finish on the existing boxes and doors. Larger kitchens or heavier repair needs push toward the top of that range."
-  - question: "Is it cheaper to refinish or replace cabinets?"
-    answer: "Refinishing is almost always cheaper than replacement, since the existing cabinet boxes stay in place and only the finish (and sometimes doors) changes. Full replacement involves new materials, installation labor, and often layout work, which is why it typically costs two to three times more."
-  - question: "What cabinet color is outdated?"
-    answer: "Heavy honey-oak stains and dark, glossy '90s-era finishes tend to read as dated to today's buyers. Warm whites, soft greige tones, and two-tone kitchens (painted uppers with a stained or darker island) are the more current looks we're asked for most."
-  - question: "What is the average cost to reface a 10x10 kitchen cabinet?"
-    answer: "A standard 10x10 kitchen refacing project — new doors and drawer fronts with the existing boxes refinished — generally falls between $6,000 and $12,000, depending on door style, wood species, and hardware choices."
-  - question: "How much does Cabinet Refinishing & Remodeling cost in Columbia?"
-    answer: "Costs vary by scope: refinishing alone typically runs $2,500–$5,500, refacing $6,000–$12,000, and a full cabinet remodel or custom built-in project $10,000–$25,000 or more. A free in-home estimate gives homeowners an exact number for their kitchen."
-  - question: "How long does Cabinet Refinishing & Remodeling take?"
-    answer: "A straightforward refinishing job typically takes about a week from prep through final cure, while a full remodel with new cabinetry can run several weeks depending on layout changes and lead time on materials."
-  - question: "Do I need a permit for Cabinet Refinishing & Remodeling?"
-    answer: "Like-for-like refinishing or refacing usually doesn't require a permit. Projects that involve structural layout changes, new electrical for under-cabinet lighting, or plumbing relocation typically do — always confirm with the local building department for your specific project."
-  - question: "Is DIY Cabinet Refinishing & Remodeling a good idea?"
-    answer: "DIY can work for a small accent cabinet or a simple hardware swap if you have proper ventilation and take your time with prep. Full kitchens are harder to DIY well since brush-applied finishes are prone to visible marks and uneven cure without spray equipment."
+  - question: "What is the average cost to have an egress window installed?"
+    answer: "Most Omaha-area egress window projects run $2,500–$9,000 depending on whether it's a well swap on an existing opening or a full foundation cut with a new window and well. Cover-only work and drainage add-ons run lower; basement bedroom conversions with permit work run higher."
+  - question: "What are the minimum requirements for egress windows in Nebraska?"
+    answer: "Nebraska follows the International Residential Code egress minimums used across the Omaha metro: a clear opening of at least 5.7 square feet (5.0 sq ft for ground-floor windows), a minimum opening width and height, a sill height no more than 44 inches above the floor, and a window well with at least 9 square feet of clear floor area when the well is deeper than 44 inches."
+  - question: "Do I need a permit to install an egress window?"
+    answer: "In most Omaha-area jurisdictions, yes — cutting a new foundation opening, enlarging an existing one, or adding a basement bedroom typically requires a permit and inspection. A like-for-like window swap without enlarging the opening, or a cover-only replacement, usually doesn't. Always confirm with your local building department."
+  - question: "Is it illegal to have a bedroom in the basement without an egress window?"
+    answer: "Under the residential code adopted across Nebraska, a basement room used as a bedroom generally must have a compliant egress window or door. Without one, the space typically can't be legally counted as a bedroom, which can also affect a home's listed square footage and value when selling."
+  - question: "How long does egress window installation take?"
+    answer: "A straightforward well swap or window replacement usually takes 1–2 days on site. A full new foundation cut with a window well and drainage typically takes a bit longer, and permit approval can add 1–2 weeks before work starts."
+  - question: "Is DIY egress window installation a good idea?"
+    answer: "DIY works fine for a cover swap or clearing debris from an existing well. Cutting a foundation opening, framing a new window, or building a well with proper drainage is a different scope — mistakes here risk a failed inspection or water getting into the basement, so most homeowners bring in a pro for that part."
+  - question: "What are the best window well covers for keeping debris and water out?"
+    answer: "For most Omaha homes, a domed polycarbonate cover or a flat metal grate cover works well — polycarbonate sheds water and leaves while still letting light in, and metal grates hold up well if you want a walk-safe cover. The right egress window coverings choice depends on well size, foot traffic near the well, and how much sun the window gets."
+  - question: "How do I know if my basement bedroom needs an egress window?"
+    answer: "If the room is used or marketed as a bedroom, it needs a compliant egress opening. Warning signs it doesn't have one include an undersized or high-set basement window, a window well that's too shallow or narrow to climb out of, or no window in the room at all."
 heroImage:
-  src: "/images/hero-1-sleek-modern-kitchen-featuring-white-cab-36906949.jpg"
-  alt: "Cabinet Refinishing & Remodeling Hero photo"
+  src: "/images/hero-1-upload-mt3q4umf.png"
+  alt: "ChatGPT Image Aug 20, 2026, 11_16_39 PM"
 featureImage:
-  src: "/images/intro-1-brown-kitchen-cabinet-with-kitchen-islan.jpg"
-  alt: "brown kitchen cabinet with kitchen island"
+  src: "/images/intro-1-upload-mt3q4nfu.png"
+  alt: "ChatGPT Image Aug 20, 2026, 11_31_01 PM"
 materialsImages:
-  - src: "/images/materials-1-serious-crop-young-ethnic-male-carpenter-5974415.jpg"
-    alt: "Cabinet Refinishing & Remodeling Catalyzed conversion varnish photo"
-  - src: "/images/materials-2-wooden-planks-show-their-grain-in-a-clos-zOTGpiUj.jpg"
-    alt: "Wooden planks show their grain in a close-up"
-  - src: "/images/materials-3-high-resolution-wooden-texture-with-natu-172294.jpg"
-    alt: "Cabinet Refinishing & Remodeling Grain filler for oak cabinets photo"
-  - src: "/images/materials-4-hexagonal-shaped-mirror-hanging-on-wall-7018382.jpg"
-    alt: "Cabinet Refinishing & Remodeling Soft-close hinges and slides photo"
-  - src: "/images/materials-5-a-detailed-shot-of-a-pink-wooden-hinge-s-18102145.jpg"
-    alt: "Cabinet Refinishing & Remodeling Soft-close hinge hardware photo"
-  - src: "/images/materials-6-wooden-shelves-and-switches-above-table-6956117.jpg"
-    alt: "Wooden shelves and switches above table with cabinet and stainless steel tap in modern house kitchen"
+  - src: "/images/materials-1-upload-mt3qc8wm.png"
+    alt: "ChatGPT Image Aug 21, 2026, 06_53_28 PM"
+  - src: "/images/materials-2-upload-mt3qbu3u.png"
+    alt: "ChatGPT Image Aug 20, 2026, 11_16_39 PM"
+  - src: "/images/materials-3-upload-mt3qbdlc.png"
+    alt: "ChatGPT Image Aug 21, 2026, 07_02_02 PM"
+  - src: "/images/materials-4-upload-mt3qlrzu.png"
+    alt: "ChatGPT Image Aug 21, 2026, 08_06_15 PM"
+  - src: "/images/materials-5-upload-mt3qay8y.png"
+    alt: "ChatGPT Image Aug 21, 2026, 07_07_15 PM"
+  - src: "/images/materials-6-upload-mt3qb788.png"
+    alt: "ChatGPT Image Aug 21, 2026, 07_09_28 PM"
 coverageMap:
   src: "/images/coverage-map.svg"
-  alt: "Coverage map for Columbia area"
-gallery:
-  - src: "/images/gallery-ba-1-before.png"
-    alt: "Before — Cabinet Refinishing & Remodeling"
-  - src: "/images/gallery-ba-1-after.png"
-    alt: "After — Cabinet Refinishing & Remodeling"
+  alt: "Coverage map for Omaha area"
+serviceCardImages:
+  - src: "/images/services-1-upload-mt3q5ksw.png"
+    alt: "ChatGPT Image Aug 21, 2026, 06_52_07 PM"
+  - src: "/images/services-2-upload-mt3q5tc0.png"
+    alt: "egress_installation_14"
+  - src: "/images/services-3-upload-mt3q60te.png"
+    alt: "egress_installation_04"
+  - src: "/images/services-4-upload-mt3qdy90.png"
+    alt: "ChatGPT Image Aug 21, 2026, 07_59_39 PM"
+  - src: "/images/services-5-upload-mt3qe8cm.png"
+    alt: "ChatGPT Image Aug 21, 2026, 08_00_24 PM"
+  - src: "/images/services-6-upload-mt3q8knb.png"
+    alt: "ChatGPT Image Aug 21, 2026, 06_58_10 PM"
+  - src: "/images/services-7-upload-mt3qdlgq.png"
+    alt: "ChatGPT Image Aug 21, 2026, 07_59_48 PM"
+  - src: "/images/services-8-upload-mt3q8xoy.png"
+    alt: "ChatGPT Image Aug 21, 2026, 06_53_42 PM"
 ---
-Dated cabinets are one of the fastest ways a kitchen starts to look tired — and one of the most cost-effective things to fix. Company Brand Name provides cabinet refinishing, refacing, and full remodeling for Columbia, SC kitchens, using spray-finish equipment, cabinet-grade primers and topcoats, and stain-grade veneers for refacing work, rather than a quick brush-and-roll job.
+Basement egress window installation is one of the most common code-driven upgrades we handle for Omaha homeowners. It's a specialized job. Cutting a new foundation opening, framing it correctly, and setting an egress-rated window is a different scope than a standard window swap.
 
-Kitchen cabinet resurfacing cost depends mostly on scope. A paint or stain refresh on existing boxes costs far less than new doors and drawer fronts. A full remodel with new cabinetry and layout changes costs more than either.
+Many older Omaha homes were built with small basement windows, or none at all, in what's now used as a bedroom. That means the opening, the window, and the well all have to be brought up to current egress minimums together.
 
-Columbia's mix of older brick ranches and newer construction means cabinet boxes vary a lot in condition. The Midlands' humid summers also make finish selection and cure time matter more than homeowners expect. Company Brand Name accounts for both at every stage of the process.
+Omaha Egress Window Pros handles the full scope: concrete cutting for new wall openings, code-sized window and well selection, and drainage-conscious grading that accounts for the clay soils and freeze-thaw cycles common around Omaha window wells. Whether you're finishing a basement bedroom, replacing a failed window well, or just need a code compliance check before you sell, we walk you through what's required before any cutting starts. [Contact us](/contact) for a free estimate or read more [about our team](/about).
 
-## Cabinet Refinishing & Remodeling Services in Columbia, SC
+## Basement Egress Window Installation Cost in Omaha
 
-**[Kitchen Cabinet Remodeling](/services/kitchen-cabinet-remodeling)** — A full remodel replaces cabinet boxes, doors, and sometimes the layout itself. It's the right call when boxes are damaged beyond repair or a homeowner wants a different footprint, and it delivers the biggest jump in both function and resale value.
+Egress window installation costs vary mainly by how much foundation cutting and drainage work the project needs. Here's a general idea of where projects typically land:
 
-**[Cabinet Refacing](/services/cabinet-refacing)** — Refacing swaps in new doors and drawer fronts while keeping the existing cabinet boxes, then refinishes the boxes to match. It's a strong middle option for kitchens with solid boxes but an outdated door style, and it costs meaningfully less than full replacement.
+- **Cover-Only Replacement** — $600–$1,200 — swapping a damaged or leaking well cover without touching the window or well itself.
+- **Standard Window Well Swap** — $2,500–$5,000 — replacing an existing non-compliant window and well with a code-sized unit on an opening that's already cut.
+- **New Foundation Cut & Full Egress Install** — $4,500–$9,000 — cutting a new opening, framing, setting an egress-rated window, and installing a well with drainage.
+- **Well Drainage & Grading Add-On** — $800–$2,000 — gravel drainage base and regrading to stop water pooling around an existing well.
+- **Basement Bedroom Egress Upgrade** — $5,000–$10,000+ — a full compliance package for a basement bedroom conversion, including permit coordination.
 
-**[Cabinet Refinishing](/services/cabinet-refinishing)** — Refinishing cleans, sands, repairs, primes, and refinishes the existing doors and boxes in place or off-site. It's the most budget-friendly path to a like-new look and works well when the cabinet boxes and doors are structurally sound.
+These are estimate ranges, not fixed quotes — the exact price depends on wall thickness, soil conditions, and window/well selection. Request a free estimate and we'll give you a firm number for your project.
 
-**[Built-In & Custom Cabinetry](/services/built-in-and-custom-cabinetry)** — Custom-built cabinetry adds storage or built-in features — pantry walls, window seats, mudroom lockers — matched to the surrounding kitchen finish. It's a fit for homeowners adding function rather than replacing what's already there.
+## Materials and Methods We Use for Egress Windows
 
-**[Custom Cabinet Painting & Staining](/services/custom-cabinet-painting-and-staining)** — A dedicated color and finish service for homeowners who know they want a specific paint color, two-tone look, or custom stain match, applied with the same spray equipment used on full refinishing jobs.
+The materials on an egress window job matter as much as the cutting and framing. Here's what we typically work with:
 
-**[Cabinet Hardware & Hinge Upgrades](/services/cabinet-hardware-and-hinge-upgrades)** — Swapping pulls, knobs, and hinges — including a switch to soft-close hardware — is a fast, low-cost way to modernize a kitchen or fix doors that no longer close flush.
+- **Corrugated Steel Window Wells** — a durable, budget-friendly option that holds up well to Omaha's freeze-thaw cycles and heavier soil pressure than lighter-gauge products.
+- **Composite Polymer Window Wells** — won't rust and resists the corrosion that can affect metal wells over time, a good fit for wetter yards or homes closer to drainage swales.
+- **Egress-Rated Casement & Slider Windows** — sized and hinged to meet code-minimum clear opening while sealing tightly against Nebraska's swinging temperatures.
+- **Gravel Drainage Base & Backfill** — a layered gravel base under and around the well routes spring rain and snowmelt away from the foundation instead of letting it pool.
+- **Polycarbonate & Metal Well Covers** — keep leaves, debris, and standing water out of the well while still meeting egress access requirements.
+- **Sealant & Flashing** — properly flashed and sealed window-to-foundation joints keep the new opening watertight through Omaha's heavy spring rains.
 
-## Kitchen Cabinet Resurfacing Cost in Columbia
+## Egress Window Coverings We Install
 
-Pricing depends on how much of the cabinet is being touched and the condition of what's already there. These are typical ranges, not a fixed quote — a free in-home estimate confirms the number for your kitchen.
+A well needs a good cover as much as it needs good drainage. We fit domed polycarbonate covers when homeowners want light and weather protection, and flat metal grate covers when the well doubles as foot traffic.
 
-- **Cabinet refinishing (paint/stain only)** — $2,500–$5,500 — cleaning, sanding, priming, and a new finish on existing boxes and doors.
-- **Cabinet refacing** — $6,000–$12,000 — new doors/drawer fronts with existing boxes refinished.
-- **Full cabinet remodel or custom built-ins** — $10,000–$25,000+ — new cabinetry, hardware, and layout changes.
-- **Hardware and hinge upgrades** — $600–$2,500 — new pulls, knobs, and soft-close hinges across a kitchen.
+Either option keeps leaves and standing water out while still meeting egress access rules. We help you pick between covers based on well size, sun exposure, and how close the well is to a walkway.
 
-## Materials and Methods We Use for Cabinet Refinishing
+## How long does a Putting In an Egress Window take?
+Most projects move through a few clear stages, though permit approval is usually the longest wait. Here's a typical timeline:
 
-Durability starts with the products going onto the cabinet, not just how they're applied. These are the systems Company Brand Name relies on most often.
+- **Site Assessment & Estimate** — same day
+- **Permit Approval** — 1–2 weeks
+- **Cutting & Window Install** — 1–2 days
+- **Window Well & Drainage** — 1 day
+- **Final Inspection** — scheduled after install
 
-- **Sprayed cabinet-grade enamel** — A waterborne or hybrid enamel applied with spray equipment for a level, factory-style finish. It resists yellowing and holds up to daily kitchen wear better than store-bought brush paint.
-- **Conversion varnish topcoat** — A hard, chemical-resistant clear coat used over paint or stain for extra protection near sinks and cooktops. It's a good match for the Midlands' humid summers, since it cures to a moisture-resistant film.
-- **Wood filler and epoxy repair** — Used to rebuild chipped edges, stripped screw holes, and water-swollen panel corners before priming, so the repaired area doesn't telegraph through the new finish.
-- **Soft-close hinges and slides** — Upgraded hardware that eliminates slamming doors and drawers and is a common add-on during any refinishing or refacing project.
-- **Cabinet-grade primer/sealer** — A bonding primer formulated for previously finished wood, laminate, or thermofoil, giving the topcoat something to grip instead of peeling within a year or two.
-- **Stain-grade wood veneer for refacing** — A real wood veneer applied over existing boxes during refacing, so the grain and stain match new solid-wood doors instead of looking like a laminate patch.
-
-## How long does a Cabinet Refinishing & Remodeling take?
-Most projects move through the same basic stages, though the calendar stretches out for full remodels with new cabinetry on order.
-
-- **Consult and estimate** — same day
-- **Prep, sand, and repair** — 1–2 days
-- **Priming and finish coats** — 2–3 days
-- **Cure time** — 24–48 hours
-- **Reinstall and walkthrough** — half day
-
-## Permits, Codes, and Compliance for Cabinet Remodeling
+## Egress Window Permits, Codes, and Compliance
 
 ### Usually needs a permit
-- Structural layout changes to the kitchen
-- New electrical circuits for under-cabinet lighting
-- Plumbing relocation for a sink or island move
+- Cutting a new opening in the foundation wall
+- Adding a basement bedroom that requires a compliant egress window
+- Structural changes to an existing window well
+- Enlarging an existing window opening to meet code-minimum size
 
 ### Usually no permit
-- Like-for-like cabinet refinishing
-- Refacing within the existing footprint
-- Hardware and hinge swaps
+- A like-for-like window swap without enlarging the opening
+- Cover-only replacement
+- Routine well cleanout or debris removal
+- Minor regrading around an existing, unchanged well
 
-Requirements vary by jurisdiction — always confirm with your city or county building department before work begins.
+Requirements vary by city and county — always verify exact permit rules with your local Omaha-area building department before starting work.
 
-## Cost of Redoing Kitchen Cabinets Yourself vs Hiring a Pro
+## DIY vs Hiring a Pro for Installing an Egress Window in a Basement
 
 ### DIY
-- Fine for a simple hardware swap or a single small accent cabinet
-- Requires proper ventilation and careful masking of countertops and floors
-- Higher risk of visible brush marks and uneven cure without spray equipment
+- Swapping a damaged or worn window well cover
+- Clearing leaves, dirt, or debris from an existing well
+- Minor sealant touch-ups on a well that isn't leaking into the basement
 
 ### Hire a pro
-- Spray-finish equipment produces a smoother, more level result
-- Faster turnaround on a full kitchen than most DIY timelines allow
-- Workmanship is backed by a written estimate and warranty
-- Better fit for full kitchens, refacing, or custom built-ins
+- Cutting a new foundation opening
+- Framing and setting an egress-rated window
+- Installing or resizing a window well with proper drainage
+- Any work tied to a permit or inspection, where a mistake can mean a failed inspection or water intrusion
 
-## When to Call for Cabinet Refinishing & Remodeling
+## When to Call for Egress Window Installation
 
-- Finish is peeling, chipping, or showing bare wood
-- The cabinet color feels dated and is holding back resale appeal
-- Doors and drawers no longer close flush
-- Water damage is visible near the sink base
-- You're planning a kitchen remodel or preparing to sell
+- You're finishing a basement bedroom that doesn't have a compliant egress window
+- You've received a failed inspection notice tied to egress
+- Your window well is cracked, sinking, or leaking into the basement
+- You're planning to sell and need code compliance handled before listing
+- Your current basement window is undersized for Nebraska's egress minimums
 
-## Cabinet Refinishing & Remodeling Areas We Serve Near Columbia
+Not sure which situation applies to you? [Contact us](/contact) for a free estimate and we'll walk through it together.
 
-Company Brand Name serves Columbia and the surrounding Midlands communities, including:
+## Egress Window Installation Near Omaha: Bellevue, La Vista, Papillion & Fremont
 
-- **[Cayce](/locations/cayce)** — just across the Congaree River from downtown Columbia
-- **[Forest Acres](/locations/forest-acres)** — a close-in enclave near the city center
-- **[Irmo](/locations/irmo)** — northwest of downtown along the Lake Murray corridor
-- **[Lexington](/locations/lexington)** — the fast-growing county seat west of Columbia
-- **[West Columbia](/locations/west-columbia)** — bordering downtown across the river near the Vista
-- **[Columbia (primary area)](/locations/columbia)** — the capital city and surrounding metro
+We install egress windows throughout the Omaha metro, with local jobs in these communities:
 
-## Get a Free Cabinet Refinishing & Remodeling Estimate in Columbia
+- **[Bellevue](/locations/bellevue)** — a large Sarpy County suburb with a mix of older and newer housing stock, meaning we see both full foundation cuts and simpler well swaps.
+- **[La Vista](/locations/la-vista)** — a smaller, more recently developed suburb, where jobs more often involve well upgrades or drainage work rather than cutting new openings.
+- **[Papillion](/locations/papillion)** — the Sarpy County seat, with an older railroad-era core alongside newer growth that mirrors Omaha's, so egress needs vary block by block.
+- **[Fremont](/locations/fremont)** — the Dodge County seat, further from the metro core, where older basement construction often lacks a compliant egress opening.
 
-Ready to update your kitchen? Company Brand Name offers free, no-obligation written estimates for cabinet refinishing, refacing, and remodeling across Columbia and the Midlands. Call **(385) 221-2770** or request an estimate online — [Contact](/contact) us or learn more [About](/about) our process.
+We also serve our primary area, **[Omaha (primary area)](/locations/omaha)**, along with Blair, Gretna, Offutt AFB, Plattsmouth, Ralston, and Wahoo within our standard service radius.
+
+## Get a Free Egress Window Installation Estimate in Omaha
+
+Ready to get your basement egress opening up to code? Explore our services — [Egress Window Installation](/services/egress-window-installation), [Basement Egress Window Cutting](/services/basement-egress-window-cutting), [Window Well Installation](/services/window-well-installation), [Window Well Covers](/services/window-well-covers), [Window Well Drainage & Grading](/services/window-well-drainage-and-grading), and [Egress Window Replacement](/services/egress-window-replacement) — or call **(531) 301-8697** for a free, no-obligation estimate.
+
+Omaha Egress Window Pros serves the whole metro, including Omaha, Bellevue, La Vista, Papillion, and Fremont. [Get in touch](/contact) and we'll schedule your site assessment.

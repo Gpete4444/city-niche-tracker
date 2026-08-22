@@ -2,6 +2,7 @@
 import { getCollection } from 'astro:content';
 import { site, homepageServicesDisplayLimit, formatPhoneDisplay, phoneHref } from '../config/site';
 import {
+  applyServiceCardImages,
   commercialServiceCardsForSite,
   serviceCardsForSite,
 } from '../lib/services-for-site';
@@ -15,17 +16,33 @@ interface Props {
   surface?: string;
   /** When set (location pages), blurbs use this city instead of primaryCity. */
   city?: string;
+  /** Homepage FM serviceCardImages — fills What we do thumbs when service MD has no card art. */
+  cardImages?: Array<{ src: string; alt: string }>;
 }
 
-const { heading = 'Services', limit, surface = 'section-surface-muted', city } = Astro.props;
+const {
+  heading = 'Services',
+  limit,
+  surface = 'section-surface-muted',
+  city,
+  cardImages = [],
+} = Astro.props;
 
 const entries = await getCollection('services');
 const displayLimit = limit ?? homepageServicesDisplayLimit();
-const residentialRaw = serviceCardsForSite(entries, site, displayLimit, city);
-const commercialRaw = commercialServiceCardsForSite(entries, site, displayLimit, city);
+const residentialPainted = applyServiceCardImages(
+  serviceCardsForSite(entries, site, displayLimit, city),
+  cardImages,
+  0,
+);
+const commercialPainted = applyServiceCardImages(
+  commercialServiceCardsForSite(entries, site, displayLimit, city),
+  cardImages,
+  residentialPainted.nextIndex,
+);
 /** Default maxCols 4 → 8 cards = 2×4, 6 cards = 2×3 */
-const residentialGrid = fitEqualGrid(residentialRaw);
-const commercialGrid = fitEqualGrid(commercialRaw);
+const residentialGrid = fitEqualGrid(residentialPainted.cards);
+const commercialGrid = fitEqualGrid(commercialPainted.cards);
 const residential = residentialGrid.items;
 const commercial = commercialGrid.items;
 const splitSections = commercial.length > 0;
@@ -39,7 +56,7 @@ const cardClass =
   'group flex w-full flex-col overflow-hidden rounded-lg border border-line bg-surface-raised shadow-sm transition hover:-translate-y-0.5 hover:border-brand/40 hover:shadow-md';
 ---
 
-<section class={surface} aria-labelledby="services-heading">
+<section class={surface} aria-labelledby="services-heading" data-section="services">
   <div class="mx-auto max-w-6xl px-4 py-12 sm:px-6 sm:py-14">
     <div class="mb-6 max-w-2xl">
       <p class="section-eyebrow">What we do</p>
@@ -65,7 +82,7 @@ const cardClass =
                   Residential Services
                 </h3>
                 <ul class:list={['mt-4 grid gap-3', residentialGrid.className]}>
-                  {residential.map((card, index) => (
+                  {residential.map((card) => (
                     <li class="flex">
                       <a href={card.href} class={cardClass}>
                         {card.image?.src && (
@@ -79,10 +96,7 @@ const cardClass =
                           />
                         )}
                         <div class="flex grow flex-col p-4">
-                          <span class="text-[10px] font-bold tracking-[0.16em] text-accent">
-                            {String(index + 1).padStart(2, '0')}
-                          </span>
-                          <h3 class="mt-0.5 font-display text-base font-semibold leading-snug text-ink group-hover:text-brand">
+                          <h3 class="font-display text-base font-semibold leading-snug text-ink group-hover:text-brand">
                             {card.title}
                           </h3>
                           <p class="mt-1.5 line-clamp-2 text-sm leading-snug text-muted">
@@ -106,7 +120,7 @@ const cardClass =
                   Commercial Services
                 </h3>
                 <ul class:list={['mt-4 grid gap-3', commercialGrid.className]}>
-                  {commercial.map((card, index) => (
+                  {commercial.map((card) => (
                     <li class="flex">
                       <a href={card.href} class={cardClass}>
                         {card.image?.src && (
@@ -120,10 +134,7 @@ const cardClass =
                           />
                         )}
                         <div class="flex grow flex-col p-4">
-                          <span class="text-[10px] font-bold tracking-[0.16em] text-accent">
-                            {String(index + 1).padStart(2, '0')}
-                          </span>
-                          <h3 class="mt-0.5 font-display text-base font-semibold leading-snug text-ink group-hover:text-brand">
+                          <h3 class="font-display text-base font-semibold leading-snug text-ink group-hover:text-brand">
                             {card.title}
                           </h3>
                           <p class="mt-1.5 line-clamp-2 text-sm leading-snug text-muted">
@@ -143,7 +154,7 @@ const cardClass =
         </div>
       ) : (
         <ul class:list={['grid gap-3', residentialGrid.className]}>
-          {residential.map((card, index) => (
+          {residential.map((card) => (
             <li class="flex">
               <a href={card.href} class={cardClass}>
                 {card.image?.src && (
@@ -157,10 +168,7 @@ const cardClass =
                   />
                 )}
                 <div class="flex grow flex-col p-4">
-                  <span class="text-[10px] font-bold tracking-[0.16em] text-accent">
-                    {String(index + 1).padStart(2, '0')}
-                  </span>
-                  <h3 class="mt-0.5 font-display text-base font-semibold leading-snug text-ink group-hover:text-brand">
+                  <h3 class="font-display text-base font-semibold leading-snug text-ink group-hover:text-brand">
                     {card.title}
                   </h3>
                   <p class="mt-1.5 line-clamp-2 text-sm leading-snug text-muted">

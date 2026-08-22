@@ -16,7 +16,12 @@ import {
 } from './cloudflare-launch.mjs';
 import { shipAssembledSite } from './ship-site.mjs';
 import { upsertSiteAfterLaunch } from './sites.mjs';
-import { publicLeadsEmail, ensureBusinessNameNotNiche } from './site-config.mjs';
+import {
+  publicLeadsEmail,
+  ensureBusinessNameNotNiche,
+  effectiveSiteConfigForLaunch,
+  getSiteConfigDraft,
+} from './site-config.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
@@ -43,6 +48,60 @@ function resolveAssembledRoot(detail) {
 
 function defaultNotifyEmail() {
   return String(process.env.WEB3FORMS_DEFAULT_NOTIFY_EMAIL || '').trim();
+}
+
+export function isLaunchWeb3Placeholder(key) {
+  const s = String(key || '').trim();
+  return (
+    !s ||
+    WEB3_PLACEHOLDER_RE.test(s) ||
+    /^REPLACE_/i.test(s) ||
+    /^YOUR_WEB3FORMS/i.test(s) ||
+    /^tbd\b/i.test(s)
+  );
+}
+
+export function isLaunchDomainPlaceholder(domain) {
+  const d = String(domain || '')
+    .trim()
+    .toLowerCase()
+    .replace(/^https?:\/\//, '')
+    .replace(/\/$/, '');
+  return !d || d === 'example.com' || d === 'www.example.com' || /^tbd\b/i.test(d);
+}
+
+export function isLaunchPhonePlaceholder(phone) {
+  const phoneRaw = String(phone || '').trim();
+  return (
+    !phoneRaw ||
+    /^\+?1?X+$/i.test(phoneRaw.replace(/[\s\-().]/g, '')) ||
+    /X{4,}/i.test(phoneRaw) ||
+    phoneRaw === '+1XXXXXXXXXX'
+  );
+}
+
+/**
+ * Hard blockers for Auto ship / first go-live.
+ * @returns {{ id: string, label: string }[]}
+ */
+export function collectLaunchBlockers(config = {}) {
+  const issues = [];
+  if (isLaunchDomainPlaceholder(config.domain)) {
+    issues.push({ id: 'domain', label: 'Domain still empty or example.com' });
+  }
+  if (isLaunchPhonePlaceholder(config.phone)) {
+    issues.push({
+      id: 'phone',
+      label: 'Phone still a placeholder (provision Twilio or set a real number)',
+    });
+  }
+  if (isLaunchWeb3Placeholder(config.web3FormsAccessKey)) {
+    issues.push({
+      id: 'web3',
+      label: 'Web3Forms access key missing or placeholder — create at web3forms.com and paste',
+    });
+  }
+  return issues;
 }
 
 /**
@@ -131,6 +190,7 @@ export function patchLaunchSiteConfig(candidateId, patch = {}) {
  *   attachDomain?: boolean,
  *   setupEmail?: boolean,
  *   markCloudflareProjectDone?: boolean,
+ *   allowIncompleteLaunch?: boolean,
  * }} [opts]
  */
 export async function launchSite(candidateId, opts = {}) {
@@ -165,7 +225,19 @@ export async function launchSite(candidateId, opts = {}) {
   });
 
   const web3Key = String(patched.config.web3FormsAccessKey || '').trim();
-  const formsDone = Boolean(web3Key) && !WEB3_PLACEHOLDER_RE.test(web3Key);
+  const formsDone = Boolean(web3Key) && !isLaunchWeb3Placeholder(web3Key);
+
+  const doShip = opts.ship !== false;
+  const blockers = collectLaunchBlockers(patched.config);
+  if (doShip && blockers.length && opts.allowIncompleteLaunch !== true) {
+    const err = new Error(
+      `Launch blocked — fix before shipping: ${blockers.map((b) => b.label).join('; ')}`,
+    );
+    err.status = 400;
+    err.code = 'LAUNCH_BLOCKED';
+    err.details = { blockers };
+    throw err;
+  }
 
   const human = [];
   if (!formsDone) {
@@ -175,9 +247,13 @@ export async function launchSite(candidateId, opts = {}) {
   } else {
     human.push('Web3Forms key written to assembled site-config.');
   }
+  if (blockers.length && opts.allowIncompleteLaunch === true) {
+    human.push(
+      `Incomplete launch override: ${blockers.map((b) => b.id).join(', ')} still need attention.`,
+    );
+  }
 
   let ship = null;
-  const doShip = opts.ship !== false;
   if (doShip) {
     try {
       ship = await shipAssembledSite(candidateId, {
@@ -204,39 +280,52 @@ export async function launchSite(candidateId, opts = {}) {
         'Set CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN in .env to automate deploy + domain + Email Routing.',
       );
     } else {
-      const workerName =
-        detail.meta?.assembledSiteSlug ||
-        path.basename(assembledRoot) ||
-        null;
-      cf = await runCloudflareLaunch({
-        domain,
-        leadsEmail: email.includes('@') ? email : `leads@${domain}`,
-        destinationEmail,
-        workerName,
-        createTurnstile: Boolean(opts.createTurnstile),
-        attachDomain: opts.attachDomain !== false,
-        setupEmail: opts.setupEmail !== false,
-      });
-      human.push(...(cf.human || []));
+      try {
+        const workerName =
+          detail.meta?.assembledSiteSlug ||
+          path.basename(assembledRoot) ||
+          null;
+        cf = await runCloudflareLaunch({
+          domain,
+          leadsEmail: email.includes('@') ? email : `leads@${domain}`,
+          destinationEmail,
+          workerName,
+          createTurnstile: Boolean(opts.createTurnstile),
+          attachDomain: opts.attachDomain !== false,
+          setupEmail: opts.setupEmail !== false,
+        });
+        human.push(...(cf.human || []));
 
-      if (cf.turnstileSiteKey && !opts.turnstileSiteKey) {
-        Object.assign(
-          patched,
-          patchLaunchSiteConfig(candidateId, {
-            turnstileSiteKey: cf.turnstileSiteKey,
-          }),
-        );
+        if (cf.turnstileSiteKey && !opts.turnstileSiteKey) {
+          Object.assign(
+            patched,
+            patchLaunchSiteConfig(candidateId, {
+              turnstileSiteKey: cf.turnstileSiteKey,
+            }),
+          );
+        }
+      } catch (error) {
+        cf = { ok: false, error: error.message };
+        human.push(`Cloudflare helpers failed: ${error.message}`);
       }
     }
   } else {
     human.push('Skipped Cloudflare API (runCloudflare=false).');
   }
 
+  const shipOk = Boolean(ship?.ok);
+  // Go-live success requires a real forms key and a successful ship when shipping was requested.
+  const ok = formsDone && (!doShip || shipOk);
+
   const metaPatch = {
-    lastLaunchAt: new Date().toISOString(),
     formsDone,
     launchDomain: domain || null,
   };
+  if (ok) {
+    metaPatch.lastLaunchAt = new Date().toISOString();
+  } else {
+    metaPatch.lastLaunchAttemptAt = new Date().toISOString();
+  }
 
   if (ship?.steps?.github?.fullName) {
     metaPatch.githubRepo = ship.steps.github.fullName;
@@ -275,12 +364,13 @@ export async function launchSite(candidateId, opts = {}) {
   const site = upsertSiteAfterLaunch(candidateId);
 
   return {
-    ok: formsDone || Boolean(cf?.ok) || Boolean(ship?.ok),
+    ok,
     candidateId,
     config: patched.config,
     assembledSitePath: patched.assembledSitePath,
     assembledConfigPath: patched.assembledConfigPath,
     formsDone,
+    blockers,
     ship,
     cloudflare: cf,
     human,
@@ -299,9 +389,12 @@ function loadMetaSafe(id) {
  */
 export function getLaunchStatus(candidateId) {
   const detail = getCandidateDetail(candidateId);
-  const config = loadAcceptedSiteConfig(candidateId)?.config || {};
+  const accepted = loadAcceptedSiteConfig(candidateId)?.config || {};
+  const draft = getSiteConfigDraft(candidateId);
+  const config = effectiveSiteConfigForLaunch(accepted, draft);
   const assembledRoot = resolveAssembledRoot(detail);
   const web3 = String(config.web3FormsAccessKey || '').trim();
+  const blockers = collectLaunchBlockers(config);
   return {
     candidateId,
     cloudflareConfigured: cloudflareConfigured(),
@@ -315,13 +408,14 @@ export function getLaunchStatus(candidateId) {
     domain: config.domain || null,
     phone: config.phone || null,
     email: config.email || null,
-    web3FormsAccessKeySet: Boolean(web3) && !WEB3_PLACEHOLDER_RE.test(web3),
+    web3FormsAccessKeySet: Boolean(web3) && !isLaunchWeb3Placeholder(web3),
     turnstileSiteKeySet: Boolean(String(config.turnstileSiteKey || '').trim()),
     formsDone: Boolean(detail.meta?.formsDone),
     dnsDone: Boolean(detail.meta?.dnsDone),
     emailRoutingDone: Boolean(detail.meta?.emailRoutingDone),
     cloudflarePagesDone: Boolean(detail.meta?.cloudflarePagesDone),
     lastLaunchAt: detail.meta?.lastLaunchAt || null,
+    launchBlockers: blockers,
     checklist: getAssembleChecklist(candidateId),
   };
 }

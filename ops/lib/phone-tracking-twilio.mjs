@@ -3,6 +3,7 @@
  * Voice webhooks must be a public Twilio Function URL — Rover binds 127.0.0.1 only.
  */
 import twilio from 'twilio';
+import { loadAcceptedSiteConfig } from './content-markdown.mjs';
 import { patchLaunchSiteConfig } from './launch-site.mjs';
 
 function env(name) {
@@ -81,6 +82,19 @@ export function normalizeForwardE164(phone) {
   return '';
 }
 
+/** Best-effort release so a failed patch does not leave a paid orphan DID. */
+export async function releaseTwilioNumber(sid) {
+  const id = String(sid || '').trim();
+  if (!id) return { ok: false, skipped: true };
+  try {
+    const client = twilioClient();
+    await client.incomingPhoneNumbers(id).remove();
+    return { ok: true, sid: id };
+  } catch (error) {
+    return { ok: false, sid: id, error: error?.message || String(error) };
+  }
+}
+
 /**
  * Search available US local numbers by locality/state, optional areaCode override.
  */
@@ -142,7 +156,28 @@ export async function provisionRankingNumber({ site, areaCode, force = false } =
     );
   }
 
+  const accepted = loadAcceptedSiteConfig(site.candidateId);
+  if (!accepted?.config) {
+    throw Object.assign(
+      new Error('Accept site-config first before provisioning a Twilio number'),
+      { status: 400, code: 'SITE_CONFIG_REQUIRED' },
+    );
+  }
+
   const existing = site.phoneTracking || {};
+  if (existing.phase === 'orphan' && existing.twilioSid && !force) {
+    throw Object.assign(
+      new Error(
+        `Orphan Twilio DID ${existing.e164 || ''} (SID ${existing.twilioSid}) is already recorded. Resolve it in Twilio Console or pass force:true only after releasing that SID.`,
+      ),
+      {
+        status: 409,
+        code: 'TWILIO_ORPHAN',
+        twilioSid: existing.twilioSid,
+        e164: existing.e164 || null,
+      },
+    );
+  }
   if (
     !force &&
     existing.provider === 'twilio' &&
@@ -153,7 +188,11 @@ export async function provisionRankingNumber({ site, areaCode, force = false } =
       new Error(
         `Twilio number already provisioned (${existing.e164 || existing.twilioSid}). Pass force:true to buy another.`,
       ),
-      { status: 409 },
+      {
+        status: 409,
+        twilioSid: existing.twilioSid,
+        e164: existing.e164 || null,
+      },
     );
   }
 
@@ -190,11 +229,20 @@ export async function provisionRankingNumber({ site, areaCode, force = false } =
   try {
     patchLaunchSiteConfig(site.candidateId, { phone: displayPhone });
   } catch (error) {
+    const released = await releaseTwilioNumber(purchased.sid);
     throw Object.assign(
       new Error(
-        `Twilio number ${e164} purchased (SID ${purchased.sid}) but site-config patch failed: ${error.message}`,
+        released.ok
+          ? `Site-config patch failed after buy; released SID ${purchased.sid} (${e164}). Fix Accept/site-config then retry. (${error.message})`
+          : `Twilio number ${e164} purchased (SID ${purchased.sid}) but site-config patch failed AND release failed (${released.error || 'unknown'}). Release that SID in Twilio Console before retrying. (${error.message})`,
       ),
-      { status: error.status || 500, twilioSid: purchased.sid, e164 },
+      {
+        status: error.status || 500,
+        twilioSid: purchased.sid,
+        e164,
+        released: Boolean(released.ok),
+        code: released.ok ? 'TWILIO_RELEASED_AFTER_PATCH_FAIL' : 'TWILIO_ORPHAN',
+      },
     );
   }
 

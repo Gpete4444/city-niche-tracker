@@ -42,14 +42,15 @@ If `FALLBACK_FENCE`, the single `csv` fence must follow immediately (complete fi
 
 1. Create **new data rows** (the CSV template has headers only). Cap at **Max rows**.
 2. If **State = ANY**: search **nationwide** for the best markets.
-3. If **Required niches (exclusive)** is set in the filter brief: every row’s `Niche` MUST be one of those names only — do not substitute High-Ticket catalog alternatives. Include each required niche in **at least one row** when Max rows allows. Custom / off-catalog names are valid.
-4. Else if **Niches (suggested)** is set: soft preference — prefer those niches when a strong city fit exists; you may still pick other High-Ticket catalog niches that match tiers/categories. Custom suggested names are valid.
-5. Else if **Niches = OPEN**: pick from the **High-Ticket niches catalog** below; include **at least 3 different niches** when Max rows allows. Respect **Ticket tiers allowed** / **Min job cost** and **Catalog categories** from the filter brief (only those tiers — not “tier and above” unless listed).
-6. If **Cities = OPEN**: pick the best cities under the filter constraints.
-7. Prefer cities with population roughly inside the **Population band** (avoid mega-metros above max unless the operator raised the cap). Rural/exurban niches (well, septic) may dip slightly below min pop when the fit is strong — note that in `confidence_narrative` / Notes.
-8. Respect **Seasonality** from the filter brief (year-round vs seasonal).
-9. **Map Pack preference** is soft guidance only (you do not have live SERP data). Prefer niches/cities that often lack a dedicated Map Pack when the brief says Prefer absent; still leave Map Pack blank for the DFS SERP probe.
-10. Soft organic / directory-heavy SERPs are a plus when you can judge from general knowledge — still leave SERP columns for Rover DFS SERP probe.
+3. If the filter brief shows **Required niches (must-include)** alone (no Suggested): for each Required niche, emit **at least one row** whose `Niche` cell is that name **verbatim (exact match after trim)** when Max rows allows. Do **not** substitute catalog synonyms or rewordings (e.g. Required `egress window installation` must not become `Basement Egress Window Installation`). Fill **remaining** rows from the High-Ticket catalog (OPEN soft), honoring tiers/categories. Required is **never** an exclusive lock — do not restrict every row to Required names only. Custom / off-catalog Required names are valid as exact `Niche` text.
+4. If the filter brief shows **Required niches (must-include)** **and** **Niches (suggested)** (hybrid): for each Required niche, emit **at least one row** whose `Niche` cell is that name **verbatim (exact match after trim)** when Max rows allows — no catalog synonym substitution. Fill **remaining** rows preferring Suggested niches (soft); you may still pick other High-Ticket catalog niches that match tiers/categories when the Suggested list is short. Required is **never** an exclusive lock.
+5. Else if **Niches (suggested)** is set alone: soft preference — prefer those niches when a strong city fit exists; you may still pick other High-Ticket catalog niches that match tiers/categories. Custom suggested names are valid.
+6. Else if **Niches = OPEN**: pick from the **High-Ticket niches catalog** below; include **at least 3 different niches** when Max rows allows. Respect **Ticket tiers allowed** / **Min job cost** and **Catalog categories** from the filter brief (only those tiers — not “tier and above” unless listed).
+7. If **Cities = OPEN**: pick the best cities under the filter constraints.
+8. Prefer cities with population roughly inside the **Population band** (avoid mega-metros above max unless the operator raised the cap). Rural/exurban niches (well, septic) may dip slightly below min pop when the fit is strong — note that in `confidence_narrative` / Notes.
+9. Respect **Seasonality** from the filter brief (year-round vs seasonal).
+10. **Map Pack preference** is soft guidance only (you do not have live SERP data). Prefer niches/cities that often lack a dedicated Map Pack when the brief says Prefer absent; still leave Map Pack blank for the DFS SERP probe.
+11. Soft organic / directory-heavy SERPs are a plus when you can judge from general knowledge — still leave SERP columns for Rover DFS SERP probe.
 
 ## Columns you fill
 
@@ -83,6 +84,6 @@ These Niche×City×State pairs already live in Rover Candidates (any decision gr
 
 ## High-Ticket niches catalog (reference)
 
-When niches are OPEN (or soft-suggested), choose from this catalog (honor category + tier filters). When **Required niches** is set, use only those names — catalog is reference for framing only:
+When niches are OPEN, soft-suggested, Required must-include (**remaining** rows only), or **hybrid** (Required + Suggested), choose from this catalog for non-Required / overflow rows (honor category + tier filters). Required niches must appear as **exact** `Niche` text — never rename them to a catalog synonym; catalog is for remaining Max rows only:
 
 {{HIGH_TICKET_NICHES}}

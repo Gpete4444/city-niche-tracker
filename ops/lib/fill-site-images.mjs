@@ -8,6 +8,7 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
+  unlinkSync,
   writeFileSync,
 } from 'node:fs';
 import path from 'node:path';
@@ -92,7 +93,9 @@ function listProcessStepTitlesFromFrontmatter(md) {
   const m = String(md || '').match(/^process:\s*\n((?:(?:[ \t]+.*|-(?!-).*)\n)*)/m);
   if (!m) return [];
   const titles = [];
-  const re = /^[ \t]+title:\s*(?:"([^"]*)"|'([^']*)'|(.+))\s*$/gm;
+  // YAML uses `  - title: "..."` (title on the dash line) or indented `title:` under `-`
+  const re =
+    /^[ \t]*(?:-[ \t]+)?title:\s*(?:"([^"]*)"|'([^']*)'|(.+?))\s*$/gm;
   let match;
   while ((match = re.exec(m[1]))) {
     const t = (match[1] || match[2] || match[3] || '').trim();
@@ -283,6 +286,8 @@ export function listImageSlots(candidateId) {
     if (sectionId === 'beforeAfter' || sectionId === 'svcBeforeAfter') continue;
     // Per-service materials / process slots are expanded below from each service page body
     if (sectionId === 'svcMaterials' || sectionId === 'svcProcess') continue;
+    // Services grid / What we do: expanded after loop (svcHero when service pages, else named homepage cards)
+    if (sectionId === 'services') continue;
     const def = sectionById.get(sectionId);
     const max = def?.maxImages || 6;
     let count = Math.min(Math.max(Number(photo.count) || 1, 1), max);
@@ -450,6 +455,35 @@ export function listImageSlots(candidateId) {
       });
     }
     return without;
+  }
+
+  // What we do cards without Service pages: one slot per configured service name
+  if (photos.services?.enabled && svcHeroServiceNames.length > 0) {
+    const def = sectionById.get('services');
+    const max = Math.min(svcHeroServiceNames.length, def?.maxImages || 8);
+    for (let i = 0; i < max; i += 1) {
+      const name = svcHeroServiceNames[i];
+      slots.push({
+        key: `services-${i + 1}`,
+        sectionId: 'services',
+        index: i + 1,
+        label: name,
+        kind: def?.kind || 'services',
+        pages: def?.pages || ['home'],
+        serviceName: name,
+        queryHint: buildQuery({
+          niche,
+          city,
+          sectionId: 'services',
+          label: name,
+          kind: def?.kind || 'services',
+          services: svcHeroServiceNames,
+          index: i + 1,
+          serviceName: name,
+        }),
+        preferredPath: null,
+      });
+    }
   }
 
   return slots;
@@ -1296,7 +1330,7 @@ function buildQuery({ niche, sectionId, label, kind, services, index, serviceNam
   }
 
   if (bucket === 'intro') {
-    return `${base} interior`.replace(/\s+/g, ' ').trim();
+    return (profile?.kindHints?.intro || `${base} interior`).replace(/\s+/g, ' ').trim();
   }
 
   if (bucket === 'process') {
@@ -1336,23 +1370,33 @@ function buildQueryVariants(slot, niche, services) {
   });
   const variants = [base];
   const bucket = kindBucket(slot.sectionId, slot.kind);
+  /** Rich profiles (e.g. egress): walk more boost phrases on every Pull. */
+  const boostList = Array.isArray(profile?.boost) ? profile.boost.filter(Boolean) : [];
+  const pushBoosts = (n = 6) => {
+    for (const b of boostList.slice(0, n)) {
+      if (b && b !== primary && b !== base) variants.push(b);
+    }
+  };
 
   if (bucket === 'svcHero') {
     const svcQ = disambiguateServiceQuery(slot.serviceName || slot.label || '', niche, profile);
     if (svcQ) variants.push(svcQ);
     if (primary) variants.push(primary);
     if (profile?.kindHints?.hero) variants.push(profile.kindHints.hero);
+    pushBoosts(4);
     return [...new Set(variants.filter(Boolean))];
   }
 
   if (primary && primary !== base) variants.push(primary);
 
   if (bucket === 'hero') {
-    if (profile?.boost?.[0] && profile.boost[0] !== primary) variants.push(profile.boost[0]);
+    pushBoosts(8);
     if (profile?.kindHints?.hero) variants.push(profile.kindHints.hero);
   } else if (bucket === 'intro') {
+    if (profile?.kindHints?.intro) variants.push(profile.kindHints.intro);
     variants.push(`${primary} interior`);
     variants.push(primary);
+    pushBoosts(4);
   } else if (bucket === 'process') {
     if (slot.processTitle) {
       const pt = disambiguateSlotTitle(slot.processTitle, niche, profile);
@@ -1361,6 +1405,12 @@ function buildQueryVariants(slot, niche, services) {
     if (profile?.kindHints?.process) variants.push(profile.kindHints.process);
     variants.push(`${primary} jobsite`);
     variants.push(`${primary} install`);
+    if (profile?.id === 'egress' || /egress|window well/i.test(String(niche || ''))) {
+      variants.push('cutting basement window opening');
+      variants.push('excavating window well');
+      variants.push('installing window well');
+    }
+    pushBoosts(5);
   } else if (bucket === 'materials') {
     if (slot.materialTitle) {
       const mt = disambiguateSlotTitle(slot.materialTitle, niche, profile);
@@ -1381,6 +1431,10 @@ function buildQueryVariants(slot, niche, services) {
     if (profile?.kindHints?.materials) variants.push(profile.kindHints.materials);
     variants.push(`${primary} product close up`);
     variants.push(`${primary} product`);
+    pushBoosts(4);
+  } else {
+    pushBoosts(4);
+    if (profile?.kindHints?.other) variants.push(profile.kindHints.other);
   }
 
   return [...new Set(variants.filter(Boolean))];
@@ -1393,6 +1447,17 @@ function safeIdTail(photoId, max = 8) {
       .replace(/^[^:]+:/, '')
       .replace(/[^a-zA-Z0-9]/g, '')
       .slice(0, max) || 'id'
+  );
+}
+
+/** Filename-safe slot key (svcMaterials-slug-1 stays unique across services). */
+function safeSlotKeyForFilename(key, max = 80) {
+  return (
+    String(key || 'slot')
+      .replace(/[^a-zA-Z0-9_-]+/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^-|-$/g, '')
+      .slice(0, max) || 'slot'
   );
 }
 
@@ -1600,6 +1665,13 @@ function applyImagesToContentFiles(candidateId, filledSlots) {
     if (materialsSlots.length) {
       const before = md;
       md = setMaterialsImages(md, materialsSlots);
+      if (md !== before) updated += 1;
+    }
+    // What we do without Service pages — homepage serviceCardImages (not svcHero path)
+    const homeServiceCardSlots = bySection.services || [];
+    if (homeServiceCardSlots.length && !(bySection.svcHero || []).length) {
+      const before = md;
+      md = setFmImageList(md, 'serviceCardImages', homeServiceCardSlots);
       if (md !== before) updated += 1;
     }
     md = ensureYamlFrontmatter(md);
@@ -1860,7 +1932,10 @@ export async function fillSiteImages(candidateId, { replace = false } = {}) {
       slot.kind === 'process';
     const perPage = isProcessSlot || slotCtx.cameraSlot ? 30 : 20;
     const queries = buildQueryVariants(slot, niche, services);
-    const searched = await searchStockForSlot({
+    // Rich profiles (many boost phrases): Pull walks page 1 then deepens to page 2
+    // on top queries when the first pass is soft-fill or empty.
+    const richProfile = Array.isArray(profile?.boost) && profile.boost.length >= 4;
+    let searched = await searchStockForSlot({
       providers,
       queries,
       usedIds,
@@ -1870,6 +1945,36 @@ export async function fillSiteImages(candidateId, { replace = false } = {}) {
       pages: [1],
       sleepMs: 200,
     });
+    if (
+      richProfile &&
+      queries.length &&
+      (!searched.chosen || searched.softFill)
+    ) {
+      const deep = await searchStockForSlot({
+        providers,
+        queries: queries.slice(0, 2),
+        usedIds,
+        tokens,
+        rankOpts,
+        perPage: Math.max(perPage, 30),
+        pages: [2],
+        sleepMs: 200,
+      });
+      const deepOk = Boolean(deep.chosen && deep.download?.buffer?.length);
+      const deepScore = Number(deep.relevanceScore) || 0;
+      const firstScore = Number(searched.relevanceScore) || 0;
+      const takeDeep =
+        deepOk &&
+        (!searched.chosen ||
+          (!deep.softFill && searched.softFill) ||
+          deepScore > firstScore);
+      if (takeDeep) {
+        searched = {
+          ...deep,
+          errors: [...(searched.errors || []), ...(deep.errors || [])],
+        };
+      }
+    }
     const errors = searched.errors;
     let chosen = searched.chosen;
     let providerUsed = searched.providerUsed;
@@ -2082,9 +2187,123 @@ function wiredFmForSlot(slot) {
   if (id === 'materials') return 'homepage materialsImages';
   if (id === 'svcMaterials') return 'service materialsImages';
   if (id === 'svcProcess') return 'service processImages';
-  if (id === 'svcHero' || id === 'services') return 'service heroImage/cardImage';
+  if (id === 'svcHero') return 'service heroImage/cardImage';
+  if (id === 'services') return `homepage serviceCardImages[${slot.index}]`;
   if (id === 'gallery' || id === 'beforeAfter' || id === 'svcBeforeAfter') return 'homepage gallery';
   return null;
+}
+
+function displayLabelForSlot(slot) {
+  const id = slot.sectionId;
+  const title = stripMaterialBold(slot.processTitle || slot.label || '');
+  if (id === 'process' || id === 'offerProcess' || id === 'svcProcess') {
+    const step = Number(slot.index) || 1;
+    return title ? `Step ${step}: ${title}` : `Step ${step}`;
+  }
+  if (id === 'services' || id === 'svcHero') {
+    return stripMaterialBold(slot.serviceName || slot.label || id);
+  }
+  if (slot.materialTitle) return stripMaterialBold(slot.materialTitle);
+  return title || id;
+}
+
+/** Homepage-ish order for Review Images / Structure (hero first). */
+const DEFAULT_IMAGE_SECTION_ORDER = [
+  'hero',
+  'intro',
+  'services',
+  'svcHero',
+  'whyChooseUs',
+  'process',
+  'offerProcess',
+  'cost',
+  'materials',
+  'svcMaterials',
+  'svcProcess',
+  'timeline',
+  'codes',
+  'diyVsPro',
+  'whenToCall',
+  'areas',
+  'gallery',
+  'beforeAfter',
+  'svcBeforeAfter',
+  'reviews',
+  'faqs',
+  'cta',
+];
+
+/** Collapse related photo sectionIds into one Review Images group. */
+function sectionGroupKey(sectionId) {
+  const id = String(sectionId || '');
+  if (id === 'svcHero' || id === 'services') return 'services';
+  if (id === 'beforeAfter' || id === 'svcBeforeAfter' || id === 'gallery') return 'gallery';
+  if (id === 'svcMaterials') return 'svcMaterials';
+  if (id === 'svcProcess') return 'svcProcess';
+  return id;
+}
+
+function resolveImageSectionOrder(candidateId) {
+  const detail = getCandidateDetail(candidateId);
+  const config =
+    loadAcceptedSiteConfig(candidateId)?.config ||
+    detail.siteConfig ||
+    detail.siteConfigDraft ||
+    {};
+  const structure = getContentStructure(candidateId);
+  const homeRaw = Array.isArray(config.homepageSections) && config.homepageSections.length
+    ? config.homepageSections
+    : Array.isArray(structure?.homepageSections) && structure.homepageSections.length
+      ? structure.homepageSections
+      : null;
+
+  const expanded = [];
+  const push = (id) => {
+    if (id && !expanded.includes(id)) expanded.push(id);
+  };
+  push('hero');
+  const mid = homeRaw || DEFAULT_IMAGE_SECTION_ORDER.filter((k) => k !== 'hero');
+  for (const k of mid) {
+    if (!k || k === 'hero') continue;
+    if (k === 'services') {
+      push('services');
+      push('svcHero');
+    } else if (k === 'process') {
+      push('process');
+      push('offerProcess');
+    } else if (k === 'materials') {
+      push('materials');
+      push('svcMaterials');
+    } else if (k === 'beforeAfter' || k === 'gallery') {
+      push('gallery');
+      push('beforeAfter');
+      push('svcBeforeAfter');
+    } else {
+      push(k);
+    }
+  }
+  for (const id of DEFAULT_IMAGE_SECTION_ORDER) push(id);
+  // Service-page-only extras
+  push('svcProcess');
+  return expanded;
+}
+
+function sectionLabelForGroup(groupKey, registry) {
+  const sections = registry?.sections || [];
+  const byId = (id) => sections.find((s) => s.id === id);
+  if (groupKey === 'services') {
+    return byId('services')?.label || 'What we do (services grid)';
+  }
+  if (groupKey === 'gallery') {
+    return byId('beforeAfter')?.label || byId('gallery')?.label || 'Before & after';
+  }
+  if (groupKey === 'process') {
+    return byId('process')?.label || 'Process / how we work';
+  }
+  if (groupKey === 'offerProcess') {
+    return byId('offerProcess')?.label || 'Deep offer process (single-offer)';
+  }
+  return byId(groupKey)?.label || groupKey;
 }
 
 /** Structure slots + manifest status for Website operator grid. */
@@ -2092,7 +2311,13 @@ export function listImageSlotStatus(candidateId) {
   const slots = listImageSlots(candidateId);
   const manifest = loadManifest(candidateId);
   const p = pathsFor(candidateId);
-  const matchTotals = { poor: 0, ok: 0, good: 0, missing: 0 };
+  const registry = loadSectionRegistry();
+  const sectionOrder = resolveImageSectionOrder(candidateId);
+  const orderIndex = (sectionId) => {
+    const i = sectionOrder.indexOf(sectionId);
+    return i >= 0 ? i : 900 + String(sectionId || '').length;
+  };
+  const matchTotals = { poor: 0, ok: 0, good: 0, uploaded: 0, missing: 0 };
   const mapped = slots.map((slot) => {
     const entry = manifest.slots?.[slot.key] || null;
     const filename = entry?.filename || null;
@@ -2109,16 +2334,22 @@ export function listImageSlotStatus(candidateId) {
             missing: !onDisk,
           });
     if (!onDisk) matchTotals.missing += 1;
+    else if (source === 'upload') matchTotals.uploaded += 1;
     else if (graded.matchGrade === 'good') matchTotals.good += 1;
     else if (graded.matchGrade === 'ok') matchTotals.ok += 1;
     else matchTotals.poor += 1;
+    const groupKey = sectionGroupKey(slot.sectionId);
     return {
       key: slot.key,
       sectionId: slot.sectionId,
+      sectionGroup: groupKey,
+      sectionLabel: sectionLabelForGroup(groupKey === 'services' ? 'services' : slot.sectionId, registry),
       index: slot.index,
-      label: slot.label || slot.sectionId,
+      label: displayLabelForSlot(slot),
       kind: slot.kind,
       serviceName: slot.serviceName || null,
+      processTitle: slot.processTitle || null,
+      materialTitle: slot.materialTitle || null,
       queryHint: slot.queryHint ? stripMaterialBold(slot.queryHint) : slot.queryHint,
       query,
       score: entry?.score ?? null,
@@ -2127,15 +2358,18 @@ export function listImageSlotStatus(candidateId) {
       filename: onDisk ? filename : null,
       src: onDisk ? `/images/${filename}` : null,
       previewUrl: onDisk
-        ? `/api/candidates/${encodeURIComponent(p.id)}/images/file/${encodeURIComponent(filename)}`
+        ? `/api/candidates/${encodeURIComponent(p.id)}/images/file/${encodeURIComponent(filename)}?v=${encodeURIComponent(entry?.photoId || filename)}`
         : null,
       provider: entry?.provider || null,
       source,
       photoId: entry?.photoId || null,
       wiredFm: wiredFmForSlot(slot),
       missing: !onDisk,
+      _order: orderIndex(slot.sectionId) * 1000 + (Number(slot.index) || 0),
     };
   });
+  mapped.sort((a, b) => a._order - b._order || String(a.key).localeCompare(String(b.key)));
+  for (const s of mapped) delete s._order;
   return {
     photosEnabled: structureHasPhotosEnabled(candidateId),
     providerStatus: imageProvidersStatus(),
@@ -2396,7 +2630,18 @@ export function uploadImageSlot(candidateId, slotKey, body = {}) {
 
   const p = pathsFor(candidateId);
   mkdirSync(p.siteImages, { recursive: true });
-  const filename = `${slot.sectionId}-${slot.index}-upload.${decoded.ext}`;
+  const manifestBefore = loadManifest(candidateId);
+  const prior = manifestBefore.slots?.[slot.key] || null;
+  const stamp = Date.now().toString(36);
+  const filename = `${safeSlotKeyForFilename(slot.key)}-upload-${stamp}.${decoded.ext}`;
+  if (prior?.filename && prior.filename !== filename) {
+    try {
+      const oldAbs = path.join(p.siteImages, path.basename(String(prior.filename)));
+      if (existsSync(oldAbs)) unlinkSync(oldAbs);
+    } catch {
+      // best-effort cleanup
+    }
+  }
   writeFileSync(path.join(p.siteImages, filename), decoded.buffer);
 
   const alt =

@@ -100,10 +100,10 @@ const hasPlaceholderKey =
         {site.primaryCta}
       </button>
       {
-        hasPlaceholderKey && import.meta.env.DEV && (
-          <p class="text-xs text-muted">
-            Demo form: replace the Web3Forms key in{' '}
-            <code class="rounded bg-paper px-1">site-config.json</code> before launch.
+        hasPlaceholderKey && (
+          <p class="text-xs text-ink">
+            Web3Forms key is still a placeholder — form submissions will fail until you paste a real
+            key in site-config / Launch.
           </p>
         )
       }

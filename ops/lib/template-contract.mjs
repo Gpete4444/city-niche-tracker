@@ -38,9 +38,9 @@ function fmHasKey(fm, key) {
 /**
  * @param {Record<string,string>} files
  * @param {object} siteConfig
- * @param {{ mode?: 'homepage_first'|'full' }} opts
+ * @param {{ mode?: 'homepage_first'|'full', pageIds?: string[]|null }} opts
  */
-export function runTemplateContract(files, siteConfig, { mode = 'full' } = {}) {
+export function runTemplateContract(files, siteConfig, { mode = 'full', pageIds = null } = {}) {
   const contract = loadTemplateContract();
   const archetypeId = normalizeArchetype(siteConfig?.siteArchetype);
   const arch = getArchetype(archetypeId);
@@ -48,6 +48,7 @@ export function runTemplateContract(files, siteConfig, { mode = 'full' } = {}) {
   const errors = [];
   const warnings = [];
   const paths = Object.keys(files || {});
+  const wantsServices = !Array.isArray(pageIds) || !pageIds.length || pageIds.includes('services');
 
   for (const req of contract.sharedRequiredPages || []) {
     if (!files[req]) errors.push(`Missing required file: ${req}`);
@@ -72,10 +73,12 @@ export function runTemplateContract(files, siteConfig, { mode = 'full' } = {}) {
   const serviceNames = Array.isArray(siteConfig?.services) ? siteConfig.services : [];
 
   if (mode === 'full') {
-    if (archRules.requireServicePages || arch.requireServicePages) {
+    if (!wantsServices) {
+      // Structure excluded Services — do not require or warn on service MD count
+    } else if (archRules.requireServicePages || arch.requireServicePages) {
       if (serviceFiles.length < (archRules.minServices || arch.minServices || 1)) {
         errors.push(
-          `Type ${arch.typeLabel}: need service MD pages (got ${serviceFiles.length}, want ≥${archRules.minServices || arch.minServices})`,
+          `${arch.typeLabel}: need service MD pages (got ${serviceFiles.length}, want ≥${archRules.minServices || arch.minServices})`,
         );
       }
       for (const name of serviceNames) {
@@ -86,7 +89,7 @@ export function runTemplateContract(files, siteConfig, { mode = 'full' } = {}) {
       }
     } else if (serviceFiles.length > (archRules.maxServicePages ?? 1)) {
       warnings.push(
-        `Type ${arch.typeLabel}: expected ≤${archRules.maxServicePages ?? 1} service page(s); got ${serviceFiles.length}`,
+        `${arch.typeLabel}: expected ≤${archRules.maxServicePages ?? 1} service page(s); got ${serviceFiles.length}`,
       );
     }
 
@@ -95,11 +98,13 @@ export function runTemplateContract(files, siteConfig, { mode = 'full' } = {}) {
     if (locationFiles.length < minLoc || locationFiles.length > maxLoc) {
       warnings.push(`Locations: got ${locationFiles.length}, prefer ${minLoc}–${maxLoc}`);
     }
-  } else {
-    // homepage_first
-    if (serviceFiles.length && arch.id === 'single_service' && serviceFiles.length > 1) {
-      warnings.push('homepage_first Type B: more than one service file — trim before full build');
-    }
+  } else if (
+    wantsServices &&
+    serviceFiles.length &&
+    arch.id === 'single_service' &&
+    serviceFiles.length > 1
+  ) {
+    warnings.push('homepage_first Type B: more than one service file — trim before full build');
   }
 
   for (const [rel, markdown] of Object.entries(files || {})) {

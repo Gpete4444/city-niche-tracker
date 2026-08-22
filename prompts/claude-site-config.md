@@ -18,6 +18,12 @@ Also provide:
 - Phone (E.164): {{PHONE}}
 - Email: {{EMAIL}}
 - Service radius miles (optional): {{RADIUS_MILES}}
+- Street NAP (operator-approved — use exactly; never invent a different street or ZIP):
+  - street: {{ADDRESS_STREET}}
+  - city: {{ADDRESS_CITY}}
+  - state: {{ADDRESS_STATE}}
+  - zip: {{ADDRESS_ZIP}}
+  (If street is blank / "omit", omit the entire "address" object from JSON.)
 - Website type / siteArchetype: {{SITE_ARCHETYPE}}
   (multi_service = Type A multi-service local; single_service = Type B single-offer specialty)
 - Operator brand look (Colors & fonts in Rover) — use these brand hexes and fontTheme:
@@ -44,7 +50,7 @@ Return ONLY valid JSON matching this schema. No markdown fences, no commentary b
 
 Rules:
 1. Treat SERP / competitor claims as draft research, not verified facts beyond what DataForSEO already measured.
-2. Include "address" (street + zip) only when I provide a real street NAP — better for LocalBusiness schema. Never invent a street or postal code. Omit "geo" unless I provide coordinates.
+2. Include "address" (street + city + state + zip) only when Street NAP above provides a real street — copy those fields exactly. Never invent a street or postal code. Omit "geo" unless I provide coordinates. If street is blank / omit, omit "address" entirely.
 3. Omit "socialProof" unless I provide owner rating/licenses/reviews — Rover will seed defaults when empty. Do not invent review counts from SERP competitors.
 4. Prefer real municipalities for suburbs.
 5. "brand" hex colors: use the operator Colors & fonts values above (primary/accent/ink + paletteId). Avoid purple gradients and cream+terracotta clichés.

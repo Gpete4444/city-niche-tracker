@@ -335,9 +335,13 @@ function mapPackLabel(v) {
 export function buildFilterBrief(filters = {}) {
   const f = normalizeFilters(filters);
   let nichesLine;
-  if (f.requiredNiches.length) {
-    nichesLine = `- **Required niches (exclusive):** ${f.requiredNiches.join('; ')}
-- **Niche rule:** Every row’s Niche MUST be one of the Required niches only — do not substitute catalog alternatives. Include each required niche in ≥1 row when Max rows allows. Custom names are valid even if absent from the High-Ticket catalog.`;
+  if (f.requiredNiches.length && f.niches.length) {
+    nichesLine = `- **Required niches (must-include):** ${f.requiredNiches.join('; ')}
+- **Niches (suggested):** ${f.niches.join('; ')}
+- **Niche rule:** Hybrid — for each Required niche, emit ≥1 row whose Niche cell is that name **verbatim (exact match after trim)** when Max rows allows. Do not substitute catalog synonyms or rewordings. Fill remaining rows preferring Suggested niches (soft); you may still pick other High-Ticket catalog niches that match tiers/categories when the Suggested list is short. Required is never an exclusive lock. Custom / off-catalog Required names are valid as exact Niche text.`;
+  } else if (f.requiredNiches.length) {
+    nichesLine = `- **Required niches (must-include):** ${f.requiredNiches.join('; ')}
+- **Niche rule:** For each Required niche, emit ≥1 row whose Niche cell is that name **verbatim (exact match after trim)** when Max rows allows. Do not substitute catalog synonyms or rewordings. Fill remaining rows from the High-Ticket catalog (OPEN soft), honoring tiers/categories. Required is never an exclusive lock — do not restrict every row to Required names only. Custom / off-catalog Required names are valid as exact Niche text.`;
   } else if (f.niches.length) {
     nichesLine = `- **Niches (suggested):** ${f.niches.join('; ')}
 - **Niche rule:** Soft preference — prefer these niches when a strong city fit exists; you may still pick other High-Ticket catalog niches that match tiers/categories.`;

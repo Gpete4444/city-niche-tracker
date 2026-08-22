@@ -17,6 +17,7 @@ import {
   loadAcceptedSiteConfig,
   loadHomepageContentFromDisk,
   parseContentFileBlocks,
+  pruneFilesToStructure,
   validateContentBundle,
 } from './content-markdown.mjs';
 import {
@@ -702,17 +703,33 @@ export function getContentSpeechLint(candidateId) {
   }
   const draft = resolved.draft || getCandidateDetail(candidateId).contentDraft;
   const config = resolveSiteConfigWithArchetype(candidateId);
+  const pageIds = resolveStructurePageIds(candidateId);
+  const structureFiles = pruneFilesToStructure(resolved.files, {
+    pageIds,
+    siteConfig: config,
+    siteArchetype: config.siteArchetype,
+  });
   const { files, speechLint, seoLint, autoFix } = autoFixAndLintDraft(
     candidateId,
-    resolved.files,
+    structureFiles,
     config,
   );
+  const mode =
+    draft?._ops?.mode === 'full' || draft?._ops?.mode === 'homepage_first'
+      ? draft._ops.mode
+      : Object.keys(files).every((p) => p.startsWith('src/content/pages/'))
+        ? 'homepage_first'
+        : 'full';
+  const check = validateContentBundle(files, config, { mode, pageIds });
+  const contract = runTemplateContract(files, config, { mode, pageIds });
   const p = pathsFor(candidateId);
   const next = {
     ...draft,
     files,
     _ops: {
       ...(draft?._ops || {}),
+      check,
+      contract,
       speechLint,
       seoLint,
       autoFix,
@@ -795,17 +812,24 @@ export function pasteAgentContentDraft(candidateId, raw, { mode = 'homepage_firs
   const parsed = parseContentFileBlocks(extracted.textWithoutSidecar);
   const p = pathsFor(candidateId);
   const priorDraft = readJson(p.contentDraft);
-  const mergedFiles = {
-    ...(priorDraft?.files && typeof priorDraft.files === 'object' ? priorDraft.files : {}),
-    ...parsed,
-  };
+  const mergedFiles = pruneFilesToStructure(
+    {
+      ...(priorDraft?.files && typeof priorDraft.files === 'object' ? priorDraft.files : {}),
+      ...parsed,
+    },
+    {
+      pageIds,
+      siteConfig: config,
+      siteArchetype: config.siteArchetype,
+    },
+  );
   const { files, speechLint, seoLint, autoFix } = autoFixAndLintDraft(
     candidateId,
     mergedFiles,
     config,
   );
   const check = validateContentBundle(files, config, { mode, pageIds });
-  const contract = runTemplateContract(files, config, { mode });
+  const contract = runTemplateContract(files, config, { mode, pageIds });
   const socialProofMerge = ensureRoverSocialProofSeed(candidateId, config);
   writeJson(p.contentDraft, {
     files,
@@ -852,16 +876,21 @@ export function importContentDraftFromDisk(candidateId, { mode } = {}) {
   // Prefer explicit client mode, but never half-import when Structure expects more than homepage
   const resolvedMode = structureWantsFull ? 'full' : mode === 'full' ? 'full' : 'homepage_first';
   const parsed = loadHomepageContentFromDisk(resolvedMode);
+  const pruned = pruneFilesToStructure(parsed, {
+    pageIds,
+    siteConfig: config,
+    siteArchetype: config.siteArchetype,
+  });
   const { files, speechLint, seoLint, autoFix } = autoFixAndLintDraft(
     candidateId,
-    parsed,
+    pruned,
     config,
   );
   const check = validateContentBundle(files, config, {
     mode: resolvedMode,
     pageIds,
   });
-  const contract = runTemplateContract(files, config, { mode: resolvedMode });
+  const contract = runTemplateContract(files, config, { mode: resolvedMode, pageIds });
   const p = pathsFor(candidateId);
   writeJson(p.contentDraft, {
     files,

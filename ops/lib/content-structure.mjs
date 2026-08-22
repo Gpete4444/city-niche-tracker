@@ -216,8 +216,19 @@ function normalizeSelection(input = {}, registry = loadSectionRegistry()) {
     ? input.sections.map(String).filter((id) => sectionById.has(id))
     : registry.sections.filter((s) => s.defaultOn).map((s) => s.id);
 
+  const rank = homepageSectionRank(registry);
   for (const s of registry.sections) {
-    if (s.required && !sections.includes(s.id)) sections.push(s.id);
+    if (!s.required || sections.includes(s.id)) continue;
+    const target = rank.has(s.id) ? rank.get(s.id) : Number.POSITIVE_INFINITY;
+    let insertAt = sections.length;
+    for (let i = 0; i < sections.length; i += 1) {
+      const r = rank.has(sections[i]) ? rank.get(sections[i]) : Number.POSITIVE_INFINITY;
+      if (r > target) {
+        insertAt = i;
+        break;
+      }
+    }
+    sections.splice(insertAt, 0, s.id);
   }
 
   // Drop sections whose pages aren't selected
@@ -251,7 +262,7 @@ function normalizeSelection(input = {}, registry = loadSectionRegistry()) {
 
   return {
     pages,
-    sections,
+    sections: pinHomeSectionEnds(sections),
     photos,
     presetId: input.presetId || null,
   };
@@ -429,6 +440,17 @@ function homepageSectionRank(registry) {
   return new Map(order.map((id, i) => [id, i]));
 }
 
+/** Keep Hero first and Closing CTA last when present (VE reorder pins). */
+export function pinHomeSectionEnds(sectionIds) {
+  const list = (sectionIds || []).map(String).filter(Boolean);
+  const mid = list.filter((id) => id !== 'hero' && id !== 'cta');
+  const out = [];
+  if (list.includes('hero')) out.push('hero');
+  out.push(...mid);
+  if (list.includes('cta')) out.push('cta');
+  return out;
+}
+
 function sortSectionsForCatalog(sections, registry) {
   const rank = homepageSectionRank(registry);
   const pageRank = new Map((registry.pages || []).map((p, i) => [p.id, i]));
@@ -443,20 +465,15 @@ function sortSectionsForCatalog(sections, registry) {
   });
 }
 
+/** Astro homepage keys in selection order (no registry re-rank — VE reorder must stick). */
 function homepageAstroKeys(selection, registry) {
   const sectionById = new Map(registry.sections.map((s) => [s.id, s]));
-  const rank = homepageSectionRank(registry);
-  const keyed = [];
-  for (const id of selection.sections) {
+  const keys = [];
+  for (const id of pinHomeSectionEnds(selection.sections || [])) {
     const def = sectionById.get(id);
     if (!def?.astroKey) continue;
     if (!(def.pages || []).includes('home')) continue;
-    keyed.push({ id, astroKey: def.astroKey, rank: rank.has(id) ? rank.get(id) : 900 });
-  }
-  keyed.sort((a, b) => a.rank - b.rank || a.id.localeCompare(b.id));
-  const keys = [];
-  for (const row of keyed) {
-    if (!keys.includes(row.astroKey)) keys.push(row.astroKey);
+    if (!keys.includes(def.astroKey)) keys.push(def.astroKey);
   }
   return keys;
 }

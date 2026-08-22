@@ -1,111 +1,78 @@
 {
-  "businessName": "Company Brand Name",
-  "tagline": "Cabinet refinishing, refacing, and custom painting for Columbia, SC kitchens — remodeling done right. Free estimates.",
-  "domain": "domainfiller.com",
-  "niche": "Cabinet Refinishing & Remodeling",
-  "primaryCity": "Columbia",
-  "state": "SC",
+  "businessName": "Omaha Egress Window Pros",
+  "tagline": "Egress window installation in Omaha, NE — basement window cutting, window wells, and drainage grading. Free estimates.",
+  "domain": "omahaegresswindowpros.com",
+  "niche": "egress window installation",
+  "primaryCity": "Omaha",
+  "state": "NE",
   "targetSuburbs": [
-    "Cayce",
-    "Forest Acres",
-    "Irmo",
-    "Lexington",
-    "West Columbia"
+    "Bellevue",
+    "La Vista",
+    "Papillion",
+    "Fremont"
   ],
   "coverageAreas": [
     {
-      "name": "Columbia",
-      "state": "SC"
+      "name": "Omaha",
+      "state": "NE"
     },
     {
-      "name": "Batesburg-Leesville",
-      "state": "SC"
+      "name": "Bellevue",
+      "state": "NE"
     },
     {
-      "name": "Blythewood",
-      "state": "SC"
+      "name": "Blair",
+      "state": "NE"
     },
     {
-      "name": "Camden",
-      "state": "SC"
+      "name": "Fremont",
+      "state": "NE"
     },
     {
-      "name": "Cayce",
-      "state": "SC"
+      "name": "Gretna",
+      "state": "NE"
     },
     {
-      "name": "Dentsville",
-      "state": "SC"
+      "name": "La Vista",
+      "state": "NE"
     },
     {
-      "name": "Forest Acres",
-      "state": "SC"
+      "name": "Offutt AFB",
+      "state": "NE"
     },
     {
-      "name": "Irmo",
-      "state": "SC"
+      "name": "Papillion",
+      "state": "NE"
     },
     {
-      "name": "Lake Murray of Richland",
-      "state": "SC"
+      "name": "Plattsmouth",
+      "state": "NE"
     },
     {
-      "name": "Lexington",
-      "state": "SC"
+      "name": "Ralston",
+      "state": "NE"
     },
     {
-      "name": "Lugoff",
-      "state": "SC"
-    },
-    {
-      "name": "Oak Grove",
-      "state": "SC"
-    },
-    {
-      "name": "Red Bank",
-      "state": "SC"
-    },
-    {
-      "name": "Seven Oaks",
-      "state": "SC"
-    },
-    {
-      "name": "St. Andrews",
-      "state": "SC"
-    },
-    {
-      "name": "Sumter",
-      "state": "SC"
-    },
-    {
-      "name": "West Columbia",
-      "state": "SC"
-    },
-    {
-      "name": "White Knoll",
-      "state": "SC"
-    },
-    {
-      "name": "Woodfield",
-      "state": "SC"
+      "name": "Wahoo",
+      "state": "NE"
     }
   ],
   "serviceRadiusMiles": 30,
-  "phone": "+13852212770",
-  "email": "leads@service.com",
+  "phone": "+1 (531) 301-8697",
+  "email": "leads@omahaegresswindowpros.com",
   "web3FormsAccessKey": "YOUR_WEB3FORMS_ACCESS_KEY",
   "turnstileSiteKey": "",
   "primaryCta": "Get a Free Estimate",
-  "siteArchetype": "multi_service",
+  "siteArchetype": "single_service",
   "services": [
-    "Cabinet Refinishing",
-    "Kitchen Cabinet Remodeling",
-    "Cabinet Refacing",
-    "Custom Cabinet Painting & Staining",
-    "Cabinet Hardware & Hinge Upgrades",
-    "Built-In & Custom Cabinetry",
-    "Cabinet Color Matching & Consultation",
-    "Cabinet Repair & Restoration"
+    "Egress Window Installation",
+    "Basement Egress Window Cutting",
+    "Window Well Installation",
+    "Window Well Covers",
+    "Window Well Drainage & Grading",
+    "Egress Window Replacement",
+    "Code Compliance Consulting",
+    "Permit Assistance"
   ],
   "homepageServicesLimit": 8,
   "brand": {
@@ -125,7 +92,7 @@
     "licenses": [
       {
         "name": "Licensed & Insured",
-        "jurisdiction": "SC"
+        "jurisdiction": "NE"
       }
     ],
     "statistics": [
@@ -144,33 +111,33 @@
     ],
     "reviews": [
       {
-        "quote": "Price was way more affordable than the other quotes we got for kitchen cabinet remodeling. Still felt premium — clean jobsite, solid finish, and I'd hire them again without thinking twice.",
-        "author": "Dorothy P.",
+        "quote": "Honestly did not expect such a professional team. They showed up on time, explained every step, and the egress window installation turned out better than I pictured.",
+        "author": "Justin A.",
         "rating": 5,
         "source": "Google",
-        "date": "2026-08-08",
+        "date": "2026-08-01",
         "verified": true,
-        "location": "Columbia, SC"
+        "avatarUrl": "/images/review-avatars/m04.jpg",
+        "location": "Omaha, NE"
       },
       {
-        "quote": "Called Company Brand Name after a neighbor tip in Columbia. Super easy to deal with — clear answers, no runaround, and they actually cared about the details on our cabinet refinishing.",
-        "author": "Lisa T.",
+        "quote": "Called Omaha Egress Window Pros after a neighbor tip in Omaha. Super easy to deal with — clear answers, no runaround, and they actually cared about the details on our window well drainage & grading.",
+        "author": "Sandra R.",
         "rating": 5,
         "source": "Google",
-        "date": "2026-08-16",
+        "date": "2026-08-19",
         "verified": true,
-        "avatarUrl": "/images/review-avatars/f02.jpg",
-        "location": "Lexington, SC"
+        "avatarUrl": "/images/review-avatars/f04.jpg",
+        "location": "Bellevue, NE"
       },
       {
-        "quote": "Honestly did not expect such a professional team. They showed up on time, explained every step, and the custom cabinet painting & staining turned out better than I pictured.",
-        "author": "Richard W.",
+        "quote": "Price was way more affordable than the other quotes we got for window well installation. Still felt premium — clean jobsite, solid finish, and I'd hire them again without thinking twice.",
+        "author": "Michelle H.",
         "rating": 5,
         "source": "Google",
-        "date": "2026-07-29",
+        "date": "2026-08-10",
         "verified": true,
-        "avatarUrl": "/images/review-avatars/m02.jpg",
-        "location": "Cayce, SC"
+        "location": "Papillion, NE"
       }
     ]
   },
@@ -180,7 +147,7 @@
     "intro",
     "services",
     "whyChooseUs",
-    "process",
+    "offerProcess",
     "cost",
     "materials",
     "timeline",
@@ -193,12 +160,8 @@
     "faqs",
     "cta"
   ],
-  "address": {
-    "street": "",
-    "zip": ""
-  },
   "logo": {
     "src": "/images/logo.svg",
-    "alt": "Company Brand Name logo"
+    "alt": "Omaha Egress Window Pros logo"
   }
 }

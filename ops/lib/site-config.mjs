@@ -26,6 +26,7 @@ import {
   SITE_FONT_THEMES,
 } from '../../scripts/lib/site-fonts.mjs';
 import { mergeLocationPages, toCoverageAreas } from './geo-neighbors.mjs';
+import { getBusinessAddressPackage } from './address-screen.mjs';
 
 const ROOT = process.cwd();
 const SITE_CONFIG_PATH = path.join(ROOT, 'src', 'config', 'site-config.json');
@@ -202,6 +203,110 @@ export function defaultPlaceholderSocialProof(city = 'Local', state = '', opts =
 }
 
 const WEB3_PLACEHOLDER_RE = /^(REPLACE_WEB3FORMS_KEY|YOUR_WEB3FORMS_ACCESS_KEY)$/i;
+
+/** Launch-critical scalars: prefer draft when accepted still holds a placeholder. */
+const LAUNCH_MERGE_KEYS = [
+  'web3FormsAccessKey',
+  'domain',
+  'phone',
+  'email',
+  'turnstileSiteKey',
+  'businessName',
+];
+
+function isLaunchMergePlaceholder(key, value) {
+  const s = String(value ?? '').trim();
+  if (key === 'turnstileSiteKey') return !s;
+  if (!s) return true;
+  if (key === 'web3FormsAccessKey') {
+    return (
+      WEB3_PLACEHOLDER_RE.test(s) ||
+      /^REPLACE_/i.test(s) ||
+      /^YOUR_WEB3FORMS/i.test(s) ||
+      /^tbd\b/i.test(s)
+    );
+  }
+  if (key === 'domain') {
+    const d = s
+      .toLowerCase()
+      .replace(/^https?:\/\//, '')
+      .replace(/\/$/, '');
+    return !d || d === 'example.com' || d === 'www.example.com' || /^tbd\b/i.test(d);
+  }
+  if (key === 'phone') {
+    return (
+      /^\+?1?X+$/i.test(s.replace(/[\s\-().]/g, '')) ||
+      /X{4,}/i.test(s) ||
+      s === '+1XXXXXXXXXX'
+    );
+  }
+  if (key === 'email') {
+    return s === 'leads@example.com' || /^tbd\b/i.test(s) || /@example\.com$/i.test(s);
+  }
+  if (key === 'businessName') {
+    return looksTbd(s) || s === SITE_CONFIG_PLACEHOLDERS.businessName;
+  }
+  return false;
+}
+
+/**
+ * Merge accepted + draft for Launch UI / status: prefer draft when accepted is
+ * still a placeholder (e.g. Web3Forms key saved in step 4 after Accept).
+ */
+export function effectiveSiteConfigForLaunch(accepted, draft) {
+  const base = stripSiteConfigOps(accepted) || {};
+  const fromDraft = stripSiteConfigOps(draft);
+  if (!fromDraft) return { ...base };
+  const out = { ...base };
+  for (const key of LAUNCH_MERGE_KEYS) {
+    const draftVal = fromDraft[key];
+    const acceptedVal = base[key];
+    if (
+      !isLaunchMergePlaceholder(key, draftVal) &&
+      isLaunchMergePlaceholder(key, acceptedVal)
+    ) {
+      out[key] = draftVal;
+    }
+  }
+  return out;
+}
+
+/**
+ * When draft has a real Web3Forms key and accepted still has a placeholder,
+ * promote the key onto research accepted + template site-config.
+ */
+function promoteWeb3FormsKeyFromDraft(candidateId, draft) {
+  const key = String(draft?.web3FormsAccessKey ?? '').trim();
+  if (!key || isLaunchMergePlaceholder('web3FormsAccessKey', key)) return false;
+
+  const p = pathsFor(candidateId);
+  const acceptedRaw = readJson(p.siteConfig);
+  if (!acceptedRaw || typeof acceptedRaw !== 'object') return false;
+
+  const { _ops: prevOps, ...accepted } = acceptedRaw;
+  if (!isLaunchMergePlaceholder('web3FormsAccessKey', accepted.web3FormsAccessKey)) {
+    return false;
+  }
+
+  const nextAccepted = {
+    ...accepted,
+    web3FormsAccessKey: key,
+    _ops: {
+      ...(prevOps && typeof prevOps === 'object' ? prevOps : {}),
+      web3PromotedFromDraftAt: new Date().toISOString(),
+    },
+  };
+  writeJson(p.siteConfig, nextAccepted);
+
+  const template = readTemplateSiteConfig();
+  if (template && typeof template === 'object') {
+    backupTemplateSiteConfig();
+    mkdirSync(path.dirname(SITE_CONFIG_PATH), { recursive: true });
+    writeJson(SITE_CONFIG_PATH, { ...template, web3FormsAccessKey: key });
+  }
+
+  return true;
+}
 
 function writeJson(filePath, data) {
   mkdirSync(path.dirname(filePath), { recursive: true });
@@ -412,19 +517,51 @@ export function buildSiteConfigPrompt(candidateId, nap = {}) {
   const fontTheme = getFontTheme(nap.fontTheme || 'archivo-source');
   const md = readPromptFile('prompts/claude-site-config.md');
   const template = extractPromptTemplate(md);
+
+  let addrStreet = String(nap.addressStreet || nap.street || '').trim();
+  let addrCity = String(nap.addressCity || '').trim();
+  let addrState = String(nap.addressState || '')
+    .trim()
+    .toUpperCase();
+  let addrZip = String(nap.addressZip || nap.zip || '').trim();
+  const addrPkg = getBusinessAddressPackage(candidateId);
+  if (addrPkg?.skipped) {
+    addrStreet = '';
+    addrCity = '';
+    addrState = '';
+    addrZip = '';
+  } else if (!addrStreet && addrPkg?.selection) {
+    addrStreet = String(addrPkg.selection.street || '').trim();
+    addrCity = String(addrPkg.selection.city || '').trim();
+    addrState = String(addrPkg.selection.state || '')
+      .trim()
+      .toUpperCase();
+    addrZip = String(addrPkg.selection.zip || '').trim();
+  }
+
   const filled = template
     .replace('{{PASTE_APPROVED_CANDIDATE_JSON}}', JSON.stringify(pack, null, 2))
     .replace('{{DOMAIN}}', String(nap.domain || '').trim() || 'example.com')
-    .replace('{{BUSINESS_NAME}}', String(nap.businessName || '').trim() || (pack.niche ? `${pack.niche} Pros` : 'Business'))
-    .replace('{{PHONE}}', String(nap.phone || '').trim() || '+1XXXXXXXXXX')
     .replace(
-      '{{EMAIL}}',
-      publicLeadsEmail(nap.email, nap.domain) || 'leads@example.com',
+      '{{BUSINESS_NAME}}',
+      String(nap.businessName || '').trim() || (pack.niche ? `${pack.niche} Pros` : 'Business'),
     )
+    .replace('{{PHONE}}', String(nap.phone || '').trim() || '+1XXXXXXXXXX')
+    .replace('{{EMAIL}}', publicLeadsEmail(nap.email, nap.domain) || 'leads@example.com')
     .replace(
       '{{RADIUS_MILES}}',
       nap.radiusMiles != null && nap.radiusMiles !== '' ? String(nap.radiusMiles) : '40',
     )
+    .replace('{{ADDRESS_STREET}}', addrStreet || 'omit')
+    .replace(
+      '{{ADDRESS_CITY}}',
+      addrCity || String(pack.primaryCity || pack.city || '').trim() || 'omit',
+    )
+    .replace(
+      '{{ADDRESS_STATE}}',
+      addrState || String(pack.state || '').trim().toUpperCase() || 'omit',
+    )
+    .replace('{{ADDRESS_ZIP}}', addrZip || 'omit')
     .replace('{{SITE_ARCHETYPE}}', suggested)
     .replaceAll('{{PALETTE_ID}}', palette.id)
     .replaceAll('{{PALETTE_LABEL}}', palette.label)
@@ -439,6 +576,9 @@ export function buildSiteConfigPrompt(candidateId, nap = {}) {
     archetypes: listArchetypes(),
     paletteId: palette.id,
     fontTheme: fontTheme.id,
+    address: addrStreet
+      ? { street: addrStreet, city: addrCity, state: addrState, zip: addrZip }
+      : null,
   };
 }
 
@@ -792,6 +932,8 @@ export function updateSiteConfigDraft(candidateId, patch = {}, nap = {}) {
       email: nap.email || null,
     },
   });
+
+  promoteWeb3FormsKeyFromDraft(candidateId, draft);
 
   return {
     ok: true,

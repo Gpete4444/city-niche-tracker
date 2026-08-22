@@ -51,6 +51,15 @@ function setElementTip(el, text) {
   el.setAttribute('aria-label', raw);
 }
 
+/** Sync a table header select-all checkbox to visible row selection. */
+function syncHeaderSelectAll(el, { selectedCount, totalCount }) {
+  if (!el) return;
+  const total = totalCount || 0;
+  const selected = selectedCount || 0;
+  el.checked = total > 0 && selected === total;
+  el.indeterminate = selected > 0 && selected < total;
+}
+
 /** Keep in sync with scripts/lib/site-palettes.mjs */
 const FALLBACK_PALETTES = [
   {
@@ -172,12 +181,6 @@ function updatePaletteSwatches(paletteId) {
   spans.forEach((el, i) => {
     if (colors[i]) el.style.background = colors[i];
   });
-  const primary = document.getElementById('sc-edit-brand-primary');
-  const accent = document.getElementById('sc-edit-brand-accent');
-  const ink = document.getElementById('sc-edit-brand-ink');
-  if (primary) primary.value = palette.brand.primary;
-  if (accent) accent.value = palette.brand.accent;
-  if (ink) ink.value = palette.brand.ink;
 }
 
 async function ensurePalettes() {
@@ -371,6 +374,12 @@ const state = {
   siteConfigSoftDone: {},
   /** Sticky Website → Prepare/preview progress (survives accordion collapse + re-render). */
   assembleProgress: { visible: false, detail: '' },
+  /** Site-Config → Find addresses in-flight (survives re-render). */
+  baSearchBusy: false,
+  /** 'find' | 'refresh' while baSearchBusy */
+  baSearchMode: 'find',
+  /** Cached Apify prepaid usage from last Find or /api/apify/usage */
+  apifyPlanUsage: null,
   /** Keep Prepare step open while Prepare preview is running. */
   preparePreviewHold: false,
   /** @type {Record<string, boolean>} candidateId → Twilio ranking number provisioned */
@@ -445,6 +454,8 @@ async function api(path, options = {}) {
     if (data.contract) err.contract = data.contract;
     if (data.seoLint) err.seoLint = data.seoLint;
     if (data.speechLint) err.speechLint = data.speechLint;
+    if (data.twilioSid) err.twilioSid = data.twilioSid;
+    if (data.e164) err.e164 = data.e164;
     throw err;
   }
   return data;
@@ -1650,6 +1661,10 @@ function renderList() {
     tbody.innerHTML = `<tr><td colspan="${CANDIDATE_TABLE_COLS.length}" class="muted">${esc(
       emptyStateForFilter(),
     )}</td></tr>`;
+    syncHeaderSelectAll(document.getElementById('candidate-select-all'), {
+      selectedCount: 0,
+      totalCount: 0,
+    });
     updateCandidateSelectionCount();
     renderActions();
     return;
@@ -1843,6 +1858,11 @@ function renderList() {
     })
     .join('');
 
+  syncHeaderSelectAll(document.getElementById('candidate-select-all'), {
+    selectedCount: list.filter((c) => state.selectedIds.has(c.id)).length,
+    totalCount: list.length,
+  });
+
   document.getElementById('candidate-select-all')?.addEventListener('change', (e) => {
     const on = e.target.checked;
     for (const c of list) {
@@ -1904,6 +1924,10 @@ function renderList() {
       const id = cb.dataset.id;
       if (cb.checked) state.selectedIds.add(id);
       else state.selectedIds.delete(id);
+      syncHeaderSelectAll(document.getElementById('candidate-select-all'), {
+        selectedCount: list.filter((c) => state.selectedIds.has(c.id)).length,
+        totalCount: list.length,
+      });
       updateCandidateSelectionCount();
       if (state.selectedIds.size > 1) {
         renderList();
@@ -2127,6 +2151,52 @@ function setAdsMode(mode) {
     /* ignore */
   }
   return next;
+}
+
+function readBaViewpointMap() {
+  try {
+    const raw = localStorage.getItem('ops.baViewpoint');
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function getBaViewpoint(stepKey = 'home') {
+  const key = String(stepKey || 'home').trim() || 'home';
+  const map = readBaViewpointMap();
+  return map[key] === 'outside' ? 'outside' : 'inside';
+}
+
+function setBaViewpoint(stepKey, viewpoint) {
+  const key = String(stepKey || 'home').trim() || 'home';
+  const next = viewpoint === 'outside' ? 'outside' : 'inside';
+  const map = { ...readBaViewpointMap(), [key]: next };
+  try {
+    localStorage.setItem('ops.baViewpoint', JSON.stringify(map));
+  } catch {
+    /* ignore */
+  }
+  return next;
+}
+
+function baViewpointSegmentHtml(stepKey = 'home') {
+  const key = String(stepKey || 'home').trim() || 'home';
+  const mode = getBaViewpoint(key);
+  const tip =
+    'Inside = camera indoors at the service feature · Outside = camera outdoors (foundation / well / exterior). Default Inside.';
+  return `<div class="ads-mode-segment ba-viewpoint-segment" role="group" aria-label="Photo viewpoint" data-ba-viewpoint-step="${esc(
+    key,
+  )}" ${tipAttr(tip)}>
+    <button type="button" class="ads-mode-seg${
+      mode === 'inside' ? ' active' : ''
+    }" data-ba-viewpoint="inside">Inside</button>
+    <button type="button" class="ads-mode-seg${
+      mode === 'outside' ? ' active' : ''
+    }" data-ba-viewpoint="outside">Outside</button>
+  </div>`;
 }
 
 function getForceSerp() {
@@ -3580,14 +3650,49 @@ function siteConfigAddressFromForm(primaryCity, state) {
   };
 }
 
+/** Brand from Look controls + existing draft (no hex inputs on step 4). */
+function siteConfigBrandPatchFromForm(existingBrand = {}) {
+  const prev = existingBrand && typeof existingBrand === 'object' ? existingBrand : {};
+  const paletteId =
+    document.getElementById('sc-brand-palette')?.value?.trim() || prev.paletteId || '';
+  const fontTheme =
+    document.getElementById('sc-font-theme')?.value?.trim() || prev.fontTheme || '';
+  const palette = getPalettes().find((p) => p.id === paletteId);
+  return {
+    paletteId,
+    fontTheme,
+    primary: palette?.brand?.primary || prev.primary || '',
+    accent: palette?.brand?.accent || prev.accent || '',
+    ink: palette?.brand?.ink || prev.ink || '',
+  };
+}
+
 function saveSiteConfigNapFromForm() {
   const prev = siteConfigNapFromLocal();
+  const ba = state.detail?.businessAddress?.selection;
   const nap = {
     domain: document.getElementById('sc-domain')?.value?.trim() || prev.domain || '',
     businessName: document.getElementById('sc-business')?.value?.trim() || prev.businessName || '',
     phone: document.getElementById('sc-phone')?.value?.trim() || prev.phone || '',
     email: document.getElementById('sc-email')?.value?.trim() || prev.email || '',
     radiusMiles: document.getElementById('sc-radius')?.value?.trim() || prev.radiusMiles || '40',
+    addressStreet:
+      document.getElementById('sc-street')?.value?.trim() ||
+      prev.addressStreet ||
+      ba?.street ||
+      '',
+    addressCity:
+      document.getElementById('sc-addr-city')?.value?.trim() ||
+      prev.addressCity ||
+      ba?.city ||
+      '',
+    addressState:
+      document.getElementById('sc-addr-state')?.value?.trim() ||
+      prev.addressState ||
+      ba?.state ||
+      '',
+    addressZip:
+      document.getElementById('sc-zip')?.value?.trim() || prev.addressZip || ba?.zip || '',
     paletteId:
       document.getElementById('sc-brand-palette')?.value?.trim() || prev.paletteId || 'slate-gold',
     fontTheme:
@@ -3703,6 +3808,160 @@ function siteConfigServicesChoiceHtml({
   </div>`;
 }
 
+const BA_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+function baFormatUsd(n) {
+  if (n == null || Number.isNaN(Number(n))) return '—';
+  const v = Number(n);
+  return `$${v.toFixed(v < 0.1 && v > 0 ? 4 : 2)}`;
+}
+
+function baApifyCostLabel(cost, stats) {
+  if (cost?.cacheHit || (cost?.apifyEstUsd === 0 && !cost?.apifyUsd)) {
+    return '$0 (cache)';
+  }
+  if (cost?.apifyUsd != null && Number(cost.apifyUsd) > 0) {
+    return baFormatUsd(cost.apifyUsd);
+  }
+  const est =
+    cost?.apifyEstUsd != null
+      ? Number(cost.apifyEstUsd)
+      : stats?.apifyReturned
+        ? Number(stats.apifyReturned) * Number(cost?.apifyRatePerListing || 0.00145)
+        : null;
+  if (est == null || Number.isNaN(est)) return '—';
+  const n = cost?.listingsForApifyEst ?? stats?.apifyReturned;
+  const rate = Number(cost?.apifyRatePerListing ?? 0.00145);
+  return `est. ${baFormatUsd(est)}${n != null ? ` (${n} × $${rate}/ea)` : ''}`;
+}
+
+function baPlanBarHtml(plan) {
+  if (!plan?.ok) {
+    return plan?.error
+      ? `<div class="muted small">Apify plan: ${esc(plan.error)}</div>`
+      : '';
+  }
+  const used = Number(plan.monthlyUsageUsd);
+  const max = Number(plan.maxMonthlyUsageUsd);
+  const rem = plan.remainingUsd;
+  if (!Number.isFinite(used) || !Number.isFinite(max) || max <= 0) {
+    return `<div class="muted small">Apify plan: used ${baFormatUsd(used)}</div>`;
+  }
+  const pct = Math.min(100, Math.round((used / max) * 100));
+  return `<div class="ba-plan-usage" style="margin-top:0.35rem">
+    <div class="muted small">Apify prepaid: <strong>${baFormatUsd(used)}</strong> used · <strong>${baFormatUsd(
+      rem,
+    )}</strong> left of ${baFormatUsd(max)} (${pct}%)</div>
+    <div class="job-progress-track" style="height:6px;margin-top:0.25rem"><div class="job-progress-bar" style="width:${pct}%;animation:none"></div></div>
+  </div>`;
+}
+
+/** Readable Find funnel + cost for Last search + Find complete modal. */
+function baSearchReportBodyHtml(pkg, { title = 'Last search', failed = false } = {}) {
+  const stats = pkg?.lastSearchStats || {};
+  const cost = pkg?.lastSearchCost || {};
+  const query = pkg?.lastSearchQuery || {};
+  const plan = pkg?.apifyPlanUsage || state.apifyPlanUsage || null;
+  const kind = pkg?.lastSearchErrorKind || null;
+  const cacheSize = Number(stats.cacheSize ?? pkg?.listingCache?.listings?.length ?? 0);
+  const apifyReturned = Number(stats.apifyReturned ?? 0);
+  const considered = Number(stats.considered ?? stats.listingsIn ?? 0);
+  const skipped = Number(stats.skippedAlreadyScreened ?? 0);
+  const skippedUsed = Number(stats.skippedAlreadyUsed ?? 0);
+  const localRejects = Number(stats.localRejects ?? 0);
+  const places = Number(stats.placesCalls ?? 0);
+  const clean = Number(stats.shortlist ?? 0);
+  const added = Number(stats.added ?? 0);
+  const total = Number(stats.shortlistTotal ?? pkg?.shortlist?.length ?? 0);
+  const unscreened = Number(stats.unscreenedRemaining ?? 0);
+  const usedInCity = Number(stats.usedAddressesInCity ?? pkg?.usedAddressesSummary ?? 0);
+
+  const rejectEntries = Object.entries(stats.rejectTallies || {}).sort((a, b) => b[1] - a[1]);
+  const rejectLines = rejectEntries
+    .slice(0, 8)
+    .map(([k, n]) => `${esc(k)} (${n})`)
+    .join(' · ');
+
+  const placesTotal =
+    cost?.apifyUsd != null && Number(cost.apifyUsd) > 0
+      ? Number(cost.apifyUsd) + (Number(cost.placesEstUsd) || 0)
+      : (Number(cost.apifyEstUsd) || 0) + (Number(cost.placesEstUsd) || 0);
+
+  const loopnetLine = stats.cacheHit
+    ? `LoopNet: city cache · ${cacheSize} listings · ${skipped} already screened · ${considered} considered`
+    : `LoopNet: ${apifyReturned} returned · ${considered} considered${
+        skipped ? ` · ${skipped} already screened` : ''
+      }`;
+
+  const face = `<div class="ba-search-face" style="margin-top:0.35rem">
+    <div>${esc(loopnetLine)}${
+      skippedUsed ? ` · <strong>${skippedUsed}</strong> already used by another candidate` : ''
+    }</div>
+    <div>Places: <strong>${places}</strong> lookups · <strong>${localRejects}</strong> local rejects (no Maps)</div>
+    <div>Result: <strong>${clean}</strong> clean · <strong>${added}</strong> new · <strong>${total}</strong> recommended${
+      unscreened > 0 ? ` · ${unscreened} still unscreened` : ''
+    }${usedInCity > 0 ? ` · ${usedInCity} claimed in city` : ''}</div>
+    <div style="margin-top:0.25rem">Cost: Apify ${baApifyCostLabel(cost, stats)} · Places est. ${baFormatUsd(
+      cost.placesEstUsd,
+    )} · Total ~${baFormatUsd(placesTotal || cost.totalEstUsd)}</div>
+  </div>`;
+
+  const billingHint =
+    kind === 'apify_billing'
+      ? `<p style="margin:0.45rem 0 0">Apify blocked this run. Add credit at <a href="https://console.apify.com/billing/subscription" target="_blank" rel="noopener">Apify billing</a>, then retry. Home paste / Skip still work.</p>`
+      : kind === 'apify_config'
+        ? `<p style="margin:0.45rem 0 0">Add <code>APIFY_TOKEN</code>, <code>APIFY_LOOPNET_ACTOR_ID</code>, and <code>GOOGLE_MAPS_API_KEY</code> to <code>.env</code>, restart Rover, then retry.</p>`
+        : kind === 'cache_exhausted'
+          ? `<p style="margin:0.45rem 0 0">City LoopNet cache has no more free candidates (screened or already used). Use <strong>Refresh LoopNet</strong> to pull new listings (costs Apify).</p>`
+          : '';
+
+  const details = `<details class="narrative-raw" style="margin-top:0.45rem">
+    <summary class="muted small">Technical details</summary>
+    <div class="muted small" style="margin-top:0.35rem">
+      Queried: <strong>${esc(
+        query.location || [pkg?.city, pkg?.state].filter(Boolean).join(', ') || '—',
+      )}</strong>
+      ${query.locationSlug ? ` · slug <code>${esc(query.locationSlug)}</code>` : ''}
+      ${query.actorId ? ` · actor <code>${esc(query.actorId)}</code>` : ''}
+      ${pkg?.cityCacheKey ? ` · city cache <code>${esc(pkg.cityCacheKey)}</code>` : ''}
+    </div>
+    ${
+      Array.isArray(query.searchUrls) && query.searchUrls.length
+        ? `<div class="muted small" style="margin-top:0.2rem">URLs: ${query.searchUrls
+            .map((u) => `<code>${esc(u)}</code>`)
+            .join(' · ')}</div>`
+        : ''
+    }
+    ${
+      rejectLines
+        ? `<div class="muted small" style="margin-top:0.25rem">Reject tallies: ${rejectLines}</div>`
+        : ''
+    }
+    ${
+      cost.apifyRunId
+        ? `<div class="muted small" style="margin-top:0.2rem"><a href="https://console.apify.com/view/runs/${esc(
+            cost.apifyRunId,
+          )}" target="_blank" rel="noopener">Apify run</a></div>`
+        : ''
+    }
+    ${cost.note ? `<div class="muted small" style="margin-top:0.2rem">${esc(cost.note)}</div>` : ''}
+    ${baPlanBarHtml(plan)}
+  </details>`;
+
+  return `<div class="callout ${failed ? 'danger' : 'ok'}" style="margin-top:0.75rem">
+    <strong>${esc(title)}</strong>
+    ${face}
+    ${billingHint}
+    ${
+      pkg?.lastSearchError
+        ? `<p class="muted small" style="margin:0.45rem 0 0">${esc(pkg.lastSearchError)}</p>`
+        : ''
+    }
+    ${details}
+    <div class="muted small" style="margin-top:0.35rem">${esc(pkg?.lastSearchAt || '')}</div>
+  </div>`;
+}
+
 function renderSiteConfig() {
   ensurePalettes().catch(() => {});
   ensureFontThemes().catch(() => {});
@@ -3722,6 +3981,8 @@ function renderSiteConfig() {
     fontTheme:
       (draft || accepted)?.brand?.fontTheme || nap.fontTheme || 'archivo-source',
   };
+  const baPkg = d?.businessAddress;
+  const baSel = baPkg?.selection;
   const stepDone = {
     details: Boolean(accepted) || Boolean(String(nap.domain || '').trim() && String(nap.businessName || '').trim()),
     look:
@@ -3729,54 +3990,47 @@ function renderSiteConfig() {
       Boolean((draft || accepted)?.brand?.fontTheme) ||
       Boolean((draft || accepted)?.brand?.paletteId) ||
       Boolean(nap.paletteId || nap.fontTheme),
-    paste: Boolean(accepted),
-    serviceArea: Boolean(
-      accepted &&
-        (Array.isArray(accepted.coverageAreas) && accepted.coverageAreas.length >= 2
-          ? true
-          : Boolean(d?.meta?.lastServiceAreaAt)),
-    ),
+    address:
+      Boolean(accepted?.address?.street) ||
+      Boolean(baSel?.street) ||
+      Boolean(baPkg?.skipped) ||
+      Boolean(d?.meta?.businessAddressStatus === 'skipped'),
+    paste: Boolean(draft) || Boolean(accepted),
+    // Explicit save only — Claude-seeded coverageAreas do not complete this step.
+    serviceArea: Boolean(accepted && d?.meta?.lastServiceAreaAt),
+    // Provision or Skip only — a real NAP phone from Claude does not complete this step.
     phone: Boolean(
       accepted &&
         (isSoftDone('siteConfigSoftDone', 'phone') ||
           state.sitePhoneProvisioned?.[d?.id] ||
-          Boolean(d?.meta?.phoneSkippedAt) ||
-          (accepted.phone && !isLaunchPhonePlaceholder(accepted.phone))),
+          Boolean(d?.meta?.phoneSkippedAt)),
     ),
   };
   const detailsDone = stepDone.details || isSoftDone('siteConfigSoftDone', 'details');
   const lookDone = stepDone.look || isSoftDone('siteConfigSoftDone', 'look');
+  const addressDone = stepDone.address || isSoftDone('siteConfigSoftDone', 'address');
   const pasteDone = stepDone.paste || isSoftDone('siteConfigSoftDone', 'paste');
   const servicesDone =
     Boolean(accepted) || isSoftDone('siteConfigSoftDone', 'services');
   const serviceAreaDone =
-    Boolean(
-      accepted &&
-        (Array.isArray(accepted.coverageAreas) && accepted.coverageAreas.length >= 2
-          ? true
-          : Boolean(d?.meta?.lastServiceAreaAt)),
-    ) || isSoftDone('siteConfigSoftDone', 'service-area');
-  const phoneDone = Boolean(
-    accepted &&
-      (isSoftDone('siteConfigSoftDone', 'phone') ||
-        state.sitePhoneProvisioned?.[d?.id] ||
-        Boolean(d?.meta?.phoneSkippedAt) ||
-        (accepted.phone && !isLaunchPhonePlaceholder(accepted.phone))),
-  );
-  // Forward-only: 1 look → 2 details → 3 paste → 4 services → 5 service-area → 6 phone
+    stepDone.serviceArea || isSoftDone('siteConfigSoftDone', 'service-area');
+  const phoneDone = stepDone.phone;
+  // Forward-only: 1 look → 2 address → 3 details → 4 paste → 5 services → 6 service-area → 7 phone
   const durableCurrent = !lookDone
     ? 'look'
-    : !detailsDone
-      ? 'details'
-      : !pasteDone
-        ? 'paste'
-        : !servicesDone
-          ? 'services'
-          : !serviceAreaDone
-            ? 'service-area'
-            : !phoneDone
-              ? 'phone'
-              : null;
+    : !addressDone
+      ? 'address'
+      : !detailsDone
+        ? 'details'
+        : !pasteDone
+          ? 'paste'
+          : !servicesDone
+            ? 'services'
+            : !serviceAreaDone
+              ? 'service-area'
+              : !phoneDone
+                ? 'phone'
+                : null;
   const currentId = resolvePanelCurrent('siteConfigSoftCurrent', durableCurrent);
   if (state.siteConfigFollowCurrent !== currentId) {
     state.siteConfigOpenStep = currentId;
@@ -3788,7 +4042,7 @@ function renderSiteConfig() {
   parts.push(
     panelHowToHtml({
       label: 'Site config',
-      info: '1 Colors & fonts → 2 Business details → 3 Paste/Accept → 4 Review services → 5 Service area → 6 Provision phone → Content.',
+      info: '1 Colors & fonts → 2 Address → 3 Business details → 4 Paste & edit draft → 5 Review services & Accept → 6 Service area → 7 Provision phone → Content.',
     }),
   );
 
@@ -3831,7 +4085,9 @@ function renderSiteConfig() {
   }
 
   const lockedUntilAccept =
-    '<p class="muted small">Locked until you <strong>Accept</strong> site-config in step 3.</p>';
+    '<p class="muted small">Locked until you <strong>Accept</strong> site-config in Review services (step 5).</p>';
+  const lockedUntilDraft =
+    '<p class="muted small">Locked until you <strong>Load draft</strong> in Paste Claude’s reply (step 4).</p>';
 
   parts.push(
     contentStepHtml({
@@ -3841,7 +4097,7 @@ function renderSiteConfig() {
       done: lookDone,
       open: openId === 'look',
       current: currentId === 'look' && !lookDone,
-      info: 'Pick a brand palette and a site-wide text font first. Apply saves the look (or remembers it until Load draft), then continue to Business details → Copy.',
+      info: 'Pick a brand palette and a site-wide text font first. Apply saves the look, then continue to Address → Business details → Copy.',
       bodyHtml: `
         <h4>Site colors</h4>
         <div class="site-config-palette">
@@ -3871,15 +4127,230 @@ function renderSiteConfig() {
     }),
   );
 
+  const addrCity =
+    baSel?.city ||
+    nap.addressCity ||
+    pack?.primaryCity ||
+    pack?.city ||
+    (draft || accepted)?.primaryCity ||
+    '';
+  const addrState =
+    baSel?.state ||
+    nap.addressState ||
+    pack?.state ||
+    (draft || accepted)?.state ||
+    '';
+  const shortlist = Array.isArray(baPkg?.shortlist) ? baPkg.shortlist : [];
+  const baStats = baPkg?.lastSearchStats || null;
+  const baErrorKind = baPkg?.lastSearchErrorKind || null;
+  const baSearchFailed =
+    Boolean(baPkg?.lastSearchAt) &&
+    (baPkg?.status === 'empty_search' ||
+      baPkg?.status === 'error' ||
+      baErrorKind === 'apify_billing' ||
+      baErrorKind === 'apify_config' ||
+      baErrorKind === 'cache_exhausted' ||
+      (shortlist.length === 0 && (baStats?.listingsIn != null || baPkg?.lastSearchError)));
+
+  const baFailureTitle =
+    baErrorKind === 'apify_billing'
+      ? 'Apify usage limit'
+      : baErrorKind === 'apify_config'
+        ? 'Find not configured'
+        : baErrorKind === 'cache_exhausted'
+          ? 'Cache exhausted'
+          : baSearchFailed
+            ? 'Find note'
+            : 'Last search';
+
+  const baCacheSize = Number(
+    baStats?.cacheSize ?? baPkg?.listingCache?.listings?.length ?? 0,
+  );
+  const baCacheExhausted =
+    baErrorKind === 'cache_exhausted' ||
+    (baCacheSize > 0 &&
+      baStats?.unscreenedRemaining != null &&
+      Number(baStats.unscreenedRemaining) === 0);
+
+  const lastSearchReportHtml = baPkg?.lastSearchAt
+    ? baSearchReportBodyHtml(baPkg, { title: baFailureTitle, failed: baSearchFailed })
+    : baPlanBarHtml(baPkg?.apifyPlanUsage || state.apifyPlanUsage);
+
+  if (!state.apifyPlanUsage && !baPkg?.apifyPlanUsage && !state._apifyUsageAttempted) {
+    state._apifyUsageAttempted = true;
+    api('/api/apify/usage')
+      .then((u) => {
+        if (u) {
+          state.apifyPlanUsage = u;
+          if (document.getElementById('ba-find-addresses')) renderDetail();
+        }
+      })
+      .catch(() => {});
+  }
+
+  const shortlistHtml = shortlist.length
+    ? `<div class="ba-shortlist" style="margin-top:0.75rem">
+        <p style="margin:0 0 0.4rem"><strong>Recommended addresses</strong>
+          <span class="muted small">(${shortlist.length} — kept across Finds; newest uniques first)</span>
+        </p>
+        <div style="display:flex;flex-direction:column;gap:0.5rem">
+        ${shortlist
+          .map((row, i) => {
+            const checks = Array.isArray(row.checks)
+              ? row.checks
+              : [
+                  { pass: true, label: 'Single street number (not a numeric range)' },
+                  ...(row.propertyType
+                    ? [{ pass: true, label: `Property type allowed: ${row.propertyType}` }]
+                    : []),
+                  { pass: true, label: `ZIP present (${row.zip || '—'})` },
+                  {
+                    pass: true,
+                    label: 'Places — no OPERATIONAL business at this street number',
+                  },
+                  ...(row.suite
+                    ? [{ pass: null, label: `Suggested suite ${row.suite} (NAP-friendly stub)` }]
+                    : []),
+                  {
+                    pass: null,
+                    label: `Shortlist rank #${i + 1} of up to 25 (accumulated recommendations)`,
+                  },
+                ];
+            const checkItems = checks
+              .map((c) => {
+                const mark = c.pass === true ? '✓' : c.pass === false ? '✗' : '·';
+                return `<li><span class="muted">${mark}</span> ${esc(c.label || '')}</li>`;
+              })
+              .join('');
+            return `<div class="callout" style="margin:0;padding:0.65rem 0.75rem">
+            <div style="display:flex;flex-wrap:wrap;gap:0.5rem;align-items:flex-start;justify-content:space-between">
+              <div>
+                <strong>${esc(row.street)}${row.suite ? `, ${esc(row.suite)}` : ''}</strong>
+                <div class="muted small">${esc(row.city)}, ${esc(row.state)} ${esc(row.zip)}${
+                  row.propertyType ? ` · ${esc(row.propertyType)}` : ''
+                }${row.foundAt ? ` · found ${esc(String(row.foundAt).slice(0, 10))}` : ''}</div>
+                <div class="muted small" style="margin-top:0.25rem">
+                  <a href="${esc(row.mapsUrl || '#')}" target="_blank" rel="noopener">Maps</a>
+                  ·
+                  <a href="${esc(row.streetViewUrl || '#')}" target="_blank" rel="noopener">Street View</a>
+                </div>
+                <details class="narrative-raw lint-findings" style="margin-top:0.4rem">
+                  <summary><strong>How chosen</strong></summary>
+                  <ul class="speech-lint-list" style="margin:0.35rem 0 0">${checkItems}</ul>
+                </details>
+              </div>
+              <button type="button" class="btn primary ba-use-addr" data-ba-index="${i}" data-tip="Use this address in Business details">Use this</button>
+            </div>
+          </div>`;
+          })
+          .join('')}
+        </div>
+      </div>`
+    : '';
+
+  const baBusy = Boolean(state.baSearchBusy);
+  const baBusyMode = state.baSearchMode || 'find';
+  const baProgressHtml = baBusy
+    ? `<div id="ba-search-progress" class="job-progress" aria-live="polite" style="margin-top:0.65rem">
+        <div class="job-progress-track"><div class="job-progress-bar"></div></div>
+        <p class="job-progress-label">${
+          baBusyMode === 'refresh' ? 'Refreshing LoopNet…' : 'Finding addresses…'
+        }</p>
+        <p class="job-progress-detail">${
+          baBusyMode === 'refresh'
+            ? `Pulling new LoopNet listings for ${esc(addrCity || 'city')}${
+                addrState ? `, ${esc(addrState)}` : ''
+              } (Apify billable), then screening with Places.`
+            : `Continuing from LoopNet cache when available, then screening with Places for ${esc(
+                addrCity || 'city',
+              )}${addrState ? `, ${esc(addrState)}` : ''}. Cache hits skip Apify.`
+        }</p>
+      </div>`
+    : '';
+
+  const selectedBanner = baSel
+    ? `<div class="callout" style="margin-top:0.5rem"><strong>Selected:</strong> ${esc(
+        baSel.street,
+      )}, ${esc(baSel.city)}, ${esc(baSel.state)} ${esc(baSel.zip)}</div>`
+    : baPkg?.skipped
+      ? `<div class="callout" style="margin-top:0.5rem">Address skipped — street left blank for site-config.</div>`
+      : '';
+
+  parts.push(
+    contentStepHtml({
+      id: 'address',
+      num: 2,
+      title: 'Business address',
+      done: addressDone,
+      open: openId === 'address' || baBusy,
+      current: currentId === 'address' && !addressDone,
+      info: `Find a clean commercial street in ${esc(
+        addrCity || 'your city',
+      )} (or paste home / skip). Selection pre-fills Business details.`,
+      bodyHtml: `
+        <p class="disc-tool-blurb">Default: commercial finder for <strong>${esc(
+          addrCity || 'city',
+        )}${addrState ? `, ${esc(addrState)}` : ''}</strong>. LoopNet inventory, Places screens, and <strong>used addresses</strong> are shared across candidates in this city — Find will not recommend a street you already claimed. Re-Find continues from city cache (Apify $0); <strong>Refresh LoopNet</strong> re-scrapes (billable).</p>
+        ${
+          baPkg?.cityCacheKey || (addrCity && addrState)
+            ? `<p class="muted small" style="margin:0.35rem 0 0">City cache: <code>${esc(
+                baPkg?.cityCacheKey ||
+                  `${String(addrCity).toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${String(addrState)
+                    .toLowerCase()
+                    .slice(0, 2)}`,
+              )}</code>${
+                baPkg?.usedAddressesSummary
+                  ? ` · ${Number(baPkg.usedAddressesSummary)} address(es) already claimed`
+                  : ''
+              }</p>`
+            : ''
+        }
+        ${selectedBanner}
+        <div class="narrative-actions" style="flex-wrap:wrap;gap:0.5rem;align-items:center;margin-top:0.5rem">
+          <button type="button" class="btn${baCacheExhausted ? '' : ' primary'}" id="ba-find-addresses" data-tip="Search for unused commercial addresses in this city. Free if we already have a recent listing list." ${
+            baBusy || !(ready || f.hasApproved) ? 'disabled' : ''
+          }${baBusy ? ' aria-busy="true"' : ''}>Find addresses</button>
+          <button type="button" class="btn${baCacheExhausted ? ' primary' : ''}" id="ba-refresh-loopnet" data-tip="Download a fresh listing list (costs money), then look for new unused addresses." ${
+            baBusy || !(ready || f.hasApproved) ? 'disabled' : ''
+          }>Refresh LoopNet</button>
+          <button type="button" class="btn" id="ba-show-home" data-tip="Use your home street instead of a commercial listing." ${
+            baBusy ? 'disabled' : ''
+          }>Use my home address</button>
+          <button type="button" class="btn" id="ba-skip-address" data-tip="Continue without a business street address." ${
+            baBusy ? 'disabled' : ''
+          }>Skip address</button>
+        </div>
+        ${baProgressHtml}
+        <div id="ba-home-panel" class="hidden" style="margin-top:0.65rem">
+          <label style="display:block">
+            <span class="muted small">Home street (include city, state, ZIP)</span>
+            <input id="ba-home-line" type="text" placeholder="123 Main St, ${esc(
+              addrCity || 'City',
+            )}, ${esc(addrState || 'ST')} 00000" style="width:100%;margin-top:0.25rem" />
+          </label>
+          <div class="narrative-actions" style="justify-content:flex-end;margin-top:0.4rem">
+            <button type="button" class="btn primary" id="ba-save-home">Save address</button>
+          </div>
+        </div>
+        ${lastSearchReportHtml}
+        ${shortlistHtml}`,
+    }),
+  );
+
+  const preStreet = baSel?.street || nap.addressStreet || '';
+  const preZip = baSel?.zip || nap.addressZip || '';
+  const preCity = baSel?.city || nap.addressCity || addrCity;
+  const preState = baSel?.state || nap.addressState || addrState;
+
   parts.push(
     contentStepHtml({
       id: 'details',
-      num: 2,
+      num: 3,
       title: 'Business details',
       done: detailsDone,
       open: openId === 'details',
       current: currentId === 'details' && !detailsDone,
-      info: 'Fill domain, name, phone, email, and radius. Copy site-config prompt for Claude.ai (includes your Colors & fonts), then Paste.',
+      info: 'Fill domain, name, email, and radius. Phone is optional here — ranking number comes in step 7. Address comes from step 2 when set. Copy site-config prompt, then Paste.',
       bodyHtml: `
         <p class="disc-tool-blurb">Used when you copy the prompt and merged into the draft if Claude leaves blanks.</p>
         <div class="site-config-nap">
@@ -3900,9 +4371,9 @@ function renderSiteConfig() {
           <label>
             <span class="label-with-tip-head">
               <span>Phone</span>
-              <button type="button" class="tip-info" data-tip="Click-to-call number shown on the site." aria-label="About Phone">i</button>
+              <button type="button" class="tip-info" data-tip="Optional for the Claude prompt. Your ranking number is set in step 7 (Provision phone) and replaces this on the live site-config." aria-label="About Phone">i</button>
             </span>
-            <input id="sc-phone" type="text" value="${esc(nap.phone || '')}" placeholder="+1…" />
+            <input id="sc-phone" type="text" value="${esc(nap.phone || '')}" placeholder="Optional — provision in step 7" />
           </label>
           <label>
             <span class="label-with-tip-head">
@@ -3914,14 +4385,37 @@ function renderSiteConfig() {
           <label>
             <span class="label-with-tip-head">
               <span>Radius (mi)</span>
-              <button type="button" class="tip-info" data-tip="Default radius seed for step 5 Service area map." aria-label="About Radius">i</button>
+              <button type="button" class="tip-info" data-tip="Default radius seed for Service area map." aria-label="About Radius">i</button>
             </span>
             <input id="sc-radius" type="text" value="${esc(nap.radiusMiles || '40')}" />
           </label>
+          <label class="site-config-span2">
+            <span class="label-with-tip-head">
+              <span>Street</span>
+              <button type="button" class="tip-info" data-tip="From Address step — edit only if needed. Leave blank to omit LocalBusiness street." aria-label="About Street">i</button>
+            </span>
+            <input id="sc-street" type="text" value="${esc(preStreet)}" placeholder="From Address step or blank" />
+          </label>
+          <label>
+            <span>City</span>
+            <input id="sc-addr-city" type="text" value="${esc(preCity)}" />
+          </label>
+          <label>
+            <span>State</span>
+            <input id="sc-addr-state" type="text" value="${esc(preState)}" maxlength="2" />
+          </label>
+          <label>
+            <span>ZIP</span>
+            <input id="sc-zip" type="text" value="${esc(preZip)}" placeholder="00000" />
+          </label>
         </div>
         <div class="narrative-actions" style="justify-content:flex-end">
-          <button type="button" class="btn primary" id="sc-copy-prompt" data-tip="Copy Claude.ai site-config prompt" ${ready || f.hasApproved ? '' : 'disabled'}>Copy site-config prompt</button>
-          ${openClaudeAiBtnHtml({ disabled: !(ready || f.hasApproved) })}
+          <button type="button" class="btn primary" id="sc-copy-prompt" data-tip="Copy Claude.ai site-config prompt (stays on this step)" ${ready || f.hasApproved ? '' : 'disabled'}>Copy site-config prompt</button>
+          ${openClaudeAiBtnHtml({
+            disabled: !(ready || f.hasApproved),
+            id: 'sc-open-claude',
+            tip: 'Open Claude.ai and continue to Paste Claude’s reply',
+          })}
         </div>`,
     }),
   );
@@ -3930,14 +4424,14 @@ function renderSiteConfig() {
   pasteParts.push(`
     <div class="narrative-paste">
       <h4>${draft ? 'Replace from Claude' : 'Paste Claude’s reply'}</h4>
-      <p class="muted">Paste Claude’s full reply below, then <strong>Load draft</strong> to review residential vs commercial before Accept. Extra commentary after the JSON is fine.</p>
+      <p class="muted">Paste Claude’s full reply below, then <strong>Load draft</strong>. Edit fields here, then continue to <strong>Review services</strong> to Accept. Extra commentary after the JSON is fine.</p>
       <textarea id="site-config-paste" class="narrative-paste-input" rows="2" placeholder="Paste Claude’s site-config reply here…" data-tip="Paste Claude site-config reply"></textarea>
       <div class="narrative-actions">
-        <button type="button" class="btn primary" id="site-config-paste-load-btn" data-tip="Load paste as draft — review services, then Accept" ${
+        <button type="button" class="btn primary" id="site-config-paste-load-btn" data-tip="Load paste as draft — then edit fields and Accept in Review services" ${
           f.hasApproved ? '' : 'disabled'
         }>Load draft</button>
       </div>
-      <p class="disc-tool-blurb"><strong>Load draft</strong> does not write the live config yet — pick Accept with commercial or residential only below.</p>
+      <p class="disc-tool-blurb"><strong>Load draft</strong> does not write the live config yet — Accept is in the next step.</p>
     </div>
   `);
 
@@ -3950,14 +4444,13 @@ function renderSiteConfig() {
   const ph = draft?._ops?.placeholders || [];
   if (draft && ph.length) {
     pasteParts.push(
-      `<div class="callout warn">Still need filling: <code>${esc(ph.join(', '))}</code> — edit below before Accept (or Accept anyway for an early build).</div>`,
+      `<div class="callout warn">Still need filling: <code>${esc(ph.join(', '))}</code> — edit the matching fields below before Accept (or Accept anyway for an early build).</div>`,
     );
   } else if (draft) {
-    pasteParts.push(statusLineHtml('Draft looks complete — review below, then Accept.'));
+    pasteParts.push(statusLineHtml('Draft looks complete — save if you edit, then Accept in Review services.'));
   }
 
   if (draft) {
-    const brand = draft.brand || {};
     const suburbsText = Array.isArray(draft.targetSuburbs) ? draft.targetSuburbs.join('; ') : '';
     const servicesText = Array.isArray(draft.services) ? draft.services.join('; ') : '';
     const commercialText = Array.isArray(draft.commercialServices)
@@ -3966,92 +4459,94 @@ function renderSiteConfig() {
     const svcN = Array.isArray(draft.services) ? draft.services.length : 0;
     const lim = Number(draft.homepageServicesLimit ?? 8);
     const showCards = svcN ? Math.min(svcN, Number.isFinite(lim) ? lim : 8) : 0;
-    pasteParts.push(
-      siteConfigServicesChoiceHtml({
-        residential: draft.services || [],
-        commercial: draft.commercialServices || [],
-        mode: 'draft',
-      }),
-    );
     pasteParts.push(`
-      <div class="narrative-actions" style="justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.5rem;margin-top:1rem">
-        <h4 style="margin:0">Review draft fields</h4>
+      <div class="narrative-actions" style="margin-top:1rem">
+        <h4 style="margin:0">Edit draft</h4>
       </div>
-      <p class="muted">Fix anything Claude got wrong, then Accept above (saves your edits).</p>
+      <p class="muted">Fix anything Claude got wrong. Accept is in <strong>Review services</strong> (next step). Brand colors come from <strong>Colors & fonts</strong> (step 1).</p>
       <div class="site-config-nap" id="sc-draft-edit">
         <label>Business name <input id="sc-edit-businessName" type="text" value="${esc(draft.businessName || '')}" /></label>
         <label>Domain <input id="sc-edit-domain" type="text" value="${esc(draft.domain || '')}" /></label>
-        <label>Phone <input id="sc-edit-phone" type="text" value="${esc(draft.phone || '')}" /></label>
+        <label>
+          <span class="label-with-tip-head">
+            <span>Phone</span>
+            <button type="button" class="tip-info" data-tip="Optional Claude seed. Ranking number is set in step 7 and replaces this on the live site-config." aria-label="About draft Phone">i</button>
+          </span>
+          <input id="sc-edit-phone" type="text" value="${esc(draft.phone || '')}" placeholder="Optional — provision in step 7" />
+        </label>
         <label>Email <input id="sc-edit-email" type="email" value="${esc(draft.email || '')}" /></label>
         <label class="site-config-span2">Tagline <input id="sc-edit-tagline" type="text" value="${esc(draft.tagline || '')}" /></label>
         <label>Primary CTA <input id="sc-edit-primaryCta" type="text" value="${esc(draft.primaryCta || '')}" /></label>
         <label>Primary city <input id="sc-edit-primaryCity" type="text" value="${esc(draft.primaryCity || '')}" /></label>
         <label>State <input id="sc-edit-state" type="text" value="${esc(draft.state || '')}" maxlength="2" /></label>
+        <label>Niche <input id="sc-edit-niche" type="text" value="${esc(draft.niche || '')}" /></label>
+        <label>Radius (mi) <input id="sc-edit-radius" type="text" value="${esc(String(draft.serviceRadiusMiles ?? ''))}" /></label>
+        <label>Street (optional) <input id="sc-edit-street" type="text" value="${esc(draft.address?.street || '')}" placeholder="Only if real — never invent" data-tip="Optional real street for LocalBusiness schema. Leave blank if unknown." /></label>
+        <label>ZIP (optional) <input id="sc-edit-zip" type="text" value="${esc(draft.address?.zip || '')}" placeholder="e.g. 84084" data-tip="Optional ZIP with street. Leave blank if unknown." /></label>
         <label class="site-config-span2">Target suburbs <input id="sc-edit-suburbs" type="text" value="${esc(suburbsText)}" placeholder="City A; City B" /></label>
         <label class="site-config-span2">Services (each gets a page) <input id="sc-edit-services" type="text" value="${esc(servicesText)}" placeholder="Service A; Service B" data-tip="Every name here gets a service page" /></label>
+        <label class="site-config-span2">Commercial services (optional) <input id="sc-edit-commercial" type="text" value="${esc(commercialText)}" placeholder="Commercial A; Commercial B" data-tip="Homepage commercial split — finalize with Accept in Review services" /></label>
+        <label class="site-config-span2">Homepage “What we do” cards
+          <input id="sc-edit-svc-limit" type="number" min="1" max="12" value="${esc(String(draft.homepageServicesLimit ?? 8))}" data-tip="Prefer 6 or 8 homepage cards. Service pages are still created for every Services name." />
+          <span class="muted" style="display:block;margin-top:0.35rem;font-size:0.85em;font-weight:400">Prefer 6 (3×2) or 8 (4×2).${
+            svcN ? ` Currently showing ${esc(String(showCards))} of ${esc(String(svcN))} on homepage.` : ''
+          }</span>
+        </label>
+        <label>
+          <span class="label-with-tip-head">
+            <span>Web3Forms key</span>
+            <a href="https://web3forms.com/" target="_blank" rel="noopener">Get key</a>
+          </span>
+          <input id="sc-edit-web3" type="text" value="${esc(draft.web3FormsAccessKey || '')}" placeholder="Required for contact forms" />
+        </label>
+        <label>Turnstile site key <input id="sc-edit-turnstile" type="text" value="${esc(draft.turnstileSiteKey || '')}" placeholder="optional" /></label>
       </div>
-      <details class="narrative-raw content-advanced">
-        <summary>Advanced — save draft without Accept · extra fields</summary>
-        <div class="narrative-actions" style="margin:0.5rem 0">
-          <button type="button" class="btn" id="site-config-save-draft-btn" data-tip="Save review edits without Accept">Save draft only</button>
-        </div>
-        <div class="site-config-nap" style="margin-top:0.5rem">
-          <label>Niche <input id="sc-edit-niche" type="text" value="${esc(draft.niche || '')}" /></label>
-          <label>Radius (mi) <input id="sc-edit-radius" type="text" value="${esc(String(draft.serviceRadiusMiles ?? ''))}" /></label>
-          <label>Street (optional) <input id="sc-edit-street" type="text" value="${esc(draft.address?.street || '')}" placeholder="Only if real — never invent" data-tip="Optional real street for LocalBusiness schema. Leave blank if unknown." /></label>
-          <label>ZIP (optional) <input id="sc-edit-zip" type="text" value="${esc(draft.address?.zip || '')}" placeholder="e.g. 84084" data-tip="Optional ZIP with street. Leave blank if unknown." /></label>
-          <label>Web3Forms key <input id="sc-edit-web3" type="text" value="${esc(draft.web3FormsAccessKey || '')}" /></label>
-          <label>Turnstile site key <input id="sc-edit-turnstile" type="text" value="${esc(draft.turnstileSiteKey || '')}" placeholder="optional" /></label>
-          <label>Brand primary <input id="sc-edit-brand-primary" type="text" value="${esc(brand.primary || '')}" placeholder="#1C2B3A" /></label>
-          <label>Brand accent <input id="sc-edit-brand-accent" type="text" value="${esc(brand.accent || '')}" placeholder="#E8A317" /></label>
-          <label>Brand ink <input id="sc-edit-brand-ink" type="text" value="${esc(brand.ink || '')}" placeholder="#0F1720" /></label>
-          <label class="site-config-span2">Commercial services (optional) <input id="sc-edit-commercial" type="text" value="${esc(commercialText)}" placeholder="Commercial A; Commercial B" data-tip="Prefer the Accept buttons above; editing here still works for fine-tuning" /></label>
-          <label class="site-config-span2">Homepage “What we do” cards
-            <input id="sc-edit-svc-limit" type="number" min="1" max="12" value="${esc(String(draft.homepageServicesLimit ?? 8))}" data-tip="Prefer 6 or 8 homepage cards. Service pages are still created for every Services name." />
-            <span class="muted" style="display:block;margin-top:0.35rem;font-size:0.85em;font-weight:400">Prefer 6 (3×2) or 8 (4×2).${
-              svcN ? ` Currently showing ${esc(String(showCards))} of ${esc(String(svcN))} on homepage.` : ''
-            }</span>
-          </label>
-        </div>
-        <details class="narrative-raw">
-          <summary>Raw draft JSON</summary>
-          <div class="json-block">${esc(JSON.stringify(draft, null, 2))}</div>
-        </details>
-      </details>
+      <div class="narrative-actions" style="justify-content:flex-end;margin-top:1rem">
+        <button type="button" class="btn primary" id="site-config-save-draft-btn" data-tip="Save edits without Accept">Save draft</button>
+      </div>
     `);
   }
 
   parts.push(
     contentStepHtml({
       id: 'paste',
-      num: 3,
+      num: 4,
       title: 'Paste Claude’s reply',
       done: pasteDone,
       open: openId === 'paste',
       current: currentId === 'paste' && !pasteDone,
-      info: 'Paste Claude’s site-config reply, Load draft, then Accept with commercial or residential only.',
+      info: 'Paste Claude’s site-config reply, Load draft, and edit all fields here. Accept is in the next step (Review services).',
       bodyHtml: pasteParts.join(''),
     }),
   );
 
+  const servicesBodyHtml = accepted
+    ? siteConfigServicesChoiceHtml({
+        residential: accepted.services || [],
+        commercial: accepted.commercialServices || [],
+        mode: 'accepted',
+        asStepBody: true,
+      })
+    : draft
+      ? siteConfigServicesChoiceHtml({
+          residential: draft.services || [],
+          commercial: draft.commercialServices || [],
+          mode: 'draft',
+          asStepBody: true,
+        })
+      : lockedUntilDraft;
+
   parts.push(
     contentStepHtml({
       id: 'services',
-      num: 4,
+      num: 5,
       title: 'Review services',
       done: servicesDone,
       open: openId === 'services',
       current: currentId === 'services' && !servicesDone,
-      locked: !accepted,
-      info: 'Residential vs commercial lists drive the homepage What we do split. Keep or clear commercial here — no Claude re-prompt.',
-      bodyHtml: accepted
-        ? siteConfigServicesChoiceHtml({
-            residential: accepted.services || [],
-            commercial: accepted.commercialServices || [],
-            mode: 'accepted',
-            asStepBody: true,
-          })
-        : lockedUntilAccept,
+      locked: !(draft || accepted),
+      info: 'Choose residential-only or keep commercial, then Accept to write site-config. After Accept you can adjust services here without re-pasting Claude.',
+      bodyHtml: servicesBodyHtml,
     }),
   );
 
@@ -4060,13 +4555,13 @@ function renderSiteConfig() {
   parts.push(
     contentStepHtml({
       id: 'service-area',
-      num: 5,
+      num: 6,
       title: 'Service area',
       done: serviceAreaDone,
       open: openId === 'service-area',
       current: currentId === 'service-area' && !serviceAreaDone,
       locked: !accepted,
-      info: 'Set radius on the map, toggle coverage cities. Use Page to choose SEO location pages (prefer 4–6 including primary). Extra cities stay as coverage / Also serving.',
+      info: 'Set radius on the map, toggle coverage cities, then save. Claude-seeded suburbs alone do not complete this step. Blue Page = SEO location pages (prefer 4–6 including primary).',
       bodyHtml: accepted
         ? `
           <p class="disc-tool-blurb">Coverage can be wide. Blue Page = location page (prefer 4–6 including primary). Click Page to toggle without removing coverage.</p>
@@ -4090,13 +4585,13 @@ function renderSiteConfig() {
   parts.push(
     contentStepHtml({
       id: 'phone',
-      num: 6,
+      num: 7,
       title: 'Provision phone number',
       done: phoneDone,
       open: openId === 'phone',
       current: currentId === 'phone' && !phoneDone,
       locked: !accepted,
-      info: 'Buy a Twilio local DID after Accept (~$1.15/mo). Whisper uses business name. See docs/PHONE-TRACKING.md.',
+      info: 'Buy a Twilio local DID or Skip (~$1.15/mo). A phone already in site-config from Claude does not complete this step. Whisper uses business name. See docs/PHONE-TRACKING.md.',
       bodyHtml: accepted
         ? `
           <p class="disc-tool-blurb">Provision a local ranking number, then continue Content → Website Prepare / Launch.</p>
@@ -4164,7 +4659,7 @@ function contentStepHtml({ id, num, title, done, open, info, bodyHtml, current =
   </section>`;
 }
 
-const SITE_CONFIG_STEP_ORDER = ['look', 'details', 'paste', 'services', 'service-area', 'phone'];
+const SITE_CONFIG_STEP_ORDER = ['look', 'address', 'details', 'paste', 'services', 'service-area', 'phone'];
 const CONTENT_STEP_ORDER = ['structure', 'outline', 'write', 'editor', 'accept'];
 const WEBSITE_STEP_ORDER = ['images', 'prepare', 'launch'];
 
@@ -4230,19 +4725,20 @@ function contentActionRow({ n, label, hint, controlsHtml = '', done = false }) {
 }
 
 /**
- * Optional shortcut next to Copy prompt controls. Opens Claude.ai only —
- * does not copy, advance steps, or change candidate state.
- * @param {{ disabled?: boolean, sm?: boolean }} [opts]
+ * Optional shortcut next to Copy prompt controls.
+ * @param {{ disabled?: boolean, sm?: boolean, id?: string, tip?: string }} [opts]
  */
-function openClaudeAiBtnHtml({ disabled = false, sm = false } = {}) {
-  const tip = tipAttr(
-    'Optional — open Claude.ai in a new tab. Does not copy the prompt or change this step.',
-  );
+function openClaudeAiBtnHtml({ disabled = false, sm = false, id = '', tip = '' } = {}) {
+  const tipText =
+    tip ||
+    'Optional — open Claude.ai in a new tab. Does not copy the prompt or change this step.';
+  const tipHtml = tipAttr(tipText);
+  const idAttr = id ? ` id="${esc(id)}"` : '';
   const cls = `btn${sm ? ' btn-sm' : ''} open-claude-ai`;
   if (disabled) {
-    return `<span class="${cls}" aria-disabled="true" ${tip}>Open Claude.ai</span>`;
+    return `<span class="${cls}" aria-disabled="true"${idAttr} ${tipHtml}>Open Claude.ai</span>`;
   }
-  return `<a class="${cls}" href="https://claude.ai" target="_blank" rel="noopener noreferrer" ${tip}>Open Claude.ai</a>`;
+  return `<a class="${cls}" href="https://claude.ai" target="_blank" rel="noopener noreferrer"${idAttr} ${tipHtml}>Open Claude.ai</a>`;
 }
 
 /** Advisory speech-lint findings for Content → Editor panel */
@@ -4265,7 +4761,7 @@ function speechLintFindingsHtml(speechLint) {
     findings.length > 25
       ? `<p class="muted">Showing 25 of ${esc(String(findings.length))}.</p>`
       : '';
-  return `<details class="narrative-raw lint-findings" open><summary><strong>Speech:</strong> ${esc(
+  return `<details class="narrative-raw lint-findings"><summary><strong>Speech:</strong> ${esc(
     String(findings.length),
   )} finding(s)</summary><ul class="speech-lint-list">${items}</ul>${more}</details>`;
 }
@@ -4292,7 +4788,7 @@ function seoLintFindingsHtml(seoLint) {
   const critNote = critical.length
     ? ` · ${esc(String(critical.length))} critical`
     : '';
-  return `<details class="narrative-raw lint-findings" open><summary><strong>SEO:</strong> ${esc(
+  return `<details class="narrative-raw lint-findings"><summary><strong>SEO:</strong> ${esc(
     String(findings.length),
   )} finding(s)${critNote}</summary><ul class="speech-lint-list">${items}</ul></details>`;
 }
@@ -4564,6 +5060,56 @@ function isLaunchWeb3Placeholder(key) {
   );
 }
 
+/** Prefer draft launch scalars when accepted still holds placeholders (mirrors ops/lib/site-config.mjs). */
+function effectiveSiteConfigForLaunchClient(accepted, draft) {
+  const base =
+    accepted && typeof accepted === 'object'
+      ? (() => {
+          const { _ops, ...rest } = accepted;
+          return rest;
+        })()
+      : {};
+  if (!draft || typeof draft !== 'object') return { ...base };
+  const { _ops, ...fromDraft } = draft;
+  const out = { ...base };
+  const prefer = (key, draftIsPlaceholder, acceptedIsPlaceholder) => {
+    if (!draftIsPlaceholder(fromDraft[key]) && acceptedIsPlaceholder(base[key])) {
+      out[key] = fromDraft[key];
+    }
+  };
+  prefer('web3FormsAccessKey', isLaunchWeb3Placeholder, isLaunchWeb3Placeholder);
+  prefer('domain', isLaunchDomainPlaceholder, isLaunchDomainPlaceholder);
+  prefer('phone', isLaunchPhonePlaceholder, isLaunchPhonePlaceholder);
+  prefer(
+    'email',
+    (v) => {
+      const s = String(v || '').trim();
+      return !s || s === 'leads@example.com' || /^tbd\b/i.test(s) || /@example\.com$/i.test(s);
+    },
+    (v) => {
+      const s = String(v || '').trim();
+      return !s || s === 'leads@example.com' || /^tbd\b/i.test(s) || /@example\.com$/i.test(s);
+    },
+  );
+  prefer(
+    'businessName',
+    (v) => {
+      const s = String(v || '').trim();
+      return !s || /^tbd\b/i.test(s) || s === 'TBD Business';
+    },
+    (v) => {
+      const s = String(v || '').trim();
+      return !s || /^tbd\b/i.test(s) || s === 'TBD Business';
+    },
+  );
+  prefer(
+    'turnstileSiteKey',
+    (v) => !String(v || '').trim(),
+    (v) => !String(v || '').trim(),
+  );
+  return out;
+}
+
 /** Soft warn when hostname tokens don't overlap niche/brand/city (mirrors ops/lib/site-config.mjs). */
 function domainBrandMismatchClient(domain, { niche, businessName, primaryCity } = {}) {
   const host = String(domain || '')
@@ -4805,8 +5351,16 @@ function structureSectionRowHtml(s, selectedSections, photos) {
   const on = selectedSections.has(s.id);
   const photo = photos[s.id];
   const photoOn = Boolean(photo?.enabled);
+  const photoTip =
+    s.id === 'services'
+      ? 'Photos appear on homepage What we do cards. With Service pages off they use homepage serviceCardImages; with Service pages on they use each service card/hero image.'
+      : s.id === 'offerProcess' || s.id === 'process'
+        ? 'One photo per process step — slot labels use step titles from homepage content.'
+        : '';
   const photoRow = s.photoCapable
-    ? `<label class="check structure-photo"><input type="checkbox" name="structure-photo" value="${esc(
+    ? `<label class="check structure-photo"${
+        photoTip ? ` data-tip="${esc(photoTip)}"` : ''
+      }><input type="checkbox" name="structure-photo" value="${esc(
         s.id,
       )}" ${photoOn ? 'checked' : ''} ${on ? '' : 'disabled'}/> Include photos${
         s.maxImages ? ` <span class="muted">(up to ${esc(String(s.maxImages))})</span>` : ''
@@ -4864,9 +5418,41 @@ function structureChecklistHtml(d, catalog) {
     locations: 'Shared template — applies to each suburb in targetSuburbs.',
   };
 
+  /** Match live homepage order (hero first, then DEFAULT_HOME_SECTION_ORDER). */
+  const HOME_SECTION_ORDER = [
+    'hero',
+    'trust',
+    'intro',
+    'services',
+    'whyChooseUs',
+    'process',
+    'offerProcess',
+    'cost',
+    'materials',
+    'timeline',
+    'codes',
+    'diyVsPro',
+    'whenToCall',
+    'areas',
+    'gallery',
+    'beforeAfter',
+    'reviews',
+    'faqs',
+    'cta',
+  ];
+  const homeOrderIndex = (id) => {
+    const i = HOME_SECTION_ORDER.indexOf(id);
+    return i >= 0 ? i : 500;
+  };
+
   const sectionGroups = pages
     .map((p) => {
-      const groupSections = sections.filter((s) => (s.pages || []).includes(p.id));
+      let groupSections = sections.filter((s) => (s.pages || []).includes(p.id));
+      if (p.id === 'home') {
+        groupSections = [...groupSections].sort(
+          (a, b) => homeOrderIndex(a.id) - homeOrderIndex(b.id) || String(a.id).localeCompare(String(b.id)),
+        );
+      }
       if (!groupSections.length) return '';
       const pageOn = selectedPages.has(p.id);
       const rows = groupSections
@@ -4937,11 +5523,18 @@ function renderContent() {
     if (accepted?.files) return Object.keys(accepted.files).sort();
     return [];
   })();
-  const speechChecked = Boolean(draft?._ops?.lastSpeechCheckAt);
-  const editorNeeds = contentNeedsEditorRewrite(draft);
+  const lintSource = draft || accepted;
+  const speechChecked = Boolean(lintSource?._ops?.lastSpeechCheckAt);
+  const editorNeeds = contentNeedsEditorRewrite(lintSource);
   const needsEditorClaude = speechChecked && editorNeeds.needed;
   const hasEditableContent = Boolean(draft?.files) || Boolean(accepted?.files);
-  const seoCritical = (draft?._ops?.seoLint?.findings || []).filter((f) => f.severity === 'critical');
+  const seoCritical = (lintSource?._ops?.seoLint?.findings || []).filter(
+    (f) => f.severity === 'critical',
+  );
+  const contentAcceptedLive = Boolean(accepted) || Boolean(f.hasContent);
+  // After Accept, draft is deleted — still treat Speech/SEO as done (clean publish).
+  // Open draft: done only when Speech/SEO ran and findings are clear.
+  const editorClear = Boolean(speechChecked && !editorNeeds.needed);
   const stepDone = {
     structure: structureReady && Boolean(outlinePkg?.sections?.length),
     outline: outlineConfirmed,
@@ -4950,9 +5543,8 @@ function renderContent() {
       Boolean(accepted?.files) ||
       Boolean(f.hasContentDraft) ||
       Boolean(f.hasContent),
-    // Done only when lint is clear — keep open for multi-pass (incl. post-Accept rework)
-    editor: Boolean(speechChecked && !editorNeeds.needed),
-    accepted: Boolean(accepted) || Boolean(f.hasContent),
+    editor: editorClear || (contentAcceptedLive && !draft),
+    accepted: contentAcceptedLive,
     brief: brief?.status === 'confirmed' || Boolean(f.hasContentBriefConfirmed),
     oneshot:
       Boolean(draft?.files) ||
@@ -4962,8 +5554,8 @@ function renderContent() {
     research: Boolean(research) || Boolean(f.hasContentResearch),
     outlineLegacy: Boolean(outline) || Boolean(f.hasContentOutline),
   };
-  // Findings win over Accept soft-advance so Speech/SEO stays the current open step
-  if (speechChecked && editorNeeds.needed) {
+  // Open draft with findings: keep Speech/SEO as current (wins over Accept soft-advance)
+  if (draft && speechChecked && editorNeeds.needed) {
     if (state.contentSoftDone?.editor) {
       const nextSoft = { ...state.contentSoftDone };
       delete nextSoft.editor;
@@ -4976,7 +5568,7 @@ function renderContent() {
     }
   }
   const durableCurrent =
-    speechChecked && editorNeeds.needed
+    draft && speechChecked && editorNeeds.needed
       ? 'editor'
       : stepDone.accepted
         ? null
@@ -4991,7 +5583,7 @@ function renderContent() {
   const outlineDone = stepDone.outline || isSoftDone('contentSoftDone', 'outline');
   const writeDone = stepDone.write || isSoftDone('contentSoftDone', 'write');
   const editorDone =
-    speechChecked && editorNeeds.needed
+    draft && speechChecked && editorNeeds.needed
       ? false
       : stepDone.editor || isSoftDone('contentSoftDone', 'editor');
   const acceptDone = stepDone.accepted || isSoftDone('contentSoftDone', 'accept');
@@ -5118,7 +5710,9 @@ function renderContent() {
   } else if (speechChecked && !stepDone.accepted) {
     editorStatusBits.push(
       `<div class="callout"><strong>No Claude rewrite needed.</strong> Up next: <strong>Accept content</strong>.</div>
-                <p class="muted">Speech/SEO Refinement run at ${esc(String(draft._ops.lastSpeechCheckAt))}</p>`,
+                <p class="muted">Speech/SEO Refinement run at ${esc(
+                  String(lintSource?._ops?.lastSpeechCheckAt || ''),
+                )}</p>`,
     );
   }
   const editorStatusCallout = editorStatusBits.join('\n');
@@ -5361,9 +5955,11 @@ function imagesMatchDotHtml(grade, tip, { tipped = true } = {}) {
   const isEmpty = grade === 'missing' || grade === 'empty';
   const g = isEmpty
     ? 'empty'
-    : grade === 'good' || grade === 'ok' || grade === 'poor'
-      ? grade
-      : 'poor';
+    : grade === 'upload'
+      ? 'upload'
+      : grade === 'good' || grade === 'ok' || grade === 'poor'
+        ? grade
+        : 'poor';
   const cls = `img-match-dot img-match-${g}`;
   if (!tipped) {
     return `<span class="${cls}" aria-hidden="true"></span>`;
@@ -5372,24 +5968,27 @@ function imagesMatchDotHtml(grade, tip, { tipped = true } = {}) {
     tip ||
     (isEmpty
       ? 'No photo in this slot'
-      : g === 'good'
-        ? 'Good match'
-        : g === 'ok'
-          ? 'OK match'
-          : 'Poor match');
+      : g === 'upload'
+        ? 'Operator upload'
+        : g === 'good'
+          ? 'Good match'
+          : g === 'ok'
+            ? 'OK match'
+            : 'Poor match');
   return `<span class="${cls}" data-tip="${esc(tipText)}" aria-label="${esc(tipText)}"></span>`;
 }
 
 function imagesSlotGrade(slot) {
   if (!slot) return null;
   if (slot.missing) return 'missing';
+  if (slot.source === 'upload') return 'upload';
   const g = slot.matchGrade;
   return g === 'good' || g === 'ok' || g === 'poor' ? g : null;
 }
 
 function imagesMatchFilterId(activeFilter) {
   if (activeFilter === 'empty' || activeFilter === 'missing') return 'empty';
-  return ['all', 'poor', 'ok', 'good'].includes(activeFilter) ? activeFilter : 'all';
+  return ['all', 'poor', 'ok', 'good', 'upload'].includes(activeFilter) ? activeFilter : 'all';
 }
 
 function imagesSlotMatchesFilter(slot, filter) {
@@ -5405,8 +6004,9 @@ function imagesMatchTotalsHtml(totals, activeFilter = 'all') {
   const poor = Number(t.poor) || 0;
   const ok = Number(t.ok) || 0;
   const good = Number(t.good) || 0;
+  const uploaded = Number(t.uploaded) || 0;
   const missing = Number(t.missing) || 0;
-  const total = poor + ok + good + missing;
+  const total = poor + ok + good + uploaded + missing;
   const active = imagesMatchFilterId(activeFilter);
   const filterBtn = (id, inner, tip) => {
     const pressed = active === id;
@@ -5459,6 +6059,13 @@ function imagesMatchTotalsHtml(totals, activeFilter = 'all') {
       `Show ${good} Good match${good === 1 ? '' : 'es'}`,
     )}
     ${filterBtn(
+      'upload',
+      `${imagesMatchDotHtml('upload', null, untipped)}
+      <strong>${esc(String(uploaded))}</strong>
+      <span class="muted">Uploaded</span>`,
+      `Show ${uploaded} operator upload${uploaded === 1 ? '' : 's'}`,
+    )}
+    ${filterBtn(
       'empty',
       `${imagesMatchDotHtml('missing', null, untipped)}
       <strong>${esc(String(missing))}</strong>
@@ -5474,12 +6081,14 @@ function imagesSlotCardHtml(slot) {
     : `<span class="muted" style="font-size:0.75rem">Empty</span>`;
   const grade = imagesSlotGrade(slot);
   const tip =
-    slot.matchTip ||
-    (slot.missing
-      ? 'No photo in this slot'
-      : slot.score != null
-        ? `Score ${slot.score}`
-        : '');
+    grade === 'upload'
+      ? 'Operator upload'
+      : slot.matchTip ||
+        (slot.missing
+          ? 'No photo in this slot'
+          : slot.score != null
+            ? `Score ${slot.score}`
+            : '');
   const matchDot = grade ? imagesMatchDotHtml(grade, tip) : '';
   const badge = slot.source
     ? `<span class="muted" style="font-size:0.75rem">${esc(slot.source)}</span>`
@@ -5496,12 +6105,15 @@ function imagesSlotCardHtml(slot) {
       <span class="muted" style="font-size:0.75rem">${esc(slot.wiredFm || slot.key)}</span>
       ${queryLine}
       ${badge}
-      <div style="display:flex;flex-wrap:wrap;gap:0.3rem;margin-top:0.15rem">
+      <div style="display:flex;flex-wrap:wrap;gap:0.3rem;margin-top:0.15rem;align-items:center">
         <button type="button" class="btn btn-sm ca-slot-repull" data-slot-key="${esc(slot.key)}" data-tip="Fetch a different stock photo for this slot">Re-pull</button>
         <label class="btn btn-sm" style="cursor:pointer;margin:0" data-tip="Upload a local image for this slot">
           Upload
           <input type="file" class="ca-slot-upload" data-slot-key="${esc(slot.key)}" accept="image/jpeg,image/png,image/webp,image/gif" hidden />
         </label>
+        ${baViewpointSegmentHtml(slot.key)}
+        <button type="button" class="btn btn-sm ca-slot-chatgpt-prompt" data-slot-key="${esc(slot.key)}" data-tip="Copy a ChatGPT image prompt for this slot (uses Inside/Outside), then generate and Upload">Copy prompt</button>
+        <a class="btn btn-sm" href="https://chatgpt.com/" target="_blank" rel="noopener" data-tip="Open ChatGPT in a new tab">Open ChatGPT</a>
       </div>
     </div>
   </div>`;
@@ -5546,6 +6158,7 @@ function baServiceStepHtml(candidateId, service, stepN) {
       <div class="flex-wrap gap-2" style="display:flex;flex-wrap:wrap;gap:0.4rem;align-items:center" data-ba-service="${esc(
         slug,
       )}">
+        ${baViewpointSegmentHtml(slug)}
         <button type="button" class="btn ca-ba-svc-copy" data-ba-service="${esc(
           slug,
         )}" data-ba-kind="before" data-tip="Copy BEFORE prompt for this service">Copy before</button>
@@ -5606,12 +6219,38 @@ async function refreshBeforeAfterUi(candidateId) {
 
 function imagesSlotsShellHtml() {
   return `<div id="ca-image-slots" style="margin-top:0.75rem">
-    <p class="muted" style="margin:0 0 0.35rem;font-size:0.85rem">Per-slot review (near launch): Re-pull stock or Upload owner photos. Stage → Assemble after changes. Use All / poor / ok / good / empty to filter.</p>
+    <p class="muted" style="margin:0 0 0.35rem;font-size:0.85rem">Per-slot review (near launch): Re-pull stock, Upload owner/ChatGPT photos, or Copy prompt → ChatGPT → Upload. Stage → Assemble after changes. Use All / poor / ok / good / uploaded / empty to filter.</p>
     <div id="ca-image-slots-totals"></div>
-    <div id="ca-image-slots-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:0.65rem"></div>
+    <div id="ca-image-slots-grid" class="ca-image-slots-sections"></div>
     <p id="ca-image-slots-filter-empty" class="muted" style="display:none;font-size:0.85rem;margin:0.35rem 0 0"></p>
     <p id="ca-image-slots-empty" class="muted" style="display:none;font-size:0.85rem;margin:0.35rem 0 0">No Structure photo slots enabled.</p>
   </div>`;
+}
+
+function imagesSlotsGroupedHtml(slots) {
+  const groups = [];
+  const byKey = new Map();
+  for (const slot of slots) {
+    const gKey = slot.sectionGroup || slot.sectionId || 'other';
+    if (!byKey.has(gKey)) {
+      const group = {
+        key: gKey,
+        label: slot.sectionLabel || slot.sectionId || gKey,
+        slots: [],
+      };
+      byKey.set(gKey, group);
+      groups.push(group);
+    }
+    byKey.get(gKey).slots.push(slot);
+  }
+  return groups
+    .map(
+      (g) => `<section class="ca-image-slot-section" data-section-group="${esc(g.key)}">
+      <h4 class="ca-image-slot-section-title">${esc(g.label)}</h4>
+      <div class="ca-image-slot-section-grid">${g.slots.map(imagesSlotCardHtml).join('')}</div>
+    </section>`,
+    )
+    .join('');
 }
 
 async function refreshImageSlotsGrid(candidateId) {
@@ -5638,7 +6277,7 @@ async function refreshImageSlotsGrid(candidateId) {
     if (empty) empty.style.display = 'none';
     if (totalsEl) totalsEl.innerHTML = imagesMatchTotalsHtml(data.matchTotals, filter);
     const visible = slots.filter((s) => imagesSlotMatchesFilter(s, filter));
-    grid.innerHTML = visible.map(imagesSlotCardHtml).join('');
+    grid.innerHTML = imagesSlotsGroupedHtml(visible);
     if (filterEmpty) {
       if (!visible.length) {
         filterEmpty.style.display = 'block';
@@ -5647,6 +6286,7 @@ async function refreshImageSlotsGrid(candidateId) {
           poor: 'No poor matches.',
           ok: 'No ok matches.',
           good: 'No good matches.',
+          upload: 'No operator uploads.',
           empty: 'No empty slots.',
         };
         filterEmpty.textContent = labels[filter] || 'No matching slots.';
@@ -5739,6 +6379,49 @@ function wireImageSlotActions(candidateId, _refreshFn) {
       if (state.imageMatchFilter === next) return;
       state.imageMatchFilter = next;
       await refreshImageSlotsGrid(candidateId);
+      return;
+    }
+    const vpBtn = ev.target.closest('[data-ba-viewpoint]');
+    if (vpBtn && root.contains(vpBtn)) {
+      const group = vpBtn.closest('[data-ba-viewpoint-step]');
+      if (!group || !root.contains(group)) return;
+      ev.preventDefault();
+      const stepKey = group.dataset?.baViewpointStep || '';
+      if (!stepKey) return;
+      const next = setBaViewpoint(stepKey, vpBtn.dataset.baViewpoint);
+      group.querySelectorAll('[data-ba-viewpoint]').forEach((b) => {
+        b.classList.toggle('active', b.dataset.baViewpoint === next);
+      });
+      return;
+    }
+    const promptBtn = ev.target.closest('.ca-slot-chatgpt-prompt');
+    if (promptBtn && root.contains(promptBtn)) {
+      ev.preventDefault();
+      const slotKey = promptBtn.getAttribute('data-slot-key');
+      if (!slotKey) return;
+      promptBtn.disabled = true;
+      try {
+        const viewpoint = getBaViewpoint(slotKey);
+        const params = new URLSearchParams({ viewpoint });
+        const data = await api(
+          `/api/candidates/${encodeURIComponent(candidateId)}/images/slots/${encodeURIComponent(slotKey)}/chatgpt-prompt?${params}`,
+        );
+        const text = String(data?.prompt || '');
+        if (!text) throw new Error('Empty prompt');
+        await navigator.clipboard.writeText(text);
+        showToast(
+          `Copied ChatGPT prompt · ${data.label || slotKey} · ${data.viewpoint || viewpoint} (${text.length} chars). Paste into ChatGPT, then Upload.`,
+        );
+      } catch (error) {
+        await showModal({
+          title: 'Prompt failed',
+          confirmLabel: 'OK',
+          hideCancel: true,
+          bodyHtml: `<p>${esc(error.message)}</p>`,
+        });
+      } finally {
+        promptBtn.disabled = false;
+      }
       return;
     }
     const btn = ev.target.closest('.ca-slot-repull');
@@ -5838,7 +6521,7 @@ function renderWebsite() {
   const alreadyLive = Boolean(
     launched || d?.meta?.dnsDone || d?.meta?.emailRoutingDone || d?.meta?.cloudflarePagesDone,
   );
-  const cfg = d?.siteConfig || {};
+  const cfg = effectiveSiteConfigForLaunchClient(d?.siteConfig, d?.siteConfigDraft);
   const flags = {
     staged: Boolean(stagedAt || stagingPath),
     assembled: Boolean(assembledAt || assembledPath),
@@ -5973,7 +6656,7 @@ function renderWebsite() {
       done: imagesStepDone,
       open: openId === 'images',
       current: currentId === 'images' && !imagesStepDone,
-      info: 'Accept content already pulls stock photos (and generates logo/map when possible). Use <strong>Pull photos</strong> to fill empty slots, or to replace the set when every slot is full. Per-slot Re-pull / Upload for near-launch QA. ChatGPT before/after is optional gallery polish.',
+      info: 'Accept content already pulls stock photos (and generates logo/map when possible). Use <strong>Pull photos</strong> to fill empty slots, or to replace the set when every slot is full. Per-slot Re-pull / Upload / Copy prompt (ChatGPT) for near-launch QA — process slots show step titles; What we do cards use named service slots. ChatGPT before/after is optional gallery polish.',
       bodyHtml: `
         ${contentActionRow({
           n: 1,
@@ -6011,6 +6694,7 @@ function renderWebsite() {
           hint: 'Homepage gallery: copy prompts → generate in ChatGPT (browser) → import two images (any order; earlier filename time = Before).',
           controlsHtml: `
             <div class="flex-wrap gap-2" style="display:flex;flex-wrap:wrap;gap:0.4rem;align-items:center">
+              ${baViewpointSegmentHtml('home')}
               <button type="button" class="btn" id="ca-ba-copy-before" data-tip="Copy BEFORE image prompt">Copy before</button>
               <button type="button" class="btn" id="ca-ba-copy-after" data-tip="Copy AFTER image prompt">Copy after</button>
               <a class="btn" id="ca-ba-open-chatgpt" href="https://chatgpt.com/" target="_blank" rel="noopener" data-tip="Open ChatGPT in a new tab">Open ChatGPT</a>
@@ -6111,6 +6795,7 @@ function renderWebsite() {
             <span class="label-with-tip-head">
               <span>Web3Forms access key</span>
               <button type="button" class="tip-info" data-tip="Form access key from web3forms.com — delivers lead form submissions." aria-label="About Web3Forms access key">i</button>
+              <a href="https://web3forms.com/" target="_blank" rel="noopener">Get key</a>
             </span>
             <input id="ca-launch-web3" type="text" value="${esc(cfg.web3FormsAccessKey || '')}" placeholder="Paste from web3forms.com" />
           </label>
@@ -6985,12 +7670,57 @@ function wireContentTab(d) {
     }
   };
 
+  let previewWordmarkDataUrl = '';
+  let previewWordmarkWarmPromise = null;
+
+  const warmPreviewWordmark = () => {
+    if (previewWordmarkDataUrl) return Promise.resolve(previewWordmarkDataUrl);
+    if (previewWordmarkWarmPromise) return previewWordmarkWarmPromise;
+    const url = `${window.location.origin}/brand/rover-wordmark-dark.png`;
+    previewWordmarkWarmPromise = fetch(url)
+      .then((res) => {
+        if (!res.ok) throw new Error(`wordmark ${res.status}`);
+        return res.blob();
+      })
+      .then(
+        (blob) =>
+          new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => {
+              previewWordmarkDataUrl = String(reader.result || '');
+              resolve(previewWordmarkDataUrl);
+            };
+            reader.onerror = () => reject(reader.error || new Error('wordmark read failed'));
+            reader.readAsDataURL(blob);
+          }),
+      )
+      .catch(() => {
+        previewWordmarkWarmPromise = null;
+        return '';
+      });
+    return previewWordmarkWarmPromise;
+  };
+  // Prefetch while Rover is idle so Prepare preview first paint includes the wordmark.
+  warmPreviewWordmark();
+
   const writePreviewTabHtml = (tab, { title, body }) => {
     if (!tab || tab.closed) return;
     try {
+      const doc = tab.document;
+      const existingTitle = doc.getElementById('rover-preview-title');
+      const existingBody = doc.getElementById('rover-preview-body');
+      if (existingTitle && existingBody) {
+        doc.title = title;
+        existingTitle.textContent = title;
+        existingBody.innerHTML = body;
+        return;
+      }
+
+      const brandBase = `${window.location.origin}/brand`;
+      const wordSrc = previewWordmarkDataUrl || `${brandBase}/rover-wordmark-dark.png`;
       tab.document.open();
       tab.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${title}</title>
-        <link rel="stylesheet" href="/brand/rover-loader.css" />
+        <link rel="stylesheet" href="${brandBase}/rover-loader.css" />
         <style>
           *{box-sizing:border-box}
           body{
@@ -7002,10 +7732,41 @@ function wireContentTab(d) {
           h1{font-size:1.05rem;font-weight:600;margin:0;color:#fff}
           p{margin:0;color:rgba(255,255,255,0.72)}
           code{font-size:0.9em;color:rgba(255,255,255,0.88)}
+          /* Critical hero loader — about:blank often cannot load /brand CSS */
+          .rover-loader{
+            --rover-loader-accent:#2f6bff;
+            --rover-loader-ring:#fff;
+            display:flex;flex-direction:column;align-items:center;justify-content:center;
+            gap:1.5rem;width:auto;max-width:100%;line-height:0;
+          }
+          .rover-loader-mark{
+            width:min(12rem,40vw);height:min(12rem,40vw);
+            flex-shrink:0;display:block;overflow:visible;
+          }
+          .rover-loader-dot{fill:var(--rover-loader-accent)}
+          .rover-loader-ring circle{fill:none;stroke:var(--rover-loader-ring);stroke-linecap:round}
+          .rover-loader-ring--inner circle{stroke-width:3.5;stroke-dasharray:12 11.5}
+          .rover-loader-ring--outer circle{stroke-width:3;stroke-dasharray:9.5 9.3}
+          .rover-loader-ring--inner{
+            transform-box:fill-box;transform-origin:center;
+            animation:rover-spin-ccw 2.4s linear infinite;
+          }
+          .rover-loader-ring--outer{
+            transform-box:fill-box;transform-origin:center;
+            animation:rover-spin-cw 3.2s linear infinite;
+          }
+          .rover-loader-word{
+            display:block;height:2.25rem;width:auto;max-width:min(16rem,70vw);object-fit:contain;
+          }
+          @keyframes rover-spin-cw{to{transform:rotate(360deg)}}
+          @keyframes rover-spin-ccw{to{transform:rotate(-360deg)}}
+          @media (prefers-reduced-motion:reduce){
+            .rover-loader-ring--inner,.rover-loader-ring--outer{animation:none}
+          }
         </style></head><body>
-        <div class="wrap">
-          <div class="rover-loader rover-loader--dark" role="img" aria-label="Loading">
-            <svg class="rover-loader-mark" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" focusable="false" aria-hidden="true">
+        <div class="wrap" id="rover-preview-shell">
+          <div class="rover-loader rover-loader--dark rover-loader--hero" role="img" aria-label="Loading">
+            <svg class="rover-loader-mark" viewBox="0 0 64 64" width="192" height="192" xmlns="http://www.w3.org/2000/svg" focusable="false" aria-hidden="true">
               <circle class="rover-loader-dot" cx="32" cy="32" r="7.5"></circle>
               <g class="rover-loader-ring rover-loader-ring--inner">
                 <circle cx="32" cy="32" r="15" transform="rotate(-45 32 32)"></circle>
@@ -7014,10 +7775,10 @@ function wireContentTab(d) {
                 <circle cx="32" cy="32" r="24" transform="rotate(-11 32 32)"></circle>
               </g>
             </svg>
-            <img class="rover-loader-word" src="/brand/rover-wordmark-dark.png" alt="" width="618" height="81" decoding="async" />
+            <img class="rover-loader-word" src="${wordSrc}" alt="" width="618" height="81" decoding="sync" />
           </div>
-          <h1>${title}</h1>
-          <p>${body}</p>
+          <h1 id="rover-preview-title">${title}</h1>
+          <p id="rover-preview-body">${body}</p>
         </div>
         </body></html>`);
       tab.document.close();
@@ -7036,10 +7797,20 @@ function wireContentTab(d) {
         previewTab = null;
       }
     }
-    writePreviewTabHtml(previewTab, {
-      title: 'Starting assembled preview…',
-      body: 'Rover is starting the site preview on <code>127.0.0.1:4322</code>. This can take up to a couple of minutes — keep this tab open.',
-    });
+    await warmPreviewWordmark();
+    // Reused Prepare tab already has the one waiting blurb — don't swap copy mid-run.
+    let hasShell = false;
+    try {
+      hasShell = Boolean(previewTab && !previewTab.closed && previewTab.document?.getElementById('rover-preview-title'));
+    } catch {
+      hasShell = false;
+    }
+    if (!hasShell) {
+      writePreviewTabHtml(previewTab, {
+        title: 'Starting assembled preview…',
+        body: 'Rover is starting the site preview on <code>127.0.0.1:4322</code>. This can take up to a couple of minutes — keep this tab open.',
+      });
+    }
     if (!quiet) setAssembleProgress(true, 'Starting preview server on :4322…');
     const waitTimer = setInterval(() => {
       if (!quiet) setAssembleProgress(true, 'Waiting for preview on :4322 (astro preview)…');
@@ -7094,9 +7865,10 @@ function wireContentTab(d) {
     } catch {
       previewTab = null;
     }
+    await warmPreviewWordmark();
     writePreviewTabHtml(previewTab, {
-      title: 'Prepare preview…',
-      body: 'Staging the full launch package. Rover will refresh the assembled site (or assemble if needed), then start the preview on <code>127.0.0.1:4322</code>.',
+      title: 'Preparing preview…',
+      body: 'Rover is staging, assembling, and starting the site preview on <code>127.0.0.1:4322</code>. This can take a couple of minutes — keep this tab open.',
     });
     setAssembleProgress(true, 'Staging full launch package…');
     try {
@@ -7111,10 +7883,6 @@ function wireContentTab(d) {
       if (staged.candidate) {
         state.detail = staged.candidate;
       }
-      writePreviewTabHtml(previewTab, {
-        title: 'Prepare preview…',
-        body: 'Assembling site (full rebuild when the template layout is newer; otherwise content refresh). Preview opens on <code>:4322</code> when ready.',
-      });
       setAssembleProgress(
         true,
         `Staged ${staged.written?.length || 0} files in ${Math.round(stageMs / 1000)}s${
@@ -7291,13 +8059,23 @@ function wireContentTab(d) {
         total: 1,
       });
       await refresh(result.candidate, 'images', 'website');
+      const miss = Array.isArray(result.missingBoundaries) ? result.missingBoundaries : [];
+      const missHtml = miss.length
+        ? `<p class="callout warn"><strong>No map outline</strong> (still listed as Also serving on the site): ${esc(
+            miss.join('; '),
+          )}.</p>`
+        : '';
       await showModal({
         title: 'Coverage map ready',
         confirmLabel: 'OK',
         hideCancel: true,
-        bodyHtml: `<p>Wrote <code>${esc(result.path || 'coverage-map.svg')}</code> (${esc(
+        bodyHtml: `<p>Wrote <code>${esc(result.path || 'coverage-map.svg')}</code> with <strong>${esc(
           String(result.areas || ''),
-        )} areas) and wired <code>coverageMap</code> on homepage. Use <strong>Prepare preview</strong> to refresh Areas.</p>`,
+        )}</strong> outlined area(s)${
+          result.requested != null && result.requested !== result.areas
+            ? ` of ${esc(String(result.requested))} requested`
+            : ''
+        } and wired <code>coverageMap</code> on homepage.</p>${missHtml}<p class="muted">Use <strong>Prepare preview</strong> to refresh Areas.</p>`,
       });
     } catch (error) {
       setImagesProgress(false);
@@ -7322,15 +8100,16 @@ function wireContentTab(d) {
   };
   const copyBaPrompt = async (kind, serviceSlug = '') => {
     try {
-      const q = serviceSlug
-        ? `?service=${encodeURIComponent(serviceSlug)}`
-        : '';
+      const stepKey = serviceSlug || 'home';
+      const viewpoint = getBaViewpoint(stepKey);
+      const params = new URLSearchParams({ viewpoint });
+      if (serviceSlug) params.set('service', serviceSlug);
       const prompts = await api(
-        `/api/candidates/${encodeURIComponent(id)}/images/before-after-prompts${q}`,
+        `/api/candidates/${encodeURIComponent(id)}/images/before-after-prompts?${params}`,
       );
       const text = prompts[kind] || prompts.pair || '';
       await navigator.clipboard.writeText(text);
-      const note = `Copied ${kind} prompt (${text.length} chars). Paste into ChatGPT.`;
+      const note = `Copied ${kind} prompt · ${viewpoint} (${text.length} chars). Paste into ChatGPT.`;
       if (serviceSlug) baSvcStatus(serviceSlug, note);
       else baStatus(note);
     } catch (error) {
@@ -7350,6 +8129,24 @@ function wireContentTab(d) {
   document.getElementById('ca-ba-copy-after')?.addEventListener('click', () =>
     copyBaPrompt('after'),
   );
+
+  const applyBaViewpointClick = (btn) => {
+    const group = btn.closest('[data-ba-viewpoint-step]');
+    const stepKey = group?.dataset?.baViewpointStep || 'home';
+    const next = setBaViewpoint(stepKey, btn.dataset.baViewpoint);
+    group?.querySelectorAll('[data-ba-viewpoint]').forEach((b) => {
+      b.classList.toggle('active', b.dataset.baViewpoint === next);
+    });
+  };
+  const homeBaControls = document.getElementById('ca-ba-copy-before')?.closest('.flex-wrap');
+  if (homeBaControls && homeBaControls.dataset.baViewpointWired !== '1') {
+    homeBaControls.dataset.baViewpointWired = '1';
+    homeBaControls.addEventListener('click', (ev) => {
+      const btn = ev.target.closest('[data-ba-viewpoint]');
+      if (!btn || !homeBaControls.contains(btn)) return;
+      applyBaViewpointClick(btn);
+    });
+  }
 
   const fileToDataUrl = (file) =>
     new Promise((resolve, reject) => {
@@ -7417,6 +8214,11 @@ function wireContentTab(d) {
   if (svcBaRoot && svcBaRoot.dataset.baWired !== '1') {
     svcBaRoot.dataset.baWired = '1';
     svcBaRoot.addEventListener('click', (ev) => {
+      const vpBtn = ev.target.closest('[data-ba-viewpoint]');
+      if (vpBtn && svcBaRoot.contains(vpBtn)) {
+        applyBaViewpointClick(vpBtn);
+        return;
+      }
       const btn = ev.target.closest('.ca-ba-svc-copy');
       if (!btn || !svcBaRoot.contains(btn)) return;
       const slug = btn.getAttribute('data-ba-service') || '';
@@ -7590,7 +8392,10 @@ function wireContentTab(d) {
   });
 
   document.getElementById('ca-download-nap')?.addEventListener('click', () => {
-    const cfg = state.detail?.siteConfig || {};
+    const cfg = effectiveSiteConfigForLaunchClient(
+      state.detail?.siteConfig,
+      state.detail?.siteConfigDraft,
+    );
     const csv = napCsvFromSiteConfig(cfg);
     const host = String(cfg.domain || cfg.businessName || 'site')
       .toLowerCase()
@@ -7717,15 +8522,27 @@ function wireContentTab(d) {
 
     const pendingBody = collectLaunchFormValues();
     const issues = launchPreflightIssues(pendingBody);
-    if (issues.length) {
+    let allowIncompleteLaunch = false;
+    if (issues.length && pendingBody.ship !== false) {
       const ok = await showModal({
-        title: 'Placeholders still set',
-        confirmLabel: 'Launch anyway',
+        title: 'Launch blocked — incomplete site',
+        confirmLabel: 'Ship incomplete anyway',
         cancelLabel: 'Cancel',
         danger: true,
-        bodyHtml: `<p>These still look like placeholders:</p>
+        bodyHtml: `<p>Auto ship requires a real domain, phone, Web3Forms key, and non-placeholder reviews:</p>
           <ul class="narrative-list">${issues.map((i) => `<li>${esc(i.label)}</li>`).join('')}</ul>
-          <p class="muted">Fix them above (or under Advanced), or launch anyway if you intend to finish later.</p>`,
+          <p class="muted">Fix these above, or confirm you intentionally want to ship incomplete (forms/NAP may be broken on the live site).</p>`,
+      });
+      if (!ok) return;
+      allowIncompleteLaunch = true;
+    } else if (issues.length) {
+      const ok = await showModal({
+        title: 'Placeholders still set',
+        confirmLabel: 'Continue without shipping',
+        cancelLabel: 'Cancel',
+        danger: true,
+        bodyHtml: `<p>These still look incomplete (ship is off, so Launch will only patch keys):</p>
+          <ul class="narrative-list">${issues.map((i) => `<li>${esc(i.label)}</li>`).join('')}</ul>`,
       });
       if (!ok) return;
     }
@@ -7743,7 +8560,7 @@ function wireContentTab(d) {
       setLaunchProgress(true, 'Launching…', LAUNCH_PROGRESS_STEPS[stepIdx]);
     }, 12000);
     try {
-      const body = pendingBody;
+      const body = { ...pendingBody, allowIncompleteLaunch };
       const result = await api(`/api/candidates/${encodeURIComponent(id)}/launch`, {
         method: 'POST',
         body: JSON.stringify(body),
@@ -7753,7 +8570,7 @@ function wireContentTab(d) {
       const shipOk = result.ship?.ok ? 'Ship (GitHub/Worker) ok' : result.ship ? 'Ship partial/failed' : 'Ship skipped';
       const cfOk = result.cloudflare?.ok ? 'Cloudflare domain/email ran' : 'Cloudflare domain/email skipped or incomplete';
       await showModal({
-        title: result.ok ? 'Launch updated' : 'Launch partial',
+        title: result.ok ? 'Launch updated' : 'Launch incomplete',
         confirmLabel: 'OK',
         bodyHtml: `<p>${esc(shipOk)}. ${esc(cfOk)}. Forms key: ${result.formsDone ? 'set' : 'still placeholder'}.</p>
           <ul class="narrative-list">${human || '<li>No extra notes</li>'}</ul>
@@ -7770,10 +8587,15 @@ function wireContentTab(d) {
           <p class="muted"><strong>After launch:</strong> verify Email Routing destination once if new (click link in Gmail); confirm the live form with your Web3Forms key.</p>`,
       });
     } catch (error) {
+      const blockerList = (error.details?.blockers || [])
+        .map((b) => `<li>${esc(b.label || b.id || b)}</li>`)
+        .join('');
       await showModal({
-        title: 'Launch failed',
+        title: error.code === 'LAUNCH_BLOCKED' ? 'Launch blocked' : 'Launch failed',
         confirmLabel: 'OK',
-        bodyHtml: `<p>${esc(error.message)}</p>`,
+        bodyHtml: `<p>${esc(error.message)}</p>${
+          blockerList ? `<ul class="narrative-list">${blockerList}</ul>` : ''
+        }`,
       });
     } finally {
       clearInterval(launchTimer);
@@ -7924,11 +8746,18 @@ function wireContentTab(d) {
         const mapMissing = map && (map.ok === false || map.skipped);
         const logoOk = logo && logo.ok !== false && logo.path;
         const mapOk = map && map.ok && map.path;
+        const mapMissList = Array.isArray(map?.missingBoundaries) ? map.missingBoundaries : [];
         const mapWarn = mapMissing
           ? `<p class="callout warn">Coverage map missing${
               map.warning ? `: ${esc(map.warning)}` : ''
             }. Accept already tried — re-run under <strong>Website</strong> → Review images → <strong>Regenerate coverage map</strong> (button says Generate if none exists yet), then Prepare preview.</p>`
-          : '';
+          : mapOk && mapMissList.length
+            ? `<p class="callout warn">Coverage map drawn for <strong>${esc(
+                String(map.areas ?? ''),
+              )}</strong> city outline(s). <strong>No outline</strong> (still Also serving): ${esc(
+                mapMissList.join('; '),
+              )}.</p>`
+            : '';
         const failedSlots = Array.isArray(result.images?.failedSlots)
           ? result.images.failedSlots
           : [];
@@ -7971,7 +8800,11 @@ function wireContentTab(d) {
               }</li>`
             : '';
         const mapRow = mapOk
-          ? `<li><span class="stage-check" aria-hidden="true">✓</span> Coverage map generated</li>`
+          ? `<li><span class="stage-check" aria-hidden="true">✓</span> Coverage map generated${
+              mapMissList.length
+                ? ` <span class="muted">(${esc(String(mapMissList.length))} without outline — Also serving)</span>`
+                : ''
+            }</li>`
           : mapMissing
             ? `<li><span class="accept-asset-skip" aria-hidden="true">○</span> Coverage map missing</li>`
             : '';
@@ -8142,7 +8975,7 @@ function wireSiteConfigTab(d) {
         if (!state.siteConfigSoftDone) state.siteConfigSoftDone = {};
         state.siteConfigSoftDone.look = true;
         state.tab = 'site-config';
-        advancePanelStep('site-config', 'details');
+        advancePanelStep('site-config', 'address');
         renderDetail();
         showToast(
           hasConfig
@@ -8160,6 +8993,227 @@ function wireSiteConfigTab(d) {
       }
     });
   }
+  const afterAddressChoice = async (result) => {
+    if (result?.candidate) state.detail = result.candidate;
+    if (!state.siteConfigSoftDone) state.siteConfigSoftDone = {};
+    state.siteConfigSoftDone.address = true;
+    advancePanelStep('site-config', 'details');
+    renderDetail();
+  };
+  document.getElementById('ba-show-home')?.addEventListener('click', () => {
+    document.getElementById('ba-home-panel')?.classList.remove('hidden');
+  });
+
+  const runBaAddressSearch = async ({ refreshLoopnet = false } = {}) => {
+    if (state.baSearchBusy) return;
+    state.baSearchBusy = true;
+    state.baSearchMode = refreshLoopnet ? 'refresh' : 'find';
+    if (!state.siteConfigOpenStep) state.siteConfigOpenStep = 'address';
+    renderDetail();
+    const stopBaBusy = () => {
+      state.baSearchBusy = false;
+      state.baSearchMode = 'find';
+      renderDetail();
+    };
+    try {
+      const result = await api(`/api/candidates/${encodeURIComponent(d.id)}/address/search`, {
+        method: 'POST',
+        body: JSON.stringify({ refreshLoopnet: Boolean(refreshLoopnet) }),
+      });
+      if (result?.candidate) state.detail = result.candidate;
+      if (result?.apifyPlanUsage) state.apifyPlanUsage = result.apifyPlanUsage;
+      else if (result?.package?.apifyPlanUsage) {
+        state.apifyPlanUsage = result.package.apifyPlanUsage;
+      }
+      const pkg = result?.package || state.detail?.businessAddress;
+      const kind = pkg?.lastSearchErrorKind;
+      stopBaBusy();
+      if (kind === 'apify_billing') {
+        await showModal({
+          title: 'Apify usage limit',
+          confirmLabel: 'OK',
+          hideCancel: true,
+          bodyHtml: `<p>${esc(pkg?.lastSearchError || 'Apify usage limit reached.')}</p>
+            <p>Add credit or upgrade at <a href="https://console.apify.com/billing/subscription" target="_blank" rel="noopener">Apify billing</a>, then retry Find.</p>
+            <p class="muted">Until then use <strong>Use my home address</strong> or <strong>Skip address</strong>.</p>`,
+        });
+        return;
+      }
+      const added = Number(pkg?.lastSearchStats?.added ?? 0);
+      const clean = Number(pkg?.lastSearchStats?.shortlist ?? 0);
+      const title =
+        kind === 'cache_exhausted'
+          ? 'Cache exhausted'
+          : clean === 0
+            ? 'Find complete — no new cleans'
+            : added > 0
+              ? 'Find complete'
+              : 'Find complete';
+      await showModal({
+        title,
+        confirmLabel: 'OK',
+        hideCancel: true,
+        bodyHtml: baSearchReportBodyHtml(pkg, {
+          title: 'This run',
+          failed: Boolean(kind && kind !== 'empty_screened'),
+        }),
+      });
+    } catch (error) {
+      try {
+        const refreshed = await api(`/api/candidates/${encodeURIComponent(d.id)}`);
+        if (refreshed) state.detail = refreshed;
+      } catch {
+        /* keep prior detail */
+      }
+      const kind =
+        state.detail?.businessAddress?.lastSearchErrorKind ||
+        (/402|remaining usage|paid plan|billing\/subscription/i.test(error.message || '')
+          ? 'apify_billing'
+          : null);
+      stopBaBusy();
+      if (kind === 'apify_billing') {
+        await showModal({
+          title: 'Apify usage limit',
+          confirmLabel: 'OK',
+          hideCancel: true,
+          bodyHtml: `<p>${esc(error.message)}</p>
+          <p>Add credit or upgrade at <a href="https://console.apify.com/billing/subscription" target="_blank" rel="noopener">Apify billing</a>, then retry Find.</p>
+          <p class="muted">Until then use <strong>Use my home address</strong> or <strong>Skip address</strong>.</p>`,
+        });
+      } else {
+        await showModal({
+          title: 'Address search failed',
+          confirmLabel: 'OK',
+          hideCancel: true,
+          bodyHtml: `<p>${esc(error.message)}</p><p class="muted">You can still Use my home address or Skip. Check APIFY_* and GOOGLE_MAPS_API_KEY in .env for Find.</p>`,
+        });
+      }
+    } finally {
+      if (state.baSearchBusy) stopBaBusy();
+    }
+  };
+
+  document.getElementById('ba-find-addresses')?.addEventListener('click', async () => {
+    if (state.baSearchBusy) return;
+    const pkg = state.detail?.businessAddress;
+    const cache = pkg?.listingCache;
+    const cacheLen = Array.isArray(cache?.listings) ? cache.listings.length : 0;
+    const age = cache?.fetchedAt ? Date.now() - Date.parse(cache.fetchedAt) : Infinity;
+    const fresh = Number.isFinite(age) && age >= 0 && age < BA_CACHE_TTL_MS;
+    const unscreened =
+      pkg?.lastSearchStats?.unscreenedRemaining != null
+        ? Number(pkg.lastSearchStats.unscreenedRemaining)
+        : null;
+
+    if (cacheLen > 0 && fresh && unscreened === 0) {
+      const go = await showModal({
+        title: 'No more cached candidates',
+        confirmLabel: 'Refresh LoopNet',
+        cancelLabel: 'Cancel',
+        bodyHtml: `<p>All listings in the cached LoopNet list are already screened.</p>
+          <p class="muted"><strong>Refresh LoopNet</strong> pulls new listings (costs Apify), then screens only streets you have not seen yet.</p>`,
+      });
+      if (!go) return;
+      await runBaAddressSearch({ refreshLoopnet: true });
+      return;
+    }
+
+    if (cacheLen > 0 && !fresh) {
+      const go = await showModal({
+        title: 'LoopNet cache is stale',
+        confirmLabel: 'Refresh LoopNet',
+        cancelLabel: 'Screen remaining',
+        bodyHtml: `<p>Cached listings are older than 7 days.</p>
+          <p class="muted"><strong>Refresh LoopNet</strong> re-scrapes (Apify billable). <strong>Screen remaining</strong> keeps the old cache and only runs Places on unscreened streets (Apify $0).</p>`,
+      });
+      // showModal: confirm=true, cancel=false — need check how cancel works
+      if (go === true) {
+        await runBaAddressSearch({ refreshLoopnet: true });
+      } else if (go === false) {
+        await runBaAddressSearch({ refreshLoopnet: false });
+      }
+      return;
+    }
+
+    await runBaAddressSearch({ refreshLoopnet: false });
+  });
+
+  document.getElementById('ba-refresh-loopnet')?.addEventListener('click', async () => {
+    if (state.baSearchBusy) return;
+    const go = await showModal({
+      title: 'Refresh LoopNet?',
+      confirmLabel: 'Refresh (billable)',
+      cancelLabel: 'Cancel',
+      bodyHtml: `<p>This re-runs the Apify LoopNet actor for this city (billable), merges new listings into the cache, and screens streets not already decided.</p>
+        <p class="muted">Prefer <strong>Find addresses</strong> when the cache is still fresh — that continues without Apify.</p>`,
+    });
+    if (!go) return;
+    await runBaAddressSearch({ refreshLoopnet: true });
+  });
+  document.getElementById('ba-save-home')?.addEventListener('click', async () => {
+    const line = document.getElementById('ba-home-line')?.value?.trim() || '';
+    try {
+      const result = await api(`/api/candidates/${encodeURIComponent(d.id)}/address/home`, {
+        method: 'POST',
+        body: JSON.stringify({ line }),
+      });
+      await afterAddressChoice(result);
+    } catch (error) {
+      await showModal({
+        title: 'Save address failed',
+        confirmLabel: 'OK',
+        hideCancel: true,
+        bodyHtml: `<p>${esc(error.message)}</p>`,
+      });
+    }
+  });
+  document.getElementById('ba-skip-address')?.addEventListener('click', async () => {
+    try {
+      const result = await api(`/api/candidates/${encodeURIComponent(d.id)}/address/skip`, {
+        method: 'POST',
+        body: '{}',
+      });
+      await afterAddressChoice(result);
+    } catch (error) {
+      await showModal({
+        title: 'Skip failed',
+        confirmLabel: 'OK',
+        hideCancel: true,
+        bodyHtml: `<p>${esc(error.message)}</p>`,
+      });
+    }
+  });
+  document.querySelectorAll('.ba-use-addr').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const idx = Number(btn.dataset.baIndex);
+      const row = state.detail?.businessAddress?.shortlist?.[idx];
+      if (!row) return;
+      try {
+        const result = await api(`/api/candidates/${encodeURIComponent(d.id)}/address/select`, {
+          method: 'POST',
+          body: JSON.stringify({
+            selection: {
+              street: row.street,
+              suite: row.suite,
+              city: row.city,
+              state: row.state,
+              zip: row.zip,
+              source: 'commercial',
+            },
+          }),
+        });
+        await afterAddressChoice(result);
+      } catch (error) {
+        await showModal({
+          title: /already used/i.test(error.message || '') ? 'Address already claimed' : 'Select failed',
+          confirmLabel: 'OK',
+          hideCancel: true,
+          bodyHtml: `<p>${esc(error.message)}</p>`,
+        });
+      }
+    });
+  });
+
   const copyBtn = document.getElementById('sc-copy-prompt');
   if (copyBtn) {
     copyBtn.addEventListener('click', async () => {
@@ -8174,14 +9228,17 @@ function wireSiteConfigTab(d) {
           siteArchetype: nap.siteArchetype || 'multi_service',
           paletteId: nap.paletteId || 'slate-gold',
           fontTheme: nap.fontTheme || 'archivo-source',
+          addressStreet: nap.addressStreet || '',
+          addressCity: nap.addressCity || '',
+          addressState: nap.addressState || '',
+          addressZip: nap.addressZip || '',
         });
         const data = await api(
           `/api/candidates/${encodeURIComponent(d.id)}/site-config/prompt?${qs}`,
         );
         await navigator.clipboard.writeText(data.prompt || '');
-        showToast('Site-config prompt copied — paste Claude’s reply → Load draft → Accept.');
-        advancePanelStep('site-config', 'paste');
-        renderDetail();
+        showToast('Site-config prompt copied — paste into Claude.ai, then continue with Open Claude.ai or Paste below.');
+        // Stay on Business details — Open Claude.ai advances to Paste.
       } catch (error) {
         await showModal({
           title: 'Copy failed',
@@ -8191,6 +9248,14 @@ function wireSiteConfigTab(d) {
       }
     });
   }
+
+  document.getElementById('sc-open-claude')?.addEventListener('click', () => {
+    // Let the new-tab navigation start, then collapse Details / open Paste.
+    setTimeout(() => {
+      advancePanelStep('site-config', 'paste');
+      renderDetail();
+    }, 0);
+  });
 
   const saveDraftBtn = document.getElementById('site-config-save-draft-btn');
   if (saveDraftBtn) {
@@ -8215,13 +9280,7 @@ function wireSiteConfigTab(d) {
           services: document.getElementById('sc-edit-services')?.value || '',
           commercialServices: document.getElementById('sc-edit-commercial')?.value || '',
           homepageServicesLimit: document.getElementById('sc-edit-svc-limit')?.value || '8',
-          brand: {
-            paletteId: document.getElementById('sc-brand-palette')?.value?.trim() || '',
-            fontTheme: document.getElementById('sc-font-theme')?.value?.trim() || '',
-            primary: document.getElementById('sc-edit-brand-primary')?.value?.trim() || '',
-            accent: document.getElementById('sc-edit-brand-accent')?.value?.trim() || '',
-            ink: document.getElementById('sc-edit-brand-ink')?.value?.trim() || '',
-          },
+          brand: siteConfigBrandPatchFromForm(d.siteConfigDraft?.brand || state.detail?.siteConfigDraft?.brand),
           address: siteConfigAddressFromForm(
             document.getElementById('sc-edit-primaryCity')?.value?.trim() || '',
             document.getElementById('sc-edit-state')?.value?.trim() || '',
@@ -8241,7 +9300,7 @@ function wireSiteConfigTab(d) {
           confirmLabel: 'OK',
           bodyHtml: left.length
             ? `<p>Still placeholders: <code>${esc(left.join(', '))}</code></p>`
-            : '<p>No TBD placeholders left.</p>',
+            : '',
         });
       } catch (error) {
         await showModal({
@@ -8309,13 +9368,9 @@ function wireSiteConfigTab(d) {
                 ? ''
                 : document.getElementById('sc-edit-commercial')?.value || '',
               homepageServicesLimit: document.getElementById('sc-edit-svc-limit')?.value || '8',
-              brand: {
-                paletteId: document.getElementById('sc-brand-palette')?.value?.trim() || '',
-                fontTheme: document.getElementById('sc-font-theme')?.value?.trim() || '',
-                primary: document.getElementById('sc-edit-brand-primary')?.value?.trim() || '',
-                accent: document.getElementById('sc-edit-brand-accent')?.value?.trim() || '',
-                ink: document.getElementById('sc-edit-brand-ink')?.value?.trim() || '',
-              },
+              brand: siteConfigBrandPatchFromForm(
+                d.siteConfigDraft?.brand || state.detail?.siteConfigDraft?.brand,
+              ),
               address: siteConfigAddressFromForm(
                 document.getElementById('sc-edit-primaryCity')?.value?.trim() || '',
                 document.getElementById('sc-edit-state')?.value?.trim() || '',
@@ -8407,7 +9462,7 @@ function wireSiteConfigTab(d) {
         confirmLabel: 'OK',
         bodyHtml: `<p>Wrote <code>${esc(result.path || 'src/config/site-config.json')}</code>${
           clearCommercial ? ' with residential services only' : ''
-        }. Next: <strong>5 · Service area</strong> (map + radius), then <strong>6 · Provision phone</strong> / Content.</p>${
+        }. Next: <strong>6 · Service area</strong> (map + radius), then <strong>7 · Provision phone</strong> / Content.</p>${
           result.domainWarn?.mismatch
             ? `<div class="callout warn" style="margin-top:0.75rem"><strong>Domain vs brand:</strong> ${esc(
                 result.domainWarn.reason ||
@@ -8476,10 +9531,11 @@ function wireSiteConfigTab(d) {
         }
         showToast(
           notes.length
-            ? `Draft loaded — review services, then Accept. ${notes.join(' · ')}`
-            : 'Draft loaded — review residential vs commercial, then Accept.',
+            ? `Draft loaded — edit fields if needed, then Accept in Review services. ${notes.join(' · ')}`
+            : 'Draft loaded — continue to Review services to Accept.',
           { tone: notes.length ? 'warn' : 'ok' },
         );
+        advancePanelStep('site-config', 'services');
         renderDetail();
       } catch (error) {
         await showModal({
@@ -8553,7 +9609,13 @@ function wireSiteConfigTab(d) {
       await showModal({
         title: 'Provision failed',
         confirmLabel: 'OK',
-        bodyHtml: `<p>${esc(error.message)}</p>`,
+        bodyHtml: `<p>${esc(error.message)}</p>${
+          error.twilioSid
+            ? `<p class="muted small">Twilio SID: <code>${esc(error.twilioSid)}</code>${
+                error.e164 ? ` · ${esc(error.e164)}` : ''
+              }. Do not buy again until this SID is resolved in Twilio Console.</p>`
+            : ''
+        }`,
       });
     }
   });
@@ -9555,7 +10617,13 @@ function renderSitesDetail() {
       await showModal({
         title: 'Provision failed',
         confirmLabel: 'OK',
-        bodyHtml: `<p>${esc(error.message)}</p>`,
+        bodyHtml: `<p>${esc(error.message)}</p>${
+          error.twilioSid
+            ? `<p class="muted small">Twilio SID: <code>${esc(error.twilioSid)}</code>${
+                error.e164 ? ` · ${esc(error.e164)}` : ''
+              }. Do not buy again until this SID is resolved in Twilio Console.</p>`
+            : ''
+        }`,
       });
     }
   });
@@ -10446,6 +11514,77 @@ function isDiscoveryRowPendingProcess(row) {
   return Boolean(String(row?.human_decision || '').trim()) && !isDiscoveryRowProcessed(row);
 }
 
+function discoveryHumanDecisionProgress(rows = []) {
+  const list = Array.isArray(rows) ? rows : [];
+  const total = list.length;
+  let decided = 0;
+  let pendingProcess = 0;
+  for (const row of list) {
+    const hasDecision = Boolean(String(row?.human_decision || '').trim());
+    if (hasDecision || isDiscoveryRowProcessed(row)) decided += 1;
+    if (isDiscoveryRowPendingProcess(row)) pendingProcess += 1;
+  }
+  return {
+    decided,
+    total,
+    pendingProcess,
+    allDecided: total > 0 && decided === total,
+  };
+}
+
+function updateDiscoveryProcessControls() {
+  const processBtn = document.getElementById('discovery-process-btn');
+  const progressEl = document.getElementById('discovery-process-progress');
+  const { decided, total, pendingProcess, allDecided } = discoveryHumanDecisionProgress(
+    state.discoveryRows,
+  );
+  const canProcess = allDecided && pendingProcess > 0;
+
+  if (processBtn) {
+    processBtn.disabled = !canProcess;
+    setElementTip(
+      processBtn,
+      total === 0
+        ? 'Import a batch and set Human decisions first'
+        : !allDecided
+          ? `Set Human on every row (${decided}/${total}) before processing`
+          : pendingProcess === 0
+            ? 'No unprocessed rows left — all decided rows are already processed'
+            : `Process ${pendingProcess} decided row(s): pursue/maybe/review/hold → Candidates; pass/deprioritize → tracked`,
+    );
+  }
+
+  if (progressEl) {
+    if (total === 0) {
+      progressEl.hidden = true;
+      progressEl.textContent = '';
+    } else {
+      progressEl.hidden = false;
+      progressEl.textContent = allDecided
+        ? `${decided}/${total} Human decisions made`
+        : `${decided}/${total} Human decisions made, complete decisions to process batch.`;
+    }
+  }
+}
+
+/** Sort key for batch dropdowns: createdAt, else trailing stamp in id, else id. */
+function discoveryBatchSortKey(b) {
+  const created = String(b?.createdAt || '').trim();
+  if (created) return created;
+  const id = String(b?.id || '');
+  const m = id.match(/(\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2})(?:$|[^0-9])/);
+  if (m) return m[1].replace(/T(\d{2})-(\d{2})-(\d{2})$/, 'T$1:$2:$3');
+  return id;
+}
+
+function compareDiscoveryBatchesNewestFirst(a, b) {
+  const ka = discoveryBatchSortKey(a);
+  const kb = discoveryBatchSortKey(b);
+  const byTime = String(kb).localeCompare(String(ka));
+  if (byTime) return byTime;
+  return String(b?.id || '').localeCompare(String(a?.id || ''));
+}
+
 function fillCandidateBatchFilterSelect() {
   const sel = document.getElementById('candidate-batch-filter');
   if (!sel) return;
@@ -10460,7 +11599,7 @@ function fillCandidateBatchFilterSelect() {
   }
   const prev = state.candidateBatchFilter || '';
   const opts = ['<option value="">Batch: all</option>'];
-  const sorted = [...ids.values()].sort((a, b) => String(b.id).localeCompare(String(a.id)));
+  const sorted = [...ids.values()].sort(compareDiscoveryBatchesNewestFirst);
   for (const b of sorted) {
     const label = b.rowCount != null ? formatDiscoveryBatchOption(b) : b.id;
     const selected = b.id === prev ? ' selected' : '';
@@ -10722,17 +11861,39 @@ async function loadDiscoveryBatches() {
   fillCandidateBatchFilterSelect();
   const sel = document.getElementById('discovery-batch-select');
   if (!sel) return;
-  if (!state.discoveryBatches.length) {
-    sel.innerHTML = '<option value="">No batches yet</option>';
-    return;
+  const blankLabel = state.discoveryBatches.length ? 'No batch selected' : 'No batches yet';
+  const opts = [`<option value="">${esc(blankLabel)}</option>`];
+  for (const b of state.discoveryBatches) {
+    opts.push(
+      `<option value="${esc(b.id)}">${esc(formatDiscoveryBatchOption(b))}</option>`,
+    );
   }
-  sel.innerHTML = state.discoveryBatches
-    .map((b) => {
-      const selected = b.id === state.discoveryBatchId ? ' selected' : '';
-      return `<option value="${esc(b.id)}"${selected}>${esc(formatDiscoveryBatchOption(b))}</option>`;
-    })
-    .join('');
-  if (state.discoveryBatchId) sel.value = state.discoveryBatchId;
+  sel.innerHTML = opts.join('');
+  const id = state.discoveryBatchId || '';
+  sel.value = id && state.discoveryBatches.some((b) => b.id === id) ? id : '';
+  if (state.discoveryBatchId && sel.value !== state.discoveryBatchId) {
+    state.discoveryBatchId = null;
+  }
+}
+
+function clearDiscoveryBatch() {
+  state.discoveryBatchId = null;
+  state.discoveryRows = [];
+  state.discoverySelected = new Set();
+  const title = document.getElementById('discovery-batch-title');
+  if (title) title.textContent = 'No batch selected';
+  const sub = document.getElementById('discovery-batch-sub');
+  if (sub) sub.textContent = '';
+  const logEl = document.getElementById('discovery-process-log');
+  if (logEl) {
+    logEl.classList.add('hidden');
+    logEl.innerHTML = '';
+  }
+  const sel = document.getElementById('discovery-batch-select');
+  if (sel) sel.value = '';
+  renderDiscoveryTable();
+  updateDiscoveryStepChecks({}, []);
+  updateDiscoveryProcessControls();
 }
 
 const DISCOVERY_SOURCES = {
@@ -11007,6 +12168,7 @@ async function persistDiscoveryRowFromDom(idx) {
       },
       state.discoveryRows,
     );
+    updateDiscoveryProcessControls();
     return result;
   } catch (error) {
     await showModal({
@@ -11121,13 +12283,16 @@ function renderDiscoveryTable() {
   }).join('')}</tr>`;
   renderDiscoverySourceLegend();
 
-  const processBtn = document.getElementById('discovery-process-btn');
   const acceptSel = document.getElementById('discovery-accept-selected');
   const acceptAll = document.getElementById('discovery-accept-all');
 
   if (!state.discoveryRows.length) {
     tbody.innerHTML = `<tr><td colspan="${DISCOVERY_TABLE_COLS.length}" class="muted">Import a filled CSV or select a batch.</td></tr>`;
-    if (processBtn) processBtn.disabled = true;
+    updateDiscoveryProcessControls();
+    syncHeaderSelectAll(document.getElementById('discovery-select-all'), {
+      selectedCount: 0,
+      totalCount: 0,
+    });
     if (acceptSel) acceptSel.disabled = true;
     if (acceptAll) acceptAll.disabled = true;
     syncDiscoveryFilterInputs();
@@ -11135,7 +12300,6 @@ function renderDiscoveryTable() {
   }
 
   const view = getDiscoveryViewRows();
-  const pendingProcessCount = state.discoveryRows.filter(isDiscoveryRowPendingProcess).length;
   tbody.innerHTML = view
     .map(({ row, index: idx }) => {
       const checked = state.discoverySelected.has(idx) ? 'checked' : '';
@@ -11212,15 +12376,7 @@ function renderDiscoveryTable() {
     })
     .join('');
 
-  if (processBtn) {
-    processBtn.disabled = pendingProcessCount === 0;
-    setElementTip(
-      processBtn,
-      pendingProcessCount === 0
-        ? 'No unprocessed rows with a human decision'
-        : `Process ${pendingProcessCount} decided row(s): pursue/maybe/review/hold → Candidates; pass/deprioritize → tracked`,
-    );
-  }
+  updateDiscoveryProcessControls();
   const reopenSel = document.getElementById('discovery-reopen-selected');
   if (reopenSel) {
     const canReopen = [...state.discoverySelected].some((idx) =>
@@ -11236,7 +12392,16 @@ function renderDiscoveryTable() {
   }
   syncDiscoveryFilterInputs();
 
-  document.getElementById('discovery-select-all')?.addEventListener('change', (e) => {
+  const discSelectAll = document.getElementById('discovery-select-all');
+  const discSelectedVisible = view.filter(({ index }) =>
+    state.discoverySelected.has(index),
+  ).length;
+  syncHeaderSelectAll(discSelectAll, {
+    selectedCount: discSelectedVisible,
+    totalCount: view.length,
+  });
+
+  discSelectAll?.addEventListener('change', (e) => {
     const on = e.target.checked;
     for (const { index } of view) {
       if (on) state.discoverySelected.add(index);
@@ -11257,6 +12422,11 @@ function renderDiscoveryTable() {
       const idx = Number(cb.dataset.discIdx);
       if (cb.checked) state.discoverySelected.add(idx);
       else state.discoverySelected.delete(idx);
+      syncHeaderSelectAll(document.getElementById('discovery-select-all'), {
+        selectedCount: view.filter(({ index }) => state.discoverySelected.has(index))
+          .length,
+        totalCount: view.length,
+      });
       if (acceptSel) acceptSel.disabled = state.discoverySelected.size === 0;
       const reopenBtn = document.getElementById('discovery-reopen-selected');
       if (reopenBtn) {
@@ -11416,6 +12586,7 @@ function wireDiscoveryUi() {
   document.getElementById('discovery-batch-select')?.addEventListener('change', (event) => {
     const id = event.target.value;
     if (id) selectDiscoveryBatch(id).catch(() => {});
+    else clearDiscoveryBatch();
   });
 
   document.getElementById('discovery-form').addEventListener('submit', async (event) => {

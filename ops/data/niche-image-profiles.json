@@ -4,13 +4,36 @@
     {
       "id": "egress",
       "match": "egress|window well|basement window",
-      "boost": ["basement egress window", "window well", "foundation basement"],
-      "tokens": ["egress", "basement", "window", "well", "foundation", "crawlspace"],
+      "boost": [
+        "basement egress window",
+        "basement window well",
+        "egress window well",
+        "window well",
+        "below grade window",
+        "basement window installation",
+        "window well cover",
+        "daylight basement window",
+        "foundation basement"
+      ],
+      "tokens": [
+        "egress",
+        "basement",
+        "window",
+        "well",
+        "foundation",
+        "crawlspace",
+        "liner",
+        "grate",
+        "daylight",
+        "below-grade",
+        "below grade"
+      ],
       "kindHints": {
         "hero": "finished basement egress window interior",
-        "process": "basement window well installation contractor",
-        "materials": "egress window well grate steel liner",
-        "other": "basement foundation window"
+        "intro": "bright finished basement window",
+        "process": "installing window well basement",
+        "materials": "window well liner grate cover",
+        "other": "basement foundation window daylight"
       }
     },
     {

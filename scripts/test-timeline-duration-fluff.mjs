@@ -16,6 +16,12 @@ const body = `Most projects move faster than homeowners expect once permits are 
 - Final inspection — scheduled with your local building department after work is complete
 - Dig & replace — half a day to 1 day
 - Restore & test — same day as repair
+- Cure time — 24–48 hours
+- Reinstall and walkthrough — half day
+- Design consult — same day to a few days
+- Cabinet lead time — 2–4 weeks
+- Design and measurement — same day to a few days
+- Fabrication lead time — 2–4 weeks
 `;
 
 const stages = parseTimelineStages(body);
@@ -35,11 +41,28 @@ const checks = {
   halfDayNoFragment: !/half a day to/i.test(byTitle['dig & replace']?.detail || ''),
   sameDayAsRepairChip: /same day/i.test(byTitle['restore & test']?.duration || ''),
   sameDayNoAsRepair: !/as repair/i.test(byTitle['restore & test']?.detail || ''),
+  hoursRangeChip: /24\s*[–-]\s*48\s*hours/i.test(byTitle['cure time']?.duration || ''),
+  bareHalfDayChip: /^half day$/i.test(byTitle['reinstall and walkthrough']?.duration || ''),
+  designConsultChip: /^same day to a few days$/i.test(byTitle['design consult']?.duration || ''),
+  designConsultNoDetail: !byTitle['design consult']?.detail,
+  cabinetLeadTitle: /cabinet lead time/i.test(byTitle['cabinet lead time']?.title || 'Cabinet lead time'),
+  cabinetLeadChip: /^2\s*[–-]\s*4\s*weeks$/i.test(byTitle['cabinet lead time']?.duration || ''),
+  cabinetLeadNoDetail: !byTitle['cabinet lead time']?.detail,
+  cabinetNotBareTitle: byTitle['cabinet'] == null,
+  measureChip: /^same day to a few days$/i.test(byTitle['design and measurement']?.duration || ''),
+  measureNoDetail: !byTitle['design and measurement']?.detail,
+  fabricationTitle: /fabrication lead time/i.test(
+    byTitle['fabrication lead time']?.title || 'Fabrication lead time',
+  ),
+  fabricationChip: /^2\s*[–-]\s*4\s*weeks$/i.test(byTitle['fabrication lead time']?.duration || ''),
+  fabricationNoDetail: !byTitle['fabrication lead time']?.detail,
   fluffHelperOrNext: isTimelineDurationFluff('or next-day visit'),
   fluffHelperVaries: isTimelineDurationFluff('usually , varies by city/county'),
   fluffBareUsually: isTimelineDurationFluff('usually'),
   fluffAsRepair: isTimelineDurationFluff('as repair'),
   fluffHalfTo: isTimelineDurationFluff('half a day to'),
+  fluffToAFewDays: isTimelineDurationFluff('to a few days'),
+  fluffAFewDays: isTimelineDurationFluff('a few days'),
   realDetailNotFluff: !isTimelineDurationFluff(
     'scheduled with your local building department after work is complete',
   ),
@@ -50,8 +73,9 @@ const checks = {
 console.log(stages);
 console.log(checks);
 
-if (!Object.values(checks).every(Boolean)) {
-  console.error('FAIL');
+const failed = Object.entries(checks).filter(([, ok]) => !ok);
+if (failed.length) {
+  console.error('FAIL', failed.map(([k]) => k));
   process.exit(1);
 }
 console.log('PASS');

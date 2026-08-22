@@ -58,6 +58,14 @@ import {
   listArchetypes,
 } from './lib/site-config.mjs';
 import {
+  getBusinessAddressPackage,
+  searchBusinessAddresses,
+  selectBusinessAddress,
+  saveHomeBusinessAddress,
+  skipBusinessAddress,
+  fetchApifyPlanUsage,
+} from './lib/address-screen.mjs';
+import {
   acceptContent,
   buildContentPrompt,
   getContentDraft,
@@ -80,6 +88,7 @@ import {
   importBeforeAfterPair,
   listBeforeAfterStatus,
 } from './lib/chatgpt-before-after.mjs';
+import { buildSlotImagePrompt } from './lib/chatgpt-slot-image.mjs';
 import {
   buildResearcherPrompt,
   buildOutlinePrompt,
@@ -160,6 +169,7 @@ import { ghAuthStatus } from './lib/github-site.mjs';
 import {
   applyVisualEditPatches,
   beginVisualEditSession,
+  ensureVisualEditPreviewReady,
   getVisualEditSnapshot,
   publishVisualEdit,
   refreshVisualEditPreview,
@@ -221,6 +231,9 @@ function sendError(res, error) {
   if (error.check) payload.check = error.check;
   if (error.speechLint) payload.speechLint = error.speechLint;
   if (error.seoLint) payload.seoLint = error.seoLint;
+  if (error.twilioSid) payload.twilioSid = error.twilioSid;
+  if (error.e164) payload.e164 = error.e164;
+  if (error.provisioned) payload.provisioned = error.provisioned;
   res.status(status).json(payload);
 }
 
@@ -915,9 +928,66 @@ app.get('/api/candidates/:id/site-config/prompt', (req, res) => {
       siteArchetype: req.query.siteArchetype,
       paletteId: req.query.paletteId,
       fontTheme: req.query.fontTheme,
+      addressStreet: req.query.addressStreet || req.query.street,
+      addressCity: req.query.addressCity,
+      addressState: req.query.addressState,
+      addressZip: req.query.addressZip || req.query.zip,
       allowNonPursue: req.query.allowNonPursue === '1' || req.query.allowNonPursue === 'true',
     };
     res.json(buildSiteConfigPrompt(req.params.id, nap));
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.get('/api/candidates/:id/address', (req, res) => {
+  try {
+    res.json({
+      package: getBusinessAddressPackage(req.params.id),
+      candidate: getCandidateDetail(req.params.id),
+    });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/candidates/:id/address/search', async (req, res) => {
+  try {
+    const refreshLoopnet = Boolean(req.body?.refreshLoopnet);
+    res.json(await searchBusinessAddresses(req.params.id, { refreshLoopnet }));
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.get('/api/apify/usage', async (_req, res) => {
+  try {
+    res.json(await fetchApifyPlanUsage());
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/candidates/:id/address/select', (req, res) => {
+  try {
+    const body = req.body || {};
+    res.json(selectBusinessAddress(req.params.id, body.selection || body, { skipped: false }));
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/candidates/:id/address/home', (req, res) => {
+  try {
+    res.json(saveHomeBusinessAddress(req.params.id, req.body?.line || req.body?.address || ''));
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/candidates/:id/address/skip', (req, res) => {
+  try {
+    res.json(skipBusinessAddress(req.params.id));
   } catch (error) {
     sendError(res, error);
   }
@@ -1090,7 +1160,14 @@ app.post('/api/candidates/:id/content/accept', async (req, res) => {
     if (logo?.ok !== false && logo?.path) assetNotes.push(`Logo: ${logo.path}`);
     else if (logo?.warning) assetNotes.push(`Logo skipped: ${logo.warning}`);
     if (coverageMap?.ok && coverageMap?.path) {
-      assetNotes.push(`Coverage map: ${coverageMap.path}`);
+      const miss = Array.isArray(coverageMap.missingBoundaries)
+        ? coverageMap.missingBoundaries
+        : [];
+      assetNotes.push(
+        miss.length
+          ? `Coverage map: ${coverageMap.path} (${coverageMap.areas || '?'} outlined; Also serving / no outline: ${miss.join(', ')})`
+          : `Coverage map: ${coverageMap.path}`,
+      );
     } else if (coverageMap?.skipped) {
       assetNotes.push('Coverage map skipped (no Areas / suburbs yet)');
     } else if (coverageMap?.warning) {
@@ -1186,6 +1263,18 @@ app.post('/api/candidates/:id/images/slots/:slotKey/upload', (req, res) => {
   }
 });
 
+app.get('/api/candidates/:id/images/slots/:slotKey/chatgpt-prompt', (req, res) => {
+  try {
+    res.json(
+      buildSlotImagePrompt(req.params.id, req.params.slotKey, {
+        viewpoint: req.query?.viewpoint || 'inside',
+      }),
+    );
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
 app.post('/api/candidates/:id/logo/generate', (req, res) => {
   try {
     res.json(generateSiteLogo(req.params.id));
@@ -1208,6 +1297,7 @@ app.get('/api/candidates/:id/images/before-after-prompts', (req, res) => {
     res.json(
       buildBeforeAfterPrompts(req.params.id, {
         serviceSlug: req.query?.service || req.query?.serviceSlug || '',
+        viewpoint: req.query?.viewpoint || 'inside',
       }),
     );
   } catch (error) {
@@ -1720,9 +1810,11 @@ app.post('/api/candidates/:id/visual-edit/image', (req, res) => {
 
 app.post('/api/candidates/:id/visual-edit/preview', async (req, res) => {
   try {
-    const result = await refreshVisualEditPreview(req.params.id, {
-      rebuild: req.body?.rebuild !== false,
-    });
+    const result = req.body?.smart
+      ? await ensureVisualEditPreviewReady(req.params.id)
+      : await refreshVisualEditPreview(req.params.id, {
+          rebuild: req.body?.rebuild !== false,
+        });
     res.json(result);
   } catch (error) {
     sendError(res, error);
@@ -1777,6 +1869,7 @@ app.post('/api/candidates/:id/launch', async (req, res) => {
       attachDomain: body.attachDomain !== false,
       setupEmail: body.setupEmail !== false,
       markCloudflareProjectDone: Boolean(body.markCloudflareProjectDone),
+      allowIncompleteLaunch: body.allowIncompleteLaunch === true,
     });
     const site = result.site || upsertSiteAfterLaunch(req.params.id);
     res.json({
@@ -1867,7 +1960,32 @@ app.post('/api/sites/:id/phone/provision-twilio', async (req, res) => {
       areaCode: body.areaCode,
       force: body.force === true,
     });
-    const updated = setSitePhoneTracking(site.id, provisioned.phoneTracking);
+    let updated;
+    try {
+      updated = setSitePhoneTracking(site.id, provisioned.phoneTracking);
+    } catch (trackError) {
+      try {
+        updated = setSitePhoneTracking(site.id, {
+          ...provisioned.phoneTracking,
+          phase: 'orphan',
+          orphanReason: trackError.message || 'setSitePhoneTracking failed',
+        });
+      } catch {
+        /* ignore */
+      }
+      throw Object.assign(
+        new Error(
+          `Number ${provisioned.e164} is live in Twilio (SID ${provisioned.twilioSid}) and site-config was updated, but portfolio tracking failed: ${trackError.message}. Do not buy again — fix tracking or record SID ${provisioned.twilioSid} manually.`,
+        ),
+        {
+          status: 500,
+          twilioSid: provisioned.twilioSid,
+          e164: provisioned.e164,
+          code: 'TWILIO_TRACKING_FAILED',
+          provisioned,
+        },
+      );
+    }
     res.json({ site: updated, provisioned });
   } catch (error) {
     sendError(res, error);
@@ -1905,7 +2023,32 @@ app.post('/api/candidates/:id/phone/provision-twilio', async (req, res) => {
       areaCode: body.areaCode,
       force: body.force === true,
     });
-    const updated = setSitePhoneTracking(site.id, provisioned.phoneTracking);
+    let updated;
+    try {
+      updated = setSitePhoneTracking(site.id, provisioned.phoneTracking);
+    } catch (trackError) {
+      try {
+        updated = setSitePhoneTracking(site.id, {
+          ...provisioned.phoneTracking,
+          phase: 'orphan',
+          orphanReason: trackError.message || 'setSitePhoneTracking failed',
+        });
+      } catch {
+        /* ignore */
+      }
+      throw Object.assign(
+        new Error(
+          `Number ${provisioned.e164} is live in Twilio (SID ${provisioned.twilioSid}) and site-config was updated, but portfolio tracking failed: ${trackError.message}. Do not buy again — fix tracking or record SID ${provisioned.twilioSid} manually.`,
+        ),
+        {
+          status: 500,
+          twilioSid: provisioned.twilioSid,
+          e164: provisioned.e164,
+          code: 'TWILIO_TRACKING_FAILED',
+          provisioned,
+        },
+      );
+    }
     res.json({
       site: updated,
       provisioned,

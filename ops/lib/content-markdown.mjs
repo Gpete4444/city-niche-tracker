@@ -66,6 +66,57 @@ export function slugifyContentName(name) {
     .replace(/^-|-$/g, '');
 }
 
+/**
+ * Drop service MD that Structure / Type B does not want.
+ * - Structure without `services` page → remove all `services/*.md`
+ * - Type B (`single_service`) with Services page → keep ≤1 (prefer primary site-config service slug)
+ *
+ * @param {Record<string, string>} files
+ * @param {{ pageIds?: string[]|null, siteConfig?: object|null, siteArchetype?: string|null }} opts
+ */
+export function pruneFilesToStructure(
+  files,
+  { pageIds = null, siteConfig = null, siteArchetype = null } = {},
+) {
+  const out = { ...(files && typeof files === 'object' ? files : {}) };
+  const pages = Array.isArray(pageIds) && pageIds.length ? pageIds : null;
+  const wantsServices = !pages || pages.includes('services');
+  const archetype = String(siteArchetype || siteConfig?.siteArchetype || 'multi_service');
+  const isSingle = archetype === 'single_service';
+  const serviceKeys = Object.keys(out).filter((p) => p.startsWith('src/content/services/'));
+  if (!serviceKeys.length) return out;
+
+  if (!wantsServices) {
+    for (const key of serviceKeys) delete out[key];
+    return out;
+  }
+
+  if (isSingle && serviceKeys.length > 1) {
+    const primarySlug = slugifyContentName(
+      (Array.isArray(siteConfig?.services) && siteConfig.services[0]) || '',
+    );
+    const preferred = primarySlug ? `src/content/services/${primarySlug}.md` : '';
+    const keep = preferred && out[preferred] ? preferred : [...serviceKeys].sort()[0];
+    for (const key of serviceKeys) {
+      if (key !== keep) delete out[key];
+    }
+  }
+  return out;
+}
+
+/** Delete every services/*.md on disk (Structure excluded Services pages). */
+export function pruneAllServiceMarkdownFromDisk() {
+  const pruned = [];
+  const svcDir = path.join(CONTENT_ROOT, 'services');
+  if (!existsSync(svcDir)) return pruned;
+  for (const name of readdirSync(svcDir)) {
+    if (!name.endsWith('.md') || name.startsWith('_')) continue;
+    unlinkSync(path.join(svcDir, name));
+    pruned.push(`src/content/services/${name}`);
+  }
+  return pruned;
+}
+
 function stripOps(config) {
   if (!config || typeof config !== 'object') return null;
   const { _ops, ...clean } = config;
@@ -313,6 +364,7 @@ const KNOWN_CONTENT_FM_KEYS = new Set([
   'materialsImages',
   'processImages',
   'beforeAfterImages',
+  'serviceCardImages',
   'whyChooseUs',
   'process',
   'faqs',
@@ -831,14 +883,20 @@ export function sanitizeMarkdownImageFrontmatter(markdown, opts = {}) {
   );
 
   fm = repairFrontmatterListBlocks(fm);
+  // Re-parent serviceCardImages list items nested under coverageMap BEFORE omit-missing
+  // drops those `- src` lines as if they were orphan gallery items with missing files.
+  let bodyEarly = split.body || '';
+  ({ fm, body: bodyEarly } = healMisnestedServiceCardImages(fm, bodyEarly));
   fm = omitMissingImageFrontmatter(fm, opts);
   fm = healStockScrapeAlts(fm);
 
   fm = fm.replace(/\n{3,}/g, '\n\n').replace(/[ \t]+\n/g, '\n').trimEnd();
-  let body = stripDuplicateLeadingTitle(split.body || '', fm);
+  let body = stripDuplicateLeadingTitle(bodyEarly, fm);
   // Body images are banned — strip leftover `![]()` so preview never shows raw markdown
   body = String(body || '').replace(/!\[[^\]]*\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g, '').replace(/\n{3,}/g, '\n\n');
   ({ fm, body } = healUnknownFrontmatterProse(fm, body));
+  // Again after unknown-key move (recovers if key was stripped this pass before allowlist shipped)
+  ({ fm, body } = healMisnestedServiceCardImages(fm, body));
   const bodyOut = body.startsWith('\n') ? body : `\n${body}`;
   const out = `---\n${fm}\n---${bodyOut}`;
   return out.endsWith('\n') ? out : `${out}\n`;
@@ -972,7 +1030,7 @@ function omitMissingImageFrontmatter(fm, opts = {}) {
   out = healOrphanImageObjectFrontmatter(out);
 
   // Drop empty `gallery:` / `materialsImages:` / `beforeAfterImages:` only when no list items follow.
-  for (const key of ['gallery', 'materialsImages', 'beforeAfterImages', 'processImages']) {
+  for (const key of ['gallery', 'materialsImages', 'beforeAfterImages', 'processImages', 'serviceCardImages']) {
     const re = new RegExp(`^(${key})[ \\t]*:[ \\t]*\\n(?:[ \\t]*\\n)*`, 'im');
     out = out.replace(re, (match, _k, offset, full) => {
       const after = String(full).slice(offset + match.length);
@@ -985,6 +1043,91 @@ function omitMissingImageFrontmatter(fm, opts = {}) {
   out = out.replace(/\n{3,}/g, '\n\n');
 
   return out;
+}
+
+/**
+ * Fix coverageMap object that absorbed serviceCardImages list items after the key
+ * was stripped as "unknown" FM:
+ *
+ * coverageMap:
+ *   src: ...
+ *   alt: ...
+ *   - src: "/images/services-1-..."
+ *
+ * → peel list into serviceCardImages: and drop a bare serviceCardImages: line from body.
+ */
+function healMisnestedServiceCardImages(fm, body) {
+  const lines = String(fm || '')
+    .replace(/\r\n/g, '\n')
+    .split('\n');
+  const covIdx = lines.findIndex((l) => /^coverageMap[ \t]*:/i.test(l));
+  if (covIdx < 0) {
+    return { fm: String(fm || ''), body: String(body || '') };
+  }
+
+  let i = covIdx + 1;
+  while (i < lines.length) {
+    const L = lines[i];
+    if (!String(L).trim()) {
+      i += 1;
+      continue;
+    }
+    if (/^[ \t]+src[ \t]*:/i.test(L) || /^[ \t]+alt[ \t]*:/i.test(L)) {
+      i += 1;
+      continue;
+    }
+    break;
+  }
+
+  const listStart = i;
+  while (i < lines.length) {
+    const L = lines[i];
+    if (!String(L).trim()) {
+      let j = i + 1;
+      while (j < lines.length && !String(lines[j]).trim()) j += 1;
+      if (j < lines.length && /^[ \t]+-[ \t]+src[ \t]*:/i.test(lines[j])) {
+        i += 1;
+        continue;
+      }
+      break;
+    }
+    if (/^[ \t]+-[ \t]+src[ \t]*:/i.test(L)) {
+      i += 1;
+      continue;
+    }
+    if (/^[ \t]+alt[ \t]*:/i.test(L) && i > listStart) {
+      i += 1;
+      continue;
+    }
+    break;
+  }
+
+  if (listStart >= i) {
+    return { fm: lines.join('\n'), body: String(body || '') };
+  }
+  const listItems = lines.slice(listStart, i);
+  if (!listItems.some((l) => /^[ \t]+-[ \t]+src[ \t]*:/i.test(l))) {
+    return { fm: lines.join('\n'), body: String(body || '') };
+  }
+
+  const hasKey = lines.some((l) => /^serviceCardImages[ \t]*:/i.test(l));
+  let nextLines = [...lines.slice(0, listStart), ...lines.slice(i)];
+  if (!hasKey) {
+    nextLines = [
+      ...nextLines.slice(0, listStart),
+      'serviceCardImages:',
+      ...listItems,
+      ...nextLines.slice(listStart),
+    ];
+  }
+
+  let nextBody = String(body || '');
+  nextBody = nextBody.replace(/^\r?\n?serviceCardImages:\s*\r?\n?/, '\n');
+
+  return {
+    fm: nextLines.join('\n').replace(/\n{3,}/g, '\n\n').trimEnd(),
+    body: nextBody,
+  };
 }
 
 /**
@@ -1102,7 +1245,7 @@ function healOrphanImageListFrontmatter(fm) {
   let prev = start - 1;
   while (prev >= 0 && !String(lines[prev]).trim()) prev -= 1;
   const prevLine = prev >= 0 ? lines[prev] : '';
-  if (/^(materialsImages|gallery|process|whyChooseUs|faqs|heroImage|featureImage|cardImage|coverageMap)[ \t]*:/i.test(prevLine)) {
+  if (/^(materialsImages|serviceCardImages|gallery|process|whyChooseUs|faqs|heroImage|featureImage|cardImage|coverageMap)[ \t]*:/i.test(prevLine)) {
     return text;
   }
 
@@ -1218,7 +1361,7 @@ function healOrphanImageObjectFrontmatter(fm) {
 
   if (promote.length) {
     let insertAt = next.findIndex((l) =>
-      /^(materialsImages|processImages|beforeAfterImages|gallery|heroImage|cardImage|featureImage|coverageMap)[ \t]*:/i.test(
+      /^(materialsImages|processImages|beforeAfterImages|serviceCardImages|gallery|heroImage|cardImage|featureImage|coverageMap)[ \t]*:/i.test(
         l,
       ),
     );
@@ -1237,6 +1380,7 @@ const LIST_BLOCK_SPECS = {
   materialsImages: { fields: ['src', 'alt'], startKeys: ['src'] },
   processImages: { fields: ['src', 'alt'], startKeys: ['src'] },
   beforeAfterImages: { fields: ['src', 'alt'], startKeys: ['src'] },
+  serviceCardImages: { fields: ['src', 'alt'], startKeys: ['src'] },
 };
 
 /**
@@ -1567,6 +1711,7 @@ export function validateContentBundle(files, siteConfig, { mode = 'full', pageId
   const locationFiles = paths.filter((p) => p.startsWith('src/content/locations/'));
 
   const resolvedPageIds = Array.isArray(pageIds) && pageIds.length ? pageIds : null;
+  const wantsServices = !resolvedPageIds || resolvedPageIds.includes('services');
   let launchExpected = [];
   let launchMissing = [];
   let launchStubs = [];
@@ -1585,11 +1730,13 @@ export function validateContentBundle(files, siteConfig, { mode = 'full', pageId
   }
 
   if (!homepageFirst) {
-    if (isSingle) {
+    if (!wantsServices) {
+      // Structure excluded Services — expected service page count is 0 (orphans pruned elsewhere)
+    } else if (isSingle) {
       if (serviceFiles.length > 1) {
         warnings.push(`Type B: prefer ≤1 service page; got ${serviceFiles.length}`);
       }
-    } else if (resolvedPageIds?.includes('services') || !resolvedPageIds) {
+    } else {
       if (!serviceFiles.length) {
         errors.push('No services/*.md files (Type A requires service pages)');
       } else if (expectedServiceSlugs.length && serviceFiles.length < expectedServiceSlugs.length) {
@@ -1598,14 +1745,12 @@ export function validateContentBundle(files, siteConfig, { mode = 'full', pageId
         );
       }
     }
-    for (const slug of expectedServiceSlugs) {
-      const expected = `src/content/services/${slug}.md`;
-      if (
-        !files[expected] &&
-        !isSingle &&
-        (resolvedPageIds?.includes('services') || !resolvedPageIds)
-      ) {
-        warnings.push(`No exact match for service slug "${slug}"`);
+    if (wantsServices) {
+      for (const slug of expectedServiceSlugs) {
+        const expected = `src/content/services/${slug}.md`;
+        if (!files[expected] && !isSingle) {
+          warnings.push(`No exact match for service slug "${slug}"`);
+        }
       }
     }
     const suburbNames = Array.isArray(siteConfig?.targetSuburbs) ? siteConfig.targetSuburbs : [];
@@ -1619,7 +1764,7 @@ export function validateContentBundle(files, siteConfig, { mode = 'full', pageId
     } else if (!resolvedPageIds && (locationFiles.length < 4 || locationFiles.length > 6)) {
       warnings.push(`Location pages: got ${locationFiles.length}, prefer 4–6`);
     }
-  } else if (serviceFiles.length > 1 && isSingle) {
+  } else if (wantsServices && isSingle && serviceFiles.length > 1) {
     warnings.push('homepage_first Type B: unexpected multiple service files');
   }
 
@@ -1714,7 +1859,12 @@ export function pasteContentDraft(candidateId, raw) {
   const { config } = assertContentHandoffReady(candidateId);
   const pageIds = resolveStructurePageIds(candidateId);
   const extracted = extractSocialProofSidecar(raw);
-  const files = parseContentFileBlocks(extracted.textWithoutSidecar);
+  const parsed = parseContentFileBlocks(extracted.textWithoutSidecar);
+  const files = pruneFilesToStructure(parsed, {
+    pageIds,
+    siteConfig: config,
+    siteArchetype: config.siteArchetype,
+  });
   const onlyPages = Object.keys(files).every((p) => p.startsWith('src/content/pages/'));
   const resolvedMode = onlyPages ? 'homepage_first' : 'full';
   const check = validateContentBundle(files, config, { mode: resolvedMode, pageIds });
@@ -2089,7 +2239,13 @@ export async function acceptContent(
     throw err;
   }
 
-  const files = normalizeContentFilesMap(draft.files, config);
+  const files = pruneFilesToStructure(normalizeContentFilesMap(draft.files, config), {
+    pageIds: resolveStructurePageIds(candidateId),
+    siteConfig: config,
+    siteArchetype: config.siteArchetype,
+  });
+  const pageIds = resolveStructurePageIds(candidateId);
+  const wantsServices = pageIds.includes('services');
   const onlyPages = Object.keys(files).every((rel) => rel.startsWith('src/content/pages/'));
   const requireFull = outlineRequiresFullContent(candidateId);
   const mode = requireFull
@@ -2106,12 +2262,12 @@ export async function acceptContent(
   const preAssertLocationSeeded = ensured.seeded;
 
   if (requireFull) {
-    assertLaunchContentComplete(files, config, resolveStructurePageIds(candidateId), {
+    assertLaunchContentComplete(files, config, pageIds, {
       label: 'Accept',
     });
   }
 
-  const check = validateContentBundle(files, config, { mode });
+  const check = validateContentBundle(files, config, { mode, pageIds });
   if (!check.ok) {
     const err = new Error(`Content validation failed: ${check.errors.slice(0, 3).join('; ')}`);
     err.status = 400;
@@ -2190,7 +2346,14 @@ export async function acceptContent(
   for (const file of listContentMarkdownFiles()) {
     if (keep.has(file.rel)) continue;
     // homepage_first: only prune orphan pages/*.md here — services/locations handled below
-    if (mode === 'homepage_first' && !file.rel.startsWith('src/content/pages/')) continue;
+    // Exception: when Structure excludes Services, always drop leftover services/*.md
+    if (
+      mode === 'homepage_first' &&
+      !file.rel.startsWith('src/content/pages/') &&
+      !( !wantsServices && file.rel.startsWith('src/content/services/') )
+    ) {
+      continue;
+    }
     unlinkSync(file.abs);
     pruned.push(file.rel);
   }
@@ -2198,15 +2361,34 @@ export async function acceptContent(
   let seeded = [...preAssertLocationSeeded];
   if (mode === 'homepage_first') {
     pruned.push(...pruneWrongStateLocations(config.state));
-    pruned.push(...pruneUnmatchedServices(configuredServiceNames(config)));
     const locationStubs = seedTargetSuburbLocationStubs(config);
-    const serviceStubs = seedServiceStubs(config);
-    written.push(...locationStubs.written, ...serviceStubs.written);
-    seeded.push(...locationStubs.seeded, ...serviceStubs.seeded);
-    Object.assign(acceptedFiles, locationStubs.files, serviceStubs.files);
-  } else {
+    written.push(...locationStubs.written);
+    seeded.push(...locationStubs.seeded);
+    Object.assign(acceptedFiles, locationStubs.files);
+    if (wantsServices) {
+      pruned.push(...pruneUnmatchedServices(configuredServiceNames(config)));
+      const serviceStubs = seedServiceStubs(config);
+      written.push(...serviceStubs.written);
+      seeded.push(...serviceStubs.seeded);
+      Object.assign(acceptedFiles, serviceStubs.files);
+    } else {
+      pruned.push(...pruneAllServiceMarkdownFromDisk());
+      for (const rel of Object.keys(acceptedFiles)) {
+        if (rel.startsWith('src/content/services/')) delete acceptedFiles[rel];
+      }
+    }
+  } else if (wantsServices) {
     // Full accept: drop service MD not in site-config (orphans / invents)
     pruned.push(...pruneUnmatchedServices(configuredServiceNames(config)));
+    const locationStubs = seedTargetSuburbLocationStubs(config);
+    written.push(...locationStubs.written);
+    seeded.push(...locationStubs.seeded);
+    Object.assign(acceptedFiles, locationStubs.files);
+  } else {
+    pruned.push(...pruneAllServiceMarkdownFromDisk());
+    for (const rel of Object.keys(acceptedFiles)) {
+      if (rel.startsWith('src/content/services/')) delete acceptedFiles[rel];
+    }
     const locationStubs = seedTargetSuburbLocationStubs(config);
     written.push(...locationStubs.written);
     seeded.push(...locationStubs.seeded);

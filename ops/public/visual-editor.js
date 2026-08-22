@@ -10,6 +10,14 @@ let dirty = false;
 let device = 'desktop';
 let helloWait = null;
 let busy = false;
+let previewRefreshing = false;
+let structurePreviewQueued = false;
+let structurePreviewTimer = null;
+let sectionVisibleWait = null;
+let reorderWait = null;
+/** Sidebar row order — stable across hide/show (not enabled-first). */
+let sectionDisplayOrder = null;
+const STRUCTURE_PREVIEW_MS = 800;
 
 function waitForHello(ms) {
   return new Promise((resolve) => {
@@ -180,28 +188,325 @@ function renderFonts() {
   });
 }
 
+function structureIdToAstroKey(id) {
+  if (!id) return null;
+  // Process / offerProcess share one homepage band in the template.
+  if (id === 'offerProcess') return 'process';
+  const cat = (snapshot?.catalogSections || []).find((s) => s.id === id);
+  const key = cat?.astroKey || (id === 'beforeAfter' ? 'gallery' : id);
+  if (key === 'offerProcess') return 'process';
+  return key || null;
+}
+
+function enabledAstroOrder(sectionIds) {
+  const keys = [];
+  const seen = new Set();
+  for (const id of sectionIds || []) {
+    const key = structureIdToAstroKey(id);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    keys.push(key);
+  }
+  return keys;
+}
+
+function liveReorderSections(sectionIds) {
+  return new Promise((resolve) => {
+    const order = enabledAstroOrder(sectionIds);
+    const t = setTimeout(() => {
+      reorderWait = null;
+      resolve({ found: 0, moved: 0, order, timedOut: true });
+    }, 600);
+    reorderWait = (msg) => {
+      clearTimeout(t);
+      reorderWait = null;
+      resolve({
+        found: Number(msg?.found) || 0,
+        moved: Number(msg?.moved) || 0,
+        order: msg?.order || order,
+      });
+      return true;
+    };
+    postToFrame({ action: 'reorderSections', order });
+  });
+}
+
+async function refreshPreviewForLiveSections() {
+  if (!candidateId) return;
+  setStatus('Refreshing preview for section order…');
+  showStageLoading('Refreshing preview…');
+  try {
+    await deps.api(`/api/candidates/${encodeURIComponent(candidateId)}/visual-edit/preview`, {
+      method: 'POST',
+      body: JSON.stringify({ smart: true }),
+    });
+    await attachPreview(el('ve-page')?.value || '/');
+    activateFrame();
+  } finally {
+    hideStageLoading();
+  }
+}
+
+/** Live DOM reorder first; rebuild once if markers missing; persist; honest status. */
+async function applyLiveSectionOrder(nextSections) {
+  let result = await liveReorderSections(nextSections);
+  if (result.found < 2) {
+    setStatus('Preview missing section markers — refreshing…');
+    await refreshPreviewForLiveSections();
+    result = await liveReorderSections(nextSections);
+  }
+  const ok = await applyPatches(
+    [{ type: 'structure', action: 'reorder', sections: nextSections }],
+    { quiet: true },
+  );
+  if (!ok) return false;
+  await syncSectionVisibilityFromStructure();
+  if (result.moved >= 2) {
+    setStatus('Live preview updated', 'ok');
+    return true;
+  }
+  setStatus('Order saved — preview did not move (try Save draft)', 'err');
+  return false;
+}
+
+function liveSetSectionVisible(sectionId, visible) {
+  return new Promise((resolve) => {
+    const key = structureIdToAstroKey(sectionId);
+    if (!key) {
+      resolve(false);
+      return;
+    }
+    const t = setTimeout(() => {
+      sectionVisibleWait = null;
+      resolve(false);
+    }, 400);
+    sectionVisibleWait = (msg) => {
+      if (msg?.id && msg.id !== key) return false;
+      clearTimeout(t);
+      sectionVisibleWait = null;
+      resolve(Boolean(msg?.ok));
+      return true;
+    };
+    postToFrame({ action: 'setSectionVisible', id: key, visible: Boolean(visible) });
+  });
+}
+
+/** Clear stale hidden attrs so required/enabled bands match structure.sections. */
+async function syncSectionVisibilityFromStructure() {
+  const on = new Set(snapshot?.structure?.sections || []);
+  for (const s of snapshot?.catalogSections || []) {
+    if (!s?.id) continue;
+    await liveSetSectionVisible(s.id, on.has(s.id));
+  }
+}
+
+function pinDisplayEnds(ids) {
+  const list = (ids || []).map(String).filter(Boolean);
+  const mid = list.filter((id) => id !== 'hero' && id !== 'cta');
+  const out = [];
+  if (list.includes('hero')) out.push('hero');
+  out.push(...mid);
+  if (list.includes('cta')) out.push('cta');
+  return out;
+}
+
+function buildInitialDisplayOrder() {
+  const catalog = snapshot?.catalogSections || [];
+  const byId = new Set(catalog.map((s) => s.id));
+  const enabled = (snapshot?.structure?.sections || []).filter((id) => byId.has(id));
+  const rankOrder = snapshot?.homepageSectionOrder || catalog.map((s) => s.id);
+  const rank = new Map(rankOrder.map((id, i) => [id, i]));
+  let list = [...enabled];
+  const disabled = catalog.map((s) => s.id).filter((id) => !enabled.includes(id));
+  for (const id of disabled) {
+    const target = rank.has(id) ? rank.get(id) : Number.POSITIVE_INFINITY;
+    let insertAt = list.length;
+    for (let i = 0; i < list.length; i += 1) {
+      const r = rank.has(list[i]) ? rank.get(list[i]) : Number.POSITIVE_INFINITY;
+      if (r > target) {
+        insertAt = i;
+        break;
+      }
+    }
+    list.splice(insertAt, 0, id);
+  }
+  for (const s of catalog) {
+    if (!list.includes(s.id)) list.push(s.id);
+  }
+  return pinDisplayEnds(list.filter((id) => byId.has(id)));
+}
+
+function ensureDisplayOrder() {
+  const catalog = snapshot?.catalogSections || [];
+  const byId = new Set(catalog.map((s) => s.id));
+  if (!sectionDisplayOrder?.length) {
+    sectionDisplayOrder = buildInitialDisplayOrder();
+    return sectionDisplayOrder;
+  }
+  sectionDisplayOrder = sectionDisplayOrder.filter((id) => byId.has(id));
+  const rankOrder = snapshot?.homepageSectionOrder || catalog.map((s) => s.id);
+  const rank = new Map(rankOrder.map((id, i) => [id, i]));
+  for (const s of catalog) {
+    if (sectionDisplayOrder.includes(s.id)) continue;
+    const target = rank.has(s.id) ? rank.get(s.id) : Number.POSITIVE_INFINITY;
+    let insertAt = sectionDisplayOrder.length;
+    for (let i = 0; i < sectionDisplayOrder.length; i += 1) {
+      const r = rank.has(sectionDisplayOrder[i])
+        ? rank.get(sectionDisplayOrder[i])
+        : Number.POSITIVE_INFINITY;
+      if (r > target) {
+        insertAt = i;
+        break;
+      }
+    }
+    sectionDisplayOrder.splice(insertAt, 0, s.id);
+  }
+  sectionDisplayOrder = pinDisplayEnds(sectionDisplayOrder);
+  return sectionDisplayOrder;
+}
+
+function enabledFromDisplayOrder() {
+  const on = new Set(snapshot?.structure?.sections || []);
+  return ensureDisplayOrder().filter((id) => on.has(id));
+}
+
+function resetDisplayOrderToRegistry() {
+  const catalog = snapshot?.catalogSections || [];
+  const byId = new Set(catalog.map((s) => s.id));
+  const order = (snapshot?.homepageSectionOrder || catalog.map((s) => s.id)).filter((id) =>
+    byId.has(id),
+  );
+  for (const s of catalog) {
+    if (!order.includes(s.id)) order.push(s.id);
+  }
+  sectionDisplayOrder = pinDisplayEnds(order);
+  return sectionDisplayOrder;
+}
+
 function renderSections() {
   const wrap = el('ve-sections');
   if (!wrap) return;
   const on = new Set(snapshot?.structure?.sections || []);
   const catalog = snapshot?.catalogSections || [];
-  wrap.innerHTML = catalog
-    .map((s) => {
-      const checked = on.has(s.id) ? 'checked' : '';
-      return `<label class="ve-check"><input type="checkbox" data-section-id="${deps.esc(s.id)}" ${checked}/> ${deps.esc(s.label)}</label>`;
+  const byId = new Map(catalog.map((s) => [s.id, s]));
+  const orderedIds = ensureDisplayOrder().filter((id) => byId.has(id));
+  const enabled = enabledFromDisplayOrder();
+  const movable = enabled.filter((id) => id !== 'hero' && id !== 'cta');
+
+  let enabledPos = 0;
+  wrap.innerHTML = orderedIds
+    .map((id) => {
+      const s = byId.get(id);
+      if (!s) return '';
+      const enabledRow = on.has(s.id);
+      const posLabel = enabledRow ? String(++enabledPos) : '';
+      const checked = enabledRow ? 'checked' : '';
+      const pinned = s.id === 'hero' || s.id === 'cta';
+      const required = Boolean(s.required);
+      const midIdx = movable.indexOf(s.id);
+      const canUp = enabledRow && !pinned && midIdx > 0;
+      const canDown = enabledRow && !pinned && midIdx >= 0 && midIdx < movable.length - 1;
+      const reqAttr = required ? ' disabled' : '';
+      const reqTip = required ? ' data-tip="Required section — always on"' : '';
+      const rowClass = enabledRow ? 've-section-row is-on' : 've-section-row';
+      return `<div class="${rowClass}" data-section-row="${deps.esc(s.id)}">
+        <span class="ve-section-pos" aria-hidden="true">${posLabel}</span>
+        <label class="ve-check"${reqTip}>
+          <input type="checkbox" data-section-id="${deps.esc(s.id)}" ${checked}${reqAttr}/>
+          <span>${deps.esc(s.label)}</span>
+        </label>
+        <span class="ve-section-move">
+          <button type="button" class="ve-section-arrow" data-section-move="up" data-section-id="${deps.esc(s.id)}" ${canUp ? '' : 'disabled'} aria-label="Move ${deps.esc(s.label)} up">▲</button>
+          <button type="button" class="ve-section-arrow" data-section-move="down" data-section-id="${deps.esc(s.id)}" ${canDown ? '' : 'disabled'} aria-label="Move ${deps.esc(s.label)} down">▼</button>
+        </span>
+      </div>`;
     })
     .join('');
-  wrap.querySelectorAll('[data-section-id]').forEach((input) => {
-    input.addEventListener('change', () => {
-      applyPatches([
+
+  wrap.querySelectorAll('input[type="checkbox"][data-section-id]').forEach((input) => {
+    input.addEventListener('change', async () => {
+      if (input.disabled) return;
+      const sectionId = input.dataset.sectionId;
+      const showing = input.checked;
+      const def = (snapshot?.catalogSections || []).find((s) => s.id === sectionId);
+      if (def?.required) {
+        input.checked = true;
+        return;
+      }
+      const patches = [
         {
           type: 'structure',
-          action: input.checked ? 'show' : 'hide',
-          sectionId: input.dataset.sectionId,
+          action: showing ? 'show' : 'hide',
+          sectionId,
         },
-      ]);
+      ];
+      if (showing) {
+        const onNext = new Set([...(snapshot?.structure?.sections || []), sectionId]);
+        const desired = ensureDisplayOrder().filter((id) => onNext.has(id));
+        patches.push({ type: 'structure', action: 'reorder', sections: desired });
+      }
+      const ok = await applyPatches(patches, { quiet: true });
+      if (!ok) {
+        input.checked = !showing;
+        return;
+      }
+      const sections = enabledFromDisplayOrder();
+      await liveSetSectionVisible(sectionId, showing);
+      let result = await liveReorderSections(sections);
+      if (result.found < 2) {
+        setStatus('Preview missing section markers — refreshing…');
+        await refreshPreviewForLiveSections();
+        result = await liveReorderSections(sections);
+        await syncSectionVisibilityFromStructure();
+      }
+      if (result.moved >= 1 || result.found >= 1) {
+        setStatus('Live preview updated', 'ok');
+      } else {
+        setStatus('Saved — Save draft if preview did not update', 'err');
+      }
     });
   });
+
+  wrap.querySelectorAll('[data-section-move]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      if (btn.disabled) return;
+      const id = btn.dataset.sectionId;
+      const dir = btn.dataset.sectionMove === 'up' ? -1 : 1;
+      if (!id || id === 'hero' || id === 'cta' || !on.has(id)) return;
+      const display = [...ensureDisplayOrder()];
+      const i = display.indexOf(id);
+      if (i < 0) return;
+      let j = i + dir;
+      while (j >= 0 && j < display.length) {
+        const other = display[j];
+        if (on.has(other) && other !== 'hero' && other !== 'cta') break;
+        j += dir;
+      }
+      if (j < 0 || j >= display.length) return;
+      const swapId = display[j];
+      display[i] = swapId;
+      display[j] = id;
+      sectionDisplayOrder = pinDisplayEnds(display);
+      await applyLiveSectionOrder(enabledFromDisplayOrder());
+    });
+  });
+}
+
+async function onDefaultSectionOrder() {
+  if (!candidateId || busy) return;
+  const enabled = snapshot?.structure?.sections || [];
+  if (!enabled.length) return;
+  resetDisplayOrderToRegistry();
+  const next = enabledFromDisplayOrder();
+  const same =
+    next.length === enabled.length && next.every((id, i) => id === enabled[i]);
+  if (same) {
+    await syncSectionVisibilityFromStructure();
+    renderSections();
+    setStatus('Already default order', 'ok');
+    return;
+  }
+  await applyLiveSectionOrder(next);
 }
 
 function renderNap() {
@@ -272,7 +577,7 @@ function renderInspector() {
   if (!box) return;
   if (!selected?.binding) {
     panel?.classList.remove('is-active');
-    box.innerHTML = `<p class="muted">Click yellow-outlined copy or photos in the preview.</p>`;
+    box.innerHTML = '';
     return;
   }
   panel?.classList.add('is-active');
@@ -305,9 +610,9 @@ function renderInspector() {
   );
 }
 
-async function applyPatches(patches, { liveOk = false } = {}) {
-  if (!candidateId || busy) return;
-  setStatus('Saving…');
+async function applyPatches(patches, { liveOk = false, quiet = false } = {}) {
+  if (!candidateId || busy) return false;
+  if (!quiet) setStatus('Saving…');
   try {
     const result = await deps.api(`/api/candidates/${encodeURIComponent(candidateId)}/visual-edit`, {
       method: 'POST',
@@ -319,12 +624,15 @@ async function applyPatches(patches, { liveOk = false } = {}) {
     renderPalette();
     renderSections();
     el('ve-dirty')?.classList.remove('hidden');
-    setStatus(
-      liveOk
-        ? 'Live preview updated — Save draft to keep permanently'
-        : 'Applied — Save draft to refresh the page',
-      'ok',
-    );
+    if (!quiet) {
+      setStatus(
+        liveOk
+          ? 'Live preview updated — Save draft to keep permanently'
+          : 'Applied — Save draft to refresh the page',
+        'ok',
+      );
+    }
+    return true;
   } catch (error) {
     setStatus(error.message || 'Save failed', 'err');
     await deps.showModal({
@@ -333,6 +641,7 @@ async function applyPatches(patches, { liveOk = false } = {}) {
       hideCancel: true,
       bodyHtml: `<p>${deps.esc(error.message)}</p>`,
     });
+    return false;
   }
 }
 
@@ -438,10 +747,21 @@ function readFileDataUrl(file) {
   });
 }
 
-async function onSaveDraft() {
-  if (!candidateId || busy) return;
-  busy = true;
-  showStageLoading('Staging + assembling preview… this can take a minute');
+async function rebuildPreview({
+  message = 'Staging + assembling preview… this can take a minute',
+  successStatus = 'Preview rebuilt',
+  useBusy = true,
+  failTitle = 'Save draft failed',
+} = {}) {
+  if (!candidateId) return false;
+  if (useBusy) {
+    if (busy) return false;
+    busy = true;
+  } else {
+    if (previewRefreshing) return false;
+    previewRefreshing = true;
+  }
+  showStageLoading(message);
   try {
     const result = await deps.api(`/api/candidates/${encodeURIComponent(candidateId)}/visual-edit/preview`, {
       method: 'POST',
@@ -453,19 +773,64 @@ async function onSaveDraft() {
     const href = el('ve-page')?.value || '/';
     showStageLoading('Loading rebuilt preview…');
     await attachPreview(href);
-    setStatus('Preview rebuilt', 'ok');
+    setStatus(successStatus, 'ok');
+    return true;
   } catch (error) {
     setStatus(error.message || 'Preview failed', 'err');
     await deps.showModal({
-      title: 'Save draft failed',
+      title: failTitle,
       confirmLabel: 'OK',
       hideCancel: true,
       bodyHtml: `<p>${deps.esc(error.message)}</p>`,
     });
+    return false;
   } finally {
-    busy = false;
+    if (useBusy) busy = false;
+    else previewRefreshing = false;
     hideStageLoading();
   }
+}
+
+function scheduleStructurePreviewRefresh() {
+  setStatus('Updating preview…');
+  clearTimeout(structurePreviewTimer);
+  structurePreviewTimer = setTimeout(() => {
+    structurePreviewTimer = null;
+    void runStructurePreviewRefresh();
+  }, STRUCTURE_PREVIEW_MS);
+}
+
+async function runStructurePreviewRefresh() {
+  if (busy || previewRefreshing) {
+    structurePreviewQueued = true;
+    return;
+  }
+  await rebuildPreview({
+    message: 'Updating preview…',
+    successStatus: 'Live preview updated',
+    useBusy: false,
+    failTitle: 'Preview update failed',
+  });
+  if (structurePreviewQueued) {
+    structurePreviewQueued = false;
+    scheduleStructurePreviewRefresh();
+  }
+}
+
+async function onSaveDraft() {
+  if (!candidateId || busy) return;
+  clearTimeout(structurePreviewTimer);
+  structurePreviewTimer = null;
+  structurePreviewQueued = false;
+  if (previewRefreshing) {
+    setStatus('Updating preview…');
+    while (previewRefreshing) {
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    setStatus('Preview rebuilt', 'ok');
+    return;
+  }
+  await rebuildPreview();
 }
 
 function lintList(lint, key) {
@@ -599,6 +964,15 @@ function onMessage(ev) {
   if (msg.action === 'hello' || msg.action === 'ready') {
     if (helloWait) helloWait();
     activateFrame();
+    void syncSectionVisibilityFromStructure();
+    return;
+  }
+  if (msg.action === 'sectionVisibleResult') {
+    if (sectionVisibleWait) sectionVisibleWait(msg);
+    return;
+  }
+  if (msg.action === 'reorderResult') {
+    if (reorderWait) reorderWait(msg);
     return;
   }
   if (msg.action === 'select') {
@@ -628,6 +1002,7 @@ function closeEditor() {
   selected = null;
   dirty = false;
   busy = false;
+  sectionDisplayOrder = null;
 }
 
 async function applyNap() {
@@ -651,6 +1026,11 @@ function wireOnce() {
   el('ve-publish')?.addEventListener('click', onPublish);
   el('ve-undo')?.addEventListener('click', onUndo);
   el('ve-nap-apply')?.addEventListener('click', applyNap);
+  el('ve-sections-default-order')?.addEventListener('click', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    onDefaultSectionOrder();
+  });
   el('ve-device-desktop')?.addEventListener('click', () => setDevice('desktop'));
   el('ve-device-mobile')?.addEventListener('click', () => setDevice('mobile'));
   el('ve-page')?.addEventListener('change', (e) => {
@@ -668,6 +1048,7 @@ export async function openVisualEditor(id, { api, esc, showModal }) {
   selected = null;
   dirty = false;
   busy = false;
+  sectionDisplayOrder = null;
   wireOnce();
   const root = el('visual-editor');
   if (!root) {
@@ -683,12 +1064,10 @@ export async function openVisualEditor(id, { api, esc, showModal }) {
   root.setAttribute('aria-hidden', 'false');
   document.body.classList.add('ve-open');
   el('ve-dirty')?.classList.add('hidden');
-  el('ve-title').textContent = 'Visual editor';
   showStageLoading('Loading session…');
   window.addEventListener('message', onMessage);
   try {
     snapshot = await api(`/api/candidates/${encodeURIComponent(id)}/visual-edit`);
-    el('ve-title').textContent = snapshot.businessName || 'Visual editor';
     renderPageSelect();
     renderNap();
     renderPalette();
@@ -698,51 +1077,21 @@ export async function openVisualEditor(id, { api, esc, showModal }) {
     const href = '/';
     let attached = false;
 
-    if (snapshot.assembled) {
-      showStageLoading('Starting preview…');
-      // Soft rebind: reuse warm :4322 when already on this site.
-      await api(`/api/candidates/${encodeURIComponent(id)}/assembled/preview`, {
-        method: 'POST',
-        body: JSON.stringify({ forceRebind: false, rebuild: false }),
-      });
-      attached = await attachPreview(href);
+    showStageLoading('Preparing preview…');
+    await api(`/api/candidates/${encodeURIComponent(id)}/visual-edit/preview`, {
+      method: 'POST',
+      body: JSON.stringify({ smart: true }),
+    });
+    attached = await attachPreview(href);
 
-      if (!attached) {
-        showStageLoading('Retrying preview attach…');
-        attached = await attachPreview(href);
-      }
-
-      if (!attached) {
-        showStageLoading('Restarting preview server…');
-        await api(`/api/candidates/${encodeURIComponent(id)}/assembled/preview`, {
-          method: 'POST',
-          body: JSON.stringify({ forceRebind: true, rebuild: false }),
-        });
-        attached = await attachPreview(href);
-      }
-
-      if (!attached) {
-        showStageLoading('Rebuilding site so the editor can attach…');
-        await api(`/api/candidates/${encodeURIComponent(id)}/visual-edit/preview`, {
-          method: 'POST',
-          body: JSON.stringify({ rebuild: true }),
-        });
-        attached = await attachPreview(href);
-      }
-    } else {
-      showStageLoading('Assembling site for first preview…');
-      await api(`/api/candidates/${encodeURIComponent(id)}/visual-edit/preview`, {
-        method: 'POST',
-        body: JSON.stringify({ rebuild: true }),
-      });
+    if (!attached) {
+      showStageLoading('Retrying preview attach…');
       attached = await attachPreview(href);
     }
 
     hideStageLoading();
     setStatus(
-      attached
-        ? 'Click outlined copy or photos. Apply writes source; Save draft rebuilds the page.'
-        : 'Preview may still be starting — try Save draft if outlines do not appear.',
+      attached ? '' : 'Preview may still be starting — try Save draft if outlines do not appear.',
       attached ? '' : 'err',
     );
   } catch (error) {

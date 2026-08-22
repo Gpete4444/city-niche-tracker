@@ -60,6 +60,7 @@ export function pathsFor(id) {
     imagesPullStatus: path.join(RESEARCH_DIR, `${safe}-images-pull.json`),
     prospects: path.join(RESEARCH_DIR, `${safe}-prospects.json`),
     prospectsDraft: path.join(RESEARCH_DIR, `${safe}-prospects.draft.json`),
+    businessAddress: path.join(RESEARCH_DIR, `${safe}-business-address.json`),
   };
 }
 
@@ -473,6 +474,7 @@ export function getCandidateDetail(id) {
   const buildPackage = readJson(p.buildPackage);
   const imagesManifest = readJson(p.imagesManifest);
   const prospects = readJson(p.prospects);
+  const businessAddress = readJson(p.businessAddress);
   const stageInfo = deriveStage(id);
 
   return {
@@ -501,6 +503,9 @@ export function getCandidateDetail(id) {
         Boolean(siteConfigAccepted?.logo) ||
         existsSync(path.join(p.siteImages, 'logo.svg')),
       hasCoverageMap: existsSync(path.join(p.siteImages, 'coverage-map.svg')),
+      hasBusinessAddress: Boolean(
+        businessAddress?.selection || businessAddress?.skipped || businessAddress?.status,
+      ),
     },
     meta,
     config,
@@ -521,6 +526,7 @@ export function getCandidateDetail(id) {
     buildPackage,
     imagesManifest,
     prospects,
+    businessAddress,
     summary: summarizeResearch(research),
     archived: Boolean(meta.archivedAt),
     archivedAt: meta.archivedAt ?? null,

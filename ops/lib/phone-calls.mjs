@@ -1,5 +1,5 @@
 /**
- * Append-only Twilio call log + summarize pipeline (STT → Claude).
+ * Append-only Twilio call log + summarize pipeline (OpenAI STT → OpenAI summary).
  * Storage: research/phone-calls.jsonl (one JSON object per line).
  */
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
@@ -10,8 +10,10 @@ import { RESEARCH_DIR } from './candidates.mjs';
 import { listSites, listSitesWithPhone } from './sites.mjs';
 
 const CALLS_FILE = path.join(RESEARCH_DIR, 'phone-calls.jsonl');
-const OPENAI_URL = 'https://api.openai.com/v1/chat/completions';
+const OPENAI_CHAT_URL = 'https://api.openai.com/v1/chat/completions';
+const OPENAI_TRANSCRIBE_URL = 'https://api.openai.com/v1/audio/transcriptions';
 const OPENAI_SUMMARY_MODEL = 'gpt-4o-mini';
+const OPENAI_TRANSCRIBE_MODEL = 'whisper-1';
 
 function env(name) {
   return String(process.env[name] || '').trim();
@@ -21,7 +23,7 @@ function requireOpenAiKey() {
   const key = env('OPENAI_API_KEY');
   if (!key) {
     throw Object.assign(
-      new Error('Missing OPENAI_API_KEY — needed for phone call summaries'),
+      new Error('Missing OPENAI_API_KEY — needed for phone transcripts and summaries'),
       { status: 400 },
     );
   }
@@ -375,28 +377,70 @@ export function phoneCallStats({ siteId = null } = {}) {
   };
 }
 
-async function fetchTranscriptForRecording(recordingSid) {
-  const client = twilioClient();
-  // Request a transcription; poll briefly for completion.
-  let transcription;
-  try {
-    transcription = await client.recordings(recordingSid).transcriptions.create();
-  } catch (error) {
-    // Some accounts use Voice Intelligence only — fall back to listing existing
-    const existing = await client.recordings(recordingSid).transcriptions.list({ limit: 1 });
-    if (existing[0]) transcription = existing[0];
-    else throw error;
+function twilioRecordingMp3Url(recordingSid, recordingUrl = '') {
+  const sid = env('TWILIO_ACCOUNT_SID');
+  const fromRow = String(recordingUrl || '').trim();
+  if (fromRow) {
+    return fromRow.replace(/\.(json|wav)(\?.*)?$/i, '.mp3$2');
   }
-  const sid = transcription.sid;
-  for (let i = 0; i < 20; i += 1) {
-    const t = await client.transcriptions(sid).fetch();
-    if (t.status === 'completed') return String(t.transcriptionText || '').trim();
-    if (t.status === 'failed') {
-      throw new Error('Twilio transcription failed');
-    }
-    await new Promise((r) => setTimeout(r, 1500));
+  const recSid = String(recordingSid || '').trim();
+  if (!recSid || !sid) return '';
+  return `https://api.twilio.com/2010-04-01/Accounts/${sid}/Recordings/${recSid}.mp3`;
+}
+
+async function downloadRecordingMp3({ recordingSid = '', recordingUrl = '' } = {}) {
+  const sid = env('TWILIO_ACCOUNT_SID');
+  const token = env('TWILIO_AUTH_TOKEN');
+  if (!sid || !token) {
+    throw Object.assign(new Error('Missing TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN'), { status: 400 });
   }
-  throw new Error('Twilio transcription timed out');
+  const url = twilioRecordingMp3Url(recordingSid, recordingUrl);
+  if (!url) {
+    throw Object.assign(new Error('No recording URL or SID'), { status: 400 });
+  }
+  const auth = Buffer.from(`${sid}:${token}`).toString('base64');
+  const response = await fetch(url, {
+    headers: { Authorization: `Basic ${auth}` },
+  });
+  if (!response.ok) {
+    throw new Error(`Twilio recording download failed (${response.status})`);
+  }
+  const buf = Buffer.from(await response.arrayBuffer());
+  if (!buf.length) {
+    throw new Error('Twilio recording was empty');
+  }
+  return buf;
+}
+
+/**
+ * Speech-to-text via OpenAI audio transcriptions (Whisper by default).
+ * Twilio Recording Transcriptions API has no create() in the Node SDK — STT is OpenAI-only.
+ */
+async function transcribeRecordingAudio({ recordingSid = '', recordingUrl = '' } = {}) {
+  const key = requireOpenAiKey();
+  const model = env('OPENAI_PHONE_TRANSCRIBE_MODEL') || OPENAI_TRANSCRIBE_MODEL;
+  const audio = await downloadRecordingMp3({ recordingSid, recordingUrl });
+  const form = new FormData();
+  form.append('file', new Blob([audio], { type: 'audio/mpeg' }), 'recording.mp3');
+  form.append('model', model);
+  const response = await fetch(OPENAI_TRANSCRIBE_URL, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${key}` },
+    body: form,
+  });
+  const json = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(
+      `OpenAI transcription HTTP ${response.status}: ${
+        json?.error?.message || JSON.stringify(json).slice(0, 300)
+      }`,
+    );
+  }
+  const text = String(json.text || '').trim();
+  if (!text) {
+    throw new Error('Empty transcript from OpenAI');
+  }
+  return text;
 }
 
 async function summarizeWithOpenAi(transcript, meta = {}) {
@@ -411,7 +455,7 @@ From: ${meta.from || 'unknown'}
 Transcript:
 ${transcript.slice(0, 24000)}`;
 
-  const response = await fetch(OPENAI_URL, {
+  const response = await fetch(OPENAI_CHAT_URL, {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
@@ -454,8 +498,11 @@ export async function summarizePhoneCall(callSidOrId) {
 
   try {
     let transcript = row.transcript || '';
-    if (!transcript && row.recordingSid) {
-      transcript = await fetchTranscriptForRecording(row.recordingSid);
+    if (!transcript && (row.recordingSid || row.recordingUrl)) {
+      transcript = await transcribeRecordingAudio({
+        recordingSid: row.recordingSid,
+        recordingUrl: row.recordingUrl,
+      });
     }
     if (!transcript) {
       throw new Error('Empty transcript');
@@ -495,23 +542,16 @@ export async function getRecordingStream(callSidOrId) {
   if (!row?.recordingUrl && !row?.recordingSid) {
     throw Object.assign(new Error('No recording'), { status: 404 });
   }
-  const sid = env('TWILIO_ACCOUNT_SID');
-  const token = env('TWILIO_AUTH_TOKEN');
-  let url = row.recordingUrl;
-  if (!url && row.recordingSid) {
-    url = `https://api.twilio.com/2010-04-01/Accounts/${sid}/Recordings/${row.recordingSid}.mp3`;
-  }
-  const auth = Buffer.from(`${sid}:${token}`).toString('base64');
-  const response = await fetch(url, {
-    headers: { Authorization: `Basic ${auth}` },
-  });
-  if (!response.ok) {
-    throw Object.assign(new Error(`Twilio recording fetch failed (${response.status})`), {
-      status: 502,
+  try {
+    const buf = await downloadRecordingMp3({
+      recordingSid: row.recordingSid,
+      recordingUrl: row.recordingUrl,
     });
+    return { buf, contentType: 'audio/mpeg', row };
+  } catch (error) {
+    const status = /failed \(\d+\)/.test(error.message || '') ? 502 : error.status || 500;
+    throw Object.assign(new Error(error.message || 'Twilio recording fetch failed'), { status });
   }
-  const buf = Buffer.from(await response.arrayBuffer());
-  return { buf, contentType: response.headers.get('content-type') || 'audio/mpeg', row };
 }
 
 export { CALLS_FILE };

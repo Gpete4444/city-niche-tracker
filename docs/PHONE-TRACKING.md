@@ -18,7 +18,7 @@ Canonical Function source: [`ops/twilio-functions/`](../ops/twilio-functions/).
 | Forward to renter (rented) | Same DID; `forwardTo` = `renter.phone`; phase `rented` |
 | Answered / missed + duration | **Twilio REST backfill** on Phone load/refresh (durable); optional webhook relay for live updates |
 | Recordings | `record-from-answer`; backfill attaches recording SIDs; Phone tab audio proxy |
-| AI summary | After recording known: Twilio transcription → OpenAI gpt-4o-mini (queued from sync or webhook) |
+| AI summary | After recording known: OpenAI Whisper (STT) → gpt-4o-mini summary (queued from sync or webhook) |
 
 ## Durable call history (no laptop tunnel required)
 
@@ -39,7 +39,8 @@ Optional Function relay (`ROVER_WEBHOOK_URL` + tunnel) can push events while Rov
 
 1. Twilio account funded; Rover `.env` (see `.env.example`):
    - `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FORWARD_TO`, `TWILIO_VOICE_WEBHOOK_URL`
-   - `OPENAI_API_KEY` (Phone summaries via gpt-4o-mini)
+   - `OPENAI_API_KEY` (Phone STT via Whisper + summaries via gpt-4o-mini)
+   - Optional: `OPENAI_PHONE_TRANSCRIBE_MODEL` (default `whisper-1`), `OPENAI_PHONE_MODEL` (default `gpt-4o-mini`)
    - Optional live relay: `ROVER_PHONE_WEBHOOK_SECRET` + Function `ROVER_WEBHOOK_URL` (tunnel)
 2. Deploy Functions: [`ops/twilio-functions/README.md`](../ops/twilio-functions/README.md) — at least `/inbound` + `/whisper` (status/recording relays optional)
 3. Restart Rover (`npm run rover`)
@@ -84,7 +85,7 @@ Optional Function relay (`ROVER_WEBHOOK_URL` + tunnel) can push events while Rov
 | Missed-call recovery | Twilio REST sync on Phone load (not laptop-dependent) |
 | Number type | Static local DID (not session DNI) |
 | Whisper | “Call from {site}” to the callee |
-| Summaries | Async in Rover via OpenAI (`OPENAI_API_KEY`, gpt-4o-mini) when recording is known |
+| Summaries | Async in Rover: download Twilio MP3 → OpenAI Whisper transcript → gpt-4o-mini summary (`OPENAI_API_KEY`) |
 | Launch | Unchanged — domain / email / Web3Forms |
 
 ## Stays human

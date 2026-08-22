@@ -1,6 +1,6 @@
 /**
  * Twilio Serverless Function: /recording
- * Relays recordingStatusCallback into Rover, then Rover enqueues STT + Claude summary.
+ * Relays recordingStatusCallback into Rover, then Rover enqueues OpenAI STT + summary.
  *
  * Env: ROVER_WEBHOOK_URL, ROVER_PHONE_WEBHOOK_SECRET
  */

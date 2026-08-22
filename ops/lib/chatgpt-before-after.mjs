@@ -59,13 +59,29 @@ function loadConfig(candidateId) {
   );
 }
 
-function roomHint(niche, services) {
+export function roomHint(niche, services, viewpoint = 'inside') {
   const hay = `${niche || ''} ${(services || []).join(' ')}`.toLowerCase();
-  if (/bath|shower|tub/.test(hay)) return 'bathroom';
-  if (/kitchen|cabin|counter/.test(hay)) return 'kitchen';
+  const outside = viewpoint === 'outside';
+  if (/egress|basement.?window|window.?well|foundation.?cut/.test(hay)) {
+    return outside
+      ? 'home exterior foundation wall with basement window well'
+      : 'basement interior focused on a basement window';
+  }
+  if (/bath|shower|tub/.test(hay)) {
+    return outside ? 'home exterior near bathroom window/vent' : 'bathroom';
+  }
+  if (/kitchen|cabin|counter/.test(hay)) {
+    return outside ? 'home exterior near kitchen window' : 'kitchen';
+  }
   if (/roof/.test(hay)) return 'home exterior roof';
-  if (/hvac|air/.test(hay)) return 'utility / mechanical space';
-  return 'residential interior room';
+  if (/hvac|air/.test(hay)) {
+    return outside ? 'home exterior HVAC equipment pad' : 'utility / mechanical space';
+  }
+  return outside ? 'home exterior at the service feature' : 'residential interior room';
+}
+
+export function normalizeBaViewpoint(raw) {
+  return String(raw || '').trim().toLowerCase() === 'outside' ? 'outside' : 'inside';
 }
 
 function slugifyService(name) {
@@ -109,7 +125,7 @@ function resolveServiceTarget(candidateId, serviceSlug) {
 
 /**
  * Build paste-ready ChatGPT image prompts for a candidate.
- * Pass `{ serviceSlug }` for a service-page pair (scoped to that serviceName).
+ * Pass `{ serviceSlug, viewpoint: 'inside'|'outside' }` (default inside).
  */
 export function buildBeforeAfterPrompts(candidateId, opts = {}) {
   const config = loadConfig(candidateId);
@@ -125,37 +141,54 @@ export function buildBeforeAfterPrompts(candidateId, opts = {}) {
     : Array.isArray(config.services)
       ? config.services.slice(0, 3)
       : [];
-  const room = roomHint(niche, services);
+  const viewpoint = normalizeBaViewpoint(opts.viewpoint);
+  const room = roomHint(niche, services, viewpoint);
   const serviceLine = serviceTarget
     ? `Focus specifically on ${serviceTarget.serviceName} (not other services).`
     : services.length
       ? `Focus on ${services.slice(0, 2).join(' and ')}.`
       : `Focus on typical ${niche.toLowerCase()} work.`;
 
+  const cameraLine =
+    viewpoint === 'outside'
+      ? `Camera viewpoint: OUTSIDE — photoreal exterior shot of the ${room} in ${place}, looking at the ${focusName} feature from outdoors.`
+      : `Camera viewpoint: INSIDE — photoreal interior shot of the ${room} in ${place}, looking at the ${focusName} feature from indoors.`;
+
+  const surgicalRules = [
+    `SINGLE SUBJECT: only the ${focusName} change is the story.`,
+    'Do NOT remodel the whole room/house. Do NOT change flooring, wall paint, ceiling, furniture, clutter layout, or unrelated finishes between before and after.',
+    'Do NOT stage a trashy or demolished room. The space may look tidy, lived-in, or even attractive — the problem is specifically the service element.',
+  ].join(' ');
+
   const before = [
     `Create a single photorealistic BEFORE photo for a local ${niche} business website.`,
-    `Setting: a dated, worn ${room} in a real home in ${place} that needs ${focusName}.`,
+    cameraLine,
     serviceLine,
-    'Show clear need for professional work (wear, outdated finishes, clutter of materials OK).',
-    'Straight-on documentary photo, natural window light, no people, no faces, no text, no logos, no watermarks, no UI.',
+    `Show a clear need for ${focusName} only (e.g. undersized/non-compliant window, damaged well, or the specific defect) while the rest of the scene stays ordinary and believable.`,
+    surgicalRules,
+    'Straight-on documentary photo, natural light, no people, no faces, no text, no logos, no watermarks, no UI.',
     'Aspect ratio 4:3. Realistic residential architecture — not a showroom, not CGI-looking.',
   ].join(' ');
 
   const after = [
-    `Create a single photorealistic AFTER photo that matches the same camera angle and room layout as a before shot of a ${room} remodel.`,
-    `Setting: the same ${room} in ${place} after professional ${focusName.toLowerCase()} work — clean, finished, inviting.`,
+    `Create a single photorealistic AFTER photo matching the same camera angle, framing, and scene layout as the BEFORE.`,
+    cameraLine,
     serviceLine,
-    'Same viewpoint and framing as a typical before photo of this room; only finishes and condition should change.',
+    `Change ONLY the ${focusName} result (e.g. code-sized egress window and well if visible). Everything else — walls, floor, ceiling, trim elsewhere, furniture, lighting mood of the room — must stay the same.`,
+    surgicalRules,
+    'Forbidden: full basement finish, new carpet/paint package, furniture restyle, decluttering makeover, or any remodel beyond the service element.',
     'Photoreal, natural light, no people, no faces, no text, no logos, no watermarks.',
     'Aspect ratio 4:3. Looks like a real completed job photo for a contractor website.',
   ].join(' ');
 
   const pair = [
     'I need a matched BEFORE and AFTER pair for a contractor website (two separate images).',
-    `Niche: ${niche}. Service focus: ${focusName}. Location vibe: ${place}. Room: ${room}.`,
+    `Niche: ${niche}. Service focus: ${focusName}. Location vibe: ${place}. Setting: ${room}. Viewpoint: ${viewpoint}.`,
     serviceLine,
-    '1) BEFORE: dated/worn room needing work.',
-    '2) AFTER: same camera angle and layout after a professional remodel.',
+    cameraLine,
+    `1) BEFORE: problem is only the ${focusName} element; room may be tidy or finished.`,
+    `2) AFTER: same camera and room; only the ${focusName} work changes — no full remodel.`,
+    surgicalRules,
     'Photoreal, 4:3, no people, no text/logos/watermarks. Generate the BEFORE first, then the AFTER matching that angle.',
   ].join(' ');
 
@@ -164,6 +197,7 @@ export function buildBeforeAfterPrompts(candidateId, opts = {}) {
     city,
     state,
     room,
+    viewpoint,
     serviceSlug: serviceTarget?.slug || null,
     serviceName: serviceTarget?.serviceName || null,
     before,

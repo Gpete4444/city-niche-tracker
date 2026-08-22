@@ -10,14 +10,14 @@ import {
   pathsFor,
   saveMeta,
 } from './candidates.mjs';
-import { loadAcceptedSiteConfig } from './content-markdown.mjs';
+import { loadAcceptedSiteConfig, pruneFilesToStructure } from './content-markdown.mjs';
 import { runTemplateContract } from './template-contract.mjs';
 import {
   applyArchetypeDefaults,
   normalizeArchetype,
   suggestArchetype,
 } from '../../scripts/lib/site-archetypes.mjs';
-
+import { resolveStructurePageIds } from './preview-fidelity.mjs';
 function writeJson(filePath, data) {
   mkdirSync(path.dirname(filePath), { recursive: true });
   writeFileSync(filePath, `${JSON.stringify(data, null, 2)}\n`, 'utf8');
@@ -62,12 +62,17 @@ export function buildBuildPackage(candidateId, { siteArchetype } = {}) {
   config = applyArchetypeDefaults(config);
 
   const content = detail.content || detail.contentDraft;
-  const files = content?.files || {};
+  const pageIds = resolveStructurePageIds(candidateId, detail);
+  const files = pruneFilesToStructure(content?.files || {}, {
+    pageIds,
+    siteConfig: config,
+    siteArchetype: config.siteArchetype,
+  });
   const mode = content?._ops?.mode || (Object.keys(files).every((p) => p.startsWith('src/content/pages/'))
     ? 'homepage_first'
     : 'full');
   const contract = Object.keys(files).length
-    ? runTemplateContract(files, config, { mode })
+    ? runTemplateContract(files, config, { mode, pageIds })
     : { ok: false, errors: ['No content files yet'], warnings: [], summary: {} };
 
   const manifest = {};

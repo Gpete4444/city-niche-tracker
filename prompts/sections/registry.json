@@ -107,7 +107,7 @@
     },
     {
       "id": "services",
-      "label": "Services grid",
+      "label": "What we do (services grid)",
       "pages": [
         "home"
       ],
@@ -116,7 +116,7 @@
       "required": false,
       "defaultOn": true,
       "photoCapable": true,
-      "maxImages": 6,
+      "maxImages": 8,
       "astroKey": "services",
       "kind": "services",
       "writeInstructions": "One short entity-rich paragraph per service card. High-ticket services first. What it is, when needed, outcome."

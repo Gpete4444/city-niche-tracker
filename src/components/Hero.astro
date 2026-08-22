@@ -152,7 +152,7 @@ const trustBits =
         )
       }
       {
-        showCtas && !showForm && (
+        showCtas && (
           <div class="mt-7 flex flex-col gap-3 sm:flex-row sm:items-center">
             <a
               href="#lead-form"
@@ -163,21 +163,7 @@ const trustBits =
             </a>
             <a
               href={phoneHref()}
-              class="btn-secondary hidden gap-2 border-white/30 bg-white/10 text-white hover:bg-white/20 md:inline-flex"
-              data-edit={ve({ type: 'config', key: 'phone', kind: 'text' })}
-            >
-              <PhoneIcon />
-              Call {formatPhoneDisplay()}
-            </a>
-          </div>
-        )
-      }
-      {
-        showCtas && showForm && (
-          <div class="mt-7 hidden md:block">
-            <a
-              href={phoneHref()}
-              class="btn-secondary gap-2 border-white/30 bg-white/10 text-white hover:bg-white/20 md:inline-flex"
+              class="btn-secondary hidden gap-2 border-white bg-white text-ink hover:bg-white/90 md:inline-flex"
               data-edit={ve({ type: 'config', key: 'phone', kind: 'text' })}
             >
               <PhoneIcon />

@@ -8,6 +8,7 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
+  statSync,
   writeFileSync,
 } from 'node:fs';
 import path from 'node:path';
@@ -18,6 +19,7 @@ import {
   composeContentOutline,
   getContentStructure,
   loadSectionRegistry,
+  pinHomeSectionEnds,
   saveContentStructure,
 } from './content-structure.mjs';
 import { applyPaletteToBrand, getPalette, listPalettes } from '../../scripts/lib/site-palettes.mjs';
@@ -25,14 +27,19 @@ import { applyFontThemeToBrand, getFontTheme, listFontThemes } from '../../scrip
 import { lintContentSpeech } from './content-speech-lint.mjs';
 import { lintContentSeo } from './content-seo-lint.mjs';
 import { stageSiteContent } from './site-staging.mjs';
-import { assembleSite } from './assemble-site.mjs';
+import { assembleSite, templateComponentsNewerThanAssembled } from './assemble-site.mjs';
 import { buildAssembledSite, shipAssembledSite } from './ship-site.mjs';
-import { ensureAssembledPreview, stopAssembledPreview } from './assembled-preview.mjs';
+import {
+  contentNewerThanDist,
+  ensureAssembledPreview,
+  stopAssembledPreview,
+} from './assembled-preview.mjs';
 import { ghAuthStatus } from './github-site.mjs';
 import { cloudflareConfigured } from './cloudflare-launch.mjs';
 
 const ROOT = process.cwd();
 const LIVE_CONFIG = path.join(ROOT, 'src', 'config', 'site-config.json');
+const TEMPLATE_VE_BRIDGE = path.join(ROOT, 'public', 'rover-visual-bridge.js');
 
 function writeJson(filePath, data) {
   mkdirSync(path.dirname(filePath), { recursive: true });
@@ -347,7 +354,13 @@ export function getVisualEditSnapshot(candidateId) {
     },
     catalogSections: (registry.sections || [])
       .filter((s) => (s.pages || []).includes('home'))
-      .map((s) => ({ id: s.id, label: s.label, astroKey: s.astroKey })),
+      .map((s) => ({
+        id: s.id,
+        label: s.label,
+        astroKey: s.astroKey,
+        required: Boolean(s.required),
+      })),
+    homepageSectionOrder: registry.homepageSectionOrder || [],
     assembled: Boolean(rel),
     assembledSitePath: rel,
     previewUrl: 'http://127.0.0.1:4322/',
@@ -383,13 +396,23 @@ function applyOnePatch(candidateId, files, config, patch) {
     const structure = getContentStructure(candidateId) || {};
     let sections = [...(structure.sections || [])];
     const action = String(patch.action || '');
+    const registry = loadSectionRegistry();
+    const sectionById = new Map((registry.sections || []).map((s) => [s.id, s]));
     if (action === 'hide') {
+      const def = sectionById.get(String(patch.sectionId || ''));
+      if (def?.required) {
+        throw Object.assign(
+          new Error(`“${def.label || patch.sectionId}” is required and cannot be hidden`),
+          { status: 400 },
+        );
+      }
       sections = sections.filter((id) => id !== patch.sectionId);
     } else if (action === 'show' && patch.sectionId && !sections.includes(patch.sectionId)) {
       sections.push(patch.sectionId);
     } else if (action === 'reorder' && Array.isArray(patch.sections)) {
       sections = patch.sections.filter(Boolean);
     }
+    sections = pinHomeSectionEnds(sections);
     saveContentStructure(candidateId, { ...structure, sections });
     composeContentOutline(candidateId);
     applyOutlineToSiteConfig(candidateId);
@@ -536,6 +559,118 @@ export async function refreshVisualEditPreview(candidateId, { rebuild = true } =
   return { ok: true, assembled, build, preview, snapshot: getVisualEditSnapshot(candidateId) };
 }
 
+function resolveAssembledSiteRoot(candidateId) {
+  const detail = getCandidateDetail(candidateId);
+  const rel = detail.meta?.assembledSitePath;
+  if (!rel) return null;
+  const abs = path.resolve(ROOT, rel);
+  return existsSync(abs) ? abs : null;
+}
+
+/** True when assembled VE bridge is missing live-reorder support or older than template. */
+function visualBridgeStale(siteRoot) {
+  if (!siteRoot || !existsSync(TEMPLATE_VE_BRIDGE)) return false;
+  const assembledBridge = path.join(siteRoot, 'public', 'rover-visual-bridge.js');
+  if (!existsSync(assembledBridge)) return true;
+  try {
+    const body = readFileSync(assembledBridge, 'utf8');
+    if (!body.includes('reorderSections')) return true;
+    const templateMtime = statSync(TEMPLATE_VE_BRIDGE).mtimeMs;
+    const assembledMtime = statSync(assembledBridge).mtimeMs;
+    if (templateMtime > assembledMtime + 2000) return true;
+  } catch {
+    return true;
+  }
+  return false;
+}
+
+/** True when built homepage HTML lacks data-section markers or the VE bridge script tag. */
+function visualPreviewMarkersStale(siteRoot) {
+  if (!siteRoot) return true;
+  const distIndex = path.join(siteRoot, 'dist', 'index.html');
+  if (!existsSync(distIndex)) return true;
+  try {
+    const html = readFileSync(distIndex, 'utf8');
+    if (!html.includes('data-section=')) return true;
+    if (!html.includes('rover-visual-bridge.js')) return true;
+  } catch {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Open-path ensure: reassemble/rebuild only when template, bridge, or content is stale.
+ * Warm opens skip force assemble when already current.
+ */
+export async function ensureVisualEditPreviewReady(candidateId) {
+  stageSiteContent(candidateId, { mode: 'full', refreshPackage: false });
+
+  let siteRoot = resolveAssembledSiteRoot(candidateId);
+  const needsAssemble =
+    !siteRoot || templateComponentsNewerThanAssembled(siteRoot) || visualBridgeStale(siteRoot);
+  const markersStale = Boolean(siteRoot && visualPreviewMarkersStale(siteRoot));
+  const needsContentBuild = Boolean(
+    siteRoot && (contentNewerThanDist(siteRoot) || markersStale),
+  );
+
+  if (!needsAssemble && !needsContentBuild) {
+    const preview = await ensureAssembledPreview(siteRoot, {
+      rebuild: false,
+      forceRebind: false,
+    });
+    return {
+      ok: true,
+      smart: true,
+      refreshed: false,
+      assembled: { absoluteSiteRoot: siteRoot, assembledSitePath: path.relative(ROOT, siteRoot) },
+      build: null,
+      preview,
+      snapshot: getVisualEditSnapshot(candidateId),
+    };
+  }
+
+  await stopAssembledPreview();
+  let assembled;
+  if (needsAssemble || markersStale) {
+    // Markers missing from dist often means assembled src is also behind — force template sync.
+    assembled = assembleSite(candidateId, { force: true, skipGit: true });
+    siteRoot = assembled.absoluteSiteRoot || siteRoot;
+  } else {
+    assembled = {
+      absoluteSiteRoot: siteRoot,
+      assembledSitePath: path.relative(ROOT, siteRoot).replace(/\\/g, '/'),
+    };
+  }
+
+  let build = null;
+  if (siteRoot) {
+    try {
+      build = buildAssembledSite(siteRoot, { visualEdit: true });
+    } catch (e) {
+      build = { ok: false, error: e.message };
+    }
+  }
+
+  let preview = null;
+  if (siteRoot && build?.ok !== false) {
+    preview = await ensureAssembledPreview(siteRoot, {
+      rebuild: false,
+      forceRebind: true,
+    });
+  }
+
+  return {
+    ok: true,
+    smart: true,
+    refreshed: true,
+    assembled,
+    build,
+    preview,
+    snapshot: getVisualEditSnapshot(candidateId),
+  };
+}
+
 export async function publishVisualEdit(candidateId, { ignoreSeoWarnings = false, ship = true } = {}) {
   const loaded = loadAcceptedSiteConfig(candidateId);
   const files = workingFiles(candidateId);
@@ -572,11 +707,21 @@ export async function publishVisualEdit(candidateId, { ignoreSeoWarnings = false
   const refreshed = await refreshVisualEditPreview(candidateId, { rebuild: true });
   let shipResult = null;
   const canShip = Boolean(ghAuthStatus()) && cloudflareConfigured();
-  if (ship && canShip && refreshed.build?.ok && refreshed.assembled?.absoluteSiteRoot) {
+  if (ship && canShip) {
+    if (refreshed.build?.ok === false) {
+      const err = new Error(
+        `Publish rebuild failed before ship: ${refreshed.build?.error || 'unknown build error'}`,
+      );
+      err.status = 500;
+      err.speechLint = speechLint;
+      err.seoLint = seoLint;
+      throw err;
+    }
+    // Always production-build inside ship (never skipBuild after a VE preview build).
     try {
-      shipResult = await shipAssembledSite(candidateId, { skipBuild: true });
+      shipResult = await shipAssembledSite(candidateId, { skipBuild: false });
     } catch (e) {
-      shipResult = { ok: false, error: e.message };
+      shipResult = { ok: false, error: e.message, ship: e.ship };
     }
   } else if (ship && !canShip) {
     shipResult = {
@@ -585,7 +730,7 @@ export async function publishVisualEdit(candidateId, { ignoreSeoWarnings = false
     };
   }
   return {
-    ok: true,
+    ok: Boolean(shipResult?.ok || shipResult?.skipped || !ship),
     speechLint,
     seoLint,
     ...refreshed,

@@ -19,6 +19,7 @@ import {
   homepageUsesStructuredSections,
   proseSectionEyebrow,
 } from '../lib/content-body';
+import { HOME_SECTIONS_BODY_KEYS, orderedHomeSectionKeys } from '../lib/home-section-order';
 
 /** Prefer FM coverageMap; fall back when SVG is on disk (Accept/Stage may omit FM). */
 function resolveCoverageMap(
@@ -79,9 +80,10 @@ const showGallery = showSection('gallery') || showSection('beforeAfter');
 const showReviews = showSection('reviews');
 const showCta = showSection('cta');
 
+const pageOrder = orderedHomeSectionKeys(sectionList);
 const structured = homepageUsesStructuredSections(sectionList);
 const proseOnlyKeys = ['cost', 'materials', 'timeline', 'codes', 'diyVsPro', 'whenToCall'];
-const enabledProseKeys = proseOnlyKeys.filter((k) => showSection(k));
+const enabledProseKeys = pageOrder.filter((k) => proseOnlyKeys.includes(k) && showSection(k));
 const wantsProseExtras = enabledProseKeys.length > 0;
 const showProseBody = showIntro || wantsProseExtras;
 
@@ -123,11 +125,52 @@ const showFeatureImage = Boolean(
 const showIntroSection =
   showIntro && (structured ? introParagraphs.length > 0 : showProseBody);
 
-/** Light-band index after hero/trust (even = raised, odd = muted). */
+type PageSlot =
+  | { kind: 'trust' }
+  | { kind: 'intro'; surface: string }
+  | { kind: 'services'; surface: string }
+  | { kind: 'body'; key: string; bandStart: number };
+
+const slots: PageSlot[] = [];
 let lightBand = 0;
-const introSurface = showIntroSection ? bandSurface(lightBand++) : null;
-const servicesSurface = showServices ? bandSurface(lightBand++) : null;
-const homeSectionsBandStart = lightBand;
+for (const key of pageOrder) {
+  if (key === 'trust') {
+    if (showTrust) slots.push({ kind: 'trust' });
+    continue;
+  }
+  if (key === 'intro') {
+    if (showIntroSection) slots.push({ kind: 'intro', surface: bandSurface(lightBand++) });
+    continue;
+  }
+  if (key === 'services') {
+    if (showServices) slots.push({ kind: 'services', surface: bandSurface(lightBand++) });
+    continue;
+  }
+  if (!HOME_SECTIONS_BODY_KEYS.has(key)) continue;
+  const bandStart = lightBand;
+  // Reserve a light band for sections that use alternating paper (not brand/ink).
+  if (key !== 'areas' && key !== 'cta') lightBand += 1;
+  slots.push({ kind: 'body', key, bandStart });
+}
+
+const homeSectionsProps = {
+  editFile: 'src/content/pages/index.md',
+  whyChooseUs: showWhy ? indexEntry.data.whyChooseUs : [],
+  process: showProcess ? indexEntry.data.process : [],
+  processHeading: showOfferProcess ? `How ${site.services[0] ?? site.niche} works` : undefined,
+  whyHeading: `Why choose ${site.businessName}`,
+  faqs: showFaqs ? indexEntry.data.faqs : [],
+  gallery: showGallery ? indexEntry.data.gallery : [],
+  materialsImages: indexEntry.data.materialsImages || [],
+  coverageMap: showAreas
+    ? resolveCoverageMap(indexEntry.data.coverageMap, site.primaryCity)
+    : undefined,
+  locations: showAreas ? locations : [],
+  alsoServing: showAreas ? alsoServing : [],
+  proseSections,
+  showReviews,
+  showCta,
+};
 ---
 
 <BaseLayout
@@ -150,95 +193,90 @@ const homeSectionsBandStart = lightBand;
       />
     )
   }
-  {showTrust && <TrustSignals />}
 
   {
-    showIntroSection && introSurface && (
-      <section class={introSurface} aria-labelledby="intro-heading" data-section="intro">
-        <div
-          class:list={[
-            'mx-auto max-w-6xl px-4 py-12 sm:px-6 sm:py-16',
-            showFeatureImage && 'grid items-center gap-8 md:grid-cols-2 md:gap-12',
-          ]}
-        >
-          <div>
-            <div class="max-w-3xl">
-              <p class="section-eyebrow">
-                {site.niche}
-              </p>
+    slots.map((slot) => (
+      <>
+        {slot.kind === 'trust' && <TrustSignals />}
+
+        {slot.kind === 'intro' && (
+          <section class={slot.surface} aria-labelledby="intro-heading" data-section="intro">
+            <div
+              class:list={[
+                'mx-auto max-w-6xl px-4 py-12 sm:px-6 sm:py-16',
+                showFeatureImage && 'grid items-center gap-8 md:grid-cols-2 md:gap-12',
+              ]}
+            >
+              <div>
+                <div class="max-w-3xl">
+                  <p class="section-eyebrow">{site.niche}</p>
+                  {
+                    showIntro && (
+                      <div
+                        data-edit={ve({
+                          type: 'fm',
+                          file: 'src/content/pages/index.md',
+                          key: 'sectionHeading',
+                          kind: 'heading',
+                        })}
+                      >
+                        <TwoToneHeading
+                          as="h2"
+                          id="intro-heading"
+                          mode="plain"
+                          text={
+                            indexEntry.data.sectionHeading ?? `${site.niche} in ${site.primaryCity}`
+                          }
+                          class="mt-2 heading-section"
+                        />
+                      </div>
+                    )
+                  }
+                </div>
+                <div class="prose-site mt-5 max-w-3xl">
+                  {
+                    structured ? (
+                      introParagraphs.map((p) => <p>{p}</p>)
+                    ) : (
+                      <Content />
+                    )
+                  }
+                </div>
+              </div>
               {
-                showIntro && (
-                  <div
+                showFeatureImage && featureImage && (
+                  <img
+                    src={featureImage.src}
+                    alt={featureImage.alt}
+                    class="aspect-[4/3] w-full rounded-xl object-cover shadow-lg"
+                    width="900"
+                    height="675"
+                    loading="lazy"
                     data-edit={ve({
-                      type: 'fm',
+                      type: 'image',
                       file: 'src/content/pages/index.md',
-                      key: 'sectionHeading',
-                      kind: 'heading',
+                      key: 'featureImage',
+                      kind: 'image',
                     })}
-                  >
-                    <TwoToneHeading
-                      as="h2"
-                      id="intro-heading"
-                      mode="plain"
-                      text={indexEntry.data.sectionHeading ?? `${site.niche} in ${site.primaryCity}`}
-                      class="mt-2 heading-section"
-                    />
-                  </div>
+                  />
                 )
               }
             </div>
-            <div class="prose-site mt-5 max-w-3xl">
-              {
-                structured ? (
-                  introParagraphs.map((p) => <p>{p}</p>)
-                ) : (
-                  <Content />
-                )
-              }
-            </div>
-          </div>
-          {
-            showFeatureImage && featureImage && (
-              <img
-                src={featureImage.src}
-                alt={featureImage.alt}
-                class="aspect-[4/3] w-full rounded-xl object-cover shadow-lg"
-                width="900"
-                height="675"
-                loading="lazy"
-                data-edit={ve({
-                  type: 'image',
-                  file: 'src/content/pages/index.md',
-                  key: 'featureImage',
-                  kind: 'image',
-                })}
-              />
-            )
-          }
-        </div>
-      </section>
-    )
+          </section>
+        )}
+
+        {slot.kind === 'services' && (
+          <ServiceCards
+            heading={`${site.niche} services`}
+            surface={slot.surface}
+            cardImages={indexEntry.data.serviceCardImages || []}
+          />
+        )}
+
+        {slot.kind === 'body' && (
+          <HomeSections {...homeSectionsProps} sectionOrder={[slot.key]} bandStart={slot.bandStart} />
+        )}
+      </>
+    ))
   }
-
-  {showServices && <ServiceCards heading={`${site.niche} services`} surface={servicesSurface} />}
-
-  <HomeSections
-    bandStart={homeSectionsBandStart}
-    editFile="src/content/pages/index.md"
-    whyChooseUs={showWhy ? indexEntry.data.whyChooseUs : []}
-    process={showProcess ? indexEntry.data.process : []}
-    processHeading={
-      showOfferProcess ? `How ${site.services[0] ?? site.niche} works` : undefined
-    }
-    whyHeading={`Why choose ${site.businessName}`}
-    faqs={showFaqs ? indexEntry.data.faqs : []}
-    gallery={showGallery ? indexEntry.data.gallery : []}
-    materialsImages={indexEntry.data.materialsImages || []}
-    coverageMap={showAreas ? resolveCoverageMap(indexEntry.data.coverageMap, site.primaryCity) : undefined}
-    locations={showAreas ? locations : []}
-    alsoServing={showAreas ? alsoServing : []}
-    proseSections={proseSections}
-    showReviews={showReviews}
-    showCta={showCta}
-  />
 </BaseLayout>

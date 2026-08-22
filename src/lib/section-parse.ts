@@ -223,17 +223,57 @@ export function parseCostRows(bullets: string[]): CostRow[] {
 
 export type TimelineStage = { title: string; detail: string; duration?: string };
 
+/**
+ * Duration phrases for timeline chips. Longer same-day ranges first.
+ * Do not match bare "lead time" — that belongs in titles ("Cabinet lead time").
+ */
 const DURATION_RE =
-  /\b(half\s+an?\s+day(?:\s+to\s+(?:a\s+)?(?:half\s+an?\s+day|\d+\s*days?))?|same[-\s]?day(?:\s+to\s+next[-\s]?day)?|next[-\s]?day|\d+\s*[–-]\s*\d+\s*(?:days?|weeks?|months?)|\d+\+?\s*(?:days?|weeks?|months?)|few weeks|lead time|1–2 visits)\b/i;
+  /\b(half\s+(?:an?\s+)?day(?:\s+to\s+(?:a\s+)?(?:half\s+(?:an?\s+)?day|\d+\s*days?))?|same[-\s]?day(?:\s+to\s+(?:a\s+)?(?:few\s+days?|next[-\s]?day|\d+\s*days?))?|next[-\s]?day|\d+\s*[–-]\s*\d+\s*(?:days?|weeks?|months?|hours?)|\d+\+?\s*(?:days?|weeks?|months?|hours?)|a\s+few\s+days?|few\s+weeks?|1–2\s+visits)\b/gi;
 
 /** Alternate timing / hedge phrases left after the chip absorbs the main duration. */
 const DURATION_FLUFF_RE =
-  /(?:^|\s)(?:or\s+)?(?:next[-\s]?day|same[-\s]?day)(?:\s+visit)?s?\b|(?:usually|typically|often)[,:]?\s*varies(?:\s+by(?:\s+[\w/-]+)*)?|\bin\s+most\s+cases\b|\bvaries\s+by(?:\s+[\w/-]+)*|\bdepends\s+on(?:\s+[\w/-]+)*|\([^)]*(?:varies|depend|usually|city\/county|weather|season|scope)[^)]*\)|^by\s+(?:city|county)\b|^(?:usually|typically|often)[,.]?\s*$|^(?:as\s+\w+)\.?$|^(?:half\s+an?\s+day\s+to)\.?$|^(?:to\s+(?:a\s+)?(?:\d+\s*)?days?)\.?$|^to\s+in\s+most\s+cases\.?$/gim;
+  /(?:^|\s)(?:or\s+)?(?:next[-\s]?day|same[-\s]?day)(?:\s+visit)?s?\b|(?:usually|typically|often)[,:]?\s*varies(?:\s+by(?:\s+[\w/-]+)*)?|\bin\s+most\s+cases\b|\bvaries\s+by(?:\s+[\w/-]+)*|\bdepends\s+on(?:\s+[\w/-]+)*|\([^)]*(?:varies|depend|usually|city\/county|weather|season|scope)[^)]*\)|^by\s+(?:city|county)\b|^(?:usually|typically|often)[,.]?\s*$|^(?:as\s+\w+)\.?$|^(?:half\s+(?:an?\s+)?day\s+to)\.?$|^(?:to\s+(?:a\s+)?(?:few\s+|\d+\s*)?days?)\.?$|^(?:a\s+)?few\s+days?\.?$|^to\s+in\s+most\s+cases\.?$/gim;
+
+/** Score duration candidates — prefer numeric ranges and full same-day phrases over weak matches. */
+function scoreDurationMatch(raw: string, inDetail: boolean): number {
+  const t = String(raw || '').trim();
+  let score = 0;
+  if (/\d/.test(t)) score += 40;
+  if (/\d+\s*[–-]\s*\d+/.test(t)) score += 20;
+  if (/same[-\s]?day/i.test(t)) score += 30;
+  if (/to\s+(?:a\s+)?(?:few\s+days?|next[-\s]?day|\d+)/i.test(t)) score += 25;
+  if (/half\s+(?:an?\s+)?day/i.test(t)) score += 20;
+  if (/few\s+weeks?/i.test(t)) score += 15;
+  if (/a\s+few\s+days?/i.test(t)) score += 15;
+  if (inDetail) score += 10;
+  score += Math.min(t.length, 40);
+  return score;
+}
+
+/** Pick the best duration match from title+detail (prefer detail side). */
+function pickDurationMatch(
+  title: string,
+  detail: string,
+): RegExpMatchArray | null {
+  const candidates: { match: RegExpMatchArray; score: number }[] = [];
+  const collect = (text: string, inDetail: boolean) => {
+    const re = new RegExp(DURATION_RE.source, 'gi');
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(text)) !== null) {
+      candidates.push({ match: m, score: scoreDurationMatch(m[0], inDetail) });
+    }
+  };
+  collect(detail, true);
+  collect(title, false);
+  if (!candidates.length) return null;
+  candidates.sort((a, b) => b.score - a.score);
+  return candidates[0].match;
+}
 
 /** Keep full ranges on chips: "3–7 days" stays "3–7 days" (not lower-bound only). */
 export function shortenDurationChip(raw: string): string {
   const t = String(raw || '').trim();
-  const half = t.match(/^half\s+an?\s+day(?:\s+to\s+(?:a\s+)?(?:(\d+)\s*)?days?)?$/i);
+  const half = t.match(/^half\s+(?:an?\s+)?day(?:\s+to\s+(?:a\s+)?(?:(\d+)\s*)?days?)?$/i);
   if (half) {
     if (half[1]) {
       const n = half[1];
@@ -241,9 +281,19 @@ export function shortenDurationChip(raw: string): string {
     }
     return 'half day';
   }
+  const sameToFew = t.match(
+    /^same[-\s]?day\s+to\s+(?:a\s+)?(?:few\s+days?|(\d+)\s*days?)$/i,
+  );
+  if (sameToFew) {
+    if (sameToFew[1]) {
+      const n = sameToFew[1];
+      return n === '1' ? 'same day to 1 day' : `same day to ${n} days`;
+    }
+    return 'same day to a few days';
+  }
   const sameToNext = t.match(/^same[-\s]?day\s+to\s+next[-\s]?day$/i);
   if (sameToNext) return 'same day to next day';
-  const range = t.match(/^(\d+)\s*[–-]\s*(\d+)\s*(days?|weeks?|months?)$/i);
+  const range = t.match(/^(\d+)\s*[–-]\s*(\d+)\s*(days?|weeks?|months?|hours?)$/i);
   if (range) {
     const a = range[1];
     const b = range[2];
@@ -251,6 +301,14 @@ export function shortenDurationChip(raw: string): string {
     if (a === '1' && b === '1') unit = unit.replace(/s$/, '');
     return `${a}–${b} ${unit}`;
   }
+  const single = t.match(/^(\d+)(\+)?\s*(days?|weeks?|months?|hours?)$/i);
+  if (single) {
+    let unit = single[3].toLowerCase();
+    if (single[1] === '1' && !single[2]) unit = unit.replace(/s$/, '');
+    return `${single[1]}${single[2] || ''} ${unit}`;
+  }
+  const fewDays = t.match(/^(?:a\s+)?few\s+days?$/i);
+  if (fewDays) return 'a few days';
   return t.replace(/same\s+day/i, 'same day').replace(/next\s+day/i, 'next day');
 }
 
@@ -271,8 +329,9 @@ export function isTimelineDurationFluff(detail: string): boolean {
   if (/^by\s+(city|county)\b/i.test(d)) return true;
   // Leftovers when chip matched only part of a duration phrase ("as repair", "half a day to")
   if (/^as\s+\w+\.?$/i.test(d)) return true;
-  if (/^half\s+an?\s+day\s+to\.?$/i.test(d)) return true;
-  if (/^to\s+(?:a\s+)?(?:\d+\s*)?days?\.?$/i.test(d)) return true;
+  if (/^half\s+(?:an?\s+)?day\s+to\.?$/i.test(d)) return true;
+  if (/^to\s+(?:a\s+)?(?:few\s+|\d+\s*)?days?\.?$/i.test(d)) return true;
+  if (/^(?:a\s+)?few\s+days?\.?$/i.test(d)) return true;
   if (/^to\s+in\s+most\s+cases\.?$/i.test(d)) return true;
   if (/^in\s+most\s+cases\.?$/i.test(d)) return true;
   // Short leftover that collapses to empty after fluff strip
@@ -305,14 +364,13 @@ export function parseTimelineStages(body: string): TimelineStage[] {
 
   return source.map((raw, i) => {
     const rows = parseOptionRows([raw])[0];
-    const hay = `${rows.title} ${rows.detail}`;
-    const dur = hay.match(DURATION_RE);
     let title = rows.title;
     let detail = rows.detail;
     if (!detail && !bullets.length) {
       title = `Stage ${i + 1}`;
       detail = raw;
     }
+    const dur = pickDurationMatch(title, detail);
     let duration: string | undefined;
     if (dur) {
       duration = shortenDurationChip(dur[0]);

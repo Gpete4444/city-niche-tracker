@@ -141,15 +141,24 @@ const navLinkClass =
       </div>
     </nav>
 
-    <a
-      href={phoneHref()}
-      class="btn-primary hidden shrink-0 gap-2 px-3 py-2 text-xs sm:px-4 sm:text-sm md:inline-flex"
-      aria-label={`Call ${formatPhoneDisplay()}`}
-      data-edit={ve({ type: 'config', key: 'phone', kind: 'text' })}
-    >
-      <PhoneIcon />
-      {formatPhoneDisplay()}
-    </a>
+    <div class="hidden shrink-0 items-center gap-2 md:flex">
+      <a
+        href="#lead-form"
+        class="btn-secondary px-3 py-2 text-xs sm:px-4 sm:text-sm"
+        data-edit={ve({ type: 'config', key: 'primaryCta', kind: 'text' })}
+      >
+        {site.primaryCta}
+      </a>
+      <a
+        href={phoneHref()}
+        class="btn-primary gap-2 px-3 py-2 text-xs sm:px-4 sm:text-sm"
+        aria-label={`Call ${formatPhoneDisplay()}`}
+        data-edit={ve({ type: 'config', key: 'phone', kind: 'text' })}
+      >
+        <PhoneIcon />
+        {formatPhoneDisplay()}
+      </a>
+    </div>
   </div>
 </header>
 

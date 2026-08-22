@@ -411,8 +411,8 @@
               <button
                 type="button"
                 class="tip-info"
-                data-tip="Optional soft picks from the catalog. Blank + no Suggested = Claude picks ≥3 from catalog (unless Required niches is set)."
-                aria-label="About Niches"
+              data-tip="Optional soft picks from the catalog. Blank + no Suggested = Claude picks ≥3 from catalog (Required only forces must-include of those names, then catalog for the rest)."
+              aria-label="About Niches"
               >
                 i
               </button>
@@ -423,7 +423,7 @@
             <button
               type="button"
               class="tip-info"
-              data-tip="Soft preference — one per line or semicolon-separated. Claude may still pick other catalog niches."
+              data-tip="Soft preference — one per line or semicolon-separated. Alone: Claude may still pick other catalog niches. With Required: biases remaining rows after must-include Required; blank Suggested = remaining rows from catalog."
               aria-label="About Suggested niches"
             >
               i
@@ -438,7 +438,7 @@
             <button
               type="button"
               class="tip-info"
-              data-tip="Hard lock — when filled, every row Niche must be one of these only. Custom names OK (not in catalog)."
+              data-tip="Must appear in ≥1 row each with Niche text exactly as typed (no catalog synonym rename). Never an exclusive lock. Remaining rows: prefer Suggested if set, else High-Ticket catalog."
               aria-label="About Required niches"
             >
               i
@@ -558,20 +558,23 @@
           <div id="discovery-process-log" class="discovery-process-log hidden"></div>
         </div>
         <div class="discovery-toolbar">
-          <button
-            type="button"
-            class="btn primary"
-            id="discovery-process-btn"
-            disabled
-            data-tip="Process Human decisions: pursue/maybe/review/hold → Candidates; pass/deprioritize → tracked list. Blank rows ignored."
-          >Process batch</button>
-          <button
-            type="button"
-            class="btn"
-            id="discovery-reopen-selected"
-            disabled
-            data-tip="Clear tracked/processed markers on selected rows so you can change Human and Process again"
-          >Reopen selected</button>
+          <div class="discovery-toolbar-actions">
+            <button
+              type="button"
+              class="btn primary"
+              id="discovery-process-btn"
+              disabled
+              data-tip="Requires a Human decision on every row. pursue/maybe/review/hold → Candidates; pass/deprioritize → tracked list."
+            >Process batch</button>
+            <button
+              type="button"
+              class="btn"
+              id="discovery-reopen-selected"
+              disabled
+              data-tip="Clear tracked/processed markers on selected rows so you can change Human and Process again"
+            >Reopen selected</button>
+          </div>
+          <p id="discovery-process-progress" class="muted discovery-process-progress" hidden></p>
         </div>
       </div>
       <div id="discovery-source-legend" class="discovery-source-legend" aria-label="Column data sources"></div>
@@ -792,7 +795,12 @@
   <div id="visual-editor" class="ve-root hidden" aria-hidden="true">
     <header class="ve-top">
       <div class="ve-top-left">
-        <h1 class="ve-title" id="ve-title">Visual editor</h1>
+        <span class="top-brand" aria-label="Rover">
+          <img class="top-brand-logo top-brand-logo--light" src="/brand/rover-logo-light.png" alt="" width="800" height="168" decoding="async" />
+          <img class="top-brand-logo top-brand-logo--dark" src="/brand/rover-logo-dark.png" alt="" width="800" height="168" decoding="async" />
+        </span>
+      </div>
+      <div class="ve-top-center">
         <label class="muted small">Page
           <select id="ve-page"></select>
         </label>
@@ -803,8 +811,8 @@
       <div class="ve-top-right">
         <span id="ve-status" class="ve-status"></span>
         <button type="button" class="btn" id="ve-undo">Undo</button>
-        <button type="button" class="btn" id="ve-save-draft">Save draft</button>
-        <button type="button" class="btn primary" id="ve-publish">Publish</button>
+        <button type="button" class="btn" id="ve-save-draft" data-tip="Saves locally only — not live.">Save draft</button>
+        <button type="button" class="btn primary" id="ve-publish" data-tip="Push changes to your live site.">Publish</button>
         <button type="button" class="btn" id="ve-close">Close</button>
       </div>
     </header>
@@ -835,29 +843,40 @@
         </div>
       </div>
       <aside class="ve-inspector">
+        <p class="ve-tip muted small">Click outlined copy or photos. Section order updates live; Save draft rebuilds for publish.</p>
         <section id="ve-selected-section" class="ve-selected-panel">
-          <h3>Selected</h3>
-          <div id="ve-selected"></div>
+          <details class="ve-collapse" open>
+            <summary><h3>Selected</h3></summary>
+            <div id="ve-selected"></div>
+          </details>
         </section>
         <section>
-          <h3>Identity / NAP</h3>
-          <label>Business name <input id="ve-nap-name" type="text" /></label>
-          <label>Phone <input id="ve-nap-phone" type="text" /></label>
-          <label>Email <input id="ve-nap-email" type="email" /></label>
-          <label>Primary CTA <input id="ve-nap-cta" type="text" /></label>
-          <label>Tagline <textarea id="ve-nap-tagline" rows="2"></textarea></label>
-          <button type="button" class="btn" id="ve-nap-apply">Apply identity</button>
+          <details class="ve-collapse">
+            <summary><h3>Identity / NAP</h3></summary>
+            <label>Business name <input id="ve-nap-name" type="text" /></label>
+            <label>Phone <input id="ve-nap-phone" type="text" /></label>
+            <label>Email <input id="ve-nap-email" type="email" /></label>
+            <label>Primary CTA <input id="ve-nap-cta" type="text" /></label>
+            <label>Tagline <textarea id="ve-nap-tagline" rows="2"></textarea></label>
+            <button type="button" class="btn" id="ve-nap-apply">Apply identity</button>
+          </details>
         </section>
         <section>
-          <h3>Theme</h3>
-          <p class="muted small">Live preview on click · Save draft to persist</p>
-          <div id="ve-palettes" class="ve-palettes"></div>
-          <h4 class="ve-theme-sub">Text font</h4>
-          <div id="ve-fonts" class="ve-fonts"></div>
+          <details class="ve-collapse" open>
+            <summary><h3>Theme</h3></summary>
+            <div id="ve-palettes" class="ve-palettes"></div>
+            <h4 class="ve-theme-sub">Text font</h4>
+            <div id="ve-fonts" class="ve-fonts"></div>
+          </details>
         </section>
         <section>
-          <h3>Home sections</h3>
-          <div id="ve-sections" class="ve-sections"></div>
+          <details class="ve-collapse" open>
+            <summary class="ve-collapse-summary-row">
+              <h3>Home sections</h3>
+              <button type="button" class="btn" id="ve-sections-default-order" title="Restore default section order">Default Section Order</button>
+            </summary>
+            <div id="ve-sections" class="ve-sections"></div>
+          </details>
         </section>
       </aside>
     </div>

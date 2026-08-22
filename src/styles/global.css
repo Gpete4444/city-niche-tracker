@@ -165,6 +165,42 @@
   }
 }
 
+/* Prose / auto-linked tel: on dark bands — brand/accent blues are unreadable on ink/brand. */
+.section-surface-ink .prose-site a,
+.section-surface-brand .prose-site a,
+.section-surface-ink a[href^='tel:'],
+.section-surface-brand a[href^='tel:'] {
+  color: #ffffff;
+  -webkit-text-fill-color: #ffffff;
+  text-decoration-color: rgba(255, 255, 255, 0.45);
+  background-color: transparent;
+}
+
+.section-surface-ink .prose-site a:hover,
+.section-surface-brand .prose-site a:hover,
+.section-surface-ink a[href^='tel:']:hover,
+.section-surface-brand a[href^='tel:']:hover {
+  color: #ffffff;
+  -webkit-text-fill-color: #ffffff;
+  text-decoration-color: rgba(255, 255, 255, 0.85);
+}
+
+/* Bold phone in CTA copy (`Call **…**`) uses text-ink by default — invisible on ink/brand. */
+.section-surface-ink .prose-site :where(strong, b),
+.section-surface-brand .prose-site :where(strong, b) {
+  color: #ffffff;
+  -webkit-text-fill-color: #ffffff;
+}
+
+.section-surface-ink .prose-site :where(strong, b) a,
+.section-surface-brand .prose-site :where(strong, b) a,
+.section-surface-ink .prose-site a :where(strong, b),
+.section-surface-brand .prose-site a :where(strong, b) {
+  color: #ffffff;
+  -webkit-text-fill-color: #ffffff;
+  background-color: transparent;
+}
+
 /* Footer social icons — brand (default) or mono (currentColor). Swap --brand → --mono on FooterSocial. */
 .footer-social {
   display: flex;

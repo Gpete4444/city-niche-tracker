@@ -410,9 +410,25 @@ export async function generateCoverageMapSvg(config, outputPath) {
 
   const userAgent = `${config.domain || 'rover.local'} coverage-map generator`;
   const boundaries = [];
+  const missingBoundaries = [];
   for (const area of areas) {
-    boundaries.push(await fetchBoundary(area, userAgent));
+    const label = `${String(area.name || '').trim()}, ${String(area.state || '').trim()}`;
+    try {
+      boundaries.push(await fetchBoundary(area, userAgent));
+    } catch (e) {
+      missingBoundaries.push(label.replace(/,\s*$/, '') || String(area.name || 'unknown'));
+    }
     await sleep(1100);
+  }
+
+  if (!boundaries.length) {
+    const missNote = missingBoundaries.length
+      ? ` Missing: ${missingBoundaries.join('; ')}.`
+      : '';
+    throw Object.assign(
+      new Error(`No municipal boundaries found for any coverage area.${missNote}`),
+      { status: 400, missingBoundaries },
+    );
   }
 
   const width = 1000;
@@ -591,7 +607,17 @@ export async function generateCoverageMapSvg(config, outputPath) {
 
   mkdirSync(path.dirname(outputPath), { recursive: true });
   writeFileSync(outputPath, svg, 'utf8');
-  return { areas: areas.length, outputPath, primaryCity: config.primaryCity || '' };
+  const warning = missingBoundaries.length
+    ? `No map outline for ${missingBoundaries.join('; ')} (still listed as Also serving).`
+    : undefined;
+  return {
+    areas: boundaries.length,
+    requested: areas.length,
+    missingBoundaries,
+    warning,
+    outputPath,
+    primaryCity: config.primaryCity || '',
+  };
 }
 
 function setCoverageMapOnMarkdown(md, src, alt) {

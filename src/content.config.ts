@@ -24,6 +24,8 @@ const pages = defineCollection({
     coverageMap: imageSchema.optional(),
     gallery: z.array(imageSchema).optional(),
     materialsImages: z.array(imageSchema).optional(),
+    /** Homepage What we do card thumbs when Service pages are off */
+    serviceCardImages: z.array(imageSchema).optional(),
     whyChooseUs: z
       .array(
         z.object({
