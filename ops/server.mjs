@@ -122,14 +122,27 @@ import {
   saveContentStructure,
 } from './lib/content-structure.mjs';
 import { buildBuildPackage, getBuildPackage } from './lib/build-package.mjs';
-import { stageSiteContent, getStagingSummary } from './lib/site-staging.mjs';
+import { stageSiteInWorker, getStagingSummary } from './lib/site-staging.mjs';
 import {
+  getLaunchContentGapsForCandidate,
   isAssembleStale,
   launchFidelitySummary,
 } from './lib/preview-fidelity.mjs';
 import { ensureAstroPreview, ASTRO_PREVIEW_URL } from './lib/astro-preview.mjs';
 import { ensureAssembledPreview, stopAssembledPreview, contentNewerThanDist } from './lib/assembled-preview.mjs';
-import { assembleSite, getAssembleChecklist } from './lib/assemble-site.mjs';
+import {
+  enqueueHeavyJob,
+  startHeavyJob,
+  getHeavyJob,
+  getActiveJobForCandidate,
+  listJobsSnapshot,
+  onJobsChange,
+  updateJobDetail,
+  setConcurrency,
+} from './lib/rover-heavy-jobs.mjs';
+import { assembleSiteInWorker, getAssembleChecklist, planAssembleReplace, finalizePreviousAssembledSite } from './lib/assemble-site.mjs';
+import { assertLaunchedEditAllowed } from './lib/launched-edit-guard.mjs';
+import { restoreLaunchedFromGithub } from './lib/restore-launched-from-github.mjs';
 import { getLaunchStatus, launchSite } from './lib/launch-site.mjs';
 import {
   BILLING_CYCLES,
@@ -146,6 +159,21 @@ import {
   upsertSiteFromCandidate,
   upsertSitesFromCandidates,
 } from './lib/sites.mjs';
+import {
+  attachMetricsToSites,
+  loadSiteMetrics,
+  portfolioRankSeries,
+  portfolioTrafficSeries,
+  setRankKeywords,
+} from './lib/site-metrics.mjs';
+import {
+  completeGscOAuth,
+  disconnectGsc,
+  getGscAuthStatus,
+  startGscOAuth,
+} from './lib/gsc-oauth.mjs';
+import { syncAllSitesGsc, syncSiteGsc } from './lib/gsc-sync.mjs';
+import { checkAllSiteRanks, checkSiteRanks } from './lib/rank-track.mjs';
 import {
   provisionRankingNumber,
   setForwardToRenter,
@@ -164,7 +192,7 @@ import {
   syncCallsFromTwilio,
 } from './lib/phone-calls.mjs';
 import { cloudflareConfigured } from './lib/cloudflare-launch.mjs';
-import { buildAssembledSite, getShipStatus, getAssembledShipDiff, shipAssembledSite } from './lib/ship-site.mjs';
+import { getShipStatus, getAssembledShipDiff, shipAssembledSite, buildAssembledSiteAsync } from './lib/ship-site.mjs';
 import { ghAuthStatus } from './lib/github-site.mjs';
 import {
   applyVisualEditPatches,
@@ -229,6 +257,8 @@ function sendError(res, error) {
   if (error.details) payload.details = error.details;
   if (error.suburbCheck) payload.suburbCheck = error.suburbCheck;
   if (error.check) payload.check = error.check;
+  if (error.contract) payload.contract = error.contract;
+  if (error.job) payload.job = error.job;
   if (error.speechLint) payload.speechLint = error.speechLint;
   if (error.seoLint) payload.seoLint = error.seoLint;
   if (error.twilioSid) payload.twilioSid = error.twilioSid;
@@ -239,12 +269,49 @@ function sendError(res, error) {
 
 app.get('/api/health', (_req, res) => {
   const envSet = (...keys) => keys.every((k) => Boolean(String(process.env[k] || '').trim()));
+  const gsc = getGscAuthStatus();
   const checks = [
-    { name: 'DataForSEO', ok: envSet('DATAFORSEO_LOGIN', 'DATAFORSEO_PASSWORD') },
-    { name: 'Anthropic', ok: envSet('ANTHROPIC_API_KEY') },
-    { name: 'OpenAI', ok: envSet('OPENAI_API_KEY') },
+    // 1 · Discovery & research
+    {
+      name: 'DataForSEO',
+      group: 'Discovery & research',
+      ok: envSet('DATAFORSEO_LOGIN', 'DATAFORSEO_PASSWORD'),
+    },
+    // 2 · Copy & AI
+    { name: 'Anthropic', group: 'Copy & AI', ok: envSet('ANTHROPIC_API_KEY') },
+    // 3 · Site-config · address
+    { name: 'Google Maps', group: 'Site-config · address', ok: envSet('GOOGLE_MAPS_API_KEY') },
+    {
+      name: 'Apify',
+      group: 'Site-config · address',
+      ok: envSet('APIFY_TOKEN', 'APIFY_LOOPNET_ACTOR_ID'),
+    },
+    // 4 · Website · images
+    { name: 'Unsplash', group: 'Website · images', ok: envSet('UNSPLASH_ACCESS_KEY') },
+    { name: 'Pexels', group: 'Website · images', ok: envSet('PEXELS_API_KEY') },
+    { name: 'Pixabay', group: 'Website · images', ok: envSet('PIXABAY_API_KEY') },
+    // 5 · Assemble & launch
+    { name: 'GitHub owner', group: 'Assemble & launch', ok: envSet('GITHUB_OWNER') },
+    { name: 'Template repo', group: 'Assemble & launch', ok: envSet('TEMPLATE_GITHUB_REPO') },
+    {
+      name: 'Assembled sites dir',
+      group: 'Assemble & launch',
+      ok: envSet('ASSEMBLED_SITES_DIR'),
+    },
+    {
+      name: 'Cloudflare',
+      group: 'Assemble & launch',
+      ok: envSet('CLOUDFLARE_ACCOUNT_ID', 'CLOUDFLARE_API_TOKEN'),
+    },
+    {
+      name: 'Web3Forms email',
+      group: 'Assemble & launch',
+      ok: envSet('WEB3FORMS_DEFAULT_NOTIFY_EMAIL'),
+    },
+    // 6 · Phone
     {
       name: 'Twilio',
+      group: 'Phone',
       ok: envSet(
         'TWILIO_ACCOUNT_SID',
         'TWILIO_AUTH_TOKEN',
@@ -252,13 +319,13 @@ app.get('/api/health', (_req, res) => {
         'TWILIO_VOICE_WEBHOOK_URL',
       ),
     },
-    { name: 'Cloudflare', ok: envSet('CLOUDFLARE_ACCOUNT_ID', 'CLOUDFLARE_API_TOKEN') },
-    { name: 'Web3Forms email', ok: envSet('WEB3FORMS_DEFAULT_NOTIFY_EMAIL') },
-    { name: 'Unsplash', ok: envSet('UNSPLASH_ACCESS_KEY') },
-    { name: 'Pexels', ok: envSet('PEXELS_API_KEY') },
-    { name: 'GitHub owner', ok: envSet('GITHUB_OWNER') },
-    { name: 'Template repo', ok: envSet('TEMPLATE_GITHUB_REPO') },
-    { name: 'Assembled sites dir', ok: envSet('ASSEMBLED_SITES_DIR') },
+    { name: 'OpenAI', group: 'Phone', ok: envSet('OPENAI_API_KEY') },
+    // 7 · Launched Sites · metrics
+    {
+      name: 'Google Search Console',
+      group: 'Launched Sites · metrics',
+      ok: Boolean(gsc.configured && gsc.connected),
+    },
   ];
   const missing = checks.filter((c) => !c.ok).map((c) => c.name);
   const total = checks.length;
@@ -271,7 +338,7 @@ app.get('/api/health', (_req, res) => {
       total,
       ok: okCount,
       missing,
-      items: checks.map((c) => ({ name: c.name, ok: c.ok })),
+      items: checks.map((c) => ({ name: c.name, ok: c.ok, group: c.group })),
     },
   });
 });
@@ -833,6 +900,53 @@ app.post('/api/candidates/:id/prospects', (req, res) => {
   }
 });
 
+app.get('/api/heavy-jobs', (_req, res) => {
+  res.json(listJobsSnapshot());
+});
+
+app.get('/api/heavy-jobs/:jobId', (req, res) => {
+  const job = getHeavyJob(req.params.jobId);
+  if (!job) return res.status(404).json({ error: 'Job not found' });
+  res.json({ job });
+});
+
+app.post('/api/heavy-jobs/concurrency', (req, res) => {
+  try {
+    const n = req.body?.concurrency ?? req.body?.k;
+    setConcurrency(n);
+    res.json(listJobsSnapshot());
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.get('/api/heavy-jobs/stream', (req, res) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  if (typeof res.flushHeaders === 'function') res.flushHeaders();
+  const send = (snap) => {
+    try {
+      res.write(`data: ${JSON.stringify(snap)}\n\n`);
+    } catch {
+      /* closed */
+    }
+  };
+  send(listJobsSnapshot());
+  const off = onJobsChange(send);
+  const ping = setInterval(() => {
+    try {
+      res.write(`: ping\n\n`);
+    } catch {
+      /* closed */
+    }
+  }, 15000);
+  req.on('close', () => {
+    clearInterval(ping);
+    off();
+  });
+});
+
 app.get('/api/jobs/:jobId', (req, res) => {
   const job = getJob(req.params.jobId);
   if (!job) return res.status(404).json({ error: 'Job not found' });
@@ -1006,6 +1120,7 @@ app.get('/api/candidates/:id/site-config/draft', (req, res) => {
 app.post('/api/candidates/:id/site-config/paste', (req, res) => {
   try {
     const body = req.body || {};
+    assertLaunchedEditAllowed(req.params.id, body);
     const raw = body.json ?? body.text ?? body;
     const nap = {
       domain: body.domain,
@@ -1044,6 +1159,7 @@ app.post('/api/candidates/:id/site-config/draft', (req, res) => {
 app.post('/api/candidates/:id/site-config/accept', (req, res) => {
   try {
     const body = req.body || {};
+    assertLaunchedEditAllowed(req.params.id, body);
     res.json(
       acceptSiteConfig(req.params.id, {
         allowNonPursue: Boolean(body.allowNonPursue),
@@ -1104,6 +1220,7 @@ app.get('/api/candidates/:id/content/draft', (req, res) => {
 app.post('/api/candidates/:id/content/paste', (req, res) => {
   try {
     const body = req.body || {};
+    assertLaunchedEditAllowed(req.params.id, body);
     const raw = body.text ?? body.markdown ?? body.json ?? '';
     res.json(pasteContentDraft(req.params.id, typeof raw === 'string' ? raw : String(raw)));
   } catch (error) {
@@ -1118,16 +1235,20 @@ app.post('/api/candidates/:id/content/paste', (req, res) => {
 });
 
 app.post('/api/candidates/:id/content/accept', async (req, res) => {
+  const acceptId = req.params.id;
   try {
     const body = req.body || {};
-    const result = await acceptContent(req.params.id, {
+    assertLaunchedEditAllowed(acceptId, body);
+    console.log(`[accept] ${acceptId} writing src/content…`);
+    const result = await acceptContent(acceptId, {
       ignoreWarnings: Boolean(body.ignoreWarnings),
       ignoreSeoWarnings: Boolean(body.ignoreSeoWarnings),
     });
     let images = null;
-    if (structureHasPhotosEnabled(req.params.id)) {
+    if (structureHasPhotosEnabled(acceptId)) {
+      console.log(`[accept] ${acceptId} pulling stock photos…`);
       try {
-        images = await fillSiteImages(req.params.id, { replace: false });
+        images = await fillSiteImages(acceptId, { replace: false });
       } catch (imageErr) {
         images = {
           ok: false,
@@ -1136,10 +1257,13 @@ app.post('/api/candidates/:id/content/accept', async (req, res) => {
           providerStatus: imageErr.providerStatus || null,
         };
       }
+    } else {
+      console.log(`[accept] ${acceptId} photos skipped (structure has none enabled)`);
     }
     let logo = null;
+    console.log(`[accept] ${acceptId} generating logo…`);
     try {
-      logo = generateSiteLogo(req.params.id);
+      logo = generateSiteLogo(acceptId);
     } catch (logoErr) {
       logo = {
         ok: false,
@@ -1147,8 +1271,9 @@ app.post('/api/candidates/:id/content/accept', async (req, res) => {
       };
     }
     let coverageMap = null;
+    console.log(`[accept] ${acceptId} building coverage map…`);
     try {
-      coverageMap = await generateCoverageMapForCandidate(req.params.id);
+      coverageMap = await generateCoverageMapForCandidate(acceptId);
     } catch (mapErr) {
       coverageMap = {
         ok: false,
@@ -1156,6 +1281,7 @@ app.post('/api/candidates/:id/content/accept', async (req, res) => {
         warning: mapErr.message || String(mapErr),
       };
     }
+    console.log(`[accept] ${acceptId} done`);
     const assetNotes = [];
     if (logo?.ok !== false && logo?.path) assetNotes.push(`Logo: ${logo.path}`);
     else if (logo?.warning) assetNotes.push(`Logo skipped: ${logo.warning}`);
@@ -1183,7 +1309,7 @@ app.post('/api/candidates/:id/content/accept', async (req, res) => {
       images,
       logo,
       coverageMap,
-      candidate: getCandidateDetail(req.params.id),
+      candidate: getCandidateDetail(acceptId),
     });
   } catch (error) {
     if (error.check || error.seoLint) {
@@ -1237,6 +1363,7 @@ app.get('/api/candidates/:id/images/file/:filename', (req, res) => {
 
 app.post('/api/candidates/:id/images/pull', async (req, res) => {
   try {
+    assertLaunchedEditAllowed(req.params.id, req.body || {});
     const replace = Boolean(req.body?.replace || req.query?.replace);
     const result = await fillSiteImages(req.params.id, { replace });
     res.json(result);
@@ -1247,6 +1374,7 @@ app.post('/api/candidates/:id/images/pull', async (req, res) => {
 
 app.post('/api/candidates/:id/images/slots/:slotKey/repull', async (req, res) => {
   try {
+    assertLaunchedEditAllowed(req.params.id, req.body || {});
     const result = await repullImageSlot(req.params.id, req.params.slotKey);
     res.json(result);
   } catch (error) {
@@ -1256,6 +1384,7 @@ app.post('/api/candidates/:id/images/slots/:slotKey/repull', async (req, res) =>
 
 app.post('/api/candidates/:id/images/slots/:slotKey/upload', (req, res) => {
   try {
+    assertLaunchedEditAllowed(req.params.id, req.body || {});
     const result = uploadImageSlot(req.params.id, req.params.slotKey, req.body || {});
     res.json(result);
   } catch (error) {
@@ -1277,6 +1406,7 @@ app.get('/api/candidates/:id/images/slots/:slotKey/chatgpt-prompt', (req, res) =
 
 app.post('/api/candidates/:id/logo/generate', (req, res) => {
   try {
+    assertLaunchedEditAllowed(req.params.id, req.body || {});
     res.json(generateSiteLogo(req.params.id));
   } catch (error) {
     sendError(res, error);
@@ -1285,6 +1415,7 @@ app.post('/api/candidates/:id/logo/generate', (req, res) => {
 
 app.post('/api/candidates/:id/coverage-map/generate', async (req, res) => {
   try {
+    assertLaunchedEditAllowed(req.params.id, req.body || {});
     const result = await generateCoverageMapForCandidate(req.params.id);
     res.json(result);
   } catch (error) {
@@ -1315,6 +1446,7 @@ app.get('/api/candidates/:id/images/before-after-status', (req, res) => {
 
 app.post('/api/candidates/:id/images/before-after-import', (req, res) => {
   try {
+    assertLaunchedEditAllowed(req.params.id, req.body || {});
     res.json(importBeforeAfterPair(req.params.id, req.body || {}));
   } catch (error) {
     sendError(res, error);
@@ -1364,6 +1496,7 @@ app.get('/api/candidates/:id/content/structure', (req, res) => {
 app.post('/api/candidates/:id/content/structure', (req, res) => {
   try {
     const body = req.body || {};
+    assertLaunchedEditAllowed(req.params.id, body);
     if (body.presetId && body.applyPreset) {
       const selection = applyPreset(body.presetId);
       return res.json(saveContentStructure(req.params.id, selection));
@@ -1376,6 +1509,7 @@ app.post('/api/candidates/:id/content/structure', (req, res) => {
 
 app.post('/api/candidates/:id/content/structure/compose', (req, res) => {
   try {
+    assertLaunchedEditAllowed(req.params.id, req.body || {});
     res.json(composeContentOutline(req.params.id, req.body || null));
   } catch (error) {
     sendError(res, error);
@@ -1392,6 +1526,7 @@ app.get('/api/candidates/:id/content/structure/prompt', async (req, res) => {
 
 app.post('/api/candidates/:id/content/structure/outline', (req, res) => {
   try {
+    assertLaunchedEditAllowed(req.params.id, req.body || {});
     const raw = req.body?.json ?? req.body?.text ?? req.body;
     res.json(pasteContentOutlinePackage(req.params.id, raw));
   } catch (error) {
@@ -1401,6 +1536,7 @@ app.post('/api/candidates/:id/content/structure/outline', (req, res) => {
 
 app.post('/api/candidates/:id/content/structure/confirm', async (req, res) => {
   try {
+    assertLaunchedEditAllowed(req.params.id, req.body || {});
     res.json(await confirmContentOutline(req.params.id));
   } catch (error) {
     sendError(res, error);
@@ -1623,7 +1759,7 @@ app.post('/api/preview/ensure', async (_req, res) => {
 
 app.post('/api/candidates/:id/staging', async (req, res) => {
   try {
-    const staged = stageSiteContent(req.params.id, {
+    const staged = await stageSiteInWorker(req.params.id, {
       mode: req.body?.mode || 'full',
       refreshPackage: req.body?.refreshPackage !== false,
     });
@@ -1680,6 +1816,14 @@ app.get('/api/candidates/:id/launch-fidelity', (req, res) => {
   }
 });
 
+app.get('/api/candidates/:id/launch-content-gaps', (req, res) => {
+  try {
+    res.json(getLaunchContentGapsForCandidate(req.params.id));
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
 app.get('/api/candidates/:id/assemble/checklist', (req, res) => {
   try {
     res.json(getAssembleChecklist(req.params.id));
@@ -1696,60 +1840,100 @@ app.post('/api/candidates/:id/assemble', async (req, res) => {
     const siteSlug = req.body?.siteSlug ? String(req.body.siteSlug) : undefined;
     const doBuild = req.body?.build !== false;
     const wantShip = req.body?.ship !== false;
-    // Release :4322 lock before replacing/refreshing the assembled folder (Windows EPERM).
-    await stopAssembledPreview();
-    const result = assembleSite(req.params.id, { force, refresh, skipGit, siteSlug });
+    const candidateId = req.params.id;
 
-    let build = null;
-    if (doBuild && result.absoluteSiteRoot) {
-      const needsBuild =
-        result.mode === 'full' ||
-        contentNewerThanDist(result.absoluteSiteRoot, { ignoreAssembleMeta: true });
-      if (!needsBuild) {
-        build = {
-          ok: true,
-          built: true,
-          buildSkipped: true,
-          npmInstallSkipped: true,
-          ms: 0,
-          siteRoot: result.absoluteSiteRoot,
-        };
-      } else {
-        try {
-          build = buildAssembledSite(result.absoluteSiteRoot);
-        } catch (error) {
-          build = { ok: false, error: error.message, buildSkipped: false };
+    const payload = await enqueueHeavyJob({
+      candidateId,
+      phase: 'assemble',
+      label: 'Assemble',
+      run: async ({ jobId }) => {
+        const prior = getCandidateDetail(candidateId);
+        const rel = prior.meta?.assembledSitePath;
+        if (rel) {
+          updateJobDetail(jobId, 'Stopping prior preview…');
+          const abs = path.isAbsolute(rel) ? rel : path.resolve(process.cwd(), rel);
+          try {
+            await stopAssembledPreview(abs, { forcePoolClear: false });
+          } catch {
+            /* ignore */
+          }
         }
-      }
-    }
 
-    let ship = null;
-    const canShip = Boolean(ghAuthStatus()) && cloudflareConfigured();
-    if (wantShip && canShip && build?.ok && result.absoluteSiteRoot) {
-      try {
-        ship = await shipAssembledSite(req.params.id, {
-          skipBuild: Boolean(build?.ok),
+        const plan = planAssembleReplace(candidateId, {
+          force,
+          refresh,
+          siteSlug,
         });
-      } catch (error) {
-        ship = {
-          ok: false,
-          error: error.message,
-          ...(error.ship || {}),
-        };
-      }
-    } else if (wantShip && !canShip) {
-      ship = {
-        skipped: true,
-        reason: 'Set gh auth login + CLOUDFLARE_* (and GITHUB_OWNER) to auto-ship after assemble',
-      };
-    }
+        updateJobDetail(
+          jobId,
+          plan.sideBySide ? 'Assembling into new folder…' : 'Assembling…',
+        );
+        const result = await assembleSiteInWorker(candidateId, {
+          force,
+          refresh,
+          skipGit,
+          siteSlug,
+        });
+        if (result.previousSiteRoot) {
+          await finalizePreviousAssembledSite(result.previousSiteRoot);
+        }
 
-    res.json({
-      ...result,
-      build,
-      ship,
-      candidate: getCandidateDetail(req.params.id),
+        let build = null;
+        if (doBuild && result.absoluteSiteRoot) {
+          const needsBuild =
+            result.mode === 'full' ||
+            contentNewerThanDist(result.absoluteSiteRoot, { ignoreAssembleMeta: true });
+          if (!needsBuild) {
+            build = {
+              ok: true,
+              built: true,
+              buildSkipped: true,
+              npmInstallSkipped: true,
+              ms: 0,
+              siteRoot: result.absoluteSiteRoot,
+            };
+          } else {
+            updateJobDetail(jobId, 'Building…');
+            try {
+              build = await buildAssembledSiteAsync(result.absoluteSiteRoot);
+            } catch (error) {
+              build = { ok: false, error: error.message, buildSkipped: false };
+            }
+          }
+        }
+
+        let ship = null;
+        const canShip = Boolean(ghAuthStatus()) && cloudflareConfigured();
+        if (wantShip && canShip && build?.ok && result.absoluteSiteRoot) {
+          updateJobDetail(jobId, 'Shipping…');
+          try {
+            ship = await shipAssembledSite(candidateId, {
+              skipBuild: Boolean(build?.ok),
+            });
+          } catch (error) {
+            ship = {
+              ok: false,
+              error: error.message,
+              ...(error.ship || {}),
+            };
+          }
+        } else if (wantShip && !canShip) {
+          ship = {
+            skipped: true,
+            reason: 'Set gh auth login + CLOUDFLARE_* (and GITHUB_OWNER) to auto-ship after assemble',
+          };
+        }
+
+        return {
+          ...result,
+          build,
+          ship,
+          candidate: getCandidateDetail(candidateId),
+        };
+      },
     });
+
+    res.json(payload);
   } catch (error) {
     if (error.checklist) {
       return res.status(error.status || 500).json({
@@ -1764,20 +1948,168 @@ app.post('/api/candidates/:id/assemble', async (req, res) => {
 
 app.post('/api/candidates/:id/assembled/preview', async (req, res) => {
   try {
-    const detail = getCandidateDetail(req.params.id);
+    const candidateId = req.params.id;
+    const detail = getCandidateDetail(candidateId);
     const rel = detail.meta?.assembledSitePath;
     if (!rel) {
       return res.status(400).json({ error: 'Assemble the site first' });
     }
     const abs = path.isAbsolute(rel) ? rel : path.resolve(process.cwd(), rel);
     const rebuild = Boolean(req.body?.rebuild);
-    const forceRebind = req.body?.forceRebind !== false; // default true — never leave :4322 on another site
-    const preview = await ensureAssembledPreview(abs, { rebuild, forceRebind });
-    res.json({
-      ...preview,
-      assembledSitePath: abs,
-      kind: 'assembled',
+    const forceRebind = req.body?.forceRebind !== false;
+
+    const preview = await enqueueHeavyJob({
+      candidateId,
+      phase: 'preview',
+      label: 'Preview',
+      run: async () => {
+        const result = await ensureAssembledPreview(abs, { rebuild, forceRebind });
+        return {
+          ...result,
+          assembledSitePath: abs,
+          kind: 'assembled',
+          candidateId,
+        };
+      },
     });
+
+    res.json(preview);
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/candidates/:id/prepare-preview', async (req, res) => {
+  try {
+    const candidateId = req.params.id;
+    const body = req.body || {};
+    assertLaunchedEditAllowed(candidateId, body);
+    const forcePrepare = Boolean(body.forcePrepare);
+    if (!forcePrepare) {
+      const gaps = getLaunchContentGapsForCandidate(candidateId);
+      if (!gaps.ok) {
+        return res.status(400).json({
+          error: gaps.error || `${candidateId}: Content not launch-ready`,
+          check: gaps,
+        });
+      }
+    }
+
+    const { jobId } = startHeavyJob({
+      candidateId,
+      phase: 'prepare',
+      label: 'Prepare preview',
+      run: async ({ jobId: jid }) => {
+        updateJobDetail(jid, 'Staging…');
+        const staged = await stageSiteInWorker(candidateId, {
+          mode: 'full',
+          refreshPackage: true,
+        });
+
+        const plan = planAssembleReplace(candidateId, {
+          force: false,
+          refresh: true,
+        });
+        const prior = getCandidateDetail(candidateId);
+        const rel = prior.meta?.assembledSitePath;
+        if (rel) {
+          updateJobDetail(jid, 'Stopping prior preview…');
+          const absPrior = path.isAbsolute(rel) ? rel : path.resolve(process.cwd(), rel);
+          try {
+            await stopAssembledPreview(absPrior, { forcePoolClear: false });
+          } catch {
+            /* ignore */
+          }
+        }
+
+        updateJobDetail(
+          jid,
+          plan.sideBySide ? 'Assembling into new folder…' : 'Assembling…',
+        );
+        const result = await assembleSiteInWorker(candidateId, {
+          force: false,
+          refresh: true,
+          skipGit: false,
+        });
+        if (result.previousSiteRoot) {
+          await finalizePreviousAssembledSite(result.previousSiteRoot);
+        }
+
+        let build = null;
+        if (result.absoluteSiteRoot) {
+          const needsBuild =
+            result.mode === 'full' ||
+            contentNewerThanDist(result.absoluteSiteRoot, { ignoreAssembleMeta: true });
+          if (!needsBuild) {
+            build = {
+              ok: true,
+              built: true,
+              buildSkipped: true,
+              npmInstallSkipped: true,
+              ms: 0,
+              siteRoot: result.absoluteSiteRoot,
+            };
+          } else {
+            updateJobDetail(jid, 'Building…');
+            try {
+              build = await buildAssembledSiteAsync(result.absoluteSiteRoot);
+            } catch (error) {
+              build = { ok: false, error: error.message, buildSkipped: false };
+            }
+          }
+        }
+
+        let preview = null;
+        if (result.absoluteSiteRoot && build?.ok !== false) {
+          updateJobDetail(jid, 'Starting preview…');
+          preview = await ensureAssembledPreview(result.absoluteSiteRoot, {
+            rebuild: false,
+            forceRebind: true,
+          });
+        } else if (result.absoluteSiteRoot) {
+          preview = {
+            ok: false,
+            error: build?.error || 'Build failed — preview not started',
+            assembledSitePath: result.absoluteSiteRoot,
+          };
+        }
+
+        return {
+          ...result,
+          staged: {
+            written: staged.written,
+            serviceCount: staged.serviceCount,
+            locationCount: staged.locationCount,
+          },
+          build,
+          preview,
+          ship: null,
+          candidate: getCandidateDetail(candidateId),
+        };
+      },
+    });
+
+    res.status(202).json({ jobId, accepted: true });
+  } catch (error) {
+    if (error.checklist || error.contract || error.check) {
+      return res.status(error.status || 500).json({
+        error: error.message,
+        checklist: error.checklist || null,
+        contract: error.contract || null,
+        check: error.check || null,
+        siteRoot: error.siteRoot || null,
+      });
+    }
+    sendError(res, error);
+  }
+});
+
+app.post('/api/candidates/:id/revert-launched', async (req, res) => {
+  try {
+    const result = await restoreLaunchedFromGithub(req.params.id, {
+      confirmRevert: Boolean(req.body?.confirmRevert),
+    });
+    res.json(result);
   } catch (error) {
     sendError(res, error);
   }
@@ -1794,6 +2126,7 @@ app.get('/api/candidates/:id/visual-edit', (req, res) => {
 
 app.post('/api/candidates/:id/visual-edit', (req, res) => {
   try {
+    assertLaunchedEditAllowed(req.params.id, req.body || {});
     res.json(applyVisualEditPatches(req.params.id, req.body?.patches || []));
   } catch (error) {
     sendError(res, error);
@@ -1802,6 +2135,7 @@ app.post('/api/candidates/:id/visual-edit', (req, res) => {
 
 app.post('/api/candidates/:id/visual-edit/image', (req, res) => {
   try {
+    assertLaunchedEditAllowed(req.params.id, req.body || {});
     res.json(uploadVisualEditImage(req.params.id, req.body || {}));
   } catch (error) {
     sendError(res, error);
@@ -1810,6 +2144,7 @@ app.post('/api/candidates/:id/visual-edit/image', (req, res) => {
 
 app.post('/api/candidates/:id/visual-edit/preview', async (req, res) => {
   try {
+    assertLaunchedEditAllowed(req.params.id, req.body || {});
     const result = req.body?.smart
       ? await ensureVisualEditPreviewReady(req.params.id)
       : await refreshVisualEditPreview(req.params.id, {
@@ -1823,6 +2158,7 @@ app.post('/api/candidates/:id/visual-edit/preview', async (req, res) => {
 
 app.post('/api/candidates/:id/visual-edit/publish', async (req, res) => {
   try {
+    assertLaunchedEditAllowed(req.params.id, req.body || {});
     const result = await publishVisualEdit(req.params.id, {
       ignoreSeoWarnings: Boolean(req.body?.ignoreSeoWarnings),
       ship: req.body?.ship !== false,
@@ -1852,32 +2188,41 @@ app.get('/api/candidates/:id/launch', (req, res) => {
 app.post('/api/candidates/:id/launch', async (req, res) => {
   try {
     const body = req.body || {};
-    const result = await launchSite(req.params.id, {
-      domain: body.domain,
-      phone: body.phone,
-      email: body.email,
-      businessName: body.businessName,
-      web3FormsAccessKey: body.web3FormsAccessKey,
-      turnstileSiteKey: body.turnstileSiteKey,
-      destinationEmail: body.destinationEmail,
-      runCloudflare: body.runCloudflare !== false,
-      ship: body.ship !== false,
-      skipGithub: Boolean(body.skipGithub),
-      skipBuild: Boolean(body.skipBuild),
-      skipDeploy: Boolean(body.skipDeploy),
-      createTurnstile: Boolean(body.createTurnstile),
-      attachDomain: body.attachDomain !== false,
-      setupEmail: body.setupEmail !== false,
-      markCloudflareProjectDone: Boolean(body.markCloudflareProjectDone),
-      allowIncompleteLaunch: body.allowIncompleteLaunch === true,
+    const candidateId = req.params.id;
+    const result = await enqueueHeavyJob({
+      candidateId,
+      phase: 'launch',
+      label: 'Launch',
+      run: async () => {
+        const out = await launchSite(candidateId, {
+          domain: body.domain,
+          phone: body.phone,
+          email: body.email,
+          businessName: body.businessName,
+          web3FormsAccessKey: body.web3FormsAccessKey,
+          turnstileSiteKey: body.turnstileSiteKey,
+          destinationEmail: body.destinationEmail,
+          runCloudflare: body.runCloudflare !== false,
+          ship: body.ship !== false,
+          skipGithub: Boolean(body.skipGithub),
+          skipBuild: Boolean(body.skipBuild),
+          skipDeploy: Boolean(body.skipDeploy),
+          createTurnstile: Boolean(body.createTurnstile),
+          attachDomain: body.attachDomain !== false,
+          setupEmail: body.setupEmail !== false,
+          markCloudflareProjectDone: Boolean(body.markCloudflareProjectDone),
+          allowIncompleteLaunch: body.allowIncompleteLaunch === true,
+        });
+        const site = out.site || upsertSiteAfterLaunch(candidateId);
+        return {
+          ...out,
+          site,
+          candidate: getCandidateDetail(candidateId),
+          cloudflareConfigured: cloudflareConfigured(),
+        };
+      },
     });
-    const site = result.site || upsertSiteAfterLaunch(req.params.id);
-    res.json({
-      ...result,
-      site,
-      candidate: getCandidateDetail(req.params.id),
-      cloudflareConfigured: cloudflareConfigured(),
-    });
+    res.json(result);
   } catch (error) {
     if (error.checklist) {
       return res.status(error.status || 500).json({
@@ -1891,11 +2236,17 @@ app.post('/api/candidates/:id/launch', async (req, res) => {
 
 app.get('/api/sites', (_req, res) => {
   try {
+    const sites = attachMetricsToSites(listSites());
     res.json({
-      sites: listSites(),
+      sites,
       statuses: SITE_STATUSES,
       paymentMethods: PAYMENT_METHODS,
       billingCycles: BILLING_CYCLES,
+      gsc: getGscAuthStatus(),
+      portfolio: {
+        traffic: portfolioTrafficSeries(sites),
+        ranks: portfolioRankSeries(sites),
+      },
     });
   } catch (error) {
     sendError(res, error);
@@ -1912,7 +2263,7 @@ app.post('/api/sites', (req, res) => {
     const site = body.candidateId
       ? upsertSiteFromCandidate({ candidateId: body.candidateId, status: body.status })
       : createManualSite(body);
-    res.json({ site });
+    res.json({ site: attachMetricsToSites([site])[0] });
   } catch (error) {
     sendError(res, error);
   }
@@ -1920,7 +2271,123 @@ app.post('/api/sites', (req, res) => {
 
 app.get('/api/sites/:id', (req, res) => {
   try {
-    res.json({ site: getSite(req.params.id) });
+    const site = attachMetricsToSites([getSite(req.params.id)])[0];
+    res.json({ site, metrics: loadSiteMetrics(req.params.id) });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.get('/api/gsc/status', (_req, res) => {
+  try {
+    res.json(getGscAuthStatus());
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.get('/api/gsc/oauth/start', (_req, res) => {
+  try {
+    const started = startGscOAuth({ port: PORT });
+    res.json(started);
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.get('/api/gsc/oauth/callback', async (req, res) => {
+  try {
+    const { code, state, error, error_description: errorDescription } = req.query || {};
+    if (error) {
+      return res
+        .status(400)
+        .type('html')
+        .send(
+          `<!doctype html><meta charset="utf-8"><title>GSC connect failed</title>
+           <p>Google returned: ${String(errorDescription || error)}</p>
+           <p><a href="/">Back to Rover</a></p>`,
+        );
+    }
+    await completeGscOAuth({ code: String(code || ''), state: String(state || '') });
+    res
+      .type('html')
+      .send(
+        `<!doctype html><meta charset="utf-8"><title>GSC connected</title>
+         <p>Google Search Console connected. You can close this tab.</p>
+         <script>
+           try { if (window.opener) window.opener.postMessage({ type: 'rover-gsc-connected' }, '*'); } catch (e) {}
+           setTimeout(function () { window.location.href = '/#launched-sites'; }, 800);
+         </script>
+         <p><a href="/#launched-sites">Open Launched Sites</a></p>`,
+      );
+  } catch (error) {
+    res
+      .status(error.status || 500)
+      .type('html')
+      .send(
+        `<!doctype html><meta charset="utf-8"><title>GSC connect failed</title>
+         <p>${String(error.message || error)}</p>
+         <p><a href="/">Back to Rover</a></p>`,
+      );
+  }
+});
+
+app.post('/api/gsc/disconnect', (_req, res) => {
+  try {
+    res.json(disconnectGsc());
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/gsc/sync', async (req, res) => {
+  try {
+    const body = req.body || {};
+    if (body.siteId) {
+      const result = await syncSiteGsc(String(body.siteId));
+      return res.json(result);
+    }
+    const result = await syncAllSitesGsc({
+      siteIds: Array.isArray(body.siteIds) ? body.siteIds : null,
+    });
+    res.json(result);
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/sites/:id/rank-keywords', (req, res) => {
+  try {
+    const site = getSite(req.params.id);
+    const metrics = setRankKeywords(req.params.id, req.body?.keywords, site);
+    res.json({
+      site: attachMetricsToSites([site])[0],
+      metrics,
+    });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/sites/:id/rank-check', async (req, res) => {
+  try {
+    const result = await checkSiteRanks(req.params.id, {
+      depth: Number(req.body?.depth) > 0 ? Number(req.body.depth) : 20,
+    });
+    res.json(result);
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/ranks/sync', async (req, res) => {
+  try {
+    const body = req.body || {};
+    const result = await checkAllSiteRanks({
+      siteIds: Array.isArray(body.siteIds) ? body.siteIds : null,
+      depth: Number(body.depth) > 0 ? Number(body.depth) : 20,
+    });
+    res.json(result);
   } catch (error) {
     sendError(res, error);
   }
@@ -2246,11 +2713,18 @@ app.get('/api/candidates/:id/ship-diff', (req, res) => {
 app.post('/api/candidates/:id/ship', async (req, res) => {
   try {
     const body = req.body || {};
-    const result = await shipAssembledSite(req.params.id, {
-      skipGithub: Boolean(body.skipGithub),
-      skipBuild: Boolean(body.skipBuild),
-      skipDeploy: Boolean(body.skipDeploy),
-      skipBuildsConnect: Boolean(body.skipBuildsConnect),
+    const candidateId = req.params.id;
+    const result = await enqueueHeavyJob({
+      candidateId,
+      phase: 'ship',
+      label: 'Push / ship',
+      run: () =>
+        shipAssembledSite(candidateId, {
+          skipGithub: Boolean(body.skipGithub),
+          skipBuild: Boolean(body.skipBuild),
+          skipDeploy: Boolean(body.skipDeploy),
+          skipBuildsConnect: Boolean(body.skipBuildsConnect),
+        }),
     });
     res.json(result);
   } catch (error) {
@@ -2318,6 +2792,6 @@ app.listen(PORT, HOST, () => {
   console.log(`Rover dashboard: http://${HOST}:${PORT}`);
   console.log('Local only — do not expose this port publicly.');
   console.log(
-    `DataForSEO: ${process.env.DATAFORSEO_LOGIN ? 'configured' : 'missing'} · Anthropic: ${process.env.ANTHROPIC_API_KEY ? 'configured' : 'missing'}`,
+    `DataForSEO: ${process.env.DATAFORSEO_LOGIN ? 'configured' : 'missing'} · Anthropic: ${process.env.ANTHROPIC_API_KEY ? 'configured' : 'missing'} · GSC OAuth: ${process.env.GOOGLE_GSC_CLIENT_ID && process.env.GOOGLE_GSC_CLIENT_SECRET ? 'configured' : 'missing'}`,
   );
 });

@@ -223,6 +223,60 @@ const DIFF_FILE_CAP = 80;
 const DIFF_DIRTY_CAP = 40;
 const DIFF_STAT_CAP = 4000;
 
+/** Assemble receipt — rewritten on Prepare preview refresh; not a site publish signal. */
+const SHIP_DIFF_NOISE_PATHS = new Set(['_assemble.json']);
+
+function normalizeShipDiffPath(p) {
+  return String(p || '')
+    .trim()
+    .replace(/\\/g, '/')
+    .replace(/^\.\//, '');
+}
+
+function isShipDiffNoisePath(p) {
+  return SHIP_DIFF_NOISE_PATHS.has(normalizeShipDiffPath(p));
+}
+
+/** Porcelain line → path (handles ` M file`, `?? file`, `R  a -> b`).
+ * `run()` trims stdout, so the first line may lose a leading blank status column. */
+function porcelainPath(line) {
+  const s = String(line || '');
+  if (!s.trim()) return '';
+  const fromPath = (pathPart) => {
+    const arrow = pathPart.lastIndexOf(' -> ');
+    const p = arrow >= 0 ? pathPart.slice(arrow + 4) : pathPart;
+    return p.trim().replace(/^"+|"+$/g, '');
+  };
+  // Standard: two status cols + space + path
+  const std = s.match(/^(.{2}) (.*)$/);
+  if (std) return fromPath(std[2]);
+  // After stdout trim ate a leading space: `M _assemble.json`
+  const trimmed = s.match(/^([MADRCU?!]) (.*)$/);
+  if (trimmed) return fromPath(trimmed[2]);
+  return s.trim().replace(/^"+|"+$/g, '');
+}
+
+function partitionShipDiffDirty(lines) {
+  const meaningful = [];
+  const noise = [];
+  for (const line of lines) {
+    const p = porcelainPath(line);
+    if (isShipDiffNoisePath(p)) noise.push(normalizeShipDiffPath(p));
+    else meaningful.push(line);
+  }
+  return { meaningful, noise };
+}
+
+function partitionShipDiffFiles(files) {
+  const meaningful = [];
+  const noise = [];
+  for (const f of files || []) {
+    if (isShipDiffNoisePath(f?.path)) noise.push(f);
+    else meaningful.push(f);
+  }
+  return { meaningful, noise };
+}
+
 /**
  * Ensure origin points at the known GitHub repo (force Assemble wipes remotes).
  * Does not create the repo — only attaches remote for fetch/diff.
@@ -297,19 +351,20 @@ export function diffAssembledAgainstRemote(siteRoot, opts = {}) {
   const fetchOk = fetch.ok;
 
   const porcelain = runGit(['status', '--porcelain'], abs, { allowFail: true });
-  const dirty = String(porcelain.stdout || '')
+  const dirtyAll = String(porcelain.stdout || '')
     .split(/\r?\n/)
     .map((l) => l.trimEnd())
-    .filter(Boolean)
-    .slice(0, DIFF_DIRTY_CAP);
+    .filter(Boolean);
 
   const hasRemoteMain = runGit(['rev-parse', '--verify', 'origin/main'], abs, { allowFail: true });
   if (!hasRemoteMain.ok) {
+    const { meaningful: dirty, noise: dirtyNoise } = partitionShipDiffDirty(dirtyAll);
     return {
       status: 'behind',
       fetchOk,
-      dirty,
+      dirty: dirty.slice(0, DIFF_DIRTY_CAP),
       files: [],
+      noise: dirtyNoise.slice(0, DIFF_DIRTY_CAP),
       stat: '',
       summary: fetchOk
         ? 'Remote has no main branch yet — Push updates to publish.'
@@ -320,33 +375,59 @@ export function diffAssembledAgainstRemote(siteRoot, opts = {}) {
   }
 
   const nameStatus = runGit(['diff', '--name-status', 'origin/main'], abs, { allowFail: true });
-  const files = String(nameStatus.stdout || '')
+  const filesAll = String(nameStatus.stdout || '')
     .split(/\r?\n/)
     .map((l) => l.trim())
     .filter(Boolean)
-    .slice(0, DIFF_FILE_CAP)
     .map((line) => {
       const tab = line.indexOf('\t');
       if (tab < 0) return { status: '?', path: line };
       return { status: line.slice(0, tab).trim(), path: line.slice(tab + 1).trim() };
     });
 
-  const statRes = runGit(['diff', '--stat', 'origin/main'], abs, { allowFail: true });
-  let stat = String(statRes.stdout || '').trim();
-  if (stat.length > DIFF_STAT_CAP) stat = `${stat.slice(0, DIFF_STAT_CAP)}\n…`;
+  const { meaningful: files, noise: fileNoise } = partitionShipDiffFiles(filesAll);
+  const { meaningful: dirty, noise: dirtyNoise } = partitionShipDiffDirty(dirtyAll);
+  const noise = [...new Set([...dirtyNoise, ...fileNoise.map((f) => f.path)].filter(Boolean))].slice(
+    0,
+    DIFF_DIRTY_CAP,
+  );
 
-  const behind = dirty.length > 0 || files.length > 0;
+  const meaningfulFiles = files.slice(0, DIFF_FILE_CAP);
+  const meaningfulDirty = dirty.slice(0, DIFF_DIRTY_CAP);
+
+  let stat = '';
+  if (meaningfulFiles.length) {
+    const statRes = runGit(['diff', '--stat', 'origin/main', '--', ...meaningfulFiles.map((f) => f.path)], abs, {
+      allowFail: true,
+    });
+    stat = String(statRes.stdout || '').trim();
+    if (stat.length > DIFF_STAT_CAP) stat = `${stat.slice(0, DIFF_STAT_CAP)}\n…`;
+  }
+
+  const behind = meaningfulDirty.length > 0 || meaningfulFiles.length > 0;
+  let summary;
+  if (behind) {
+    summary =
+      meaningfulDirty.length && !meaningfulFiles.length
+        ? 'Assembled has uncommitted local changes — Push updates will commit and publish.'
+        : `Assembled differs from GitHub (${meaningfulFiles.length || meaningfulDirty.length} path${
+            (meaningfulFiles.length || meaningfulDirty.length) === 1 ? '' : 's'
+          }) — Push updates.`;
+  } else if (noise.length) {
+    summary =
+      'Assembled matches GitHub (local assemble receipt only — no publish needed).';
+  } else {
+    summary = 'Assembled matches GitHub origin/main.';
+  }
+
   return {
     status: behind ? 'behind' : 'current',
     fetchOk,
-    dirty,
-    files,
+    dirty: meaningfulDirty,
+    files: meaningfulFiles,
+    noise,
     stat,
-    summary: behind
-      ? dirty.length && !files.length
-        ? 'Assembled has uncommitted local changes — Push updates will commit and publish.'
-        : `Assembled differs from GitHub (${files.length || dirty.length} path${(files.length || dirty.length) === 1 ? '' : 's'}) — Push updates.`
-      : 'Assembled matches GitHub origin/main.',
+    summary,
     remoteUrl: origin,
     remoteAttached: ensured.added,
     truncated: {

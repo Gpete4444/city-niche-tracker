@@ -394,7 +394,7 @@
       "maxImages": 8,
       "astroKey": null,
       "kind": "process",
-      "writeInstructions": "Numbered steps for this service with timing cues as body lines `Step title — description`. Do NOT invent a `process:` YAML array. Photos come from Pull `processImages` (one thumb per step, same card layout as homepage)."
+      "writeInstructions": "Prefer 4, 6, or 8 steps. Each step MUST be its own markdown list line: `- **Title** — short description` (description ~8–14 words; timing cue OK). Never pack multiple `Title —` steps into one paragraph (that fails speech lint and breaks step cards). Do NOT invent a `process:` YAML array. Photos come from Pull `processImages` (one thumb per step, same card layout as homepage)."
     },
     {
       "id": "svcCost",

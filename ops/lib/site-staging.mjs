@@ -11,6 +11,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import path from 'node:path';
+import { Worker } from 'node:worker_threads';
 import { getCandidateDetail, pathsFor, saveMeta } from './candidates.mjs';
 import { loadAcceptedSiteConfig, sanitizeMarkdownImageFrontmatter, ensureLocationFilesInMap, pruneLocationFilesToConfigured, pruneFilesToStructure } from './content-markdown.mjs';
 import { buildBuildPackage } from './build-package.mjs';
@@ -221,12 +222,17 @@ export function stageSiteContent(candidateId, { mode = 'full', refreshPackage = 
   }
 
   if (resolvedMode !== 'homepage_first') {
-    assertLaunchContentComplete(files, config, pageIds, { label: 'Staging' });
+    assertLaunchContentComplete(files, config, pageIds, {
+      label: 'Staging',
+      candidateId,
+    });
   }
 
   const contract = runTemplateContract(files, config, { mode: resolvedMode, pageIds });
   if (!contract.ok) {
-    const err = new Error(`Staging blocked: ${contract.errors.slice(0, 3).join('; ')}`);
+    const err = new Error(
+      `${candidateId}: Staging blocked: ${contract.errors.slice(0, 3).join('; ')}`,
+    );
     err.status = 400;
     err.contract = contract;
     throw err;
@@ -315,4 +321,46 @@ export function getStagingSummary(candidateId) {
   } catch {
     return null;
   }
+}
+
+/**
+ * Run stageSiteContent off the main event loop so parallel Prepare + Jobs SSE stay responsive.
+ * @param {string} candidateId
+ * @param {{ mode?: string, refreshPackage?: boolean }} [opts]
+ */
+export function stageSiteInWorker(candidateId, opts = {}) {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = (fn, value) => {
+      if (settled) return;
+      settled = true;
+      fn(value);
+    };
+    let worker;
+    try {
+      worker = new Worker(new URL('./stage-site-worker.mjs', import.meta.url), {
+        workerData: { candidateId: String(candidateId || '').trim(), opts: opts || {} },
+      });
+    } catch (error) {
+      reject(error);
+      return;
+    }
+    worker.on('message', (msg) => {
+      if (msg?.ok) {
+        finish(resolve, msg.result);
+        return;
+      }
+      const err = new Error(msg?.error || 'Stage worker failed');
+      err.status = msg?.status || 500;
+      if (msg?.check) err.check = msg.check;
+      if (msg?.contract) err.contract = msg.contract;
+      finish(reject, err);
+    });
+    worker.on('error', (error) => finish(reject, error));
+    worker.on('exit', (code) => {
+      if (!settled && code !== 0) {
+        finish(reject, new Error(`Stage worker exited with code ${code}`));
+      }
+    });
+  });
 }

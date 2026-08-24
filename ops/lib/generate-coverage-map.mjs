@@ -61,6 +61,7 @@ async function fetchBoundary(area, userAgent) {
           'User-Agent': userAgent,
           'Accept-Language': 'en-US,en',
         },
+        signal: AbortSignal.timeout(15_000),
       });
       if (!response.ok) {
         lastErr = new Error(`Boundary lookup failed for ${qName}: ${response.status}`);
@@ -74,7 +75,11 @@ async function fetchBoundary(area, userAgent) {
       }
       return { ...area, name: qName === name ? name : qName, geometry: feature.geometry };
     } catch (e) {
-      lastErr = e;
+      if (e?.name === 'TimeoutError' || e?.name === 'AbortError') {
+        lastErr = new Error(`Boundary lookup timed out for ${qName}, ${state}`);
+      } else {
+        lastErr = e;
+      }
     }
   }
   throw lastErr || new Error(`No municipal boundary found for ${name}, ${state}`);
@@ -411,15 +416,26 @@ export async function generateCoverageMapSvg(config, outputPath) {
   const userAgent = `${config.domain || 'rover.local'} coverage-map generator`;
   const boundaries = [];
   const missingBoundaries = [];
-  for (const area of areas) {
+  const total = areas.length;
+  console.log(`[coverage-map] looking up ${total} area(s) via Nominatim…`);
+  for (let i = 0; i < areas.length; i++) {
+    const area = areas[i];
     const label = `${String(area.name || '').trim()}, ${String(area.state || '').trim()}`;
+    console.log(`[coverage-map] ${i + 1}/${total} ${label || area.name || 'unknown'}…`);
     try {
       boundaries.push(await fetchBoundary(area, userAgent));
     } catch (e) {
       missingBoundaries.push(label.replace(/,\s*$/, '') || String(area.name || 'unknown'));
+      console.warn(
+        `[coverage-map] ${i + 1}/${total} skipped: ${e?.message || e}`,
+      );
     }
     await sleep(1100);
   }
+  console.log(
+    `[coverage-map] done — ${boundaries.length}/${total} outlined` +
+      (missingBoundaries.length ? `; missing: ${missingBoundaries.join('; ')}` : ''),
+  );
 
   if (!boundaries.length) {
     const missNote = missingBoundaries.length

@@ -2,7 +2,7 @@
  * Launch-fidelity helpers: expected paths, missing FILE checks, assemble freshness, preview sitemap.
  */
 import { existsSync, readFileSync } from 'node:fs';
-import { pathsFor } from './candidates.mjs';
+import { getCandidateDetail, pathsFor } from './candidates.mjs';
 
 function slugifyContentName(name) {
   return String(name || '')
@@ -66,10 +66,20 @@ function loadStructureDoc(candidateId) {
  */
 export function resolveStructurePageIds(candidateId, detail = null) {
   const outline = loadOutlinePackage(candidateId);
-  if (Array.isArray(outline?.pageIds) && outline.pageIds.length) return outline.pageIds.map(String);
+  if (
+    outline?.status === 'confirmed' &&
+    Array.isArray(outline?.pageIds) &&
+    outline.pageIds.length
+  ) {
+    return outline.pageIds.map(String);
+  }
   const structure = loadStructureDoc(candidateId);
   if (Array.isArray(structure?.pages) && structure.pages.length) return structure.pages.map(String);
-  if (Array.isArray(detail?.contentOutlinePackage?.pageIds) && detail.contentOutlinePackage.pageIds.length) {
+  if (
+    detail?.contentOutlinePackage?.status === 'confirmed' &&
+    Array.isArray(detail?.contentOutlinePackage?.pageIds) &&
+    detail.contentOutlinePackage.pageIds.length
+  ) {
     return detail.contentOutlinePackage.pageIds.map(String);
   }
   if (Array.isArray(detail?.contentStructure?.pages) && detail.contentStructure.pages.length) {
@@ -177,9 +187,72 @@ export function listLaunchContentGaps(files = {}, config = {}, pageIds = []) {
 }
 
 /**
+ * Launch-readiness gaps for a candidate's accepted/draft content (Prepare preflight).
+ * @param {string} candidateId
+ */
+export function getLaunchContentGapsForCandidate(candidateId) {
+  const id = String(candidateId || '').trim();
+  const detail = getCandidateDetail(id);
+  const p = pathsFor(id);
+  const diskConfig = readJson(p.siteConfig) || readJson(p.siteConfigDraft);
+  const config = diskConfig || detail?.siteConfig || detail?.siteConfigDraft || null;
+  const content = detail?.content || detail?.contentDraft;
+  const files = content?.files && typeof content.files === 'object' ? content.files : {};
+  const pageIds = resolveStructurePageIds(id, detail);
+  if (!config) {
+    return {
+      ok: false,
+      candidateId: id,
+      expected: [],
+      missing: ['(accept site-config first)'],
+      stubs: [],
+      error: `${id}: Accept site-config before Prepare preview`,
+    };
+  }
+  if (!Object.keys(files).length) {
+    return {
+      ok: false,
+      candidateId: id,
+      expected: expectedLaunchContentPaths(config, pageIds),
+      missing: ['(no content files)'],
+      stubs: [],
+      error: `${id}: No content draft/accepted files to Prepare`,
+    };
+  }
+  const gaps = listLaunchContentGaps(files, config, pageIds);
+  const parts = [];
+  if (gaps.missing.length) {
+    parts.push(
+      `missing ${gaps.missing.length}: ${gaps.missing.slice(0, 4).join('; ')}${
+        gaps.missing.length > 4 ? '…' : ''
+      }`,
+    );
+  }
+  if (gaps.stubs.length) {
+    parts.push(
+      `stub/thin ${gaps.stubs.length}: ${gaps.stubs.slice(0, 4).join('; ')}${
+        gaps.stubs.length > 4 ? '…' : ''
+      }`,
+    );
+  }
+  return {
+    ...gaps,
+    candidateId: id,
+    error: gaps.ok
+      ? null
+      : `${id}: Content not launch-ready — ${parts.join(' · ')}. Continue-write / Accept full location & service pages before Prepare (or Prepare anyway).`,
+  };
+}
+
+/**
  * Throw 400 with check payload when Structure-selected pages lack FILEs (or only stubs).
  */
-export function assertLaunchContentComplete(files, config, pageIds, { label = 'Content' } = {}) {
+export function assertLaunchContentComplete(
+  files,
+  config,
+  pageIds,
+  { label = 'Content', candidateId = '' } = {},
+) {
   const { missing, stubs, expected, ok } = listLaunchContentGaps(files, config, pageIds);
   if (ok) {
     return { ok: true, missing: [], stubs: [], expected };
@@ -195,8 +268,10 @@ export function assertLaunchContentComplete(files, config, pageIds, { label = 'C
       `stub/thin ${stubs.length}: ${stubs.slice(0, 4).join('; ')}${stubs.length > 4 ? '…' : ''}`,
     );
   }
+  const who = String(candidateId || '').trim();
+  const prefix = who ? `${who}: ` : '';
   const err = new Error(
-    `${label} incomplete for launch preview — ${parts.join(' · ')}. Paste full-write ### FILE blocks for every service/location, then Accept.`,
+    `${prefix}${label} incomplete for launch preview — ${parts.join(' · ')}. Paste full-write ### FILE blocks for every service/location, then Accept.`,
   );
   err.status = 400;
   err.check = {

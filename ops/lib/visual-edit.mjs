@@ -28,11 +28,12 @@ import { lintContentSpeech } from './content-speech-lint.mjs';
 import { lintContentSeo } from './content-seo-lint.mjs';
 import { stageSiteContent } from './site-staging.mjs';
 import { assembleSite, templateComponentsNewerThanAssembled } from './assemble-site.mjs';
-import { buildAssembledSite, shipAssembledSite } from './ship-site.mjs';
+import { buildAssembledSiteAsync, shipAssembledSite } from './ship-site.mjs';
 import {
   contentNewerThanDist,
   ensureAssembledPreview,
   stopAssembledPreview,
+  getAssembledPreviewBinding,
 } from './assembled-preview.mjs';
 import { ghAuthStatus } from './github-site.mjs';
 import { cloudflareConfigured } from './cloudflare-launch.mjs';
@@ -363,7 +364,7 @@ export function getVisualEditSnapshot(candidateId) {
     homepageSectionOrder: registry.homepageSectionOrder || [],
     assembled: Boolean(rel),
     assembledSitePath: rel,
-    previewUrl: 'http://127.0.0.1:4322/',
+    previewUrl: getAssembledPreviewBinding()?.url || 'http://127.0.0.1:4322/',
     hasUndo: existsSync(undoPath(candidateId)),
     businessName: config.businessName || detail.meta?.niche || candidateId,
   };
@@ -542,7 +543,7 @@ export async function refreshVisualEditPreview(candidateId, { rebuild = true } =
   let build = null;
   if (assembled.absoluteSiteRoot && rebuild) {
     try {
-      build = buildAssembledSite(assembled.absoluteSiteRoot, { visualEdit: true });
+      build = await buildAssembledSiteAsync(assembled.absoluteSiteRoot, { visualEdit: true });
     } catch (e) {
       build = { ok: false, error: e.message };
     }
@@ -646,7 +647,7 @@ export async function ensureVisualEditPreviewReady(candidateId) {
   let build = null;
   if (siteRoot) {
     try {
-      build = buildAssembledSite(siteRoot, { visualEdit: true });
+      build = await buildAssembledSiteAsync(siteRoot, { visualEdit: true });
     } catch (e) {
       build = { ok: false, error: e.message };
     }

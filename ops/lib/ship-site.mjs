@@ -4,7 +4,7 @@
  */
 
 import { existsSync, readFileSync } from 'node:fs';
-import { execFileSync, spawnSync } from 'node:child_process';
+import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { getCandidateDetail, saveMeta } from './candidates.mjs';
 import {
@@ -50,7 +50,67 @@ function runNpm(args, cwd, timeoutMs = 600_000, envExtra = {}) {
 }
 
 /**
+ * Non-blocking npm — allows K>1 heavy jobs to overlap builds.
+ */
+function runNpmAsync(args, cwd, timeoutMs = 600_000, envExtra = {}) {
+  const npmCmd = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+  return new Promise((resolve, reject) => {
+    const child = spawn(npmCmd, args, {
+      cwd,
+      shell: process.platform === 'win32',
+      env: { ...process.env, ...envExtra },
+      windowsHide: true,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    let stdout = '';
+    let stderr = '';
+    const maxBuf = 20 * 1024 * 1024;
+    child.stdout?.on('data', (chunk) => {
+      stdout += chunk;
+      if (stdout.length > maxBuf) stdout = stdout.slice(-maxBuf);
+    });
+    child.stderr?.on('data', (chunk) => {
+      stderr += chunk;
+      if (stderr.length > maxBuf) stderr = stderr.slice(-maxBuf);
+    });
+    const timer = setTimeout(() => {
+      try {
+        child.kill('SIGTERM');
+      } catch {
+        /* ignore */
+      }
+      reject(
+        Object.assign(new Error(`npm ${args.join(' ')} timed out after ${timeoutMs}ms`), {
+          status: 500,
+          stdout,
+          stderr,
+        }),
+      );
+    }, timeoutMs);
+    child.on('error', (err) => {
+      clearTimeout(timer);
+      reject(err);
+    });
+    child.on('close', (code) => {
+      clearTimeout(timer);
+      if (code !== 0) {
+        const err = new Error(
+          `npm ${args.join(' ')} failed (exit ${code}): ${(stderr || stdout).slice(-2000)}`,
+        );
+        err.status = 500;
+        err.stdout = stdout;
+        err.stderr = stderr;
+        reject(err);
+        return;
+      }
+      resolve({ ok: true, stdout, stderr });
+    });
+  });
+}
+
+/**
  * npm install (skipped when node_modules matches package lock identity) + npm run build.
+ * Sync — blocks the event loop. Prefer buildAssembledSiteAsync in heavy-job paths.
  * @param {string} siteRoot
  * @param {{ visualEdit?: boolean }} [opts] — set visualEdit for local preview builds only (loads rover-visual-bridge.js)
  */
@@ -70,6 +130,39 @@ export function buildAssembledSite(siteRoot, { visualEdit = false } = {}) {
     writeDepsHashMarker(abs, hashPackageDeps(abs));
   }
   runNpm(['run', 'build'], abs, 600_000, envExtra);
+  const hasDist = existsSync(path.join(abs, 'dist', 'index.html'));
+  return {
+    ok: true,
+    built: hasDist,
+    siteRoot: abs,
+    visualEdit: Boolean(visualEdit),
+    npmInstallSkipped: skipInstall,
+    buildSkipped: false,
+    ms: Date.now() - t0,
+  };
+}
+
+/**
+ * Async npm install + build — does not block other heavy jobs.
+ * @param {string} siteRoot
+ * @param {{ visualEdit?: boolean }} [opts]
+ */
+export async function buildAssembledSiteAsync(siteRoot, { visualEdit = false } = {}) {
+  const t0 = Date.now();
+  const abs = path.resolve(siteRoot);
+  if (!existsSync(abs)) {
+    const err = new Error(`Assembled site not found: ${abs}`);
+    err.status = 400;
+    throw err;
+  }
+  const envExtra = visualEdit ? { PUBLIC_ROVER_VE: '1' } : { PUBLIC_ROVER_VE: '' };
+  const nmDir = path.join(abs, 'node_modules');
+  const skipInstall = existsSync(nmDir) && depsHashMarkerMatches(abs);
+  if (!skipInstall) {
+    await runNpmAsync(['install'], abs, 600_000, envExtra);
+    writeDepsHashMarker(abs, hashPackageDeps(abs));
+  }
+  await runNpmAsync(['run', 'build'], abs, 600_000, envExtra);
   const hasDist = existsSync(path.join(abs, 'dist', 'index.html'));
   return {
     ok: true,
@@ -261,7 +354,7 @@ export async function shipAssembledSite(candidateId, opts = {}) {
     steps.build = { skipped: true };
   } else {
     try {
-      steps.build = buildAssembledSite(assembledRoot);
+      steps.build = await buildAssembledSiteAsync(assembledRoot);
       human.push('Built assembled site (npm install && npm run build).');
     } catch (error) {
       steps.build = { ok: false, error: error.message };
@@ -390,7 +483,7 @@ export function getAssembledShipDiff(candidateId) {
     (diff.status !== 'current' && assembleNewerThanShip);
 
   let summary = diff.summary;
-  if (diff.status === 'current' && assembleNewerThanShip) {
+  if (diff.status === 'current' && assembleNewerThanShip && !(diff.noise || []).length) {
     summary = 'Assembled matches GitHub; Assemble timestamp is newer than last ship (usually already pushed).';
   } else if (diff.status === 'no_remote') {
     summary = assembleNewerThanShip

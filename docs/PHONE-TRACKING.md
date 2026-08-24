@@ -37,6 +37,8 @@ Optional Function relay (`ROVER_WEBHOOK_URL` + tunnel) can push events while Rov
 
 ## Setup (once)
 
+Non-technical Twilio / OpenAI env walkthrough: [ENV-SETUP.md](ENV-SETUP.md) §6.
+
 1. Twilio account funded; Rover `.env` (see `.env.example`):
    - `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FORWARD_TO`, `TWILIO_VOICE_WEBHOOK_URL`
    - `OPENAI_API_KEY` (Phone STT via Whisper + summaries via gpt-4o-mini)

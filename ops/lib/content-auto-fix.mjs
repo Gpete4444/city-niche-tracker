@@ -91,6 +91,17 @@ export function autoFixContentDraft(files, opts = {}) {
       }
     }
 
+    const processUnpack = unpackPackedProcessSections(body);
+    if (processUnpack.changed) {
+      body = processUnpack.body;
+      changes.push({
+        file: rel,
+        rule: 'process_steps_packed',
+        kind: 'speech',
+        detail: `Unpacked ${processUnpack.count} packed process step(s) into list lines`,
+      });
+    }
+
     if (/(^|\/)pages\/index\.md$/i.test(rel)) {
       const faqStrip = stripOffNicheHomepageFaqs(body, {
         niche: config.niche,
@@ -228,6 +239,203 @@ function polishServiceHeadingGrammar(src) {
     body: fm != null ? `---\n${fm}\n---\n${next.replace(/^\n+/, '')}` : next,
     changed: true,
     details,
+  };
+}
+
+/** Title — description starts used by service process cards (and packed mega-paragraphs). */
+const PROCESS_STEP_START_RE =
+  /(?:^|[\n\r]| (?=[A-Z]))([A-Z][A-Za-z0-9/'&]*(?:\s+(?:and|&|\/|of|for|the|a|an|[A-Za-z0-9/'&]+)){0,7})\s+[—–-]\s+/g;
+
+function countProcessStepStarts(text) {
+  const t = String(text || '');
+  PROCESS_STEP_START_RE.lastIndex = 0;
+  return [...t.matchAll(PROCESS_STEP_START_RE)].length;
+}
+
+function looksLikeProcessHeading(heading) {
+  return /process\s+works/i.test(String(heading || ''));
+}
+
+/**
+ * Split a packed process paragraph into `- **Title** — description` list lines.
+ * Preserves a leading intro when it appears before the first step title.
+ */
+function unpackProcessParagraph(para) {
+  const raw = String(para || '').trim();
+  if (!raw) return { text: para, changed: false, count: 0 };
+
+  // Already a list block starting with -/* — normalize step lines only if packed on one bullet
+  if (/^[-*•]\s/.test(raw)) {
+    const lines = raw.split(/\n/).map((l) => l.trim()).filter(Boolean);
+    // Single list item that packs many Title — segments → unpack
+    if (lines.length === 1 && countProcessStepStarts(lines[0]) >= 2) {
+      const stripped = lines[0].replace(/^[-*•]\s+/, '').replace(/\*\*/g, '');
+      const steps = extractPackedProcessSteps(stripped);
+      if (steps?.length >= 2) {
+        return {
+          text: steps.map((s) => `- **${s.title}** — ${s.description}`).join('\n'),
+          changed: true,
+          count: steps.length,
+        };
+      }
+    }
+    // Multi-line list that is already one step per line — leave
+    return { text: para, changed: false, count: 0 };
+  }
+
+  const lines = raw.split(/\n/).map((l) => l.trim()).filter(Boolean);
+  // One step per line (no list markers) → promote to list lines
+  if (lines.length >= 2) {
+    const asSteps = lines.map((line) => parseOneProcessStepLine(line)).filter(Boolean);
+    if (asSteps.length >= 2 && asSteps.length === lines.length) {
+      return {
+        text: asSteps.map((s) => `- **${s.title}** — ${s.description}`).join('\n'),
+        changed: true,
+        count: asSteps.length,
+      };
+    }
+  }
+
+  if (countProcessStepStarts(raw) < 2) {
+    return { text: para, changed: false, count: 0 };
+  }
+
+  const stripped = raw.replace(/\*\*/g, '');
+  PROCESS_STEP_START_RE.lastIndex = 0;
+  const first = PROCESS_STEP_START_RE.exec(stripped);
+  if (!first) return { text: para, changed: false, count: 0 };
+
+  const intro = stripped.slice(0, first.index).trim();
+  const fromFirst = stripped.slice(first.index).trim();
+  const steps = extractPackedProcessSteps(fromFirst);
+  if (!steps || steps.length < 2) return { text: para, changed: false, count: 0 };
+
+  const list = steps.map((s) => `- **${s.title}** — ${s.description}`).join('\n');
+  return {
+    text: intro ? `${intro}\n\n${list}` : list,
+    changed: true,
+    count: steps.length,
+  };
+}
+
+function parseOneProcessStepLine(line) {
+  const cleaned = String(line || '')
+    .replace(/^[-*•]\s+/, '')
+    .replace(/^\d+[.)]\s+/, '')
+    .replace(/\*\*/g, '')
+    .trim();
+  const em = cleaned.match(/^(.+?)\s+[—–-]\s+(.+)$/);
+  if (em) return { title: em[1].trim(), description: em[2].trim() };
+  const colon = cleaned.match(/^(.+?):\s+(.+)$/);
+  if (colon && colon[1].split(/\s+/).length <= 8) {
+    return { title: colon[1].trim(), description: colon[2].trim() };
+  }
+  return null;
+}
+
+function extractPackedProcessSteps(text) {
+  const cleaned = String(text || '').trim();
+  if (!cleaned) return null;
+  PROCESS_STEP_START_RE.lastIndex = 0;
+  const matches = [...cleaned.matchAll(PROCESS_STEP_START_RE)];
+  if (matches.length < 2) return null;
+
+  const steps = [];
+  for (let i = 0; i < matches.length; i++) {
+    const title = String(matches[i][1] || '').trim();
+    const start = matches[i].index + matches[i][0].length;
+    const end = i + 1 < matches.length ? matches[i + 1].index : cleaned.length;
+    const description = cleaned.slice(start, end).trim().replace(/\s+/g, ' ');
+    if (!title || !description) continue;
+    // Skip bogus titles that are mid-sentence scraps
+    if (title.split(/\s+/).length > 8) continue;
+    steps.push({ title, description });
+  }
+  return steps.length >= 2 ? steps : null;
+}
+
+/**
+ * Unpack jammed service-process steps into markdown list lines (speech + card parser).
+ */
+function unpackPackedProcessSections(src) {
+  const { fm, body } = splitFrontmatter(src);
+  if (!body.trim()) return { body: src, changed: false, count: 0 };
+
+  const lines = body.replace(/\r\n/g, '\n').split('\n');
+  const chunks = [];
+  let cur = { heading: '', headingLine: '', bodyLines: [] };
+
+  const flush = () => {
+    if (cur.headingLine || cur.bodyLines.length) chunks.push(cur);
+    cur = { heading: '', headingLine: '', bodyLines: [] };
+  };
+
+  for (const line of lines) {
+    const hm = line.match(/^(#{2,3})\s+(.+)$/);
+    if (hm) {
+      flush();
+      cur = { heading: hm[2].trim(), headingLine: line, bodyLines: [] };
+      continue;
+    }
+    cur.bodyLines.push(line);
+  }
+  flush();
+
+  let changed = false;
+  let count = 0;
+  const parts = [];
+
+  for (const chunk of chunks) {
+    const sectionBody = chunk.bodyLines.join('\n');
+    if (!chunk.headingLine) {
+      if (sectionBody) parts.push(sectionBody);
+      continue;
+    }
+
+    const isProcess =
+      looksLikeProcessHeading(chunk.heading) || countProcessStepStarts(sectionBody) >= 3;
+
+    if (!isProcess) {
+      parts.push(chunk.headingLine);
+      if (sectionBody.trim()) parts.push(sectionBody);
+      continue;
+    }
+
+    const paras = sectionBody.split(/\n{2,}/);
+    const nextParas = [];
+    let sectionChanged = false;
+    for (const para of paras) {
+      if (!para.trim()) {
+        nextParas.push(para);
+        continue;
+      }
+      const unpacked = unpackProcessParagraph(para);
+      if (unpacked.changed) {
+        sectionChanged = true;
+        count += unpacked.count;
+        nextParas.push(unpacked.text);
+      } else {
+        nextParas.push(para);
+      }
+    }
+
+    parts.push(chunk.headingLine);
+    if (sectionChanged) {
+      changed = true;
+      const nextBody = nextParas.join('\n\n').replace(/\n{3,}/g, '\n\n').trim();
+      if (nextBody) parts.push(nextBody);
+    } else if (sectionBody.trim()) {
+      parts.push(sectionBody);
+    }
+  }
+
+  if (!changed) return { body: src, changed: false, count: 0 };
+
+  const nextBody = `${parts.join('\n\n').replace(/\n{3,}/g, '\n\n').trim()}\n`;
+  return {
+    body: fm != null ? `---\n${fm}\n---\n${nextBody.replace(/^\n+/, '')}` : nextBody,
+    changed: true,
+    count,
   };
 }
 

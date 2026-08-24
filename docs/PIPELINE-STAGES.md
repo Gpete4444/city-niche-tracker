@@ -1,5 +1,7 @@
 # Pipeline stages (operator funnel)
 
+**User-facing walkthrough (discovery → launch):** [USER-FLOW.md](USER-FLOW.md)
+
 Rover’s **operator stages** (how you work the product) are separate from internal research API “stages” (SERP / enrich / prospects).
 
 ## Four funnel stages
@@ -64,5 +66,6 @@ Do **not** buy Twilio numbers in Discovery or Research. CallRail is not used.
 
 ## Related docs
 
+- User walkthrough: [USER-FLOW.md](USER-FLOW.md)
 - Production flowchart: [MASTER-FLOW.md](MASTER-FLOW.md)
 - Phone ops: [PHONE-TRACKING.md](PHONE-TRACKING.md)

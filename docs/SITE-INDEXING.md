@@ -53,17 +53,17 @@ There is **no guaranteed timeline**. Request indexing is a nudge, not a promise.
 
 ## Rover day-one checklist
 
-After **Run launch** (or **Push updates** when already live):
+After **Run launch** (or **Push updates** when already live), open **Website → Indexing** (step 4):
 
 1. **Confirm live crawl files**
-   - Open `https://{domain}/sitemap.xml` — URLs and host match this site (pipeline emits sitemap via [`src/integrations/ensure-sitemap-xml.mjs`](../src/integrations/ensure-sitemap-xml.mjs)).
+   - Open `https://{domain}/sitemap.xml` — URLs and host match this site (pipeline emits sitemap via [`src/integrations/ensure-sitemap-xml.mjs`](../src/integrations/ensure-sitemap-xml.mjs)). Rover’s Indexing step has **Copy sitemap URL** / **Open sitemap**.
    - Open `https://{domain}/robots.txt` — allows crawlers; `Sitemap:` line points at **this** domain ([`src/pages/robots.txt.ts`](../src/pages/robots.txt.ts)).
 2. **Google Search Console**
-   - Add / verify **Domain** property (DNS TXT).
+   - Add / verify **Domain** property (DNS TXT). Use **Open Search Console** in Indexing.
    - Indexing → Sitemaps → submit `https://{domain}/sitemap.xml`.
    - URL Inspection → **Request indexing** on homepage + top 2–3 service pages.
 3. **External pointer** — Set GBP website (when you have it) and any planned citations to the live URL. In Rover **Website → Launch**, use **Citations** checklist + **Download NAP CSV** so directory forms match site-config.
-4. **Stop thrashing** — Wait. Monitor Page indexing; don’t resubmit the whole site every day.
+4. **Stop thrashing** — Wait. Monitor Page indexing; don’t resubmit the whole site every day. Mark Indexing **done** in Rover when finished.
 
 **Citations and head-term speed:** On-page SEO (titles, FAQs, service/location graph) is necessary but not sufficient for competitive “niche + city” queries. GBP + consistent NAP citations are the usual off-page path — Rover does not invent backlinks at Assemble.
 
@@ -83,6 +83,21 @@ Meaningful rankings for competitive local terms often take **months** after firs
 
 ---
 
+## After verify — traffic & ranks in Rover
+
+Once the Domain property is verified under the Google account you connect to Rover:
+
+1. Add `GOOGLE_GSC_CLIENT_ID` + `GOOGLE_GSC_CLIENT_SECRET` to `.env` (Desktop OAuth client; Search Console API enabled). Redirect URI: `http://127.0.0.1:8787/api/gsc/oauth/callback`.
+2. Restart Rover → **Launched Sites → Connect GSC** → approve read-only Search Console access.
+3. **Sync GSC** pulls trailing 28d clicks/impressions (+ daily series for charts).
+4. **Check ranks** (or per-site **Check ranks now**) uses DataForSEO Standard-queue organic SERP for up to 5 keywords (primary auto = `{niche} {city}`). Needs existing `DATAFORSEO_*` credentials.
+
+Tokens live in `research/gsc-oauth.json`; per-site series in `research/site-metrics/` (both under gitignored `research/`).
+
+**Phase 2 (backlog):** auto-create GSC Domain property + Cloudflare DNS TXT verify at Launch/Indexing so operators don’t do step 2 manually at scale.
+
+---
+
 ## Myths to skip
 
 - Re-submitting the sitemap every day to “force” a crawl
@@ -95,6 +110,7 @@ Meaningful rankings for competitive local terms often take **months** after firs
 
 ## Related
 
+- Launched Sites GSC + ranks: [SITES-METRICS.md](SITES-METRICS.md)
 - Content SEO letter grade: [SEO-RATING.md](SEO-RATING.md)
 - Pipeline overview: [MASTER-FLOW.md](MASTER-FLOW.md)
 - Launch / Push updates: [LAUNCH.md](LAUNCH.md)

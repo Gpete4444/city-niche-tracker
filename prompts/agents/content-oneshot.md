@@ -32,6 +32,7 @@ Hard rules:
 4b. Dual-source contract:
    - Homepage: why / process / FAQ H3s → whyChooseUs[], process[], faqs[] frontmatter; remaining educational H2s → homepage body `##`.
    - Service pages: no process/faqs FM arrays — body `##` for each enabled svc* band; same cost/codes/DIY/timeline shapes as home.
+   - Service **process** H2: each step = its own list line `- **Title** — short description` (~8–14 words). Never jam all steps into one paragraph.
 5. Map brief structure into homepage frontmatter + body:
    - H1 → frontmatter h1 (+ title/description)
    - Why / process / FAQ H3s → whyChooseUs[], process[], faqs[] when they fit those slots

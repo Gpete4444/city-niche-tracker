@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Rover how-tos: get GitHub access (gateway)</title>
+  <style>
+    body {
+      font-family: Georgia, "Times New Roman", serif;
+      font-size: 14pt;
+      line-height: 1.45;
+      color: #222;
+      max-width: 720px;
+      margin: 2rem auto;
+      padding: 0 1.25rem 3rem;
+    }
+    h1 { font-size: 22pt; line-height: 1.25; margin-top: 0; }
+    h2 { font-size: 16pt; margin-top: 1.75rem; border-bottom: 1px solid #ddd; padding-bottom: 0.25rem; }
+    h3 { font-size: 13pt; margin-top: 1.25rem; }
+    p, li { font-size: 12pt; }
+    a { color: #0b57d0; }
+    img {
+      display: block;
+      max-width: 100%;
+      height: auto;
+      margin: 1rem 0;
+      border: 1px solid #e0e0e0;
+    }
+    code, .mono {
+      font-family: Consolas, "Courier New", monospace;
+      font-size: 11pt;
+    }
+    pre {
+      background: #f5f5f5;
+      border: 1px solid #e0e0e0;
+      padding: 0.75rem 1rem;
+      white-space: pre-wrap;
+      font-family: Consolas, "Courier New", monospace;
+      font-size: 11pt;
+    }
+    table {
+      border-collapse: collapse;
+      width: 100%;
+      margin: 1rem 0;
+      font-size: 11pt;
+    }
+    th, td {
+      border: 1px solid #ccc;
+      padding: 0.45rem 0.6rem;
+      text-align: left;
+      vertical-align: top;
+    }
+    th { background: #f3f3f3; }
+    .note {
+      background: #f8f8f8;
+      border-left: 4px solid #888;
+      padding: 0.75rem 1rem;
+      margin: 1rem 0;
+      font-size: 11pt;
+    }
+    .paul-only {
+      background: #fff8e6;
+      border: 1px solid #e6d9a8;
+      padding: 0.75rem 1rem;
+      margin: 1rem 0 1.5rem;
+      font-size: 11pt;
+    }
+    ol, ul { padding-left: 1.4rem; }
+  </style>
+</head>
+<body>
+
+  <h1>Rover how-tos: get GitHub access (gateway)</h1>
+
+  <p>This is the <strong>starting document</strong> for Rover operators. It is not about coding. It only gets you a free GitHub account, access to the private Rover folder of how-to guides, and shows you how to read those guides in a normal web browser.</p>
+
+  <p>After you finish, your first how-to is <strong>Rover — from discovery to launch</strong> (<span class="mono">USER-FLOW.md</span>). Next, set up keys with <strong>Rover .env &amp; API keys setup</strong> (<span class="mono">ENV-SETUP.md</span>).</p>
+
+  <p><img src="images/github-gateway/overview-flow.png" alt="Overview: five steps from signup to reading docs" /></p>
+
+  <div class="paul-only">
+    <h2 style="margin-top:0;border:none;">For Paul (one-time: turn this into a Google Doc)</h2>
+    <ol>
+      <li>Create a blank <a href="https://docs.google.com/">Google Doc</a>.</li>
+      <li>Open this HTML file in a browser. Select all → Copy → Paste into the Doc. If images do not paste, insert them from <span class="mono">docs/images/github-gateway/</span>.</li>
+      <li>Replace <strong>YOUR_EMAIL</strong> below with the address operators should use to send their username.</li>
+      <li>Share the Google Doc with operators as <strong>Viewer</strong>. Keep GitHub as the source of truth for USER-FLOW, ENV-SETUP, and other how-tos.</li>
+    </ol>
+    <p>Operators: ignore this box. Start at <strong>What this is</strong>.</p>
+  </div>
+
+  <h2>What this is</h2>
+
+  <p>Rover’s detailed instructions live in a private GitHub repository:</p>
+  <p><a href="https://github.com/7D7D/Rover">https://github.com/7D7D/Rover</a></p>
+  <p>GitHub is a website that stores files. You will use it like a library of how-to pages—not like a programming tool. You do <strong>not</strong> need Cursor, VS Code, or any developer software.</p>
+
+  <h2>Step 1 — Create a free GitHub account</h2>
+  <ol>
+    <li>Open <a href="https://github.com/signup">https://github.com/signup</a> in your browser (Chrome, Edge, or Safari).</li>
+    <li>Choose a <strong>username</strong> (letters, numbers, hyphens—this is public; pick something professional).</li>
+    <li>Enter an <strong>email address</strong> you can check.</li>
+    <li>Create a <strong>password</strong>.</li>
+    <li>Complete the puzzle / verification if asked.</li>
+    <li>Click <strong>Create account</strong> (wording may vary slightly).</li>
+    <li>If GitHub offers paid plans or “Pro” trials, choose the <strong>free</strong> option and skip extras.</li>
+  </ol>
+
+  <p><img src="images/github-gateway/signup-mock.png" alt="Signup fields: username, email, password" /></p>
+
+  <h3>Confirm your email</h3>
+  <ol>
+    <li>Open your email inbox.</li>
+    <li>Find the message from GitHub (check Spam if needed).</li>
+    <li>Click the confirm / verify link.</li>
+  </ol>
+  <p>You cannot fully use GitHub until the email is confirmed.</p>
+  <p><strong>Official link:</strong> <a href="https://github.com/signup">Sign up for GitHub</a></p>
+
+  <h2>Step 2 — Tell Paul your GitHub username</h2>
+  <p>Paul must invite you before you can see the private Rover docs.</p>
+  <ol>
+    <li>Sign in at <a href="https://github.com">https://github.com</a>.</li>
+    <li>Click your <strong>profile picture</strong> (usually top-right).</li>
+    <li>Your <strong>username</strong> appears near the top of that menu (and on “Your profile”).</li>
+    <li>Email Paul using the template below.</li>
+  </ol>
+
+  <p><strong>To:</strong> YOUR_EMAIL</p>
+  <p><strong>Subject:</strong> My GitHub username</p>
+  <p><strong>Body:</strong></p>
+  <pre>Hi Paul,
+
+My GitHub username is: REPLACE_WITH_YOUR_USERNAME
+
+Please invite me to the Rover docs repo.
+
+Thanks</pre>
+
+  <p><img src="images/github-gateway/tell-paul-username.png" alt="Find username and email Paul" /></p>
+  <p>Wait until Paul confirms he sent the invite (often within a day).</p>
+
+  <h2>Step 3 — Accept the invitation</h2>
+  <ol>
+    <li>Check your email for a message from GitHub about an invitation to <strong>7D7D/Rover</strong>.</li>
+    <li>You can also open <a href="https://github.com/notifications">https://github.com/notifications</a> while signed in and look for the invitation.</li>
+    <li>Open the invite page and click <strong>Accept invitation</strong>.</li>
+  </ol>
+
+  <p><img src="images/github-gateway/accept-invite.png" alt="Accept invitation to 7D7D/Rover" /></p>
+  <p>If the button is missing, sign out, sign back in with the <strong>same</strong> account whose username you sent Paul, and open the invite link again.</p>
+
+  <h2>Step 4 — How to read how-to docs on GitHub</h2>
+  <ol>
+    <li>Open a document link Paul sends you, or go to the repo: <a href="https://github.com/7D7D/Rover">https://github.com/7D7D/Rover</a></li>
+    <li>Click the <strong>docs</strong> folder, then open a <span class="mono">.md</span> file (for example <span class="mono">USER-FLOW.md</span>).</li>
+    <li>Read the <strong>main page</strong> in the browser. Headings, links, and pictures should look normal.</li>
+  </ol>
+
+  <p><strong>Do not</strong> click <strong>Raw</strong> or <strong>Download</strong> for normal reading—those show code-like text or a file download instead of the friendly page.</p>
+
+  <p><img src="images/github-gateway/read-on-github.png" alt="Read the rendered page; avoid Raw and Download" /></p>
+
+  <p>Tips:</p>
+  <ul>
+    <li>Blue text is usually a clickable link.</li>
+    <li>Pictures appear in the page; scroll slowly on long guides.</li>
+    <li>Bookmark pages you use often.</li>
+  </ul>
+
+  <h2>Step 5 — Your first how-to documents</h2>
+  <p>After you can open the repo, read these <strong>in order</strong>:</p>
+  <ol>
+    <li><strong>Rover — from discovery to launch</strong> (what you do in the product, with time estimates)<br />
+    <a href="https://github.com/7D7D/Rover/blob/master/docs/USER-FLOW.md">https://github.com/7D7D/Rover/blob/master/docs/USER-FLOW.md</a></li>
+    <li><strong>Rover .env &amp; API keys setup</strong> (get Settings → API/Other green)<br />
+    <a href="https://github.com/7D7D/Rover/blob/master/docs/ENV-SETUP.md">https://github.com/7D7D/Rover/blob/master/docs/ENV-SETUP.md</a></li>
+  </ol>
+  <p>Other guides live in the same folder:</p>
+  <p><a href="https://github.com/7D7D/Rover/tree/master/docs">https://github.com/7D7D/Rover/tree/master/docs</a></p>
+  <p>Paul may send you additional links for Phone, metrics, and other topics as needed.</p>
+
+  <h2>Troubleshooting</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Problem</th>
+        <th>What to try</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>404</strong> or “page not found” on the repo</td>
+        <td>You are not invited yet, or you are signed into a <strong>different</strong> GitHub account. Accept the invite, then try again while signed in.</td>
+      </tr>
+      <tr>
+        <td>No invite email</td>
+        <td>Check Spam; open <a href="https://github.com/notifications">github.com/notifications</a>; confirm Paul has your exact username.</td>
+      </tr>
+      <tr>
+        <td>Page looks like code (<span class="mono">#</span> headings, <span class="mono">[]()</span> links)</td>
+        <td>You opened <strong>Raw</strong>. Go back and open the normal file page (no Raw).</td>
+      </tr>
+      <tr>
+        <td>Images missing</td>
+        <td>Same as above—use the rendered file view, not Raw.</td>
+      </tr>
+      <tr>
+        <td>Forgot password</td>
+        <td>Use “Forgot password” on <a href="https://github.com/login">github.com/login</a>.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>Quick checklist</h2>
+  <ol>
+    <li>Create account at <a href="https://github.com/signup">https://github.com/signup</a></li>
+    <li>Confirm email</li>
+    <li>Email <strong>YOUR_EMAIL</strong> your GitHub username</li>
+    <li>Accept invite to <strong>7D7D/Rover</strong></li>
+    <li>Open <a href="https://github.com/7D7D/Rover/blob/master/docs/USER-FLOW.md">USER-FLOW.md</a> and read it</li>
+    <li>Then open <a href="https://github.com/7D7D/Rover/blob/master/docs/ENV-SETUP.md">ENV-SETUP.md</a> and follow it</li>
+  </ol>
+  <p>You are done with this gateway when you can open those pages and read them in the browser.</p>
+
+</body>
+</html>

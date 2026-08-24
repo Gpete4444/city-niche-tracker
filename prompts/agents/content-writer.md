@@ -35,6 +35,7 @@ Hard rules:
 3b. Dual-source contract:
    - Homepage: whyChooseUs / process / faqs / gallery = **frontmatter only**; body = intro + educational `##` bands (cost/materials/timeline/codes/diy/whenToCall).
    - Service pages (when writing them): **no** process/faqs FM arrays — intro + every band as body `##`; use the same cost/codes/DIY/timeline bullet shapes as homepage educational sections.
+   - Service **process** H2: each step = its own list line `- **Title** — short description` (~8–14 words). Never jam all steps into one paragraph.
    - Never invent service-page `process:` or `faqs:` YAML.
 4. Image fields OPTIONAL — omit heroImage/featureImage/gallery/coverageMap/process[].image/materialsImages unless files already exist from Rover Pull, ChatGPT BA import, or operator upload. Never invent src paths or reuse demo filenames. Never emit body markdown images (`![…](/images/…)`). Preserve existing Pull-owned entries.
 5. Filenames kebab-case under src/content/. Location files: city name only (`riverton.md`), never append state (`riverton-ut` is wrong).

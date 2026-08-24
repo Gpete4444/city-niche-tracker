@@ -2264,6 +2264,7 @@ export async function acceptContent(
   if (requireFull) {
     assertLaunchContentComplete(files, config, pageIds, {
       label: 'Accept',
+      candidateId,
     });
   }
 

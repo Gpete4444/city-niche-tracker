@@ -26,7 +26,8 @@ import {
   ensureSocialProofOnSiteConfigFile,
 } from './content-social-proof.mjs';
 import { getStagingSummary } from './site-staging.mjs';
-import { stopAssembledPreviewSync } from './assembled-preview.mjs';
+import { isMainThread, Worker } from 'node:worker_threads';
+import { stopAssembledPreviewSync, stopAssembledPreview, killProcessesHoldingSitePath } from './assembled-preview.mjs';
 
 const ROOT = process.cwd();
 
@@ -142,12 +143,274 @@ function restoreOrDiscardNodeModules(siteRoot, stash) {
   return { restored: false };
 }
 
-/** Remove assembled site folder; stop :4322 first and retry on Windows locks. */
-function removeAssembledSiteRoot(siteRoot) {
-  if (!existsSync(siteRoot)) return;
-  stopAssembledPreviewSync({ waitMs: 2500 });
+function sleepMs(ms) {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+/**
+ * Resolve assembled sibling folder for a candidate (domain → city-niche → id).
+ * @param {string} candidateId
+ * @param {{ siteSlug?: string }} [opts]
+ */
+export function resolveAssembleSiteRoot(candidateId, { siteSlug } = {}) {
+  const loaded = loadAcceptedSiteConfig(candidateId);
+  const config = loaded?.config || {};
+  const slug =
+    siteSlug ||
+    (config.domain && !/^example\.com$/i.test(config.domain)
+      ? slugifySiteName(config.domain)
+      : null) ||
+    slugifySiteName([config.primaryCity, config.niche].filter(Boolean).join('-')) ||
+    slugifySiteName(candidateId);
+  const sitesRoot = assembledSitesRoot();
+  const siteRoot = path.join(sitesRoot, slug);
+  return { siteRoot, sitesRoot, slug, config };
+}
+
+/**
+ * Prefer meta.assembledSitePath when it exists on disk; always expose canonical sitesRoot/slug.
+ * @param {string} candidateId
+ * @param {{ siteSlug?: string }} [opts]
+ */
+export function resolveActiveAssembledRoot(candidateId, { siteSlug } = {}) {
+  const { siteRoot: canonicalRoot, sitesRoot, slug, config } = resolveAssembleSiteRoot(
+    candidateId,
+    { siteSlug },
+  );
+  const detail = getCandidateDetail(candidateId);
+  const metaRel = detail?.meta?.assembledSitePath;
+  let activeRoot = null;
+  if (metaRel) {
+    const abs = path.isAbsolute(metaRel) ? metaRel : path.resolve(ROOT, metaRel);
+    if (existsSync(abs)) activeRoot = abs;
+  }
+  if (!activeRoot && existsSync(canonicalRoot)) activeRoot = canonicalRoot;
+  return {
+    canonicalRoot,
+    activeRoot,
+    siteRoot: activeRoot || canonicalRoot,
+    sitesRoot,
+    slug,
+    config,
+  };
+}
+
+/**
+ * Copy node_modules from a previous tree into a stash dir (no delete/rename of prev).
+ * @param {string | null} prevRoot
+ * @returns {{ stashDir: string, depsHash: string } | null}
+ */
+function tryCopyNmStashFrom(prevRoot) {
+  if (!prevRoot || !existsSync(prevRoot)) return null;
+  const nm = path.join(prevRoot, 'node_modules');
+  if (!existsSync(nm) || !statSync(nm).isDirectory()) return null;
+  const depsHash = hashPackageDeps(prevRoot);
+  const stashDir = path.join(
+    path.dirname(prevRoot),
+    `.nm-stash-${path.basename(prevRoot).replace(/\.__build-\d+$/, '')}-${process.pid}-${Date.now()}`,
+  );
+  try {
+    if (existsSync(stashDir)) rmSync(stashDir, { recursive: true, force: true });
+    cpSync(nm, stashDir, { recursive: true });
+    return { stashDir, depsHash };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Decide refresh vs full replace without mutating disk.
+ * @param {string} candidateId
+ * @param {{ force?: boolean, refresh?: boolean, siteSlug?: string }} [opts]
+ */
+export function planAssembleReplace(candidateId, { force = false, refresh = false, siteSlug } = {}) {
+  const staging = getStagingSummary(candidateId);
+  if (!staging) {
+    const err = new Error('Stage content first (research/{id}/site-staging missing)');
+    err.status = 400;
+    err.checklist = getAssembleChecklist(candidateId);
+    throw err;
+  }
+  const resolved = resolveActiveAssembledRoot(candidateId, { siteSlug });
+  const { canonicalRoot, activeRoot, sitesRoot, slug, config } = resolved;
+  const siteRoot = activeRoot || canonicalRoot;
+  const siteExists = Boolean(activeRoot) || existsSync(canonicalRoot);
+  if (siteExists && !force && !refresh) {
+    const err = new Error(
+      `Assembled site already exists at ${siteRoot}. Pass force=true to replace or refresh=true to inject staging.`,
+    );
+    err.status = 409;
+    err.siteRoot = siteRoot;
+    err.checklist = getAssembleChecklist(candidateId);
+    throw err;
+  }
+  const refreshTarget = activeRoot && existsSync(activeRoot) ? activeRoot : null;
+  const canRefresh =
+    refresh &&
+    !force &&
+    Boolean(refreshTarget) &&
+    assembledPackageDepsMatchTemplate(refreshTarget) &&
+    !templateComponentsNewerThanAssembled(refreshTarget);
+  /** @type {'refresh'|'full'} */
+  const mode = canRefresh ? 'refresh' : 'full';
+  const fullReason =
+    mode === 'full' && refresh && !force
+      ? !siteExists
+        ? 'missing'
+        : refreshTarget && !assembledPackageDepsMatchTemplate(refreshTarget)
+          ? 'deps'
+          : refreshTarget && templateComponentsNewerThanAssembled(refreshTarget)
+            ? 'template'
+            : 'fallback'
+      : force
+        ? 'force'
+        : mode === 'full'
+          ? 'full'
+          : null;
+  return {
+    siteRoot,
+    canonicalRoot,
+    activeRoot,
+    sitesRoot,
+    slug,
+    config,
+    siteExists,
+    mode,
+    fullReason,
+    /** @deprecated Prepare no longer blocks on unlock/retire */
+    needsUnlockRemove: false,
+    sideBySide: mode === 'full' && siteExists,
+  };
+}
+
+/**
+ * Best-effort stop preview + kill + background delete. Never throws to Prepare.
+ * @param {string | null | undefined} prevPath
+ */
+export async function finalizePreviousAssembledSite(prevPath) {
+  if (!prevPath || !existsSync(prevPath)) return;
+  try {
+    await stopAssembledPreview(prevPath, { forcePoolClear: false });
+  } catch {
+    /* ignore */
+  }
+  try {
+    killProcessesHoldingSitePath(prevPath);
+  } catch {
+    /* ignore */
+  }
+  void cleanupRetiredAssembledSite(prevPath);
+}
+
+/**
+ * Best-effort background delete of a retired assembled tree (does not throw to Prepare).
+ * @param {string} retiredPath
+ */
+export async function cleanupRetiredAssembledSite(retiredPath) {
+  if (!retiredPath || !existsSync(retiredPath)) return;
+  const maxAttempts = process.platform === 'win32' ? 12 : 6;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      killProcessesHoldingSitePath(retiredPath);
+      rmSync(retiredPath, { recursive: true, force: true });
+      return;
+    } catch {
+      await sleepMs(process.platform === 'win32' ? 500 * attempt : 250 * attempt);
+    }
+  }
+  console.warn('[rover-assemble] left retired site folder (cleanup later):', retiredPath);
+}
+
+/**
+ * Main-thread: stop preview, kill orphans, rename siteRoot aside (Windows-safe).
+ * Does not require recursive delete before assemble.
+ * @param {string} siteRoot
+ * @returns {Promise<{ retiredPath: string | null, nmStash: { stashDir: string, depsHash: string } | null }>}
+ */
+export async function retireAssembledSiteRoot(siteRoot) {
+  if (!existsSync(siteRoot)) return { retiredPath: null, nmStash: null };
+
+  await stopAssembledPreview(siteRoot, { forcePoolClear: false });
+  killProcessesHoldingSitePath(siteRoot);
+  await sleepMs(process.platform === 'win32' ? 600 : 200);
+
+  const retiredPath = `${siteRoot}.__retired-${Date.now()}`;
   let lastErr = null;
-  for (let attempt = 1; attempt <= 5; attempt += 1) {
+  const maxAttempts = process.platform === 'win32' ? 10 : 5;
+  let renamed = false;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      if (existsSync(retiredPath)) {
+        rmSync(retiredPath, { recursive: true, force: true });
+      }
+      renameSync(siteRoot, retiredPath);
+      renamed = true;
+      break;
+    } catch (error) {
+      lastErr = error;
+      const code = error?.code || '';
+      if (code !== 'EPERM' && code !== 'EBUSY' && code !== 'EACCES' && code !== 'ENOTEMPTY') {
+        throw error;
+      }
+      await stopAssembledPreview(siteRoot, { forcePoolClear: false });
+      killProcessesHoldingSitePath(siteRoot);
+      await sleepMs(process.platform === 'win32' ? 400 * attempt : 200 * attempt);
+    }
+  }
+
+  if (!renamed) {
+    const err = new Error(
+      `Could not retire assembled site (folder locked): ${siteRoot}. Close File Explorer on that folder (and any terminal cwd inside it), then retry. ${lastErr?.message || ''}`.trim(),
+    );
+    err.status = 423;
+    err.siteRoot = siteRoot;
+    err.cause = lastErr;
+    throw err;
+  }
+
+  /** @type {{ stashDir: string, depsHash: string } | null} */
+  let nmStash = null;
+  const depsHash = hashPackageDeps(retiredPath);
+  const retiredNm = path.join(retiredPath, 'node_modules');
+  if (existsSync(retiredNm) && statSync(retiredNm).isDirectory()) {
+    const stashDir = path.join(
+      path.dirname(siteRoot),
+      `.nm-stash-${path.basename(siteRoot)}-${process.pid}-${Date.now()}`,
+    );
+    try {
+      if (existsSync(stashDir)) rmSync(stashDir, { recursive: true, force: true });
+      renameSync(retiredNm, stashDir);
+      nmStash = { stashDir, depsHash };
+    } catch {
+      try {
+        cpSync(retiredNm, stashDir, { recursive: true });
+        nmStash = { stashDir, depsHash };
+      } catch {
+        nmStash = null;
+      }
+    }
+  }
+
+  // Do not await — Prepare continues while trash drains.
+  void cleanupRetiredAssembledSite(retiredPath);
+
+  return { retiredPath, nmStash };
+}
+
+/**
+ * Main-thread: stop preview, kill orphan processes, rmSync with async retries (trash cleanup).
+ * Prefer retireAssembledSiteRoot for full replace before assemble.
+ * @param {string} siteRoot
+ */
+export async function unlockAndRemoveAssembledSite(siteRoot) {
+  if (!existsSync(siteRoot)) return;
+  await stopAssembledPreview(siteRoot, { forcePoolClear: false });
+  killProcessesHoldingSitePath(siteRoot);
+  await sleepMs(process.platform === 'win32' ? 600 : 200);
+
+  let lastErr = null;
+  const maxAttempts = process.platform === 'win32' ? 10 : 5;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     try {
       rmSync(siteRoot, { recursive: true, force: true });
       return;
@@ -155,12 +418,58 @@ function removeAssembledSiteRoot(siteRoot) {
       lastErr = error;
       const code = error?.code || '';
       if (code !== 'EPERM' && code !== 'EBUSY' && code !== 'ENOTEMPTY') throw error;
-      stopAssembledPreviewSync({ waitMs: 500 });
-      sleepSync(200 * attempt);
+      await stopAssembledPreview(siteRoot, { forcePoolClear: false });
+      killProcessesHoldingSitePath(siteRoot);
+      await sleepMs(process.platform === 'win32' ? 400 * attempt : 200 * attempt);
     }
   }
   const err = new Error(
-    `Could not replace assembled site (folder locked): ${siteRoot}. Close Explorer windows and site preview (:4322), then retry. ${lastErr?.message || ''}`.trim(),
+    `Could not replace assembled site (folder locked): ${siteRoot}. Rover closed preview ports for this site; if it persists, close File Explorer on that folder, then retry. ${lastErr?.message || ''}`.trim(),
+  );
+  err.status = 423;
+  err.siteRoot = siteRoot;
+  err.cause = lastErr;
+  throw err;
+}
+
+/**
+ * Retire old assembled tree on main (before assemble worker) — Windows-safe rename-aside.
+ * @param {string} siteRoot
+ * @returns {Promise<{ nmStash: { stashDir: string, depsHash: string } | null, retiredPath: string | null }>}
+ */
+export async function prepareAssembledSiteForFullReplace(siteRoot) {
+  if (!existsSync(siteRoot)) return { nmStash: null, retiredPath: null };
+  return retireAssembledSiteRoot(siteRoot);
+}
+
+/** Remove assembled site folder; stop that site's preview first and retry on Windows locks. */
+function removeAssembledSiteRoot(siteRoot) {
+  if (!existsSync(siteRoot)) return;
+  // Bound stop only — do not wipe sibling preview ports unless EPERM recovery needs it.
+  stopAssembledPreviewSync(siteRoot, {
+    waitMs: process.platform === 'win32' ? 4000 : 2500,
+    forcePoolClear: false,
+  });
+  let lastErr = null;
+  const maxAttempts = process.platform === 'win32' ? 8 : 5;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      rmSync(siteRoot, { recursive: true, force: true });
+      return;
+    } catch (error) {
+      lastErr = error;
+      const code = error?.code || '';
+      if (code !== 'EPERM' && code !== 'EBUSY' && code !== 'ENOTEMPTY') throw error;
+      stopAssembledPreviewSync(siteRoot, {
+        waitMs: process.platform === 'win32' ? 1500 + attempt * 250 : 500,
+        // Never clear the whole preview pool from a worker thread (sibling Prepares).
+        forcePoolClear: attempt >= 3 && isMainThread,
+      });
+      sleepSync(process.platform === 'win32' ? 350 * attempt : 200 * attempt);
+    }
+  }
+  const err = new Error(
+    `Could not replace assembled site (folder locked): ${siteRoot}. Rover closed preview ports for this site; if it persists, close File Explorer on that folder, then retry. ${lastErr?.message || ''}`.trim(),
   );
   err.status = 423;
   err.siteRoot = siteRoot;
@@ -600,15 +909,28 @@ export function getAssembleChecklist(candidateId) {
 
 /**
  * Assemble a sibling site directory from this template + candidate staging.
+ * Full replace builds into `{slug}.__build-{ts}` so Windows locks on the old folder
+ * never block Prepare. Refresh injects into the active meta path in place.
  * @param {string} candidateId
- * @param {{ force?: boolean, refresh?: boolean, skipGit?: boolean, siteSlug?: string }} [opts]
- *   - force: wipe + full template copy
- *   - refresh: inject staging into existing site when package deps still match template;
- *     falls back to full assemble if site missing or deps drifted
+ * @param {{
+ *   force?: boolean,
+ *   refresh?: boolean,
+ *   skipGit?: boolean,
+ *   siteSlug?: string,
+ *   preCleared?: boolean,
+ *   nmStash?: { stashDir: string, depsHash: string } | null,
+ * }} [opts]
  */
 export function assembleSite(
   candidateId,
-  { force = false, refresh = false, skipGit = false, siteSlug } = {},
+  {
+    force = false,
+    refresh = false,
+    skipGit = false,
+    siteSlug,
+    preCleared: _preCleared = false,
+    nmStash: nmStashOpt = null,
+  } = {},
 ) {
   const t0 = Date.now();
   const staging = getStagingSummary(candidateId);
@@ -619,28 +941,27 @@ export function assembleSite(
     throw err;
   }
 
-  const loaded = loadAcceptedSiteConfig(candidateId);
-  const config = loaded?.config || {};
-  const slug =
-    siteSlug ||
-    (config.domain && !/^example\.com$/i.test(config.domain)
-      ? slugifySiteName(config.domain)
-      : null) ||
-    slugifySiteName(
-      [config.primaryCity, config.niche].filter(Boolean).join('-'),
-    ) ||
-    slugifySiteName(candidateId);
-
-  const sitesRoot = assembledSitesRoot();
-  const siteRoot = path.join(sitesRoot, slug);
-  const siteExists = existsSync(siteRoot);
+  const {
+    canonicalRoot,
+    activeRoot,
+    sitesRoot,
+    slug,
+    config,
+  } = resolveActiveAssembledRoot(candidateId, { siteSlug });
+  const previousSiteRoot =
+    activeRoot && existsSync(activeRoot)
+      ? activeRoot
+      : existsSync(canonicalRoot)
+        ? canonicalRoot
+        : null;
+  const siteExists = Boolean(previousSiteRoot);
 
   if (siteExists && !force && !refresh) {
     const err = new Error(
-      `Assembled site already exists at ${siteRoot}. Pass force=true to replace or refresh=true to inject staging.`,
+      `Assembled site already exists at ${previousSiteRoot}. Pass force=true to replace or refresh=true to inject staging.`,
     );
     err.status = 409;
-    err.siteRoot = siteRoot;
+    err.siteRoot = previousSiteRoot;
     err.checklist = getAssembleChecklist(candidateId);
     throw err;
   }
@@ -648,9 +969,9 @@ export function assembleSite(
   const canRefresh =
     refresh &&
     !force &&
-    siteExists &&
-    assembledPackageDepsMatchTemplate(siteRoot) &&
-    !templateComponentsNewerThanAssembled(siteRoot);
+    Boolean(previousSiteRoot) &&
+    assembledPackageDepsMatchTemplate(previousSiteRoot) &&
+    !templateComponentsNewerThanAssembled(previousSiteRoot);
   /** @type {'refresh'|'full'} */
   const mode = canRefresh ? 'refresh' : 'full';
   let nodeModulesRestored = false;
@@ -658,9 +979,9 @@ export function assembleSite(
     mode === 'full' && refresh && !force
       ? !siteExists
         ? 'missing'
-        : !assembledPackageDepsMatchTemplate(siteRoot)
+        : previousSiteRoot && !assembledPackageDepsMatchTemplate(previousSiteRoot)
           ? 'deps'
-          : templateComponentsNewerThanAssembled(siteRoot)
+          : previousSiteRoot && templateComponentsNewerThanAssembled(previousSiteRoot)
             ? 'template'
             : 'fallback'
       : force
@@ -669,14 +990,32 @@ export function assembleSite(
           ? 'full'
           : null;
 
-  if (mode === 'full') {
+  /** @type {string} */
+  let siteRoot;
+  /** @type {string | null} */
+  let previousForCleanup = null;
+
+  if (mode === 'refresh') {
+    siteRoot = previousSiteRoot;
+  } else {
+    // Full: never delete/rename the live tree — assemble into a fresh sibling.
+    if (siteExists) {
+      siteRoot = `${canonicalRoot}.__build-${Date.now()}`;
+      previousForCleanup = previousSiteRoot;
+    } else {
+      siteRoot = canonicalRoot;
+    }
     /** @type {{ stashDir: string, depsHash: string } | null} */
-    let nmStash = null;
-    if (existsSync(siteRoot)) {
-      nmStash = stashNodeModules(siteRoot);
-      removeAssembledSiteRoot(siteRoot);
+    let nmStash = nmStashOpt || null;
+    if (!nmStash && previousSiteRoot) {
+      nmStash = tryCopyNmStashFrom(previousSiteRoot);
     }
     mkdirSync(sitesRoot, { recursive: true });
+    if (existsSync(siteRoot)) {
+      // Colliding __build path (same ms) — pick another
+      siteRoot = `${canonicalRoot}.__build-${Date.now()}-${process.pid}`;
+    }
+    mkdirSync(siteRoot, { recursive: true });
     copyTemplateTree(siteRoot);
     nodeModulesRestored = restoreOrDiscardNodeModules(siteRoot, nmStash).restored;
   }
@@ -733,6 +1072,7 @@ export function assembleSite(
       staging: stagingSeed,
       assembled: assembledSeed,
     },
+    previousSiteRoot: previousForCleanup,
     nextSteps: [
       `cd ${siteRoot}`,
       'npm install',
@@ -761,6 +1101,7 @@ export function assembleSite(
     ms: Date.now() - t0,
     siteRoot: relPath,
     absoluteSiteRoot: siteRoot,
+    previousSiteRoot: previousForCleanup,
     slug,
     injected,
     prunedDemos: pruned,
@@ -779,4 +1120,46 @@ export function assembleSite(
 /** @deprecated use assembleSite */
 export function assembleSiteStub(candidateId) {
   return assembleSite(candidateId);
+}
+
+/**
+ * Run assembleSite off the main event loop (worker thread) so parallel Prepare jobs
+ * and Jobs SSE stay responsive.
+ * @param {string} candidateId
+ * @param {{ force?: boolean, refresh?: boolean, skipGit?: boolean, siteSlug?: string, preCleared?: boolean, nmStash?: { stashDir: string, depsHash: string } | null }} [opts]
+ */
+export function assembleSiteInWorker(candidateId, opts = {}) {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = (fn, value) => {
+      if (settled) return;
+      settled = true;
+      fn(value);
+    };
+    let worker;
+    try {
+      worker = new Worker(new URL('./assemble-site-worker.mjs', import.meta.url), {
+        workerData: { candidateId: String(candidateId || '').trim(), opts: opts || {} },
+      });
+    } catch (error) {
+      reject(error);
+      return;
+    }
+    worker.on('message', (msg) => {
+      if (msg?.ok) {
+        finish(resolve, msg.result);
+        return;
+      }
+      const err = new Error(msg?.error || 'Assemble worker failed');
+      err.status = msg?.status || 500;
+      if (msg?.siteRoot) err.siteRoot = msg.siteRoot;
+      finish(reject, err);
+    });
+    worker.on('error', (error) => finish(reject, error));
+    worker.on('exit', (code) => {
+      if (!settled && code !== 0) {
+        finish(reject, new Error(`Assemble worker exited with code ${code}`));
+      }
+    });
+  });
 }

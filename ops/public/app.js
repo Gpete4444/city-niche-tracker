@@ -382,6 +382,7 @@ const state = {
   apifyPlanUsage: null,
   /** Keep Prepare step open while Prepare preview is running. */
   preparePreviewHold: false,
+  preparePreviewJobId: null,
   /** @type {Record<string, boolean>} candidateId → Twilio ranking number provisioned */
   sitePhoneProvisioned: {},
   phone: {
@@ -422,6 +423,10 @@ const state = {
   selectedSiteId: null,
   siteSort: { key: 'lastLaunchAt', dir: -1 },
   siteFilters: { text: '', status: '', state: '' },
+  gscStatus: null,
+  sitesPortfolio: { traffic: [], ranks: [] },
+  sitesMetricsBusy: false,
+  _sitesGscConnectWait: null,
   contentStructureCatalog: null,
   contentStructureCatalogError: null,
   _structureCatalogPromise: null,
@@ -446,12 +451,14 @@ async function api(path, options = {}) {
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     const err = new Error(data.error || res.statusText);
+    err.status = res.status;
     if (data.code) err.code = data.code;
     if (data.details) err.details = data.details;
     if (data.suburbCheck) err.suburbCheck = data.suburbCheck;
     if (data.placeholders) err.placeholders = data.placeholders;
     if (data.check) err.check = data.check;
     if (data.contract) err.contract = data.contract;
+    if (data.job) err.job = data.job;
     if (data.seoLint) err.seoLint = data.seoLint;
     if (data.speechLint) err.speechLint = data.speechLint;
     if (data.twilioSid) err.twilioSid = data.twilioSid;
@@ -459,6 +466,48 @@ async function api(path, options = {}) {
     throw err;
   }
   return data;
+}
+
+/** Poll Jobs until a heavy job finishes; returns job.result or throws with check/contract. */
+async function waitForHeavyJobResult(jobId, { intervalMs = 400 } = {}) {
+  const id = String(jobId || '').trim();
+  if (!id) throw new Error('jobId required');
+  for (;;) {
+    const { job } = await api(`/api/heavy-jobs/${encodeURIComponent(id)}`);
+    if (!job) throw new Error('Job not found');
+    if (job.status === 'done') return job.result;
+    if (job.status === 'error') {
+      const err = new Error(job.error || 'Job failed');
+      if (job.check) err.check = job.check;
+      if (job.contract) err.contract = job.contract;
+      throw err;
+    }
+    await new Promise((r) => setTimeout(r, intervalMs));
+  }
+}
+
+function isSelectedLaunched() {
+  const m = state.detail?.meta || {};
+  return Boolean(m.lastLaunchAt || m.lastShipAt);
+}
+
+/** Modal gate for mutating a launched candidate. Returns false if cancelled. */
+async function confirmLaunchedSiteChange(actionLabel = 'This change') {
+  if (!isSelectedLaunched()) return true;
+  return showModal({
+    title: 'Confirm change on launched site',
+    confirmLabel: 'Confirm this change',
+    cancelLabel: 'Cancel',
+    danger: true,
+    bodyHtml: `<p><strong>${esc(String(actionLabel))}</strong> on a site that is <strong>already launched</strong>.</p>
+      <p>Rover’s working copy will change; the live site will <strong>not</strong> match until you <strong>Push updates</strong>.</p>
+      <p class="muted">Cancel if this was accidental. Use Website → <strong>Revert</strong> to restore from the launched GitHub site.</p>`,
+  });
+}
+
+function withLaunchedConfirmBody(payload = {}) {
+  if (!isSelectedLaunched()) return { ...(payload || {}) };
+  return { ...(payload || {}), confirmLaunchedEdit: true };
 }
 
 function linkUrls(links = []) {
@@ -492,6 +541,7 @@ function showModal({
   danger = false,
   hideCancel = false,
   afterOpen = null,
+  requireTypedConfirm = null,
 }) {
   return new Promise((resolve) => {
     const root = document.getElementById('modal-root');
@@ -499,9 +549,19 @@ function showModal({
     const bodyEl = document.getElementById('modal-body');
     const confirmBtn = document.getElementById('modal-confirm');
     const cancelBtn = document.getElementById('modal-cancel');
+    const typedPhrase = requireTypedConfirm != null ? String(requireTypedConfirm) : '';
 
     titleEl.textContent = title;
     bodyEl.innerHTML = bodyHtml;
+    if (typedPhrase) {
+      bodyEl.insertAdjacentHTML(
+        'beforeend',
+        `<label class="modal-type-confirm-label">
+          <span class="muted small">Type <code>${esc(typedPhrase)}</code> to enable confirmation</span>
+          <input id="modal-type-confirm" class="modal-type-confirm-input" type="text" autocomplete="off" spellcheck="false" />
+        </label>`,
+      );
+    }
     confirmBtn.textContent = confirmLabel;
     confirmBtn.classList.toggle('danger', danger);
     confirmBtn.classList.toggle('primary', !danger);
@@ -509,6 +569,25 @@ function showModal({
     cancelBtn.classList.toggle('hidden', Boolean(hideCancel));
     root.classList.remove('hidden');
     root.setAttribute('aria-hidden', 'false');
+
+    let onTypedInput = null;
+    const typedInput = typedPhrase ? bodyEl.querySelector('#modal-type-confirm') : null;
+    if (typedInput) {
+      confirmBtn.disabled = true;
+      onTypedInput = () => {
+        confirmBtn.disabled = typedInput.value !== typedPhrase;
+      };
+      typedInput.addEventListener('input', onTypedInput);
+      typedInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && !confirmBtn.disabled) {
+          e.preventDefault();
+          confirmBtn.click();
+        }
+      });
+      setTimeout(() => typedInput.focus(), 0);
+    } else {
+      confirmBtn.disabled = false;
+    }
 
     if (typeof afterOpen === 'function') {
       try {
@@ -519,17 +598,24 @@ function showModal({
     }
 
     const close = (result) => {
+      if (typedInput && onTypedInput) {
+        typedInput.removeEventListener('input', onTypedInput);
+      }
       root.classList.add('hidden');
       root.setAttribute('aria-hidden', 'true');
       confirmBtn.onclick = null;
       cancelBtn.onclick = null;
+      confirmBtn.disabled = false;
       root.querySelector('.modal-backdrop').onclick = null;
       cancelBtn.classList.remove('hidden');
       cancelBtn.textContent = 'Cancel';
       resolve(result);
     };
 
-    confirmBtn.onclick = () => close(true);
+    confirmBtn.onclick = () => {
+      if (typedPhrase && typedInput && typedInput.value !== typedPhrase) return;
+      close(true);
+    };
     cancelBtn.onclick = () => close(false);
     root.querySelector('.modal-backdrop').onclick = () => close(false);
   });
@@ -819,12 +905,19 @@ async function loadHealth() {
   if (connEl) connEl.textContent = total ? `${ok}/${total}` : '—';
   if (listEl) {
     const items = Array.isArray(c.items) ? c.items : [];
+    let lastGroup = null;
     listEl.innerHTML = items
       .map((item) => {
+        const group = String(item.group || '').trim();
+        let groupHtml = '';
+        if (group && group !== lastGroup) {
+          lastGroup = group;
+          groupHtml = `<div class="settings-conn-group">${esc(group)}</div>`;
+        }
         const good = Boolean(item.ok);
         const mark = good ? '✓' : '✕';
         const cls = good ? 'settings-conn-ok' : 'settings-conn-bad';
-        return `<div class="settings-conn-item">
+        return `${groupHtml}<div class="settings-conn-item">
           <span class="settings-conn-name">${esc(item.name || '')}</span>
           <span class="${cls}" aria-label="${good ? 'configured' : 'missing'}">${mark}</span>
         </div>`;
@@ -872,12 +965,229 @@ function closeSettingsMenu() {
   hideOpsTooltip();
 }
 
+function closeJobsPopover() {
+  const pop = document.getElementById('jobs-popover');
+  const btn = document.getElementById('jobs-btn');
+  if (pop) pop.classList.add('hidden');
+  if (btn) btn.setAttribute('aria-expanded', 'false');
+}
+
+function syncSettingsJobsK(concurrency) {
+  const sel = document.getElementById('settings-jobs-k');
+  if (!sel) return;
+  const n = Number(concurrency);
+  if (!Number.isFinite(n) || n < 1) return;
+  const v = String(Math.max(1, Math.min(6, Math.round(n))));
+  if (sel.value !== v) sel.value = v;
+}
+
+function renderHeavyJobs(snap) {
+  const badge = document.getElementById('jobs-badge');
+  const meta = document.getElementById('jobs-popover-meta');
+  const list = document.getElementById('jobs-popover-list');
+  if (!badge || !list) return;
+  syncSettingsJobsK(snap?.concurrency);
+  const active = Number(snap?.activeCount || 0);
+  if (active > 0) {
+    badge.textContent = String(active);
+    badge.classList.remove('hidden');
+  } else {
+    badge.classList.add('hidden');
+  }
+  if (meta) {
+    meta.textContent = `K=${snap?.concurrency ?? '—'} · ${snap?.running ?? 0} running · ${snap?.queued ?? 0} queued`;
+  }
+  const jobs = Array.isArray(snap?.jobs) ? snap.jobs : [];
+  const activeJobs = jobs.filter((j) => j.status === 'queued' || j.status === 'running');
+  const activeIds = new Set(activeJobs.map((j) => String(j.candidateId || '')));
+  const recentJobs = jobs
+    .filter((j) => j.status === 'done' || j.status === 'error')
+    .filter((j) => !activeIds.has(String(j.candidateId || '')))
+    .slice(0, 5);
+  const renderRow = (j) => {
+    const status = esc(j.status || '');
+    const phase = esc(j.label || j.phase || '');
+    const id = esc(j.candidateId || '');
+    const detail = j.detail || j.error || '';
+    return `<button type="button" class="jobs-row" data-jobs-candidate="${id}">
+        <span class="jobs-row-id">${id}</span>
+        <span class="jobs-row-status ${status}">${status}</span>
+        <span class="jobs-row-meta">${phase}${detail ? ` · ${esc(detail)}` : ''}</span>
+      </button>`;
+  };
+  if (!activeJobs.length && !recentJobs.length) {
+    list.innerHTML = `<p class="muted small jobs-empty">No jobs running.</p>`;
+    return;
+  }
+  let html = '';
+  if (activeJobs.length) {
+    html += activeJobs.map(renderRow).join('');
+  } else {
+    html += `<p class="muted small jobs-empty">No jobs running.</p>`;
+  }
+  if (recentJobs.length && activeJobs.length) {
+    html += `<p class="muted small jobs-recent-label">Recent</p>`;
+    html += recentJobs.map(renderRow).join('');
+  } else if (recentJobs.length && !activeJobs.length) {
+    html += `<p class="muted small jobs-recent-label">Recent</p>`;
+    html += recentJobs.map(renderRow).join('');
+  }
+  list.innerHTML = html;
+  list.querySelectorAll('[data-jobs-candidate]').forEach((row) => {
+    row.addEventListener('click', () => {
+      const cid = row.getAttribute('data-jobs-candidate');
+      closeJobsPopover();
+      if (cid && typeof selectCandidate === 'function') {
+        try {
+          selectCandidate(cid);
+        } catch {
+          /* ignore */
+        }
+      }
+    });
+  });
+}
+
+function wireJobsUi() {
+  const btn = document.getElementById('jobs-btn');
+  const pop = document.getElementById('jobs-popover');
+  if (!btn || !pop) return;
+
+  /** @type {number} last applied snapshot seq (0 = none) */
+  let lastAppliedSeq = 0;
+  /** @type {BroadcastChannel | null} */
+  let bc = null;
+  try {
+    bc = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('rover-heavy-jobs') : null;
+  } catch {
+    bc = null;
+  }
+
+  const snapSeq = (snap) => {
+    const seq = Number(snap?.seq);
+    return Number.isFinite(seq) && seq > 0 ? seq : 0;
+  };
+
+  const applySnap = (snap, { broadcast = true } = {}) => {
+    if (!snap || typeof snap !== 'object') return;
+    const seq = snapSeq(snap);
+    // Prefer monotonic seq. If seq is missing, always apply (never use Date.now as watermark).
+    if (seq > 0) {
+      if (seq < lastAppliedSeq) return;
+      lastAppliedSeq = seq;
+    }
+    try {
+      renderHeavyJobs(snap);
+      syncPrepareProgressFromJobs(snap);
+    } catch {
+      /* ignore */
+    }
+    if (broadcast && bc) {
+      try {
+        bc.postMessage({ snap, at: seq || lastAppliedSeq });
+      } catch {
+        /* ignore */
+      }
+    }
+  };
+
+  if (bc) {
+    bc.onmessage = (ev) => {
+      const data = ev?.data;
+      if (!data?.snap) return;
+      const seq = Number(data.at) || snapSeq(data.snap);
+      if (seq > 0 && seq < lastAppliedSeq) return;
+      applySnap(data.snap, { broadcast: false });
+    };
+  }
+
+  const poll = async () => {
+    try {
+      const snap = await api('/api/heavy-jobs');
+      applySnap(snap);
+    } catch {
+      /* ignore */
+    }
+  };
+
+  const pollIfVisible = () => {
+    if (document.visibilityState === 'visible') poll();
+  };
+
+  let es = null;
+  try {
+    es = new EventSource('/api/heavy-jobs/stream');
+    es.onmessage = (ev) => {
+      try {
+        applySnap(JSON.parse(ev.data));
+      } catch {
+        /* ignore */
+      }
+    };
+    es.onerror = () => {
+      poll();
+    };
+  } catch {
+    es = null;
+  }
+  setInterval(poll, 2000);
+  poll();
+  document.addEventListener('visibilitychange', pollIfVisible);
+  window.addEventListener('focus', pollIfVisible);
+
+  btn.addEventListener('click', (event) => {
+    event.stopPropagation();
+    const willOpen = pop.classList.contains('hidden');
+    if (willOpen) {
+      closeSettingsMenu();
+      pop.classList.remove('hidden');
+      btn.setAttribute('aria-expanded', 'true');
+      poll();
+    } else {
+      closeJobsPopover();
+    }
+  });
+  pop.addEventListener('click', (event) => event.stopPropagation());
+  document.addEventListener('click', () => closeJobsPopover());
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') closeJobsPopover();
+  });
+}
+
 function wireSettingsUi() {
   const btn = document.getElementById('settings-btn');
   const menu = document.getElementById('settings-menu');
   if (!btn || !menu) return;
 
   applyTheme(getTheme());
+
+  const jobsK = document.getElementById('settings-jobs-k');
+  const syncJobsKFromServer = async () => {
+    try {
+      const snap = await api('/api/heavy-jobs');
+      syncSettingsJobsK(snap?.concurrency ?? 2);
+    } catch {
+      /* ignore */
+    }
+  };
+  void syncJobsKFromServer();
+  jobsK?.addEventListener('change', async () => {
+    const n = Number(jobsK.value);
+    jobsK.disabled = true;
+    try {
+      const snap = await api('/api/heavy-jobs/concurrency', {
+        method: 'POST',
+        body: JSON.stringify({ concurrency: n }),
+      });
+      syncSettingsJobsK(snap?.concurrency ?? n);
+      showToast(`Jobs concurrency set to K=${snap?.concurrency ?? n}.`);
+    } catch (error) {
+      showToast(error?.message || 'Could not update Jobs K.', { tone: 'err' });
+      void syncJobsKFromServer();
+    } finally {
+      jobsK.disabled = false;
+    }
+  });
 
   btn.addEventListener('click', (event) => {
     event.stopPropagation();
@@ -886,6 +1196,7 @@ function wireSettingsUi() {
       hideOpsTooltip();
       menu.classList.remove('hidden');
       btn.setAttribute('aria-expanded', 'true');
+      void syncJobsKFromServer();
     } else {
       closeSettingsMenu();
     }
@@ -1982,6 +2293,7 @@ async function selectCandidate(id) {
   state.siteConfigSoftDone = {};
   state.assembleProgress = { visible: false, detail: '' };
   state.preparePreviewHold = false;
+  state.preparePreviewJobId = null;
   if (state.selectedIds.size > 1) {
     renderList();
     renderMultiDetail();
@@ -3629,11 +3941,44 @@ function renderNarrative() {
   return parts.join('');
 }
 
-function siteConfigNapFromLocal() {
+const SITE_CONFIG_NAP_LEGACY_KEY = 'ops.siteConfigNap';
+
+function siteConfigNapStorageKey(candidateId) {
+  const id = String(candidateId || state.selectedId || state.detail?.id || '').trim();
+  return id ? `${SITE_CONFIG_NAP_LEGACY_KEY}.${id}` : null;
+}
+
+/** Drop legacy global NAP once — do not copy onto candidates (would re-poison other cities). */
+function dropLegacySiteConfigNap() {
   try {
-    return JSON.parse(localStorage.getItem('ops.siteConfigNap') || '{}') || {};
+    if (localStorage.getItem(SITE_CONFIG_NAP_LEGACY_KEY) != null) {
+      localStorage.removeItem(SITE_CONFIG_NAP_LEGACY_KEY);
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
+/** Per-candidate site-config NAP draft (domain, look, address form). Never shared across cities. */
+function siteConfigNapFromLocal(candidateId) {
+  dropLegacySiteConfigNap();
+  const key = siteConfigNapStorageKey(candidateId);
+  if (!key) return {};
+  try {
+    return JSON.parse(localStorage.getItem(key) || '{}') || {};
   } catch {
     return {};
+  }
+}
+
+function writeSiteConfigNapLocal(nap, candidateId) {
+  dropLegacySiteConfigNap();
+  const key = siteConfigNapStorageKey(candidateId);
+  if (!key) return;
+  try {
+    localStorage.setItem(key, JSON.stringify(nap));
+  } catch {
+    /* ignore */
   }
 }
 
@@ -3667,8 +4012,9 @@ function siteConfigBrandPatchFromForm(existingBrand = {}) {
   };
 }
 
-function saveSiteConfigNapFromForm() {
-  const prev = siteConfigNapFromLocal();
+function saveSiteConfigNapFromForm(candidateId) {
+  const id = candidateId || state.selectedId || state.detail?.id;
+  const prev = siteConfigNapFromLocal(id);
   const ba = state.detail?.businessAddress?.selection;
   const nap = {
     domain: document.getElementById('sc-domain')?.value?.trim() || prev.domain || '',
@@ -3704,26 +4050,19 @@ function saveSiteConfigNapFromForm() {
       state.detail?.siteConfigDraft?.siteArchetype ||
       'multi_service',
   };
-  try {
-    localStorage.setItem('ops.siteConfigNap', JSON.stringify(nap));
-  } catch {
-    /* ignore */
-  }
+  writeSiteConfigNapLocal(nap, id);
   return nap;
 }
 
 function saveSiteConfigLookToLocal({ paletteId, fontTheme } = {}) {
-  const prev = siteConfigNapFromLocal();
+  const id = state.selectedId || state.detail?.id;
+  const prev = siteConfigNapFromLocal(id);
   const nap = {
     ...prev,
     paletteId: String(paletteId || prev.paletteId || 'slate-gold').trim() || 'slate-gold',
     fontTheme: String(fontTheme || prev.fontTheme || 'archivo-source').trim() || 'archivo-source',
   };
-  try {
-    localStorage.setItem('ops.siteConfigNap', JSON.stringify(nap));
-  } catch {
-    /* ignore */
-  }
+  writeSiteConfigNapLocal(nap, id);
   return nap;
 }
 
@@ -3969,7 +4308,7 @@ function renderSiteConfig() {
   const d = state.detail;
   const f = d?.stageFlags || {};
   const decision = d?.meta?.decision || null;
-  const nap = siteConfigNapFromLocal();
+  const nap = siteConfigNapFromLocal(d?.id);
   const pack = d?.approved;
   const draft = d?.siteConfigDraft;
   const accepted = d?.siteConfig;
@@ -3983,6 +4322,42 @@ function renderSiteConfig() {
   };
   const baPkg = d?.businessAddress;
   const baSel = baPkg?.selection;
+  // Match server cityStateFromCandidate — never use NAP city for finder geography.
+  const geoCity = String(
+    (baPkg?.city && String(baPkg.city).trim()) ||
+      (draft || accepted)?.primaryCity ||
+      pack?.primaryCity ||
+      pack?.city ||
+      '',
+  ).trim();
+  const geoState = String(
+    (baPkg?.state && String(baPkg.state).trim()) ||
+      (draft || accepted)?.state ||
+      pack?.state ||
+      '',
+  )
+    .trim()
+    .toUpperCase();
+  const addrCity = geoCity;
+  const addrState = geoState;
+  const cityCacheKeyForUi = (() => {
+    const pkgCity = String(baPkg?.city || '').trim().toLowerCase();
+    const pkgState = String(baPkg?.state || '')
+      .trim()
+      .toUpperCase();
+    const geoMatch =
+      pkgCity &&
+      pkgState &&
+      pkgCity === geoCity.toLowerCase() &&
+      pkgState === geoState;
+    if (geoMatch && baPkg?.cityCacheKey) return baPkg.cityCacheKey;
+    if (geoCity && geoState) {
+      return `${geoCity.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${geoState
+        .toLowerCase()
+        .slice(0, 2)}`;
+    }
+    return '';
+  })();
   const stepDone = {
     details: Boolean(accepted) || Boolean(String(nap.domain || '').trim() && String(nap.businessName || '').trim()),
     look:
@@ -4045,6 +4420,11 @@ function renderSiteConfig() {
       info: '1 Colors & fonts → 2 Address → 3 Business details → 4 Paste & edit draft → 5 Review services & Accept → 6 Service area → 7 Provision phone → Content.',
     }),
   );
+  if (isSelectedLaunched()) {
+    parts.push(
+      `<div class="callout warn"><strong>Already launched.</strong> Site-config changes here will not match the live site until you Push updates. Mutating actions ask for confirmation.</div>`,
+    );
+  }
 
   if (!f.hasNarrative) {
     parts.push(
@@ -4127,19 +4507,6 @@ function renderSiteConfig() {
     }),
   );
 
-  const addrCity =
-    baSel?.city ||
-    nap.addressCity ||
-    pack?.primaryCity ||
-    pack?.city ||
-    (draft || accepted)?.primaryCity ||
-    '';
-  const addrState =
-    baSel?.state ||
-    nap.addressState ||
-    pack?.state ||
-    (draft || accepted)?.state ||
-    '';
   const shortlist = Array.isArray(baPkg?.shortlist) ? baPkg.shortlist : [];
   const baStats = baPkg?.lastSearchStats || null;
   const baErrorKind = baPkg?.lastSearchErrorKind || null;
@@ -4292,12 +4659,9 @@ function renderSiteConfig() {
           addrCity || 'city',
         )}${addrState ? `, ${esc(addrState)}` : ''}</strong>. LoopNet inventory, Places screens, and <strong>used addresses</strong> are shared across candidates in this city — Find will not recommend a street you already claimed. Re-Find continues from city cache (Apify $0); <strong>Refresh LoopNet</strong> re-scrapes (billable).</p>
         ${
-          baPkg?.cityCacheKey || (addrCity && addrState)
+          cityCacheKeyForUi
             ? `<p class="muted small" style="margin:0.35rem 0 0">City cache: <code>${esc(
-                baPkg?.cityCacheKey ||
-                  `${String(addrCity).toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${String(addrState)
-                    .toLowerCase()
-                    .slice(0, 2)}`,
+                cityCacheKeyForUi,
               )}</code>${
                 baPkg?.usedAddressesSummary
                   ? ` · ${Number(baPkg.usedAddressesSummary)} address(es) already claimed`
@@ -4339,6 +4703,7 @@ function renderSiteConfig() {
 
   const preStreet = baSel?.street || nap.addressStreet || '';
   const preZip = baSel?.zip || nap.addressZip || '';
+  // Form prefills may use per-candidate NAP; city/state fall back to finder geography.
   const preCity = baSel?.city || nap.addressCity || addrCity;
   const preState = baSel?.state || nap.addressState || addrState;
 
@@ -4639,12 +5004,34 @@ function headingWithInfoHtml(tag, text, info) {
   )}" aria-label="About ${esc(text)}">i</button></${safe}>`;
 }
 
-function contentStepHtml({ id, num, title, done, open, info, bodyHtml, current = false, locked = false }) {
+function contentStepHtml({
+  id,
+  num,
+  title,
+  done,
+  open,
+  info,
+  bodyHtml,
+  current = false,
+  locked = false,
+  plain = false,
+}) {
   const infoBtn = info
     ? `<button type="button" class="tip-info" data-tip="${esc(info)}" aria-label="About ${esc(
         title,
       )}">i</button>`
     : '';
+  if (plain) {
+    return `<section class="content-step website-utility-panel${open ? ' open' : ''}${
+      locked ? ' locked' : ''
+    }" data-content-step="${esc(id)}">
+      <div class="content-step-head-wrap">
+        <span class="content-step-label">${esc(title)}</span>
+        ${infoBtn}
+      </div>
+      <div class="content-step-body">${bodyHtml}</div>
+    </section>`;
+  }
   return `<section class="content-step${done ? ' done' : ''}${open ? ' open' : ''}${
     current ? ' current' : ''
   }${locked ? ' locked' : ''}" data-content-step="${esc(id)}">
@@ -4661,7 +5048,7 @@ function contentStepHtml({ id, num, title, done, open, info, bodyHtml, current =
 
 const SITE_CONFIG_STEP_ORDER = ['look', 'address', 'details', 'paste', 'services', 'service-area', 'phone'];
 const CONTENT_STEP_ORDER = ['structure', 'outline', 'write', 'editor', 'accept'];
-const WEBSITE_STEP_ORDER = ['images', 'prepare', 'launch'];
+const WEBSITE_STEP_ORDER = ['images', 'prepare', 'launch', 'indexing'];
 
 /** Force open + pulse to stepId (Copy / handoff) without waiting for durable done. */
 function advancePanelStep(panel, stepId) {
@@ -5023,11 +5410,34 @@ function collectBriefSectionsFromDom() {
   }));
 }
 
-function firstIncompleteWebsiteStep({ imagesDone, prepareDone, launched }) {
+function firstIncompleteWebsiteStep({ imagesDone, prepareDone, launched, indexingDone }) {
   if (!imagesDone) return 'images';
   if (!prepareDone) return 'prepare';
   if (!launched) return 'launch';
-  return 'launch';
+  if (!indexingDone) return 'indexing';
+  return null;
+}
+
+/** Public host for live sitemap / robots links (no scheme, no trailing slash). */
+function liveSiteHost(domain) {
+  return String(domain || '')
+    .trim()
+    .toLowerCase()
+    .replace(/^https?:\/\//, '')
+    .replace(/\/$/, '')
+    .replace(/^www\./, '');
+}
+
+function liveSitemapUrl(domain) {
+  const host = liveSiteHost(domain);
+  if (!host || isLaunchDomainPlaceholder(host)) return '';
+  return `https://${host}/sitemap.xml`;
+}
+
+function liveRobotsUrl(domain) {
+  const host = liveSiteHost(domain);
+  if (!host || isLaunchDomainPlaceholder(host)) return '';
+  return `https://${host}/robots.txt`;
 }
 
 function isLaunchPhonePlaceholder(phone) {
@@ -5255,23 +5665,38 @@ function formatShipDiffModalHtml(diff) {
     .map((f) => `<li><code>${esc(f.status || '?')}</code> ${esc(f.path || '')}</li>`)
     .join('');
   const dirty = (diff?.dirty || []).map((l) => `<li><code>${esc(l)}</code></li>`).join('');
+  const noise = (diff?.noise || []).map((p) => `<li><code>${esc(p)}</code></li>`).join('');
   const stat = diff?.stat ? `<pre class="code-block" style="max-height:14rem;overflow:auto">${esc(diff.stat)}</pre>` : '';
+  const behind = diff?.status === 'behind' || Boolean(diff?.needsPush && (diff?.files?.length || diff?.dirty?.length));
   return `<p><strong>${esc(diff?.summary || '')}</strong></p>
     <p class="muted">Status: <code>${esc(diff?.status || '—')}</code>
       · needs push: ${diff?.needsPush ? 'yes' : 'no'}
       · fetch: ${diff?.fetchOk ? 'ok' : 'failed / skipped'}</p>
-    ${stat || '<p class="muted">No --stat output.</p>'}
+    ${stat || (behind ? '<p class="muted">No --stat output.</p>' : '')}
     ${
       files
         ? `<p>Changed paths vs <code>origin/main</code>:</p><ul class="narrative-list">${files}</ul>`
-        : '<p class="muted">No name-status differences vs origin/main.</p>'
+        : behind
+          ? '<p class="muted">No name-status differences vs origin/main.</p>'
+          : ''
     }
     ${
       dirty
         ? `<p>Uncommitted (porcelain):</p><ul class="narrative-list">${dirty}</ul>`
         : ''
     }
-    <p class="muted">Prepare preview first if Stage changed the package, then Push updates.</p>`;
+    ${
+      noise
+        ? `<p class="muted">Ignored metadata (not a publish signal):</p><ul class="narrative-list muted">${noise}</ul>`
+        : ''
+    }
+    ${
+      behind
+        ? '<p class="muted">Prepare preview first if Stage changed the package, then Push updates.</p>'
+        : noise
+          ? '<p class="muted">No Push needed for assemble receipt-only changes.</p>'
+          : ''
+    }`;
 }
 
 async function loadShipFreshness(candidateId, { showError = false } = {}) {
@@ -5595,6 +6020,11 @@ function renderContent() {
       info: 'Structure → outline Copy / Load & confirm → write Copy / Load (auto Speech/SEO Refinement) → Accept. Default path is Claude.ai paste (no Anthropic API). Then Website → Prepare preview.',
     }),
   );
+  if (isSelectedLaunched()) {
+    parts.push(
+      `<div class="callout warn"><strong>Already launched.</strong> Content/structure changes here will not match the live site until you Push updates. Mutating actions ask for confirmation. Use Website → Revert to restore from GitHub.</div>`,
+    );
+  }
   const secCount = outlinePkg?.sectionIds?.length || structure?.sections?.length || 0;
   parts.push(
     contentUpNextHtml(stepDone, ready, {
@@ -6333,6 +6763,7 @@ function wireImageSlotActions(candidateId, _refreshFn) {
       const grade = bulkBtn.getAttribute('data-bulk-repull');
       if (grade !== 'poor' && grade !== 'ok') return;
       const gradeLabel = grade === 'poor' ? 'Poor' : 'Ok';
+      if (!(await confirmLaunchedSiteChange(`Re-pull ${gradeLabel} photo slots`))) return;
       bulkBtn.disabled = true;
       try {
         const data = await api(`/api/candidates/${encodeURIComponent(candidateId)}/images/slots`);
@@ -6353,7 +6784,7 @@ function wireImageSlotActions(candidateId, _refreshFn) {
           });
           const result = await api(
             `/api/candidates/${encodeURIComponent(candidateId)}/images/slots/${encodeURIComponent(slotKey)}/repull`,
-            { method: 'POST', body: '{}' },
+            { method: 'POST', body: JSON.stringify(withLaunchedConfirmBody({})) },
           );
           lastCandidate = result.candidate || lastCandidate;
         }
@@ -6428,6 +6859,7 @@ function wireImageSlotActions(candidateId, _refreshFn) {
     if (!btn) return;
     const slotKey = btn.getAttribute('data-slot-key');
     if (!slotKey) return;
+    if (!(await confirmLaunchedSiteChange(`Re-pull photo slot ${slotKey}`))) return;
     btn.disabled = true;
     setImagesProgress(true, {
       label: `Re-pulling ${slotKey}…`,
@@ -6438,7 +6870,7 @@ function wireImageSlotActions(candidateId, _refreshFn) {
     try {
       const result = await api(
         `/api/candidates/${encodeURIComponent(candidateId)}/images/slots/${encodeURIComponent(slotKey)}/repull`,
-        { method: 'POST', body: '{}' },
+        { method: 'POST', body: JSON.stringify(withLaunchedConfirmBody({})) },
       );
       setImagesProgress(true, {
         label: 'Slot updated',
@@ -6466,6 +6898,10 @@ function wireImageSlotActions(candidateId, _refreshFn) {
     const slotKey = input.getAttribute('data-slot-key');
     const file = input.files?.[0];
     if (!slotKey || !file) return;
+    if (!(await confirmLaunchedSiteChange(`Upload photo for ${slotKey}`))) {
+      input.value = '';
+      return;
+    }
     setImagesProgress(true, {
       label: `Uploading ${slotKey}…`,
       detail: file.name,
@@ -6483,7 +6919,9 @@ function wireImageSlotActions(candidateId, _refreshFn) {
         `/api/candidates/${encodeURIComponent(candidateId)}/images/slots/${encodeURIComponent(slotKey)}/upload`,
         {
           method: 'POST',
-          body: JSON.stringify({ dataUrl, alt: file.name.replace(/\.[^.]+$/, '') }),
+          body: JSON.stringify(
+            withLaunchedConfirmBody({ dataUrl, alt: file.name.replace(/\.[^.]+$/, '') }),
+          ),
         },
       );
       setImagesProgress(true, {
@@ -6560,8 +6998,14 @@ function renderWebsite() {
     ? 'Already on site from Accept (or a prior run) — this button replaces the Nominatim SVG / Areas map.'
     : 'Usually auto after Accept when Areas exist — use if the map is still missing.';
   const prepareDone = flags.staged && flags.assembled && !assembleStale;
-  const stepFlags = { imagesDone, prepareDone, launched: flags.launched };
-  const durableCurrent = flags.launched ? null : firstIncompleteWebsiteStep(stepFlags);
+  const indexingStepDone = isSoftDone('websiteSoftDone', 'indexing');
+  const stepFlags = {
+    imagesDone,
+    prepareDone,
+    launched: flags.launched,
+    indexingDone: indexingStepDone,
+  };
+  const durableCurrent = firstIncompleteWebsiteStep(stepFlags);
   const currentId = resolvePanelCurrent('websiteSoftCurrent', durableCurrent);
   if (state.preparePreviewHold) {
     state.websiteOpenStep = 'prepare';
@@ -6573,16 +7017,24 @@ function renderWebsite() {
   }
   const openId = state.websiteOpenStep;
   const imagesStepDone = imagesDone || isSoftDone('websiteSoftDone', 'images');
-  const prepareStepDone = prepareDone || isSoftDone('websiteSoftDone', 'prepare');
+  // Hold blocks the green check so a re-Prepare does not look finished mid-run.
+  const prepareStepDone =
+    !state.preparePreviewHold &&
+    (prepareDone || isSoftDone('websiteSoftDone', 'prepare'));
   const launchStepDone = flags.launched || isSoftDone('websiteSoftDone', 'launch');
   const parts = [];
 
   parts.push(
     panelHowToHtml({
       label: 'Website',
-      info: 'Review images → Prepare preview (Stage + Assemble) → open every sitemap URL → Launch (first go-live) or Push updates (already live).',
+      info: 'Review images → Prepare preview → Launch (or Push updates) → Indexing (Search Console + sitemap). Revert restores Rover from GitHub if a launched site drifted.',
     }),
   );
+  if (flags.launched) {
+    parts.push(
+      `<div class="callout warn"><strong>Already launched.</strong> Edits here change Rover’s working copy only — the live site will not match until you <strong>Push updates</strong>. Mutating actions ask for confirmation. Use <strong>Revert</strong> below to restore from the current launched GitHub site.</div>`,
+    );
+  }
   const phoneRaw = String(cfg.phone || '').trim();
   const phoneIsPlaceholder = isLaunchPhonePlaceholder(phoneRaw);
   const launchIssues = launchPreflightIssues({
@@ -6609,12 +7061,6 @@ function renderWebsite() {
     parts.push(
       `<div class="callout warn">Accept content on the <strong>Content</strong> tab first (all service/location FILEs when Structure includes them).</div>`,
     );
-  } else if (flags.alreadyLive) {
-    parts.push(
-      statusLineHtml(
-        'Site already live: after <strong>Prepare preview</strong>, use <strong>Push updates</strong> to GitHub + Cloudflare Worker (skips first-time domain/email setup).',
-      ),
-    );
   } else if (!imagesDone) {
     parts.push(
       statusLineHtml(
@@ -6629,24 +7075,32 @@ function renderWebsite() {
         }, assembles the sibling site, then open the sitemap on :4322.`,
       ),
     );
+  } else if (!flags.launched) {
+    parts.push(
+      statusLineHtml(
+        flags.alreadyLive
+          ? 'Site already live: after <strong>Prepare preview</strong>, use <strong>Push updates</strong> (or Run launch for keys/CF).'
+          : 'Up next: open every <strong>Preview sitemap</strong> URL, then <strong>Run launch</strong>.',
+      ),
+    );
+  } else if (!indexingStepDone) {
+    parts.push(
+      statusLineHtml(
+        'Up next: <strong>Indexing</strong> — submit the live sitemap in Google Search Console and request indexing on money pages.',
+      ),
+    );
   } else {
     parts.push(
       statusLineHtml(
-        'Up next: open every <strong>Preview sitemap</strong> URL, then <strong>Run launch</strong>.',
+        flags.alreadyLive
+          ? 'Website day-one steps complete. Use <strong>Push updates</strong> when content changes.'
+          : 'Website day-one steps complete.',
       ),
     );
   }
 
   const assembleProg = state.assembleProgress || { visible: false, detail: '' };
-  parts.push(`
-    <div id="ca-assemble-progress" class="job-progress${assembleProg.visible ? '' : ' hidden'}" aria-live="polite">
-      <div class="job-progress-track"><div class="job-progress-bar"></div></div>
-      <p class="job-progress-label" id="ca-assemble-progress-label">Preparing preview…</p>
-      <p class="job-progress-detail" id="ca-assemble-progress-detail">${esc(
-        assembleProg.detail || 'Working…',
-      )}</p>
-    </div>
-  `);
+  const assembleProgVisible = Boolean(assembleProg.visible || state.preparePreviewHold);
 
   parts.push(
     contentStepHtml({
@@ -6740,6 +7194,13 @@ function renderWebsite() {
           <button type="button" class="btn" id="ca-open-assembled-preview" data-tip="Preview assembled site on 127.0.0.1:4322" ${flags.assembled ? '' : 'disabled'}>Open site preview</button>
           <button type="button" class="btn" id="ca-visual-edit" data-tip="Operator visual editor on the assembled preview" ${hasMarkdown ? '' : 'disabled'}>Edit visually</button>
           <button type="button" class="btn" id="ca-checklist" data-tip="Show assemble / deploy checklist">Checklist</button>
+        </div>
+        <div id="ca-assemble-progress" class="job-progress${assembleProgVisible ? '' : ' hidden'}" aria-live="polite" style="margin-top:0.75rem">
+          <div class="job-progress-track"><div class="job-progress-bar"></div></div>
+          <p class="job-progress-label" id="ca-assemble-progress-label">Preparing preview…</p>
+          <p class="job-progress-detail" id="ca-assemble-progress-detail">${esc(
+            assembleProg.detail || (state.preparePreviewHold ? 'Starting…' : 'Working…'),
+          )}</p>
         </div>`,
     }),
   );
@@ -6886,6 +7347,81 @@ function renderWebsite() {
     }),
   );
 
+  const sitemapUrl = liveSitemapUrl(cfg.domain);
+  const robotsUrl = liveRobotsUrl(cfg.domain);
+  const indexingLocked = !flags.launched;
+  parts.push(
+    contentStepHtml({
+      id: 'indexing',
+      num: 4,
+      title: 'Indexing',
+      done: indexingStepDone,
+      open: openId === 'indexing',
+      current: currentId === 'indexing' && !indexingStepDone,
+      locked: indexingLocked,
+      info: 'After go-live: add the site in Google Search Console, submit the sitemap once, and request indexing on the homepage plus a few money pages. Indexing is not ranking.',
+      bodyHtml: indexingLocked
+        ? `<p class="muted">Finish <strong>Run launch</strong> first, then return here to submit the live sitemap in Search Console.</p>`
+        : `<div class="callout">
+          <strong>Day-one indexing</strong>
+          <ol class="narrative-list">
+            <li>Add a <strong>Domain</strong> property in Google Search Console and verify with DNS TXT (covers apex + www).</li>
+            <li>Indexing → Sitemaps → submit the sitemap URL once (do not resubmit daily).</li>
+            <li>URL Inspection → <strong>Request indexing</strong> on the homepage and top 2–3 money pages only.</li>
+            <li>Wait — monitor Page indexing; don’t thrash resubmits.</li>
+          </ol>
+        </div>
+        <p class="muted" style="margin:0.65rem 0 0.35rem">Also after launch: verify Gmail once if Email Routing is new; smoke-test the live form; use Launch’s <strong>Download NAP CSV</strong> for citations / GBP.</p>
+        <div class="narrative-actions" style="justify-content:flex-start;flex-wrap:wrap;gap:0.5rem;margin-top:0.75rem">
+          <button type="button" class="btn primary" id="ca-copy-sitemap-url" data-tip="Copy https://{domain}/sitemap.xml" ${
+            sitemapUrl ? '' : 'disabled'
+          }>Copy sitemap URL</button>
+          <a class="btn" href="https://search.google.com/search-console" target="_blank" rel="noopener" data-tip="Open Google Search Console">Open Search Console</a>
+          ${
+            sitemapUrl
+              ? `<a class="btn" href="${esc(sitemapUrl)}" target="_blank" rel="noopener" data-tip="Open live sitemap.xml">Open sitemap</a>`
+              : ''
+          }
+          ${
+            robotsUrl
+              ? `<a class="btn" href="${esc(robotsUrl)}" target="_blank" rel="noopener" data-tip="Open live robots.txt">Open robots.txt</a>`
+              : ''
+          }
+          <button type="button" class="btn" id="ca-indexing-mark-done" data-tip="Mark this step done when you’ve submitted the sitemap">Mark done</button>
+        </div>
+        ${
+          sitemapUrl
+            ? `<p class="muted" style="margin-top:0.5rem;font-size:0.85rem"><code id="ca-sitemap-url-text">${esc(
+                sitemapUrl,
+              )}</code></p>`
+            : `<p class="muted" style="margin-top:0.5rem">Set a real domain on Launch / site-config to get the sitemap URL.</p>`
+        }`,
+    }),
+  );
+
+  const canRevert = Boolean(flags.launched && d?.meta?.githubRepo);
+  parts.push(
+    contentStepHtml({
+      id: 'revert',
+      title: 'Revert',
+      plain: true,
+      open: true,
+      locked: !canRevert,
+      info: 'Overwrites Rover content, structure, site-config, and images from GitHub origin/main for this site. Does not change the live Cloudflare deploy.',
+      bodyHtml: canRevert
+        ? `<p>Replace Rover’s working copy (content, structure, site-config, and images) with the <strong>current launched site</strong> from GitHub (<code>${esc(
+            String(d.meta.githubRepo),
+          )}</code> · <code>origin/main</code>). Does <strong>not</strong> change the live Cloudflare site.</p>
+        <p class="muted">Use this if you edited a launched candidate by mistake and want Rover to match what is shipped.</p>
+        <div class="narrative-actions" style="justify-content:flex-start;margin-top:0.75rem">
+          <button type="button" class="btn danger" id="ca-revert-launched" data-tip="Overwrite Rover working copy from GitHub launched site">Revert to launched site</button>
+        </div>`
+        : flags.launched
+          ? `<p class="muted">Revert needs a <code>githubRepo</code> on this candidate (set at Launch / Ship).</p>`
+          : `<p class="muted">Available after Launch / Ship — restores Rover from the launched GitHub site.</p>`,
+    }),
+  );
+
   return parts.join('');
 }
 
@@ -6928,12 +7464,73 @@ function setAssembleProgress(visible, detail) {
   if (labelEl && visible) labelEl.textContent = 'Preparing preview…';
 }
 
+/** Drive Website prepare spinner from Jobs SSE/poll for the held prepare jobId. */
+function syncPrepareProgressFromJobs(snap) {
+  const id = String(state.selectedId || '').trim();
+  const heldJobId = String(state.preparePreviewJobId || '').trim();
+  if (!id || !state.preparePreviewHold || !heldJobId) return;
+  const jobs = Array.isArray(snap?.jobs) ? snap.jobs : [];
+  const job = jobs.find((j) => j.id === heldJobId);
+  if (!job) return;
+
+  if (job.status === 'queued') {
+    setAssembleProgress(true, 'Prepare preview: Queued…');
+    return;
+  }
+  if (job.status === 'running') {
+    setAssembleProgress(
+      true,
+      `Prepare preview: ${job.detail || 'Running…'}`,
+    );
+    return;
+  }
+  if (job.status === 'done') {
+    // Click handler owns hold / button; only update progress copy here.
+    setAssembleProgress(true, 'Prepare finished — opening result…');
+    return;
+  }
+  if (job.status === 'error') {
+    setAssembleProgress(
+      true,
+      `Prepare failed: ${job.error || job.detail || 'error'}`,
+    );
+  }
+}
+
 const ACCEPT_PROGRESS_STEPS = [
   'Writing files to src/content…',
   'Pulling stock photos (if enabled)…',
   'Generating logo…',
-  'Building coverage map…',
+  'Finishing assets (photos, logo, coverage map)…',
 ];
+
+function formatAcceptElapsed(ms) {
+  const sec = Math.max(0, Math.floor(Number(ms) / 1000));
+  if (sec < 60) return `${sec}s`;
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  return `${m}m ${s}s`;
+}
+
+function startAcceptProgressTicker() {
+  const startedAt = Date.now();
+  let stepIdx = 0;
+  const tick = () => {
+    const elapsed = formatAcceptElapsed(Date.now() - startedAt);
+    const step = ACCEPT_PROGRESS_STEPS[stepIdx] || ACCEPT_PROGRESS_STEPS.at(-1);
+    const stillWorking =
+      stepIdx >= ACCEPT_PROGRESS_STEPS.length - 1
+        ? `Still working (${elapsed}) — photos and coverage map can take 1–3 min for large service areas. Watch the Rover terminal for [accept] / [coverage-map] lines.`
+        : `${step} (${elapsed})`;
+    setAcceptProgress(true, {
+      label: 'Accepting…',
+      detail: stillWorking,
+    });
+    stepIdx = Math.min(stepIdx + 1, ACCEPT_PROGRESS_STEPS.length - 1);
+  };
+  tick();
+  return setInterval(tick, 2000);
+}
 
 function setAcceptProgress(visible, { label, detail } = {}) {
   const box = document.getElementById('ca-accept-progress');
@@ -7166,9 +7763,12 @@ function wireContentTab(d) {
   document.querySelectorAll('.structure-preset').forEach((btn) => {
     btn.addEventListener('click', async () => {
       try {
+        if (!(await confirmLaunchedSiteChange('Apply structure preset'))) return;
         const result = await api(`/api/candidates/${encodeURIComponent(id)}/content/structure`, {
           method: 'POST',
-          body: JSON.stringify({ presetId: btn.dataset.preset, applyPreset: true }),
+          body: JSON.stringify(
+            withLaunchedConfirmBody({ presetId: btn.dataset.preset, applyPreset: true }),
+          ),
         });
         state.detail = result.candidate;
         state.contentOpenStep = 'structure';
@@ -7185,14 +7785,15 @@ function wireContentTab(d) {
 
   document.getElementById('cs-compose')?.addEventListener('click', async () => {
     try {
+      if (!(await confirmLaunchedSiteChange('Compose content outline'))) return;
       const selection = collectStructureSelection();
       await api(`/api/candidates/${encodeURIComponent(id)}/content/structure`, {
         method: 'POST',
-        body: JSON.stringify(selection),
+        body: JSON.stringify(withLaunchedConfirmBody(selection)),
       });
       const result = await api(`/api/candidates/${encodeURIComponent(id)}/content/structure/compose`, {
         method: 'POST',
-        body: JSON.stringify(selection),
+        body: JSON.stringify(withLaunchedConfirmBody(selection)),
       });
       await refresh(result.candidate, 'outline');
       if (result.warnings?.length) {
@@ -7230,13 +7831,14 @@ function wireContentTab(d) {
       return;
     }
     try {
+      if (!(await confirmLaunchedSiteChange('Paste / confirm outline'))) return;
       const result = await api(`/api/candidates/${encodeURIComponent(id)}/content/structure/outline`, {
         method: 'POST',
-        body: JSON.stringify({ json: text }),
+        body: JSON.stringify(withLaunchedConfirmBody({ json: text })),
       });
       const confirmed = await api(
         `/api/candidates/${encodeURIComponent(id)}/content/structure/confirm`,
-        { method: 'POST', body: '{}' },
+        { method: 'POST', body: JSON.stringify(withLaunchedConfirmBody({})) },
       );
       await refresh(confirmed.candidate || result.candidate, 'write');
       showToast('Outline loaded & confirmed — copy full-write prompt next.');
@@ -7597,6 +8199,10 @@ function wireContentTab(d) {
       return;
     }
 
+    if (!(await confirmLaunchedSiteChange(replace ? 'Replace stock photos' : 'Pull photos'))) {
+      return;
+    }
+
     setBusy(true);
     setImagesProgress(true, {
       label: replace ? 'Replacing images…' : 'Pulling photos…',
@@ -7623,7 +8229,7 @@ function wireContentTab(d) {
     try {
       const result = await api(`/api/candidates/${encodeURIComponent(id)}/images/pull`, {
         method: 'POST',
-        body: JSON.stringify({ replace: Boolean(replace) }),
+        body: JSON.stringify(withLaunchedConfirmBody({ replace: Boolean(replace) })),
       });
       clearInterval(pollTimer);
       pollTimer = null;
@@ -7853,99 +8459,147 @@ function wireContentTab(d) {
   };
 
   document.getElementById('ca-prepare-preview')?.addEventListener('click', async () => {
-    const btn = document.getElementById('ca-prepare-preview');
-    if (btn) btn.disabled = true;
     state.preparePreviewHold = true;
+    state.preparePreviewJobId = null;
     state.websiteOpenStep = 'prepare';
     state.websiteSoftCurrent = 'prepare';
     state.websiteFollowCurrent = 'prepare';
+    setAssembleProgress(true, 'Checking content…');
+    // Re-render so the in-step bar appears and Prepare is disabled before gaps/modals.
+    renderDetail();
     let previewTab = null;
-    try {
-      previewTab = window.open('about:blank', '_blank');
-    } catch {
-      previewTab = null;
-    }
-    await warmPreviewWordmark();
-    writePreviewTabHtml(previewTab, {
-      title: 'Preparing preview…',
-      body: 'Rover is staging, assembling, and starting the site preview on <code>127.0.0.1:4322</code>. This can take a couple of minutes — keep this tab open.',
-    });
-    setAssembleProgress(true, 'Staging full launch package…');
-    try {
-      const stageT0 = Date.now();
-      const staged = await api(`/api/candidates/${encodeURIComponent(id)}/staging`, {
-        method: 'POST',
-        body: JSON.stringify({ mode: 'full', openPreview: false }),
-      });
-      const stageMs = Date.now() - stageT0;
-      const serviceN = staged.serviceCount != null ? Number(staged.serviceCount) : null;
-      const locationN = staged.locationCount != null ? Number(staged.locationCount) : null;
-      if (staged.candidate) {
-        state.detail = staged.candidate;
+    let progressTimer = null;
+    const abortPrepareUi = () => {
+      if (progressTimer) clearInterval(progressTimer);
+      state.preparePreviewHold = false;
+      state.preparePreviewJobId = null;
+      setAssembleProgress(false);
+      try {
+        if (previewTab && !previewTab.closed) previewTab.close();
+      } catch {
+        /* ignore */
       }
-      setAssembleProgress(
-        true,
-        `Staged ${staged.written?.length || 0} files in ${Math.round(stageMs / 1000)}s${
-          serviceN != null ? ` · ${serviceN} service page(s)` : ''
-        }${locationN != null ? ` · ${locationN} location page(s)` : ''} — assembling…`,
+      if (state.selectedId === id && state.tab === 'website') renderDetail();
+    };
+    try {
+      const gaps = await api(
+        `/api/candidates/${encodeURIComponent(id)}/launch-content-gaps`,
       );
-      const assembleTimer = setInterval(() => {
+      let forcePrepare = false;
+      if (!gaps.ok) {
+        const gapPaths = [...(gaps.missing || []), ...(gaps.stubs || [])];
+        const proceed = await showModal({
+          title: 'Content not launch-ready',
+          confirmLabel: 'Prepare anyway',
+          cancelLabel: 'Cancel',
+          danger: true,
+          bodyHtml: `<p>${esc(gaps.error || 'Stub or missing location/service pages.')}</p>
+            <p class="muted">Continue write / Accept full pages first to avoid wasting Prepare time. Staging still enforces this gate if you force.</p>
+            ${
+              gapPaths.length
+                ? `<ul class="narrative-list">${gapPaths
+                    .slice(0, 16)
+                    .map((m) => `<li><code>${esc(String(m))}</code></li>`)
+                    .join('')}</ul>`
+                : ''
+            }`,
+        });
+        if (!proceed) {
+          abortPrepareUi();
+          return;
+        }
+        forcePrepare = true;
+      }
+
+      if (!(await confirmLaunchedSiteChange('Prepare preview'))) {
+        abortPrepareUi();
+        return;
+      }
+
+      try {
+        previewTab = window.open('about:blank', '_blank');
+      } catch {
+        previewTab = null;
+      }
+      await warmPreviewWordmark();
+      writePreviewTabHtml(previewTab, {
+        title: 'Preparing preview…',
+        body: 'Rover is staging, assembling, and starting the site preview (port pool from :4322). This can take a couple of minutes — keep this tab open.',
+      });
+      setAssembleProgress(true, 'Prepare preview queued (stage → assemble → preview)…');
+      progressTimer = setInterval(() => {
         setAssembleProgress(
           true,
-          'Assembling site (stops :4322 first; full copy when template is newer)…',
+          'Prepare preview running (stage → assemble → build → preview)… check Jobs for status',
         );
       }, 8000);
-      let assembled;
+
+      let jobId = null;
       try {
-        assembled = await api(`/api/candidates/${encodeURIComponent(id)}/assemble`, {
+        const accepted = await api(`/api/candidates/${encodeURIComponent(id)}/prepare-preview`, {
           method: 'POST',
-          body: JSON.stringify({ refresh: true, build: true, ship: false }),
+          body: JSON.stringify(withLaunchedConfirmBody({ forcePrepare })),
         });
-      } finally {
-        clearInterval(assembleTimer);
+        jobId = accepted.jobId;
+      } catch (enqueueErr) {
+        const joinId = enqueueErr?.status === 409 && enqueueErr?.job?.id ? enqueueErr.job.id : null;
+        if (!joinId) throw enqueueErr;
+        jobId = joinId;
+        setAssembleProgress(true, 'Prepare preview already running — joining…');
       }
+      state.preparePreviewJobId = jobId;
+      const prepared = await waitForHeavyJobResult(jobId);
+      clearInterval(progressTimer);
+      progressTimer = null;
+      const staged = prepared.staged || {};
+      const serviceN = staged.serviceCount != null ? Number(staged.serviceCount) : null;
+      const locationN = staged.locationCount != null ? Number(staged.locationCount) : null;
       const modeLabel =
-        assembled.mode === 'refresh'
+        prepared.mode === 'refresh'
           ? 'Refresh'
-          : assembled.fullReason === 'template'
+          : prepared.fullReason === 'template'
             ? 'Full assemble (template newer)'
             : 'Full assemble';
       const assembleMs =
-        assembled.ms != null ? `${Math.round(Number(assembled.ms) / 1000)}s` : '';
+        prepared.ms != null ? `${Math.round(Number(prepared.ms) / 1000)}s` : '';
       const buildMs =
-        assembled.build?.ms != null ? `${Math.round(Number(assembled.build.ms) / 1000)}s` : '';
-      let afterAssemble = `${modeLabel}${assembleMs ? ` ${assembleMs}` : ''}`;
-      if (assembled.build?.buildSkipped) afterAssemble += ' · dist reused';
-      else if (assembled.build?.ok) {
-        afterAssemble += assembled.build?.npmInstallSkipped
-          ? ` · build ${buildMs || 'ok'} (install skipped)`
-          : ` · build ${buildMs || 'ok'}`;
-      } else if (assembled.build?.error) {
-        afterAssemble += ` · build failed`;
+        prepared.build?.ms != null ? `${Math.round(Number(prepared.build.ms) / 1000)}s` : '';
+      const preview = prepared.preview || null;
+      if (preview?.ok && preview.url) {
+        setAssembleProgress(true, 'Preview ready — opening site…');
+        try {
+          if (previewTab && !previewTab.closed) {
+            previewTab.location.replace(preview.url);
+            previewTab.focus?.();
+          } else {
+            window.open(preview.url, '_blank');
+          }
+        } catch {
+          window.open(preview.url, '_blank');
+        }
+      } else if (preview && !preview.ok) {
+        writePreviewTabHtml(previewTab, {
+          title: 'Assembled preview failed',
+          body: esc(String(preview.error || 'Could not start assembled preview.')),
+        });
       }
-      setAssembleProgress(true, `${afterAssemble} — starting preview…`);
-      // Refresh detail but stay on Prepare with sticky progress visible
-      state.preparePreviewHold = true;
-      await refresh(assembled.candidate || staged.candidate, null, 'website');
-      setAssembleProgress(true, 'Starting preview server on :4322…');
-      const preview = await openAssembledPreview({ quiet: false, previewTab });
       state.preparePreviewHold = false;
-      await refresh(assembled.candidate || staged.candidate || state.detail, 'launch', 'website');
+      await refresh(prepared.candidate || state.detail, 'launch', 'website');
       setAssembleProgress(true, preview?.ok ? 'Preview ready' : 'Preview failed');
-      const buildLine = assembled.build?.ok
-        ? assembled.build?.buildSkipped
+      const buildLine = prepared.build?.ok
+        ? prepared.build?.buildSkipped
           ? `Build skipped (dist still fresh${buildMs ? ` · ${buildMs}` : ''})`
-          : assembled.build?.npmInstallSkipped
+          : prepared.build?.npmInstallSkipped
             ? `Build ok (reused node_modules${buildMs ? ` · ${buildMs}` : ''})`
             : `Build ok${buildMs ? ` · ${buildMs}` : ''}`
-        : assembled.build?.error
-          ? `Build failed: ${assembled.build.error}`
+        : prepared.build?.error
+          ? `Build failed: ${prepared.build.error}`
           : 'Build skipped';
-      const previewUrl = preview?.url || 'http://127.0.0.1:4322/';
+      const previewUrl = preview?.ok && preview?.url ? preview.url : null;
       const map = previewSitemapHtml(state.detail);
       await showModal({
         title:
-          assembled.build?.ok === false
+          prepared.build?.ok === false
             ? 'Prepared (build failed)'
             : preview?.ok
               ? 'Preview ready'
@@ -7954,27 +8608,30 @@ function wireContentTab(d) {
         hideCancel: true,
         bodyHtml: `<p>Stage → ${esc(modeLabel)} complete (local preview only${
           assembleMs ? ` · assemble ${esc(assembleMs)}` : ''
-        } · stage ${esc(String(Math.round(stageMs / 1000)))}s).</p>
+        }).</p>
           <p>${
             serviceN != null
               ? `<strong>${esc(String(serviceN))} service page(s)</strong> staged`
               : 'Full package staged'
           }${
             locationN != null ? ` · <strong>${esc(String(locationN))} location page(s)</strong>` : ''
+          }${
+            Array.isArray(staged.written) ? ` · ${esc(String(staged.written.length))} files` : ''
           }.</p>
           <p>${esc(buildLine)}. Use <strong>Push updates</strong> or <strong>Run launch</strong> to ship live.</p>
           ${
-            preview?.ok
+            preview?.ok && previewUrl
               ? `<p>Opened <a href="${esc(previewUrl)}" target="_blank" rel="noopener">${esc(previewUrl)}</a> — click every Preview sitemap URL before Launch.</p>${map}`
               : `<p class="callout warn">${esc(preview?.error || 'Could not open assembled preview')}</p>`
           }`,
       });
     } catch (error) {
+      if (progressTimer) clearInterval(progressTimer);
       writePreviewTabHtml(previewTab, {
         title: 'Prepare preview failed',
         body: esc(String(error?.message || error || 'Prepare preview failed.')),
       });
-      const missing = error.check?.missing || error.check?.errors || [];
+      const missing = error.check?.missing || error.check?.stubs || error.check?.errors || [];
       await showModal({
         title: 'Prepare preview failed',
         confirmLabel: 'OK',
@@ -7989,10 +8646,11 @@ function wireContentTab(d) {
         }`,
       });
     } finally {
+      if (progressTimer) clearInterval(progressTimer);
       state.preparePreviewHold = false;
+      state.preparePreviewJobId = null;
       setAssembleProgress(false);
-      const prepareBtn = document.getElementById('ca-prepare-preview');
-      if (prepareBtn) prepareBtn.disabled = false;
+      if (state.selectedId === id && state.tab === 'website') renderDetail();
     }
   });
   document.getElementById('ca-pull-images')?.addEventListener('click', () => runPullImages());
@@ -8001,6 +8659,7 @@ function wireContentTab(d) {
   void refreshBeforeAfterUi(id);
   document.getElementById('ca-generate-logo')?.addEventListener('click', async () => {
     const btn = document.getElementById('ca-generate-logo');
+    if (!(await confirmLaunchedSiteChange('Generate / regenerate logo'))) return;
     if (btn) btn.disabled = true;
     setImagesProgress(true, {
       label: 'Generating logo…',
@@ -8011,7 +8670,7 @@ function wireContentTab(d) {
     try {
       const result = await api(`/api/candidates/${encodeURIComponent(id)}/logo/generate`, {
         method: 'POST',
-        body: '{}',
+        body: JSON.stringify(withLaunchedConfirmBody({})),
       });
       setImagesProgress(true, {
         label: 'Logo ready',
@@ -8040,6 +8699,7 @@ function wireContentTab(d) {
   });
   document.getElementById('ca-generate-map')?.addEventListener('click', async () => {
     const btn = document.getElementById('ca-generate-map');
+    if (!(await confirmLaunchedSiteChange('Generate coverage map'))) return;
     if (btn) btn.disabled = true;
     setImagesProgress(true, {
       label: 'Generating coverage map…',
@@ -8050,7 +8710,7 @@ function wireContentTab(d) {
     try {
       const result = await api(`/api/candidates/${encodeURIComponent(id)}/coverage-map/generate`, {
         method: 'POST',
-        body: '{}',
+        body: JSON.stringify(withLaunchedConfirmBody({})),
       });
       setImagesProgress(true, {
         label: 'Coverage map ready',
@@ -8404,6 +9064,83 @@ function wireContentTab(d) {
     downloadText(`${host || 'site'}-nap.csv`, csv, 'text/csv');
   });
 
+  document.getElementById('ca-copy-sitemap-url')?.addEventListener('click', async () => {
+    const cfg = effectiveSiteConfigForLaunchClient(
+      state.detail?.siteConfig,
+      state.detail?.siteConfigDraft,
+    );
+    const url =
+      document.getElementById('ca-sitemap-url-text')?.textContent?.trim() ||
+      liveSitemapUrl(cfg.domain);
+    if (!url) {
+      showToast('Set a real domain first.', { tone: 'warn' });
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(url);
+      showToast('Sitemap URL copied.');
+    } catch {
+      showToast('Could not copy — select the URL below.', { tone: 'warn' });
+    }
+  });
+
+  document.getElementById('ca-indexing-mark-done')?.addEventListener('click', () => {
+    state.websiteSoftDone = { ...(state.websiteSoftDone || {}), indexing: true };
+    state.websiteFollowCurrent = null;
+    state.websiteOpenStep = 'indexing';
+    showToast('Indexing marked done.');
+    renderDetail();
+  });
+
+  document.getElementById('ca-revert-launched')?.addEventListener('click', async () => {
+    const btn = document.getElementById('ca-revert-launched');
+    const repo = String(state.detail?.meta?.githubRepo || '').trim();
+    const ok = await showModal({
+      title: 'Revert to launched site?',
+      confirmLabel: 'Revert',
+      cancelLabel: 'Cancel',
+      danger: true,
+      requireTypedConfirm: 'REVERT',
+      bodyHtml: `<p>This overwrites Rover’s <strong>content, structure, site-config, and images</strong> with <code>${esc(
+        repo || 'GitHub origin/main',
+      )}</code>.</p>
+        <p>The <strong>live Cloudflare site is not changed</strong>.</p>
+        <p class="muted">Type <code>REVERT</code> to enable the button.</p>`,
+    });
+    if (!ok) return;
+    if (btn) btn.disabled = true;
+    setAssembleProgress(true, 'Reverting from launched GitHub site…');
+    try {
+      const result = await api(`/api/candidates/${encodeURIComponent(id)}/revert-launched`, {
+        method: 'POST',
+        body: JSON.stringify({ confirmRevert: true }),
+      });
+      await refresh(result.candidate || state.detail, 'launch', 'website');
+      setAssembleProgress(false);
+      await showModal({
+        title: 'Reverted to launched site',
+        confirmLabel: 'OK',
+        hideCancel: true,
+        bodyHtml: `<p>Restored from <code>${esc(result.githubRepo || repo)}</code>${
+          result.sha ? ` @ <code>${esc(result.sha)}</code>` : ''
+        }.</p>
+          <p>${esc(String(result.contentFiles || 0))} content file(s) · ${esc(
+          String(result.imagesCopied || 0),
+        )} image(s). Live site unchanged — use Prepare preview if you want a local preview.</p>`,
+      });
+    } catch (error) {
+      setAssembleProgress(false);
+      await showModal({
+        title: 'Revert failed',
+        confirmLabel: 'OK',
+        hideCancel: true,
+        bodyHtml: `<p>${esc(error.message)}</p>`,
+      });
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  });
+
   document.getElementById('ca-launch-status')?.addEventListener('click', async () => {
     try {
       const st = await fillLaunchDefaults();
@@ -8565,7 +9302,7 @@ function wireContentTab(d) {
         method: 'POST',
         body: JSON.stringify(body),
       });
-      await refresh(result.candidate, 'launch', 'website');
+      await refresh(result.candidate, 'indexing', 'website');
       const human = (result.human || []).map((h) => `<li>${esc(h)}</li>`).join('');
       const shipOk = result.ship?.ok ? 'Ship (GitHub/Worker) ok' : result.ship ? 'Ship partial/failed' : 'Ship skipped';
       const cfOk = result.cloudflare?.ok ? 'Cloudflare domain/email ran' : 'Cloudflare domain/email skipped or incomplete';
@@ -8584,7 +9321,7 @@ function wireContentTab(d) {
               ? `<p class="muted">Repo: <a href="${esc(result.ship.steps.github.repoUrl)}" target="_blank" rel="noopener">${esc(result.ship.steps.github.fullName)}</a></p>`
               : ''
           }
-          <p class="muted"><strong>After launch:</strong> verify Email Routing destination once if new (click link in Gmail); confirm the live form with your Web3Forms key.</p>`,
+          <p class="muted"><strong>After launch:</strong> verify Gmail once if Email Routing is new; smoke-test the live form; then use <strong>Website → Indexing</strong> for Search Console + sitemap.</p>`,
       });
     } catch (error) {
       const blockerList = (error.details?.blockers || [])
@@ -8628,9 +9365,13 @@ function wireContentTab(d) {
       }
       pasteBtn.disabled = true;
       try {
+        if (!(await confirmLaunchedSiteChange('Paste content draft'))) {
+          pasteBtn.disabled = false;
+          return;
+        }
         const result = await api(`/api/candidates/${encodeURIComponent(id)}/content/paste`, {
           method: 'POST',
-          body: JSON.stringify({ text }),
+          body: JSON.stringify(withLaunchedConfirmBody({ text })),
         });
         await refresh(result.candidate, 'accept');
       } catch (error) {
@@ -8655,25 +9396,15 @@ function wireContentTab(d) {
           : '<p>Accepts the candidate draft into shared <code>src/content/</code> (backs up existing Markdown, prunes leftovers not in the bundle).</p>',
       });
       if (!ok) return;
+      if (!(await confirmLaunchedSiteChange('Accept content'))) return;
       acceptBtn.disabled = true;
-      let stepIdx = 0;
-      setAcceptProgress(true, {
-        label: 'Accepting…',
-        detail: ACCEPT_PROGRESS_STEPS[0],
-      });
-      const acceptTimer = setInterval(() => {
-        stepIdx = Math.min(stepIdx + 1, ACCEPT_PROGRESS_STEPS.length - 1);
-        setAcceptProgress(true, {
-          label: 'Accepting…',
-          detail: ACCEPT_PROGRESS_STEPS[stepIdx],
-        });
-      }, 1200);
+      let acceptTimer = startAcceptProgressTicker();
       try {
         let result;
         try {
           result = await api(`/api/candidates/${encodeURIComponent(id)}/content/accept`, {
             method: 'POST',
-            body: JSON.stringify({ ignoreSeoWarnings: ignoreSeo }),
+            body: JSON.stringify(withLaunchedConfirmBody({ ignoreSeoWarnings: ignoreSeo })),
           });
         } catch (error) {
           if (error.message?.includes('ignoreWarnings') || error.check?.warnings?.length) {
@@ -8685,25 +9416,16 @@ function wireContentTab(d) {
               bodyHtml: `<p>${esc(error.message)}</p>`,
             });
             if (!force) throw error;
-            setAcceptProgress(true, {
-              label: 'Accepting…',
-              detail: ACCEPT_PROGRESS_STEPS[0],
-            });
-            stepIdx = 0;
-            const retryTimer = setInterval(() => {
-              stepIdx = Math.min(stepIdx + 1, ACCEPT_PROGRESS_STEPS.length - 1);
-              setAcceptProgress(true, {
-                label: 'Accepting…',
-                detail: ACCEPT_PROGRESS_STEPS[stepIdx],
-              });
-            }, 1200);
+            acceptTimer = startAcceptProgressTicker();
             try {
               result = await api(`/api/candidates/${encodeURIComponent(id)}/content/accept`, {
                 method: 'POST',
-                body: JSON.stringify({ ignoreWarnings: true, ignoreSeoWarnings: ignoreSeo }),
+                body: JSON.stringify(
+                  withLaunchedConfirmBody({ ignoreWarnings: true, ignoreSeoWarnings: ignoreSeo }),
+                ),
               });
             } finally {
-              clearInterval(retryTimer);
+              clearInterval(acceptTimer);
             }
           } else if (error.message?.includes('ignoreSeoWarnings') || error.seoLint) {
             clearInterval(acceptTimer);
@@ -8714,25 +9436,14 @@ function wireContentTab(d) {
               bodyHtml: `<p>${esc(error.message)}</p><p class="muted">Or cancel and fix via the Editor step.</p>`,
             });
             if (!force) throw error;
-            setAcceptProgress(true, {
-              label: 'Accepting…',
-              detail: ACCEPT_PROGRESS_STEPS[0],
-            });
-            stepIdx = 0;
-            const retryTimer = setInterval(() => {
-              stepIdx = Math.min(stepIdx + 1, ACCEPT_PROGRESS_STEPS.length - 1);
-              setAcceptProgress(true, {
-                label: 'Accepting…',
-                detail: ACCEPT_PROGRESS_STEPS[stepIdx],
-              });
-            }, 1200);
+            acceptTimer = startAcceptProgressTicker();
             try {
               result = await api(`/api/candidates/${encodeURIComponent(id)}/content/accept`, {
                 method: 'POST',
-                body: JSON.stringify({ ignoreSeoWarnings: true }),
+                body: JSON.stringify(withLaunchedConfirmBody({ ignoreSeoWarnings: true })),
               });
             } finally {
-              clearInterval(retryTimer);
+              clearInterval(acceptTimer);
             }
           } else {
             throw error;
@@ -9425,15 +10136,22 @@ function wireSiteConfigTab(d) {
         renderDetail();
         return false;
       }
+      if (!(await confirmLaunchedSiteChange('Accept site-config'))) {
+        if (triggerBtn) triggerBtn.disabled = false;
+        renderDetail();
+        return false;
+      }
 
       const postAccept = (extra = {}) =>
         api(`/api/candidates/${encodeURIComponent(d.id)}/site-config/accept`, {
           method: 'POST',
-          body: JSON.stringify({
-            allowNonPursue: false,
-            allowPlaceholders: true,
-            ...extra,
-          }),
+          body: JSON.stringify(
+            withLaunchedConfirmBody({
+              allowNonPursue: false,
+              allowPlaceholders: true,
+              ...extra,
+            }),
+          ),
         });
       let result;
       try {
@@ -10135,15 +10853,530 @@ const SITE_TABLE_COLS = [
   { key: 'state', label: 'ST' },
   { key: 'domain', label: 'Domain' },
   { key: 'status', label: 'Status' },
+  { key: 'clicks28d', label: 'Clicks 28d' },
+  { key: 'impressions28d', label: 'Impr 28d' },
+  { key: 'primaryPosition', label: 'Pos' },
+  { key: 'primaryPage', label: 'Page' },
+  { key: 'gscLastSyncAt', label: 'GSC sync' },
+  { key: 'lastRankCheckAt', label: 'Rank check' },
   { key: 'targetRentUsd', label: 'Target $' },
   { key: 'actualRentUsd', label: 'Actual $' },
-  { key: 'paymentMethod', label: 'Payment' },
-  { key: 'phone', label: 'Phone' },
-  { key: 'email', label: 'Email' },
-  { key: 'cfProject', label: 'CF' },
-  { key: 'githubRepo', label: 'GitHub' },
   { key: 'lastLaunchAt', label: 'Launched' },
 ];
+
+function formatSiteMetricNum(n, digits = 0) {
+  if (n == null || n === '') return '—';
+  const num = Number(n);
+  if (!Number.isFinite(num)) return '—';
+  return digits > 0 ? num.toFixed(digits) : String(Math.round(num));
+}
+
+/** Format Y axis tick for Sites charts. */
+function formatSitesChartAxis(v, yFormat) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return '';
+  if (yFormat === 'percent') return `${Math.round(n)}%`;
+  return String(Math.round(n));
+}
+
+/**
+ * Simple multi-series SVG line chart.
+ * series: [{ label, color, points: [{ y }] }] — null/NaN y dropped.
+ * opts: { yLabel, height, yFormat: 'number'|'percent', invertY, minPoints }
+ */
+function renderSvgLineChart(
+  container,
+  seriesList,
+  { yLabel = '', height = 110, yFormat = 'number', invertY = false, minPoints = 2 } = {},
+) {
+  if (!container) return;
+
+  const cleaned = (seriesList || [])
+    .map((s) => ({
+      label: s.label || '',
+      color: s.color || '#2a9d8f',
+      points: (s.points || [])
+        .map((p) => {
+          const y = p == null || typeof p !== 'object' ? Number(p) : Number(p.y);
+          return Number.isFinite(y) ? { y } : null;
+        })
+        .filter(Boolean),
+    }))
+    .filter((s) => s.points.length > 0);
+
+  const series =
+    cleaned.filter((s) => s.points.length >= minPoints).length > 0
+      ? cleaned.filter((s) => s.points.length >= minPoints)
+      : minPoints <= 1
+        ? cleaned
+        : [];
+
+  if (!series.length) {
+    container.innerHTML = `<div class="sites-chart-empty muted small">No data yet</div>`;
+    return;
+  }
+
+  const w = 320;
+  const h = height;
+  const pad = { t: 14, r: 10, b: 12, l: 34 };
+  const allY = series.flatMap((s) => s.points.map((p) => p.y));
+  let yMin = Math.min(...allY);
+  let yMax = Math.max(...allY);
+  if (yMin === yMax) {
+    if (yFormat === 'percent') {
+      yMin = Math.max(0, yMin - 5);
+      yMax = Math.min(100, yMax + 5);
+      if (yMin === yMax) {
+        yMin = 0;
+        yMax = 100;
+      }
+    } else if (invertY) {
+      yMin = Math.max(1, yMin - 1);
+      yMax = yMax + 1;
+    } else {
+      yMin = Math.max(0, yMin - 1);
+      yMax = yMax + 1;
+    }
+  } else {
+    const padAmt = (yMax - yMin) * 0.08 || 1;
+    yMin -= padAmt;
+    yMax += padAmt;
+    if (yFormat === 'percent') {
+      yMin = Math.max(0, yMin);
+      yMax = Math.min(100, yMax);
+    } else if (!invertY && yMin > 0 && yMin < (yMax - yMin) * 0.2) {
+      yMin = 0;
+    }
+  }
+  if (yMax <= yMin) yMax = yMin + 1;
+
+  const maxPts = Math.max(...series.map((s) => s.points.length));
+  const xAt = (i, len) =>
+    pad.l + (i / Math.max((len || maxPts) - 1, 1)) * (w - pad.l - pad.r);
+  const yAt = (v) => {
+    const t = (v - yMin) / (yMax - yMin);
+    const norm = invertY ? t : 1 - t;
+    return pad.t + norm * (h - pad.t - pad.b);
+  };
+
+  // Axis labels: top of plot = better for invertY (lower rank), else higher value
+  const topLabel = invertY ? formatSitesChartAxis(yMin, yFormat) : formatSitesChartAxis(yMax, yFormat);
+  const botLabel = invertY ? formatSitesChartAxis(yMax, yFormat) : formatSitesChartAxis(yMin, yFormat);
+
+  const paths = series
+    .map((s) => {
+      const d = s.points
+        .map((p, i) => {
+          const cmd = i === 0 ? 'M' : 'L';
+          return `${cmd}${xAt(i, s.points.length).toFixed(1)},${yAt(p.y).toFixed(1)}`;
+        })
+        .join(' ');
+      return `<path d="${d}" fill="none" stroke="${esc(s.color)}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />`;
+    })
+    .join('');
+
+  const dots =
+    maxPts <= 24
+      ? series
+          .map((s) =>
+            s.points
+              .map(
+                (p, i) =>
+                  `<circle cx="${xAt(i, s.points.length).toFixed(1)}" cy="${yAt(p.y).toFixed(
+                    1,
+                  )}" r="2.25" fill="${esc(s.color)}" />`,
+              )
+              .join(''),
+          )
+          .join('')
+      : '';
+
+  const legend = series
+    .map(
+      (s) =>
+        `<li class="sites-chart-legend-item" title="${esc(s.label)}">
+          <span class="sites-chart-legend-dot" style="background:${esc(s.color)}"></span>
+          <span class="sites-chart-legend-label">${esc(s.label)}</span>
+        </li>`,
+    )
+    .join('');
+
+  container.innerHTML = `<div class="sites-chart-plot">
+    <svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="${esc(
+      yLabel || 'chart',
+    )}">
+      <line x1="${pad.l}" y1="${pad.t}" x2="${pad.l}" y2="${h - pad.b}" stroke="currentColor" stroke-opacity="0.12" />
+      <line x1="${pad.l}" y1="${h - pad.b}" x2="${w - pad.r}" y2="${h - pad.b}" stroke="currentColor" stroke-opacity="0.12" />
+      ${paths}${dots}
+      <text x="4" y="${pad.t + 3}" fill="currentColor" font-size="10" opacity="0.55">${esc(topLabel)}</text>
+      <text x="4" y="${h - pad.b + 3}" fill="currentColor" font-size="10" opacity="0.55">${esc(botLabel)}</text>
+    </svg>
+  </div>
+  <ul class="sites-chart-legend">${legend}</ul>`;
+}
+
+function renderSitesPortfolioCharts() {
+  const wrap = document.getElementById('sites-portfolio-charts');
+  if (!wrap) return;
+  const traffic = state.sitesPortfolio?.traffic || [];
+  const ranks = state.sitesPortfolio?.ranks || [];
+  const hasAny = traffic.length || ranks.length || (state.sites || []).some((s) => s.clicks28d != null);
+  wrap.classList.toggle('hidden', !hasAny && !(state.gscStatus?.connected));
+
+  renderSvgLineChart(
+    document.getElementById('sites-chart-traffic'),
+    [
+      {
+        label: 'Clicks',
+        color: '#2a9d8f',
+        points: traffic.map((r) => ({ y: r.clicks })),
+      },
+      {
+        label: 'Impressions',
+        color: '#e9c46a',
+        points: traffic.map((r) => ({ y: r.impressions })),
+      },
+    ],
+    { yLabel: 'Portfolio traffic', yFormat: 'number', minPoints: 2 },
+  );
+
+  renderSvgLineChart(
+    document.getElementById('sites-chart-ranks'),
+    [
+      {
+        label: '% on page 1',
+        color: '#457b9d',
+        points: ranks
+          .filter((r) => r.page1Share != null && Number.isFinite(Number(r.page1Share)))
+          .map((r) => ({ y: Math.round(Number(r.page1Share) * 100) })),
+      },
+    ],
+    { yLabel: 'Primary on page 1', yFormat: 'percent', minPoints: 2 },
+  );
+}
+
+function updateSitesGscConnectButton() {
+  const connectBtn = document.getElementById('sites-gsc-connect-btn');
+  if (!connectBtn) return;
+  const g = state.gscStatus || {};
+  connectBtn.textContent = 'Connect GSC';
+  if (g.connected) {
+    connectBtn.classList.add('hidden');
+    connectBtn.hidden = true;
+    connectBtn.disabled = true;
+    return;
+  }
+  connectBtn.classList.remove('hidden');
+  connectBtn.hidden = false;
+  if (!g.configured) {
+    connectBtn.disabled = true;
+    return;
+  }
+  connectBtn.disabled = Boolean(state.sitesMetricsBusy);
+}
+
+function renderSitesGscStatus() {
+  const el = document.getElementById('sites-gsc-status');
+  if (!el) return;
+  const g = state.gscStatus || {};
+  if (!g.configured) {
+    el.textContent =
+      'GSC: set GOOGLE_GSC_CLIENT_ID + GOOGLE_GSC_CLIENT_SECRET in .env (Desktop OAuth). Redirect: ' +
+      (g.redirectUri || 'http://127.0.0.1:8787/api/gsc/oauth/callback');
+  } else if (g.connected) {
+    el.textContent = `GSC: connected${g.email ? ` (${g.email})` : ''}${
+      g.updatedAt ? ` · ${String(g.updatedAt).slice(0, 16).replace('T', ' ')}` : ''
+    }`;
+  } else {
+    el.textContent = `GSC: not connected · redirect URI must be allowed: ${g.redirectUri || ''}`;
+  }
+  updateSitesGscConnectButton();
+}
+
+/** Sites eligible for GSC/rank bulk jobs (matches server metricsEligibleSites). */
+function sitesMetricsEligible() {
+  return (state.sites || []).filter((s) => {
+    if (!['live', 'listed', 'rented', 'building'].includes(String(s.status || ''))) return false;
+    return Boolean(s.domain || s.liveUrl);
+  });
+}
+
+function siteMetricsDomainLabel(s) {
+  return s?.domain || s?.liveUrl || s?.id || 'site';
+}
+
+function setSitesMetricsProgress({ visible, label, detail, pct } = {}) {
+  const wrap = document.getElementById('sites-metrics-progress');
+  const bar = document.getElementById('sites-metrics-progress-bar');
+  const labelEl = document.getElementById('sites-metrics-progress-label');
+  const detailEl = document.getElementById('sites-metrics-progress-detail');
+  if (!wrap) return;
+  wrap.classList.toggle('hidden', !visible);
+  if (labelEl && label != null) labelEl.textContent = label;
+  if (detailEl && detail != null) detailEl.textContent = detail;
+  if (bar) {
+    if (pct == null || !Number.isFinite(Number(pct))) {
+      bar.classList.remove('is-determinate');
+      bar.style.width = '';
+    } else {
+      const clamped = Math.max(0, Math.min(100, Number(pct)));
+      bar.classList.add('is-determinate');
+      bar.style.width = `${clamped}%`;
+    }
+  }
+}
+
+function setSitesMetricsButtonsDisabled(busy) {
+  state.sitesMetricsBusy = Boolean(busy);
+  const ids = [
+    'sites-gsc-sync-btn',
+    'sites-rank-sync-btn',
+    'sites-add-btn',
+    'sites-refresh-btn',
+    'sites-kw-add',
+    'sites-kw-save',
+    'sites-rank-check-one',
+    'sites-gsc-sync-one',
+  ];
+  for (const id of ids) {
+    const el = document.getElementById(id);
+    if (el) el.disabled = Boolean(busy);
+  }
+  updateSitesGscConnectButton();
+}
+
+function clearSitesGscConnectWait() {
+  const wait = state._sitesGscConnectWait;
+  if (!wait) return;
+  if (wait.pollTimer) clearInterval(wait.pollTimer);
+  if (wait.timeoutTimer) clearTimeout(wait.timeoutTimer);
+  if (wait.onFocus) window.removeEventListener('focus', wait.onFocus);
+  state._sitesGscConnectWait = null;
+}
+
+async function finishSitesGscConnectWait({ connected = false, timedOut = false } = {}) {
+  clearSitesGscConnectWait();
+  try {
+    await loadSites();
+  } catch {
+    /* ignore */
+  }
+  setSitesMetricsProgress({ visible: false, label: '', detail: '', pct: null });
+  setSitesMetricsButtonsDisabled(false);
+  if (timedOut && !connected) {
+    await showModal({
+      title: 'GSC connect still waiting',
+      confirmLabel: 'OK',
+      hideCancel: true,
+      bodyHtml: `<p>No connection confirmed after 2 minutes. Finish Google sign-in in the popup, or click <strong>Connect GSC</strong> again.</p>`,
+    });
+  } else if (connected) {
+    setSitesMetricsProgress({
+      visible: true,
+      label: 'GSC connected',
+      detail: 'Ready to Sync GSC',
+      pct: 100,
+    });
+    setTimeout(() => {
+      if (!state.sitesMetricsBusy) {
+        setSitesMetricsProgress({ visible: false, label: '', detail: '', pct: null });
+      }
+    }, 1500);
+  }
+}
+
+function startSitesGscConnectWait() {
+  clearSitesGscConnectWait();
+  setSitesMetricsButtonsDisabled(true);
+  setSitesMetricsProgress({
+    visible: true,
+    label: 'Waiting for Google sign-in…',
+    detail: 'Complete consent in the popup window',
+    pct: null,
+  });
+
+  const poll = async () => {
+    try {
+      const status = await api('/api/gsc/status');
+      state.gscStatus = status;
+      if (status?.connected) {
+        await finishSitesGscConnectWait({ connected: true });
+      }
+    } catch {
+      /* keep waiting */
+    }
+  };
+
+  const onFocus = () => {
+    poll();
+  };
+
+  const pollTimer = setInterval(poll, 2000);
+  const timeoutTimer = setTimeout(() => {
+    if (state._sitesGscConnectWait) {
+      finishSitesGscConnectWait({ timedOut: true });
+    }
+  }, 120000);
+
+  state._sitesGscConnectWait = { pollTimer, timeoutTimer, onFocus };
+  window.addEventListener('focus', onFocus);
+}
+
+/**
+ * Run an async Sites metrics job with progress bar + button lock.
+ * @param {{ label: string, detail?: string }} start
+ * @param {(ctx: { setProgress: Function }) => Promise<void>} fn
+ */
+async function withSitesMetricsBusy(start, fn) {
+  if (state.sitesMetricsBusy) return;
+  setSitesMetricsButtonsDisabled(true);
+  setSitesMetricsProgress({
+    visible: true,
+    label: start.label || 'Working…',
+    detail: start.detail || 'Starting…',
+    pct: start.pct != null ? start.pct : null,
+  });
+  try {
+    await fn({
+      setProgress: (opts) => setSitesMetricsProgress({ visible: true, ...opts }),
+    });
+  } finally {
+    setSitesMetricsProgress({ visible: false, label: '', detail: '', pct: null });
+    setSitesMetricsButtonsDisabled(false);
+  }
+}
+
+async function syncSitesGscSequential(siteList) {
+  const sites = siteList || sitesMetricsEligible();
+  if (!sites.length) {
+    await showModal({
+      title: 'GSC sync',
+      confirmLabel: 'OK',
+      hideCancel: true,
+      bodyHtml: `<p>No eligible sites (need status live/listed/rented/building and a domain).</p>`,
+    });
+    return;
+  }
+  let synced = 0;
+  let failed = 0;
+  const errors = [];
+  await withSitesMetricsBusy(
+    { label: 'Syncing GSC…', detail: `0/${sites.length}`, pct: 0 },
+    async ({ setProgress }) => {
+      for (let i = 0; i < sites.length; i += 1) {
+        const s = sites[i];
+        const label = siteMetricsDomainLabel(s);
+        setProgress({
+          label: 'Syncing GSC…',
+          detail: `${i + 1}/${sites.length} · ${label}`,
+          pct: Math.round(((i + 0.5) / sites.length) * 100),
+        });
+        try {
+          const result = await api('/api/gsc/sync', {
+            method: 'POST',
+            body: JSON.stringify({ siteId: s.id }),
+          });
+          if (result.ok) synced += 1;
+          else {
+            failed += 1;
+            errors.push(`${label}: ${result.error || 'failed'}`);
+          }
+        } catch (error) {
+          failed += 1;
+          errors.push(`${label}: ${error.message || error}`);
+        }
+        setProgress({
+          label: 'Syncing GSC…',
+          detail: `${i + 1}/${sites.length} · ${label}`,
+          pct: Math.round(((i + 1) / sites.length) * 100),
+        });
+      }
+      await loadSites();
+    },
+  );
+  await showModal({
+    title: 'GSC sync',
+    confirmLabel: 'OK',
+    hideCancel: true,
+    bodyHtml: `<p>Synced ${esc(synced)} · failed ${esc(failed)}</p>${
+      errors.length
+        ? `<pre class="muted small" style="white-space:pre-wrap;max-height:160px;overflow:auto">${esc(
+            errors.slice(0, 12).join('\n'),
+          )}</pre>`
+        : ''
+    }`,
+  });
+}
+
+async function checkSitesRanksSequential(siteList) {
+  const sites = siteList || sitesMetricsEligible();
+  if (!sites.length) {
+    await showModal({
+      title: 'Rank check',
+      confirmLabel: 'OK',
+      hideCancel: true,
+      bodyHtml: `<p>No eligible sites (need status live/listed/rented/building and a domain).</p>`,
+    });
+    return;
+  }
+  let checked = 0;
+  let failed = 0;
+  let costUsd = 0;
+  const errors = [];
+  await withSitesMetricsBusy(
+    {
+      label: 'Checking ranks (Standard queue)…',
+      detail: `0/${sites.length} — can take several minutes`,
+      pct: 0,
+    },
+    async ({ setProgress }) => {
+      for (let i = 0; i < sites.length; i += 1) {
+        const s = sites[i];
+        const label = siteMetricsDomainLabel(s);
+        setProgress({
+          label: 'Checking ranks (Standard queue)…',
+          detail: `${i + 1}/${sites.length} · ${label}`,
+          pct: Math.round(((i + 0.5) / sites.length) * 100),
+        });
+        try {
+          const result = await api(`/api/sites/${encodeURIComponent(s.id)}/rank-check`, {
+            method: 'POST',
+            body: JSON.stringify({}),
+          });
+          costUsd += Number(result.costUsd) || 0;
+          if (result.ok) checked += 1;
+          else {
+            failed += 1;
+            errors.push(`${label}: ${result.error || 'finished with errors'}`);
+          }
+        } catch (error) {
+          failed += 1;
+          errors.push(`${label}: ${error.message || error}`);
+        }
+        setProgress({
+          label: 'Checking ranks (Standard queue)…',
+          detail: `${i + 1}/${sites.length} · ${label}`,
+          pct: Math.round(((i + 1) / sites.length) * 100),
+        });
+      }
+      await loadSites();
+    },
+  );
+  await showModal({
+    title: 'Rank sync',
+    confirmLabel: 'OK',
+    hideCancel: true,
+    bodyHtml: `<p>Checked ${esc(checked)} · failed ${esc(failed)} · cost ~$${esc(
+      Number(costUsd || 0).toFixed(4),
+    )}</p>${
+      errors.length
+        ? `<pre class="muted small" style="white-space:pre-wrap;max-height:160px;overflow:auto">${esc(
+            errors.slice(0, 12).join('\n'),
+          )}</pre>`
+        : ''
+    }`,
+  });
+}
 
 async function loadSites() {
   const data = await api('/api/sites');
@@ -10151,7 +11384,11 @@ async function loadSites() {
   state.siteStatuses = data.statuses || [];
   state.sitePaymentMethods = data.paymentMethods || [];
   state.siteBillingCycles = data.billingCycles || [];
+  state.gscStatus = data.gsc || null;
+  state.sitesPortfolio = data.portfolio || { traffic: [], ranks: [] };
   fillSitesStateFilter();
+  renderSitesGscStatus();
+  renderSitesPortfolioCharts();
   renderSitesTable();
   renderSitesDetail();
 }
@@ -10243,29 +11480,20 @@ function renderSitesTable() {
               s.domain || s.liveUrl,
             )}</a>`
           : esc(s.domain || '—');
-        const cfCell = s.cloudflareDashboardUrl
-          ? `<a href="${esc(s.cloudflareDashboardUrl)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">${esc(
-              s.cfProject || 'CF',
-            )}</a>`
-          : esc(s.cfProject || '—');
-        const ghCell = s.githubRepoUrl
-          ? `<a href="${esc(s.githubRepoUrl)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">${esc(
-              s.githubRepo || 'repo',
-            )}</a>`
-          : esc(s.githubRepo || '—');
         return `<tr class="${active}" data-id="${esc(s.id)}">
           <td>${esc(s.niche || '—')}</td>
           <td>${esc(s.city || '—')}</td>
           <td>${esc(s.state || '—')}</td>
           <td>${domainCell}</td>
           <td><span class="site-status site-status-${esc(s.status || '')}">${esc(s.status || '—')}</span></td>
+          <td>${esc(formatSiteMetricNum(s.clicks28d))}</td>
+          <td>${esc(formatSiteMetricNum(s.impressions28d))}</td>
+          <td>${esc(s.primaryPosition == null ? '—' : s.primaryPosition)}</td>
+          <td>${esc(s.primaryPage == null ? '—' : s.primaryPage)}</td>
+          <td>${esc(formatSiteDate(s.gscLastSyncAt))}</td>
+          <td>${esc(formatSiteDate(s.lastRankCheckAt))}</td>
           <td>${esc(formatSiteMoney(s.targetRentUsd))}</td>
           <td>${esc(formatSiteMoney(s.actualRentUsd))}</td>
-          <td>${esc(s.paymentMethod || '—')}</td>
-          <td>${esc(s.phone || '—')}</td>
-          <td>${esc(s.email || '—')}</td>
-          <td>${cfCell}</td>
-          <td>${ghCell}</td>
           <td>${esc(formatSiteDate(s.lastLaunchAt))}</td>
         </tr>`;
       })
@@ -10463,56 +11691,107 @@ function renderSitesDetail() {
 
   body.innerHTML = `
     <div class="sites-detail-head">
-      <h2>${esc(s.businessName || s.niche || s.domain || 'Site')}</h2>
-      <p class="muted">${esc([s.city, s.state].filter(Boolean).join(', '))}${
-        s.candidateId ? ` · <code>${esc(s.candidateId)}</code>` : ''
-      }</p>
+      <div class="sites-detail-head-main">
+        <h2>${esc(s.businessName || s.niche || s.domain || 'Site')}</h2>
+        <p class="muted">${esc([s.city, s.state].filter(Boolean).join(', '))}${
+          s.candidateId ? ` · <code>${esc(s.candidateId)}</code>` : ''
+        }</p>
+      </div>
+      ${
+        s.candidateId
+          ? `<button type="button" class="btn primary btn-sm" id="sites-visual-edit" data-tip="Operator visual editor — visitors never see this">Edit site</button>`
+          : ''
+      }
     </div>
     <div class="sites-detail-links muted small">
       ${s.liveUrl ? `<a href="${esc(s.liveUrl)}" target="_blank" rel="noopener">Live</a>` : ''}
       ${s.cloudflareDashboardUrl ? `<a href="${esc(s.cloudflareDashboardUrl)}" target="_blank" rel="noopener">Cloudflare</a>` : ''}
       ${s.web3FormsDashboardUrl ? `<a href="${esc(s.web3FormsDashboardUrl)}" target="_blank" rel="noopener">Web3Forms</a>${s.web3FormsAccessKeySet ? ' · key set' : ' · no key'}` : ''}
       ${s.githubRepoUrl ? `<a href="${esc(s.githubRepoUrl)}" target="_blank" rel="noopener">GitHub</a>` : ''}
+      ${
+        s.gscPropertyUrl
+          ? `<a href="https://search.google.com/search-console" target="_blank" rel="noopener">GSC</a>`
+          : ''
+      }
     </div>
     ${
-      s.candidateId
-        ? `<div class="narrative-actions" style="margin:0.6rem 0 0.8rem">
-            <button type="button" class="btn primary" id="sites-visual-edit" data-tip="Operator visual editor — visitors never see this">Edit site</button>
-            ${
-              s.status === 'paused' || s.status === 'retired'
-                ? `<span class="muted small">Site is ${esc(s.status)} — edits still go to candidate source, then Publish to ship.</span>`
-                : ''
-            }
-          </div>`
-        : `<p class="muted small">No candidate id — cannot visual-edit this row.</p>`
+      s.candidateId && (s.status === 'paused' || s.status === 'retired')
+        ? `<p class="muted small sites-detail-status-note">Site is ${esc(s.status)} — visual edits still go to candidate source, then Publish to ship.</p>`
+        : !s.candidateId
+          ? `<p class="muted small sites-detail-status-note">No candidate id — cannot visual-edit this row.</p>`
+          : ''
     }
+    <div class="sites-metrics-block">
+      <h3>Search metrics</h3>
+      <p class="muted small sites-metrics-summary">
+        28d: ${esc(formatSiteMetricNum(s.clicks28d))} clicks ·
+        ${esc(formatSiteMetricNum(s.impressions28d))} impr ·
+        CTR ${esc(s.ctr28d == null ? '—' : `${(Number(s.ctr28d) * 100).toFixed(1)}%`)} ·
+        avg pos ${esc(formatSiteMetricNum(s.avgPosition28d, 1))}
+        ${s.gscSyncError ? `<br/><span class="sites-metric-err">GSC: ${esc(s.gscSyncError)}</span>` : ''}
+      </p>
+      <p class="muted small sites-metrics-summary">
+        Primary rank: pos ${esc(s.primaryPosition == null ? '—' : s.primaryPosition)} ·
+        page ${esc(s.primaryPage == null ? '—' : s.primaryPage)}
+        ${s.rankSyncError ? `<br/><span class="sites-metric-err">Ranks: ${esc(s.rankSyncError)}</span>` : ''}
+      </p>
+      <div class="sites-detail-charts">
+        <div class="sites-chart-card">
+          <h3>Traffic</h3>
+          <div id="sites-detail-chart-traffic" class="sites-chart"></div>
+        </div>
+        <div class="sites-chart-card">
+          <h3>Keyword position</h3>
+          <div id="sites-detail-chart-ranks" class="sites-chart"></div>
+        </div>
+      </div>
+      <h3 class="sites-kw-heading">Tracked keywords (≤5)</h3>
+      <div id="sites-kw-list"></div>
+      <div class="sites-kw-actions">
+        <button type="button" class="btn primary btn-sm" id="sites-kw-save">Save keywords</button>
+        <button type="button" class="btn btn-sm" id="sites-kw-add">Add keyword</button>
+        <button type="button" class="btn btn-sm" id="sites-rank-check-one">Check ranks</button>
+        <button type="button" class="btn btn-sm" id="sites-gsc-sync-one">Sync GSC</button>
+      </div>
+    </div>
     <form id="sites-edit-form" class="sites-edit-form">
       <h3>Portfolio</h3>
-      <label>Status <select name="status">${statusOpts}</select></label>
-      <label>Target rent ($/mo) <input name="targetRentUsd" type="number" step="1" min="0" value="${esc(s.targetRentUsd ?? '')}" /></label>
-      <label>Actual rent ($/mo) <input name="actualRentUsd" type="number" step="1" min="0" value="${esc(s.actualRentUsd ?? '')}" /></label>
-      <label>Payment method <select name="paymentMethod">${payOpts}</select></label>
-      <label>Payment notes <input name="paymentMethodNotes" type="text" value="${esc(s.paymentMethodNotes || '')}" /></label>
-      <label>Billing cycle <select name="billingCycle">${billingOpts}</select></label>
-      <label>Contract start <input name="contractStart" type="date" value="${esc((s.contractStart || '').slice(0, 10))}" /></label>
-      <label>Contract end <input name="contractEnd" type="date" value="${esc((s.contractEnd || '').slice(0, 10))}" /></label>
-      <label>Next invoice <input name="nextInvoiceAt" type="date" value="${esc((s.nextInvoiceAt || '').slice(0, 10))}" /></label>
+      <div class="sites-field-row">
+        <label>Status <select name="status">${statusOpts}</select></label>
+        <label>Billing cycle <select name="billingCycle">${billingOpts}</select></label>
+      </div>
+      <div class="sites-field-row">
+        <label>Target rent ($/mo) <input name="targetRentUsd" type="number" step="1" min="0" value="${esc(s.targetRentUsd ?? '')}" /></label>
+        <label>Actual rent ($/mo) <input name="actualRentUsd" type="number" step="1" min="0" value="${esc(s.actualRentUsd ?? '')}" /></label>
+      </div>
+      <div class="sites-field-row">
+        <label>Payment method <select name="paymentMethod">${payOpts}</select></label>
+        <label>Payment notes <input name="paymentMethodNotes" type="text" value="${esc(s.paymentMethodNotes || '')}" /></label>
+      </div>
+      <div class="sites-field-row">
+        <label>Contract start <input name="contractStart" type="date" value="${esc((s.contractStart || '').slice(0, 10))}" /></label>
+        <label>Contract end <input name="contractEnd" type="date" value="${esc((s.contractEnd || '').slice(0, 10))}" /></label>
+      </div>
+      <label class="sites-field-span">Next invoice <input name="nextInvoiceAt" type="date" value="${esc((s.nextInvoiceAt || '').slice(0, 10))}" /></label>
       <h3>Renter</h3>
-      <label>Business <input name="renterBusinessName" type="text" value="${esc(r.businessName || '')}" /></label>
-      <label>Contact <input name="renterContactName" type="text" value="${esc(r.contactName || '')}" /></label>
-      <label>Email <input name="renterEmail" type="email" value="${esc(r.email || '')}" /></label>
-      <label>Phone <input name="renterPhone" type="text" value="${esc(r.phone || '')}" /></label>
-      <label>Renter notes <textarea name="renterNotes" rows="2">${esc(r.notes || '')}</textarea></label>
-      <label>Site notes <textarea name="notes" rows="3">${esc(s.notes || '')}</textarea></label>
-      <div class="narrative-actions">
+      <div class="sites-field-row">
+        <label>Business <input name="renterBusinessName" type="text" value="${esc(r.businessName || '')}" /></label>
+        <label>Contact <input name="renterContactName" type="text" value="${esc(r.contactName || '')}" /></label>
+      </div>
+      <div class="sites-field-row">
+        <label>Email <input name="renterEmail" type="email" value="${esc(r.email || '')}" /></label>
+        <label>Phone <input name="renterPhone" type="text" value="${esc(r.phone || '')}" /></label>
+      </div>
+      <label class="sites-field-span">Renter notes <textarea name="renterNotes" rows="2">${esc(r.notes || '')}</textarea></label>
+      <label class="sites-field-span">Site notes <textarea name="notes" rows="2">${esc(s.notes || '')}</textarea></label>
+      <div class="sites-form-actions">
         <button type="submit" class="btn primary">Save</button>
-        <button type="button" class="btn danger" id="sites-delete-btn">Remove from Sites</button>
       </div>
     </form>
-    <p class="muted small">Site NAP: ${esc(s.phone || '—')} · ${esc(s.email || '—')}${
+    <p class="muted small sites-nap-line">Site NAP: ${esc(s.phone || '—')} · ${esc(s.email || '—')}${
       s.launchCostUsd != null ? ` · Launch costs ~${esc(formatMoney(s.launchCostUsd))}` : ''
     }</p>
-    <div class="sites-phone-tracking" style="margin-top:0.75rem;padding-top:0.75rem;border-top:1px solid var(--border, #333)">
+    <div class="sites-phone-tracking">
       <h3>Phone tracking</h3>
       ${
         s.phoneTracking?.provider === 'twilio' && s.phoneTracking?.e164
@@ -10524,34 +11803,34 @@ function renderSitesDetail() {
                 : ''
             }${
               s.phoneTracking.forwardTo
-                ? ` · forwards to ${esc(s.phoneTracking.forwardTo)}`
+                ? ` · → ${esc(s.phoneTracking.forwardTo)}`
                 : ''
             }</p>`
-          : `<p class="muted small">No ranking number yet. Buys a local Twilio DID (~$1.15/mo), whispers site name, forwards to <code>TWILIO_FORWARD_TO</code>.</p>`
+          : `<p class="muted small">No ranking DID yet (~$1.15/mo). Forwards to <code>TWILIO_FORWARD_TO</code>.</p>`
       }
-      <div class="narrative-actions" style="align-items:center;gap:0.5rem;flex-wrap:wrap">
-        <label class="muted small" style="display:inline-flex;align-items:center;gap:0.35rem">
-          Area code (optional)
-          <input id="sites-twilio-area" type="text" inputmode="numeric" maxlength="3" placeholder="auto" style="width:4rem" />
+      <div class="sites-phone-actions">
+        <label class="sites-phone-area muted small">
+          Area
+          <input id="sites-twilio-area" type="text" inputmode="numeric" maxlength="3" placeholder="auto" />
         </label>
-        <button type="button" class="btn primary" id="sites-provision-twilio" ${
+        <button type="button" class="btn primary btn-sm" id="sites-provision-twilio" ${
           !s.candidateId || (s.phoneTracking?.provider === 'twilio' && s.phoneTracking?.twilioSid)
             ? 'disabled'
             : ''
-        }>Provision ranking number</button>
-        <button type="button" class="btn" id="sites-update-site-phone" ${
+        }>Provision</button>
+        <button type="button" class="btn btn-sm" id="sites-update-site-phone" ${
           s.candidateId && s.phoneTracking?.provider === 'twilio' && s.phoneTracking?.twilioSid
             ? ''
             : 'disabled'
-        } data-tip="Stage → Assemble (and Push if already live) so CTAs show the new NAP">Update site phone number</button>
-        <button type="button" class="btn" id="sites-forward-renter" ${
+        } data-tip="Stage → Assemble (and Push if already live) so CTAs show the new NAP">Update site phone</button>
+        <button type="button" class="btn btn-sm" id="sites-forward-renter" ${
           s.phoneTracking?.provider === 'twilio' &&
           s.phoneTracking?.twilioSid &&
           String(s.renter?.phone || '').trim()
             ? ''
             : 'disabled'
-        } data-tip="Keep same DID; dial renter.phone instead of TWILIO_FORWARD_TO">Set forward to renter</button>
-        <button type="button" class="btn" id="sites-view-calls" ${
+        } data-tip="Keep same DID; dial renter.phone instead of TWILIO_FORWARD_TO">Forward to renter</button>
+        <button type="button" class="btn btn-sm" id="sites-view-calls" ${
           s.phoneTracking?.provider === 'twilio' && s.phoneTracking?.e164 ? '' : 'disabled'
         }>View calls →</button>
       </div>
@@ -10560,11 +11839,198 @@ function renderSitesDetail() {
         !s.candidateId
           ? `<p class="muted small">Link a candidate first (accepted site-config required).</p>`
           : s.phoneTracking?.provider === 'twilio' && s.phoneTracking?.twilioSid
-            ? `<p class="muted small">After provision, use <strong>Update site phone number</strong> to Prepare (and Push if live). First go-live still needs Website → Run launch. Call review lives on the <strong>Phone</strong> tab.</p>`
+            ? `<p class="muted small">After provision, use <strong>Update site phone</strong> to push NAP. First go-live still needs Website → Run launch.</p>`
             : ''
       }
     </div>
+    <div class="sites-danger-zone">
+      <h3>Remove</h3>
+      <p class="muted small">Removes this listing from Launched Sites only. Research candidate and live site are kept.</p>
+      <button type="button" class="btn danger solid" id="sites-delete-btn">Remove from Sites</button>
+    </div>
   `;
+
+  // Per-site charts
+  const daily = s.metrics?.gsc?.daily || [];
+  renderSvgLineChart(
+    document.getElementById('sites-detail-chart-traffic'),
+    [
+      { label: 'Clicks', color: '#2a9d8f', points: daily.map((r) => ({ y: r.clicks })) },
+      { label: 'Impressions', color: '#e9c46a', points: daily.map((r) => ({ y: r.impressions })) },
+    ],
+    { yLabel: 'Site traffic', yFormat: 'number', minPoints: 2 },
+  );
+  const kwSeries = (s.rankKeywords || []).slice(0, 5).map((kw, idx) => {
+    const hist = s.metrics?.ranks?.byKeyword?.[kw.keyword]?.history || [];
+    const colors = ['#457b9d', '#2a9d8f', '#e9c46a', '#e76f51', '#9b5de5'];
+    return {
+      label: kw.isPrimary ? `${kw.keyword} (primary)` : kw.keyword,
+      color: colors[idx % colors.length],
+      points: hist
+        .filter((p) => p.position != null && Number.isFinite(Number(p.position)))
+        .map((p) => ({ y: Number(p.position) })),
+    };
+  });
+  renderSvgLineChart(document.getElementById('sites-detail-chart-ranks'), kwSeries, {
+    yLabel: 'Keyword position',
+    yFormat: 'number',
+    invertY: true,
+    minPoints: 2,
+  });
+
+  const kwList = document.getElementById('sites-kw-list');
+  const renderKwRows = (keywords) => {
+    if (!kwList) return;
+    const rows = keywords.length
+      ? keywords
+      : [{ keyword: '', isPrimary: true, source: 'manual' }];
+    kwList.innerHTML = rows
+      .map(
+        (kw, i) => `<div class="sites-kw-row" data-idx="${i}">
+        <label class="muted small" style="display:inline-flex;align-items:center;gap:0.25rem;white-space:nowrap">
+          <input type="radio" name="sites-kw-primary" ${kw.isPrimary ? 'checked' : ''} /> Primary
+        </label>
+        <input type="text" class="sites-kw-input" value="${esc(kw.keyword || '')}" placeholder="keyword + city" maxlength="120" />
+        <button type="button" class="btn sites-kw-remove" title="Remove">×</button>
+      </div>`,
+      )
+      .join('');
+    kwList.querySelectorAll('.sites-kw-remove').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const row = btn.closest('.sites-kw-row');
+        row?.remove();
+        if (!kwList.querySelector('.sites-kw-row')) renderKwRows([]);
+      });
+    });
+  };
+  renderKwRows(s.rankKeywords || []);
+
+  document.getElementById('sites-kw-add')?.addEventListener('click', () => {
+    const current = [...(kwList?.querySelectorAll('.sites-kw-row') || [])].map((row) => ({
+      keyword: row.querySelector('.sites-kw-input')?.value || '',
+      isPrimary: Boolean(row.querySelector('input[type=radio]')?.checked),
+      source: 'manual',
+    }));
+    if (current.length >= 5) return;
+    current.push({ keyword: '', isPrimary: false, source: 'manual' });
+    renderKwRows(current);
+  });
+
+  document.getElementById('sites-kw-save')?.addEventListener('click', async () => {
+    const keywords = [...(kwList?.querySelectorAll('.sites-kw-row') || [])].map((row) => ({
+      keyword: row.querySelector('.sites-kw-input')?.value || '',
+      isPrimary: Boolean(row.querySelector('input[type=radio]')?.checked),
+      source: 'manual',
+    }));
+    try {
+      await api(`/api/sites/${encodeURIComponent(s.id)}/rank-keywords`, {
+        method: 'POST',
+        body: JSON.stringify({ keywords }),
+      });
+      await loadSites();
+    } catch (error) {
+      await showModal({
+        title: 'Save keywords failed',
+        confirmLabel: 'OK',
+        bodyHtml: `<p>${esc(error.message)}</p>`,
+      });
+    }
+  });
+
+  document.getElementById('sites-rank-check-one')?.addEventListener('click', async () => {
+    if (state.sitesMetricsBusy) return;
+    let result = null;
+    try {
+      await withSitesMetricsBusy(
+        {
+          label: 'Checking ranks (Standard queue)…',
+          detail: siteMetricsDomainLabel(s),
+          pct: null,
+        },
+        async ({ setProgress }) => {
+          setProgress({
+            label: 'Checking ranks (Standard queue)…',
+            detail: `1/1 · ${siteMetricsDomainLabel(s)}`,
+            pct: 50,
+          });
+          result = await api(`/api/sites/${encodeURIComponent(s.id)}/rank-check`, {
+            method: 'POST',
+            body: JSON.stringify({}),
+          });
+          setProgress({
+            label: 'Checking ranks (Standard queue)…',
+            detail: `1/1 · ${siteMetricsDomainLabel(s)}`,
+            pct: 100,
+          });
+          await loadSites();
+        },
+      );
+      if (result) {
+        await showModal({
+          title: result.ok ? 'Rank check done' : 'Rank check finished with errors',
+          confirmLabel: 'OK',
+          hideCancel: true,
+          bodyHtml: `<p>Cost ~$${esc(Number(result.costUsd || 0).toFixed(4))}</p>
+            <pre class="muted small" style="white-space:pre-wrap">${esc(
+              JSON.stringify(result.keywords || [], null, 2),
+            )}</pre>`,
+        });
+      }
+    } catch (error) {
+      await showModal({
+        title: 'Rank check failed',
+        confirmLabel: 'OK',
+        bodyHtml: `<p>${esc(error.message)}</p>`,
+      });
+    }
+  });
+
+  document.getElementById('sites-gsc-sync-one')?.addEventListener('click', async () => {
+    if (state.sitesMetricsBusy) return;
+    let result = null;
+    try {
+      await withSitesMetricsBusy(
+        {
+          label: 'Syncing GSC…',
+          detail: siteMetricsDomainLabel(s),
+          pct: null,
+        },
+        async ({ setProgress }) => {
+          setProgress({
+            label: 'Syncing GSC…',
+            detail: `1/1 · ${siteMetricsDomainLabel(s)}`,
+            pct: 50,
+          });
+          result = await api('/api/gsc/sync', {
+            method: 'POST',
+            body: JSON.stringify({ siteId: s.id }),
+          });
+          setProgress({
+            label: 'Syncing GSC…',
+            detail: `1/1 · ${siteMetricsDomainLabel(s)}`,
+            pct: 100,
+          });
+          await loadSites();
+        },
+      );
+      if (result && !result.ok) {
+        await showModal({
+          title: 'GSC sync issue',
+          confirmLabel: 'OK',
+          hideCancel: true,
+          bodyHtml: `<p>${esc(result.error || 'Unknown error')}</p>`,
+        });
+      }
+    } catch (error) {
+      await showModal({
+        title: 'GSC sync failed',
+        confirmLabel: 'OK',
+        bodyHtml: `<p>${esc(error.message)}</p>`,
+      });
+    }
+  });
+
+  if (state.sitesMetricsBusy) setSitesMetricsButtonsDisabled(true);
 
   document.getElementById('sites-visual-edit')?.addEventListener('click', async () => {
     if (!s.candidateId) return;
@@ -10727,12 +12193,39 @@ function renderSitesDetail() {
   });
 
   document.getElementById('sites-delete-btn')?.addEventListener('click', async () => {
-    const ok = await showModal({
-      title: 'Remove from Sites?',
-      confirmLabel: 'Remove',
-      bodyHtml: `<p>Remove <strong>${esc(s.domain || s.candidateId || s.id)}</strong> from the Sites registry. Candidate files are kept.</p>`,
+    const label = s.domain || s.candidateId || s.id;
+    const hasTwilio = Boolean(
+      s.phoneTracking?.provider === 'twilio' && (s.phoneTracking?.e164 || s.phoneTracking?.twilioSid),
+    );
+    const layer1 = await showModal({
+      title: 'Remove from Launched Sites?',
+      confirmLabel: 'Continue',
+      danger: true,
+      bodyHtml: `<p>You are about to remove <strong>${esc(label)}</strong> from the Launched Sites table.</p>
+        <ul>
+          <li>Removes this listing from the Sites registry only.</li>
+          <li>Does <strong>not</strong> delete the Research candidate, site-config, or the live website.</li>
+          <li>Metrics history for this site id may remain on disk (orphaned).</li>
+          ${
+            hasTwilio
+              ? `<li>Twilio DID <code>${esc(s.phoneTracking.e164 || s.phoneTracking.twilioSid)}</code> is <strong>not</strong> released by this action.</li>`
+              : ''
+          }
+        </ul>
+        <p class="muted small">Next step asks you to type <code>REMOVE</code> to confirm.</p>`,
     });
-    if (!ok) return;
+    if (!layer1) return;
+
+    const layer2 = await showModal({
+      title: 'Type to confirm removal',
+      confirmLabel: 'Remove permanently',
+      danger: true,
+      requireTypedConfirm: 'REMOVE',
+      bodyHtml: `<p>Confirm removal of <strong>${esc(label)}</strong> from Launched Sites.</p>
+        <p class="muted small">This cannot be undone from the UI (you can re-add the candidate later).</p>`,
+    });
+    if (!layer2) return;
+
     try {
       await api(`/api/sites/${encodeURIComponent(s.id)}`, { method: 'DELETE' });
       state.selectedSiteId = null;
@@ -10741,6 +12234,7 @@ function renderSitesDetail() {
       await showModal({
         title: 'Remove failed',
         confirmLabel: 'OK',
+        hideCancel: true,
         bodyHtml: `<p>${esc(error.message)}</p>`,
       });
     }
@@ -11032,6 +12526,7 @@ function wirePhoneUi() {
 
 function wireSitesUi() {
   document.getElementById('sites-refresh-btn')?.addEventListener('click', () => {
+    if (state.sitesMetricsBusy) return;
     loadSites().catch(() => {});
   });
   document.getElementById('sites-filter-text')?.addEventListener('input', (e) => {
@@ -11047,6 +12542,7 @@ function wireSitesUi() {
     renderSitesTable();
   });
   document.getElementById('sites-add-btn')?.addEventListener('click', async () => {
+    if (state.sitesMetricsBusy) return;
     const candidateId = window.prompt('Candidate id to add to Sites:');
     if (!candidateId?.trim()) return;
     try {
@@ -11061,6 +12557,63 @@ function wireSitesUi() {
     } catch (error) {
       await showModal({
         title: 'Add failed',
+        confirmLabel: 'OK',
+        bodyHtml: `<p>${esc(error.message)}</p>`,
+      });
+    }
+  });
+
+  document.getElementById('sites-gsc-connect-btn')?.addEventListener('click', async () => {
+    if (state.sitesMetricsBusy || state.gscStatus?.connected) return;
+    try {
+      const started = await api('/api/gsc/oauth/start');
+      startSitesGscConnectWait();
+      window.open(started.authUrl, 'rover-gsc-oauth', 'width=520,height=720');
+    } catch (error) {
+      clearSitesGscConnectWait();
+      setSitesMetricsProgress({ visible: false, label: '', detail: '', pct: null });
+      setSitesMetricsButtonsDisabled(false);
+      await showModal({
+        title: 'Connect GSC failed',
+        confirmLabel: 'OK',
+        bodyHtml: `<p>${esc(error.message)}</p>
+          <p class="muted small">Add OAuth client id/secret to <code>.env</code>. Redirect URI: <code>http://127.0.0.1:8787/api/gsc/oauth/callback</code></p>`,
+      });
+    }
+  });
+
+  window.addEventListener('message', (event) => {
+    if (event?.data?.type === 'rover-gsc-connected') {
+      finishSitesGscConnectWait({ connected: true }).catch(() => {});
+    }
+  });
+
+  document.getElementById('sites-gsc-sync-btn')?.addEventListener('click', async () => {
+    if (state.sitesMetricsBusy) return;
+    try {
+      await syncSitesGscSequential();
+    } catch (error) {
+      await showModal({
+        title: 'GSC sync failed',
+        confirmLabel: 'OK',
+        bodyHtml: `<p>${esc(error.message)}</p>`,
+      });
+    }
+  });
+
+  document.getElementById('sites-rank-sync-btn')?.addEventListener('click', async () => {
+    if (state.sitesMetricsBusy) return;
+    const go = await showModal({
+      title: 'Check ranks for all sites?',
+      confirmLabel: 'Run Standard queue',
+      bodyHtml: `<p>Uses DataForSEO <strong>Standard</strong> organic SERP (depth 20) for up to 5 keywords per live/building site. Progress shows each site; can take several minutes.</p>`,
+    });
+    if (!go) return;
+    try {
+      await checkSitesRanksSequential();
+    } catch (error) {
+      await showModal({
+        title: 'Rank sync failed',
         confirmLabel: 'OK',
         bodyHtml: `<p>${esc(error.message)}</p>`,
       });
@@ -13131,6 +14684,7 @@ await loadDfsBalance();
 startBalancePolling();
 await loadRubric();
 wireSettingsUi();
+wireJobsUi();
 wireUi();
 renderDiscoverySourceLegend();
 setView('discovery');

@@ -1,0 +1,479 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Rover operator cadence — flowchart</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,500;0,9..40,700;0,9..40,800;1,9..40,500&family=Fraunces:opsz,wght@9..144,600;9..144,700&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #f6f1e8;
+      --ink: #1c1917;
+      --muted: #57534e;
+      --weekly: #0f766e;
+      --weekly-soft: #ccfbf1;
+      --wave-a: #0369a1;
+      --wave-a-soft: #e0f2fe;
+      --wave-b: #b45309;
+      --wave-b-soft: #ffedd5;
+      --wave-c: #047857;
+      --wave-c-soft: #d1fae5;
+      --launch: #c2410c;
+      --launch-soft: #ffedd5;
+      --card: #fffdf9;
+      --line: #d6d3d1;
+      --shadow: 0 12px 40px rgba(28, 25, 23, 0.08);
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "DM Sans", system-ui, sans-serif;
+      color: var(--ink);
+      background:
+        radial-gradient(ellipse 80% 50% at 10% -10%, #99f6e4 0%, transparent 50%),
+        radial-gradient(ellipse 70% 40% at 100% 0%, #fed7aa 0%, transparent 45%),
+        radial-gradient(ellipse 60% 40% at 50% 100%, #bae6fd 0%, transparent 50%),
+        var(--bg);
+      min-height: 100vh;
+      padding: 2.5rem 1.25rem 4rem;
+    }
+
+    .wrap { max-width: 1080px; margin: 0 auto; }
+
+    header {
+      text-align: center;
+      margin-bottom: 2rem;
+    }
+    header .eyebrow {
+      display: inline-block;
+      font-size: 0.75rem;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--weekly);
+      background: var(--weekly-soft);
+      padding: 0.35rem 0.75rem;
+      border-radius: 999px;
+      margin-bottom: 0.75rem;
+    }
+    h1 {
+      font-family: Fraunces, Georgia, serif;
+      font-size: clamp(1.75rem, 4vw, 2.5rem);
+      font-weight: 700;
+      line-height: 1.15;
+      margin: 0 0 0.5rem;
+    }
+    header p {
+      margin: 0 auto;
+      max-width: 36rem;
+      color: var(--muted);
+      font-size: 1.05rem;
+      line-height: 1.5;
+    }
+
+    .clocks {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1rem;
+      margin: 2rem 0 1.5rem;
+    }
+    @media (max-width: 720px) {
+      .clocks { grid-template-columns: 1fr; }
+    }
+
+    .clock {
+      background: var(--card);
+      border-radius: 1.25rem;
+      padding: 1.1rem 1.25rem;
+      box-shadow: var(--shadow);
+      border: 2px solid transparent;
+      display: flex;
+      gap: 0.85rem;
+      align-items: flex-start;
+    }
+    .clock.weekly { border-color: #5eead4; }
+    .clock.daily { border-color: #7dd3fc; }
+    .clock .badge {
+      flex-shrink: 0;
+      width: 2.75rem;
+      height: 2.75rem;
+      border-radius: 0.85rem;
+      display: grid;
+      place-items: center;
+      font-weight: 800;
+      font-size: 0.7rem;
+      color: #fff;
+      text-align: center;
+      line-height: 1.1;
+    }
+    .clock.weekly .badge { background: linear-gradient(145deg, #14b8a6, #0f766e); }
+    .clock.daily .badge { background: linear-gradient(145deg, #38bdf8, #0369a1); }
+    .clock h2 {
+      font-family: Fraunces, Georgia, serif;
+      font-size: 1.15rem;
+      margin: 0 0 0.25rem;
+    }
+    .clock p { margin: 0; font-size: 0.9rem; color: var(--muted); line-height: 1.4; }
+    .clock strong { color: var(--ink); }
+
+    .connector {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.35rem;
+      margin: 0.25rem 0 1.5rem;
+      color: var(--muted);
+      font-size: 0.8rem;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+    .connector .arrow {
+      width: 3px;
+      height: 2.5rem;
+      border-radius: 999px;
+      background: linear-gradient(180deg, #14b8a6, #0369a1);
+      position: relative;
+    }
+    .connector .arrow::after {
+      content: "";
+      position: absolute;
+      bottom: -2px;
+      left: 50%;
+      transform: translateX(-50%);
+      border: 8px solid transparent;
+      border-top-color: #0369a1;
+    }
+
+    /* Weekly strip */
+    .panel {
+      background: var(--card);
+      border-radius: 1.5rem;
+      padding: 1.5rem;
+      box-shadow: var(--shadow);
+      margin-bottom: 1.5rem;
+    }
+    .panel-head {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
+      margin-bottom: 1.25rem;
+    }
+    .panel-head h3 {
+      font-family: Fraunces, Georgia, serif;
+      margin: 0;
+      font-size: 1.35rem;
+    }
+    .chip {
+      font-size: 0.75rem;
+      font-weight: 700;
+      padding: 0.4rem 0.7rem;
+      border-radius: 999px;
+    }
+    .chip.out { background: #fef3c7; color: #92400e; }
+    .chip.in { background: #dbeafe; color: #1e40af; }
+
+    .weekly-flow {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: center;
+      gap: 0.65rem;
+    }
+    .node {
+      border-radius: 1rem;
+      padding: 0.9rem 1.1rem;
+      min-width: 8.5rem;
+      text-align: center;
+      color: #fff;
+      font-weight: 700;
+      box-shadow: 0 8px 20px rgba(0,0,0,0.12);
+    }
+    .node small {
+      display: block;
+      font-weight: 500;
+      opacity: 0.9;
+      font-size: 0.75rem;
+      margin-top: 0.2rem;
+    }
+    .node.teal { background: linear-gradient(145deg, #2dd4bf, #0f766e); }
+    .node.sky { background: linear-gradient(145deg, #38bdf8, #0369a1); }
+    .node.amber { background: linear-gradient(145deg, #fbbf24, #b45309); }
+    .node.mint { background: linear-gradient(145deg, #34d399, #047857); }
+    .node.coral { background: linear-gradient(145deg, #fb923c, #c2410c); }
+    .node.slate { background: linear-gradient(145deg, #78716c, #44403c); }
+
+    .flow-arrow {
+      font-size: 1.5rem;
+      color: #0f766e;
+      font-weight: 800;
+    }
+
+    /* Daily layout */
+    .daily-grid {
+      display: grid;
+      grid-template-columns: 1fr 220px;
+      gap: 1.25rem;
+      align-items: stretch;
+    }
+    @media (max-width: 860px) {
+      .daily-grid { grid-template-columns: 1fr; }
+    }
+
+    .waves { display: flex; flex-direction: column; gap: 1rem; }
+
+    .wave {
+      border-radius: 1.15rem;
+      padding: 1rem 1.1rem;
+      border: 2px solid;
+    }
+    .wave.a { background: var(--wave-a-soft); border-color: #7dd3fc; }
+    .wave.b { background: var(--wave-b-soft); border-color: #fdba74; }
+    .wave.c { background: var(--wave-c-soft); border-color: #6ee7b7; }
+
+    .wave-label {
+      font-size: 0.7rem;
+      font-weight: 800;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      margin-bottom: 0.65rem;
+    }
+    .wave.a .wave-label { color: var(--wave-a); }
+    .wave.b .wave-label { color: var(--wave-b); }
+    .wave.c .wave-label { color: var(--wave-c); }
+
+    .wave-steps {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .pill {
+      background: #fff;
+      border-radius: 0.75rem;
+      padding: 0.55rem 0.8rem;
+      font-size: 0.85rem;
+      font-weight: 700;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+    }
+    .pill em {
+      font-style: normal;
+      font-weight: 500;
+      color: var(--muted);
+      font-size: 0.75rem;
+      display: block;
+    }
+    .mini-arrow { color: var(--muted); font-weight: 800; }
+
+    .launch-rail {
+      background: linear-gradient(180deg, #fff7ed, #ffedd5);
+      border: 2px solid #fdba74;
+      border-radius: 1.15rem;
+      padding: 1rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+    .launch-rail .wave-label { color: var(--launch); }
+    .launch-rail .note {
+      font-size: 0.8rem;
+      color: #9a3412;
+      line-height: 1.35;
+      margin: 0;
+    }
+    .launch-stack {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.4rem;
+    }
+    .launch-stack .node { width: 100%; min-width: 0; }
+
+    .crosslinks {
+      margin-top: 1rem;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      justify-content: center;
+      font-size: 0.8rem;
+      font-weight: 700;
+      color: var(--muted);
+    }
+    .crosslinks span {
+      background: #fff;
+      border: 1px dashed var(--line);
+      padding: 0.35rem 0.65rem;
+      border-radius: 999px;
+    }
+
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 0.75rem;
+      margin-top: 1.5rem;
+    }
+    @media (max-width: 720px) {
+      .metrics { grid-template-columns: 1fr; }
+    }
+    .metric {
+      background: var(--card);
+      border-radius: 1rem;
+      padding: 1rem;
+      text-align: center;
+      box-shadow: var(--shadow);
+    }
+    .metric .num {
+      font-family: Fraunces, Georgia, serif;
+      font-size: 1.75rem;
+      font-weight: 700;
+      display: block;
+    }
+    .metric.m1 .num { color: #0f766e; }
+    .metric.m2 .num { color: #0369a1; }
+    .metric.m3 .num { color: #c2410c; }
+    .metric .lbl { font-size: 0.8rem; color: var(--muted); }
+
+    footer {
+      text-align: center;
+      margin-top: 2rem;
+      font-size: 0.85rem;
+      color: var(--muted);
+    }
+    footer a { color: #0f766e; font-weight: 700; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div class="eyebrow">Rover · operator cadence</div>
+      <h1>10 sites per day — two clocks</h1>
+      <p>Weekly prep fills the queue. The daily 5-hour block only builds and launches today’s 10. Parallel waves for Content; Launch stays serial.</p>
+    </header>
+
+    <div class="clocks">
+      <div class="clock weekly">
+        <div class="badge">OUT<br />5h</div>
+        <div>
+          <h2>Weekly prep</h2>
+          <p><strong>~1 hour</strong> outside the workday · Discovery → Research → <strong>~50 pursue</strong> for next week (10/day × 5).</p>
+        </div>
+      </div>
+      <div class="clock daily">
+        <div class="badge">IN<br />5h</div>
+        <div>
+          <h2>Daily build day</h2>
+          <p><strong>5-hour</strong> block · today’s <strong>10</strong> already pursued · Site-Config → Content → Launch only.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="connector">
+      <span>Queue ready for the week</span>
+      <div class="arrow" aria-hidden="true"></div>
+      <span>Each morning: take 10</span>
+    </div>
+
+    <section class="panel" aria-label="Weekly prep flow">
+      <div class="panel-head">
+        <h3>1 · Weekly prep</h3>
+        <span class="chip out">Not counted in daily 5h</span>
+      </div>
+      <div class="weekly-flow">
+        <div class="node teal">Discovery<small>batch / packs</small></div>
+        <span class="flow-arrow" aria-hidden="true">→</span>
+        <div class="node sky">Research<small>batch + narratives</small></div>
+        <span class="flow-arrow" aria-hidden="true">→</span>
+        <div class="node amber">Pursue ~50<small>queue for 5 days</small></div>
+      </div>
+    </section>
+
+    <section class="panel" aria-label="Daily build flow">
+      <div class="panel-head">
+        <h3>2 · Daily 5 hours</h3>
+        <span class="chip in">Counts toward 5h</span>
+      </div>
+
+      <div class="daily-grid">
+        <div class="waves">
+          <div class="wave a">
+            <div class="wave-label">Wave A · sites 1–4 · parallel</div>
+            <div class="wave-steps">
+              <div class="pill">Site-Config<em>colors → phone</em></div>
+              <span class="mini-arrow">→</span>
+              <div class="pill">Content<em>outline + Full write</em></div>
+              <span class="mini-arrow">→</span>
+              <div class="pill">Accept<em>when Claude returns</em></div>
+            </div>
+          </div>
+
+          <div class="wave b">
+            <div class="wave-label">Wave B · sites 5–8 · start during Wave A launches</div>
+            <div class="wave-steps">
+              <div class="pill">Site-Config</div>
+              <span class="mini-arrow">→</span>
+              <div class="pill">Content<em>parallel Claude tabs</em></div>
+              <span class="mini-arrow">→</span>
+              <div class="pill">Accept</div>
+            </div>
+          </div>
+
+          <div class="wave c">
+            <div class="wave-label">Wave C · sites 9–10 · fill remaining gaps</div>
+            <div class="wave-steps">
+              <div class="pill">Site-Config</div>
+              <span class="mini-arrow">→</span>
+              <div class="pill">Content</div>
+              <span class="mini-arrow">→</span>
+              <div class="pill">Accept</div>
+            </div>
+          </div>
+
+          <div class="crosslinks">
+            <span>First Content Accept → enter Launch rail</span>
+            <span>Ship waits → advance next wave</span>
+            <span>Never same candidate in 2 tabs</span>
+          </div>
+        </div>
+
+        <aside class="launch-rail" aria-label="Serial launch lane">
+          <div class="wave-label">Serial launch · one at a time</div>
+          <div class="launch-stack">
+            <div class="node coral">Prepare preview<small>:4322 only one</small></div>
+            <span class="flow-arrow" style="color:#c2410c">↓</span>
+            <div class="node coral">Launch / ship<small>GitHub + Cloudflare</small></div>
+            <span class="flow-arrow" style="color:#c2410c">↓</span>
+            <div class="node slate">Next site<small>repeat 1→10</small></div>
+          </div>
+          <p class="note">Do not overlap Prepare or Launch. Use ship waits to work Wave B/C Content.</p>
+        </aside>
+      </div>
+    </section>
+
+    <div class="metrics">
+      <div class="metric m1">
+        <span class="num">~2.2h</span>
+        <span class="lbl">You — hands-on clicks/pastes</span>
+      </div>
+      <div class="metric m2">
+        <span class="num">~3.5–5h</span>
+        <span class="lbl">Calendar — day until 10 live</span>
+      </div>
+      <div class="metric m3">
+        <span class="num">3–4</span>
+        <span class="lbl">Sites per wave (sweet spot)</span>
+      </div>
+    </div>
+
+    <footer>
+      Detail: <a href="OPERATOR-CADENCE.md">OPERATOR-CADENCE.md</a>
+      · Step times: <a href="USER-FLOW.md">USER-FLOW.md</a>
+      · Open this file in a browser for the full color view.
+    </footer>
+  </div>
+</body>
+</html>

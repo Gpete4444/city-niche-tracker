@@ -1,0 +1,664 @@
+# Rover .env & API keys setup
+
+This guide walks you through every key Rover needs in your local `.env` file. You do not need to be a developer — follow the numbered clicks, paste values into `.env`, then check the gear in Rover.
+
+For the product walkthrough (what to click in Discovery → Launch), see [USER-FLOW.md](USER-FLOW.md). New operators: start from the [GitHub access gateway](GITHUB-ACCESS-GATEWAY.md) if you do not have repo access yet.
+
+Sections match **Settings → API/Other** (same order as the green ✓ / red ✕ list).
+
+![Settings API/Other checklist](images/env-guide/settings-checklist.png)
+
+---
+
+## Who this is for
+
+Anyone running Rover on their machine who needs Discovery, site addresses, website images, Launch, Phone, or Launched Sites metrics to show green in Settings.
+
+## Prerequisites
+
+1. Open the **Rover** project folder in Cursor or VS Code (`C:\Repos\Rover` or wherever you cloned it).
+2. If there is no `.env` file in that folder yet:
+   - Find `.env.example` in the same folder.
+   - Copy it and rename the copy to `.env` (keep `.env.example` as-is).
+3. Plan to **restart Rover** after every change to `.env` (`Ctrl+C` in the terminal, then `npm run rover` again). Settings only reloads env values on startup.
+
+## How to edit `.env` on Windows
+
+1. In Cursor/VS Code, open `.env` from the Rover folder root (same level as `package.json`).
+2. Put **one setting per line**, in the form `NAME=value` with no spaces around `=`.
+3. Do **not** wrap values in quotes unless the value itself contains spaces (most keys never need quotes).
+4. Use placeholders from this guide (`sk-ant-…`, `AIza…`) — never paste real secrets into docs, chat, or git.
+5. Save the file (`Ctrl+S`).
+6. Restart Rover.
+
+![Example .env layout](images/env-guide/dotenv-layout.png)
+
+**Security**
+
+- Do **not** commit `.env`. It is gitignored on purpose.
+- GSC login tokens live under `research/` (also gitignored). Do not share that folder.
+
+## How to verify
+
+1. Start Rover: `npm run rover`.
+2. Open the dashboard (usually `http://127.0.0.1:8787`).
+3. Click the **gear** (Settings).
+4. Open **API/Other**.
+5. Walk the groups below — each item should turn **green ✓** when that section’s variables (and, for Search Console, Connect GSC) are done.
+
+---
+
+## 1. Discovery & research — DataForSEO
+
+### What it’s for
+
+Powers Discovery SERP probes, keyword research, enrichment, and Launched Sites **keyword rank** checks.
+
+### Required?
+
+**Required** for Discovery / research and rank tracking. Without it, those stages stay blocked.
+
+### Env variable names
+
+```env
+DATAFORSEO_LOGIN=
+DATAFORSEO_PASSWORD=
+```
+
+### Steps
+
+1. Open [DataForSEO API Access](https://app.dataforseo.com/api-access).
+2. Sign up or log in.
+3. On the API access page, copy your **login** (usually your email) and **password** / API password (not your website password if they differ — use the values shown on that page).
+4. Fund the products you use (at minimum **SERP** and **Keywords Data**; Backlinks for enrich; Maps SERP for prospect renters — see comments in `.env.example`).
+5. Paste into `.env` as shown under **Where to paste**.
+6. Save and restart Rover.
+
+### Links
+
+- [DataForSEO API Access](https://app.dataforseo.com/api-access)
+- [DataForSEO docs](https://docs.dataforseo.com/v3/)
+
+### Where to paste
+
+```env
+DATAFORSEO_LOGIN=you@example.com
+DATAFORSEO_PASSWORD=your-api-password-here
+```
+
+### How Settings shows ✓
+
+**Discovery & research → DataForSEO** is green when both variables are non-empty.
+
+---
+
+## 2. Copy & AI — Anthropic
+
+### What it’s for
+
+Claude drafts site narrative, outreach, and other copy in Rover (draft → Accept).
+
+### Required?
+
+**Required** for AI copy / narrative flows. Optional only if you never use those features.
+
+### Env variable names
+
+```env
+ANTHROPIC_API_KEY=
+```
+
+(Optional later: `ANTHROPIC_MODEL=…` — leave unset unless you know you need an override.)
+
+### Steps
+
+1. Open [Anthropic Console](https://console.anthropic.com/).
+2. Sign up or log in.
+3. Go to **API keys** (or **Settings → API keys**).
+4. Click **Create Key** (or **Create API key**).
+5. Copy the key once (starts with `sk-ant-`). Store it somewhere safe; you may not see it again.
+6. Paste into `.env`, save, restart Rover.
+
+### Links
+
+- [Anthropic Console](https://console.anthropic.com/)
+- [API keys](https://console.anthropic.com/settings/keys)
+
+### Where to paste
+
+```env
+ANTHROPIC_API_KEY=sk-ant-api03-…
+```
+
+### How Settings shows ✓
+
+**Copy & AI → Anthropic** is green when `ANTHROPIC_API_KEY` is set.
+
+---
+
+## 3. Site-config · address — Google Maps & Apify
+
+You can still **paste a home address** or **Skip** without these. **Find addresses** (LoopNet + Places) needs both.
+
+### 3a. Google Maps (Places)
+
+#### What it’s for
+
+Screens and validates commercial address candidates in Site-Config → Address.
+
+#### Required?
+
+**Required for Find addresses.** Optional if you only paste/skip.
+
+#### Env variable names
+
+```env
+GOOGLE_MAPS_API_KEY=
+```
+
+#### Steps
+
+1. Open [Google Cloud Console](https://console.cloud.google.com/).
+2. Create a project (or select one) and enable **billing** for that project.
+3. Open [Places API (New)](https://console.cloud.google.com/apis/library/places.googleapis.com) → **Enable**.
+4. Go to **APIs & Services → Credentials → Create credentials → API key**.
+5. Restrict the key to **Places API (New)** (recommended).
+6. Copy the key into `.env`, save, restart Rover.
+
+#### Links
+
+- [Places API (New) library](https://console.cloud.google.com/apis/library/places.googleapis.com)
+- [Credentials](https://console.cloud.google.com/apis/credentials)
+
+#### Where to paste
+
+```env
+GOOGLE_MAPS_API_KEY=AIza…
+```
+
+#### How Settings shows ✓
+
+**Site-config · address → Google Maps** is green when the key is set.
+
+---
+
+### 3b. Apify (LoopNet)
+
+#### What it’s for
+
+Pulls commercial listing candidates for the address finder.
+
+#### Required?
+
+**Required for Find addresses** (together with Google Maps). Optional if you only paste/skip.
+
+#### Env variable names
+
+```env
+APIFY_TOKEN=
+APIFY_LOOPNET_ACTOR_ID=
+```
+
+#### Steps
+
+1. Open [Apify Console → Integrations](https://console.apify.com/settings/integrations).
+2. Sign up or log in; add billing / credits if prompted.
+3. Copy your **API token** into `APIFY_TOKEN`.
+4. Open the [Apify Store](https://apify.com/store), search for a **LoopNet** actor you want to use (prefer actors around ~$1.20–$1.50 per 1K results when choosing).
+5. Open that actor’s page. The actor id is in the URL, often like `abotapi~loopnet-scraper` (username~actor-name).
+6. Paste that id into `APIFY_LOOPNET_ACTOR_ID` (no spaces).
+7. Save `.env`, restart Rover.
+
+#### Links
+
+- [Apify Integrations / token](https://console.apify.com/settings/integrations)
+- [Apify Store](https://apify.com/store)
+
+#### Where to paste
+
+```env
+APIFY_TOKEN=apify_api_…
+APIFY_LOOPNET_ACTOR_ID=username~loopnet-actor-name
+```
+
+#### How Settings shows ✓
+
+**Site-config · address → Apify** is green when **both** token and actor id are set.
+
+---
+
+## 4. Website · images — Unsplash, Pexels, Pixabay
+
+### What it’s for
+
+Stock photos when Structure has **Include photos** (Pull images / auto on Content Accept).
+
+### Required?
+
+**Optional**, but **at least one** provider is strongly recommended if you want automated photos. Settings lists each provider separately — only the ones you configure turn green.
+
+### Env variable names
+
+```env
+UNSPLASH_ACCESS_KEY=
+PEXELS_API_KEY=
+PIXABAY_API_KEY=
+```
+
+Optional: `IMAGE_SOURCES=unsplash,pexels,pixabay` to control order.
+
+### Steps (pick one or more)
+
+**Unsplash**
+
+1. Open [Unsplash Developers](https://unsplash.com/oauth/applications).
+2. Create a new application / accept terms.
+3. Copy the **Access Key** into `UNSPLASH_ACCESS_KEY`.
+
+**Pexels**
+
+1. Open [Pexels API](https://www.pexels.com/api/).
+2. Request / create an API key.
+3. Paste into `PEXELS_API_KEY`.
+
+**Pixabay**
+
+1. Open [Pixabay API docs](https://pixabay.com/api/docs/).
+2. Sign in and copy your API key.
+3. Paste into `PIXABAY_API_KEY`.
+
+Save `.env` and restart Rover.
+
+### Links
+
+- [Unsplash applications](https://unsplash.com/oauth/applications)
+- [Pexels API](https://www.pexels.com/api/)
+- [Pixabay API](https://pixabay.com/api/docs/)
+
+### Where to paste
+
+```env
+UNSPLASH_ACCESS_KEY=…
+PEXELS_API_KEY=…
+PIXABAY_API_KEY=…
+```
+
+### How Settings shows ✓
+
+**Website · images → Unsplash / Pexels / Pixabay** each turn green when that provider’s variable is set. One green provider is enough to pull photos.
+
+---
+
+## 5. Assemble & launch
+
+These power creating site folders, GitHub repos, Cloudflare deploy, and default lead-email hints.
+
+### 5a. GitHub owner
+
+#### What it’s for
+
+Owner or org name for per-site repos created during Launch auto-ship (via GitHub CLI).
+
+#### Required?
+
+**Required** for automated Launch ship that creates GitHub repos. Optional if you never auto-ship.
+
+#### Env variable names
+
+```env
+GITHUB_OWNER=
+```
+
+#### Steps
+
+1. Install [GitHub CLI](https://cli.github.com/) if you do not have it.
+2. In a terminal, run once: `gh auth login` and finish the browser/device prompts (use the account that owns your org or user).
+3. Decide the owner string: your GitHub **username** or **organization** name (example: `7D7D`).
+4. Set `GITHUB_OWNER=that-name` in `.env` (no `https://`, no `@`).
+5. Save and restart Rover.
+
+#### Links
+
+- [GitHub CLI](https://cli.github.com/)
+- [gh auth login](https://cli.github.com/manual/gh_auth_login)
+
+#### Where to paste
+
+```env
+GITHUB_OWNER=YourGitHubUserOrOrg
+```
+
+#### How Settings shows ✓
+
+**Assemble & launch → GitHub owner** is green when `GITHUB_OWNER` is set. (`gh auth login` is machine-side and not shown as its own row.)
+
+---
+
+### 5b. Template repo (optional)
+
+#### What it’s for
+
+Tells Assemble which GitHub template repo to use. Often auto-detected from `git remote`; set this if detection is wrong or missing.
+
+#### Required?
+
+**Optional** (green only when you set it explicitly).
+
+#### Env variable names
+
+```env
+TEMPLATE_GITHUB_REPO=
+```
+
+#### Steps
+
+1. Note your template as `owner/repo` (example: `7D7D/Rover`).
+2. Add `TEMPLATE_GITHUB_REPO=owner/repo` to `.env`.
+3. Save and restart Rover.
+
+#### Where to paste
+
+```env
+TEMPLATE_GITHUB_REPO=7D7D/Rover
+```
+
+#### How Settings shows ✓
+
+**Assemble & launch → Template repo** is green when the variable is set.
+
+---
+
+### 5c. Assembled sites dir
+
+#### What it’s for
+
+Folder where Assemble writes sibling site projects (default if unset is `../rover-sites` relative to Rover).
+
+#### Required?
+
+**Optional** for Settings green (default works). Set it if you want a fixed Windows path.
+
+#### Env variable names
+
+```env
+ASSEMBLED_SITES_DIR=
+```
+
+#### Steps
+
+1. Choose a folder, e.g. `C:\Repos\rover-sites`.
+2. Create it in File Explorer if it does not exist.
+3. Put the full path in `.env` (Windows backslashes are fine).
+4. Save and restart Rover.
+
+#### Where to paste
+
+```env
+ASSEMBLED_SITES_DIR=C:\Repos\rover-sites
+```
+
+#### How Settings shows ✓
+
+**Assemble & launch → Assembled sites dir** is green when the variable is set (even if you rely on the code default when unset — Settings only checks the env var).
+
+---
+
+### 5d. Cloudflare
+
+#### What it’s for
+
+Launch automation: Workers deploy, DNS, Email Routing, Turnstile, and related Cloudflare steps.
+
+#### Required?
+
+**Required** for automated Cloudflare Launch / ship. Optional if you deploy manually.
+
+#### Env variable names
+
+```env
+CLOUDFLARE_ACCOUNT_ID=
+CLOUDFLARE_API_TOKEN=
+```
+
+#### Steps
+
+1. Log in at [Cloudflare Dashboard](https://dash.cloudflare.com/).
+2. **Account ID:** open any domain or Workers overview; copy **Account ID** from the right sidebar (or Overview).
+3. **API token:** open [API Tokens](https://dash.cloudflare.com/profile/api-tokens) → **Create Token**.
+4. Prefer a **Custom token** (user API token — account-owned tokens can fail Builds). Suggested permissions from `.env.example`:
+   - Account · Workers Scripts · **Edit**
+   - Account · Account Settings · **Read**
+   - Account · Email Routing Addresses · **Edit**
+   - Account · Turnstile · **Edit**
+   - Zone · Zone · **Read**
+   - Zone · DNS · **Edit**
+   - Zone · Email Routing Rules · **Edit**
+   - Optional for push-to-deploy: Account · Workers Builds Configuration · **Edit**
+5. Create the token, copy it once, paste into `CLOUDFLARE_API_TOKEN`.
+6. Paste the account id into `CLOUDFLARE_ACCOUNT_ID`.
+7. One-time in Cloudflare: any Worker → **Settings → Builds → Connect** and authorize GitHub if you use Builds.
+8. Save `.env`, restart Rover.
+
+#### Links
+
+- [Cloudflare Dashboard](https://dash.cloudflare.com/)
+- [Create API token](https://dash.cloudflare.com/profile/api-tokens)
+
+#### Where to paste
+
+```env
+CLOUDFLARE_ACCOUNT_ID=0123456789abcdef0123456789abcdef
+CLOUDFLARE_API_TOKEN=…
+```
+
+#### How Settings shows ✓
+
+**Assemble & launch → Cloudflare** is green when **both** account id and token are set.
+
+---
+
+### 5e. Web3Forms email
+
+#### What it’s for
+
+Default inbox for Cloudflare Email Routing destination hints and Web3Forms notify suggestions during Launch.
+
+#### Required?
+
+**Recommended** for Launch email setup. Optional if you always type the address by hand.
+
+#### Env variable names
+
+```env
+WEB3FORMS_DEFAULT_NOTIFY_EMAIL=
+```
+
+#### Steps
+
+1. Choose the Gmail (or other inbox) where lead mail should land.
+2. Set that address in `.env`.
+3. Save and restart Rover.
+
+#### Where to paste
+
+```env
+WEB3FORMS_DEFAULT_NOTIFY_EMAIL=you@gmail.com
+```
+
+#### How Settings shows ✓
+
+**Assemble & launch → Web3Forms email** is green when the email is set.
+
+---
+
+## 6. Phone — Twilio & OpenAI
+
+Full Functions / webhook detail: [PHONE-TRACKING.md](PHONE-TRACKING.md).
+
+### 6a. Twilio
+
+#### What it’s for
+
+Ranking DIDs, call forwarding, recordings, and Phone tab history sync.
+
+#### Required?
+
+**Required** to provision tracking numbers and use the Phone tab. Optional if you skip phone tracking.
+
+#### Env variable names
+
+```env
+TWILIO_ACCOUNT_SID=
+TWILIO_AUTH_TOKEN=
+TWILIO_FORWARD_TO=
+TWILIO_VOICE_WEBHOOK_URL=
+```
+
+#### Steps
+
+1. Sign up / log in at [Twilio Console](https://console.twilio.com/).
+2. Fund the account (trial works for testing; production needs paid balance).
+3. On the Console home, copy **Account SID** → `TWILIO_ACCOUNT_SID`.
+4. Copy **Auth Token** → `TWILIO_AUTH_TOKEN`.
+5. Set `TWILIO_FORWARD_TO` to your personal/mobile number in **E.164** form (US example: `+18015551234`).
+6. Deploy the Rover Twilio Function from `ops/twilio-functions/` (see [PHONE-TRACKING.md](PHONE-TRACKING.md)) so you get a public `https://….twil.io/inbound` URL.
+7. Paste that URL into `TWILIO_VOICE_WEBHOOK_URL`.
+8. Save `.env`, restart Rover.
+
+Optional later (live webhook while Rover is online): `ROVER_PHONE_WEBHOOK_SECRET`, `ROVER_PUBLIC_WEBHOOK_BASE` — documented in PHONE-TRACKING.md. Not required for Settings ✓.
+
+#### Links
+
+- [Twilio Console](https://console.twilio.com/)
+- [Phone tracking guide](PHONE-TRACKING.md)
+
+#### Where to paste
+
+```env
+TWILIO_ACCOUNT_SID=AC…
+TWILIO_AUTH_TOKEN=…
+TWILIO_FORWARD_TO=+1XXXXXXXXXX
+TWILIO_VOICE_WEBHOOK_URL=https://rover-voice-xxxx.twil.io/inbound
+```
+
+#### How Settings shows ✓
+
+**Phone → Twilio** is green when all **four** variables above are set.
+
+---
+
+### 6b. OpenAI (call AI)
+
+#### What it’s for
+
+Whisper transcription and short AI summaries on Phone calls.
+
+#### Required?
+
+**Required** for AI summaries. Call history still works without it; summaries will not.
+
+#### Env variable names
+
+```env
+OPENAI_API_KEY=
+```
+
+#### Steps
+
+1. Open [OpenAI API keys](https://platform.openai.com/api-keys).
+2. Sign in; add billing if prompted.
+3. **Create new secret key**, copy it.
+4. Paste into `.env`, save, restart Rover.
+
+#### Links
+
+- [OpenAI API keys](https://platform.openai.com/api-keys)
+
+#### Where to paste
+
+```env
+OPENAI_API_KEY=sk-…
+```
+
+#### How Settings shows ✓
+
+**Phone → OpenAI** is green when `OPENAI_API_KEY` is set.
+
+---
+
+## 7. Launched Sites · metrics — Google Search Console
+
+Traffic charts on Launched Sites. Ranks use DataForSEO (section 1). Full operator notes: [SITES-METRICS.md](SITES-METRICS.md).
+
+![GSC setup flow](images/env-guide/gsc-oauth-flow.png)
+
+### What it’s for
+
+Connects your Google account so Rover can Sync GSC clicks/impressions for launched domains.
+
+### Required?
+
+**Required** for GSC traffic metrics. Settings stays red until **both** `.env` OAuth client **and** Connect GSC succeed.
+
+### Env variable names
+
+```env
+GOOGLE_GSC_CLIENT_ID=
+GOOGLE_GSC_CLIENT_SECRET=
+```
+
+### Steps
+
+1. Open [Google Cloud Console](https://console.cloud.google.com/) (same project as Maps is fine, or a new one).
+2. Enable billing if needed.
+3. Open [Google Search Console API](https://console.cloud.google.com/apis/library/searchconsole.googleapis.com) → **Enable**.
+4. Go to **APIs & Services → OAuth consent screen**.
+   - User type: **External**.
+   - App name / support email: anything sensible.
+   - Add your Gmail under **Test users** (required while the app is in Testing).
+   - Scopes: add `https://www.googleapis.com/auth/webmasters.readonly` (Search Console readonly) when asked, or ensure it appears on the consent screen.
+5. Go to **Credentials → Create credentials → OAuth client ID**.
+   - Prefer **Desktop app**, or **Web application** if Desktop rejects the redirect.
+   - For **Web application**, under **Authorized redirect URIs** add exactly:  
+     `http://127.0.0.1:8787/api/gsc/oauth/callback`
+6. Copy **Client ID** → `GOOGLE_GSC_CLIENT_ID`.
+7. Copy **Client secret** → `GOOGLE_GSC_CLIENT_SECRET`.
+8. Save `.env`, restart Rover.
+9. In Rover → **Launched Sites** → click **Connect GSC**.
+10. Finish the Google browser login with the **same** Gmail you added as a test user.
+11. Confirm each live domain has a verified **Domain** property in [Search Console](https://search.google.com/search-console) (DNS TXT). See [SITE-INDEXING.md](SITE-INDEXING.md).
+
+### Links
+
+- [Search Console API library](https://console.cloud.google.com/apis/library/searchconsole.googleapis.com)
+- [OAuth consent screen](https://console.cloud.google.com/apis/credentials/consent)
+- [Credentials](https://console.cloud.google.com/apis/credentials)
+- [Google Search Console](https://search.google.com/search-console)
+- [SITES-METRICS.md](SITES-METRICS.md)
+
+### Where to paste
+
+```env
+GOOGLE_GSC_CLIENT_ID=123456789-….apps.googleusercontent.com
+GOOGLE_GSC_CLIENT_SECRET=GOCSPX-…
+```
+
+### How Settings shows ✓
+
+**Launched Sites · metrics → Google Search Console** is green only when the client id/secret are set **and** you have completed **Connect GSC** (token stored under `research/`).
+
+---
+
+## Quick checklist
+
+| Settings group | What to configure |
+| --- | --- |
+| Discovery & research | DataForSEO login + password |
+| Copy & AI | Anthropic API key |
+| Site-config · address | Google Maps key; Apify token + LoopNet actor id |
+| Website · images | At least one of Unsplash / Pexels / Pixabay |
+| Assemble & launch | GitHub owner (+ `gh auth login`); optional template & sites dir; Cloudflare account + token; notify email |
+| Phone | Four Twilio vars + OpenAI key; see PHONE-TRACKING.md |
+| Launched Sites · metrics | GSC OAuth client in `.env` + Connect GSC in Rover |
+
+After edits: **save `.env` → restart `npm run rover` → Settings → API/Other**.

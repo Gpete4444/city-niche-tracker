@@ -897,7 +897,7 @@ heroImage:
 - Body:
   1. Unmarked intro: max ~2 concise paragraphs (service-first; one natural city mention OK)
   2. A \`##\` heading for **each enabled** service section (svcWhatsIncluded, svcProcess, svcCost, svcMaterials, svcTimeline, svcCodes, svcDiyVsPro, svcWhenToCall, svcFaqs, svcBeforeAfter, svcCta, etc.)
-- Process (when enabled): prefer **4, 6, or 8** steps; lines shaped \`Step title — short description\` (description ~8–14 words; timing cue OK); no body images — thumbs come from Pull \`processImages\` frontmatter (one per step, same compact cards as homepage)
+- Process (when enabled): prefer **4, 6, or 8** steps; each step its own markdown list line \`- **Title** — short description\` (description ~8–14 words; timing cue OK). Never concatenate multiple steps into one paragraph. No body images — thumbs come from Pull \`processImages\` frontmatter (one per step, same compact cards as homepage)
 - What’s included / Scope (when enabled): **at least 3 real scope bullets specific to this serviceName** (methods, materials, verification — e.g. CIPP = candidacy camera + liner cure + post-CCTV; camera inspection = full pass + findings write-up). Do **not** use the same generic “labor/materials/cleanup” trio on every service. Optional add-ons and Customer prep may follow as extra bullets — never leave the section with only Optional / Customer prep lines
 - FAQs (when enabled): question line ending with \`?\`, then answer paragraph(s) before the next question
 - Cost (when enabled): 3–5 bullets \`**Tier** — $low–$high — what’s included\` (ballparks, not a fixed quote)

@@ -222,27 +222,28 @@ export function lintContentSeo(files, opts = {}) {
       const locFm = parseSimpleFrontmatter(locBody);
       const homeKey = normalizeKw(`${homeFm.title || ''} ${homeFm.h1 || ''}`);
       const locKey = normalizeKw(`${locFm.title || ''} ${locFm.h1 || ''}`);
+      const headExample = suggestPrimaryLocationHead(niche, primaryCity);
       if (homeKey && locKey && (homeKey === locKey || titleTooSimilar(homeKey, locKey))) {
         findings.push({
           severity: 'soft',
           file: locRel,
           rule: 'primary_location_cannibalizes_home',
           excerpt: 'Primary city location title/h1 too similar to homepage',
-          suggestion: `Differentiate primary location (e.g. “${niche || 'Niche'} neighborhoods in ${primaryCity}”) — home owns the head “niche in city” term.`,
+          suggestion: `Differentiate primary location title AND h1 (e.g. “${headExample}”, keep ≤~50 chars) — home owns the head “niche in city” term.`,
         });
       }
       const locHead = `${locFm.title || ''} ${locFm.h1 || ''}`;
       if (
         niche &&
         /\bservice areas?\b|\bneighborhoods?\b/i.test(locHead) &&
-        !normalizeKw(locHead).includes(normalizeKw(niche))
+        !locationHeadHasNicheSignal(locHead, niche)
       ) {
         findings.push({
           severity: 'soft',
           file: locRel,
           rule: 'location_h1_missing_niche',
           excerpt: `Location title/h1 is geo-only (“${(locFm.h1 || locFm.title || '').slice(0, 80)}”)`,
-          suggestion: `Include the niche in location title/h1 (e.g. “${niche} in ${primaryCity} neighborhoods”).`,
+          suggestion: `Include niche signal in location title/h1 (e.g. “${headExample}”).`,
         });
       }
     }
@@ -438,6 +439,105 @@ export function normalizeKw(s) {
     .replace(/[^a-z0-9]+/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+const NICHE_FILLER = new Set([
+  'remodeling',
+  'remodel',
+  'services',
+  'service',
+  'installation',
+  'install',
+  'pros',
+  'company',
+  'contractors',
+  'contractor',
+]);
+
+/**
+ * Short niche phrase for location titles (drops filler like Remodeling/Services).
+ * @param {string} niche
+ */
+export function compressNichePhrase(niche) {
+  let s = String(niche || '').trim();
+  if (!s) return '';
+  s = s.replace(/\bBathroom\b/gi, 'Bath');
+  const parts = s.split(/\s+/).filter(Boolean);
+  const kept = [];
+  for (const p of parts) {
+    const n = normalizeKw(p);
+    if (!n || NICHE_FILLER.has(n)) continue;
+    if (p === '&' || n === 'and') {
+      if (kept.length) kept.push('&');
+      continue;
+    }
+    kept.push(p === 'Bath' || /^bath$/i.test(p) ? 'bath' : p);
+  }
+  let out = kept.join(' ').replace(/\s+&\s+/g, ' & ').trim();
+  if (!out) {
+    out = parts.slice(0, 3).join(' ').trim();
+  }
+  // Prefer lowercase for mid-title flow except we return display-ish short form
+  return out.replace(/\bbath\b/gi, 'bath');
+}
+
+const HEAD_MAX = 50;
+
+/**
+ * Primary-location title/h1 example that fits title_too_long budget (≤50 lead)
+ * and differentiates from homepage “niche in city”.
+ * @param {string} niche
+ * @param {string} primaryCity
+ */
+export function suggestPrimaryLocationHead(niche, primaryCity) {
+  const city = String(primaryCity || '').trim() || 'City';
+  const short = compressNichePhrase(niche) || 'local';
+  const candidates = [
+    `${city} ${short} neighborhoods`,
+    `${short} neighborhoods in ${city}`,
+    `${city} neighborhoods (${short})`,
+  ];
+  for (const c of candidates) {
+    if (c.length <= HEAD_MAX) return c;
+  }
+  // Truncate shortest candidate on word boundary
+  let best = candidates.sort((a, b) => a.length - b.length)[0];
+  if (best.length <= HEAD_MAX) return best;
+  const words = best.split(/\s+/);
+  let out = '';
+  for (const w of words) {
+    const next = out ? `${out} ${w}` : w;
+    if (next.length > HEAD_MAX) break;
+    out = next;
+  }
+  return out || city.slice(0, HEAD_MAX);
+}
+
+/**
+ * Niche present in location head: full niche, compressed phrase, or ≥2 distinctive tokens.
+ * @param {string} locHead
+ * @param {string} niche
+ */
+export function locationHeadHasNicheSignal(locHead, niche) {
+  const h = normalizeKw(locHead);
+  const n = String(niche || '').trim();
+  if (!n) return true;
+  if (!h) return false;
+  if (h.includes(normalizeKw(n))) return true;
+  const compressed = normalizeKw(compressNichePhrase(n));
+  if (compressed && h.includes(compressed)) return true;
+  const stop = new Set(['and', 'the', 'for', 'in', 'of', 'a', 'an', 'to', 'our', 'with']);
+  const tokens = normalizeKw(n)
+    .split(' ')
+    .filter((t) => t.length > 2 && !stop.has(t) && !NICHE_FILLER.has(t));
+  // Also accept "bath" as covering "bathroom"
+  const hits = tokens.filter((t) => {
+    if (h.includes(t)) return true;
+    if (t === 'bathroom' && h.includes('bath')) return true;
+    return false;
+  });
+  if (!tokens.length) return h.includes(normalizeKw(n));
+  return hits.length >= Math.min(2, tokens.length);
 }
 
 /** Meaningful keyword tokens (length > 2) for order-preserving H2 coverage. */

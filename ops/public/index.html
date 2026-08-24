@@ -14,15 +14,41 @@
       document.documentElement.setAttribute('data-theme', t);
     } catch (_) {}
   </script>
-  <link rel="stylesheet" href="/styles.css?v=20260819sc6" />
+  <link rel="stylesheet" href="/styles.css?v=20260823jobs1" />
   <link rel="stylesheet" href="/brand/rover-loader.css" />
 </head>
 <body>
   <header class="top">
-    <span class="top-brand" aria-label="Rover">
-      <img class="top-brand-logo top-brand-logo--light" src="/brand/rover-logo-light.png" alt="" width="800" height="168" decoding="async" />
-      <img class="top-brand-logo top-brand-logo--dark" src="/brand/rover-logo-dark.png" alt="" width="800" height="168" decoding="async" />
-    </span>
+    <div class="top-brand-cluster">
+      <span class="top-brand" aria-label="Rover">
+        <img class="top-brand-logo top-brand-logo--light" src="/brand/rover-logo-light.png" alt="" width="800" height="168" decoding="async" />
+        <img class="top-brand-logo top-brand-logo--dark" src="/brand/rover-logo-dark.png" alt="" width="800" height="168" decoding="async" />
+      </span>
+      <span class="top-version muted small" title="Rover product version">v1.1</span>
+      <div class="jobs-wrap">
+        <button
+          type="button"
+          id="jobs-btn"
+          class="jobs-btn"
+          aria-haspopup="true"
+          aria-expanded="false"
+          aria-controls="jobs-popover"
+          title="Assemble / preview / launch jobs"
+        >
+          <span class="jobs-btn-label">Jobs</span>
+          <span id="jobs-badge" class="jobs-badge hidden" aria-live="polite">0</span>
+        </button>
+        <div id="jobs-popover" class="jobs-popover hidden" role="dialog" aria-label="Heavy jobs">
+          <div class="jobs-popover-head">
+            <strong>Jobs</strong>
+            <span id="jobs-popover-meta" class="muted small"></span>
+          </div>
+          <div id="jobs-popover-list" class="jobs-popover-list">
+            <p class="muted small jobs-empty">No jobs running.</p>
+          </div>
+        </div>
+      </div>
+    </div>
     <nav class="top-nav" aria-label="Primary">
       <div class="nav-group" data-nav-group="potential">
         <span class="nav-group-label">Potential Candidates</span>
@@ -77,6 +103,23 @@
             </button>
           </div>
           <div id="settings-connections-list" class="settings-connections-list hidden" hidden></div>
+          <div class="settings-divider"></div>
+          <div class="settings-row settings-jobs-k-row">
+            <span class="settings-label" id="settings-jobs-k-label">Jobs K</span>
+            <select
+              id="settings-jobs-k"
+              class="settings-select"
+              aria-labelledby="settings-jobs-k-label"
+              data-tip="Max concurrent Prepare / assemble / ship / launch jobs (1–6). Applies immediately; saved for this machine."
+            >
+              <option value="1">1</option>
+              <option value="2">2</option>
+              <option value="3">3</option>
+              <option value="4">4</option>
+              <option value="5">5</option>
+              <option value="6">6</option>
+            </select>
+          </div>
           <div class="settings-divider"></div>
           <div class="settings-row settings-theme-row">
             <span class="settings-label">Theme</span>
@@ -689,11 +732,32 @@
       <div class="panel-head">
         <div>
           <h1>Launched Sites</h1>
-          <div class="muted">Launched portfolio — rent status, pricing, renter, infra links</div>
+          <div class="muted">Portfolio, GSC traffic, and keyword ranks</div>
         </div>
         <div class="candidates-head-actions">
+          <button type="button" id="sites-gsc-connect-btn" class="btn" data-tip="Connect Google Search Console (OAuth)">Connect GSC</button>
+          <button type="button" id="sites-gsc-sync-btn" class="btn" data-tip="Pull 28d clicks/impressions from Search Console">Sync GSC</button>
+          <button type="button" id="sites-rank-sync-btn" class="btn" data-tip="Weekly DataForSEO SERP rank check (Standard queue)">Check ranks</button>
           <button type="button" id="sites-add-btn" class="btn primary" data-tip="Add a site from a candidate id">Add from candidate</button>
           <button type="button" id="sites-refresh-btn" class="btn">Refresh</button>
+        </div>
+      </div>
+      <div id="sites-gsc-status" class="muted small sites-gsc-status"></div>
+      <div id="sites-metrics-progress" class="job-progress hidden" aria-live="polite">
+        <div class="job-progress-track">
+          <div class="job-progress-bar" id="sites-metrics-progress-bar"></div>
+        </div>
+        <p class="job-progress-label" id="sites-metrics-progress-label">Working…</p>
+        <p class="job-progress-detail" id="sites-metrics-progress-detail">Starting…</p>
+      </div>
+      <div id="sites-portfolio-charts" class="sites-portfolio-charts hidden">
+        <div class="sites-chart-card">
+          <h3>Portfolio traffic</h3>
+          <div id="sites-chart-traffic" class="sites-chart"></div>
+        </div>
+        <div class="sites-chart-card">
+          <h3>Primary on page 1</h3>
+          <div id="sites-chart-ranks" class="sites-chart"></div>
         </div>
       </div>
       <div id="sites-filters" class="discovery-filters-bar">
@@ -722,7 +786,7 @@
       </div>
     </section>
     <aside class="panel sites-detail-panel" id="sites-detail">
-      <div id="sites-empty-detail" class="empty">Select a site to edit rent, renter, and payment.</div>
+      <div id="sites-empty-detail" class="empty">Select a site to edit rent, renter, payment, and metrics.</div>
       <div id="sites-detail-body" class="hidden"></div>
     </aside>
   </main>
