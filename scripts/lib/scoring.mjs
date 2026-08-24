@@ -42,55 +42,93 @@ export function scoreDemand(clusterVolumeSum) {
   return 2;
 }
 
-export function scoreCompetition({
-  uniqueOrganicDomainCount,
-  organicHomePageCount = 0,
-  medianDomainRank = null,
-}) {
-  const n = Number(uniqueOrganicDomainCount) || 0;
-  let score = 2;
-  let label = 'Hard';
-  for (const row of rubric.competitionScore.scale) {
-    if (
-      row.maxUniqueOrganicDomainsInclusive != null &&
-      n <= row.maxUniqueOrganicDomainsInclusive
-    ) {
-      score = row.score;
-      label = row.label;
-      break;
-    }
-    if (
-      row.minUniqueOrganicDomainsInclusive != null &&
-      n >= row.minUniqueOrganicDomainsInclusive
-    ) {
-      score = row.score;
-      label = row.label;
-    }
+export function scoreCompetition({ classifiedSerp }) {
+  const config = rubric.competitionScore;
+  const links = [];
+
+  const addLinks = (sourceLinks, sourceOrder, typeForLink) => {
+    (sourceLinks || []).forEach((link, sourceIndex) => {
+      const rankAbsolute = Number(link?.rankAbsolute);
+      if (!Number.isFinite(rankAbsolute)) return;
+      links.push({
+        rankAbsolute,
+        sourceOrder,
+        sourceIndex,
+        type: typeForLink(link),
+      });
+    });
+  };
+
+  addLinks(classifiedSerp?.directories?.links, 0, () => 'D');
+  addLinks(classifiedSerp?.organicHomePages?.links, 1, (link) =>
+    link?.nicheRelevant === true ? 'H' : 'Xh',
+  );
+  addLinks(classifiedSerp?.organicSubPages?.links, 2, (link) =>
+    link?.nicheRelevant === true ? 'S' : 'X',
+  );
+
+  links.sort(
+    (a, b) =>
+      a.rankAbsolute - b.rankAbsolute ||
+      a.sourceOrder - b.sourceOrder ||
+      a.sourceIndex - b.sourceIndex,
+  );
+  const blueLinks = links.slice(0, config.maxBlueLinks);
+  if (blueLinks.length === 0) {
+    return {
+      score: null,
+      label: 'Structural organic Openness unavailable',
+      blueLinkCount: 0,
+      pattern: '',
+      allOrganicDomainCount: Math.min(
+        classifiedSerp?.uniqueOrganicDomains?.length ?? 0,
+        config.breadth.maxDomains,
+      ),
+    };
   }
 
-  const adj = rubric.competitionScore.homepageAdjustment;
-  if (organicHomePageCount >= adj.organicHomePagesAtLeast) {
-    score = Math.max(1, score + adj.delta);
-    label = `${label} (homepage penalty)`;
-  }
+  const weighted = blueLinks.map((link, index) => ({
+    ...link,
+    weight: config.positionWeightStart - index,
+    typeValue: config.typeValues[link.type],
+  }));
+  const weightSum = weighted.reduce((sum, link) => sum + link.weight, 0);
+  const occupancy =
+    weighted.reduce((sum, link) => sum + link.weight * link.typeValue, 0) / weightSum;
+  const typeTerm = 1 + 9 * occupancy;
 
-  const rankAdj = rubric.competitionScore.medianDomainRankAdjustment;
-  if (medianDomainRank != null) {
-    if (medianDomainRank >= rankAdj.highRankMinInclusive) {
-      score = Math.max(1, score + rankAdj.delta);
-      label = `${label} (high Rank)`;
-    } else if (medianDomainRank < rankAdj.lowRankMaxExclusive) {
-      score = Math.min(10, score + rankAdj.deltaLow);
-      label = `${label} (low Rank)`;
-    }
-  }
+  const allOrganicDomainCount = Math.min(
+    classifiedSerp?.uniqueOrganicDomains?.length ?? 0,
+    config.breadth.maxDomains,
+  );
+  const breadthTerm = Math.max(
+    1,
+    Math.min(10, 10 - config.breadth.penaltyPerDomain * allOrganicDomainCount),
+  );
+
+  const topLinks = weighted.slice(0, Math.min(config.homepageConcentration.depth, weighted.length));
+  const topWeightSum = topLinks.reduce((sum, link) => sum + link.weight, 0);
+  const homepageOccupancy =
+    topLinks.reduce(
+      (sum, link) => sum + link.weight * (link.type === 'H' || link.type === 'Xh' ? 1 : 0),
+      0,
+    ) / topWeightSum;
+  const homepageTerm = 10 - config.homepageConcentration.penalty * homepageOccupancy;
+
+  const raw =
+    config.componentWeights.type * typeTerm +
+    config.componentWeights.breadth * breadthTerm +
+    config.componentWeights.homepageConcentration * homepageTerm;
+  const clamped = Math.max(1, Math.min(10, raw));
 
   return {
-    score,
-    label,
-    uniqueOrganicDomainCount: n,
-    organicHomePageCount,
-    medianDomainRank,
+    score: Math.round(clamped * 10) / 10,
+    label: 'Structural organic Openness',
+    blueLinkCount: weighted.length,
+    pattern: weighted.map((link) => link.type).join('/'),
+    allOrganicDomainCount,
+    occupancy,
+    homepageOccupancy,
   };
 }
 
@@ -163,7 +201,20 @@ export function classifySerpSoftness({
 
   return {
     id: 'mixed',
-    note: 'Between soft and hard — review organic homepage count, domains, Map Pack, and Stage 2 displaceability.',
+    note: 'Between soft and hard ΓÇö review organic homepage count, domains, Map Pack, and Stage 2 displaceability.',
+  };
+}
+
+export function stageOneSoftnessInputs(classifiedSerp) {
+  return {
+    uniqueOrganicDomainCount:
+      classifiedSerp?.uniqueNicheOrganicDomains?.length ??
+      classifiedSerp?.uniqueOrganicDomains?.length ??
+      0,
+    organicHomePageCount:
+      classifiedSerp?.organicHomePages?.nicheRelevantCount ??
+      classifiedSerp?.organicHomePages?.count ??
+      0,
   };
 }
 
@@ -176,7 +227,7 @@ export function classifyDisplaceabilityBand(score) {
 }
 
 /**
- * Aggregate organic page rows into a displaceability score (1–10, higher = easier).
+ * Aggregate organic page rows into a displaceability score (1ΓÇô10, higher = easier).
  */
 export function scoreDisplaceability(pageRows = []) {
   const organicAll = pageRows.filter((p) => p.kind !== 'map_pack');
@@ -202,7 +253,7 @@ export function scoreDisplaceability(pageRows = []) {
       fetchFailedCount,
       hint:
         fetchFailedCount > 0
-          ? `All ${fetchFailedCount} organic page fetch(es) failed — displaceability incomplete.`
+          ? `All ${fetchFailedCount} organic page fetch(es) failed ΓÇö displaceability incomplete.`
           : 'No organic pages to score.',
     };
   }
@@ -229,7 +280,7 @@ export function scoreDisplaceability(pageRows = []) {
   if (strongNichePageShare >= 0.35 || score <= 3) {
     hint = rubric.displaceability.aggregateHints.severalStrongPages;
   } else if (score < 7) {
-    hint = 'Mixed page strength — review individual enrichment.pages before committing.';
+    hint = 'Mixed page strength ΓÇö review individual enrichment.pages before committing.';
   }
   if (fetchFailedCount > 0) {
     hint = `${hint} (${fetchFailedCount} page fetch failure(s) excluded from aggregate).`;
@@ -304,7 +355,7 @@ export function applyDecisionRules({
 /**
  * Weighted overall opportunity score (1 decimal).
  * Requires Stage 1 trio: demand, competition, mapPackGap.
- * jobValue and displaceability are optional — weights renormalize over present inputs.
+ * jobValue and displaceability are optional ΓÇö weights renormalize over present inputs.
  */
 export function proposedScore({
   demand,
@@ -349,25 +400,31 @@ export function shouldAutoEnrich(scoring) {
 export function buildResearchScoring({
   clusterVolumeSum,
   mapPackPresent,
-  uniqueOrganicDomainCount,
-  organicHomePageCount,
+  classifiedSerp = null,
+  softnessUniqueOrganicDomainCount,
+  softnessOrganicHomePageCount,
+  preservedCompetition,
   averageJobUsd = null,
-  medianDomainRank = null,
   displaceability = null,
 }) {
   const demandBand = classifyDemandBand(clusterVolumeSum);
   const demand = scoreDemand(clusterVolumeSum);
-  const competition = scoreCompetition({
-    uniqueOrganicDomainCount,
-    organicHomePageCount,
-    medianDomainRank,
-  });
+  const competition =
+    preservedCompetition !== undefined
+      ? {
+          score: preservedCompetition,
+          label: 'Structural organic Openness preserved from Stage 1',
+          blueLinkCount: null,
+          pattern: null,
+          allOrganicDomainCount: classifiedSerp?.uniqueOrganicDomains?.length ?? null,
+        }
+      : scoreCompetition({ classifiedSerp });
   const mapPackGap = scoreMapPackGap(mapPackPresent);
   const jobValue = scoreJobValue(averageJobUsd);
   const serpSoftness = classifySerpSoftness({
     mapPackPresent,
-    organicHomePageCount,
-    uniqueOrganicDomainCount,
+    organicHomePageCount: softnessOrganicHomePageCount,
+    uniqueOrganicDomainCount: softnessUniqueOrganicDomainCount,
   });
   const displaceabilityScore = displaceability?.score ?? null;
   const displaceabilityBand = displaceability?.band ?? classifyDisplaceabilityBand(displaceabilityScore);
@@ -386,7 +443,9 @@ export function buildResearchScoring({
     displaceability: displaceabilityScore,
     notes: [
       demandBand.howToTreat,
-      `${competition.label}: ${uniqueOrganicDomainCount} unique organic domains, ${organicHomePageCount} niche homepages.`,
+      competition.blueLinkCount == null
+        ? `${competition.label}: ${competition.score ?? 'unavailable'}.`
+        : `${competition.label}: ${competition.pattern || 'no blue links'}; ${competition.allOrganicDomainCount} all-organic domains.`,
       mapPackGap.label,
       jobValue.score == null
         ? 'Overall score is provisional until jobValue (average job cost) is set by Claude/human.'
@@ -444,7 +503,8 @@ export function buildResearchScoring({
 }
 
 /**
- * Recompute scoring after Stage 2 enrichment attaches page Rank / displaceability.
+ * Rebuild scoring after Stage 2 enrichment attaches page Rank / displaceability,
+ * while preserving the numeric structural Openness produced at Stage 1.
  * @param {object} research - research used for volumes/SERP (may be a fresh Stage 1 report)
  * @param {object} enrichment - Stage 2 enrichment block
  * @param {object|null} jobSource - optional prior research/narrative carrier for jobValue
@@ -452,12 +512,14 @@ export function buildResearchScoring({
  */
 export function applyEnrichmentToScoring(research, enrichment, jobSource = null) {
   const displaceability = enrichment.displaceability;
+  const stageOneCompetition =
+    research.scoring?.scoreInputs?.competition ?? research.scoreInputs?.competition ?? null;
   const scoring = buildResearchScoring({
     clusterVolumeSum: research.volumes?.clusterVolumeSum ?? 0,
     mapPackPresent: Boolean(research.serp?.mapPackPresent),
-    uniqueOrganicDomainCount: research.serp?.uniqueOrganicDomains?.length ?? 0,
-    organicHomePageCount: research.serp?.organicHomePages?.count ?? 0,
-    medianDomainRank: displaceability?.medianDomainRank ?? null,
+    softnessUniqueOrganicDomainCount: research.serp?.uniqueOrganicDomains?.length ?? 0,
+    softnessOrganicHomePageCount: research.serp?.organicHomePages?.count ?? 0,
+    preservedCompetition: stageOneCompetition,
     displaceability,
   });
 
