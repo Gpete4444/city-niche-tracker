@@ -27,7 +27,14 @@ import {
   readSerpCache,
 } from './lib/serp-cache.mjs';
 import { averageKeywordCpc, enrichClassifiedSerp } from './lib/serp-signals.mjs';
-import { applyEnrichmentToScoring, buildResearchScoring, shouldAutoEnrich, resolvePreservedJobFields, attachPreservedJobFields } from './lib/scoring.mjs';
+import {
+  applyEnrichmentToScoring,
+  attachPreservedJobFields,
+  buildResearchScoring,
+  resolvePreservedJobFields,
+  shouldAutoEnrich,
+  stageOneSoftnessInputs,
+} from './lib/scoring.mjs';
 import { enrichResearchReport } from './lib/enrich.mjs';
 
 loadEnvFile();
@@ -366,10 +373,7 @@ async function main() {
     itemTypes: serpRaw.itemTypes,
     items: serpRaw.items || [],
   });
-  const nicheHomeCount =
-    serp.organicHomePages?.nicheRelevantCount ?? serp.organicHomePages?.count ?? 0;
-  const nicheDomainCount =
-    serp.uniqueNicheOrganicDomains?.length ?? serp.uniqueOrganicDomains?.length ?? 0;
+  const stageOneSoftness = stageOneSoftnessInputs(serp);
 
   let related = { cost: 0, ideas: [] };
   let keywords = [];
@@ -475,8 +479,9 @@ async function main() {
   const scoring = buildResearchScoring({
     clusterVolumeSum,
     mapPackPresent: serp.mapPackPresent,
-    uniqueOrganicDomainCount: nicheDomainCount,
-    organicHomePageCount: nicheHomeCount,
+    classifiedSerp: serp,
+    softnessUniqueOrganicDomainCount: stageOneSoftness.uniqueOrganicDomainCount,
+    softnessOrganicHomePageCount: stageOneSoftness.organicHomePageCount,
   });
   if (serp.features?.localServicesAds && scoring.scoreInputs) {
     scoring.scoreInputs.notes = `${scoring.scoreInputs.notes || ''} Local Services Ads present on SERP — organic/phone leads may sit below LSAs.`.trim();
