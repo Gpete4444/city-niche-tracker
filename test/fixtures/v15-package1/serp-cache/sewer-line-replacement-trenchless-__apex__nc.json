@@ -1,0 +1,730 @@
+{
+  "rowIndex": 1,
+  "rowKey": "sewer line replacement (trenchless)|apex|nc",
+  "items": [
+    {
+      "type": "organic",
+      "rank_group": 1,
+      "rank_absolute": 1,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[1]/div[2]/div[2]/div[1]/div[1]/div[1]/div[1]/div[1]",
+      "domain": "firstcallapexplumbing.com",
+      "title": "Trenchless Sewer Line Repair Apex, NC - Sewer Pipe Lining",
+      "url": "https://firstcallapexplumbing.com/trenchless-sewer-line-repair-apex-nc/",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://firstcallapexplumbing.com › trenchless-sewer-line...",
+      "website_name": "firstcallapexplumbing.com",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "Apr 11, 2026 — Our experts specialize in Trenchless Sewer Line Repair in Apex, NC. 887-1589 Open 24/7 for Emergency and Same-Day Plumbing",
+      "pre_snippet": "04/11/2026 00:00:00",
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "Trenchless Sewer Line Repair in Apex, NC"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": "2026-04-11 00:00:00 +00:00",
+      "rectangle": null
+    },
+    {
+      "type": "people_also_ask",
+      "rank_group": 1,
+      "rank_absolute": 2,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[1]/div[2]/div[2]/div[1]/div[1]/div[3]/div[1]/div[1]/div[1]",
+      "items": [
+        {
+          "type": "people_also_ask_element",
+          "title": "What are the disadvantages of trenchless sewer line replacement?",
+          "seed_question": null,
+          "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[1]/div[2]/div[2]/div[1]/div[1]/div[3]/div[1]/div[1]/div[1]/div[1]/div[2]/div[1]",
+          "expanded_element": [
+            {
+              "type": "people_also_ask_ai_overview_expanded_element",
+              "items": null,
+              "references": null,
+              "asynchronous_ai_overview": true
+            }
+          ]
+        },
+        {
+          "type": "people_also_ask_element",
+          "title": "Is trenchless sewer repair better?",
+          "seed_question": null,
+          "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[1]/div[2]/div[2]/div[1]/div[1]/div[3]/div[1]/div[1]/div[1]/div[1]/div[2]/div[2]",
+          "expanded_element": [
+            {
+              "type": "people_also_ask_ai_overview_expanded_element",
+              "items": null,
+              "references": null,
+              "asynchronous_ai_overview": true
+            }
+          ]
+        },
+        {
+          "type": "people_also_ask_element",
+          "title": "Can you do a trenchless sewer line replacement?",
+          "seed_question": null,
+          "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[1]/div[2]/div[2]/div[1]/div[1]/div[3]/div[1]/div[1]/div[1]/div[1]/div[2]/div[3]",
+          "expanded_element": [
+            {
+              "type": "people_also_ask_ai_overview_expanded_element",
+              "items": null,
+              "references": null,
+              "asynchronous_ai_overview": true
+            }
+          ]
+        },
+        {
+          "type": "people_also_ask_element",
+          "title": "What is the average cost to repair a sewer line?",
+          "seed_question": null,
+          "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[1]/div[2]/div[2]/div[1]/div[1]/div[3]/div[1]/div[1]/div[1]/div[1]/div[2]/div[4]",
+          "expanded_element": [
+            {
+              "type": "people_also_ask_ai_overview_expanded_element",
+              "items": null,
+              "references": null,
+              "asynchronous_ai_overview": true
+            }
+          ]
+        }
+      ],
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 2,
+      "rank_absolute": 3,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[1]/div[2]/div[2]/div[1]/div[1]/div[5]/div[1]/div[1]",
+      "domain": "northcarolina.1daytrenchlesssewerrepair.com",
+      "title": "Trenchless Sewer Repairs Apex NC",
+      "url": "https://northcarolina.1daytrenchlesssewerrepair.com/trenchless-sewer-repairs-apex-nc/",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://northcarolina.1daytrenchlesssewerrepair.com › tr...",
+      "website_name": "1 Day Trenchless Sewer Repairs",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "Experienced in all types of trenchless sewer, drain and water line replacement and repair we can dispatch one of our experts to your location quickly and come ... Read more",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "Experienced in all types of trenchless sewer, drain and water line replacement"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 3,
+      "rank_absolute": 4,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[1]/div[2]/div[2]/div[1]/div[1]/div[7]/div[1]/div[1]",
+      "domain": "www.yelp.com",
+      "title": "TOP 10 BEST Trenchless Sewer Repair in Apex, NC",
+      "url": "https://www.yelp.com/search?find_desc=Trenchless+Sewer+Repair&find_loc=Apex%2C+NC",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://www.yelp.com › Home Services",
+      "website_name": "Yelp",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "Top 10 Best Trenchless Sewer Repair Near Apex, North Carolina (Updated 2026) ; ARC Plumbing · 11.0 mi · Fuquay-varina, NC 27526. (984) 360-8554. Read more",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": {
+        "rating_type": "Max5",
+        "value": 4.4,
+        "votes_count": 1553,
+        "rating_max": 5
+      },
+      "price": null,
+      "highlighted": [
+        "ARC Plumbing"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "local_pack",
+      "rank_group": 1,
+      "rank_absolute": 5,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[1]/div[2]/div[2]/div[1]/div[1]/div[9]/div[1]/div[1]/div[1]/div[1]/div[3]/div[1]/div[1]/div[1]/div[1]",
+      "title": "Pipe Medics Plumbers & Drainage Services of Apex",
+      "description": "5+ years in business \nClosed · Opens 8 AM Sat \n\"Would highly recommend.\" \n",
+      "domain": "thepipemedicshq.com",
+      "phone": "(984) 246-7300",
+      "booking_url": null,
+      "url": "http://thepipemedicshq.com/",
+      "is_paid": false,
+      "rating": {
+        "rating_type": "Max5",
+        "value": 5,
+        "votes_count": 6,
+        "rating_max": 5
+      },
+      "cid": "14781845416607475354",
+      "rectangle": null
+    },
+    {
+      "type": "local_pack",
+      "rank_group": 2,
+      "rank_absolute": 6,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[1]/div[2]/div[2]/div[1]/div[1]/div[9]/div[1]/div[1]/div[1]/div[1]/div[3]/div[1]/div[3]/div[1]/div[1]",
+      "title": "Sweetwater Plumbing",
+      "description": "15+ years in business · Apex, NC \nCloses soon · 8 PM \n\"Called at 7:55 am they came right out and they were finished by 10:30 .\" \n",
+      "domain": "www.sweetwater-plumbing.com",
+      "phone": "(919) 270-6869",
+      "booking_url": null,
+      "url": "http://www.sweetwater-plumbing.com/",
+      "is_paid": false,
+      "rating": {
+        "rating_type": "Max5",
+        "value": 4.9,
+        "votes_count": 590,
+        "rating_max": 5
+      },
+      "cid": "15821463023471542121",
+      "rectangle": null
+    },
+    {
+      "type": "local_pack",
+      "rank_group": 3,
+      "rank_absolute": 7,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[1]/div[2]/div[2]/div[1]/div[1]/div[9]/div[1]/div[1]/div[1]/div[1]/div[3]/div[1]/div[5]/div[1]/div[1]",
+      "title": "Bb Plumbing Inc",
+      "description": "15+ years in business \nOpen 24 hours \n",
+      "domain": "www.plumber-plumbing.net",
+      "phone": "(919) 267-9126",
+      "booking_url": null,
+      "url": "https://www.plumber-plumbing.net/",
+      "is_paid": false,
+      "rating": {
+        "rating_type": "Max5",
+        "value": 4.9,
+        "votes_count": 23,
+        "rating_max": 5
+      },
+      "cid": "11040036893613865712",
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 4,
+      "rank_absolute": 8,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[1]/div[2]/div[2]/div[1]/div[1]/div[11]/div[1]/div[1]",
+      "domain": "streamlineplumbinginc.com",
+      "title": "Trenchless Sewer Repair Raleigh NC | No-Dig Pipe ...",
+      "url": "https://streamlineplumbinginc.com/sewer/raleigh/trenchless-sewer-line-repair/",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://streamlineplumbinginc.com › sewer › trenchless-...",
+      "website_name": "Streamline Services",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "Expert trenchless sewer repair in Raleigh. Trenchless Sewer Line Repair & Replacement INSTANT. Contact us at 919-263-5221 to discuss your sewer line needs.",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "trenchless sewer repair",
+        "Trenchless Sewer Line Repair",
+        "Replacement",
+        "sewer line"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 5,
+      "rank_absolute": 9,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[1]/div[2]/div[2]/div[1]/div[1]/div[13]/div[1]/div[1]",
+      "domain": "plumber-plumbing.net",
+      "title": "Sewer Repair Apex NC | Affordable Plumbing Services",
+      "url": "https://plumber-plumbing.net/sewer-apex/",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://plumber-plumbing.net › sewer-apex",
+      "website_name": "plumber-plumbing.net",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "Expert sewer repair in Apex, NC. Bizzy Bee Plumbing offers trenchless repair, cleaning & full sewer replacement. Call 919-423-7595 today!",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "trenchless repair, cleaning & full sewer replacement"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 6,
+      "rank_absolute": 10,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[1]/div[2]/div[2]/div[1]/div[1]/div[15]/div[1]/div[1]",
+      "domain": "www.apexnc.org",
+      "title": "Water and Sewer Service Information",
+      "url": "https://www.apexnc.org/1515/Water-Sewer-Service-Information",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://www.apexnc.org › Water-Sewer-Service-Informat...",
+      "website_name": "Apex, NC",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "Contact the Water Resources department at 919-362-8166 if you suspect a leak. us at 919-362-8166 or submit an online Water/Sewer Concern Request, A licensed ...",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "919-362-8166"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 7,
+      "rank_absolute": 11,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[1]/div[2]/div[2]/div[1]/div[1]/div[17]/div[1]/div[1]",
+      "domain": "www.localplumbpros.com",
+      "title": "Main Sewer Line Cleaning, Repair and Install Near Apex, NC",
+      "url": "https://www.localplumbpros.com/plumbing/sewer-lines/",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://www.localplumbpros.com › Plumbing Services",
+      "website_name": "Local Plumb Pros",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "Our team of experienced plumbers can clean, repair and install your main sewer line quickly and efficiently. Whether it's a clogged pipe or an old, damaged ... Read more",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "Our team of experienced plumbers can clean, repair and install your main sewer line"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 8,
+      "rank_absolute": 12,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[1]/div[2]/div[2]/div[1]/div[1]/div[19]/div[1]/div[1]",
+      "domain": "www.jdservicenow.com",
+      "title": "Trenchless Pipe Lining in Durham, NC",
+      "url": "https://www.jdservicenow.com/drain-sewer/trenchless-pipe-lining/",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://www.jdservicenow.com › Drain & Sewer",
+      "website_name": "JD Service Now",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "Schedule a trenchless sewer line repair in Durham by calling 919-383-7000. We look forward to serving you! Additional Reading. Trenchless Piping: How It Works & ... Read more",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "Schedule a trenchless sewer line repair in Durham by calling 919-383-7000"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 9,
+      "rank_absolute": 13,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[1]/div[2]/div[2]/div[1]/div[1]/div[21]/div[1]/div[1]",
+      "domain": "www.pipetechsplumbing.com",
+      "title": "Sewer Line & Trenchless Sewer Repair in Raleigh, NC",
+      "url": "https://www.pipetechsplumbing.com/residential-plumbing-services/sewer-line-trenchless-sewer-repair/",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://www.pipetechsplumbing.com › sewer-line-trenchl...",
+      "website_name": "PipeTechs Plumbing",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "Call Pipetechs Plumbing Technologies at (984) 205-3054 and get expert sewer line repair services today! Any problems in your sewer line can be a cause of worry. Read more",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "Call Pipetechs Plumbing Technologies at (984) 205-3054"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 10,
+      "rank_absolute": 14,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[1]/div[2]/div[2]/div[1]/div[1]/div[22]/div[1]/div[1]/div[1]",
+      "domain": "www.youtube.com",
+      "title": "Trenchless Sewer Line Repair",
+      "url": "https://www.youtube.com/watch?v=3vRDHVNwm-I",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "8.7K+ views  ·  1 year ago",
+      "website_name": "YouTube · Mr. Rooter Plumbing",
+      "is_image": false,
+      "is_video": true,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": [
+        "is_video"
+      ],
+      "description": "A broken sewer line can be a disaster for your home, but the repair doesn't have to be! Trenchless sewer line repair restores broken pipes ...",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "Trenchless sewer line repair"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": "2025-07-08 00:00:00 +00:00",
+      "rectangle": null
+    }
+  ],
+  "classified": {
+    "mapPackPresent": true,
+    "localPack": [
+      {
+        "title": "Pipe Medics Plumbers & Drainage Services of Apex",
+        "url": "http://thepipemedicshq.com/",
+        "domain": "thepipemedicshq.com",
+        "rating": 5,
+        "reviewsCount": 6,
+        "hasWebsite": true
+      },
+      {
+        "title": "Sweetwater Plumbing",
+        "url": "http://www.sweetwater-plumbing.com/",
+        "domain": "sweetwater-plumbing.com",
+        "rating": 4.9,
+        "reviewsCount": 590,
+        "hasWebsite": true
+      },
+      {
+        "title": "Bb Plumbing Inc",
+        "url": "https://www.plumber-plumbing.net/",
+        "domain": "plumber-plumbing.net",
+        "rating": 4.9,
+        "reviewsCount": 23,
+        "hasWebsite": true
+      }
+    ],
+    "mapPackSlotCount": 3,
+    "mapPackWebsiteCount": 3,
+    "mapPackNoWebsiteCount": 0,
+    "directories": {
+      "count": 1,
+      "links": [
+        {
+          "title": "TOP 10 BEST Trenchless Sewer Repair in Apex, NC",
+          "url": "https://www.yelp.com/search?find_desc=Trenchless+Sewer+Repair&find_loc=Apex%2C+NC",
+          "domain": "yelp.com",
+          "rankAbsolute": 4
+        }
+      ]
+    },
+    "organicHomePages": {
+      "count": 0,
+      "links": [],
+      "nicheRelevantCount": 0
+    },
+    "organicSubPages": {
+      "count": 9,
+      "links": [
+        {
+          "title": "Trenchless Sewer Line Repair Apex, NC - Sewer Pipe Lining",
+          "url": "https://firstcallapexplumbing.com/trenchless-sewer-line-repair-apex-nc/",
+          "domain": "firstcallapexplumbing.com",
+          "rankAbsolute": 1,
+          "nicheRelevant": true,
+          "looksEmd": false
+        },
+        {
+          "title": "Trenchless Sewer Repairs Apex NC",
+          "url": "https://northcarolina.1daytrenchlesssewerrepair.com/trenchless-sewer-repairs-apex-nc/",
+          "domain": "northcarolina.1daytrenchlesssewerrepair.com",
+          "rankAbsolute": 3,
+          "nicheRelevant": true,
+          "looksEmd": true
+        },
+        {
+          "title": "Trenchless Sewer Repair Raleigh NC | No-Dig Pipe ...",
+          "url": "https://streamlineplumbinginc.com/sewer/raleigh/trenchless-sewer-line-repair/",
+          "domain": "streamlineplumbinginc.com",
+          "rankAbsolute": 8,
+          "nicheRelevant": true,
+          "looksEmd": false
+        },
+        {
+          "title": "Sewer Repair Apex NC | Affordable Plumbing Services",
+          "url": "https://plumber-plumbing.net/sewer-apex/",
+          "domain": "plumber-plumbing.net",
+          "rankAbsolute": 9,
+          "nicheRelevant": false,
+          "looksEmd": false
+        },
+        {
+          "title": "Water and Sewer Service Information",
+          "url": "https://www.apexnc.org/1515/Water-Sewer-Service-Information",
+          "domain": "apexnc.org",
+          "rankAbsolute": 10,
+          "nicheRelevant": false,
+          "looksEmd": false
+        },
+        {
+          "title": "Main Sewer Line Cleaning, Repair and Install Near Apex, NC",
+          "url": "https://www.localplumbpros.com/plumbing/sewer-lines/",
+          "domain": "localplumbpros.com",
+          "rankAbsolute": 11,
+          "nicheRelevant": true,
+          "looksEmd": false
+        },
+        {
+          "title": "Trenchless Pipe Lining in Durham, NC",
+          "url": "https://www.jdservicenow.com/drain-sewer/trenchless-pipe-lining/",
+          "domain": "jdservicenow.com",
+          "rankAbsolute": 12,
+          "nicheRelevant": true,
+          "looksEmd": false
+        },
+        {
+          "title": "Sewer Line & Trenchless Sewer Repair in Raleigh, NC",
+          "url": "https://www.pipetechsplumbing.com/residential-plumbing-services/sewer-line-trenchless-sewer-repair/",
+          "domain": "pipetechsplumbing.com",
+          "rankAbsolute": 13,
+          "nicheRelevant": true,
+          "looksEmd": false
+        },
+        {
+          "title": "Trenchless Sewer Line Repair",
+          "url": "https://www.youtube.com/watch?v=3vRDHVNwm-I",
+          "domain": "youtube.com",
+          "rankAbsolute": 14,
+          "nicheRelevant": true,
+          "looksEmd": false
+        }
+      ],
+      "nicheRelevantCount": 7
+    },
+    "uniqueOrganicDomains": [
+      "firstcallapexplumbing.com",
+      "northcarolina.1daytrenchlesssewerrepair.com",
+      "streamlineplumbinginc.com",
+      "plumber-plumbing.net",
+      "apexnc.org",
+      "localplumbpros.com",
+      "jdservicenow.com",
+      "pipetechsplumbing.com",
+      "youtube.com"
+    ],
+    "paidAds": {
+      "count": 0,
+      "links": []
+    },
+    "uniqueNicheOrganicDomains": [
+      "firstcallapexplumbing.com",
+      "northcarolina.1daytrenchlesssewerrepair.com",
+      "streamlineplumbinginc.com",
+      "localplumbpros.com",
+      "jdservicenow.com",
+      "pipetechsplumbing.com",
+      "youtube.com"
+    ],
+    "nicheTokens": [
+      "sewer",
+      "line",
+      "replacement",
+      "trenchless"
+    ],
+    "mapPackReviews": {
+      "slotCount": 3,
+      "reviewSampleSize": 3,
+      "avgReviews": 206.3,
+      "maxReviews": 590,
+      "minReviews": 6,
+      "reviewsBySlot": [
+        6,
+        590,
+        23
+      ],
+      "reviewsLabel": "6/590/23"
+    },
+    "features": {
+      "localServicesAds": false,
+      "peopleAlsoAsk": true,
+      "googleReviews": false,
+      "paid": false,
+      "itemTypes": [
+        "organic",
+        "people_also_ask",
+        "local_pack"
+      ]
+    },
+    "peopleAlsoAskQuestions": [
+      "What are the disadvantages of trenchless sewer line replacement?",
+      "Is trenchless sewer repair better?",
+      "Can you do a trenchless sewer line replacement?",
+      "What is the average cost to repair a sewer line?"
+    ],
+    "organicTitles": [
+      "Trenchless Sewer Line Repair Apex, NC - Sewer Pipe Lining",
+      "Trenchless Sewer Repairs Apex NC",
+      "Trenchless Sewer Repair Raleigh NC | No-Dig Pipe ...",
+      "Sewer Repair Apex NC | Affordable Plumbing Services",
+      "Water and Sewer Service Information",
+      "Main Sewer Line Cleaning, Repair and Install Near Apex, NC",
+      "Trenchless Pipe Lining in Durham, NC",
+      "Sewer Line & Trenchless Sewer Repair in Raleigh, NC",
+      "Trenchless Sewer Line Repair",
+      "TOP 10 BEST Trenchless Sewer Repair in Apex, NC"
+    ]
+  }
+}

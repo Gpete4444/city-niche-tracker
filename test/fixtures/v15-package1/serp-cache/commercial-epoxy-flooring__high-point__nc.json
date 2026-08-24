@@ -1,0 +1,973 @@
+{
+  "rowIndex": 22,
+  "rowKey": "commercial epoxy flooring|high point|nc",
+  "items": [
+    {
+      "type": "local_pack",
+      "rank_group": 1,
+      "rank_absolute": 1,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[1]/div[2]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[2]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]",
+      "title": "JLV Commercial & Industrial Flooring",
+      "description": "Closed · Opens 8 AM Sat \n\"Hired these guys to do an epoxy at a job site and left an amazing job.\" \n",
+      "domain": "jlvflooring.net",
+      "phone": "(336) 365-6991",
+      "booking_url": null,
+      "url": "http://jlvflooring.net/",
+      "is_paid": false,
+      "rating": {
+        "rating_type": "Max5",
+        "value": 4.8,
+        "votes_count": 23,
+        "rating_max": 5
+      },
+      "cid": "16387985780886317484",
+      "rectangle": null
+    },
+    {
+      "type": "local_pack",
+      "rank_group": 2,
+      "rank_absolute": 2,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[1]/div[2]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[2]/div[1]/div[1]/div[1]/div[1]/div[1]/div[3]/div[1]/div[1]",
+      "title": "Epoxypro coatings and remodeling services",
+      "description": "Winston-Salem, NC \nOpen 24 hours \n\" Epoxy flooring turned out excellent.\" \n",
+      "domain": "epoxyprocoatingsnc.com",
+      "phone": "(336) 744-4733",
+      "booking_url": null,
+      "url": "http://epoxyprocoatingsnc.com/",
+      "is_paid": false,
+      "rating": {
+        "rating_type": "Max5",
+        "value": 5,
+        "votes_count": 107,
+        "rating_max": 5
+      },
+      "cid": "6428027812460385714",
+      "rectangle": null
+    },
+    {
+      "type": "local_pack",
+      "rank_group": 3,
+      "rank_absolute": 3,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[1]/div[2]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[2]/div[1]/div[1]/div[1]/div[1]/div[1]/div[5]/div[1]/div[1]",
+      "title": "Garage Floor and More",
+      "description": "High Point, NC \nClosed · Opens 9 AM Sat \n",
+      "domain": null,
+      "phone": "(336) 215-8902",
+      "booking_url": null,
+      "url": null,
+      "is_paid": false,
+      "rating": {
+        "rating_type": "Max5",
+        "value": 5,
+        "votes_count": 2,
+        "rating_max": 5
+      },
+      "cid": "7751480212171371566",
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 1,
+      "rank_absolute": 4,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[2]/div[1]/div[2]/div[1]/div[1]/div[2]/div[1]/div[1]",
+      "domain": "www.incredibleconcrete.com",
+      "title": "Epoxy Coating | High Point, NC",
+      "url": "https://www.incredibleconcrete.com/epoxy-coating",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://www.incredibleconcrete.com › epoxy-coating",
+      "website_name": "Ultimate Edge Inc.",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "Protect and enhance the durability of your concrete floors with professional epoxy coating services from Ultimate Edge, Inc. Serving High Point, Winston-Salem, ... Read more",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "professional epoxy coating services"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "people_also_ask",
+      "rank_group": 1,
+      "rank_absolute": 5,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[2]/div[1]/div[2]/div[1]/div[1]/div[4]/div[1]/div[1]/div[1]",
+      "items": [
+        {
+          "type": "people_also_ask_element",
+          "title": "How much does it cost to epoxy a commercial floor?",
+          "seed_question": null,
+          "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[2]/div[1]/div[2]/div[1]/div[1]/div[4]/div[1]/div[1]/div[1]/div[1]/div[2]/div[1]",
+          "expanded_element": [
+            {
+              "type": "people_also_ask_ai_overview_expanded_element",
+              "items": null,
+              "references": null,
+              "asynchronous_ai_overview": true
+            }
+          ]
+        },
+        {
+          "type": "people_also_ask_element",
+          "title": "How much does 1000 sq ft of epoxy cost?",
+          "seed_question": null,
+          "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[2]/div[1]/div[2]/div[1]/div[1]/div[4]/div[1]/div[1]/div[1]/div[1]/div[2]/div[2]",
+          "expanded_element": [
+            {
+              "type": "people_also_ask_ai_overview_expanded_element",
+              "items": null,
+              "references": null,
+              "asynchronous_ai_overview": true
+            }
+          ]
+        },
+        {
+          "type": "people_also_ask_element",
+          "title": "How much does it cost to epoxy a 20x20 garage floor?",
+          "seed_question": null,
+          "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[2]/div[1]/div[2]/div[1]/div[1]/div[4]/div[1]/div[1]/div[1]/div[1]/div[2]/div[3]",
+          "expanded_element": [
+            {
+              "type": "people_also_ask_ai_overview_expanded_element",
+              "items": null,
+              "references": null,
+              "asynchronous_ai_overview": true
+            }
+          ]
+        },
+        {
+          "type": "people_also_ask_element",
+          "title": "What is the downside of epoxy flooring?",
+          "seed_question": null,
+          "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[2]/div[1]/div[2]/div[1]/div[1]/div[4]/div[1]/div[1]/div[1]/div[1]/div[2]/div[4]",
+          "expanded_element": [
+            {
+              "type": "people_also_ask_ai_overview_expanded_element",
+              "items": null,
+              "references": null,
+              "asynchronous_ai_overview": true
+            }
+          ]
+        }
+      ],
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 2,
+      "rank_absolute": 6,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[2]/div[1]/div[2]/div[1]/div[1]/div[6]/div[1]/div[1]",
+      "domain": "colsonsepoxygreensboro.com",
+      "title": "Epoxy Flooring in High Point NC | Free Quotes!",
+      "url": "https://colsonsepoxygreensboro.com/high-point-epoxy-flooring/",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://colsonsepoxygreensboro.com › high-point-epox...",
+      "website_name": "colsonsepoxygreensboro.com",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "Need epoxy flooring in High Point, NC? We install premium residential and commercial epoxy floors built to last. (336) 652-6288 … 100% solids epoxy and ...",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "336) 652-6288"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 3,
+      "rank_absolute": 7,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[2]/div[1]/div[2]/div[1]/div[1]/div[8]/div[1]/div[1]",
+      "domain": "www.garageexperts.com",
+      "title": "Garage Floor Coatings & Storage in High Point, NC",
+      "url": "https://www.garageexperts.com/the-triad/high-point/",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://www.garageexperts.com › the-triad › high-point",
+      "website_name": "GarageExperts",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "in High Point, NC Epoxy and Polyaspartic Flooring, commercial, or industrial property, Give us a call at (336) 252-2202 or get a free estimate here! both ...",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "336) 252-2202"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 4,
+      "rank_absolute": 8,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[2]/div[1]/div[2]/div[1]/div[1]/div[10]/div[1]/div[1]",
+      "domain": "www.yelp.com",
+      "title": "TOP 10 BEST Epoxy Flooring in High Point, NC",
+      "url": "https://www.yelp.com/search?find_desc=Epoxy+Flooring&find_loc=High+Point%2C+NC",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://www.yelp.com › Home Services",
+      "website_name": "Yelp",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "Top 10 Best Epoxy Flooring Near High Point, North Carolina. Free estimates• 24/7 Availability 1. Licensed & Insured | Residential & Commercialread … 100% ...",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": {
+        "rating_type": "Max5",
+        "value": 4.6,
+        "votes_count": 159,
+        "rating_max": 5
+      },
+      "price": null,
+      "highlighted": [
+        "Free estimates• 24/7 Availability"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 5,
+      "rank_absolute": 9,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[2]/div[1]/div[2]/div[1]/div[1]/div[12]/div[1]/div[1]",
+      "domain": "www.breakthroughepoxy.com",
+      "title": "Epoxy Flooring Greensboro & High Point NC | Breakthrough ...",
+      "url": "https://www.breakthroughepoxy.com/",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://www.breakthroughepoxy.com",
+      "website_name": "Breakthrough Epoxy Designs",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "Breakthrough Epoxy Designs provides commercial epoxy flooring and concrete coating services throughout Greensboro, High Point, and Central North Carolina.",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "commercial epoxy flooring and concrete coating services"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 6,
+      "rank_absolute": 10,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[2]/div[1]/div[2]/div[1]/div[1]/div[14]/div[1]/div[1]",
+      "domain": "www.aceavant.com",
+      "title": "Resinous Floor Coatings in High Point",
+      "url": "https://www.aceavant.com/specialty-services/resinous-coatings-and-surface-treatments/north-carolina/high-point/",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://www.aceavant.com › north-carolina › high-point",
+      "website_name": "Ace Avant",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "Ace Avant specializes in high quality and durable resinous floor coatings and surface treatments for industrial & commercial spaces in High Point.",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "Ace Avant specializes in high quality and durable resinous floor coatings"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 7,
+      "rank_absolute": 11,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[2]/div[1]/div[2]/div[1]/div[1]/div[16]/div[1]/div[1]",
+      "domain": "highpointflooringcenter.com",
+      "title": "High Point Flooring Center: Flooring Service",
+      "url": "https://highpointflooringcenter.com/",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://highpointflooringcenter.com",
+      "website_name": "High Point Flooring Center",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "(336) 882-0316 Uploaded , serving residential and commercial customers ・ 1706 King Street, High Point, NC. Monday-Friday 9am-5pm ・ residential and commercial ...",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "1706 King Street, High Point, NC"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 8,
+      "rank_absolute": 12,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[2]/div[1]/div[2]/div[1]/div[1]/div[18]/div[1]/div[1]",
+      "domain": "www.angi.com",
+      "title": "Top 10 Best Epoxy flooring pros in High Point, NC",
+      "url": "https://www.angi.com/companylist/us/nc/high-point/epoxy-flooring.htm",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://www.angi.com › ... › Epoxy Floor",
+      "website_name": "Angie's List",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "I love my new floors! Everson Flooring is a professional flooring company that provides reasonable quotes and outstanding work. Read more",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": {
+        "rating_type": "Max5",
+        "value": 4,
+        "votes_count": 13,
+        "rating_max": 5
+      },
+      "price": null,
+      "highlighted": [
+        "Everson Flooring"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "popular_products",
+      "rank_group": 1,
+      "rank_absolute": 13,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[2]/div[1]/div[2]/div[1]/div[1]/div[20]/div[1]",
+      "title": "Popular products",
+      "items": [
+        {
+          "type": "popular_products_element",
+          "title": "Armorpoxy Polyaspartic Floor Coating Kit",
+          "url": null,
+          "domain": null,
+          "description": "Home Depot & more\nFree delivery",
+          "more_sellers": true,
+          "seller": "Home Depot",
+          "image_url": "https://encrypted-tbn1.gstatic.com/shopping?q=tbn:ANd9GcQNrHDSkX_AV3rq3L_gJo3v2jtREMacoVWmmwnZcsYxcMLngxr3AAU_skS1EPkXW3sxj_J2fYzaXL1WUUsm2bcvI_fFTPh9a2dsc5mT-HNXhM4s2MF8iyenkg",
+          "price": {
+            "current": 1080.71,
+            "regular": 270,
+            "max_value": null,
+            "currency": "USD",
+            "is_price_range": false,
+            "displayed_price": "$1,080.71 $270/ct"
+          },
+          "rating": {
+            "rating_type": "Max5",
+            "value": 4.8,
+            "votes_count": 23,
+            "rating_max": 5
+          },
+          "product_identifiers": {
+            "product_id": "14560848501583153888",
+            "data_docid": "4357029085905891352",
+            "gid": "4732926739525051005"
+          }
+        },
+        {
+          "type": "popular_products_element",
+          "title": "Ghostshield Epoxy Max 3 Gal. Kit Clear High-Gloss 100% Solids 2 Part Epoxy Interior Concrete Basement and Garage Floor Paint Coating",
+          "url": null,
+          "domain": null,
+          "description": "Home Depot\nFree delivery by Tue",
+          "more_sellers": false,
+          "seller": "Home Depot",
+          "image_url": "https://encrypted-tbn1.gstatic.com/shopping?q=tbn:ANd9GcTkCMYlvlLfL6xeidB3muFWeqZJNvlDEpfn434o8-DQPnoJqod2MaRtctYTgKDSm6eq8yYCWRJVBIFgN9qmhN8f6IVwqK02j5yrzHlffSMuRxk-LSU3NW8Z",
+          "price": {
+            "current": 199.88,
+            "regular": 67,
+            "max_value": null,
+            "currency": "USD",
+            "is_price_range": false,
+            "displayed_price": "$199.88 $67/gal"
+          },
+          "rating": {
+            "rating_type": "Max5",
+            "value": 4.4,
+            "votes_count": 7,
+            "rating_max": 5
+          },
+          "product_identifiers": {
+            "product_id": null,
+            "data_docid": "14461404313993965518",
+            "gid": null
+          }
+        },
+        {
+          "type": "popular_products_element",
+          "title": "1000 ft² METALLIC EPOXY FLOORING",
+          "url": null,
+          "domain": null,
+          "description": "Spartan Epoxies",
+          "more_sellers": false,
+          "seller": "Spartan Epoxies",
+          "image_url": "https://encrypted-tbn2.gstatic.com/shopping?q=tbn:ANd9GcQc0JyyYQej3rawHShHz8QcV6bbBRTdi03JsgbDRS9vOg7yQVJUUJYbFtKFtSOQepZKAjp_R1JpW6dVL6eEvEM1ec9W4ZS51uhQs3240UbSnsk-aILRwOcsjw",
+          "price": {
+            "current": 2468.12,
+            "regular": null,
+            "max_value": null,
+            "currency": "USD",
+            "is_price_range": false,
+            "displayed_price": "$2,468.12"
+          },
+          "rating": null,
+          "product_identifiers": {
+            "product_id": "13443870448403850828",
+            "data_docid": "6372216420415361616",
+            "gid": "14027700721410357005"
+          }
+        },
+        {
+          "type": "popular_products_element",
+          "title": "Solid Color Epoxy Garage and Light Commercial Floor System 1601-2000 SQFT",
+          "url": null,
+          "domain": null,
+          "description": "onestopepoxy.com\nFree delivery",
+          "more_sellers": false,
+          "seller": "onestopepoxy.com",
+          "image_url": "https://encrypted-tbn2.gstatic.com/shopping?q=tbn:ANd9GcQMhrSkpSc0o6R-AvCY9mYdRV7dSkfG36bhWUvCCSryiuRfpNuriRytpl5NsrQaMM324HTf7QWy1xK-BL0jrowUQoDeg8O22WcJ2AGY1pLiZ86PGgRZP5vE",
+          "price": {
+            "current": 1759.99,
+            "regular": null,
+            "max_value": null,
+            "currency": "USD",
+            "is_price_range": false,
+            "displayed_price": "$1,759.99"
+          },
+          "rating": null,
+          "product_identifiers": {
+            "product_id": null,
+            "data_docid": "5535477486177419980",
+            "gid": null
+          }
+        },
+        {
+          "type": "popular_products_element",
+          "title": "ArmorPoxy Garage Epoxy Floor Kit",
+          "url": null,
+          "domain": null,
+          "description": "Home Depot & more\nFree delivery",
+          "more_sellers": true,
+          "seller": "Home Depot",
+          "image_url": "https://encrypted-tbn3.gstatic.com/shopping?q=tbn:ANd9GcQ7ILrcWdJnlT0urSh1BVL0aDVRawvQbvMdSPk88cYAHvn5LU2fThJKcSKXGUaDV5lyRlK3YANzIMj2N4702uVTMcyt6Vk2IOnLdyj2w4di_1kNn50-_LiD",
+          "price": {
+            "current": 699,
+            "regular": 233,
+            "max_value": null,
+            "currency": "USD",
+            "is_price_range": false,
+            "displayed_price": "$699.00 $233/gal"
+          },
+          "rating": {
+            "rating_type": "Max5",
+            "value": 4.7,
+            "votes_count": 327,
+            "rating_max": 5
+          },
+          "product_identifiers": {
+            "product_id": "14751553108258363418",
+            "data_docid": "5705629831803319498",
+            "gid": "13806683970393197010"
+          }
+        },
+        {
+          "type": "popular_products_element",
+          "title": "ArmorUltra/ArmorClad Commercial Grade Epoxy",
+          "url": null,
+          "domain": null,
+          "description": "ArmorPoxy",
+          "more_sellers": false,
+          "seller": "ArmorPoxy",
+          "image_url": "https://encrypted-tbn2.gstatic.com/shopping?q=tbn:ANd9GcQuyT8P_prineUAHQnGRleQXDQnHUZ6ZTjml0WC1rE9woSVm20laebd8uYXwhY5yWZmE1giWClQAtIwMISAZwRPMZmdwaAjXsFreu4PVGVT8hKXldot7Tmj",
+          "price": {
+            "current": 34,
+            "regular": 23,
+            "max_value": null,
+            "currency": "USD",
+            "is_price_range": false,
+            "displayed_price": "$34.00 $23/gal"
+          },
+          "rating": null,
+          "product_identifiers": {
+            "product_id": "4601962304996728530",
+            "data_docid": "17402853202836913292",
+            "gid": "1693539836869387143"
+          }
+        },
+        {
+          "type": "popular_products_element",
+          "title": "ArmorPoxy Epoxy Floor Kit",
+          "url": null,
+          "domain": null,
+          "description": "Home Depot & more\nFree delivery",
+          "more_sellers": true,
+          "seller": "Home Depot",
+          "image_url": "https://encrypted-tbn3.gstatic.com/shopping?q=tbn:ANd9GcSXbWpa-x0QZzKDB9F2FDf8jv1gsL6H9Km1AX0HllbwGgy6SmglRbqf1E84f0Dra0dPm0r2vI7CG4YciaC741TGQk37lbi9K7-LtPT_cjy3vVVUuBnjxBo8",
+          "price": {
+            "current": 1099,
+            "regular": null,
+            "max_value": null,
+            "currency": "USD",
+            "is_price_range": false,
+            "displayed_price": "$1,099.00"
+          },
+          "rating": {
+            "rating_type": "Max5",
+            "value": 4.4,
+            "votes_count": 26,
+            "rating_max": 5
+          },
+          "product_identifiers": {
+            "product_id": "9877984048372686568",
+            "data_docid": "13698258971830865921",
+            "gid": "11442942939293127415"
+          }
+        },
+        {
+          "type": "popular_products_element",
+          "title": "Gorilla Garage Floor Epoxy Coating Kit",
+          "url": null,
+          "domain": null,
+          "description": "Lowe's & more\nNext-day delivery $5",
+          "more_sellers": true,
+          "seller": "Lowe's",
+          "image_url": "https://encrypted-tbn3.gstatic.com/shopping?q=tbn:ANd9GcS5Ha7uamrMasmH08FaTQD7T-5TIfE5AzglMs2YnWN7dv14NsvVR4qG7K7ShGjFLceIDVG2YAZH3ZEH4a7YYnL2lJqsv5cP501ukJ5IUlQ",
+          "price": {
+            "current": 399,
+            "regular": null,
+            "max_value": null,
+            "currency": "USD",
+            "is_price_range": false,
+            "displayed_price": "$399.00"
+          },
+          "rating": {
+            "rating_type": "Max5",
+            "value": 4.2,
+            "votes_count": 40,
+            "rating_max": 5
+          },
+          "product_identifiers": {
+            "product_id": "486485160952520030",
+            "data_docid": "7181417944551352130",
+            "gid": "3269820315612803340"
+          }
+        }
+      ],
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 9,
+      "rank_absolute": 14,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[2]/div[1]/div[2]/div[1]/div[1]/div[22]/div[1]/div[1]",
+      "domain": "metrocrete.com",
+      "title": "Concrete Flooring High Point NC",
+      "url": "https://metrocrete.com/northcarolina/concrete-flooring-high-point/",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://metrocrete.com › North Carolina",
+      "website_name": "metrocrete.com",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "At Metrocrete in High Point, Epoxy Foors are our core business and our floors can be found in data centers, commercial kitchens, residential garages ... Read more",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "Epoxy Foors are our core business"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 10,
+      "rank_absolute": 15,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[2]/div[1]/div[2]/div[1]/div[1]/div[24]/div[1]/div[1]",
+      "domain": "www.dchenterprisesinc.com",
+      "title": "Commercial Epoxy Flooring Winston-Salem NC",
+      "url": "https://www.dchenterprisesinc.com/commercial-floor-coatings",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://www.dchenterprisesinc.com › commercial-floor-...",
+      "website_name": "DCH Enterprises",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "Looking for commercial epoxy flooring in Winston-Salem, NC? Look no further than DCH Enterprises Inc. Give us a call today to get started!",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "commercial epoxy flooring in Winston-Salem, NC"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "related_searches",
+      "rank_group": 1,
+      "rank_absolute": 16,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[2]/div[2]/div[1]/div[3]/div[1]/div[1]/div[1]/div[1]/div[2]",
+      "items": [
+        "Commercial epoxy flooring high point nc reviews",
+        "Best commercial epoxy flooring high point nc",
+        "Discount Flooring Thomasville, NC",
+        "Totally Floored High Point, NC",
+        "Breakthrough epoxy designs",
+        "Discount flooring Greensboro, NC",
+        "All in flooring",
+        "Overstock Discount Flooring"
+      ],
+      "rectangle": null
+    }
+  ],
+  "classified": {
+    "mapPackPresent": true,
+    "localPack": [
+      {
+        "title": "JLV Commercial & Industrial Flooring",
+        "url": "http://jlvflooring.net/",
+        "domain": "jlvflooring.net",
+        "rating": 4.8,
+        "reviewsCount": 23,
+        "hasWebsite": true
+      },
+      {
+        "title": "Epoxypro coatings and remodeling services",
+        "url": "http://epoxyprocoatingsnc.com/",
+        "domain": "epoxyprocoatingsnc.com",
+        "rating": 5,
+        "reviewsCount": 107,
+        "hasWebsite": true
+      },
+      {
+        "title": "Garage Floor and More",
+        "url": null,
+        "domain": null,
+        "rating": 5,
+        "reviewsCount": 2,
+        "hasWebsite": false
+      }
+    ],
+    "mapPackSlotCount": 3,
+    "mapPackWebsiteCount": 2,
+    "mapPackNoWebsiteCount": 1,
+    "directories": {
+      "count": 2,
+      "links": [
+        {
+          "title": "TOP 10 BEST Epoxy Flooring in High Point, NC",
+          "url": "https://www.yelp.com/search?find_desc=Epoxy+Flooring&find_loc=High+Point%2C+NC",
+          "domain": "yelp.com",
+          "rankAbsolute": 8
+        },
+        {
+          "title": "Top 10 Best Epoxy flooring pros in High Point, NC",
+          "url": "https://www.angi.com/companylist/us/nc/high-point/epoxy-flooring.htm",
+          "domain": "angi.com",
+          "rankAbsolute": 12
+        }
+      ]
+    },
+    "organicHomePages": {
+      "count": 2,
+      "links": [
+        {
+          "title": "Epoxy Flooring Greensboro & High Point NC | Breakthrough ...",
+          "url": "https://www.breakthroughepoxy.com/",
+          "domain": "breakthroughepoxy.com",
+          "rankAbsolute": 9,
+          "nicheRelevant": true,
+          "looksEmd": false
+        },
+        {
+          "title": "High Point Flooring Center: Flooring Service",
+          "url": "https://highpointflooringcenter.com/",
+          "domain": "highpointflooringcenter.com",
+          "rankAbsolute": 11,
+          "nicheRelevant": false,
+          "looksEmd": false
+        }
+      ],
+      "nicheRelevantCount": 1
+    },
+    "organicSubPages": {
+      "count": 6,
+      "links": [
+        {
+          "title": "Epoxy Coating | High Point, NC",
+          "url": "https://www.incredibleconcrete.com/epoxy-coating",
+          "domain": "incredibleconcrete.com",
+          "rankAbsolute": 4,
+          "nicheRelevant": false,
+          "looksEmd": false
+        },
+        {
+          "title": "Epoxy Flooring in High Point NC | Free Quotes!",
+          "url": "https://colsonsepoxygreensboro.com/high-point-epoxy-flooring/",
+          "domain": "colsonsepoxygreensboro.com",
+          "rankAbsolute": 6,
+          "nicheRelevant": true,
+          "looksEmd": false
+        },
+        {
+          "title": "Garage Floor Coatings & Storage in High Point, NC",
+          "url": "https://www.garageexperts.com/the-triad/high-point/",
+          "domain": "garageexperts.com",
+          "rankAbsolute": 7,
+          "nicheRelevant": false,
+          "looksEmd": false
+        },
+        {
+          "title": "Resinous Floor Coatings in High Point",
+          "url": "https://www.aceavant.com/specialty-services/resinous-coatings-and-surface-treatments/north-carolina/high-point/",
+          "domain": "aceavant.com",
+          "rankAbsolute": 10,
+          "nicheRelevant": false,
+          "looksEmd": false
+        },
+        {
+          "title": "Concrete Flooring High Point NC",
+          "url": "https://metrocrete.com/northcarolina/concrete-flooring-high-point/",
+          "domain": "metrocrete.com",
+          "rankAbsolute": 14,
+          "nicheRelevant": false,
+          "looksEmd": false
+        },
+        {
+          "title": "Commercial Epoxy Flooring Winston-Salem NC",
+          "url": "https://www.dchenterprisesinc.com/commercial-floor-coatings",
+          "domain": "dchenterprisesinc.com",
+          "rankAbsolute": 15,
+          "nicheRelevant": true,
+          "looksEmd": false
+        }
+      ],
+      "nicheRelevantCount": 2
+    },
+    "uniqueOrganicDomains": [
+      "breakthroughepoxy.com",
+      "highpointflooringcenter.com",
+      "incredibleconcrete.com",
+      "colsonsepoxygreensboro.com",
+      "garageexperts.com",
+      "aceavant.com",
+      "metrocrete.com",
+      "dchenterprisesinc.com"
+    ],
+    "paidAds": {
+      "count": 0,
+      "links": []
+    },
+    "uniqueNicheOrganicDomains": [
+      "breakthroughepoxy.com",
+      "colsonsepoxygreensboro.com",
+      "dchenterprisesinc.com"
+    ],
+    "nicheTokens": [
+      "commercial",
+      "epoxy",
+      "flooring"
+    ],
+    "mapPackReviews": {
+      "slotCount": 3,
+      "reviewSampleSize": 3,
+      "avgReviews": 44,
+      "maxReviews": 107,
+      "minReviews": 2,
+      "reviewsBySlot": [
+        23,
+        107,
+        2
+      ],
+      "reviewsLabel": "23/107/2"
+    },
+    "features": {
+      "localServicesAds": false,
+      "peopleAlsoAsk": true,
+      "googleReviews": false,
+      "paid": false,
+      "itemTypes": [
+        "local_pack",
+        "organic",
+        "people_also_ask",
+        "popular_products",
+        "related_searches"
+      ]
+    },
+    "peopleAlsoAskQuestions": [
+      "How much does it cost to epoxy a commercial floor?",
+      "How much does 1000 sq ft of epoxy cost?",
+      "How much does it cost to epoxy a 20x20 garage floor?",
+      "What is the downside of epoxy flooring?"
+    ],
+    "organicTitles": [
+      "Epoxy Flooring Greensboro & High Point NC | Breakthrough ...",
+      "High Point Flooring Center: Flooring Service",
+      "Epoxy Coating | High Point, NC",
+      "Epoxy Flooring in High Point NC | Free Quotes!",
+      "Garage Floor Coatings & Storage in High Point, NC",
+      "Resinous Floor Coatings in High Point",
+      "Concrete Flooring High Point NC",
+      "Commercial Epoxy Flooring Winston-Salem NC",
+      "TOP 10 BEST Epoxy Flooring in High Point, NC",
+      "Top 10 Best Epoxy flooring pros in High Point, NC"
+    ]
+  }
+}

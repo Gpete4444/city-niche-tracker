@@ -1,0 +1,791 @@
+{
+  "rowIndex": 17,
+  "rowKey": "artificial turf installation|jacksonville|nc",
+  "items": [
+    {
+      "type": "ai_overview",
+      "rank_group": 1,
+      "rank_absolute": 1,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[1]/div[2]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]",
+      "asynchronous_ai_overview": true,
+      "markdown": null,
+      "items": null,
+      "references": null,
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 1,
+      "rank_absolute": 2,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[2]/div[1]/div[2]/div[1]/div[1]/div[2]/div[2]/div[1]",
+      "domain": "find.fusionturf.com",
+      "title": "Jacksonville, North Carolina 28546 Artificial Turf Installers",
+      "url": "https://find.fusionturf.com/north-carolina/jacksonville/28546/",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://find.fusionturf.com › north-carolina › jacksonville",
+      "website_name": "FusionTurf",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "Artificial Grass Installers located in Jacksonville NC, 28546. Call or Text: (866) 509- Free Artificial Turf Consultation. We have 6 artificial turf installers ...",
+      "pre_snippet": null,
+      "extended_snippet": "5.0  · Review by Shylo B",
+      "images": null,
+      "amp_version": false,
+      "rating": {
+        "rating_type": "Max5",
+        "value": 5,
+        "votes_count": null,
+        "rating_max": 5
+      },
+      "price": null,
+      "highlighted": [
+        "Artificial Grass Installers located in Jacksonville NC, 28546"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 2,
+      "rank_absolute": 3,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[2]/div[1]/div[2]/div[1]/div[1]/div[4]/div[1]/div[1]",
+      "domain": "www.artificialturfsupply.com",
+      "title": "Jacksonville, North Carolina Artificial Turf",
+      "url": "https://www.artificialturfsupply.com/artificial-grass-locations/north-carolina/jacksonville.html",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://www.artificialturfsupply.com › North Carolina",
+      "website_name": "Artificial Turf Supply",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "Nov 21, 2023 — Artificial Turf Supply carries a large variety of artificial grass solutions for customers in Jacksonville, North Carolina.",
+      "pre_snippet": "11/21/2023 00:00:00",
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": {
+        "rating_type": "Max5",
+        "value": 4.8,
+        "votes_count": 430,
+        "rating_max": 5
+      },
+      "price": null,
+      "highlighted": [
+        "Artificial Turf",
+        "artificial grass",
+        "Jacksonville",
+        "North Carolina"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": "2023-11-21 00:00:00 +00:00",
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 3,
+      "rank_absolute": 4,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[2]/div[1]/div[2]/div[1]/div[1]/div[6]/div[1]/div[1]",
+      "domain": "www.yelp.com",
+      "title": "Best Artificial Turf Installation Services in Jacksonville, NC",
+      "url": "https://www.yelp.com/questions/loc/jacksonville-nc/artificial-turf-installation-services",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://www.yelp.com › questions › loc › artificial-turf-i...",
+      "website_name": "Yelp",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "For artificial turf installation near Jacksonville, NC, Performance Hardscapes stands out for 15 years of expertise and a focus on luxury outdoor spaces,",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "Performance Hardscapes"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 4,
+      "rank_absolute": 5,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[2]/div[1]/div[2]/div[1]/div[1]/div[8]/div[1]/div[1]",
+      "domain": "americanartificialturfgrass.com",
+      "title": "Artificial Turf Solutions in Jacksonville, NC | AAT",
+      "url": "https://americanartificialturfgrass.com/service-areas/jacksonville/",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://americanartificialturfgrass.com › Service Areas",
+      "website_name": "American Artificial Turf",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "American Artificial Turf offers expertly installed artificial grass in Jacksonville, tailored to suit any project.",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "expertly installed artificial grass in Jacksonville"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 5,
+      "rank_absolute": 6,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[2]/div[1]/div[2]/div[1]/div[1]/div[10]/div[1]/div[1]",
+      "domain": "www.globalsynturf.com",
+      "title": "Low Maintenance, High-Quality Artificial Grass & Putting ...",
+      "url": "https://www.globalsynturf.com/jacksonville-north-carolina",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://www.globalsynturf.com › ... › Onslow County",
+      "website_name": "Global Syn-Turf, Inc.",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "Contact us today to learn more about our synthetic turf installation services in Jacksonville, North Carolina. Call (877) SYN-TURF",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "synthetic turf installation services in Jacksonville, North Carolina"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "people_also_ask",
+      "rank_group": 1,
+      "rank_absolute": 7,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[2]/div[1]/div[2]/div[1]/div[1]/div[12]/div[1]/div[1]/div[1]",
+      "items": [
+        {
+          "type": "people_also_ask_element",
+          "title": "What is the best type of grass for Jacksonville, NC?",
+          "seed_question": null,
+          "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[2]/div[1]/div[2]/div[1]/div[1]/div[12]/div[1]/div[1]/div[1]/div[1]/div[2]/div[1]",
+          "expanded_element": [
+            {
+              "type": "people_also_ask_ai_overview_expanded_element",
+              "items": null,
+              "references": null,
+              "asynchronous_ai_overview": true
+            }
+          ]
+        },
+        {
+          "type": "people_also_ask_element",
+          "title": "How much is artificial grass installation?",
+          "seed_question": null,
+          "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[2]/div[1]/div[2]/div[1]/div[1]/div[12]/div[1]/div[1]/div[1]/div[1]/div[2]/div[2]",
+          "expanded_element": [
+            {
+              "type": "people_also_ask_ai_overview_expanded_element",
+              "items": null,
+              "references": null,
+              "asynchronous_ai_overview": true
+            }
+          ]
+        },
+        {
+          "type": "people_also_ask_element",
+          "title": "What is the best beach in Jacksonville, NC?",
+          "seed_question": null,
+          "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[2]/div[1]/div[2]/div[1]/div[1]/div[12]/div[1]/div[1]/div[1]/div[1]/div[2]/div[3]",
+          "expanded_element": [
+            {
+              "type": "people_also_ask_ai_overview_expanded_element",
+              "items": null,
+              "references": null,
+              "asynchronous_ai_overview": true
+            }
+          ]
+        },
+        {
+          "type": "people_also_ask_element",
+          "title": "What is the closest beach to Jacksonville, NC?",
+          "seed_question": null,
+          "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[2]/div[1]/div[2]/div[1]/div[1]/div[12]/div[1]/div[1]/div[1]/div[1]/div[2]/div[4]",
+          "expanded_element": [
+            {
+              "type": "people_also_ask_ai_overview_expanded_element",
+              "items": null,
+              "references": null,
+              "asynchronous_ai_overview": true
+            }
+          ]
+        }
+      ],
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 6,
+      "rank_absolute": 8,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[2]/div[1]/div[2]/div[1]/div[1]/div[14]/div[1]/div[1]",
+      "domain": "www.homeadvisor.com",
+      "title": "Landscape Synthetic Grass for Putting Greens, Play Areas ...",
+      "url": "https://www.homeadvisor.com/tloc/Jacksonville-NC/Install-Synthetic-Grass-Artificial-Turf-for-Putting-Greens-and-Landscaping/",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://www.homeadvisor.com › NC › Jacksonville",
+      "website_name": "Home Advisor",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "Find Landscape synthetic grass for putting greens, play areas, etc. installers in Jacksonville ; Phillips Turf Group · (. 10. ) · Approved. In business since 2020. Read more",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "Landscape synthetic grass for putting greens, play areas, etc. installers in Jacksonville"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 7,
+      "rank_absolute": 9,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[2]/div[1]/div[2]/div[1]/div[1]/div[16]/div[1]/div[1]",
+      "domain": "www.southernturfco.com",
+      "title": "Artificial Grass Installation Schedule Estimate",
+      "url": "https://www.southernturfco.com/schedule-estimate/",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://www.southernturfco.com › schedule-estimate",
+      "website_name": "Southern Turf Co.",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "Schedule your free estimate with Southern Turf Co. Transform your space with our premium artificial turf solutions.",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "Schedule your free estimate with Southern Turf Co"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 8,
+      "rank_absolute": 10,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[2]/div[1]/div[2]/div[1]/div[1]/div[18]/div[1]/div[1]",
+      "domain": "m.yelp.com",
+      "title": "TOP 10 BEST Sports Turf Installation in Jacksonville, NC",
+      "url": "https://m.yelp.com/search?find_desc=Sports+turf+installation&find_loc=Jacksonville%2C+NC",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://m.yelp.com › ... › Sports Turf Installation",
+      "website_name": "Yelp",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "Top 10 Best Sports turf installation Near Jacksonville, North Carolina · Enc Turf Management · Performance Hardscapes · JP's Custom Turf & Landscaping · ITB ... Read more",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": {
+        "rating_type": "Max5",
+        "value": 4.7,
+        "votes_count": 71,
+        "rating_max": 5
+      },
+      "price": null,
+      "highlighted": [
+        "Enc Turf Management"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 9,
+      "rank_absolute": 11,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[2]/div[1]/div[2]/div[1]/div[1]/div[20]/div[1]/div[1]",
+      "domain": "turfnetwork.org",
+      "title": "North Carolina - Artificial Turf Company Directory // TURF ...",
+      "url": "https://turfnetwork.org/location/north-carolina/",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://turfnetwork.org › Location",
+      "website_name": "turfnetwork.org",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "Browse North Carolina's Top Artificial Turf Installers. Mr. Outdoor Living ... Jacksonville, NC; Kannapolis, NC. Kernersville, NC; Matthews, NC ... Read more",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "Browse North Carolina's Top Artificial Turf Installers"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "related_searches",
+      "rank_group": 1,
+      "rank_absolute": 12,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[2]/div[2]/div[1]/div[3]/div[1]/div[1]/div[1]/div[1]/div[2]",
+      "items": [
+        "Best artificial turf installation jacksonville nc",
+        "Cheap artificial turf installation jacksonville nc",
+        "Artificial turf installation jacksonville nc near me",
+        "Artificial turf installation jacksonville nc cost"
+      ],
+      "rectangle": null
+    },
+    {
+      "type": "knowledge_graph",
+      "rank_group": 1,
+      "rank_absolute": 1,
+      "page": 1,
+      "position": "right",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[3]/div[1]/div[1]/div[1]",
+      "title": "Southern Turf Co. Wilmington ® Artificial Grass",
+      "subtitle": "Turf supplier in Wilmington, North Carolina",
+      "description": "From Southern Turf Co. Wilmington ® Artificial Grass \"Southern Turf Co. Wilmington delivers high-quality artificial turf solutions for residential and commercial properties throughout the coastal Carolina region. From low-maintenance lawns and pet-friendly yards to custom putting greens and backyard... More",
+      "card_id": null,
+      "url": "https://www.southernturfco.com/wilmington/",
+      "image_url": null,
+      "logo_url": null,
+      "cid": "10889346240679536836",
+      "items": [
+        {
+          "type": "knowledge_graph_images_item",
+          "rank_group": 0,
+          "rank_absolute": 0,
+          "page": 1,
+          "position": "left",
+          "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[3]/div[1]/div[1]/div[1]/div[2]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]",
+          "link": null,
+          "items": [
+            {
+              "type": "knowledge_graph_images_element",
+              "url": null,
+              "domain": null,
+              "alt": null,
+              "image_url": "https://api.dataforseo.com/cdn/i/08212327-2222-0139-0000-bbec2a0d8ff2:0",
+              "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[3]/div[1]/div[1]/div[1]/div[2]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]"
+            },
+            {
+              "type": "knowledge_graph_images_element",
+              "url": "https://www.google.com/maps/place/Southern+Turf+Co.+Wilmington+%C2%AE+Artificial+Grass/data=!4m2!3m1!1s0x0:0x971ebab62ff068c4?sa=X&ved=1t:2428&hl=en&gl=US&ictx=111",
+              "domain": "www.google.com",
+              "alt": "Map of Southern Turf Co. Wilmington ® Artificial Grass",
+              "image_url": "https://api.dataforseo.com/cdn/i/08212327-2222-0139-0000-bbec2a0d8ff2:1",
+              "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[3]/div[1]/div[1]/div[1]/div[2]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[2]/div[1]"
+            },
+            {
+              "type": "knowledge_graph_images_element",
+              "url": "https://www.google.com/local/place/fid/0x89a9f5db4ee61bb9:0x971ebab62ff068c4/photosphere?iu=https://streetviewpixels-pa.googleapis.com/v1/thumbnail?panoid%3D7QmibHpIU8hRLRIJ6657Ww%26cb_client%3Dsearch.gws-prod.gps%26yaw%3D207.01581%26pitch%3D0%26thumbfov%3D100%26w%3D0%26h%3D0&ik=CAISFjdRbWliSHBJVThoUkxSSUo2NjU3V3c%3D&sa=X&ved=2ahUKEwifiMvd77KWAxXuS0EAHQ7qDUEQpx96BAg9EBI",
+              "domain": "www.google.com",
+              "alt": null,
+              "image_url": "https://api.dataforseo.com/cdn/i/08212327-2222-0139-0000-bbec2a0d8ff2:2",
+              "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[3]/div[1]/div[1]/div[1]/div[2]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[2]/div[2]/div[1]"
+            }
+          ],
+          "rectangle": null
+        },
+        {
+          "type": "knowledge_graph_description_item",
+          "rank_group": 0,
+          "rank_absolute": 0,
+          "page": 1,
+          "position": "left",
+          "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[3]/div[1]/div[1]/div[1]/div[2]/div[1]/div[1]/div[1]/div[3]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[4]/div[1]/div[1]/div[1]/div[1]/div[1]",
+          "text": "From Southern Turf Co. Wilmington ® Artificial Grass \"Southern Turf Co. Wilmington delivers high-quality artificial turf solutions for residential and commercial properties throughout the coastal Carolina region. From low-maintenance lawns and pet-friendly yards to custom putting greens and backyard... More",
+          "links": [
+            {
+              "type": "link_element",
+              "title": "More",
+              "url": "https://www.google.com/#",
+              "domain": "www.google.com",
+              "description": null,
+              "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[3]/div[1]/div[1]/div[1]/div[2]/div[1]/div[1]/div[1]/div[3]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[4]/div[1]/div[1]/div[1]/div[1]/div[1]/c-wiz[1]/div[1]/div[2]/div[1]/a[1]"
+            }
+          ],
+          "rectangle": null
+        },
+        {
+          "type": "knowledge_graph_row_item",
+          "rank_group": 0,
+          "rank_absolute": 0,
+          "page": 1,
+          "position": "left",
+          "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[3]/div[1]/div[1]/div[1]/div[2]/div[1]/div[1]/div[1]/div[3]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[2]/div[1]/div[1]/div[1]/div[1]/div[1]",
+          "title": "Address",
+          "data_attrid": "kc:/location/location:address",
+          "text": "925 S Kerr Ave F2, Wilmington, NC 28403",
+          "links": [
+            {
+              "type": "link_element",
+              "title": "Address",
+              "url": "https://www.google.com/search?sca_esv=299537ef26fd61a8&hl=en&gl=US&q=southern+turf+co.+wilmington+%C2%AE+artificial+grass+address&ludocid=10889346240679536836&sa=X&ved=2ahUKEwifiMvd77KWAxXuS0EAHQ7qDUEQ6BN6BAgyEAI",
+              "domain": "www.google.com",
+              "description": null,
+              "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[3]/div[1]/div[1]/div[1]/div[2]/div[1]/div[1]/div[1]/div[3]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[2]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/span[1]/a[1]"
+            }
+          ],
+          "rectangle": null
+        },
+        {
+          "type": "knowledge_graph_row_item",
+          "rank_group": 0,
+          "rank_absolute": 0,
+          "page": 1,
+          "position": "left",
+          "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[3]/div[1]/div[1]/div[1]/div[2]/div[1]/div[1]/div[1]/div[3]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[2]/div[1]/div[1]/div[1]/div[1]/div[2]",
+          "title": "Phone",
+          "data_attrid": "kc:/local:alt phone",
+          "text": "Phone : (910) 218-8355",
+          "links": [
+            {
+              "type": "link_element",
+              "title": "Phone",
+              "url": "https://www.google.com/search?sca_esv=299537ef26fd61a8&hl=en&gl=US&q=southern+turf+co.+wilmington+%C2%AE+artificial+grass+phone&ludocid=10889346240679536836&sa=X&ved=2ahUKEwifiMvd77KWAxXuS0EAHQ7qDUEQ6BN6BAg0EAI",
+              "domain": "www.google.com",
+              "description": null,
+              "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[3]/div[1]/div[1]/div[1]/div[2]/div[1]/div[1]/div[1]/div[3]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[2]/div[1]/div[1]/div[1]/div[1]/div[2]/div[1]/div[1]/div[1]/span[1]/a[1]"
+            },
+            {
+              "type": "link_element",
+              "title": "(910) 218-8355",
+              "url": "https://www.google.com/#",
+              "domain": "www.google.com",
+              "description": null,
+              "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[3]/div[1]/div[1]/div[1]/div[2]/div[1]/div[1]/div[1]/div[3]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[2]/div[1]/div[1]/div[1]/div[1]/div[2]/div[1]/div[1]/div[1]/span[2]/span[1]/a[1]"
+            }
+          ],
+          "rectangle": null
+        },
+        {
+          "type": "knowledge_graph_row_item",
+          "rank_group": 0,
+          "rank_absolute": 0,
+          "page": 1,
+          "position": "left",
+          "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[3]/div[1]/div[1]/div[1]/div[2]/div[1]/div[1]/div[1]/div[3]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[2]/div[1]/div[1]/div[1]/div[1]/div[3]",
+          "title": "Hours",
+          "data_attrid": "kc:/location/location:hours",
+          "text": "Closed · Opens 8 AM Sat",
+          "links": [
+            {
+              "type": "link_element",
+              "title": "Hours",
+              "url": "https://www.google.com/search?sca_esv=299537ef26fd61a8&hl=en&gl=US&q=southern+turf+co.+wilmington+%C2%AE+artificial+grass+hours&ludocid=10889346240679536836&sa=X&ved=2ahUKEwifiMvd77KWAxXuS0EAHQ7qDUEQ6BN6BAgzEAI",
+              "domain": "www.google.com",
+              "description": null,
+              "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[3]/div[1]/div[1]/div[1]/div[2]/div[1]/div[1]/div[1]/div[3]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[2]/div[1]/div[1]/div[1]/div[1]/div[3]/div[1]/span[1]/a[1]"
+            },
+            {
+              "type": "link_element",
+              "title": "Learn more",
+              "url": "https://support.google.com/websearch/answer/3338405",
+              "domain": "support.google.com",
+              "description": null,
+              "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[3]/div[1]/div[1]/div[1]/div[2]/div[1]/div[1]/div[1]/div[3]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[2]/div[1]/div[1]/div[1]/div[1]/div[3]/div[1]/div[1]/div[2]/div[2]/div[1]/div[1]/div[1]/g-dialog[1]/div[1]/div[2]/span[1]/div[1]/div[1]/div[1]/p[2]/a[1]"
+            }
+          ],
+          "rectangle": null
+        }
+      ],
+      "rectangle": null
+    },
+    {
+      "type": "google_reviews",
+      "rank_group": 1,
+      "rank_absolute": 2,
+      "page": 1,
+      "position": "right",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[3]/div[1]/div[1]/div[1]/div[2]/div[1]/div[1]/div[1]/div[2]/div[1]/div[1]/div[2]/div[1]/div[1]/span[3]/span[1]/a[1]",
+      "reviews_count": 17,
+      "rating": {
+        "rating_type": "Max5",
+        "value": 5,
+        "votes_count": 17,
+        "rating_max": 5
+      },
+      "place_id": "ChIJuRvmTtv1qYkRxGjwL7a6Hpc",
+      "feature": "0x89a9f5db4ee61bb9:0x971ebab62ff068c4",
+      "cid": "10889346240679536836",
+      "rectangle": null
+    }
+  ],
+  "classified": {
+    "mapPackPresent": false,
+    "localPack": [],
+    "mapPackSlotCount": 0,
+    "mapPackWebsiteCount": 0,
+    "mapPackNoWebsiteCount": 0,
+    "directories": {
+      "count": 3,
+      "links": [
+        {
+          "title": "Best Artificial Turf Installation Services in Jacksonville, NC",
+          "url": "https://www.yelp.com/questions/loc/jacksonville-nc/artificial-turf-installation-services",
+          "domain": "yelp.com",
+          "rankAbsolute": 4
+        },
+        {
+          "title": "Landscape Synthetic Grass for Putting Greens, Play Areas ...",
+          "url": "https://www.homeadvisor.com/tloc/Jacksonville-NC/Install-Synthetic-Grass-Artificial-Turf-for-Putting-Greens-and-Landscaping/",
+          "domain": "homeadvisor.com",
+          "rankAbsolute": 8
+        },
+        {
+          "title": "TOP 10 BEST Sports Turf Installation in Jacksonville, NC",
+          "url": "https://m.yelp.com/search?find_desc=Sports+turf+installation&find_loc=Jacksonville%2C+NC",
+          "domain": "m.yelp.com",
+          "rankAbsolute": 10
+        }
+      ]
+    },
+    "organicHomePages": {
+      "count": 0,
+      "links": [],
+      "nicheRelevantCount": 0
+    },
+    "organicSubPages": {
+      "count": 6,
+      "links": [
+        {
+          "title": "Jacksonville, North Carolina 28546 Artificial Turf Installers",
+          "url": "https://find.fusionturf.com/north-carolina/jacksonville/28546/",
+          "domain": "find.fusionturf.com",
+          "rankAbsolute": 2,
+          "nicheRelevant": true,
+          "looksEmd": false
+        },
+        {
+          "title": "Jacksonville, North Carolina Artificial Turf",
+          "url": "https://www.artificialturfsupply.com/artificial-grass-locations/north-carolina/jacksonville.html",
+          "domain": "artificialturfsupply.com",
+          "rankAbsolute": 3,
+          "nicheRelevant": true,
+          "looksEmd": true
+        },
+        {
+          "title": "Artificial Turf Solutions in Jacksonville, NC | AAT",
+          "url": "https://americanartificialturfgrass.com/service-areas/jacksonville/",
+          "domain": "americanartificialturfgrass.com",
+          "rankAbsolute": 5,
+          "nicheRelevant": true,
+          "looksEmd": true
+        },
+        {
+          "title": "Low Maintenance, High-Quality Artificial Grass & Putting ...",
+          "url": "https://www.globalsynturf.com/jacksonville-north-carolina",
+          "domain": "globalsynturf.com",
+          "rankAbsolute": 6,
+          "nicheRelevant": true,
+          "looksEmd": false
+        },
+        {
+          "title": "Artificial Grass Installation Schedule Estimate",
+          "url": "https://www.southernturfco.com/schedule-estimate/",
+          "domain": "southernturfco.com",
+          "rankAbsolute": 9,
+          "nicheRelevant": true,
+          "looksEmd": false
+        },
+        {
+          "title": "North Carolina - Artificial Turf Company Directory // TURF ...",
+          "url": "https://turfnetwork.org/location/north-carolina/",
+          "domain": "turfnetwork.org",
+          "rankAbsolute": 11,
+          "nicheRelevant": true,
+          "looksEmd": false
+        }
+      ],
+      "nicheRelevantCount": 6
+    },
+    "uniqueOrganicDomains": [
+      "find.fusionturf.com",
+      "artificialturfsupply.com",
+      "americanartificialturfgrass.com",
+      "globalsynturf.com",
+      "southernturfco.com",
+      "turfnetwork.org"
+    ],
+    "paidAds": {
+      "count": 0,
+      "links": []
+    },
+    "uniqueNicheOrganicDomains": [
+      "find.fusionturf.com",
+      "artificialturfsupply.com",
+      "americanartificialturfgrass.com",
+      "globalsynturf.com",
+      "southernturfco.com",
+      "turfnetwork.org"
+    ],
+    "nicheTokens": [
+      "artificial",
+      "turf",
+      "installation"
+    ],
+    "mapPackReviews": {
+      "slotCount": 0,
+      "reviewSampleSize": 0,
+      "avgReviews": null,
+      "maxReviews": null,
+      "minReviews": null,
+      "reviewsBySlot": [],
+      "reviewsLabel": null
+    },
+    "features": {
+      "localServicesAds": false,
+      "peopleAlsoAsk": true,
+      "googleReviews": true,
+      "paid": false,
+      "itemTypes": [
+        "ai_overview",
+        "organic",
+        "people_also_ask",
+        "related_searches",
+        "google_reviews",
+        "knowledge_graph"
+      ]
+    },
+    "peopleAlsoAskQuestions": [
+      "What is the best type of grass for Jacksonville, NC?",
+      "How much is artificial grass installation?",
+      "What is the best beach in Jacksonville, NC?",
+      "What is the closest beach to Jacksonville, NC?"
+    ],
+    "organicTitles": [
+      "Jacksonville, North Carolina 28546 Artificial Turf Installers",
+      "Jacksonville, North Carolina Artificial Turf",
+      "Artificial Turf Solutions in Jacksonville, NC | AAT",
+      "Low Maintenance, High-Quality Artificial Grass & Putting ...",
+      "Artificial Grass Installation Schedule Estimate",
+      "North Carolina - Artificial Turf Company Directory // TURF ...",
+      "Best Artificial Turf Installation Services in Jacksonville, NC",
+      "Landscape Synthetic Grass for Putting Greens, Play Areas ...",
+      "TOP 10 BEST Sports Turf Installation in Jacksonville, NC"
+    ]
+  }
+}

@@ -1,0 +1,723 @@
+{
+  "rowIndex": 8,
+  "rowKey": "sewer line replacement (trenchless)|jacksonville|nc",
+  "items": [
+    {
+      "type": "organic",
+      "rank_group": 1,
+      "rank_absolute": 1,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[1]/div[2]/div[2]/div[1]/div[1]/div[1]/div[1]/div[1]",
+      "domain": "northcarolina.1daytrenchlesssewerrepair.com",
+      "title": "Trenchless Sewer Repairs Jacksonville NC",
+      "url": "https://northcarolina.1daytrenchlesssewerrepair.com/trenchless-sewer-repairs-jacksonville-nc/",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://northcarolina.1daytrenchlesssewerrepair.com › tr...",
+      "website_name": "1 Day Trenchless Sewer Repairs",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "Experienced in all types of trenchless sewer, drain and water line replacement and repair we can dispatch one of our experts to your location quickly and come ... Read more",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "Experienced in all types of trenchless sewer, drain and water line replacement"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "local_pack",
+      "rank_group": 1,
+      "rank_absolute": 2,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[1]/div[2]/div[2]/div[1]/div[1]/div[3]/div[1]/div[1]/div[1]/div[1]/div[3]/div[1]/div[1]/div[1]/div[1]",
+      "title": "Trenchless Pipe Restoration Services",
+      "description": "15+ years in business \nOpen 24 hours \n\"Ryan with Trenchless Piping saved me thousands of dollars.\" \n",
+      "domain": "tprswilmington.com",
+      "phone": "(910) 431-9158",
+      "booking_url": null,
+      "url": "https://tprswilmington.com/",
+      "is_paid": false,
+      "rating": {
+        "rating_type": "Max5",
+        "value": 5,
+        "votes_count": 74,
+        "rating_max": 5
+      },
+      "cid": "18382995860313035827",
+      "rectangle": null
+    },
+    {
+      "type": "local_pack",
+      "rank_group": 2,
+      "rank_absolute": 3,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[1]/div[2]/div[2]/div[1]/div[1]/div[3]/div[1]/div[1]/div[1]/div[1]/div[3]/div[1]/div[3]/div[1]/div[1]",
+      "title": "Wild Water Plumbing + Septic",
+      "description": "7+ years in business · Jacksonville, NC \nOpen 24 hours \n\"Justin was able to come out 2 hours after calling him.\" \n",
+      "domain": "wildwaterplumbing.com",
+      "phone": "(910) 750-2312",
+      "booking_url": null,
+      "url": "https://wildwaterplumbing.com/",
+      "is_paid": false,
+      "rating": {
+        "rating_type": "Max5",
+        "value": 4.9,
+        "votes_count": 631,
+        "rating_max": 5
+      },
+      "cid": "12082611216329638584",
+      "rectangle": null
+    },
+    {
+      "type": "local_pack",
+      "rank_group": 3,
+      "rank_absolute": 4,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[1]/div[2]/div[2]/div[1]/div[1]/div[3]/div[1]/div[1]/div[1]/div[1]/div[3]/div[1]/div[5]/div[1]/div[1]",
+      "title": "Jimmy's Drain & Sewer Service Inc",
+      "description": "7+ years in business · Swansboro, NC \nOpen 24 hours \n\"He was $200 cheaper then the others and was there the same day!\" \n",
+      "domain": "www.jimmysdrainandsewerservice.com",
+      "phone": "(910) 340-3861",
+      "booking_url": null,
+      "url": "http://www.jimmysdrainandsewerservice.com/",
+      "is_paid": false,
+      "rating": {
+        "rating_type": "Max5",
+        "value": 4.7,
+        "votes_count": 84,
+        "rating_max": 5
+      },
+      "cid": "3680720186382809360",
+      "rectangle": null
+    },
+    {
+      "type": "ai_overview",
+      "rank_group": 1,
+      "rank_absolute": 5,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[1]/div[2]/div[2]/div[1]/div[1]/div[5]/div[1]/div[1]/div[1]/div[1]",
+      "asynchronous_ai_overview": true,
+      "markdown": null,
+      "items": null,
+      "references": null,
+      "rectangle": null
+    },
+    {
+      "type": "people_also_ask",
+      "rank_group": 1,
+      "rank_absolute": 6,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[1]/div[2]/div[2]/div[1]/div[1]/div[7]/div[1]/div[1]/div[1]",
+      "items": [
+        {
+          "type": "people_also_ask_element",
+          "title": "Is trenchless pipe repair expensive?",
+          "seed_question": null,
+          "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[1]/div[2]/div[2]/div[1]/div[1]/div[7]/div[1]/div[1]/div[1]/div[1]/div[2]/div[1]",
+          "expanded_element": [
+            {
+              "type": "people_also_ask_ai_overview_expanded_element",
+              "items": null,
+              "references": null,
+              "asynchronous_ai_overview": true
+            }
+          ]
+        },
+        {
+          "type": "people_also_ask_element",
+          "title": "What are the disadvantages of trenchless sewer line replacement?",
+          "seed_question": null,
+          "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[1]/div[2]/div[2]/div[1]/div[1]/div[7]/div[1]/div[1]/div[1]/div[1]/div[2]/div[2]",
+          "expanded_element": [
+            {
+              "type": "people_also_ask_ai_overview_expanded_element",
+              "items": null,
+              "references": null,
+              "asynchronous_ai_overview": true
+            }
+          ]
+        },
+        {
+          "type": "people_also_ask_element",
+          "title": "Is trenchless sewer repair better?",
+          "seed_question": null,
+          "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[1]/div[2]/div[2]/div[1]/div[1]/div[7]/div[1]/div[1]/div[1]/div[1]/div[2]/div[3]",
+          "expanded_element": [
+            {
+              "type": "people_also_ask_ai_overview_expanded_element",
+              "items": null,
+              "references": null,
+              "asynchronous_ai_overview": true
+            }
+          ]
+        },
+        {
+          "type": "people_also_ask_element",
+          "title": "Can you do a trenchless sewer line replacement?",
+          "seed_question": null,
+          "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[1]/div[2]/div[2]/div[1]/div[1]/div[7]/div[1]/div[1]/div[1]/div[1]/div[2]/div[4]",
+          "expanded_element": [
+            {
+              "type": "people_also_ask_ai_overview_expanded_element",
+              "items": null,
+              "references": null,
+              "asynchronous_ai_overview": true
+            }
+          ]
+        }
+      ],
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 2,
+      "rank_absolute": 7,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[1]/div[2]/div[2]/div[1]/div[1]/div[9]/div[1]/div[1]",
+      "domain": "www.yelp.com",
+      "title": "Best Sewer Line Repair Services in Jacksonville, NC",
+      "url": "https://www.yelp.com/questions/loc/jacksonville-nc/trenchless-no-dig-sewer-replacement-actually-something/NqSJuY_dhTkbgVJNNjbtoQ",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://www.yelp.com › NqSJuY_dhTkbgVJNNjbtoQ",
+      "website_name": "Yelp",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "Aug 1, 2026 — Is trenchless or 'no-dig' sewer replacement actually something local Jacksonville, NC plumbers commonly do, and how can I verify if a claimed trenchless ...",
+      "pre_snippet": "08/01/2026 00:00:00",
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": null,
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": "2026-08-01 00:00:00 +00:00",
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 3,
+      "rank_absolute": 8,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[1]/div[2]/div[2]/div[1]/div[1]/div[11]/div[1]/div[1]",
+      "domain": "www.dynamicdraintechnologies.com",
+      "title": "Pipe Repair Contractor for Jacksonville, NC",
+      "url": "https://www.dynamicdraintechnologies.com/pipe-repair-contractor-for-jacksonville-nc/",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://www.dynamicdraintechnologies.com › pipe-repa...",
+      "website_name": "Dynamic Drain",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "If you need pipe repair in Jacksonville, NC. CALL US: 855-937-6944. Offering cost effective sewer, drain and pipe repair. Offering the latest in trenchless ...",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "CALL US: 855-937-6944"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 4,
+      "rank_absolute": 9,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[1]/div[2]/div[2]/div[1]/div[1]/div[13]/div[1]/div[1]",
+      "domain": "wildwaterplumbing.com",
+      "title": "Sewer Line Repair & Installation for Greater Jacksonville, NC",
+      "url": "https://wildwaterplumbing.com/services/sewer-line-repair-and-installation/",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://wildwaterplumbing.com › Plumbing Services",
+      "website_name": "wildwaterplumbing.com",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "Expert sewer line repair &amp; Greater Jacksonville, NC. Call Now: 910.750.2312. Repair and full replacement … trenchless repair.",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "Expert sewer line repair"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 5,
+      "rank_absolute": 10,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[1]/div[2]/div[2]/div[1]/div[1]/div[15]/div[1]/div[1]",
+      "domain": "www.creechsplumbing.com",
+      "title": "Trenchless Sewer Repair in Wilson, NC",
+      "url": "https://www.creechsplumbing.com/sewer-water-services/trenchless-sewer-replacement-and-repairs/",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://www.creechsplumbing.com › sewer-water-services",
+      "website_name": "Creech's Plumbing",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "Schedule your appointment with our Wilson-based trenchless replacement and repair team today by calling (252) 397-5264 or reaching out to us online!",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "252) 397-5264"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 6,
+      "rank_absolute": 11,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[1]/div[2]/div[2]/div[1]/div[1]/div[16]/div[1]/div[1]/div[1]",
+      "domain": "www.youtube.com",
+      "title": "Trenchless Sewer Line Repair",
+      "url": "https://www.youtube.com/watch?v=3vRDHVNwm-I",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "8.7K+ views  ·  1 year ago",
+      "website_name": "YouTube · Mr. Rooter Plumbing",
+      "is_image": false,
+      "is_video": true,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": [
+        "is_video"
+      ],
+      "description": "Trenchless sewer line repair restores broken pipes without tearing up your yard. For non-invasive sewer line repair options, call Mr. Rooter ...",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "Trenchless sewer line repair"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": "2025-07-08 00:00:00 +00:00",
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 7,
+      "rank_absolute": 12,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[1]/div[2]/div[2]/div[1]/div[1]/div[18]/div[1]/div[1]",
+      "domain": "www.bjplumbing.com",
+      "title": "Trenchless Sewer Line Replacement in Wilson",
+      "url": "https://www.bjplumbing.com/plumbing-services/sewer-services/trenchless-sewer-replacement/",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://www.bjplumbing.com › sewer-services › trenchl...",
+      "website_name": "bjplumbing.com",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "Broken sewer line? Minimize disturbance to your property with trenchless sewer line replacement in Wilson. Over 40 years of reliable service.",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "trenchless sewer line replacement in Wilson"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 8,
+      "rank_absolute": 13,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[1]/div[2]/div[2]/div[1]/div[1]/div[20]/div[1]/div[1]",
+      "domain": "www.yelp.com",
+      "title": "Best Trenchless Sewer Repair Services in Jacksonville, NC",
+      "url": "https://www.yelp.com/questions/loc/jacksonville-nc/reliable-locally-owned-jacksonville-nc-plumbers-trenchless/hi9AP_xhMFGA4Em9fLNp_w",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://www.yelp.com › questions › loc › jacksonville-nc",
+      "website_name": "Yelp",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "Aug 1, 2026 — How reliable are locally owned Jacksonville, NC plumbers for trenchless sewer repairs?",
+      "pre_snippet": "08/01/2026 00:00:00",
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": null,
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": "2026-08-01 00:00:00 +00:00",
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 9,
+      "rank_absolute": 14,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[1]/div[2]/div[2]/div[1]/div[1]/div[22]/div[1]/div[1]",
+      "domain": "www.pipetechsplumbing.com",
+      "title": "Sewer Line & Trenchless Sewer Repair in Raleigh, NC",
+      "url": "https://www.pipetechsplumbing.com/residential-plumbing-services/sewer-line-trenchless-sewer-repair/",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://www.pipetechsplumbing.com › sewer-line-trenchl...",
+      "website_name": "PipeTechs Plumbing",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "Raleigh sewer line and trenchless sewer repair from a team certified in Prime Liner installation. No digging, no surprises, and upfront pricing before we ...",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "Raleigh sewer line and trenchless sewer repair"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 10,
+      "rank_absolute": 15,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[1]/div[2]/div[2]/div[1]/div[1]/div[24]/div[1]/div[1]",
+      "domain": "jacksonville-nc.anytimeplumbingaustin.com",
+      "title": "Sewer Line Repair - Top Plumbing Services in Jacksonville, NC",
+      "url": "https://jacksonville-nc.anytimeplumbingaustin.com/services/sewer-line-repair",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://jacksonville-nc.anytimeplumbingaustin.com › sew...",
+      "website_name": "anytimeplumbingaustin.com",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "We use advanced techniques like trenchless sewer repair to minimize disruption to your property. Contact us at 18446539595 today. Professional plumbing ... Read more",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "trenchless sewer repair"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    }
+  ],
+  "classified": {
+    "mapPackPresent": true,
+    "localPack": [
+      {
+        "title": "Trenchless Pipe Restoration Services",
+        "url": "https://tprswilmington.com/",
+        "domain": "tprswilmington.com",
+        "rating": 5,
+        "reviewsCount": 74,
+        "hasWebsite": true
+      },
+      {
+        "title": "Wild Water Plumbing + Septic",
+        "url": "https://wildwaterplumbing.com/",
+        "domain": "wildwaterplumbing.com",
+        "rating": 4.9,
+        "reviewsCount": 631,
+        "hasWebsite": true
+      },
+      {
+        "title": "Jimmy's Drain & Sewer Service Inc",
+        "url": "http://www.jimmysdrainandsewerservice.com/",
+        "domain": "jimmysdrainandsewerservice.com",
+        "rating": 4.7,
+        "reviewsCount": 84,
+        "hasWebsite": true
+      }
+    ],
+    "mapPackSlotCount": 3,
+    "mapPackWebsiteCount": 3,
+    "mapPackNoWebsiteCount": 0,
+    "directories": {
+      "count": 1,
+      "links": [
+        {
+          "title": "Best Sewer Line Repair Services in Jacksonville, NC",
+          "url": "https://www.yelp.com/questions/loc/jacksonville-nc/trenchless-no-dig-sewer-replacement-actually-something/NqSJuY_dhTkbgVJNNjbtoQ",
+          "domain": "yelp.com",
+          "rankAbsolute": 7
+        }
+      ]
+    },
+    "organicHomePages": {
+      "count": 0,
+      "links": [],
+      "nicheRelevantCount": 0
+    },
+    "organicSubPages": {
+      "count": 8,
+      "links": [
+        {
+          "title": "Trenchless Sewer Repairs Jacksonville NC",
+          "url": "https://northcarolina.1daytrenchlesssewerrepair.com/trenchless-sewer-repairs-jacksonville-nc/",
+          "domain": "northcarolina.1daytrenchlesssewerrepair.com",
+          "rankAbsolute": 1,
+          "nicheRelevant": true,
+          "looksEmd": true
+        },
+        {
+          "title": "Pipe Repair Contractor for Jacksonville, NC",
+          "url": "https://www.dynamicdraintechnologies.com/pipe-repair-contractor-for-jacksonville-nc/",
+          "domain": "dynamicdraintechnologies.com",
+          "rankAbsolute": 8,
+          "nicheRelevant": false,
+          "looksEmd": false
+        },
+        {
+          "title": "Sewer Line Repair & Installation for Greater Jacksonville, NC",
+          "url": "https://wildwaterplumbing.com/services/sewer-line-repair-and-installation/",
+          "domain": "wildwaterplumbing.com",
+          "rankAbsolute": 9,
+          "nicheRelevant": true,
+          "looksEmd": false
+        },
+        {
+          "title": "Trenchless Sewer Repair in Wilson, NC",
+          "url": "https://www.creechsplumbing.com/sewer-water-services/trenchless-sewer-replacement-and-repairs/",
+          "domain": "creechsplumbing.com",
+          "rankAbsolute": 10,
+          "nicheRelevant": true,
+          "looksEmd": false
+        },
+        {
+          "title": "Trenchless Sewer Line Repair",
+          "url": "https://www.youtube.com/watch?v=3vRDHVNwm-I",
+          "domain": "youtube.com",
+          "rankAbsolute": 11,
+          "nicheRelevant": true,
+          "looksEmd": false
+        },
+        {
+          "title": "Trenchless Sewer Line Replacement in Wilson",
+          "url": "https://www.bjplumbing.com/plumbing-services/sewer-services/trenchless-sewer-replacement/",
+          "domain": "bjplumbing.com",
+          "rankAbsolute": 12,
+          "nicheRelevant": true,
+          "looksEmd": false
+        },
+        {
+          "title": "Sewer Line & Trenchless Sewer Repair in Raleigh, NC",
+          "url": "https://www.pipetechsplumbing.com/residential-plumbing-services/sewer-line-trenchless-sewer-repair/",
+          "domain": "pipetechsplumbing.com",
+          "rankAbsolute": 14,
+          "nicheRelevant": true,
+          "looksEmd": false
+        },
+        {
+          "title": "Sewer Line Repair - Top Plumbing Services in Jacksonville, NC",
+          "url": "https://jacksonville-nc.anytimeplumbingaustin.com/services/sewer-line-repair",
+          "domain": "jacksonville-nc.anytimeplumbingaustin.com",
+          "rankAbsolute": 15,
+          "nicheRelevant": true,
+          "looksEmd": false
+        }
+      ],
+      "nicheRelevantCount": 7
+    },
+    "uniqueOrganicDomains": [
+      "northcarolina.1daytrenchlesssewerrepair.com",
+      "dynamicdraintechnologies.com",
+      "wildwaterplumbing.com",
+      "creechsplumbing.com",
+      "youtube.com",
+      "bjplumbing.com",
+      "pipetechsplumbing.com",
+      "jacksonville-nc.anytimeplumbingaustin.com"
+    ],
+    "paidAds": {
+      "count": 0,
+      "links": []
+    },
+    "uniqueNicheOrganicDomains": [
+      "northcarolina.1daytrenchlesssewerrepair.com",
+      "wildwaterplumbing.com",
+      "creechsplumbing.com",
+      "youtube.com",
+      "bjplumbing.com",
+      "pipetechsplumbing.com",
+      "jacksonville-nc.anytimeplumbingaustin.com"
+    ],
+    "nicheTokens": [
+      "sewer",
+      "line",
+      "replacement",
+      "trenchless"
+    ],
+    "mapPackReviews": {
+      "slotCount": 3,
+      "reviewSampleSize": 3,
+      "avgReviews": 263,
+      "maxReviews": 631,
+      "minReviews": 74,
+      "reviewsBySlot": [
+        74,
+        631,
+        84
+      ],
+      "reviewsLabel": "74/631/84"
+    },
+    "features": {
+      "localServicesAds": false,
+      "peopleAlsoAsk": true,
+      "googleReviews": false,
+      "paid": false,
+      "itemTypes": [
+        "ai_overview",
+        "organic",
+        "local_pack",
+        "people_also_ask"
+      ]
+    },
+    "peopleAlsoAskQuestions": [
+      "Is trenchless pipe repair expensive?",
+      "What are the disadvantages of trenchless sewer line replacement?",
+      "Is trenchless sewer repair better?",
+      "Can you do a trenchless sewer line replacement?"
+    ],
+    "organicTitles": [
+      "Trenchless Sewer Repairs Jacksonville NC",
+      "Pipe Repair Contractor for Jacksonville, NC",
+      "Sewer Line Repair & Installation for Greater Jacksonville, NC",
+      "Trenchless Sewer Repair in Wilson, NC",
+      "Trenchless Sewer Line Repair",
+      "Trenchless Sewer Line Replacement in Wilson",
+      "Sewer Line & Trenchless Sewer Repair in Raleigh, NC",
+      "Sewer Line Repair - Top Plumbing Services in Jacksonville, NC",
+      "Best Sewer Line Repair Services in Jacksonville, NC",
+      "Best Trenchless Sewer Repair Services in Jacksonville, NC"
+    ]
+  }
+}

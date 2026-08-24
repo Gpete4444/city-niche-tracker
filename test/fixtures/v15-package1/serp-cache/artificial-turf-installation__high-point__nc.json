@@ -1,0 +1,668 @@
+{
+  "rowIndex": 13,
+  "rowKey": "artificial turf installation|high point|nc",
+  "items": [
+    {
+      "type": "local_pack",
+      "rank_group": 1,
+      "rank_absolute": 1,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[1]/div[2]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[2]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]",
+      "title": "Synthetic Turf Concepts",
+      "description": "Closed · Opens 8 AM Sat \n\"We highly recommend STC for your turf installation !\" \n",
+      "domain": "www.synturfconcepts.com",
+      "phone": "(336) 255-1111",
+      "booking_url": null,
+      "url": "https://www.synturfconcepts.com/",
+      "is_paid": false,
+      "rating": {
+        "rating_type": "Max5",
+        "value": 5,
+        "votes_count": 13,
+        "rating_max": 5
+      },
+      "cid": "5187478751827840251",
+      "rectangle": null
+    },
+    {
+      "type": "local_pack",
+      "rank_group": 2,
+      "rank_absolute": 2,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[1]/div[2]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[2]/div[1]/div[1]/div[1]/div[1]/div[1]/div[3]/div[1]/div[1]",
+      "title": "GH Artificial Turf",
+      "description": "Closed · Opens 8 AM Mon \n\"Solid work, fair pricing, and great customer service all around.\" \n",
+      "domain": "www.ghartificialturf.com",
+      "phone": "(919) 745-1850",
+      "booking_url": null,
+      "url": "http://www.ghartificialturf.com/",
+      "is_paid": false,
+      "rating": {
+        "rating_type": "Max5",
+        "value": 5,
+        "votes_count": 9,
+        "rating_max": 5
+      },
+      "cid": "3596427677200307463",
+      "rectangle": null
+    },
+    {
+      "type": "local_pack",
+      "rank_group": 3,
+      "rank_absolute": 3,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[1]/div[2]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[2]/div[1]/div[1]/div[1]/div[1]/div[1]/div[5]/div[1]/div[1]",
+      "title": "Dream Greens NC",
+      "description": "Closed · Opens 8 AM Mon \n\"Layton and his team did an outstanding job!\" \n",
+      "domain": "dreamgreensnc.com",
+      "phone": "(336) 200-8388",
+      "booking_url": null,
+      "url": "http://dreamgreensnc.com/",
+      "is_paid": false,
+      "rating": {
+        "rating_type": "Max5",
+        "value": 4.4,
+        "votes_count": 7,
+        "rating_max": 5
+      },
+      "cid": "17742431520473157195",
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 1,
+      "rank_absolute": 4,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[1]/div[2]/div[1]/div[1]/div[2]/div[1]/div[1]",
+      "domain": "synturfconcepts.com",
+      "title": "Artificial Grass in High Point NC by Synthetic Turf Concepts",
+      "url": "https://synturfconcepts.com/artificial-grass-in-high-point-nc/",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://synturfconcepts.com › artificial-grass-in-high-po...",
+      "website_name": "Synthetic Turf Concepts",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "Schedule a Consultation with Synthetic Turf Concepts Today. ... Choose the smart path for your landscaping with Artificial Grass in High Point, North Carolina. Read more",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "Schedule a Consultation with Synthetic Turf Concepts Today"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 2,
+      "rank_absolute": 5,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[1]/div[2]/div[1]/div[1]/div[4]/div[1]/div[1]",
+      "domain": "www.thumbtack.com",
+      "title": "The 10 Best Artificial Turf Installers in High Point, NC 2026",
+      "url": "https://www.thumbtack.com/nc/high-point/artificial-turf-installation",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://www.thumbtack.com › NC › High Point",
+      "website_name": "Thumbtack",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "The average cost to install artificial turf is $3,458. contact the best artificial turf professionals near you. get free estimates and",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "contact the best artificial turf professionals near you"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "people_also_ask",
+      "rank_group": 1,
+      "rank_absolute": 6,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[1]/div[2]/div[1]/div[1]/div[6]/div[1]/div[1]/div[1]",
+      "items": [
+        {
+          "type": "people_also_ask_element",
+          "title": "What is the average cost of installing artificial turf?",
+          "seed_question": null,
+          "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[1]/div[2]/div[1]/div[1]/div[6]/div[1]/div[1]/div[1]/div[1]/div[2]/div[1]",
+          "expanded_element": [
+            {
+              "type": "people_also_ask_ai_overview_expanded_element",
+              "items": null,
+              "references": null,
+              "asynchronous_ai_overview": true
+            }
+          ]
+        },
+        {
+          "type": "people_also_ask_element",
+          "title": "How do I install artificial turf in my backyard?",
+          "seed_question": null,
+          "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[1]/div[2]/div[1]/div[1]/div[6]/div[1]/div[1]/div[1]/div[1]/div[2]/div[2]",
+          "expanded_element": [
+            {
+              "type": "people_also_ask_ai_overview_expanded_element",
+              "items": null,
+              "references": null,
+              "asynchronous_ai_overview": true
+            }
+          ]
+        },
+        {
+          "type": "people_also_ask_element",
+          "title": "What type of grass is best for lawns in the Piedmont region of North Carolina?",
+          "seed_question": null,
+          "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[1]/div[2]/div[1]/div[1]/div[6]/div[1]/div[1]/div[1]/div[1]/div[2]/div[3]",
+          "expanded_element": [
+            {
+              "type": "people_also_ask_ai_overview_expanded_element",
+              "items": null,
+              "references": null,
+              "asynchronous_ai_overview": true
+            }
+          ]
+        }
+      ],
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 3,
+      "rank_absolute": 7,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[1]/div[2]/div[1]/div[1]/div[8]/div[1]/div[1]",
+      "domain": "www.artificialturfsupply.com",
+      "title": "High Point, North Carolina Artificial Turf",
+      "url": "https://www.artificialturfsupply.com/artificial-grass-locations/north-carolina/high-point.html",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://www.artificialturfsupply.com › North Carolina",
+      "website_name": "Artificial Turf Supply",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "Nov 21, 2023 — Artificial Turf Supply carries a large variety of artificial grass solutions for customers in High Point, North Carolina. Contact Us FREE Quote!",
+      "pre_snippet": "11/21/2023 00:00:00",
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": {
+        "rating_type": "Max5",
+        "value": 4.8,
+        "votes_count": 430,
+        "rating_max": 5
+      },
+      "price": null,
+      "highlighted": [
+        "Artificial Turf Supply carries a large variety of artificial grass solutions"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": "2023-11-21 00:00:00 +00:00",
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 4,
+      "rank_absolute": 8,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[1]/div[2]/div[1]/div[1]/div[10]/div[1]/div[1]",
+      "domain": "www.yelp.com",
+      "title": "TOP 10 BEST Turf in High Point, NC - Updated 2026",
+      "url": "https://www.yelp.com/search?find_desc=Turf&find_loc=High+Point%2C+NC",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://www.yelp.com › Home Services",
+      "website_name": "Yelp",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "Top 10 Best Turf Near High Point, North Carolina. Artificial Turf 11.3 mi• 5906 Beckenham Way, Oak Ridge, NC 27310 (336) 265-9709. Synthetic Turf Install. High ...",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": {
+        "rating_type": "Max5",
+        "value": 4.2,
+        "votes_count": 167,
+        "rating_max": 5
+      },
+      "price": null,
+      "highlighted": [
+        "5906 Beckenham Way, Oak Ridge, NC 27310"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 5,
+      "rank_absolute": 9,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[1]/div[2]/div[1]/div[1]/div[12]/div[1]/div[1]",
+      "domain": "turfprossolution.com",
+      "title": "Fake Grass in High Point, North Carolina",
+      "url": "https://turfprossolution.com/synthetic-turf-high-point-northcarolina-2/?srsltid=AfmBOooZ_z4k_WZQXwKev2AcnM6xUNSN8Qg3pfhSaA-od3-RUH-2ZIwp",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://turfprossolution.com › synthetic-turf-high-point-n...",
+      "website_name": "Turf Pros Solution",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "Our Business carries the best professional Artificial Turf available, engineered to look and feel like real grass. Our goal is to get you the best value for ... Read more",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "best professional Artificial Turf available"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 6,
+      "rank_absolute": 10,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[1]/div[2]/div[1]/div[1]/div[14]/div[1]/div[1]",
+      "domain": "www.winstonsalemartificialgrass.com",
+      "title": "Artificial Grass Installation High Point NC | CrestWorks",
+      "url": "https://www.winstonsalemartificialgrass.com/areas/high-point-nc",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://www.winstonsalemartificialgrass.com › areas › hig...",
+      "website_name": "winstonsalemartificialgrass.com",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "Premium artificial grass installation in High Point, NC. Serving Oak Hollow, Eastchester & Furniture Capital. Low-maintenance lawns. Call (336) 850-8459.",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "Premium artificial grass installation in High Point, NC"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 7,
+      "rank_absolute": 11,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[1]/div[2]/div[1]/div[1]/div[16]/div[1]/div[1]",
+      "domain": "www.foreverlawn.com",
+      "title": "Synthetic Grass Highpoint, NC | ForeverLawn Piedmont Triad",
+      "url": "https://www.foreverlawn.com/piedmonttriad/highpoint/",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://www.foreverlawn.com › piedmonttriad › highpoint",
+      "website_name": "ForeverLawn",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "ForeverLawn Piedmont Triad proudly serves Greensboro, Winston-Salem, Highpoint, Burlington, and the surrounding areas with premium ForeverLawn synthetic grass. Read more",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "ForeverLawn Piedmont Triad proudly serves Greensboro, Winston-Salem, Highpoint"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 8,
+      "rank_absolute": 12,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[1]/div[2]/div[1]/div[1]/div[18]/div[1]/div[1]",
+      "domain": "turfnetwork.org",
+      "title": "North Carolina - Artificial Turf Company Directory // TURF ...",
+      "url": "https://turfnetwork.org/location/north-carolina/",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://turfnetwork.org › Location",
+      "website_name": "turfnetwork.org",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "Browse North Carolina's Top Artificial Turf Installers. Mr. Outdoor Living. Turf ... High Point, NC; Holly Springs, NC; Huntersville, NC; Indian Trail, NC ... Read more",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "Browse North Carolina's Top Artificial Turf Installers"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 9,
+      "rank_absolute": 13,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[1]/div[2]/div[1]/div[1]/div[20]/div[1]/div[1]",
+      "domain": "www.yelp.com",
+      "title": "Best Artificial Turf Installation Services in High Point, NC",
+      "url": "https://www.yelp.com/questions/loc/high-point-nc/artificial-turf-installation-services",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://www.yelp.com › questions › loc › artificial-turf-i...",
+      "website_name": "Yelp",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "I found two strong options for your needs in High Point, NC. Pro Ridge Landscapes offers artificial turf installation, routine landscaping, and snow removal for ... Read more",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "Pro Ridge Landscapes offers artificial turf installation"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "related_searches",
+      "rank_group": 1,
+      "rank_absolute": 14,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[2]/div[1]/div[3]/div[1]/div[1]/div[1]/div[1]/div[2]",
+      "items": [
+        "Artificial turf installation high point nc reviews",
+        "Best artificial turf installation high point nc",
+        "Artificial turf installation high point nc prices",
+        "Artificial turf installation high point nc near me",
+        "Artificial turf installation high point nc cost"
+      ],
+      "rectangle": null
+    }
+  ],
+  "classified": {
+    "mapPackPresent": true,
+    "localPack": [
+      {
+        "title": "Synthetic Turf Concepts",
+        "url": "https://www.synturfconcepts.com/",
+        "domain": "synturfconcepts.com",
+        "rating": 5,
+        "reviewsCount": 13,
+        "hasWebsite": true
+      },
+      {
+        "title": "GH Artificial Turf",
+        "url": "http://www.ghartificialturf.com/",
+        "domain": "ghartificialturf.com",
+        "rating": 5,
+        "reviewsCount": 9,
+        "hasWebsite": true
+      },
+      {
+        "title": "Dream Greens NC",
+        "url": "http://dreamgreensnc.com/",
+        "domain": "dreamgreensnc.com",
+        "rating": 4.4,
+        "reviewsCount": 7,
+        "hasWebsite": true
+      }
+    ],
+    "mapPackSlotCount": 3,
+    "mapPackWebsiteCount": 3,
+    "mapPackNoWebsiteCount": 0,
+    "directories": {
+      "count": 2,
+      "links": [
+        {
+          "title": "The 10 Best Artificial Turf Installers in High Point, NC 2026",
+          "url": "https://www.thumbtack.com/nc/high-point/artificial-turf-installation",
+          "domain": "thumbtack.com",
+          "rankAbsolute": 5
+        },
+        {
+          "title": "TOP 10 BEST Turf in High Point, NC - Updated 2026",
+          "url": "https://www.yelp.com/search?find_desc=Turf&find_loc=High+Point%2C+NC",
+          "domain": "yelp.com",
+          "rankAbsolute": 8
+        }
+      ]
+    },
+    "organicHomePages": {
+      "count": 0,
+      "links": [],
+      "nicheRelevantCount": 0
+    },
+    "organicSubPages": {
+      "count": 6,
+      "links": [
+        {
+          "title": "Artificial Grass in High Point NC by Synthetic Turf Concepts",
+          "url": "https://synturfconcepts.com/artificial-grass-in-high-point-nc/",
+          "domain": "synturfconcepts.com",
+          "rankAbsolute": 4,
+          "nicheRelevant": true,
+          "looksEmd": false
+        },
+        {
+          "title": "High Point, North Carolina Artificial Turf",
+          "url": "https://www.artificialturfsupply.com/artificial-grass-locations/north-carolina/high-point.html",
+          "domain": "artificialturfsupply.com",
+          "rankAbsolute": 7,
+          "nicheRelevant": true,
+          "looksEmd": true
+        },
+        {
+          "title": "Fake Grass in High Point, North Carolina",
+          "url": "https://turfprossolution.com/synthetic-turf-high-point-northcarolina-2/?srsltid=AfmBOooZ_z4k_WZQXwKev2AcnM6xUNSN8Qg3pfhSaA-od3-RUH-2ZIwp",
+          "domain": "turfprossolution.com",
+          "rankAbsolute": 9,
+          "nicheRelevant": false,
+          "looksEmd": false
+        },
+        {
+          "title": "Artificial Grass Installation High Point NC | CrestWorks",
+          "url": "https://www.winstonsalemartificialgrass.com/areas/high-point-nc",
+          "domain": "winstonsalemartificialgrass.com",
+          "rankAbsolute": 10,
+          "nicheRelevant": true,
+          "looksEmd": false
+        },
+        {
+          "title": "Synthetic Grass Highpoint, NC | ForeverLawn Piedmont Triad",
+          "url": "https://www.foreverlawn.com/piedmonttriad/highpoint/",
+          "domain": "foreverlawn.com",
+          "rankAbsolute": 11,
+          "nicheRelevant": false,
+          "looksEmd": false
+        },
+        {
+          "title": "North Carolina - Artificial Turf Company Directory // TURF ...",
+          "url": "https://turfnetwork.org/location/north-carolina/",
+          "domain": "turfnetwork.org",
+          "rankAbsolute": 12,
+          "nicheRelevant": true,
+          "looksEmd": false
+        }
+      ],
+      "nicheRelevantCount": 4
+    },
+    "uniqueOrganicDomains": [
+      "synturfconcepts.com",
+      "artificialturfsupply.com",
+      "turfprossolution.com",
+      "winstonsalemartificialgrass.com",
+      "foreverlawn.com",
+      "turfnetwork.org"
+    ],
+    "paidAds": {
+      "count": 0,
+      "links": []
+    },
+    "uniqueNicheOrganicDomains": [
+      "synturfconcepts.com",
+      "artificialturfsupply.com",
+      "winstonsalemartificialgrass.com",
+      "turfnetwork.org"
+    ],
+    "nicheTokens": [
+      "artificial",
+      "turf",
+      "installation"
+    ],
+    "mapPackReviews": {
+      "slotCount": 3,
+      "reviewSampleSize": 3,
+      "avgReviews": 9.7,
+      "maxReviews": 13,
+      "minReviews": 7,
+      "reviewsBySlot": [
+        13,
+        9,
+        7
+      ],
+      "reviewsLabel": "13/9/7"
+    },
+    "features": {
+      "localServicesAds": false,
+      "peopleAlsoAsk": true,
+      "googleReviews": false,
+      "paid": false,
+      "itemTypes": [
+        "local_pack",
+        "organic",
+        "people_also_ask",
+        "related_searches"
+      ]
+    },
+    "peopleAlsoAskQuestions": [
+      "What is the average cost of installing artificial turf?",
+      "How do I install artificial turf in my backyard?",
+      "What type of grass is best for lawns in the Piedmont region of North Carolina?"
+    ],
+    "organicTitles": [
+      "Artificial Grass in High Point NC by Synthetic Turf Concepts",
+      "High Point, North Carolina Artificial Turf",
+      "Fake Grass in High Point, North Carolina",
+      "Artificial Grass Installation High Point NC | CrestWorks",
+      "Synthetic Grass Highpoint, NC | ForeverLawn Piedmont Triad",
+      "North Carolina - Artificial Turf Company Directory // TURF ...",
+      "The 10 Best Artificial Turf Installers in High Point, NC 2026",
+      "TOP 10 BEST Turf in High Point, NC - Updated 2026",
+      "Best Artificial Turf Installation Services in High Point, NC"
+    ]
+  }
+}

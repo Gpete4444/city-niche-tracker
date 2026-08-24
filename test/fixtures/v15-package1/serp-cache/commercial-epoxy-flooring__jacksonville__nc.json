@@ -1,0 +1,826 @@
+{
+  "rowIndex": 26,
+  "rowKey": "commercial epoxy flooring|jacksonville|nc",
+  "items": [
+    {
+      "type": "ai_overview",
+      "rank_group": 1,
+      "rank_absolute": 1,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[1]/div[2]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]",
+      "asynchronous_ai_overview": true,
+      "markdown": null,
+      "items": null,
+      "references": null,
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 1,
+      "rank_absolute": 2,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[2]/div[1]/div[2]/div[1]/div[1]/div[2]/div[2]/div[1]",
+      "domain": "www.garageexperts.com",
+      "title": "Epoxy & Polyaspartic Flooring in Jacksonville, NC",
+      "url": "https://www.garageexperts.com/eastern-nc/jacksonville/",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://www.garageexperts.com › eastern-nc › jacksonville",
+      "website_name": "GarageExperts",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "Top Epoxy & Polyaspartic Flooring in Jacksonville, NC. Schedule your free estimate online or call (910) 375-5050 today. commercial and industrial spaces.",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "Schedule your free estimate online or call (910) 375-5050"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 2,
+      "rank_absolute": 3,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[2]/div[1]/div[2]/div[1]/div[1]/div[4]/div[1]/div[1]",
+      "domain": "eastcarolinaepoxyflooring.com",
+      "title": "Eastern Carolina Epoxy Flooring LLC",
+      "url": "https://eastcarolinaepoxyflooring.com/",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://eastcarolinaepoxyflooring.com",
+      "website_name": "eastcarolinaepoxyflooring.com",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "Specializing in epoxy flooring, transform residential, commercial, and industrial spaces with durable and visually stunning floors.",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "Specializing in epoxy flooring"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "people_also_ask",
+      "rank_group": 1,
+      "rank_absolute": 4,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[2]/div[1]/div[2]/div[1]/div[1]/div[6]/div[1]/div[1]/div[1]",
+      "items": [
+        {
+          "type": "people_also_ask_element",
+          "title": "How much does a commercial epoxy floor cost?",
+          "seed_question": null,
+          "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[2]/div[1]/div[2]/div[1]/div[1]/div[6]/div[1]/div[1]/div[1]/div[1]/div[2]/div[1]",
+          "expanded_element": [
+            {
+              "type": "people_also_ask_ai_overview_expanded_element",
+              "items": null,
+              "references": null,
+              "asynchronous_ai_overview": true
+            }
+          ]
+        },
+        {
+          "type": "people_also_ask_element",
+          "title": "How much does 1000 sq ft of epoxy cost?",
+          "seed_question": null,
+          "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[2]/div[1]/div[2]/div[1]/div[1]/div[6]/div[1]/div[1]/div[1]/div[1]/div[2]/div[2]",
+          "expanded_element": [
+            {
+              "type": "people_also_ask_ai_overview_expanded_element",
+              "items": null,
+              "references": null,
+              "asynchronous_ai_overview": true
+            }
+          ]
+        },
+        {
+          "type": "people_also_ask_element",
+          "title": "How much does it cost to epoxy a 20x20 garage floor?",
+          "seed_question": null,
+          "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[2]/div[1]/div[2]/div[1]/div[1]/div[6]/div[1]/div[1]/div[1]/div[1]/div[2]/div[3]",
+          "expanded_element": [
+            {
+              "type": "people_also_ask_ai_overview_expanded_element",
+              "items": null,
+              "references": null,
+              "asynchronous_ai_overview": true
+            }
+          ]
+        },
+        {
+          "type": "people_also_ask_element",
+          "title": "What is the downside of epoxy flooring?",
+          "seed_question": null,
+          "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[2]/div[1]/div[2]/div[1]/div[1]/div[6]/div[1]/div[1]/div[1]/div[1]/div[2]/div[4]",
+          "expanded_element": [
+            {
+              "type": "people_also_ask_ai_overview_expanded_element",
+              "items": null,
+              "references": null,
+              "asynchronous_ai_overview": true
+            }
+          ]
+        }
+      ],
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 3,
+      "rank_absolute": 5,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[2]/div[1]/div[2]/div[1]/div[1]/div[8]/div[1]/div[1]",
+      "domain": "www.facebook.com",
+      "title": "Eastern Carolina Epoxy Flooring LLC | Jacksonville NC",
+      "url": "https://www.facebook.com/easterncarolinaepoxy/",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "130+ followers",
+      "website_name": "Facebook · Eastern Carolina Epoxy Flooring LLC",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "Lifetime Warranty Garage Floors ✓ We do it all from garages, porches, patios & more✔️ FREE Estimates✓. 󱞴 Home Improvement · 󱛪 (252) 503-3725. Read more",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "Lifetime Warranty Garage Floors"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 4,
+      "rank_absolute": 6,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[2]/div[1]/div[2]/div[1]/div[1]/div[10]/div[1]/div[1]",
+      "domain": "www.angi.com",
+      "title": "Top 10 Best Epoxy flooring pros in Jacksonville, NC",
+      "url": "https://www.angi.com/companylist/us/nc/jacksonville/epoxy-flooring.htm",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://www.angi.com › ... › Epoxy Floor",
+      "website_name": "Angie's List",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "Serving Jacksonville, NC and surrounding areas Approved In business since 2021 Free estimates Offers commercial services Welcome to Epoxy Wizards.",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "Serving Jacksonville, NC and surrounding areas"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 5,
+      "rank_absolute": 7,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[2]/div[1]/div[2]/div[1]/div[1]/div[12]/div[1]/div[1]",
+      "domain": "www.yelp.com",
+      "title": "TOP 10 BEST Epoxy Flooring Companies in Jacksonville, NC",
+      "url": "https://www.yelp.com/search?find_desc=Epoxy+Flooring+Companies&find_loc=Jacksonville%2C+NC",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://www.yelp.com › Home Services",
+      "website_name": "Yelp",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "Top 10 Best Epoxy Flooring Companies Near Jacksonville, North Carolina ; JD's Professional Painting Services · Flooring · Painters ; Trust Builders · Flooring. Read more",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": {
+        "rating_type": "Max5",
+        "value": 3.7,
+        "votes_count": 171,
+        "rating_max": 5
+      },
+      "price": null,
+      "highlighted": [
+        "JD's Professional Painting Services"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 6,
+      "rank_absolute": 8,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[2]/div[1]/div[2]/div[1]/div[1]/div[14]/div[1]/div[1]",
+      "domain": "granitegaragefloors.com",
+      "title": "Granite Garage Floors | Jacksonville",
+      "url": "https://granitegaragefloors.com/location/coastal-carolina/jacksonville",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://granitegaragefloors.com › coastal-carolina › jacks...",
+      "website_name": "Granite Garage Floors",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "Granite Garage Floors is local epoxy and polyaspartic floor coating company in Jacksonville. We offer free estimates for garage floor coatings, ...",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "Floors",
+        "epoxy",
+        "Jacksonville"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 7,
+      "rank_absolute": 9,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[2]/div[1]/div[2]/div[1]/div[1]/div[16]/div[1]/div[1]",
+      "domain": "metrocrete.com",
+      "title": "Epoxy Floors Jacksonville NC",
+      "url": "https://metrocrete.com/northcarolina/epoxy-floors-jacksonville/",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://metrocrete.com › North Carolina",
+      "website_name": "metrocrete.com",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "Experts (984) 232-6211. Local and experienced experts in commercial/residential concrete floors. Call us for a free estimate (984) 232-6211",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "984) 232-6211"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 8,
+      "rank_absolute": 10,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[2]/div[1]/div[2]/div[1]/div[1]/div[18]/div[1]/div[1]",
+      "domain": "www.procore.com",
+      "title": "Find Flooring Contractors in Jacksonville, NC",
+      "url": "https://www.procore.com/network/us/nc/jacksonville/flooring",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://www.procore.com › ... › Jacksonville",
+      "website_name": "Procore",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "Full Service specialty flooring company. Specializing in epoxy and urethane coatings, polished and stained concrete, multiple flooring systems. Read more",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "Specializing in epoxy and urethane coatings"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 9,
+      "rank_absolute": 11,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[2]/div[1]/div[2]/div[1]/div[1]/div[20]/div[1]/div[1]",
+      "domain": "www.facebook.com",
+      "title": "Who can install epoxy floors in Jacksonville NC?",
+      "url": "https://www.facebook.com/groups/1658377521106441/posts/4512329399044558/",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "5 comments  ·  2 months ago",
+      "website_name": "Facebook · Jacksonville NC",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "Hi  👋\nAnyone working on epoxy floors? Looking for a quote. One car garage",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": null,
+      "links": [
+        {
+          "type": "link_element",
+          "title": "Epoxy flooring services in North Carolina",
+          "description": null,
+          "url": "https://www.facebook.com/groups/advancedmetallicfloors/posts/941086628155931/",
+          "domain": "www.facebook.com"
+        },
+        {
+          "type": "link_element",
+          "title": "What companies do epoxy garage floors in NC?",
+          "description": null,
+          "url": "https://www.facebook.com/groups/469820494480580/posts/1247674520028503/",
+          "domain": "www.facebook.com"
+        },
+        {
+          "type": "link_element",
+          "title": "More results from www.facebook.com",
+          "description": null,
+          "url": "https://www.google.com/search?q=Commercial+Epoxy+Flooring+Jacksonville+NC+site:www.facebook.com&sca_esv=299537ef26fd61a8&hl=en&gl=US&sa=X&ved=2ahUKEwjZxeH-77KWAxXN8rsIHTobIP0QrQIoAnoECGEQAw",
+          "domain": "www.google.com"
+        }
+      ],
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "related_searches",
+      "rank_group": 1,
+      "rank_absolute": 12,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[2]/div[2]/div[1]/div[3]/div[1]/div[1]/div[1]/div[1]/div[2]",
+      "items": [
+        "Commercial epoxy flooring jacksonville nc reviews",
+        "Commercial epoxy flooring jacksonville nc cost",
+        "Best commercial epoxy flooring jacksonville nc"
+      ],
+      "rectangle": null
+    },
+    {
+      "type": "knowledge_graph",
+      "rank_group": 1,
+      "rank_absolute": 1,
+      "page": 1,
+      "position": "right",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[3]/div[1]/div[1]/div[1]",
+      "title": "Eastern Carolina Epoxy Flooring LLC",
+      "subtitle": "Flooring contractor",
+      "description": "Areas served: Jacksonville",
+      "card_id": null,
+      "url": "https://eastcarolinaepoxyflooring.com/",
+      "image_url": null,
+      "logo_url": null,
+      "cid": "1422101292888096213",
+      "items": [
+        {
+          "type": "knowledge_graph_images_item",
+          "rank_group": 0,
+          "rank_absolute": 0,
+          "page": 1,
+          "position": "left",
+          "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[3]/div[1]/div[1]/div[1]/div[2]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]",
+          "link": null,
+          "items": [
+            {
+              "type": "knowledge_graph_images_element",
+              "url": null,
+              "domain": null,
+              "alt": null,
+              "image_url": "https://api.dataforseo.com/cdn/i/08212328-2222-0139-0000-8b55b1c07b96:0",
+              "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[3]/div[1]/div[1]/div[1]/div[2]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]"
+            },
+            {
+              "type": "knowledge_graph_images_element",
+              "url": "https://www.google.com/maps/place/Eastern+Carolina+Epoxy+Flooring+LLC/data=!4m2!3m1!1s0x0:0x13bc51975d37fdd5?sa=X&ved=1t:2428&hl=en&gl=US&ictx=111",
+              "domain": "www.google.com",
+              "alt": "Map of Eastern Carolina Epoxy Flooring LLC",
+              "image_url": "https://api.dataforseo.com/cdn/i/08212328-2222-0139-0000-8b55b1c07b96:1",
+              "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[3]/div[1]/div[1]/div[1]/div[2]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[2]/div[1]"
+            }
+          ],
+          "rectangle": null
+        },
+        {
+          "type": "knowledge_graph_description_item",
+          "rank_group": 0,
+          "rank_absolute": 0,
+          "page": 1,
+          "position": "left",
+          "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[3]/div[1]/div[1]/div[1]/div[2]/div[1]/div[1]/div[1]/div[3]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[2]/div[1]/div[1]/div[1]/div[1]/div[4]",
+          "text": "Areas served: Jacksonville and nearby areas",
+          "links": null,
+          "rectangle": null
+        },
+        {
+          "type": "knowledge_graph_row_item",
+          "rank_group": 0,
+          "rank_absolute": 0,
+          "page": 1,
+          "position": "left",
+          "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[3]/div[1]/div[1]/div[1]/div[2]/div[1]/div[1]/div[1]/div[3]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[2]/div[1]/div[1]/div[1]/div[1]/div[1]",
+          "title": "Phone",
+          "data_attrid": "kc:/local:alt phone",
+          "text": "Phone : (910) 459-0600",
+          "links": [
+            {
+              "type": "link_element",
+              "title": "Phone",
+              "url": "https://www.google.com/search?sca_esv=299537ef26fd61a8&hl=en&gl=US&q=eastern+carolina+epoxy+flooring+llc+phone&ludocid=1422101292888096213&sa=X&ved=2ahUKEwjZxeH-77KWAxXN8rsIHTobIP0Q6BN6BAg1EAI",
+              "domain": "www.google.com",
+              "description": null,
+              "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[3]/div[1]/div[1]/div[1]/div[2]/div[1]/div[1]/div[1]/div[3]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[2]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/span[1]/a[1]"
+            },
+            {
+              "type": "link_element",
+              "title": "(910) 459-0600",
+              "url": "https://www.google.com/#",
+              "domain": "www.google.com",
+              "description": null,
+              "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[3]/div[1]/div[1]/div[1]/div[2]/div[1]/div[1]/div[1]/div[3]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[2]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/span[2]/span[1]/a[1]"
+            }
+          ],
+          "rectangle": null
+        },
+        {
+          "type": "knowledge_graph_row_item",
+          "rank_group": 0,
+          "rank_absolute": 0,
+          "page": 1,
+          "position": "left",
+          "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[3]/div[1]/div[1]/div[1]/div[2]/div[1]/div[1]/div[1]/div[3]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[2]/div[1]/div[1]/div[1]/div[1]/div[2]",
+          "title": "Hours",
+          "data_attrid": "kc:/location/location:hours",
+          "text": "Closed · Opens 8 AM Sat",
+          "links": [
+            {
+              "type": "link_element",
+              "title": "Hours",
+              "url": "https://www.google.com/search?sca_esv=299537ef26fd61a8&hl=en&gl=US&q=eastern+carolina+epoxy+flooring+llc+hours&ludocid=1422101292888096213&sa=X&ved=2ahUKEwjZxeH-77KWAxXN8rsIHTobIP0Q6BN6BAgzEAI",
+              "domain": "www.google.com",
+              "description": null,
+              "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[3]/div[1]/div[1]/div[1]/div[2]/div[1]/div[1]/div[1]/div[3]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[2]/div[1]/div[1]/div[1]/div[1]/div[2]/div[1]/span[1]/a[1]"
+            },
+            {
+              "type": "link_element",
+              "title": "Learn more",
+              "url": "https://support.google.com/websearch/answer/3338405",
+              "domain": "support.google.com",
+              "description": null,
+              "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[3]/div[1]/div[1]/div[1]/div[2]/div[1]/div[1]/div[1]/div[3]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[2]/div[1]/div[1]/div[1]/div[1]/div[2]/div[1]/div[1]/div[2]/div[2]/div[1]/div[1]/div[1]/g-dialog[1]/div[1]/div[2]/span[1]/div[1]/div[1]/div[1]/p[2]/a[1]"
+            }
+          ],
+          "rectangle": null
+        },
+        {
+          "type": "knowledge_graph_part_item",
+          "rank_group": 0,
+          "rank_absolute": 0,
+          "page": 1,
+          "position": "left",
+          "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[3]/div[1]/div[1]/div[1]/div[2]/div[1]/div[1]/div[1]/div[3]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[3]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]",
+          "title": "Reviews",
+          "data_attrid": "kc:/collection/knowledge_panels/local_reviewable:review_summary",
+          "text": "5.0 12 Google reviews",
+          "links": [
+            {
+              "type": "link_element",
+              "title": "Google policies",
+              "url": "https://support.google.com/contributionpolicy/answer/7400114?ref_topic=7422769",
+              "domain": "support.google.com",
+              "description": null,
+              "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[3]/div[1]/div[1]/div[1]/div[2]/div[1]/div[1]/div[1]/div[3]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[3]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/span[2]/span[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[2]/div[1]/a[1]"
+            },
+            {
+              "type": "link_element",
+              "title": "Write a reviewEdit your review",
+              "url": "https://www.google.com/#",
+              "domain": "www.google.com",
+              "description": null,
+              "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[3]/div[1]/div[1]/div[1]/div[2]/div[1]/div[1]/div[1]/div[3]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[3]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/span[1]/span[1]/span[1]/a[1]"
+            },
+            {
+              "type": "link_element",
+              "title": "Add photos",
+              "url": "https://www.google.com/#",
+              "domain": "www.google.com",
+              "description": null,
+              "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[3]/div[1]/div[1]/div[1]/div[2]/div[1]/div[1]/div[1]/div[3]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[3]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/span[2]/span[1]/a[1]"
+            },
+            {
+              "type": "link_element",
+              "title": "12 Google reviews",
+              "url": "https://www.google.com/#",
+              "domain": "www.google.com",
+              "description": null,
+              "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[3]/div[1]/div[1]/div[1]/div[2]/div[1]/div[1]/div[1]/div[3]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[3]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[2]/span[3]/span[1]/a[1]"
+            }
+          ],
+          "rectangle": null
+        },
+        {
+          "type": "knowledge_graph_carousel_item",
+          "rank_group": 0,
+          "rank_absolute": 0,
+          "page": 1,
+          "position": "left",
+          "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[3]/div[1]/div[1]/div[1]/div[2]/div[1]/div[1]/div[1]/div[3]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[6]/div[1]/div[1]/div[1]/div[1]/div[1]",
+          "title": "Profiles",
+          "data_attrid": "kc:/common/topic:social media presence",
+          "link": null,
+          "items": [
+            {
+              "type": "knowledge_graph_carousel_element",
+              "title": "Facebook",
+              "subtitle": null,
+              "url": "https://www.facebook.com/easterncarolinaepoxy",
+              "domain": "www.facebook.com",
+              "image_url": "https://ssl.gstatic.com/kpui/social/fb_32x32.png",
+              "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[3]/div[1]/div[1]/div[1]/div[2]/div[1]/div[1]/div[1]/div[3]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[6]/div[1]/div[1]/div[1]/div[1]/div[1]/div[2]/div[1]/div[1]/g-link[1]"
+            },
+            {
+              "type": "knowledge_graph_carousel_element",
+              "title": "YouTube",
+              "subtitle": null,
+              "url": "https://www.youtube.com/@EasternCarolinaEpoxyFlooring/",
+              "domain": "www.youtube.com",
+              "image_url": "https://ssl.gstatic.com/kpui/social/youtube_32x32.png",
+              "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[3]/div[1]/div[1]/div[1]/div[2]/div[1]/div[1]/div[1]/div[3]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[6]/div[1]/div[1]/div[1]/div[1]/div[1]/div[2]/div[2]/div[1]/g-link[1]"
+            }
+          ],
+          "rectangle": null
+        }
+      ],
+      "rectangle": null
+    },
+    {
+      "type": "google_reviews",
+      "rank_group": 1,
+      "rank_absolute": 2,
+      "page": 1,
+      "position": "right",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[3]/div[1]/div[1]/div[1]/div[2]/div[1]/div[1]/div[1]/div[2]/div[1]/div[1]/div[2]/div[1]/div[1]/span[3]/span[1]/a[1]",
+      "reviews_count": 12,
+      "rating": {
+        "rating_type": "Max5",
+        "value": 5,
+        "votes_count": 12,
+        "rating_max": 5
+      },
+      "place_id": "ChIJRZlxmIATqYkR1f03XZdRvBM",
+      "feature": "0x89a9138098719945:0x13bc51975d37fdd5",
+      "cid": "1422101292888096213",
+      "rectangle": null
+    }
+  ],
+  "classified": {
+    "mapPackPresent": false,
+    "localPack": [],
+    "mapPackSlotCount": 0,
+    "mapPackWebsiteCount": 0,
+    "mapPackNoWebsiteCount": 0,
+    "directories": {
+      "count": 3,
+      "links": [
+        {
+          "title": "Eastern Carolina Epoxy Flooring LLC | Jacksonville NC",
+          "url": "https://www.facebook.com/easterncarolinaepoxy/",
+          "domain": "facebook.com",
+          "rankAbsolute": 5
+        },
+        {
+          "title": "Top 10 Best Epoxy flooring pros in Jacksonville, NC",
+          "url": "https://www.angi.com/companylist/us/nc/jacksonville/epoxy-flooring.htm",
+          "domain": "angi.com",
+          "rankAbsolute": 6
+        },
+        {
+          "title": "TOP 10 BEST Epoxy Flooring Companies in Jacksonville, NC",
+          "url": "https://www.yelp.com/search?find_desc=Epoxy+Flooring+Companies&find_loc=Jacksonville%2C+NC",
+          "domain": "yelp.com",
+          "rankAbsolute": 7
+        }
+      ]
+    },
+    "organicHomePages": {
+      "count": 1,
+      "links": [
+        {
+          "title": "Eastern Carolina Epoxy Flooring LLC",
+          "url": "https://eastcarolinaepoxyflooring.com/",
+          "domain": "eastcarolinaepoxyflooring.com",
+          "rankAbsolute": 3,
+          "nicheRelevant": true,
+          "looksEmd": true
+        }
+      ],
+      "nicheRelevantCount": 1
+    },
+    "organicSubPages": {
+      "count": 4,
+      "links": [
+        {
+          "title": "Epoxy & Polyaspartic Flooring in Jacksonville, NC",
+          "url": "https://www.garageexperts.com/eastern-nc/jacksonville/",
+          "domain": "garageexperts.com",
+          "rankAbsolute": 2,
+          "nicheRelevant": true,
+          "looksEmd": false
+        },
+        {
+          "title": "Granite Garage Floors | Jacksonville",
+          "url": "https://granitegaragefloors.com/location/coastal-carolina/jacksonville",
+          "domain": "granitegaragefloors.com",
+          "rankAbsolute": 8,
+          "nicheRelevant": false,
+          "looksEmd": false
+        },
+        {
+          "title": "Epoxy Floors Jacksonville NC",
+          "url": "https://metrocrete.com/northcarolina/epoxy-floors-jacksonville/",
+          "domain": "metrocrete.com",
+          "rankAbsolute": 9,
+          "nicheRelevant": false,
+          "looksEmd": false
+        },
+        {
+          "title": "Find Flooring Contractors in Jacksonville, NC",
+          "url": "https://www.procore.com/network/us/nc/jacksonville/flooring",
+          "domain": "procore.com",
+          "rankAbsolute": 10,
+          "nicheRelevant": false,
+          "looksEmd": false
+        }
+      ],
+      "nicheRelevantCount": 1
+    },
+    "uniqueOrganicDomains": [
+      "eastcarolinaepoxyflooring.com",
+      "garageexperts.com",
+      "granitegaragefloors.com",
+      "metrocrete.com",
+      "procore.com"
+    ],
+    "paidAds": {
+      "count": 0,
+      "links": []
+    },
+    "uniqueNicheOrganicDomains": [
+      "eastcarolinaepoxyflooring.com",
+      "garageexperts.com"
+    ],
+    "nicheTokens": [
+      "commercial",
+      "epoxy",
+      "flooring"
+    ],
+    "mapPackReviews": {
+      "slotCount": 0,
+      "reviewSampleSize": 0,
+      "avgReviews": null,
+      "maxReviews": null,
+      "minReviews": null,
+      "reviewsBySlot": [],
+      "reviewsLabel": null
+    },
+    "features": {
+      "localServicesAds": false,
+      "peopleAlsoAsk": true,
+      "googleReviews": true,
+      "paid": false,
+      "itemTypes": [
+        "ai_overview",
+        "organic",
+        "people_also_ask",
+        "related_searches",
+        "google_reviews",
+        "knowledge_graph"
+      ]
+    },
+    "peopleAlsoAskQuestions": [
+      "How much does a commercial epoxy floor cost?",
+      "How much does 1000 sq ft of epoxy cost?",
+      "How much does it cost to epoxy a 20x20 garage floor?",
+      "What is the downside of epoxy flooring?"
+    ],
+    "organicTitles": [
+      "Eastern Carolina Epoxy Flooring LLC",
+      "Epoxy & Polyaspartic Flooring in Jacksonville, NC",
+      "Granite Garage Floors | Jacksonville",
+      "Epoxy Floors Jacksonville NC",
+      "Find Flooring Contractors in Jacksonville, NC",
+      "Eastern Carolina Epoxy Flooring LLC | Jacksonville NC",
+      "Top 10 Best Epoxy flooring pros in Jacksonville, NC",
+      "TOP 10 BEST Epoxy Flooring Companies in Jacksonville, NC",
+      "Who can install epoxy floors in Jacksonville NC?"
+    ]
+  }
+}

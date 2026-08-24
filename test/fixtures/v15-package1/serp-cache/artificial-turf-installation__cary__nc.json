@@ -1,0 +1,687 @@
+{
+  "rowIndex": 9,
+  "rowKey": "artificial turf installation|cary|nc",
+  "items": [
+    {
+      "type": "local_pack",
+      "rank_group": 1,
+      "rank_absolute": 1,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[1]/div[2]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[2]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]",
+      "title": "Southern Turf Co. Raleigh Artificial Grass",
+      "description": "Raleigh, NC · (919) 736-6126 \nClosed · Opens 8 AM Sat \n\"The artificial turf they put down looks great.\" \n",
+      "domain": "www.southernturfco.com",
+      "phone": "(919) 736-6126",
+      "booking_url": null,
+      "url": "https://www.southernturfco.com/raleigh/",
+      "is_paid": false,
+      "rating": {
+        "rating_type": "Max5",
+        "value": 5,
+        "votes_count": 102,
+        "rating_max": 5
+      },
+      "cid": "2041728403339662255",
+      "rectangle": null
+    },
+    {
+      "type": "local_pack",
+      "rank_group": 2,
+      "rank_absolute": 2,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[1]/div[2]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[2]/div[1]/div[1]/div[1]/div[1]/div[1]/div[3]/div[1]/div[1]",
+      "title": "Waterloo Turf Raleigh Artificial Turf",
+      "description": "Raleigh, NC · (984) 266-1169 \nOpen 24 hours \n\"Great job of installation and service from beginning to finish.\" \n",
+      "domain": "waterlooturf.com",
+      "phone": "(984) 266-1169",
+      "booking_url": null,
+      "url": "https://waterlooturf.com/raleigh/?utm_source=gbp&utm_medium=organic&utm_campaign=gbp_profile",
+      "is_paid": false,
+      "rating": {
+        "rating_type": "Max5",
+        "value": 5,
+        "votes_count": 17,
+        "rating_max": 5
+      },
+      "cid": "2223219886901902742",
+      "rectangle": null
+    },
+    {
+      "type": "local_pack",
+      "rank_group": 3,
+      "rank_absolute": 3,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[1]/div[2]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[2]/div[1]/div[1]/div[1]/div[1]/div[1]/div[5]/div[1]/div[1]",
+      "title": "GH Artificial Turf",
+      "description": "Closed · Opens 8 AM Mon \n\"Luis and his crew did an amazing job installing turf at my home.\" \n",
+      "domain": "www.ghartificialturf.com",
+      "phone": "(919) 745-1850",
+      "booking_url": null,
+      "url": "http://www.ghartificialturf.com/",
+      "is_paid": false,
+      "rating": {
+        "rating_type": "Max5",
+        "value": 5,
+        "votes_count": 9,
+        "rating_max": 5
+      },
+      "cid": "3596427677200307463",
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 1,
+      "rank_absolute": 4,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[1]/div[2]/div[1]/div[1]/div[2]/div[1]/div[1]",
+      "domain": "turfprossolution.com",
+      "title": "Synthetic Grass in Cary, North Carolina",
+      "url": "https://turfprossolution.com/synthetic-turf-cary-northcarolina/?srsltid=AfmBOooBNfJ4ivC-W9OuEfk44kAZeudHEqG3bUViDYzCp-tN0bB7_odw",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://turfprossolution.com › synthetic-turf-cary-northca...",
+      "website_name": "Turf Pros Solution",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "Getting artificial turf installers in to carefully lay your artificial turf for you, will have blend in perfectly with the rest of your garden space, and help ... Read more",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "Getting artificial turf installers in"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "people_also_ask",
+      "rank_group": 1,
+      "rank_absolute": 5,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[1]/div[2]/div[1]/div[1]/div[4]/div[1]/div[1]/div[1]",
+      "items": [
+        {
+          "type": "people_also_ask_element",
+          "title": "What is the average cost of installing artificial turf?",
+          "seed_question": null,
+          "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[1]/div[2]/div[1]/div[1]/div[4]/div[1]/div[1]/div[1]/div[1]/div[2]/div[1]",
+          "expanded_element": [
+            {
+              "type": "people_also_ask_ai_overview_expanded_element",
+              "items": null,
+              "references": null,
+              "asynchronous_ai_overview": true
+            }
+          ]
+        },
+        {
+          "type": "people_also_ask_element",
+          "title": "How much does it cost for someone to lay artificial turf?",
+          "seed_question": null,
+          "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[1]/div[2]/div[1]/div[1]/div[4]/div[1]/div[1]/div[1]/div[1]/div[2]/div[2]",
+          "expanded_element": [
+            {
+              "type": "people_also_ask_ai_overview_expanded_element",
+              "items": null,
+              "references": null,
+              "asynchronous_ai_overview": true
+            }
+          ]
+        },
+        {
+          "type": "people_also_ask_element",
+          "title": "How much is 1000 square feet of artificial turf?",
+          "seed_question": null,
+          "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[1]/div[2]/div[1]/div[1]/div[4]/div[1]/div[1]/div[1]/div[1]/div[2]/div[3]",
+          "expanded_element": [
+            {
+              "type": "people_also_ask_ai_overview_expanded_element",
+              "items": null,
+              "references": null,
+              "asynchronous_ai_overview": true
+            }
+          ]
+        },
+        {
+          "type": "people_also_ask_element",
+          "title": "Why are people getting rid of artificial grass?",
+          "seed_question": null,
+          "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[1]/div[2]/div[1]/div[1]/div[4]/div[1]/div[1]/div[1]/div[1]/div[2]/div[4]",
+          "expanded_element": [
+            {
+              "type": "people_also_ask_ai_overview_expanded_element",
+              "items": null,
+              "references": null,
+              "asynchronous_ai_overview": true
+            }
+          ]
+        }
+      ],
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 2,
+      "rank_absolute": 6,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[1]/div[2]/div[1]/div[1]/div[6]/div[1]/div[1]",
+      "domain": "americanartificialturfgrass.com",
+      "title": "Artificial Turf Grass in Cary, NC",
+      "url": "https://americanartificialturfgrass.com/service-areas/cary/",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://americanartificialturfgrass.com › Service Areas",
+      "website_name": "American Artificial Turf",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "American Artificial Turf offers premium permeable artificial grass in Cary. Low-maintenance, eco-friendly, and perfect for homes or businesses. Contact us!",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "American Artificial Turf offers premium permeable artificial grass in Cary"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 3,
+      "rank_absolute": 7,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[1]/div[2]/div[1]/div[1]/div[8]/div[1]/div[1]",
+      "domain": "www.carolinaartificiallawns.com",
+      "title": "Artificial Grass in Cary, NC | Golf, Lawns, Pets/Dogs",
+      "url": "https://www.carolinaartificiallawns.com/cary-nc/",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://www.carolinaartificiallawns.com › cary-nc",
+      "website_name": "SYNLawn® Carolina",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "The team at SYNLawn North Carolina installs artificial grass in Cary, NC, including lawns, landscapes, & putting greens. Get a free estimate today!",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "installs artificial grass in Cary, NC"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 4,
+      "rank_absolute": 8,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[1]/div[2]/div[1]/div[1]/div[10]/div[1]/div[1]",
+      "domain": "lawnpanther.com",
+      "title": "Expert Artificial Turf Installation Services in Cary, NC",
+      "url": "https://lawnpanther.com/artificial-turf-installation/cary/",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://lawnpanther.com › artificial-turf-installation › cary",
+      "website_name": "Lawn Panther",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "Lawn Panther handles artificial turf installation in Cary, NC — $8–$15/sq ft over a compacted, free-draining base. No mowing or watering. Licensed and Insured. ...",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "Lawn Panther handles artificial turf installation in Cary, NC"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 5,
+      "rank_absolute": 9,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[1]/div[2]/div[1]/div[1]/div[12]/div[1]/div[1]",
+      "domain": "www.xgrass.com",
+      "title": "Raleigh | XGrass Artificial Grass",
+      "url": "https://www.xgrass.com/raleigh-artificial-grass.html",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://www.xgrass.com › raleigh-artificial-grass",
+      "website_name": "XGrass",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "Facility in Cary, NC. At … the leading installer of artificial grass, synthetic turf, tel: 1.877.881.8477 Market",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "Cary",
+        "NC",
+        "installer",
+        "artificial grass",
+        "synthetic turf"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 6,
+      "rank_absolute": 10,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[1]/div[2]/div[1]/div[1]/div[14]/div[1]/div[1]",
+      "domain": "www.thumbtack.com",
+      "title": "Artificial Turf Installation - Cary",
+      "url": "https://www.thumbtack.com/nc/cary/artificial-turf-installation",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://www.thumbtack.com › NC › Cary",
+      "website_name": "Thumbtack",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "The average cost to install artificial turf is $3,458. contact the best artificial turf professionals near you. get free estimates and determine",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "contact the best artificial turf professionals near you"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 7,
+      "rank_absolute": 11,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[1]/div[2]/div[1]/div[1]/div[16]/div[1]/div[1]",
+      "domain": "www.southernturfco.com",
+      "title": "Raleigh, NC artificial turf installation",
+      "url": "https://www.southernturfco.com/raleigh/",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://www.southernturfco.com › Locations",
+      "website_name": "Southern Turf Co.",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "Southern Turf Co provides high quality artificial turf and artificial grass in Raleigh. Call us today to help with your artificial grass installation.",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "Southern Turf Co provides high quality artificial turf and artificial grass in Raleigh"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 8,
+      "rank_absolute": 12,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[1]/div[2]/div[1]/div[1]/div[18]/div[1]/div[1]",
+      "domain": "www.homeyou.com",
+      "title": "Artificial Turf in Cary, NC - Costs 08 / 2026 - Homeyou",
+      "url": "https://www.homeyou.com/nc/artificial-turf-cary-costs",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://www.homeyou.com › Artificial Turf › NC",
+      "website_name": "homeyou.com",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "Jun 5, 2026 — The average artificial turf cost in Cary is $8,998 - $10,061, but it could vary from $8,466 to $10,592. Discover the detailed price range here. Read more",
+      "pre_snippet": "06/05/2026 00:00:00",
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "The average artificial turf cost in Cary is $8,998 - $10,061"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": "2026-06-05 00:00:00 +00:00",
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 9,
+      "rank_absolute": 13,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[1]/div[2]/div[1]/div[1]/div[20]/div[1]/div[1]",
+      "domain": "agapelawnco.com",
+      "title": "Artificial Turf Installation | Cary, Chapel Hill & Raleigh, NC",
+      "url": "https://agapelawnco.com/services/outdoor-living/artificial-turf/",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://agapelawnco.com › services › outdoor-living › art...",
+      "website_name": "Agape Lawn Company",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "Jul 25, 2026 — Elevate your outdoor space with our trusted artificial turf installation service for an evergreen, low-maintenance lawn.",
+      "pre_snippet": "07/25/2026 00:00:00",
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "trusted artificial turf installation service"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": "2026-07-25 00:00:00 +00:00",
+      "rectangle": null
+    },
+    {
+      "type": "related_searches",
+      "rank_group": 1,
+      "rank_absolute": 14,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[2]/div[1]/div[3]/div[1]/div[1]/div[1]/div[1]/div[2]",
+      "items": [
+        "Best artificial turf installation cary nc",
+        "Artificial turf installation cary nc near me"
+      ],
+      "rectangle": null
+    }
+  ],
+  "classified": {
+    "mapPackPresent": true,
+    "localPack": [
+      {
+        "title": "Southern Turf Co. Raleigh Artificial Grass",
+        "url": "https://www.southernturfco.com/raleigh/",
+        "domain": "southernturfco.com",
+        "rating": 5,
+        "reviewsCount": 102,
+        "hasWebsite": true
+      },
+      {
+        "title": "Waterloo Turf Raleigh Artificial Turf",
+        "url": "https://waterlooturf.com/raleigh/?utm_source=gbp&utm_medium=organic&utm_campaign=gbp_profile",
+        "domain": "waterlooturf.com",
+        "rating": 5,
+        "reviewsCount": 17,
+        "hasWebsite": true
+      },
+      {
+        "title": "GH Artificial Turf",
+        "url": "http://www.ghartificialturf.com/",
+        "domain": "ghartificialturf.com",
+        "rating": 5,
+        "reviewsCount": 9,
+        "hasWebsite": true
+      }
+    ],
+    "mapPackSlotCount": 3,
+    "mapPackWebsiteCount": 3,
+    "mapPackNoWebsiteCount": 0,
+    "directories": {
+      "count": 1,
+      "links": [
+        {
+          "title": "Artificial Turf Installation - Cary",
+          "url": "https://www.thumbtack.com/nc/cary/artificial-turf-installation",
+          "domain": "thumbtack.com",
+          "rankAbsolute": 10
+        }
+      ]
+    },
+    "organicHomePages": {
+      "count": 0,
+      "links": [],
+      "nicheRelevantCount": 0
+    },
+    "organicSubPages": {
+      "count": 8,
+      "links": [
+        {
+          "title": "Synthetic Grass in Cary, North Carolina",
+          "url": "https://turfprossolution.com/synthetic-turf-cary-northcarolina/?srsltid=AfmBOooBNfJ4ivC-W9OuEfk44kAZeudHEqG3bUViDYzCp-tN0bB7_odw",
+          "domain": "turfprossolution.com",
+          "rankAbsolute": 4,
+          "nicheRelevant": false,
+          "looksEmd": false
+        },
+        {
+          "title": "Artificial Turf Grass in Cary, NC",
+          "url": "https://americanartificialturfgrass.com/service-areas/cary/",
+          "domain": "americanartificialturfgrass.com",
+          "rankAbsolute": 6,
+          "nicheRelevant": true,
+          "looksEmd": true
+        },
+        {
+          "title": "Artificial Grass in Cary, NC | Golf, Lawns, Pets/Dogs",
+          "url": "https://www.carolinaartificiallawns.com/cary-nc/",
+          "domain": "carolinaartificiallawns.com",
+          "rankAbsolute": 7,
+          "nicheRelevant": false,
+          "looksEmd": false
+        },
+        {
+          "title": "Expert Artificial Turf Installation Services in Cary, NC",
+          "url": "https://lawnpanther.com/artificial-turf-installation/cary/",
+          "domain": "lawnpanther.com",
+          "rankAbsolute": 8,
+          "nicheRelevant": true,
+          "looksEmd": false
+        },
+        {
+          "title": "Raleigh | XGrass Artificial Grass",
+          "url": "https://www.xgrass.com/raleigh-artificial-grass.html",
+          "domain": "xgrass.com",
+          "rankAbsolute": 9,
+          "nicheRelevant": false,
+          "looksEmd": false
+        },
+        {
+          "title": "Raleigh, NC artificial turf installation",
+          "url": "https://www.southernturfco.com/raleigh/",
+          "domain": "southernturfco.com",
+          "rankAbsolute": 11,
+          "nicheRelevant": true,
+          "looksEmd": false
+        },
+        {
+          "title": "Artificial Turf in Cary, NC - Costs 08 / 2026 - Homeyou",
+          "url": "https://www.homeyou.com/nc/artificial-turf-cary-costs",
+          "domain": "homeyou.com",
+          "rankAbsolute": 12,
+          "nicheRelevant": true,
+          "looksEmd": false
+        },
+        {
+          "title": "Artificial Turf Installation | Cary, Chapel Hill & Raleigh, NC",
+          "url": "https://agapelawnco.com/services/outdoor-living/artificial-turf/",
+          "domain": "agapelawnco.com",
+          "rankAbsolute": 13,
+          "nicheRelevant": true,
+          "looksEmd": false
+        }
+      ],
+      "nicheRelevantCount": 5
+    },
+    "uniqueOrganicDomains": [
+      "turfprossolution.com",
+      "americanartificialturfgrass.com",
+      "carolinaartificiallawns.com",
+      "lawnpanther.com",
+      "xgrass.com",
+      "southernturfco.com",
+      "homeyou.com",
+      "agapelawnco.com"
+    ],
+    "paidAds": {
+      "count": 0,
+      "links": []
+    },
+    "uniqueNicheOrganicDomains": [
+      "americanartificialturfgrass.com",
+      "lawnpanther.com",
+      "southernturfco.com",
+      "homeyou.com",
+      "agapelawnco.com"
+    ],
+    "nicheTokens": [
+      "artificial",
+      "turf",
+      "installation"
+    ],
+    "mapPackReviews": {
+      "slotCount": 3,
+      "reviewSampleSize": 3,
+      "avgReviews": 42.7,
+      "maxReviews": 102,
+      "minReviews": 9,
+      "reviewsBySlot": [
+        102,
+        17,
+        9
+      ],
+      "reviewsLabel": "102/17/9"
+    },
+    "features": {
+      "localServicesAds": false,
+      "peopleAlsoAsk": true,
+      "googleReviews": false,
+      "paid": false,
+      "itemTypes": [
+        "local_pack",
+        "organic",
+        "people_also_ask",
+        "related_searches"
+      ]
+    },
+    "peopleAlsoAskQuestions": [
+      "What is the average cost of installing artificial turf?",
+      "How much does it cost for someone to lay artificial turf?",
+      "How much is 1000 square feet of artificial turf?",
+      "Why are people getting rid of artificial grass?"
+    ],
+    "organicTitles": [
+      "Synthetic Grass in Cary, North Carolina",
+      "Artificial Turf Grass in Cary, NC",
+      "Artificial Grass in Cary, NC | Golf, Lawns, Pets/Dogs",
+      "Expert Artificial Turf Installation Services in Cary, NC",
+      "Raleigh | XGrass Artificial Grass",
+      "Raleigh, NC artificial turf installation",
+      "Artificial Turf in Cary, NC - Costs 08 / 2026 - Homeyou",
+      "Artificial Turf Installation | Cary, Chapel Hill & Raleigh, NC",
+      "Artificial Turf Installation - Cary"
+    ]
+  }
+}

@@ -1,0 +1,726 @@
+{
+  "rowIndex": 12,
+  "rowKey": "artificial turf installation|concord|nc",
+  "items": [
+    {
+      "type": "ai_overview",
+      "rank_group": 1,
+      "rank_absolute": 1,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[1]/div[2]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]",
+      "asynchronous_ai_overview": true,
+      "markdown": null,
+      "items": null,
+      "references": null,
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 1,
+      "rank_absolute": 2,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[2]/div[1]/div[2]/div[1]/div[1]/div[2]/div[2]/div[1]",
+      "domain": "www.carolinaartificiallawns.com",
+      "title": "Artificial Grass in Concord, NC | Turf For Pets, Sports, Lawns",
+      "url": "https://www.carolinaartificiallawns.com/concord-nc/",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://www.carolinaartificiallawns.com › concord-nc",
+      "website_name": "SYNLawn® Carolina",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "The team at SYNLawn North Carolina installs artificial grass in Concord, NC, including lawns, landscapes, & putting greens. Get a free estimate today!",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "installs artificial grass in Concord, NC"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 2,
+      "rank_absolute": 3,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[2]/div[1]/div[2]/div[1]/div[1]/div[4]/div[1]/div[1]",
+      "domain": "www.yelp.com",
+      "title": "TOP 10 BEST Artificial Turf in Concord, NC - Updated 2026",
+      "url": "https://www.yelp.com/search?find_desc=Artificial+Turf&find_loc=Concord%2C+NC",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://www.yelp.com › Home Services",
+      "website_name": "Yelp",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "Top 10 Best Artificial Turf Near Concord, North Carolina ; Greenman Land Services · Landscaping · Tree Services. 10.7 mi · Midland, NC 28107 ; Montes Solutions. Read more",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": {
+        "rating_type": "Max5",
+        "value": 4.2,
+        "votes_count": 153,
+        "rating_max": 5
+      },
+      "price": null,
+      "highlighted": [
+        "Greenman Land Services"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 3,
+      "rank_absolute": 4,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[2]/div[1]/div[2]/div[1]/div[1]/div[6]/div[1]/div[1]",
+      "domain": "turfprossolution.com",
+      "title": "Synthetic Turf in Concord, North Carolina",
+      "url": "https://turfprossolution.com/synthetic-turf-concord-northcarolina/?srsltid=AfmBOoqmezvPesRWdkez3fkKqT1txnOKO2Rf6PrK58yJgoDK7QJUuroI",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://turfprossolution.com › synthetic-turf-concord-nor...",
+      "website_name": "Turf Pros Solution",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "Getting synthetic turf installers in to carefully lay your synthetic turf for you, will have blend in perfectly with the rest of your lawn, and help ... Read more",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "Getting synthetic turf installers in"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 4,
+      "rank_absolute": 5,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[2]/div[1]/div[2]/div[1]/div[1]/div[8]/div[1]/div[1]",
+      "domain": "www.ultimateturf.com",
+      "title": "Artificial Turf Installation in Concord, NC",
+      "url": "https://www.ultimateturf.com/service-area/concord-nc",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://www.ultimateturf.com › service-area › concord-nc",
+      "website_name": "ultimateturf.com",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "Ultimate Turf, the Carolinas' leading expert in artificial turf installation, Schedule a Free Estimate (980) 385-4238 … lasting, and maintenance-free. We offer ...",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "Ultimate Turf, the Carolinas' leading expert in artificial turf installation"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 5,
+      "rank_absolute": 6,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[2]/div[1]/div[2]/div[1]/div[1]/div[10]/div[1]/div[1]",
+      "domain": "h2o-matic.com",
+      "title": "Custom Artificial Turf in Concord, NC",
+      "url": "https://h2o-matic.com/custom-artificial-turf-concord-nc/",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://h2o-matic.com › custom-artificial-turf-concord-nc",
+      "website_name": "H2O-Matic",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "We install lawn turf, pet zones, play areas, putting greens, and commercial turf in Concord with clean seams, solid base prep, and drainage built for real use.",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "We install lawn turf, pet zones, play areas, putting greens, and commercial turf"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 6,
+      "rank_absolute": 7,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[2]/div[1]/div[2]/div[1]/div[1]/div[12]/div[1]/div[1]",
+      "domain": "www.thumbtack.com",
+      "title": "The 10 Best Landscaping Companies in Concord, NC 2026",
+      "url": "https://www.thumbtack.com/nc/concord/landscaping",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://www.thumbtack.com › NC › Concord",
+      "website_name": "Thumbtack",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "Outdoor Landscaping and Design, Sod Installation, Artificial Turf Installation. Great value. Serves Concord, NC. Serves Concord, NC. Online now. chris boggess ... Read more",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "Artificial Turf Installation"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 7,
+      "rank_absolute": 8,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[2]/div[1]/div[2]/div[1]/div[1]/div[14]/div[1]/div[1]",
+      "domain": "turfnetwork.org",
+      "title": "North Carolina - Artificial Turf Company Directory // TURF ...",
+      "url": "https://turfnetwork.org/location/north-carolina/",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://turfnetwork.org › Location",
+      "website_name": "turfnetwork.org",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "Browse North Carolina's Top Artificial Turf Installers. Mr. Outdoor Living ... Concord, NC. Cornelius, NC; Durham, NC; Fayetteville, NC ... Read more",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "Browse North Carolina's Top Artificial Turf Installers"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 8,
+      "rank_absolute": 9,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[2]/div[1]/div[2]/div[1]/div[1]/div[16]/div[1]/div[1]",
+      "domain": "www.artificialturfsupply.com",
+      "title": "Concord, North Carolina Artificial Turf",
+      "url": "https://www.artificialturfsupply.com/artificial-grass-locations/north-carolina/concord.html",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://www.artificialturfsupply.com › North Carolina",
+      "website_name": "Artificial Turf Supply",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "Nov 21, 2023 — Artificial Turf Supply carries a large variety of artificial grass solutions for customers in Concord, North Carolina. Contact Us FREE Quote!  ...",
+      "pre_snippet": "11/21/2023 00:00:00",
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": {
+        "rating_type": "Max5",
+        "value": 4.8,
+        "votes_count": 430,
+        "rating_max": 5
+      },
+      "price": null,
+      "highlighted": [
+        "Artificial Turf Supply carries a large variety of artificial grass solutions"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": "2023-11-21 00:00:00 +00:00",
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 9,
+      "rank_absolute": 10,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[2]/div[1]/div[2]/div[1]/div[1]/div[18]/div[1]/div[1]",
+      "domain": "www.houzz.com",
+      "title": "Best 15 Artificial Grass Installers in Charlotte, NC",
+      "url": "https://www.houzz.com/professionals/landscape-contractors/charlotte-nc-us-project-type-artificial-grass-installation-probr1-bo~t_11812~r_4460243~sv_29141",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://www.houzz.com › ... › Artificial Grass Installation",
+      "website_name": "Houzz",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "Find top-rated Charlotte, NC artificial grass installation services for your home project on Houzz ... Concord, NC 28027 · Blackwell Landscape Group, Inc. Average ... Read more",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "Blackwell Landscape Group, Inc"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "related_searches",
+      "rank_group": 1,
+      "rank_absolute": 11,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[2]/div[2]/div[1]/div[3]/div[1]/div[1]/div[1]/div[1]/div[2]",
+      "items": [
+        "Residential artificial turf installation concord nc",
+        "Artificial turf installation concord nc reviews",
+        "Best artificial turf installation concord nc"
+      ],
+      "rectangle": null
+    },
+    {
+      "type": "knowledge_graph",
+      "rank_group": 1,
+      "rank_absolute": 1,
+      "page": 1,
+      "position": "right",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[3]/div[1]/div[1]/div[1]",
+      "title": "Southern Turf & Landscape INC",
+      "subtitle": "Landscaper in Cabarrus County, North Carolina",
+      "description": "Areas served: Concord",
+      "card_id": null,
+      "url": "http://southernturfandlandscape.com/",
+      "image_url": null,
+      "logo_url": null,
+      "cid": "5298417299097805354",
+      "items": [
+        {
+          "type": "knowledge_graph_images_item",
+          "rank_group": 0,
+          "rank_absolute": 0,
+          "page": 1,
+          "position": "left",
+          "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[3]/div[1]/div[1]/div[1]/div[2]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]",
+          "link": null,
+          "items": [
+            {
+              "type": "knowledge_graph_images_element",
+              "url": null,
+              "domain": null,
+              "alt": null,
+              "image_url": "https://api.dataforseo.com/cdn/i/08212327-2222-0139-0000-648930694954:0",
+              "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[3]/div[1]/div[1]/div[1]/div[2]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]"
+            },
+            {
+              "type": "knowledge_graph_images_element",
+              "url": "https://www.google.com/maps/place/Southern+Turf+%26+Landscape+INC/data=!4m2!3m1!1s0x0:0x4987c2761882622a?sa=X&ved=1t:2428&hl=en&gl=US&ictx=111",
+              "domain": "www.google.com",
+              "alt": "Map of Southern Turf & Landscape INC",
+              "image_url": "https://api.dataforseo.com/cdn/i/08212327-2222-0139-0000-648930694954:1",
+              "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[3]/div[1]/div[1]/div[1]/div[2]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[2]/div[1]"
+            },
+            {
+              "type": "knowledge_graph_images_element",
+              "url": "https://www.google.com/local/place/fid/0x885411fb1f08919f:0x4987c2761882622a/photosphere?iu=https://streetviewpixels-pa.googleapis.com/v1/thumbnail?panoid%3D7p2Z3uoDmy4PAfDPfGKoSQ%26cb_client%3Dsearch.gws-prod.gps%26yaw%3D89.81559%26pitch%3D0%26thumbfov%3D100%26w%3D0%26h%3D0&ik=CAISFjdwMlozdW9EbXk0UEFmRFBmR0tvU1E%3D&sa=X&ved=2ahUKEwiIhbLY77KWAxX0HxAIHcaXA68Qpx96BAg4EBI",
+              "domain": "www.google.com",
+              "alt": null,
+              "image_url": "https://api.dataforseo.com/cdn/i/08212327-2222-0139-0000-648930694954:2",
+              "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[3]/div[1]/div[1]/div[1]/div[2]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[2]/div[2]/div[1]"
+            }
+          ],
+          "rectangle": null
+        },
+        {
+          "type": "knowledge_graph_description_item",
+          "rank_group": 0,
+          "rank_absolute": 0,
+          "page": 1,
+          "position": "left",
+          "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[3]/div[1]/div[1]/div[1]/div[2]/div[1]/div[1]/div[1]/div[3]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[2]/div[1]/div[1]/div[1]/div[1]/div[5]",
+          "text": "Areas served: Concord and nearby areas",
+          "links": null,
+          "rectangle": null
+        },
+        {
+          "type": "knowledge_graph_row_item",
+          "rank_group": 0,
+          "rank_absolute": 0,
+          "page": 1,
+          "position": "left",
+          "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[3]/div[1]/div[1]/div[1]/div[2]/div[1]/div[1]/div[1]/div[3]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[2]/div[1]/div[1]/div[1]/div[1]/div[1]",
+          "title": "Address",
+          "data_attrid": "kc:/location/location:address",
+          "text": "5705 Rocky River Rd, Concord, NC 28025",
+          "links": [
+            {
+              "type": "link_element",
+              "title": "Address",
+              "url": "https://www.google.com/search?sca_esv=299537ef26fd61a8&hl=en&gl=US&q=southern+turf+and+landscape+inc+concord+address&ludocid=5298417299097805354&sa=X&ved=2ahUKEwiIhbLY77KWAxX0HxAIHcaXA68Q6BN6BAgwEAI",
+              "domain": "www.google.com",
+              "description": null,
+              "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[3]/div[1]/div[1]/div[1]/div[2]/div[1]/div[1]/div[1]/div[3]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[2]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/span[1]/a[1]"
+            }
+          ],
+          "rectangle": null
+        },
+        {
+          "type": "knowledge_graph_row_item",
+          "rank_group": 0,
+          "rank_absolute": 0,
+          "page": 1,
+          "position": "left",
+          "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[3]/div[1]/div[1]/div[1]/div[2]/div[1]/div[1]/div[1]/div[3]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[2]/div[1]/div[1]/div[1]/div[1]/div[2]",
+          "title": "Phone",
+          "data_attrid": "kc:/local:alt phone",
+          "text": "Phone : (980) 621-3773",
+          "links": [
+            {
+              "type": "link_element",
+              "title": "Phone",
+              "url": "https://www.google.com/search?sca_esv=299537ef26fd61a8&hl=en&gl=US&q=southern+turf+and+landscape+inc+concord+phone&ludocid=5298417299097805354&sa=X&ved=2ahUKEwiIhbLY77KWAxX0HxAIHcaXA68Q6BN6BAgyEAI",
+              "domain": "www.google.com",
+              "description": null,
+              "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[3]/div[1]/div[1]/div[1]/div[2]/div[1]/div[1]/div[1]/div[3]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[2]/div[1]/div[1]/div[1]/div[1]/div[2]/div[1]/div[1]/div[1]/span[1]/a[1]"
+            },
+            {
+              "type": "link_element",
+              "title": "(980) 621-3773",
+              "url": "https://www.google.com/#",
+              "domain": "www.google.com",
+              "description": null,
+              "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[3]/div[1]/div[1]/div[1]/div[2]/div[1]/div[1]/div[1]/div[3]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[2]/div[1]/div[1]/div[1]/div[1]/div[2]/div[1]/div[1]/div[1]/span[2]/span[1]/a[1]"
+            }
+          ],
+          "rectangle": null
+        },
+        {
+          "type": "knowledge_graph_row_item",
+          "rank_group": 0,
+          "rank_absolute": 0,
+          "page": 1,
+          "position": "left",
+          "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[3]/div[1]/div[1]/div[1]/div[2]/div[1]/div[1]/div[1]/div[3]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[2]/div[1]/div[1]/div[1]/div[1]/div[3]",
+          "title": "Hours",
+          "data_attrid": "kc:/location/location:hours",
+          "text": "Closed · Opens 9 AM Sat",
+          "links": [
+            {
+              "type": "link_element",
+              "title": "Hours",
+              "url": "https://www.google.com/search?sca_esv=299537ef26fd61a8&hl=en&gl=US&q=southern+turf+and+landscape+inc+concord+hours&ludocid=5298417299097805354&sa=X&ved=2ahUKEwiIhbLY77KWAxX0HxAIHcaXA68Q6BN6BAgxEAI",
+              "domain": "www.google.com",
+              "description": null,
+              "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[3]/div[1]/div[1]/div[1]/div[2]/div[1]/div[1]/div[1]/div[3]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[2]/div[1]/div[1]/div[1]/div[1]/div[3]/div[1]/span[1]/a[1]"
+            },
+            {
+              "type": "link_element",
+              "title": "Learn more",
+              "url": "https://support.google.com/websearch/answer/3338405",
+              "domain": "support.google.com",
+              "description": null,
+              "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[3]/div[1]/div[1]/div[1]/div[2]/div[1]/div[1]/div[1]/div[3]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[2]/div[1]/div[1]/div[1]/div[1]/div[3]/div[1]/div[1]/div[2]/div[2]/div[1]/div[1]/div[1]/g-dialog[1]/div[1]/div[2]/span[1]/div[1]/div[1]/div[1]/p[2]/a[1]"
+            }
+          ],
+          "rectangle": null
+        },
+        {
+          "type": "knowledge_graph_carousel_item",
+          "rank_group": 0,
+          "rank_absolute": 0,
+          "page": 1,
+          "position": "left",
+          "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[3]/div[1]/div[1]/div[1]/div[2]/div[1]/div[1]/div[1]/div[3]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[4]/div[1]/div[1]/div[1]/div[1]/div[1]",
+          "title": "Profiles",
+          "data_attrid": "kc:/common/topic:social media presence",
+          "link": null,
+          "items": [
+            {
+              "type": "knowledge_graph_carousel_element",
+              "title": "Facebook",
+              "subtitle": null,
+              "url": "https://www.facebook.com/116387418121373",
+              "domain": "www.facebook.com",
+              "image_url": "https://api.dataforseo.com/cdn/i/08212327-2222-0139-0000-648930694954:3",
+              "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[3]/div[1]/div[1]/div[1]/div[2]/div[1]/div[1]/div[1]/div[3]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[4]/div[1]/div[1]/div[1]/div[1]/div[1]/div[2]/div[1]/div[1]/g-link[1]"
+            }
+          ],
+          "rectangle": null
+        }
+      ],
+      "rectangle": null
+    },
+    {
+      "type": "google_reviews",
+      "rank_group": 1,
+      "rank_absolute": 2,
+      "page": 1,
+      "position": "right",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[3]/div[1]/div[1]/div[1]/div[2]/div[1]/div[1]/div[1]/div[2]/div[1]/div[1]/div[2]/div[1]/div[1]/span[3]/span[1]/a[1]",
+      "reviews_count": 16,
+      "rating": {
+        "rating_type": "Max5",
+        "value": 5,
+        "votes_count": 16,
+        "rating_max": 5
+      },
+      "place_id": "ChIJn5EIH_sRVIgRKmKCGHbCh0k",
+      "feature": "0x885411fb1f08919f:0x4987c2761882622a",
+      "cid": "5298417299097805354",
+      "rectangle": null
+    }
+  ],
+  "classified": {
+    "mapPackPresent": false,
+    "localPack": [],
+    "mapPackSlotCount": 0,
+    "mapPackWebsiteCount": 0,
+    "mapPackNoWebsiteCount": 0,
+    "directories": {
+      "count": 2,
+      "links": [
+        {
+          "title": "TOP 10 BEST Artificial Turf in Concord, NC - Updated 2026",
+          "url": "https://www.yelp.com/search?find_desc=Artificial+Turf&find_loc=Concord%2C+NC",
+          "domain": "yelp.com",
+          "rankAbsolute": 3
+        },
+        {
+          "title": "The 10 Best Landscaping Companies in Concord, NC 2026",
+          "url": "https://www.thumbtack.com/nc/concord/landscaping",
+          "domain": "thumbtack.com",
+          "rankAbsolute": 7
+        }
+      ]
+    },
+    "organicHomePages": {
+      "count": 0,
+      "links": [],
+      "nicheRelevantCount": 0
+    },
+    "organicSubPages": {
+      "count": 7,
+      "links": [
+        {
+          "title": "Artificial Grass in Concord, NC | Turf For Pets, Sports, Lawns",
+          "url": "https://www.carolinaartificiallawns.com/concord-nc/",
+          "domain": "carolinaartificiallawns.com",
+          "rankAbsolute": 2,
+          "nicheRelevant": true,
+          "looksEmd": false
+        },
+        {
+          "title": "Synthetic Turf in Concord, North Carolina",
+          "url": "https://turfprossolution.com/synthetic-turf-concord-northcarolina/?srsltid=AfmBOoqmezvPesRWdkez3fkKqT1txnOKO2Rf6PrK58yJgoDK7QJUuroI",
+          "domain": "turfprossolution.com",
+          "rankAbsolute": 4,
+          "nicheRelevant": false,
+          "looksEmd": false
+        },
+        {
+          "title": "Artificial Turf Installation in Concord, NC",
+          "url": "https://www.ultimateturf.com/service-area/concord-nc",
+          "domain": "ultimateturf.com",
+          "rankAbsolute": 5,
+          "nicheRelevant": true,
+          "looksEmd": false
+        },
+        {
+          "title": "Custom Artificial Turf in Concord, NC",
+          "url": "https://h2o-matic.com/custom-artificial-turf-concord-nc/",
+          "domain": "h2o-matic.com",
+          "rankAbsolute": 6,
+          "nicheRelevant": true,
+          "looksEmd": false
+        },
+        {
+          "title": "North Carolina - Artificial Turf Company Directory // TURF ...",
+          "url": "https://turfnetwork.org/location/north-carolina/",
+          "domain": "turfnetwork.org",
+          "rankAbsolute": 8,
+          "nicheRelevant": true,
+          "looksEmd": false
+        },
+        {
+          "title": "Concord, North Carolina Artificial Turf",
+          "url": "https://www.artificialturfsupply.com/artificial-grass-locations/north-carolina/concord.html",
+          "domain": "artificialturfsupply.com",
+          "rankAbsolute": 9,
+          "nicheRelevant": true,
+          "looksEmd": true
+        },
+        {
+          "title": "Best 15 Artificial Grass Installers in Charlotte, NC",
+          "url": "https://www.houzz.com/professionals/landscape-contractors/charlotte-nc-us-project-type-artificial-grass-installation-probr1-bo~t_11812~r_4460243~sv_29141",
+          "domain": "houzz.com",
+          "rankAbsolute": 10,
+          "nicheRelevant": true,
+          "looksEmd": false
+        }
+      ],
+      "nicheRelevantCount": 6
+    },
+    "uniqueOrganicDomains": [
+      "carolinaartificiallawns.com",
+      "turfprossolution.com",
+      "ultimateturf.com",
+      "h2o-matic.com",
+      "turfnetwork.org",
+      "artificialturfsupply.com",
+      "houzz.com"
+    ],
+    "paidAds": {
+      "count": 0,
+      "links": []
+    },
+    "uniqueNicheOrganicDomains": [
+      "carolinaartificiallawns.com",
+      "ultimateturf.com",
+      "h2o-matic.com",
+      "turfnetwork.org",
+      "artificialturfsupply.com",
+      "houzz.com"
+    ],
+    "nicheTokens": [
+      "artificial",
+      "turf",
+      "installation"
+    ],
+    "mapPackReviews": {
+      "slotCount": 0,
+      "reviewSampleSize": 0,
+      "avgReviews": null,
+      "maxReviews": null,
+      "minReviews": null,
+      "reviewsBySlot": [],
+      "reviewsLabel": null
+    },
+    "features": {
+      "localServicesAds": false,
+      "peopleAlsoAsk": false,
+      "googleReviews": true,
+      "paid": false,
+      "itemTypes": [
+        "ai_overview",
+        "organic",
+        "related_searches",
+        "google_reviews",
+        "knowledge_graph"
+      ]
+    },
+    "peopleAlsoAskQuestions": [],
+    "organicTitles": [
+      "Artificial Grass in Concord, NC | Turf For Pets, Sports, Lawns",
+      "Synthetic Turf in Concord, North Carolina",
+      "Artificial Turf Installation in Concord, NC",
+      "Custom Artificial Turf in Concord, NC",
+      "North Carolina - Artificial Turf Company Directory // TURF ...",
+      "Concord, North Carolina Artificial Turf",
+      "Best 15 Artificial Grass Installers in Charlotte, NC",
+      "TOP 10 BEST Artificial Turf in Concord, NC - Updated 2026",
+      "The 10 Best Landscaping Companies in Concord, NC 2026"
+    ]
+  }
+}

@@ -1,0 +1,764 @@
+{
+  "rowIndex": 6,
+  "rowKey": "sewer line replacement (trenchless)|gastonia|nc",
+  "items": [
+    {
+      "type": "ai_overview",
+      "rank_group": 1,
+      "rank_absolute": 1,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[1]/div[2]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]",
+      "asynchronous_ai_overview": true,
+      "markdown": null,
+      "items": null,
+      "references": null,
+      "rectangle": null
+    },
+    {
+      "type": "local_pack",
+      "rank_group": 1,
+      "rank_absolute": 2,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[2]/div[1]/div[2]/div[1]/div[1]/div[2]/div[1]/div[1]/div[1]/div[1]/div[3]/div[1]/div[1]/div[1]/div[1]",
+      "title": "Next Level Pipe Lining",
+      "description": "10+ years in business · Gastonia, NC \nClosed · Opens 7 AM Mon \n\"This company was also over $10,000 cheaper than another quote I received.\" \n",
+      "domain": "nextlevelpipelining.com",
+      "phone": "(980) 355-2356",
+      "booking_url": null,
+      "url": "https://nextlevelpipelining.com/",
+      "is_paid": false,
+      "rating": {
+        "rating_type": "Max5",
+        "value": 4.9,
+        "votes_count": 55,
+        "rating_max": 5
+      },
+      "cid": "12466684159379811514",
+      "rectangle": null
+    },
+    {
+      "type": "local_pack",
+      "rank_group": 2,
+      "rank_absolute": 3,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[2]/div[1]/div[2]/div[1]/div[1]/div[2]/div[1]/div[1]/div[1]/div[1]/div[3]/div[1]/div[3]/div[1]/div[1]",
+      "title": "Roland Black Plumbing",
+      "description": "Gastonia, NC \nOpen 24 hours \n\"Will definitely use again if other plumbing issues arise\" \n",
+      "domain": "www.rolandblack.com",
+      "phone": "(980) 206-4295",
+      "booking_url": "https://book.servicetitan.com/hvzgys72lv483fab17wo6xjj?rwg_token=AE37R_iPQQMLpiEdkh6o3_m3jTBIKPS2LxAMznjQzKi7fmXTVmbCOw9Qw2zxpea3Xl6qT0RCfuT7TkbjGjgK58_fJZHYgae31A%3D%3D&source=cat",
+      "url": "https://www.rolandblack.com/plumbing/",
+      "is_paid": false,
+      "rating": {
+        "rating_type": "Max5",
+        "value": 5,
+        "votes_count": 111,
+        "rating_max": 5
+      },
+      "cid": "5375547284130621879",
+      "rectangle": null
+    },
+    {
+      "type": "local_pack",
+      "rank_group": 3,
+      "rank_absolute": 4,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[2]/div[1]/div[2]/div[1]/div[1]/div[2]/div[1]/div[1]/div[1]/div[1]/div[3]/div[1]/div[5]/div[1]/div[1]",
+      "title": "Superior Plumbing and Drains",
+      "description": "7+ years in business · Gastonia, NC \nOpen 24 hours \n\"Highly recommend the Gastonia Superior Plumbing company.\" \n",
+      "domain": "www.superiorplumbinganddrains.com",
+      "phone": "(704) 325-6194",
+      "booking_url": "https://book.servicetitan.com/i1h6rxqhlznnp14o76cr592t?rwg_token=AE37R_hu8eEA-pHGCMHz5stNsZwtCwLntGm4syti9gADTCSFarZTC76QDLheyh4ZdpcOjVX9SN8zpeMaDxk-CQVw22AT-vjRcw%3D%3D&source=cat",
+      "url": "https://www.superiorplumbinganddrains.com/?utm_source=organic&utm_medium=social&utm_campaign=1seo_gmb_profile&utm_term=gastonia",
+      "is_paid": false,
+      "rating": {
+        "rating_type": "Max5",
+        "value": 4.9,
+        "votes_count": 1300,
+        "rating_max": 5
+      },
+      "cid": "1978871954763700958",
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 1,
+      "rank_absolute": 5,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[2]/div[1]/div[2]/div[1]/div[1]/div[4]/div[1]/div[1]",
+      "domain": "rolandblack.com",
+      "title": "Sewer Line Repair Gastonia NC",
+      "url": "https://rolandblack.com/drains/gastonia/sewer-line-repair/",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://rolandblack.com › Drains › Gastonia",
+      "website_name": "Roland Black | Heating, Cooling, Plumbing & Generators",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "Roland Black handles trenchless lining, pipe bursting, and spot repair since 1973. SCHEDULE (980) 206-3523",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": {
+        "rating_type": "Max5",
+        "value": 4.9,
+        "votes_count": 1172,
+        "rating_max": 5
+      },
+      "price": null,
+      "highlighted": [
+        "trenchless",
+        "pipe",
+        "repair"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "people_also_ask",
+      "rank_group": 1,
+      "rank_absolute": 6,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[2]/div[1]/div[2]/div[1]/div[1]/div[6]/div[1]/div[1]/div[1]",
+      "items": [
+        {
+          "type": "people_also_ask_element",
+          "title": "Is trenchless pipe repair expensive?",
+          "seed_question": null,
+          "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[2]/div[1]/div[2]/div[1]/div[1]/div[6]/div[1]/div[1]/div[1]/div[1]/div[2]/div[1]",
+          "expanded_element": [
+            {
+              "type": "people_also_ask_ai_overview_expanded_element",
+              "items": null,
+              "references": null,
+              "asynchronous_ai_overview": true
+            }
+          ]
+        },
+        {
+          "type": "people_also_ask_element",
+          "title": "What are the disadvantages of trenchless sewer line replacement?",
+          "seed_question": null,
+          "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[2]/div[1]/div[2]/div[1]/div[1]/div[6]/div[1]/div[1]/div[1]/div[1]/div[2]/div[2]",
+          "expanded_element": [
+            {
+              "type": "people_also_ask_ai_overview_expanded_element",
+              "items": null,
+              "references": null,
+              "asynchronous_ai_overview": true
+            }
+          ]
+        },
+        {
+          "type": "people_also_ask_element",
+          "title": "Can you do a trenchless sewer line replacement?",
+          "seed_question": null,
+          "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[2]/div[1]/div[2]/div[1]/div[1]/div[6]/div[1]/div[1]/div[1]/div[1]/div[2]/div[3]",
+          "expanded_element": [
+            {
+              "type": "people_also_ask_ai_overview_expanded_element",
+              "items": null,
+              "references": null,
+              "asynchronous_ai_overview": true
+            }
+          ]
+        },
+        {
+          "type": "people_also_ask_element",
+          "title": "Is trenchless pipe lining worth it?",
+          "seed_question": null,
+          "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[2]/div[1]/div[2]/div[1]/div[1]/div[6]/div[1]/div[1]/div[1]/div[1]/div[2]/div[4]",
+          "expanded_element": [
+            {
+              "type": "people_also_ask_ai_overview_expanded_element",
+              "items": null,
+              "references": null,
+              "asynchronous_ai_overview": true
+            }
+          ]
+        }
+      ],
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 2,
+      "rank_absolute": 7,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[2]/div[1]/div[2]/div[1]/div[1]/div[8]/div[1]/div[1]",
+      "domain": "nextlevelpipelining.com",
+      "title": "Trenchless Sewer Pipe Repair Gastonia, NC",
+      "url": "https://nextlevelpipelining.com/service-areas/gastonia-nc/trenchless-sewer-pipe-repair-gastonia-nc/",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://nextlevelpipelining.com › service-areas › trenchle...",
+      "website_name": "Next Level Pipe Lining",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "Call (980) 303-1017 ... For a fast, affordable, trenchless sewer pipe repair, residents and businesses in Gastonia, North Carolina can count on Next Level Pipe ... Read more",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "trenchless sewer pipe repair",
+        "Gastonia",
+        "North Carolina"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 3,
+      "rank_absolute": 8,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[2]/div[1]/div[2]/div[1]/div[1]/div[10]/div[1]/div[1]",
+      "domain": "www.yelp.com",
+      "title": "Best Sewer Line Repair Services in Gastonia, NC",
+      "url": "https://www.yelp.com/questions/loc/gastonia-nc/sewer-line-repair-services",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://www.yelp.com › questions › loc › sewer-line-rep...",
+      "website_name": "Yelp",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "For immediate help, call Plumbing Connection at (704) 825-9399 or Heath Jackson Plumbing at (704) 634-5784. uses trenchless technology for efficient pipe ...",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "uses trenchless technology"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 4,
+      "rank_absolute": 9,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[2]/div[1]/div[2]/div[1]/div[1]/div[12]/div[1]/div[1]",
+      "domain": "northcarolina.1daytrenchlesssewerrepair.com",
+      "title": "Trenchless Sewer Repairs Gastonia NC",
+      "url": "https://northcarolina.1daytrenchlesssewerrepair.com/trenchless-sewer-repairs-gastonia-nc/",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://northcarolina.1daytrenchlesssewerrepair.com › tr...",
+      "website_name": "1 Day Trenchless Sewer Repairs",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "Experienced in all types of trenchless sewer, drain and water line replacement and repair we can dispatch one of our experts to your location quickly and come ... Read more",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "Experienced in all types of trenchless sewer, drain and water line replacement"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 5,
+      "rank_absolute": 10,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[2]/div[1]/div[2]/div[1]/div[1]/div[14]/div[1]/div[1]",
+      "domain": "www.trenchlessnet.com",
+      "title": "Trenchless Sewer Repair Contractors in Gastonia, NC",
+      "url": "https://www.trenchlessnet.com/contractors/north-carolina/gastonia",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://www.trenchlessnet.com › north-carolina › gastonia",
+      "website_name": "trenchlessnet.com",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "Find NASSCO-certified trenchless sewer repair contractors in Gastonia, NC. CIPP pipe lining, pipe bursting, and no-dig drain solutions",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "NASSCO-certified trenchless sewer repair contractors in Gastonia"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 6,
+      "rank_absolute": 11,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[2]/div[1]/div[2]/div[1]/div[1]/div[16]/div[1]/div[1]",
+      "domain": "nodig.com",
+      "title": "TOP 10 BEST Pipe Lining in Gastonia, North Carolina",
+      "url": "https://nodig.com/north-carolina/gastonia/pipe-lining",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://nodig.com › North Carolina › Gastonia",
+      "website_name": "NoDig.com",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "Top 10 BEST Trenchless Sewer Repair in Gastonia, North Carolina … +1 980-355-2356. NoDig.com is the leading directory for verified trenchless sewer repair ...",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": {
+        "rating_type": "Max5",
+        "value": 4.8,
+        "votes_count": 165,
+        "rating_max": 5
+      },
+      "price": null,
+      "highlighted": [
+        "1 980-355-2356"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 7,
+      "rank_absolute": 12,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[2]/div[1]/div[2]/div[1]/div[1]/div[18]/div[1]/div[1]",
+      "domain": "nextlevelpipelining.com",
+      "title": "Next Level Pipe Lining: Pipe Lining Company in Charlotte, NC ...",
+      "url": "https://nextlevelpipelining.com/",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://nextlevelpipelining.com",
+      "website_name": "Next Level Pipe Lining",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "Trenchless Sewer. Call (980) 303-1017 For … we employ trenchless technology. Call (980) 303-1017. Gastonia NC, 28054 Phone: (980) 303-1017",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "Call (980) 303-1017"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 8,
+      "rank_absolute": 13,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[2]/div[1]/div[2]/div[1]/div[1]/div[20]/div[1]/div[1]",
+      "domain": "rolandblack.com",
+      "title": "Water Line Install Gastonia NC",
+      "url": "https://rolandblack.com/plumbing/gastonia/water-line-install/",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://rolandblack.com › Plumbing › Gastonia",
+      "website_name": "Roland Black | Heating, Cooling, Plumbing & Generators",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "trenchless water line installation? To schedule licensed water service line installation across Gastonia call Roland Black at (980) 206-3523-we",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": {
+        "rating_type": "Max5",
+        "value": 4.9,
+        "votes_count": 1172,
+        "rating_max": 5
+      },
+      "price": null,
+      "highlighted": [
+        "trenchless",
+        "line installation",
+        "Gastonia"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 9,
+      "rank_absolute": 14,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[2]/div[1]/div[2]/div[1]/div[1]/div[22]/div[1]/div[1]",
+      "domain": "www.benjaminfranklinplumbing.com",
+      "title": "Trenchless Sewer Line Repair in Charlotte, NC",
+      "url": "https://www.benjaminfranklinplumbing.com/charlotte/services/sewers/trenchless-sewers/",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://www.benjaminfranklinplumbing.com › sewers › t...",
+      "website_name": "Benjamin Franklin Plumbing",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "Contact our trenchless sewer experts at (704) 802-1379 or book service online! Advantages of Trenchless Sewer Line Repairs. Swift Repairs: Trenchless solutions ... Read more",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "Contact our trenchless sewer experts at (704) 802-1379"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 10,
+      "rank_absolute": 15,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[2]/div[1]/div[2]/div[1]/div[1]/div[24]/div[1]/div[1]",
+      "domain": "www.facebook.com",
+      "title": "Next Level Pipe Lining, Inc. | Gastonia NC",
+      "url": "https://www.facebook.com/nextlevelpipelining/",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "3.2K+ followers",
+      "website_name": "Facebook · Next Level Pipe Lining, Inc.",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "With pipe lining, we're not replacing your pipe, we're rebuilding it from the inside. Call (980)355-2356 for a trenchless consultation. #SewerProblems # ... Read more",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "Call (980)355-2356 for a trenchless consultation"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "related_searches",
+      "rank_group": 1,
+      "rank_absolute": 16,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[13]/div[2]/div[2]/div[1]/div[3]/div[1]/div[1]/div[1]/div[1]/div[2]",
+      "items": [
+        "Sewer line replacement trenchless gastonia nc near me",
+        "Sewer line replacement trenchless gastonia nc near",
+        "Sewer line replacement trenchless gastonia nc cost"
+      ],
+      "rectangle": null
+    }
+  ],
+  "classified": {
+    "mapPackPresent": true,
+    "localPack": [
+      {
+        "title": "Next Level Pipe Lining",
+        "url": "https://nextlevelpipelining.com/",
+        "domain": "nextlevelpipelining.com",
+        "rating": 4.9,
+        "reviewsCount": 55,
+        "hasWebsite": true
+      },
+      {
+        "title": "Roland Black Plumbing",
+        "url": "https://www.rolandblack.com/plumbing/",
+        "domain": "rolandblack.com",
+        "rating": 5,
+        "reviewsCount": 111,
+        "hasWebsite": true
+      },
+      {
+        "title": "Superior Plumbing and Drains",
+        "url": "https://www.superiorplumbinganddrains.com/?utm_source=organic&utm_medium=social&utm_campaign=1seo_gmb_profile&utm_term=gastonia",
+        "domain": "superiorplumbinganddrains.com",
+        "rating": 4.9,
+        "reviewsCount": 1300,
+        "hasWebsite": true
+      }
+    ],
+    "mapPackSlotCount": 3,
+    "mapPackWebsiteCount": 3,
+    "mapPackNoWebsiteCount": 0,
+    "directories": {
+      "count": 2,
+      "links": [
+        {
+          "title": "Best Sewer Line Repair Services in Gastonia, NC",
+          "url": "https://www.yelp.com/questions/loc/gastonia-nc/sewer-line-repair-services",
+          "domain": "yelp.com",
+          "rankAbsolute": 8
+        },
+        {
+          "title": "Next Level Pipe Lining, Inc. | Gastonia NC",
+          "url": "https://www.facebook.com/nextlevelpipelining/",
+          "domain": "facebook.com",
+          "rankAbsolute": 15
+        }
+      ]
+    },
+    "organicHomePages": {
+      "count": 1,
+      "links": [
+        {
+          "title": "Next Level Pipe Lining: Pipe Lining Company in Charlotte, NC ...",
+          "url": "https://nextlevelpipelining.com/",
+          "domain": "nextlevelpipelining.com",
+          "rankAbsolute": 12,
+          "nicheRelevant": false,
+          "looksEmd": false
+        }
+      ],
+      "nicheRelevantCount": 0
+    },
+    "organicSubPages": {
+      "count": 7,
+      "links": [
+        {
+          "title": "Sewer Line Repair Gastonia NC",
+          "url": "https://rolandblack.com/drains/gastonia/sewer-line-repair/",
+          "domain": "rolandblack.com",
+          "rankAbsolute": 5,
+          "nicheRelevant": true,
+          "looksEmd": false
+        },
+        {
+          "title": "Trenchless Sewer Pipe Repair Gastonia, NC",
+          "url": "https://nextlevelpipelining.com/service-areas/gastonia-nc/trenchless-sewer-pipe-repair-gastonia-nc/",
+          "domain": "nextlevelpipelining.com",
+          "rankAbsolute": 7,
+          "nicheRelevant": true,
+          "looksEmd": false
+        },
+        {
+          "title": "Trenchless Sewer Repairs Gastonia NC",
+          "url": "https://northcarolina.1daytrenchlesssewerrepair.com/trenchless-sewer-repairs-gastonia-nc/",
+          "domain": "northcarolina.1daytrenchlesssewerrepair.com",
+          "rankAbsolute": 9,
+          "nicheRelevant": true,
+          "looksEmd": true
+        },
+        {
+          "title": "Trenchless Sewer Repair Contractors in Gastonia, NC",
+          "url": "https://www.trenchlessnet.com/contractors/north-carolina/gastonia",
+          "domain": "trenchlessnet.com",
+          "rankAbsolute": 10,
+          "nicheRelevant": true,
+          "looksEmd": false
+        },
+        {
+          "title": "TOP 10 BEST Pipe Lining in Gastonia, North Carolina",
+          "url": "https://nodig.com/north-carolina/gastonia/pipe-lining",
+          "domain": "nodig.com",
+          "rankAbsolute": 11,
+          "nicheRelevant": false,
+          "looksEmd": false
+        },
+        {
+          "title": "Water Line Install Gastonia NC",
+          "url": "https://rolandblack.com/plumbing/gastonia/water-line-install/",
+          "domain": "rolandblack.com",
+          "rankAbsolute": 13,
+          "nicheRelevant": false,
+          "looksEmd": false
+        },
+        {
+          "title": "Trenchless Sewer Line Repair in Charlotte, NC",
+          "url": "https://www.benjaminfranklinplumbing.com/charlotte/services/sewers/trenchless-sewers/",
+          "domain": "benjaminfranklinplumbing.com",
+          "rankAbsolute": 14,
+          "nicheRelevant": true,
+          "looksEmd": false
+        }
+      ],
+      "nicheRelevantCount": 5
+    },
+    "uniqueOrganicDomains": [
+      "nextlevelpipelining.com",
+      "rolandblack.com",
+      "northcarolina.1daytrenchlesssewerrepair.com",
+      "trenchlessnet.com",
+      "nodig.com",
+      "benjaminfranklinplumbing.com"
+    ],
+    "paidAds": {
+      "count": 0,
+      "links": []
+    },
+    "uniqueNicheOrganicDomains": [
+      "rolandblack.com",
+      "nextlevelpipelining.com",
+      "northcarolina.1daytrenchlesssewerrepair.com",
+      "trenchlessnet.com",
+      "benjaminfranklinplumbing.com"
+    ],
+    "nicheTokens": [
+      "sewer",
+      "line",
+      "replacement",
+      "trenchless"
+    ],
+    "mapPackReviews": {
+      "slotCount": 3,
+      "reviewSampleSize": 3,
+      "avgReviews": 488.7,
+      "maxReviews": 1300,
+      "minReviews": 55,
+      "reviewsBySlot": [
+        55,
+        111,
+        1300
+      ],
+      "reviewsLabel": "55/111/1300"
+    },
+    "features": {
+      "localServicesAds": false,
+      "peopleAlsoAsk": true,
+      "googleReviews": false,
+      "paid": false,
+      "itemTypes": [
+        "ai_overview",
+        "local_pack",
+        "organic",
+        "people_also_ask",
+        "related_searches"
+      ]
+    },
+    "peopleAlsoAskQuestions": [
+      "Is trenchless pipe repair expensive?",
+      "What are the disadvantages of trenchless sewer line replacement?",
+      "Can you do a trenchless sewer line replacement?",
+      "Is trenchless pipe lining worth it?"
+    ],
+    "organicTitles": [
+      "Next Level Pipe Lining: Pipe Lining Company in Charlotte, NC ...",
+      "Sewer Line Repair Gastonia NC",
+      "Trenchless Sewer Pipe Repair Gastonia, NC",
+      "Trenchless Sewer Repairs Gastonia NC",
+      "Trenchless Sewer Repair Contractors in Gastonia, NC",
+      "TOP 10 BEST Pipe Lining in Gastonia, North Carolina",
+      "Water Line Install Gastonia NC",
+      "Trenchless Sewer Line Repair in Charlotte, NC",
+      "Best Sewer Line Repair Services in Gastonia, NC",
+      "Next Level Pipe Lining, Inc. | Gastonia NC"
+    ]
+  }
+}

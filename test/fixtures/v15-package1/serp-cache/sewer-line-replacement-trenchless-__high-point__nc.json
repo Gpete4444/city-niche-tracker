@@ -1,0 +1,710 @@
+{
+  "rowIndex": 4,
+  "rowKey": "sewer line replacement (trenchless)|high point|nc",
+  "items": [
+    {
+      "type": "ai_overview",
+      "rank_group": 1,
+      "rank_absolute": 1,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[1]/div[2]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]",
+      "asynchronous_ai_overview": true,
+      "markdown": null,
+      "items": null,
+      "references": null,
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 1,
+      "rank_absolute": 2,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[1]/div[2]/div[1]/div[1]/div[2]/div[1]/div[1]",
+      "domain": "northcarolina.1daytrenchlesssewerrepair.com",
+      "title": "Trenchless Sewer Repairs High Point NC",
+      "url": "https://northcarolina.1daytrenchlesssewerrepair.com/trenchless-sewer-repairs-high-point-nc/",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://northcarolina.1daytrenchlesssewerrepair.com › tr...",
+      "website_name": "1 Day Trenchless Sewer Repairs",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "Experienced in all types of trenchless sewer, drain and water line replacement and repair we can dispatch one of our experts to your location quickly and come ... Read more",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "Experienced in all types of trenchless sewer, drain and water line replacement"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "people_also_ask",
+      "rank_group": 1,
+      "rank_absolute": 3,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[1]/div[2]/div[1]/div[1]/div[4]/div[1]/div[1]/div[1]",
+      "items": [
+        {
+          "type": "people_also_ask_element",
+          "title": "What are the disadvantages of trenchless sewer line replacement?",
+          "seed_question": null,
+          "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[1]/div[2]/div[1]/div[1]/div[4]/div[1]/div[1]/div[1]/div[1]/div[2]/div[1]",
+          "expanded_element": [
+            {
+              "type": "people_also_ask_ai_overview_expanded_element",
+              "items": null,
+              "references": null,
+              "asynchronous_ai_overview": true
+            }
+          ]
+        },
+        {
+          "type": "people_also_ask_element",
+          "title": "How much does it cost to get a sewer line relined?",
+          "seed_question": null,
+          "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[1]/div[2]/div[1]/div[1]/div[4]/div[1]/div[1]/div[1]/div[1]/div[2]/div[2]",
+          "expanded_element": [
+            {
+              "type": "people_also_ask_ai_overview_expanded_element",
+              "items": null,
+              "references": null,
+              "asynchronous_ai_overview": true
+            }
+          ]
+        },
+        {
+          "type": "people_also_ask_element",
+          "title": "Is trenchless sewer repair better?",
+          "seed_question": null,
+          "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[1]/div[2]/div[1]/div[1]/div[4]/div[1]/div[1]/div[1]/div[1]/div[2]/div[3]",
+          "expanded_element": [
+            {
+              "type": "people_also_ask_ai_overview_expanded_element",
+              "items": null,
+              "references": null,
+              "asynchronous_ai_overview": true
+            }
+          ]
+        },
+        {
+          "type": "people_also_ask_element",
+          "title": "Can you do a trenchless sewer line replacement?",
+          "seed_question": null,
+          "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[1]/div[2]/div[1]/div[1]/div[4]/div[1]/div[1]/div[1]/div[1]/div[2]/div[4]",
+          "expanded_element": [
+            {
+              "type": "people_also_ask_ai_overview_expanded_element",
+              "items": null,
+              "references": null,
+              "asynchronous_ai_overview": true
+            }
+          ]
+        }
+      ],
+      "rectangle": null
+    },
+    {
+      "type": "local_pack",
+      "rank_group": 1,
+      "rank_absolute": 4,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[1]/div[2]/div[1]/div[1]/div[6]/div[1]/div[1]/div[1]/div[1]/div[3]/div[1]/div[1]/div[1]/div[1]",
+      "title": "LiningWorks Trenchless Pipe Repair & Sewer Pipe Lining",
+      "description": "Mocksville, NC \nOpen 24 hours \n\"And they were able to get the job done in one day.\" \n",
+      "domain": "liningworks.com",
+      "phone": "(336) 750-6018",
+      "booking_url": null,
+      "url": "https://liningworks.com/?utm_source=google&utm_medium=organic&utm_campaign=gbp-mocksville",
+      "is_paid": false,
+      "rating": {
+        "rating_type": "Max5",
+        "value": 5,
+        "votes_count": 57,
+        "rating_max": 5
+      },
+      "cid": "917537371152423149",
+      "rectangle": null
+    },
+    {
+      "type": "local_pack",
+      "rank_group": 2,
+      "rank_absolute": 5,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[1]/div[2]/div[1]/div[1]/div[6]/div[1]/div[1]/div[1]/div[1]/div[3]/div[1]/div[3]/div[1]/div[1]",
+      "title": "Wright Choice Plumbing",
+      "description": "3+ years in business · High Point, NC \nOpen 24 hours \n\" Less than 2 hours later job was completed.\" \n",
+      "domain": "callwrightchoiceplumbing.com",
+      "phone": "(336) 904-9994",
+      "booking_url": null,
+      "url": "https://callwrightchoiceplumbing.com/?utm_source=google&utm_medium=organic&utm_campaign=GMBListing-High-Point-NC",
+      "is_paid": false,
+      "rating": {
+        "rating_type": "Max5",
+        "value": 5,
+        "votes_count": 1200,
+        "rating_max": 5
+      },
+      "cid": "10130272109541847769",
+      "rectangle": null
+    },
+    {
+      "type": "local_pack",
+      "rank_group": 3,
+      "rank_absolute": 6,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[1]/div[2]/div[1]/div[1]/div[6]/div[1]/div[1]/div[1]/div[1]/div[3]/div[1]/div[5]/div[1]/div[1]",
+      "title": "All Star Plumbing",
+      "description": "15+ years in business \nOpen 24 hours \n\"Called All Star mid afternoon and they sent someone out at 530 that day!\" \n",
+      "domain": "allstarplumbing.co",
+      "phone": "(910) 240-3139",
+      "booking_url": null,
+      "url": "https://allstarplumbing.co/",
+      "is_paid": false,
+      "rating": {
+        "rating_type": "Max5",
+        "value": 4.8,
+        "votes_count": 438,
+        "rating_max": 5
+      },
+      "cid": "15921911694630613113",
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 2,
+      "rank_absolute": 7,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[1]/div[2]/div[1]/div[1]/div[8]/div[1]/div[1]",
+      "domain": "trenchless-pipesolutions.com",
+      "title": "Sewer & Drain Services in High Point, NC",
+      "url": "https://trenchless-pipesolutions.com/areas-we-serve/high-point/",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://trenchless-pipesolutions.com › Contact Us",
+      "website_name": "Trenchless Pipe Solutions",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "Expert Pipe Lining Company in High Point, NC … inspecting sewer lines for damage. Modern trenchless pipe lining technology (336) 448-3365 Schedule Service",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "336) 448-3365"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 3,
+      "rank_absolute": 8,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[1]/div[2]/div[1]/div[1]/div[10]/div[1]/div[1]",
+      "domain": "www.yelp.com",
+      "title": "Best Trenchless Sewer Repair Services in High Point, NC",
+      "url": "https://www.yelp.com/questions/loc/high-point-nc/trenchless-sewer-repair-services",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://www.yelp.com › questions › loc › trenchless-sew...",
+      "website_name": "Yelp",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "Find the best trenchless sewer repair services in High Point, NC. (336) 296-1400 to confirm. High Point Plumbing Services at (336) 543-5009 to ask about  ...",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "336) 296-1400"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 4,
+      "rank_absolute": 9,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[1]/div[2]/div[1]/div[1]/div[12]/div[1]/div[1]",
+      "domain": "bizzybeeplumbing.com",
+      "title": "Sewer Repair and Pipe Lining High Point NC",
+      "url": "https://bizzybeeplumbing.com/high-point/sewer-repair/",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://bizzybeeplumbing.com › high-point › sewer-rep...",
+      "website_name": "Bizzy Bee Plumbing, Inc",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "Sewer Repair High Point, NC – Camera inspections, trenchless pipe lining, and sewer line repairs for backups, roots, cracks, and damaged underground pipes.",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "trenchless pipe lining, and sewer line repairs"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 5,
+      "rank_absolute": 10,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[1]/div[2]/div[1]/div[1]/div[14]/div[1]/div[1]",
+      "domain": "nextlevelpipelining.com",
+      "title": "Trenchless Sewer Pipe Repair Greensboro/Triad, NC",
+      "url": "https://nextlevelpipelining.com/service-areas/greensboro-triad-nc/trenchless-sewer-pipe-repair-greensboro-triad-nc/",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://nextlevelpipelining.com › service-areas › trenchle...",
+      "website_name": "Next Level Pipe Lining",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "Call (980) 303-1017. Our staff are experts in trenchless sewer pipe repair, Servicing Greensboro, Winston-Salem, and High Point, Next Level Pipe Lining is your ...",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "trenchless sewer pipe repair"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 6,
+      "rank_absolute": 11,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[1]/div[2]/div[1]/div[1]/div[16]/div[1]/div[1]",
+      "domain": "nodig.com",
+      "title": "Top 10 Best Trenchless Sewer Repair Near High Point, NC",
+      "url": "https://nodig.com/north-carolina/high-point/trenchless-sewer-repair",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://nodig.com › North Carolina › High Point",
+      "website_name": "NoDig.com",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "NoDig.com is the leading directory for verified trenchless sewer repair specialists, dedicated to helping homeowners connect with trusted professionals. As a ... Read more",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": {
+        "rating_type": "Max5",
+        "value": 4.7,
+        "votes_count": 79,
+        "rating_max": 5
+      },
+      "price": null,
+      "highlighted": [
+        "verified trenchless sewer repair specialists"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 7,
+      "rank_absolute": 12,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[1]/div[2]/div[1]/div[1]/div[18]/div[1]/div[1]",
+      "domain": "thedrainkingllc.com",
+      "title": "Sewer and Drain Company in High Point, NC",
+      "url": "https://thedrainkingllc.com/highpoint-nc/",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://thedrainkingllc.com › highpoint-nc",
+      "website_name": "thedrainkingllc.com",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "We are a reputable sewer and drain company in High Point, NC. Trenchless Sewer Repair Making trenchless repairs to fix cracked, separated or damaged pipes. ...",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "Trenchless Sewer Repair"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 8,
+      "rank_absolute": 13,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[1]/div[2]/div[1]/div[1]/div[20]/div[1]/div[1]",
+      "domain": "www.highpointnc.gov",
+      "title": "Water & Sewer Mains | High Point, NC",
+      "url": "https://www.highpointnc.gov/855/Water-Sewer-Mains",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://www.highpointnc.gov › Water-Sewer-Mains",
+      "website_name": "City of High Point (.gov)",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "They also repair any water and sewer main lines. Sewer Mains Physical Address 816 E. Green Drive High Point, NC 27260. Phone: 336-883-3466",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "repair",
+        "sewer",
+        "lines",
+        "Sewer",
+        "High Point",
+        "NC"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 9,
+      "rank_absolute": 14,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[1]/div[2]/div[1]/div[1]/div[22]/div[1]/div[1]",
+      "domain": "liningworks.com",
+      "title": "High Point Sewer Repair & Drain Clealing",
+      "url": "https://liningworks.com/areas-we-serve/high-point-nc/",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://liningworks.com › Areas We Serve",
+      "website_name": "LiningWorks",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "Nov 18, 2024 — LiningWorks is proud to serve High Point homeowners with advanced trenchless sewer repair, drain cleaning, and camera inspections. Avoid costly ... Read more",
+      "pre_snippet": "11/18/2024 00:00:00",
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "advanced trenchless sewer repair"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": "2024-11-18 00:00:00 +00:00",
+      "rectangle": null
+    },
+    {
+      "type": "related_searches",
+      "rank_group": 1,
+      "rank_absolute": 15,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[2]/div[1]/div[3]/div[1]/div[1]/div[1]/div[1]/div[2]",
+      "items": [
+        "Sewer line replacement trenchless high point nc near me",
+        "Sewer line replacement trenchless high point nc cost",
+        "Best sewer line replacement trenchless high point nc",
+        "Sewer line replacement trenchless high point nc home",
+        "Concrete sewer line replacement trenchless high point nc"
+      ],
+      "rectangle": null
+    }
+  ],
+  "classified": {
+    "mapPackPresent": true,
+    "localPack": [
+      {
+        "title": "LiningWorks Trenchless Pipe Repair & Sewer Pipe Lining",
+        "url": "https://liningworks.com/?utm_source=google&utm_medium=organic&utm_campaign=gbp-mocksville",
+        "domain": "liningworks.com",
+        "rating": 5,
+        "reviewsCount": 57,
+        "hasWebsite": true
+      },
+      {
+        "title": "Wright Choice Plumbing",
+        "url": "https://callwrightchoiceplumbing.com/?utm_source=google&utm_medium=organic&utm_campaign=GMBListing-High-Point-NC",
+        "domain": "callwrightchoiceplumbing.com",
+        "rating": 5,
+        "reviewsCount": 1200,
+        "hasWebsite": true
+      },
+      {
+        "title": "All Star Plumbing",
+        "url": "https://allstarplumbing.co/",
+        "domain": "allstarplumbing.co",
+        "rating": 4.8,
+        "reviewsCount": 438,
+        "hasWebsite": true
+      }
+    ],
+    "mapPackSlotCount": 3,
+    "mapPackWebsiteCount": 3,
+    "mapPackNoWebsiteCount": 0,
+    "directories": {
+      "count": 1,
+      "links": [
+        {
+          "title": "Best Trenchless Sewer Repair Services in High Point, NC",
+          "url": "https://www.yelp.com/questions/loc/high-point-nc/trenchless-sewer-repair-services",
+          "domain": "yelp.com",
+          "rankAbsolute": 8
+        }
+      ]
+    },
+    "organicHomePages": {
+      "count": 0,
+      "links": [],
+      "nicheRelevantCount": 0
+    },
+    "organicSubPages": {
+      "count": 8,
+      "links": [
+        {
+          "title": "Trenchless Sewer Repairs High Point NC",
+          "url": "https://northcarolina.1daytrenchlesssewerrepair.com/trenchless-sewer-repairs-high-point-nc/",
+          "domain": "northcarolina.1daytrenchlesssewerrepair.com",
+          "rankAbsolute": 2,
+          "nicheRelevant": true,
+          "looksEmd": true
+        },
+        {
+          "title": "Sewer & Drain Services in High Point, NC",
+          "url": "https://trenchless-pipesolutions.com/areas-we-serve/high-point/",
+          "domain": "trenchless-pipesolutions.com",
+          "rankAbsolute": 7,
+          "nicheRelevant": true,
+          "looksEmd": false
+        },
+        {
+          "title": "Sewer Repair and Pipe Lining High Point NC",
+          "url": "https://bizzybeeplumbing.com/high-point/sewer-repair/",
+          "domain": "bizzybeeplumbing.com",
+          "rankAbsolute": 9,
+          "nicheRelevant": false,
+          "looksEmd": false
+        },
+        {
+          "title": "Trenchless Sewer Pipe Repair Greensboro/Triad, NC",
+          "url": "https://nextlevelpipelining.com/service-areas/greensboro-triad-nc/trenchless-sewer-pipe-repair-greensboro-triad-nc/",
+          "domain": "nextlevelpipelining.com",
+          "rankAbsolute": 10,
+          "nicheRelevant": true,
+          "looksEmd": false
+        },
+        {
+          "title": "Top 10 Best Trenchless Sewer Repair Near High Point, NC",
+          "url": "https://nodig.com/north-carolina/high-point/trenchless-sewer-repair",
+          "domain": "nodig.com",
+          "rankAbsolute": 11,
+          "nicheRelevant": true,
+          "looksEmd": false
+        },
+        {
+          "title": "Sewer and Drain Company in High Point, NC",
+          "url": "https://thedrainkingllc.com/highpoint-nc/",
+          "domain": "thedrainkingllc.com",
+          "rankAbsolute": 12,
+          "nicheRelevant": false,
+          "looksEmd": false
+        },
+        {
+          "title": "Water & Sewer Mains | High Point, NC",
+          "url": "https://www.highpointnc.gov/855/Water-Sewer-Mains",
+          "domain": "highpointnc.gov",
+          "rankAbsolute": 13,
+          "nicheRelevant": false,
+          "looksEmd": false
+        },
+        {
+          "title": "High Point Sewer Repair & Drain Clealing",
+          "url": "https://liningworks.com/areas-we-serve/high-point-nc/",
+          "domain": "liningworks.com",
+          "rankAbsolute": 14,
+          "nicheRelevant": false,
+          "looksEmd": false
+        }
+      ],
+      "nicheRelevantCount": 4
+    },
+    "uniqueOrganicDomains": [
+      "northcarolina.1daytrenchlesssewerrepair.com",
+      "trenchless-pipesolutions.com",
+      "bizzybeeplumbing.com",
+      "nextlevelpipelining.com",
+      "nodig.com",
+      "thedrainkingllc.com",
+      "highpointnc.gov",
+      "liningworks.com"
+    ],
+    "paidAds": {
+      "count": 0,
+      "links": []
+    },
+    "uniqueNicheOrganicDomains": [
+      "northcarolina.1daytrenchlesssewerrepair.com",
+      "trenchless-pipesolutions.com",
+      "nextlevelpipelining.com",
+      "nodig.com"
+    ],
+    "nicheTokens": [
+      "sewer",
+      "line",
+      "replacement",
+      "trenchless"
+    ],
+    "mapPackReviews": {
+      "slotCount": 3,
+      "reviewSampleSize": 3,
+      "avgReviews": 565,
+      "maxReviews": 1200,
+      "minReviews": 57,
+      "reviewsBySlot": [
+        57,
+        1200,
+        438
+      ],
+      "reviewsLabel": "57/1200/438"
+    },
+    "features": {
+      "localServicesAds": false,
+      "peopleAlsoAsk": true,
+      "googleReviews": false,
+      "paid": false,
+      "itemTypes": [
+        "ai_overview",
+        "organic",
+        "people_also_ask",
+        "local_pack",
+        "related_searches"
+      ]
+    },
+    "peopleAlsoAskQuestions": [
+      "What are the disadvantages of trenchless sewer line replacement?",
+      "How much does it cost to get a sewer line relined?",
+      "Is trenchless sewer repair better?",
+      "Can you do a trenchless sewer line replacement?"
+    ],
+    "organicTitles": [
+      "Trenchless Sewer Repairs High Point NC",
+      "Sewer & Drain Services in High Point, NC",
+      "Sewer Repair and Pipe Lining High Point NC",
+      "Trenchless Sewer Pipe Repair Greensboro/Triad, NC",
+      "Top 10 Best Trenchless Sewer Repair Near High Point, NC",
+      "Sewer and Drain Company in High Point, NC",
+      "Water & Sewer Mains | High Point, NC",
+      "High Point Sewer Repair & Drain Clealing",
+      "Best Trenchless Sewer Repair Services in High Point, NC"
+    ]
+  }
+}

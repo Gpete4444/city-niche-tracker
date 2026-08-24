@@ -1,0 +1,690 @@
+{
+  "rowIndex": 21,
+  "rowKey": "commercial epoxy flooring|concord|nc",
+  "items": [
+    {
+      "type": "local_pack",
+      "rank_group": 1,
+      "rank_absolute": 1,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[1]/div[2]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[2]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]",
+      "title": "V&V Epoxy Solutions LLC",
+      "description": "3+ years in business · Monroe, NC \nOpen · Closes 10 PM \nProvides: Commercial Epoxy Flooring \n",
+      "domain": "vvepoxysolution.com",
+      "phone": "(980) 304-8722",
+      "booking_url": "https://clienthub.getjobber.com/hubs/e0d287d2-57ed-441a-bb07-812221bcb97b/public/requests/1277175/new?rwg_token=AE37R_gp1so62WplLDTQMuY1vRauneaDLaT9GduAv2-F6DwzZkMk8xUXyMScM5OFDthDKQ4Tk4PcszfvdNdzSklEImuq4Vjx0A%3D%3D&source=cat",
+      "url": "https://vvepoxysolution.com/?utm_source=omg-gbp&utm_medium=webclick",
+      "is_paid": false,
+      "rating": {
+        "rating_type": "Max5",
+        "value": 5,
+        "votes_count": 79,
+        "rating_max": 5
+      },
+      "cid": "16759395086666412267",
+      "rectangle": null
+    },
+    {
+      "type": "local_pack",
+      "rank_group": 2,
+      "rank_absolute": 2,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[1]/div[2]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[2]/div[1]/div[1]/div[1]/div[1]/div[1]/div[3]/div[1]/div[1]",
+      "title": "Epoxy Magic LLC",
+      "description": "Open · Closes 11 PM \n\" Floor looks flawless.\" \n",
+      "domain": null,
+      "phone": "(704) 884-5038",
+      "booking_url": null,
+      "url": null,
+      "is_paid": false,
+      "rating": {
+        "rating_type": "Max5",
+        "value": 5,
+        "votes_count": 6,
+        "rating_max": 5
+      },
+      "cid": "12419279038758203356",
+      "rectangle": null
+    },
+    {
+      "type": "local_pack",
+      "rank_group": 3,
+      "rank_absolute": 3,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[1]/div[2]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[2]/div[1]/div[1]/div[1]/div[1]/div[1]/div[5]/div[1]/div[1]",
+      "title": "Fort Mill Epoxy Flooring",
+      "description": "5+ years in business \nClosed · Opens 9 AM Sat \nProvides: Commercial Epoxy Flooring \n",
+      "domain": "fort-mill-epoxy.square.site",
+      "phone": "(803) 833-6593",
+      "booking_url": null,
+      "url": "https://fort-mill-epoxy.square.site/",
+      "is_paid": false,
+      "rating": {
+        "rating_type": "Max5",
+        "value": 5,
+        "votes_count": 59,
+        "rating_max": 5
+      },
+      "cid": "6002555253746391839",
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 1,
+      "rank_absolute": 4,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[1]/div[2]/div[1]/div[1]/div[2]/div[1]/div[1]",
+      "domain": "ecsubstrate.com",
+      "title": "Epoxy Flooring Concord NC",
+      "url": "https://ecsubstrate.com/service-area/concord-nc/epoxy-flooring/",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://ecsubstrate.com › Service Area › Concord, NC",
+      "website_name": "ECSubstrate",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "Give us a call at (704) 659-6936 and we can discuss your options and give you a quote on getting an epoxy floor installed.",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "704) 659-6936"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "people_also_ask",
+      "rank_group": 1,
+      "rank_absolute": 5,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[1]/div[2]/div[1]/div[1]/div[4]/div[1]/div[1]/div[1]",
+      "items": [
+        {
+          "type": "people_also_ask_element",
+          "title": "How much does a commercial epoxy floor cost?",
+          "seed_question": null,
+          "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[1]/div[2]/div[1]/div[1]/div[4]/div[1]/div[1]/div[1]/div[1]/div[2]/div[1]",
+          "expanded_element": [
+            {
+              "type": "people_also_ask_ai_overview_expanded_element",
+              "items": null,
+              "references": null,
+              "asynchronous_ai_overview": true
+            }
+          ]
+        },
+        {
+          "type": "people_also_ask_element",
+          "title": "How much does 1000 sq ft of epoxy cost?",
+          "seed_question": null,
+          "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[1]/div[2]/div[1]/div[1]/div[4]/div[1]/div[1]/div[1]/div[1]/div[2]/div[2]",
+          "expanded_element": [
+            {
+              "type": "people_also_ask_ai_overview_expanded_element",
+              "items": null,
+              "references": null,
+              "asynchronous_ai_overview": true
+            }
+          ]
+        },
+        {
+          "type": "people_also_ask_element",
+          "title": "How much does it cost to epoxy a 20x20 garage floor?",
+          "seed_question": null,
+          "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[1]/div[2]/div[1]/div[1]/div[4]/div[1]/div[1]/div[1]/div[1]/div[2]/div[3]",
+          "expanded_element": [
+            {
+              "type": "people_also_ask_ai_overview_expanded_element",
+              "items": null,
+              "references": null,
+              "asynchronous_ai_overview": true
+            }
+          ]
+        },
+        {
+          "type": "people_also_ask_element",
+          "title": "What is the downside of epoxy flooring?",
+          "seed_question": null,
+          "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[1]/div[2]/div[1]/div[1]/div[4]/div[1]/div[1]/div[1]/div[1]/div[2]/div[4]",
+          "expanded_element": [
+            {
+              "type": "people_also_ask_ai_overview_expanded_element",
+              "items": null,
+              "references": null,
+              "asynchronous_ai_overview": true
+            }
+          ]
+        }
+      ],
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 2,
+      "rank_absolute": 6,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[1]/div[2]/div[1]/div[1]/div[6]/div[1]/div[1]",
+      "domain": "www.titangaragefloors.com",
+      "title": "Epoxy Garage Flooring in Concord, NC",
+      "url": "https://www.titangaragefloors.com/concord-nc-epoxy-garage-flooring",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://www.titangaragefloors.com › concord-nc-epoxy...",
+      "website_name": "Titan Garage Floors",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "Trusted epoxy flooring in Concord, NC. (910) 852-9266 … both residential and commercial clients. Concord cost $5–$12 per sq ft, Phone (910) 852-9266",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "852-9266"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 3,
+      "rank_absolute": 7,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[1]/div[2]/div[1]/div[1]/div[8]/div[1]/div[1]",
+      "domain": "blueridgeepoxy.com",
+      "title": "Epoxy Flooring in Concord, NC",
+      "url": "https://blueridgeepoxy.com/service-area/concord/",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://blueridgeepoxy.com › service-area › concord",
+      "website_name": "Blue Ridge Epoxy",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "Blue Ridge Epoxy provides epoxy flooring in Concord, NC, including commercial coatings, polished concrete, quartz systems, Contact (828) 358-9471. Call (828) ...",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "epoxy flooring in Concord, NC"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 4,
+      "rank_absolute": 8,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[1]/div[2]/div[1]/div[1]/div[10]/div[1]/div[1]",
+      "domain": "www.unitedfloorcoatings.com",
+      "title": "Epoxy and Polyaspartic Garage Floors in Concord, NC",
+      "url": "https://www.unitedfloorcoatings.com/garage-floor-coatings-in-concord",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://www.unitedfloorcoatings.com › garage-floor-co...",
+      "website_name": "United Floor Coatings",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "For businesses in Concord, NC, commercial epoxy flooring provides a reliable and attractive solution that can withstand high traffic and demanding environments. Read more",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "commercial epoxy flooring"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 5,
+      "rank_absolute": 9,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[1]/div[2]/div[1]/div[1]/div[12]/div[1]/div[1]",
+      "domain": "www.angi.com",
+      "title": "Top 10 Best Epoxy flooring pros in Concord, NC",
+      "url": "https://www.angi.com/companylist/us/nc/concord/epoxy-flooring.htm",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://www.angi.com › ... › Epoxy Floor",
+      "website_name": "Angie's List",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "Open Now. Serving Concord, NC and surrounding areas · Approved. Super Service Award Winner. In business since 2025. Free estimates. Offers commercial services. Read more",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": {
+        "rating_type": "Max5",
+        "value": 4.5,
+        "votes_count": 18,
+        "rating_max": 5
+      },
+      "price": null,
+      "highlighted": [
+        "Offers commercial services"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 6,
+      "rank_absolute": 10,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[1]/div[2]/div[1]/div[1]/div[14]/div[1]/div[1]",
+      "domain": "www.garageexperts.com",
+      "title": "Garage Floor Coatings & Storage in Concord, NC",
+      "url": "https://www.garageexperts.com/charlotte/concord/",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://www.garageexperts.com › charlotte › concord",
+      "website_name": "GarageExperts",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "Contact our Concord team for garage floor coatings. Get a free estimate online or call (704) 870-4309. ideal for garages, workshops, and commercial spaces.  ...",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "Concord",
+        "floor",
+        "commercial"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 7,
+      "rank_absolute": 11,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[1]/div[2]/div[1]/div[1]/div[16]/div[1]/div[1]",
+      "domain": "www.thumbtack.com",
+      "title": "Epoxy flooring installation professionals near Concord, NC",
+      "url": "https://www.thumbtack.com/nc/concord/epoxy-flooring",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://www.thumbtack.com › NC › Concord",
+      "website_name": "Thumbtack",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "Here is the definitive list of Concord's epoxy flooring contractors as rated by the Concord, NC community. Want to see who made the cut?",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "Concord's epoxy flooring contractors"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 8,
+      "rank_absolute": 12,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[1]/div[2]/div[1]/div[1]/div[18]/div[1]/div[1]",
+      "domain": "network.procore.com",
+      "title": "Flooring Contractors in Concord, NC",
+      "url": "https://network.procore.com/us/nc/concord/flooring",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://network.procore.com › ... › Concord",
+      "website_name": "Procore",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "Full Service specialty flooring company. Specializing in epoxy and urethane coatings, polished and stained concrete, multiple flooring systems. Read more",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "Specializing in epoxy and urethane coatings"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 9,
+      "rank_absolute": 13,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[1]/div[2]/div[1]/div[1]/div[20]/div[1]/div[1]",
+      "domain": "epoxysystems.net",
+      "title": "epoxy flooring north carolina",
+      "url": "https://epoxysystems.net/north-carolina/",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://epoxysystems.net › north-carolina",
+      "website_name": "Epoxy Systems",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "Our wide selection of epoxy flooring options help protect your floors and enhance your commercial and industrial flooring for safety, sanitation and appearance. Read more",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "epoxy flooring",
+        "commercial"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "related_searches",
+      "rank_group": 1,
+      "rank_absolute": 14,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[2]/div[1]/div[3]/div[1]/div[1]/div[1]/div[1]/div[2]",
+      "items": [
+        "Commercial epoxy flooring concord nc reviews",
+        "Commercial epoxy flooring concord nc prices",
+        "Commercial epoxy flooring concord nc cost",
+        "Best commercial epoxy flooring concord nc",
+        "Cheap commercial epoxy flooring concord nc"
+      ],
+      "rectangle": null
+    }
+  ],
+  "classified": {
+    "mapPackPresent": true,
+    "localPack": [
+      {
+        "title": "V&V Epoxy Solutions LLC",
+        "url": "https://vvepoxysolution.com/?utm_source=omg-gbp&utm_medium=webclick",
+        "domain": "vvepoxysolution.com",
+        "rating": 5,
+        "reviewsCount": 79,
+        "hasWebsite": true
+      },
+      {
+        "title": "Epoxy Magic LLC",
+        "url": null,
+        "domain": null,
+        "rating": 5,
+        "reviewsCount": 6,
+        "hasWebsite": false
+      },
+      {
+        "title": "Fort Mill Epoxy Flooring",
+        "url": "https://fort-mill-epoxy.square.site/",
+        "domain": "fort-mill-epoxy.square.site",
+        "rating": 5,
+        "reviewsCount": 59,
+        "hasWebsite": true
+      }
+    ],
+    "mapPackSlotCount": 3,
+    "mapPackWebsiteCount": 2,
+    "mapPackNoWebsiteCount": 1,
+    "directories": {
+      "count": 2,
+      "links": [
+        {
+          "title": "Top 10 Best Epoxy flooring pros in Concord, NC",
+          "url": "https://www.angi.com/companylist/us/nc/concord/epoxy-flooring.htm",
+          "domain": "angi.com",
+          "rankAbsolute": 9
+        },
+        {
+          "title": "Epoxy flooring installation professionals near Concord, NC",
+          "url": "https://www.thumbtack.com/nc/concord/epoxy-flooring",
+          "domain": "thumbtack.com",
+          "rankAbsolute": 11
+        }
+      ]
+    },
+    "organicHomePages": {
+      "count": 0,
+      "links": [],
+      "nicheRelevantCount": 0
+    },
+    "organicSubPages": {
+      "count": 7,
+      "links": [
+        {
+          "title": "Epoxy Flooring Concord NC",
+          "url": "https://ecsubstrate.com/service-area/concord-nc/epoxy-flooring/",
+          "domain": "ecsubstrate.com",
+          "rankAbsolute": 4,
+          "nicheRelevant": true,
+          "looksEmd": false
+        },
+        {
+          "title": "Epoxy Garage Flooring in Concord, NC",
+          "url": "https://www.titangaragefloors.com/concord-nc-epoxy-garage-flooring",
+          "domain": "titangaragefloors.com",
+          "rankAbsolute": 6,
+          "nicheRelevant": true,
+          "looksEmd": false
+        },
+        {
+          "title": "Epoxy Flooring in Concord, NC",
+          "url": "https://blueridgeepoxy.com/service-area/concord/",
+          "domain": "blueridgeepoxy.com",
+          "rankAbsolute": 7,
+          "nicheRelevant": true,
+          "looksEmd": false
+        },
+        {
+          "title": "Epoxy and Polyaspartic Garage Floors in Concord, NC",
+          "url": "https://www.unitedfloorcoatings.com/garage-floor-coatings-in-concord",
+          "domain": "unitedfloorcoatings.com",
+          "rankAbsolute": 8,
+          "nicheRelevant": false,
+          "looksEmd": false
+        },
+        {
+          "title": "Garage Floor Coatings & Storage in Concord, NC",
+          "url": "https://www.garageexperts.com/charlotte/concord/",
+          "domain": "garageexperts.com",
+          "rankAbsolute": 10,
+          "nicheRelevant": false,
+          "looksEmd": false
+        },
+        {
+          "title": "Flooring Contractors in Concord, NC",
+          "url": "https://network.procore.com/us/nc/concord/flooring",
+          "domain": "network.procore.com",
+          "rankAbsolute": 12,
+          "nicheRelevant": false,
+          "looksEmd": false
+        },
+        {
+          "title": "epoxy flooring north carolina",
+          "url": "https://epoxysystems.net/north-carolina/",
+          "domain": "epoxysystems.net",
+          "rankAbsolute": 13,
+          "nicheRelevant": true,
+          "looksEmd": false
+        }
+      ],
+      "nicheRelevantCount": 4
+    },
+    "uniqueOrganicDomains": [
+      "ecsubstrate.com",
+      "titangaragefloors.com",
+      "blueridgeepoxy.com",
+      "unitedfloorcoatings.com",
+      "garageexperts.com",
+      "network.procore.com",
+      "epoxysystems.net"
+    ],
+    "paidAds": {
+      "count": 0,
+      "links": []
+    },
+    "uniqueNicheOrganicDomains": [
+      "ecsubstrate.com",
+      "titangaragefloors.com",
+      "blueridgeepoxy.com",
+      "epoxysystems.net"
+    ],
+    "nicheTokens": [
+      "commercial",
+      "epoxy",
+      "flooring"
+    ],
+    "mapPackReviews": {
+      "slotCount": 3,
+      "reviewSampleSize": 3,
+      "avgReviews": 48,
+      "maxReviews": 79,
+      "minReviews": 6,
+      "reviewsBySlot": [
+        79,
+        6,
+        59
+      ],
+      "reviewsLabel": "79/6/59"
+    },
+    "features": {
+      "localServicesAds": false,
+      "peopleAlsoAsk": true,
+      "googleReviews": false,
+      "paid": false,
+      "itemTypes": [
+        "local_pack",
+        "organic",
+        "people_also_ask",
+        "related_searches"
+      ]
+    },
+    "peopleAlsoAskQuestions": [
+      "How much does a commercial epoxy floor cost?",
+      "How much does 1000 sq ft of epoxy cost?",
+      "How much does it cost to epoxy a 20x20 garage floor?",
+      "What is the downside of epoxy flooring?"
+    ],
+    "organicTitles": [
+      "Epoxy Flooring Concord NC",
+      "Epoxy Garage Flooring in Concord, NC",
+      "Epoxy Flooring in Concord, NC",
+      "Epoxy and Polyaspartic Garage Floors in Concord, NC",
+      "Garage Floor Coatings & Storage in Concord, NC",
+      "Flooring Contractors in Concord, NC",
+      "epoxy flooring north carolina",
+      "Top 10 Best Epoxy flooring pros in Concord, NC",
+      "Epoxy flooring installation professionals near Concord, NC"
+    ]
+  }
+}

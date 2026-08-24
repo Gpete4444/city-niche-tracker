@@ -161,7 +161,7 @@ Almost every in-app **button / paste / Accept** step is **~5–30 seconds** of y
 | **1 · New Discovery Pack**            | Creates a batch template and Claude prompt |
 | **2 · Send to Claude**                | Claude fills candidate rows for the pack   |
 | **3 · Import Claude CSV**             | Rows appear in the batch table             |
-| **4 · SERP probe**                    | Light competition signal before Research   |
+| **4 · Market evidence**               | Primary SERP + nearby validation + optional Ads demand |
 | Set a **Human** decision on every row | Required before Process                    |
 | **Process batch**                     | Keepers → Research; passes → tracked       |
 

@@ -1,0 +1,754 @@
+{
+  "rowIndex": 20,
+  "rowKey": "commercial epoxy flooring|wilmington|nc",
+  "items": [
+    {
+      "type": "local_pack",
+      "rank_group": 1,
+      "rank_absolute": 1,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[1]/div[2]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[2]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]",
+      "title": "Expert Epoxy Solutions of NC",
+      "description": "Wilmington, NC \nOpen 24 hours \nTheir website mentions commercial epoxy flooring \n",
+      "domain": "expertepoxync.com",
+      "phone": "(910) 231-0273",
+      "booking_url": null,
+      "url": "https://expertepoxync.com/",
+      "is_paid": false,
+      "rating": {
+        "rating_type": "Max5",
+        "value": 5,
+        "votes_count": 7,
+        "rating_max": 5
+      },
+      "cid": "4509175151658777656",
+      "rectangle": null
+    },
+    {
+      "type": "local_pack",
+      "rank_group": 2,
+      "rank_absolute": 2,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[1]/div[2]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[2]/div[1]/div[1]/div[1]/div[1]/div[1]/div[3]/div[1]/div[1]",
+      "title": "Carolina Epoxy and Design",
+      "description": "Wilmington, NC \nClosed · Opens 7 AM Sat \nTheir website mentions commercial epoxy flooring \n",
+      "domain": "carolinaepoxyanddesign.com",
+      "phone": "(910) 549-1772",
+      "booking_url": null,
+      "url": "https://carolinaepoxyanddesign.com/",
+      "is_paid": false,
+      "rating": {
+        "rating_type": "Max5",
+        "value": 5,
+        "votes_count": 1,
+        "rating_max": 5
+      },
+      "cid": "13213568300404311846",
+      "rectangle": null
+    },
+    {
+      "type": "local_pack",
+      "rank_group": 3,
+      "rank_absolute": 3,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[1]/div[2]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[2]/div[1]/div[1]/div[1]/div[1]/div[1]/div[5]/div[1]/div[1]",
+      "title": "Expert Epoxy Solutions of North Carolina, Inc.",
+      "description": "Open 24 hours \n\"The transformation they brought to our floors is nothing short of stunning.\" \n",
+      "domain": "www.expertepoxync.com",
+      "phone": "(910) 231-0273",
+      "booking_url": null,
+      "url": "http://www.expertepoxync.com/",
+      "is_paid": false,
+      "rating": {
+        "rating_type": "Max5",
+        "value": 5,
+        "votes_count": 351,
+        "rating_max": 5
+      },
+      "cid": "5678410922927872836",
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 1,
+      "rank_absolute": 4,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[1]/div[2]/div[1]/div[1]/div[2]/div[1]/div[1]",
+      "domain": "expertepoxync.com",
+      "title": "Professional Epoxy Flooring In Wilmington | Expert Epoxy ...",
+      "url": "https://expertepoxync.com/",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://expertepoxync.com",
+      "website_name": "Expert Epoxy Solutions of North Carolina, Inc.",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "Expert Epoxy Solutions offers epoxy flooring in Wilmington for garages, businesses, and outdoor spaces. Get a free estimate today.",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "epoxy flooring in Wilmington"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "people_also_ask",
+      "rank_group": 1,
+      "rank_absolute": 5,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[1]/div[2]/div[1]/div[1]/div[4]/div[1]/div[1]/div[1]",
+      "items": [
+        {
+          "type": "people_also_ask_element",
+          "title": "How much does a commercial epoxy floor cost?",
+          "seed_question": null,
+          "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[1]/div[2]/div[1]/div[1]/div[4]/div[1]/div[1]/div[1]/div[1]/div[2]/div[1]",
+          "expanded_element": [
+            {
+              "type": "people_also_ask_ai_overview_expanded_element",
+              "items": null,
+              "references": null,
+              "asynchronous_ai_overview": true
+            }
+          ]
+        },
+        {
+          "type": "people_also_ask_element",
+          "title": "How much would it cost to epoxy 1000 sq ft?",
+          "seed_question": null,
+          "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[1]/div[2]/div[1]/div[1]/div[4]/div[1]/div[1]/div[1]/div[1]/div[2]/div[2]",
+          "expanded_element": [
+            {
+              "type": "people_also_ask_ai_overview_expanded_element",
+              "items": null,
+              "references": null,
+              "asynchronous_ai_overview": true
+            }
+          ]
+        },
+        {
+          "type": "people_also_ask_element",
+          "title": "How much would it cost to epoxy a 600 square foot floor?",
+          "seed_question": null,
+          "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[1]/div[2]/div[1]/div[1]/div[4]/div[1]/div[1]/div[1]/div[1]/div[2]/div[3]",
+          "expanded_element": [
+            {
+              "type": "people_also_ask_ai_overview_expanded_element",
+              "items": null,
+              "references": null,
+              "asynchronous_ai_overview": true
+            }
+          ]
+        },
+        {
+          "type": "people_also_ask_element",
+          "title": "Where can I get epoxy floor coating in Wilmington, NC?",
+          "seed_question": null,
+          "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[1]/div[2]/div[1]/div[1]/div[4]/div[1]/div[1]/div[1]/div[1]/div[2]/div[4]",
+          "expanded_element": [
+            {
+              "type": "people_also_ask_ai_overview_expanded_element",
+              "items": null,
+              "references": null,
+              "asynchronous_ai_overview": true
+            }
+          ]
+        }
+      ],
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 2,
+      "rank_absolute": 6,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[1]/div[2]/div[1]/div[1]/div[6]/div[1]/div[1]",
+      "domain": "www.garageexperts.com",
+      "title": "Wilmington Epoxy Garage Flooring & Storage Systems",
+      "url": "https://www.garageexperts.com/eastern-nc/",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://www.garageexperts.com › eastern-nc",
+      "website_name": "GarageExperts",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "Commercial Epoxy Flooring Industrial-strength coatings for warehouses, shops, and spaces. ly serving Wilmington, NC, Get a free estimate online or call (910) ...",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "Commercial Epoxy Flooring"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 3,
+      "rank_absolute": 7,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[1]/div[2]/div[1]/div[1]/div[8]/div[1]/div[1]",
+      "domain": "expertepoxysolutions.com",
+      "title": "Expert Epoxy Solutions: Epoxy Flooring for Garages and ...",
+      "url": "https://expertepoxysolutions.com/",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://expertepoxysolutions.com",
+      "website_name": "Expert Epoxy Solutions",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "Epoxy Solutions, Inc offers quality epoxy flooring for Garages, Residential Interiors, Commercial Buildings, and more. CONTACT (910) 270-3702. Call today for a ...",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "Epoxy",
+        "epoxy flooring",
+        "Commercial"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 4,
+      "rank_absolute": 8,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[1]/div[2]/div[1]/div[1]/div[10]/div[1]/div[1]",
+      "domain": "www.wbepoxyfloors.com",
+      "title": "WB Epoxy Floors — Request a Quote",
+      "url": "https://www.wbepoxyfloors.com/",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://www.wbepoxyfloors.com",
+      "website_name": "WB Epoxy Floors",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "Commercial epoxy floor systems deliver durable, slip-resistant, easy-to-clean surfaces for North Carolina facilities with demanding daily use year-round.",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "Commercial epoxy floor systems deliver durable, slip-resistant, easy-to-clean surfaces"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 5,
+      "rank_absolute": 9,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[1]/div[2]/div[1]/div[1]/div[12]/div[1]/div[1]",
+      "domain": "www.yelp.com",
+      "title": "TOP 10 BEST Epoxy Garage Floor in Wilmington, NC",
+      "url": "https://www.yelp.com/search?find_desc=Epoxy+Garage+Floor&find_loc=Wilmington%2C+NC",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://www.yelp.com › Home Services",
+      "website_name": "Yelp",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "Top 10 Best Epoxy Garage Floor Near Wilmington, North Carolina · JD's Professional Painting Services · Go Flooring · Undertow Construction · Guardian Garage Floors. Read more",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": {
+        "rating_type": "Max5",
+        "value": 4.5,
+        "votes_count": 82,
+        "rating_max": 5
+      },
+      "price": null,
+      "highlighted": [
+        "JD's Professional Painting Services"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 6,
+      "rank_absolute": 10,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[1]/div[2]/div[1]/div[1]/div[14]/div[1]/div[1]",
+      "domain": "www.blazercoatingsnc.com",
+      "title": "Floor Coatings in Wilmington, NC - Blazer Floor Coatings in ...",
+      "url": "https://www.blazercoatingsnc.com/",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://www.blazercoatingsnc.com",
+      "website_name": "blazercoatingsnc.com",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "Blazer Floor Coatings in Wilmington, NC offering Epoxy Garage Floor Coating, COMMERCIAL COATINGS. Call us at: (910) 356-3028. Epoxy for Auto Shops. Call us at: ...",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "Epoxy Garage Floor Coating"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 7,
+      "rank_absolute": 11,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[1]/div[2]/div[1]/div[1]/div[16]/div[1]/div[1]",
+      "domain": "www.instagram.com",
+      "title": "Epoxy Floor Coatings | Wilmington, NC📍 ...",
+      "url": "https://www.instagram.com/carolina_epoxy_design/",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "380+ followers",
+      "website_name": "Instagram · carolina_epoxy_design",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "-Certified Artist Designer -Metallic & Resinous Floors Residential | Comercial | Industrial DM for Quotes   (910) 549-1772. Read more",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "910) 549-1772"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 8,
+      "rank_absolute": 12,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[1]/div[2]/div[1]/div[1]/div[18]/div[1]/div[1]",
+      "domain": "ashorepremiumepoxy.com",
+      "title": "Ashore Premium Epoxy | Veteran-Owned Epoxy Flooring in ...",
+      "url": "https://ashorepremiumepoxy.com/",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://ashorepremiumepoxy.com",
+      "website_name": "Ashore Premium Epoxy",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "Ashore Premium Epoxy - Veteran-owned epoxy flooring specialists in Wilmington, NC. Premium garage, shop, patio & commercial epoxy flooring with free quotes.",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "Veteran-owned epoxy flooring specialists in Wilmington, NC"
+      ],
+      "links": [
+        {
+          "type": "link_element",
+          "title": "Flooring Options",
+          "description": null,
+          "url": "https://ashorepremiumepoxy.com/#flooring",
+          "domain": "ashorepremiumepoxy.com"
+        },
+        {
+          "type": "link_element",
+          "title": "About",
+          "description": null,
+          "url": "https://ashorepremiumepoxy.com/#about",
+          "domain": "ashorepremiumepoxy.com"
+        },
+        {
+          "type": "link_element",
+          "title": "Services",
+          "description": null,
+          "url": "https://ashorepremiumepoxy.com/#services",
+          "domain": "ashorepremiumepoxy.com"
+        },
+        {
+          "type": "link_element",
+          "title": "Color Templates",
+          "description": null,
+          "url": "https://ashorepremiumepoxy.com/#templates",
+          "domain": "ashorepremiumepoxy.com"
+        }
+      ],
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 9,
+      "rank_absolute": 13,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[1]/div[2]/div[1]/div[1]/div[20]/div[1]/div[1]",
+      "domain": "carolinaepoxyanddesign.com",
+      "title": "Epoxy Floor",
+      "url": "https://carolinaepoxyanddesign.com/",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://carolinaepoxyanddesign.com",
+      "website_name": "carolinaepoxyanddesign.com",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "1212 Marstellar Street Wilmington, NC. Carolina Epoxy & Design, your locally owned Professional Epoxy Floor Designers based out of Wilmington North Carolina. Read more",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "1212 Marstellar Street Wilmington, NC"
+      ],
+      "links": [
+        {
+          "type": "link_element",
+          "title": "Flooring Services",
+          "description": null,
+          "url": "https://carolinaepoxyanddesign.com/residential-garage-flooring-epoxy/",
+          "domain": "carolinaepoxyanddesign.com"
+        },
+        {
+          "type": "link_element",
+          "title": "About Us",
+          "description": null,
+          "url": "https://carolinaepoxyanddesign.com/about-us/",
+          "domain": "carolinaepoxyanddesign.com"
+        },
+        {
+          "type": "link_element",
+          "title": "Color Chart",
+          "description": null,
+          "url": "https://carolinaepoxyanddesign.com/color-chart/",
+          "domain": "carolinaepoxyanddesign.com"
+        },
+        {
+          "type": "link_element",
+          "title": "Blog",
+          "description": null,
+          "url": "https://carolinaepoxyanddesign.com/blog/",
+          "domain": "carolinaepoxyanddesign.com"
+        }
+      ],
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "related_searches",
+      "rank_group": 1,
+      "rank_absolute": 14,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[2]/div[1]/div[3]/div[1]/div[1]/div[1]/div[1]/div[2]",
+      "items": [
+        "Commercial epoxy flooring wilmington nc reviews",
+        "Commercial epoxy flooring wilmington nc cost",
+        "Best commercial epoxy flooring wilmington nc",
+        "Epoxy floors Wilmington, NC",
+        "Expert epoxy solutions",
+        "Garage Experts Wilmington, NC",
+        "Smoke epoxy floor",
+        "Graphite epoxy floor"
+      ],
+      "rectangle": null
+    }
+  ],
+  "classified": {
+    "mapPackPresent": true,
+    "localPack": [
+      {
+        "title": "Expert Epoxy Solutions of NC",
+        "url": "https://expertepoxync.com/",
+        "domain": "expertepoxync.com",
+        "rating": 5,
+        "reviewsCount": 7,
+        "hasWebsite": true
+      },
+      {
+        "title": "Carolina Epoxy and Design",
+        "url": "https://carolinaepoxyanddesign.com/",
+        "domain": "carolinaepoxyanddesign.com",
+        "rating": 5,
+        "reviewsCount": 1,
+        "hasWebsite": true
+      },
+      {
+        "title": "Expert Epoxy Solutions of North Carolina, Inc.",
+        "url": "http://www.expertepoxync.com/",
+        "domain": "expertepoxync.com",
+        "rating": 5,
+        "reviewsCount": 351,
+        "hasWebsite": true
+      }
+    ],
+    "mapPackSlotCount": 3,
+    "mapPackWebsiteCount": 3,
+    "mapPackNoWebsiteCount": 0,
+    "directories": {
+      "count": 1,
+      "links": [
+        {
+          "title": "TOP 10 BEST Epoxy Garage Floor in Wilmington, NC",
+          "url": "https://www.yelp.com/search?find_desc=Epoxy+Garage+Floor&find_loc=Wilmington%2C+NC",
+          "domain": "yelp.com",
+          "rankAbsolute": 9
+        }
+      ]
+    },
+    "organicHomePages": {
+      "count": 6,
+      "links": [
+        {
+          "title": "Professional Epoxy Flooring In Wilmington | Expert Epoxy ...",
+          "url": "https://expertepoxync.com/",
+          "domain": "expertepoxync.com",
+          "rankAbsolute": 4,
+          "nicheRelevant": true,
+          "looksEmd": false
+        },
+        {
+          "title": "Expert Epoxy Solutions: Epoxy Flooring for Garages and ...",
+          "url": "https://expertepoxysolutions.com/",
+          "domain": "expertepoxysolutions.com",
+          "rankAbsolute": 7,
+          "nicheRelevant": true,
+          "looksEmd": false
+        },
+        {
+          "title": "WB Epoxy Floors — Request a Quote",
+          "url": "https://www.wbepoxyfloors.com/",
+          "domain": "wbepoxyfloors.com",
+          "rankAbsolute": 8,
+          "nicheRelevant": false,
+          "looksEmd": false
+        },
+        {
+          "title": "Floor Coatings in Wilmington, NC - Blazer Floor Coatings in ...",
+          "url": "https://www.blazercoatingsnc.com/",
+          "domain": "blazercoatingsnc.com",
+          "rankAbsolute": 10,
+          "nicheRelevant": false,
+          "looksEmd": false
+        },
+        {
+          "title": "Ashore Premium Epoxy | Veteran-Owned Epoxy Flooring in ...",
+          "url": "https://ashorepremiumepoxy.com/",
+          "domain": "ashorepremiumepoxy.com",
+          "rankAbsolute": 12,
+          "nicheRelevant": true,
+          "looksEmd": false
+        },
+        {
+          "title": "Epoxy Floor",
+          "url": "https://carolinaepoxyanddesign.com/",
+          "domain": "carolinaepoxyanddesign.com",
+          "rankAbsolute": 13,
+          "nicheRelevant": false,
+          "looksEmd": false
+        }
+      ],
+      "nicheRelevantCount": 3
+    },
+    "organicSubPages": {
+      "count": 2,
+      "links": [
+        {
+          "title": "Wilmington Epoxy Garage Flooring & Storage Systems",
+          "url": "https://www.garageexperts.com/eastern-nc/",
+          "domain": "garageexperts.com",
+          "rankAbsolute": 6,
+          "nicheRelevant": true,
+          "looksEmd": false
+        },
+        {
+          "title": "Epoxy Floor Coatings | Wilmington, NC📍 ...",
+          "url": "https://www.instagram.com/carolina_epoxy_design/",
+          "domain": "instagram.com",
+          "rankAbsolute": 11,
+          "nicheRelevant": false,
+          "looksEmd": false
+        }
+      ],
+      "nicheRelevantCount": 1
+    },
+    "uniqueOrganicDomains": [
+      "expertepoxync.com",
+      "expertepoxysolutions.com",
+      "wbepoxyfloors.com",
+      "blazercoatingsnc.com",
+      "ashorepremiumepoxy.com",
+      "carolinaepoxyanddesign.com",
+      "garageexperts.com",
+      "instagram.com"
+    ],
+    "paidAds": {
+      "count": 0,
+      "links": []
+    },
+    "uniqueNicheOrganicDomains": [
+      "expertepoxync.com",
+      "expertepoxysolutions.com",
+      "ashorepremiumepoxy.com",
+      "garageexperts.com"
+    ],
+    "nicheTokens": [
+      "commercial",
+      "epoxy",
+      "flooring"
+    ],
+    "mapPackReviews": {
+      "slotCount": 3,
+      "reviewSampleSize": 3,
+      "avgReviews": 119.7,
+      "maxReviews": 351,
+      "minReviews": 1,
+      "reviewsBySlot": [
+        7,
+        1,
+        351
+      ],
+      "reviewsLabel": "7/1/351"
+    },
+    "features": {
+      "localServicesAds": false,
+      "peopleAlsoAsk": true,
+      "googleReviews": false,
+      "paid": false,
+      "itemTypes": [
+        "local_pack",
+        "organic",
+        "people_also_ask",
+        "related_searches"
+      ]
+    },
+    "peopleAlsoAskQuestions": [
+      "How much does a commercial epoxy floor cost?",
+      "How much would it cost to epoxy 1000 sq ft?",
+      "How much would it cost to epoxy a 600 square foot floor?",
+      "Where can I get epoxy floor coating in Wilmington, NC?"
+    ],
+    "organicTitles": [
+      "Professional Epoxy Flooring In Wilmington | Expert Epoxy ...",
+      "Expert Epoxy Solutions: Epoxy Flooring for Garages and ...",
+      "WB Epoxy Floors — Request a Quote",
+      "Floor Coatings in Wilmington, NC - Blazer Floor Coatings in ...",
+      "Ashore Premium Epoxy | Veteran-Owned Epoxy Flooring in ...",
+      "Epoxy Floor",
+      "Wilmington Epoxy Garage Flooring & Storage Systems",
+      "Epoxy Floor Coatings | Wilmington, NC📍 ...",
+      "TOP 10 BEST Epoxy Garage Floor in Wilmington, NC"
+    ]
+  }
+}

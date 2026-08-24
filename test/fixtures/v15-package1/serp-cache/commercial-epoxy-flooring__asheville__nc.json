@@ -1,0 +1,768 @@
+{
+  "rowIndex": 23,
+  "rowKey": "commercial epoxy flooring|asheville|nc",
+  "items": [
+    {
+      "type": "local_pack",
+      "rank_group": 1,
+      "rank_absolute": 1,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[1]/div[2]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[2]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]",
+      "title": "Asheville Epoxy Coatings",
+      "description": "7+ years in business · Arden, NC \nClosed · Opens 9 AM Sat \n\"Our epoxy floor was installed flawlessly by Jason and his crew.\" \n",
+      "domain": "ashevilleepoxycoating.com",
+      "phone": "(828) 423-4787",
+      "booking_url": null,
+      "url": "http://ashevilleepoxycoating.com/",
+      "is_paid": false,
+      "rating": {
+        "rating_type": "Max5",
+        "value": 5,
+        "votes_count": 49,
+        "rating_max": 5
+      },
+      "cid": "11764448312188945598",
+      "rectangle": null
+    },
+    {
+      "type": "local_pack",
+      "rank_group": 2,
+      "rank_absolute": 2,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[1]/div[2]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[2]/div[1]/div[1]/div[1]/div[1]/div[1]/div[3]/div[1]/div[1]",
+      "title": "Mr T’s Concrete Coatings & Epoxy of Asheville",
+      "description": "Open 24 hours \n\"Smooth, shiny, and high quality results!\" \n",
+      "domain": "mrtconcreterestoration.com",
+      "phone": "(908) 963-4740",
+      "booking_url": null,
+      "url": "https://mrtconcreterestoration.com/",
+      "is_paid": false,
+      "rating": {
+        "rating_type": "Max5",
+        "value": 5,
+        "votes_count": 12,
+        "rating_max": 5
+      },
+      "cid": "5329727549227992285",
+      "rectangle": null
+    },
+    {
+      "type": "local_pack",
+      "rank_group": 3,
+      "rank_absolute": 3,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[1]/div[2]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[2]/div[1]/div[1]/div[1]/div[1]/div[1]/div[5]/div[1]/div[1]",
+      "title": "IronDrive Garage Floors Asheville",
+      "description": "Closed · Opens 9 AM Mon \n\"The work was completed in one day and is beautiful.\" \n",
+      "domain": "irondrivegaragefloorsasheville.com",
+      "phone": "(828) 222-0078",
+      "booking_url": null,
+      "url": "https://irondrivegaragefloorsasheville.com/",
+      "is_paid": false,
+      "rating": {
+        "rating_type": "Max5",
+        "value": 5,
+        "votes_count": 20,
+        "rating_max": 5
+      },
+      "cid": "15808186333774411253",
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 1,
+      "rank_absolute": 4,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[1]/div[2]/div[1]/div[1]/div[2]/div[1]/div[1]",
+      "domain": "ashevilleepoxycoating.com",
+      "title": "Asheville Epoxy Coatings – Asheville NC – Epoxy flooring ...",
+      "url": "https://ashevilleepoxycoating.com/",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://ashevilleepoxycoating.com",
+      "website_name": "Asheville Epoxy Coatings",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "Call (828) 423-4787 for an estimate ! ... Proudly serving the Greater Asheville Area with over 20 years of industry experience and hundreds of satisfied customers. Read more",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "Call (828) 423-4787 for an estimate"
+      ],
+      "links": [
+        {
+          "type": "link_element",
+          "title": "About",
+          "description": null,
+          "url": "https://ashevilleepoxycoating.com/about/",
+          "domain": "ashevilleepoxycoating.com"
+        },
+        {
+          "type": "link_element",
+          "title": "Epoxy Flooring",
+          "description": null,
+          "url": "https://ashevilleepoxycoating.com/epoxy-floor-coating/",
+          "domain": "ashevilleepoxycoating.com"
+        },
+        {
+          "type": "link_element",
+          "title": "Project Gallery",
+          "description": null,
+          "url": "https://ashevilleepoxycoating.com/project-gallery/",
+          "domain": "ashevilleepoxycoating.com"
+        },
+        {
+          "type": "link_element",
+          "title": "Materials & Supplies",
+          "description": null,
+          "url": "https://ashevilleepoxycoating.com/epoxy-materials-supplies/",
+          "domain": "ashevilleepoxycoating.com"
+        }
+      ],
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "people_also_ask",
+      "rank_group": 1,
+      "rank_absolute": 5,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[1]/div[2]/div[1]/div[1]/div[4]/div[1]/div[1]/div[1]",
+      "items": [
+        {
+          "type": "people_also_ask_element",
+          "title": "How much does it cost to epoxy a commercial floor?",
+          "seed_question": null,
+          "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[1]/div[2]/div[1]/div[1]/div[4]/div[1]/div[1]/div[1]/div[1]/div[2]/div[1]",
+          "expanded_element": [
+            {
+              "type": "people_also_ask_expanded_element",
+              "featured_title": null,
+              "url": "https://armorpoxy.com/what-is-garage-epoxy-floor-cost",
+              "domain": "armorpoxy.com",
+              "title": "How Much Does It Cost to Epoxy a Garage or Commercial Floor?",
+              "description": "The average cost to epoxy a garage floor or commercial space typically ranges from $0.60 to $2.80 per square foot for materials, depending on the system chosen. Higher-end multi-layer systems cost more upfront but offer significantly better durability, lifespan, and return on investment.",
+              "images": null,
+              "timestamp": null,
+              "table": null
+            }
+          ]
+        },
+        {
+          "type": "people_also_ask_element",
+          "title": "How much does 1000 sq ft of epoxy cost?",
+          "seed_question": null,
+          "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[1]/div[2]/div[1]/div[1]/div[4]/div[1]/div[1]/div[1]/div[1]/div[2]/div[2]",
+          "expanded_element": [
+            {
+              "type": "people_also_ask_expanded_element",
+              "featured_title": "How Much Does Commercial Epoxy Flooring Cost?",
+              "url": "https://armorgarage.com/blog/epoxy-flooring-cost-per-square-foot/",
+              "domain": "armorgarage.com",
+              "title": "Epoxy Flooring Cost Per Square Foot in 2026 - ArmorGarage",
+              "description": null,
+              "images": null,
+              "timestamp": null,
+              "table": {
+                "table_header": [
+                  "Floor Size",
+                  "Per Sq Ft",
+                  "Example Total Cost"
+                ],
+                "table_content": [
+                  [
+                    "550–1,500 sq ft (small commercial)",
+                    "$1.42",
+                    "1,000 sq ft = $1,420"
+                  ],
+                  [
+                    "1,500–5,000 sq ft (mid commercial)",
+                    "$1.32",
+                    "3,000 sq ft = $3,960"
+                  ],
+                  [
+                    "5,000+ sq ft (large commercial)",
+                    "$1.22",
+                    "10,000 sq ft = $12,200"
+                  ]
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "type": "people_also_ask_element",
+          "title": "What is the average cost of epoxying a two-car garage floor in Charlotte, NC?",
+          "seed_question": null,
+          "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[1]/div[2]/div[1]/div[1]/div[4]/div[1]/div[1]/div[1]/div[1]/div[2]/div[3]",
+          "expanded_element": [
+            {
+              "type": "people_also_ask_expanded_element",
+              "featured_title": null,
+              "url": "https://www.facebook.com/titangaragefloors/posts/epoxy-garage-floor-coating-cost-transparency-breakdown-what-customers-in-charlot/1381247650669483/",
+              "domain": "www.facebook.com",
+              "title": "Epoxy garage floor coating costs in Charlotte, NC - Facebook",
+              "description": "On average, epoxy garage floor installation by a professional contractor can range from $5 to $12 per square foot.",
+              "images": null,
+              "timestamp": null,
+              "table": null
+            }
+          ]
+        },
+        {
+          "type": "people_also_ask_element",
+          "title": "Is epoxy floor cheaper than tile or concrete?",
+          "seed_question": null,
+          "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[1]/div[2]/div[1]/div[1]/div[4]/div[1]/div[1]/div[1]/div[1]/div[2]/div[4]",
+          "expanded_element": [
+            {
+              "type": "people_also_ask_expanded_element",
+              "featured_title": null,
+              "url": "https://quicksetresinflooring.co.uk/resin-flooring-cheaper-than-tile/",
+              "domain": "quicksetresinflooring.co.uk",
+              "title": "Resin Floor vs Tiles: Which is Better And Which Is Cheaper",
+              "description": "Resin Flooring: The materials used in resin flooring, such as epoxy or polyurethane, are generally more affordable than high-quality tiles. Basic resin materials are cost-effective, but prices can increase with more advanced formulations that offer additional benefits like UV resistance or anti-slip properties.",
+              "images": null,
+              "timestamp": null,
+              "table": null
+            }
+          ]
+        }
+      ],
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 2,
+      "rank_absolute": 6,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[1]/div[2]/div[1]/div[1]/div[6]/div[1]/div[1]",
+      "domain": "granitegaragefloors.com",
+      "title": "Epoxy Garage Floors in Asheville, NC",
+      "url": "https://granitegaragefloors.com/location/asheville",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://granitegaragefloors.com › location › asheville",
+      "website_name": "Granite Garage Floors",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "Transform your garage with durable epoxy floors in Asheville, NC. Discover top-quality installations by Granite Garage Floors. Get a free estimate today!",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "durable epoxy floors in Asheville, NC"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 3,
+      "rank_absolute": 7,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[1]/div[2]/div[1]/div[1]/div[8]/div[1]/div[1]",
+      "domain": "www.thegarageauthority.com",
+      "title": "Epoxy Garage Floor Coating - Asheville, NC",
+      "url": "https://www.thegarageauthority.com/epoxy-garage-floor-coating",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://www.thegarageauthority.com › epoxy-garage-fl...",
+      "website_name": "The Garage Authority",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "From residential garages to commercial workshops, epoxy flooring works for all. make epoxy coating perfect for garages, workshops, and industrial spaces. ...",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "epoxy flooring works for all"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 4,
+      "rank_absolute": 8,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[1]/div[2]/div[1]/div[1]/div[10]/div[1]/div[1]",
+      "domain": "blueridgeepoxy.com",
+      "title": "Garage Floor Epoxy Asheville NC — Free Quote",
+      "url": "https://blueridgeepoxy.com/service-area/asheville/",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://blueridgeepoxy.com › service-area › asheville",
+      "website_name": "Blue Ridge Epoxy",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "Garage floor epoxy & concrete coatings in Asheville, NC. Flake, metallic & commercial systems from a locally owned installer. Call (828) 358-9471.",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "Garage floor epoxy & concrete coatings in Asheville, NC"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 5,
+      "rank_absolute": 9,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[1]/div[2]/div[1]/div[1]/div[12]/div[1]/div[1]",
+      "domain": "info.cpcfloorcoatings.com",
+      "title": "Epoxy Floor Installers",
+      "url": "https://info.cpcfloorcoatings.com/epoxy-floor-installers",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://info.cpcfloorcoatings.com › epoxy-floor-installers",
+      "website_name": "CPC Floor Coatings",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "CPC Floor Coatings is an epoxy floor installer for commercial and industrial facilities. We use top-of-the-line equipment to ensure high quality flooring.",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "epoxy floor installer for commercial and industrial facilities"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 6,
+      "rank_absolute": 10,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[1]/div[2]/div[1]/div[1]/div[14]/div[1]/div[1]",
+      "domain": "www.blastekconcretedesigns.com",
+      "title": "Commercial Epoxy Floor Installation| Burial Beer Co",
+      "url": "https://www.blastekconcretedesigns.com/brewery-epoxy-floor-asheville-nc",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://www.blastekconcretedesigns.com › brewery-epo...",
+      "website_name": "Blastek Concrete Designs",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "Blastek Concrete Designs restored the damaged brewery floor at Burial Beer Co in Asheville, NC with a double-broadcast epoxy system and High Wear Urethane ...",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "Blastek Concrete Designs restored the damaged brewery floor at Burial Beer Co in Asheville"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 7,
+      "rank_absolute": 11,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[1]/div[2]/div[1]/div[1]/div[16]/div[1]/div[1]",
+      "domain": "www.carolinaflooringspecialists.com",
+      "title": "Epoxy Flooring Asheville NC",
+      "url": "https://www.carolinaflooringspecialists.com/epoxy-flooring-asheville-nc",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://www.carolinaflooringspecialists.com › epoxy-floo...",
+      "website_name": "Carolina Flooring Specialists",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "Call today for a free quote. (864) 630-5356. Transform your space with durable and visually stunning epoxy flooring, garage floors, and industrial flooring ...",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "epoxy flooring",
+        "floors",
+        "flooring"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 8,
+      "rank_absolute": 12,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[1]/div[2]/div[1]/div[1]/div[18]/div[1]/div[1]",
+      "domain": "www.facebook.com",
+      "title": "Epoxy Coatings Supply | Asheville NC",
+      "url": "https://www.facebook.com/ashevilleepoxycoatings/",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "390+ followers",
+      "website_name": "Facebook · Epoxy Coatings Supply",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "Proper prep is key in a lasting epoxy floor. Call Asheville Epoxy Coatings for a free estimate 828-423-4787 professional installs only. Read more",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": {
+        "rating_type": "Max5",
+        "value": 5,
+        "votes_count": 2,
+        "rating_max": 5
+      },
+      "price": null,
+      "highlighted": [
+        "828-423-4787"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 9,
+      "rank_absolute": 13,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[1]/div[2]/div[1]/div[1]/div[20]/div[1]/div[1]",
+      "domain": "wncconcretecontractors.com",
+      "title": "Epoxy Flooring in Asheville, NC Durable, Custom Solutions",
+      "url": "https://wncconcretecontractors.com/epoxy-flooring/",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://wncconcretecontractors.com › epoxy-flooring",
+      "website_name": "WNC Concrete Contractors",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "Epoxy flooring is a smart choice for Asheville homes and businesses. It offers outstanding durability to withstand heavy traffic, vehicles, and equipment. The ... Read more",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "Epoxy flooring is a smart choice for Asheville homes and businesses"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "related_searches",
+      "rank_group": 1,
+      "rank_absolute": 14,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[2]/div[1]/div[3]/div[1]/div[1]/div[1]/div[1]/div[2]",
+      "items": [
+        "Commercial epoxy flooring asheville nc reviews",
+        "Commercial epoxy flooring asheville nc prices",
+        "Best commercial epoxy flooring asheville nc",
+        "Commercial epoxy flooring asheville nc cost",
+        "Asheville epoxy",
+        "Granite Garage Floors Asheville",
+        "Granite epoxy flooring",
+        "Granite Garage Floors locations"
+      ],
+      "rectangle": null
+    }
+  ],
+  "classified": {
+    "mapPackPresent": true,
+    "localPack": [
+      {
+        "title": "Asheville Epoxy Coatings",
+        "url": "http://ashevilleepoxycoating.com/",
+        "domain": "ashevilleepoxycoating.com",
+        "rating": 5,
+        "reviewsCount": 49,
+        "hasWebsite": true
+      },
+      {
+        "title": "Mr T’s Concrete Coatings & Epoxy of Asheville",
+        "url": "https://mrtconcreterestoration.com/",
+        "domain": "mrtconcreterestoration.com",
+        "rating": 5,
+        "reviewsCount": 12,
+        "hasWebsite": true
+      },
+      {
+        "title": "IronDrive Garage Floors Asheville",
+        "url": "https://irondrivegaragefloorsasheville.com/",
+        "domain": "irondrivegaragefloorsasheville.com",
+        "rating": 5,
+        "reviewsCount": 20,
+        "hasWebsite": true
+      }
+    ],
+    "mapPackSlotCount": 3,
+    "mapPackWebsiteCount": 3,
+    "mapPackNoWebsiteCount": 0,
+    "directories": {
+      "count": 1,
+      "links": [
+        {
+          "title": "Epoxy Coatings Supply | Asheville NC",
+          "url": "https://www.facebook.com/ashevilleepoxycoatings/",
+          "domain": "facebook.com",
+          "rankAbsolute": 12
+        }
+      ]
+    },
+    "organicHomePages": {
+      "count": 1,
+      "links": [
+        {
+          "title": "Asheville Epoxy Coatings – Asheville NC – Epoxy flooring ...",
+          "url": "https://ashevilleepoxycoating.com/",
+          "domain": "ashevilleepoxycoating.com",
+          "rankAbsolute": 4,
+          "nicheRelevant": true,
+          "looksEmd": false
+        }
+      ],
+      "nicheRelevantCount": 1
+    },
+    "organicSubPages": {
+      "count": 7,
+      "links": [
+        {
+          "title": "Epoxy Garage Floors in Asheville, NC",
+          "url": "https://granitegaragefloors.com/location/asheville",
+          "domain": "granitegaragefloors.com",
+          "rankAbsolute": 6,
+          "nicheRelevant": false,
+          "looksEmd": false
+        },
+        {
+          "title": "Epoxy Garage Floor Coating - Asheville, NC",
+          "url": "https://www.thegarageauthority.com/epoxy-garage-floor-coating",
+          "domain": "thegarageauthority.com",
+          "rankAbsolute": 7,
+          "nicheRelevant": false,
+          "looksEmd": false
+        },
+        {
+          "title": "Garage Floor Epoxy Asheville NC — Free Quote",
+          "url": "https://blueridgeepoxy.com/service-area/asheville/",
+          "domain": "blueridgeepoxy.com",
+          "rankAbsolute": 8,
+          "nicheRelevant": false,
+          "looksEmd": false
+        },
+        {
+          "title": "Epoxy Floor Installers",
+          "url": "https://info.cpcfloorcoatings.com/epoxy-floor-installers",
+          "domain": "info.cpcfloorcoatings.com",
+          "rankAbsolute": 9,
+          "nicheRelevant": false,
+          "looksEmd": false
+        },
+        {
+          "title": "Commercial Epoxy Floor Installation| Burial Beer Co",
+          "url": "https://www.blastekconcretedesigns.com/brewery-epoxy-floor-asheville-nc",
+          "domain": "blastekconcretedesigns.com",
+          "rankAbsolute": 10,
+          "nicheRelevant": true,
+          "looksEmd": false
+        },
+        {
+          "title": "Epoxy Flooring Asheville NC",
+          "url": "https://www.carolinaflooringspecialists.com/epoxy-flooring-asheville-nc",
+          "domain": "carolinaflooringspecialists.com",
+          "rankAbsolute": 11,
+          "nicheRelevant": true,
+          "looksEmd": false
+        },
+        {
+          "title": "Epoxy Flooring in Asheville, NC Durable, Custom Solutions",
+          "url": "https://wncconcretecontractors.com/epoxy-flooring/",
+          "domain": "wncconcretecontractors.com",
+          "rankAbsolute": 13,
+          "nicheRelevant": true,
+          "looksEmd": false
+        }
+      ],
+      "nicheRelevantCount": 3
+    },
+    "uniqueOrganicDomains": [
+      "ashevilleepoxycoating.com",
+      "granitegaragefloors.com",
+      "thegarageauthority.com",
+      "blueridgeepoxy.com",
+      "info.cpcfloorcoatings.com",
+      "blastekconcretedesigns.com",
+      "carolinaflooringspecialists.com",
+      "wncconcretecontractors.com"
+    ],
+    "paidAds": {
+      "count": 0,
+      "links": []
+    },
+    "uniqueNicheOrganicDomains": [
+      "ashevilleepoxycoating.com",
+      "blastekconcretedesigns.com",
+      "carolinaflooringspecialists.com",
+      "wncconcretecontractors.com"
+    ],
+    "nicheTokens": [
+      "commercial",
+      "epoxy",
+      "flooring"
+    ],
+    "mapPackReviews": {
+      "slotCount": 3,
+      "reviewSampleSize": 3,
+      "avgReviews": 27,
+      "maxReviews": 49,
+      "minReviews": 12,
+      "reviewsBySlot": [
+        49,
+        12,
+        20
+      ],
+      "reviewsLabel": "49/12/20"
+    },
+    "features": {
+      "localServicesAds": false,
+      "peopleAlsoAsk": true,
+      "googleReviews": false,
+      "paid": false,
+      "itemTypes": [
+        "local_pack",
+        "organic",
+        "people_also_ask",
+        "related_searches"
+      ]
+    },
+    "peopleAlsoAskQuestions": [
+      "How much does it cost to epoxy a commercial floor?",
+      "How much does 1000 sq ft of epoxy cost?",
+      "What is the average cost of epoxying a two-car garage floor in Charlotte, NC?",
+      "Is epoxy floor cheaper than tile or concrete?"
+    ],
+    "organicTitles": [
+      "Asheville Epoxy Coatings – Asheville NC – Epoxy flooring ...",
+      "Epoxy Garage Floors in Asheville, NC",
+      "Epoxy Garage Floor Coating - Asheville, NC",
+      "Garage Floor Epoxy Asheville NC — Free Quote",
+      "Epoxy Floor Installers",
+      "Commercial Epoxy Floor Installation| Burial Beer Co",
+      "Epoxy Flooring Asheville NC",
+      "Epoxy Flooring in Asheville, NC Durable, Custom Solutions",
+      "Epoxy Coatings Supply | Asheville NC"
+    ]
+  }
+}

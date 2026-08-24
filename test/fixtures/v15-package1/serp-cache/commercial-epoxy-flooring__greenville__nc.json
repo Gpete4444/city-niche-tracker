@@ -1,0 +1,712 @@
+{
+  "rowIndex": 25,
+  "rowKey": "commercial epoxy flooring|greenville|nc",
+  "items": [
+    {
+      "type": "local_pack",
+      "rank_group": 1,
+      "rank_absolute": 1,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[1]/div[2]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[2]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]",
+      "title": "McCord Contractors, Inc.",
+      "description": "Winterville, NC \nClosed · Opens 7 AM Mon \n\"The work was reasonably priced.\" \n",
+      "domain": "mccordcontractors.com",
+      "phone": "(252) 321-2009",
+      "booking_url": null,
+      "url": "https://mccordcontractors.com/",
+      "is_paid": false,
+      "rating": {
+        "rating_type": "Max5",
+        "value": 5,
+        "votes_count": 11,
+        "rating_max": 5
+      },
+      "cid": "3498190295047639273",
+      "rectangle": null
+    },
+    {
+      "type": "local_pack",
+      "rank_group": 2,
+      "rank_absolute": 2,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[1]/div[2]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[2]/div[1]/div[1]/div[1]/div[1]/div[1]/div[3]/div[1]/div[1]",
+      "title": "All In Quality Conrete Flooring",
+      "description": "Closed · Opens 8 AM Mon \n\"Tony did a great job on the floor in my mancave.\" \n",
+      "domain": "allinqualityconcrete.com",
+      "phone": "(252) 368-8806",
+      "booking_url": null,
+      "url": "https://allinqualityconcrete.com/",
+      "is_paid": false,
+      "rating": {
+        "rating_type": "Max5",
+        "value": 5,
+        "votes_count": 25,
+        "rating_max": 5
+      },
+      "cid": "4885247860013445419",
+      "rectangle": null
+    },
+    {
+      "type": "local_pack",
+      "rank_group": 3,
+      "rank_absolute": 3,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[1]/div[2]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[2]/div[1]/div[1]/div[1]/div[1]/div[1]/div[5]/div[1]/div[1]",
+      "title": "Expert Epoxy Solutions of North Carolina, Inc.",
+      "description": "Open 24 hours \n\"The transformation they brought to our floors is nothing short of stunning.\" \n",
+      "domain": "www.expertepoxync.com",
+      "phone": "(910) 231-0273",
+      "booking_url": null,
+      "url": "http://www.expertepoxync.com/",
+      "is_paid": false,
+      "rating": {
+        "rating_type": "Max5",
+        "value": 5,
+        "votes_count": 351,
+        "rating_max": 5
+      },
+      "cid": "5678410922927872836",
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 1,
+      "rank_absolute": 4,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[1]/div[2]/div[1]/div[1]/div[2]/div[1]/div[1]",
+      "domain": "mccordcontractors.com",
+      "title": "McCord Contractors | Flooring & Coating Specialists",
+      "url": "https://mccordcontractors.com/",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://mccordcontractors.com",
+      "website_name": "McCord Contractors",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "High-quality Treatments & coatings. Floor coatings provide protection of concrete floors from chemicals, high traffic, breakage, and other damaging processes. Read more",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "Floor",
+        "floors"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 2,
+      "rank_absolute": 5,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[1]/div[2]/div[1]/div[1]/div[4]/div[1]/div[1]",
+      "domain": "www.yelp.com",
+      "title": "TOP 10 BEST Epoxy Garage Floor in Greenville, NC",
+      "url": "https://www.yelp.com/search?find_desc=Epoxy+Garage+Floor&find_loc=Greenville%2C+NC",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://www.yelp.com › Home Services",
+      "website_name": "Yelp",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "Top 10 Best Epoxy Garage Floor Near Greenville, North Carolina (Updated 2026) · WEE Services Flooring · Elite Flooring · Handy Helpers · Desper Installation. Read more",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": {
+        "rating_type": "Max5",
+        "value": 2,
+        "votes_count": 5,
+        "rating_max": 5
+      },
+      "price": null,
+      "highlighted": [
+        "WEE Services Flooring"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "people_also_ask",
+      "rank_group": 1,
+      "rank_absolute": 6,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[1]/div[2]/div[1]/div[1]/div[6]/div[1]/div[1]/div[1]",
+      "items": [
+        {
+          "type": "people_also_ask_element",
+          "title": "How much does a commercial epoxy floor cost?",
+          "seed_question": null,
+          "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[1]/div[2]/div[1]/div[1]/div[6]/div[1]/div[1]/div[1]/div[1]/div[2]/div[1]",
+          "expanded_element": [
+            {
+              "type": "people_also_ask_ai_overview_expanded_element",
+              "items": null,
+              "references": null,
+              "asynchronous_ai_overview": true
+            }
+          ]
+        },
+        {
+          "type": "people_also_ask_element",
+          "title": "How much does 1000 sq ft of epoxy cost?",
+          "seed_question": null,
+          "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[1]/div[2]/div[1]/div[1]/div[6]/div[1]/div[1]/div[1]/div[1]/div[2]/div[2]",
+          "expanded_element": [
+            {
+              "type": "people_also_ask_ai_overview_expanded_element",
+              "items": null,
+              "references": null,
+              "asynchronous_ai_overview": true
+            }
+          ]
+        },
+        {
+          "type": "people_also_ask_element",
+          "title": "How much does it cost to epoxy a 20x20 garage floor?",
+          "seed_question": null,
+          "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[1]/div[2]/div[1]/div[1]/div[6]/div[1]/div[1]/div[1]/div[1]/div[2]/div[3]",
+          "expanded_element": [
+            {
+              "type": "people_also_ask_ai_overview_expanded_element",
+              "items": null,
+              "references": null,
+              "asynchronous_ai_overview": true
+            }
+          ]
+        },
+        {
+          "type": "people_also_ask_element",
+          "title": "What is the downside of epoxy flooring?",
+          "seed_question": null,
+          "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[1]/div[2]/div[1]/div[1]/div[6]/div[1]/div[1]/div[1]/div[1]/div[2]/div[4]",
+          "expanded_element": [
+            {
+              "type": "people_also_ask_ai_overview_expanded_element",
+              "items": null,
+              "references": null,
+              "asynchronous_ai_overview": true
+            }
+          ]
+        }
+      ],
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 3,
+      "rank_absolute": 7,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[1]/div[2]/div[1]/div[1]/div[8]/div[1]/div[1]",
+      "domain": "allinqualityconcrete.com",
+      "title": "All In Quality Concrete Flooring",
+      "url": "https://allinqualityconcrete.com/",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://allinqualityconcrete.com",
+      "website_name": "All In Quality Concrete Flooring",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "We transform your dull concrete floors and driveways into works of art using epoxy concrete, concrete staining and concrete overlays.",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "epoxy concrete, concrete staining and concrete overlays"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 4,
+      "rank_absolute": 8,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[1]/div[2]/div[1]/div[1]/div[10]/div[1]/div[1]",
+      "domain": "epoxysystems.net",
+      "title": "epoxy flooring north carolina",
+      "url": "https://epoxysystems.net/north-carolina/",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://epoxysystems.net › north-carolina",
+      "website_name": "Epoxy Systems",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "Top-quality epoxy flooring solutions for businesses across North Carolina. 804-885-2990 USFCR. Commercial Epoxy Flooring … call us at 804-885-2990,",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "Commercial Epoxy Flooring"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 5,
+      "rank_absolute": 9,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[1]/div[2]/div[1]/div[1]/div[12]/div[1]/div[1]",
+      "domain": "www.thumbtack.com",
+      "title": "Epoxy flooring installation professionals near Greenville, NC",
+      "url": "https://www.thumbtack.com/nc/greenville/epoxy-flooring",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://www.thumbtack.com › NC › Greenville",
+      "website_name": "Thumbtack",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "Plenty of companies and contractors offer epoxy floor cleaning, repair, coating and installation services for garages, warehouses, commercial workshops",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "epoxy floor cleaning, repair, coating and installation services"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 6,
+      "rank_absolute": 10,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[1]/div[2]/div[1]/div[1]/div[14]/div[1]/div[1]",
+      "domain": "www.mach1epoxy.com",
+      "title": "Best Epoxy Floor Services in North Carolina",
+      "url": "https://www.mach1epoxy.com/state/north-carolina/",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://www.mach1epoxy.com › state › north-carolina",
+      "website_name": "mach1epoxy.com",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "MACH ONE Epoxy Floors is a Veteran-only franchise specializing in concrete coating, sealing, and repair. Trust us for high-quality floor coatings near you.",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "MACH ONE Epoxy Floors"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 7,
+      "rank_absolute": 11,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[1]/div[2]/div[1]/div[1]/div[16]/div[1]/div[1]",
+      "domain": "www.angi.com",
+      "title": "Top 10 Best Epoxy flooring pros in Greenville, NC",
+      "url": "https://www.angi.com/companylist/us/nc/greenville/epoxy-flooring.htm",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://www.angi.com › ... › Epoxy Floor",
+      "website_name": "Angie's List",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "Serving Greenville, NC and surrounding areas Approved In business since 2021 Free estimates Offers commercial services Welcome to Epoxy Wizards.",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "Serving Greenville, NC and surrounding areas"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 8,
+      "rank_absolute": 12,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[1]/div[2]/div[1]/div[1]/div[18]/div[1]/div[1]",
+      "domain": "expertepoxync.com",
+      "title": "Professional Epoxy Flooring In Wilmington | Expert Epoxy ...",
+      "url": "https://expertepoxync.com/",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://expertepoxync.com",
+      "website_name": "Expert Epoxy Solutions of North Carolina, Inc.",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "Expert Epoxy Solutions offers epoxy flooring in Wilmington for garages, businesses, and outdoor spaces. estimate - 910-231-0273 → … 5.0-star rating across 265+ ...",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "Expert Epoxy Solutions offers epoxy flooring in Wilmington"
+      ],
+      "links": [
+        {
+          "type": "link_element",
+          "title": "Services",
+          "description": null,
+          "url": "https://expertepoxync.com/services/",
+          "domain": "expertepoxync.com"
+        },
+        {
+          "type": "link_element",
+          "title": "Locations",
+          "description": null,
+          "url": "https://expertepoxync.com/locations/",
+          "domain": "expertepoxync.com"
+        },
+        {
+          "type": "link_element",
+          "title": "Flake Colors",
+          "description": null,
+          "url": "https://expertepoxync.com/flake-colors-epoxy-flooring-wilmington-nc/",
+          "domain": "expertepoxync.com"
+        },
+        {
+          "type": "link_element",
+          "title": "Free Quote",
+          "description": null,
+          "url": "https://expertepoxync.com/#contact",
+          "domain": "expertepoxync.com"
+        }
+      ],
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 9,
+      "rank_absolute": 13,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[1]/div[2]/div[1]/div[1]/div[20]/div[1]/div[1]",
+      "domain": "metrocrete.com",
+      "title": "Expert Concrete Flooring in Greenville, NC",
+      "url": "https://metrocrete.com/northcarolina/epoxy-floors-greenville/",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://metrocrete.com › North Carolina",
+      "website_name": "metrocrete.com",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "We specialize exclusively in stamped concrete floors, epoxy and stained stamped flooring. Local experts for both residential and commercial concrete floors. Read more",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "epoxy and"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "related_searches",
+      "rank_group": 1,
+      "rank_absolute": 14,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[2]/div[1]/div[3]/div[1]/div[1]/div[1]/div[1]/div[2]",
+      "items": [
+        "Commercial epoxy flooring greenville nc reviews",
+        "Mccord commercial epoxy flooring greenville nc",
+        "Best commercial epoxy flooring greenville nc"
+      ],
+      "rectangle": null
+    }
+  ],
+  "classified": {
+    "mapPackPresent": true,
+    "localPack": [
+      {
+        "title": "McCord Contractors, Inc.",
+        "url": "https://mccordcontractors.com/",
+        "domain": "mccordcontractors.com",
+        "rating": 5,
+        "reviewsCount": 11,
+        "hasWebsite": true
+      },
+      {
+        "title": "All In Quality Conrete Flooring",
+        "url": "https://allinqualityconcrete.com/",
+        "domain": "allinqualityconcrete.com",
+        "rating": 5,
+        "reviewsCount": 25,
+        "hasWebsite": true
+      },
+      {
+        "title": "Expert Epoxy Solutions of North Carolina, Inc.",
+        "url": "http://www.expertepoxync.com/",
+        "domain": "expertepoxync.com",
+        "rating": 5,
+        "reviewsCount": 351,
+        "hasWebsite": true
+      }
+    ],
+    "mapPackSlotCount": 3,
+    "mapPackWebsiteCount": 3,
+    "mapPackNoWebsiteCount": 0,
+    "directories": {
+      "count": 3,
+      "links": [
+        {
+          "title": "TOP 10 BEST Epoxy Garage Floor in Greenville, NC",
+          "url": "https://www.yelp.com/search?find_desc=Epoxy+Garage+Floor&find_loc=Greenville%2C+NC",
+          "domain": "yelp.com",
+          "rankAbsolute": 5
+        },
+        {
+          "title": "Epoxy flooring installation professionals near Greenville, NC",
+          "url": "https://www.thumbtack.com/nc/greenville/epoxy-flooring",
+          "domain": "thumbtack.com",
+          "rankAbsolute": 9
+        },
+        {
+          "title": "Top 10 Best Epoxy flooring pros in Greenville, NC",
+          "url": "https://www.angi.com/companylist/us/nc/greenville/epoxy-flooring.htm",
+          "domain": "angi.com",
+          "rankAbsolute": 11
+        }
+      ]
+    },
+    "organicHomePages": {
+      "count": 3,
+      "links": [
+        {
+          "title": "McCord Contractors | Flooring & Coating Specialists",
+          "url": "https://mccordcontractors.com/",
+          "domain": "mccordcontractors.com",
+          "rankAbsolute": 4,
+          "nicheRelevant": false,
+          "looksEmd": false
+        },
+        {
+          "title": "All In Quality Concrete Flooring",
+          "url": "https://allinqualityconcrete.com/",
+          "domain": "allinqualityconcrete.com",
+          "rankAbsolute": 7,
+          "nicheRelevant": false,
+          "looksEmd": false
+        },
+        {
+          "title": "Professional Epoxy Flooring In Wilmington | Expert Epoxy ...",
+          "url": "https://expertepoxync.com/",
+          "domain": "expertepoxync.com",
+          "rankAbsolute": 12,
+          "nicheRelevant": true,
+          "looksEmd": false
+        }
+      ],
+      "nicheRelevantCount": 1
+    },
+    "organicSubPages": {
+      "count": 3,
+      "links": [
+        {
+          "title": "epoxy flooring north carolina",
+          "url": "https://epoxysystems.net/north-carolina/",
+          "domain": "epoxysystems.net",
+          "rankAbsolute": 8,
+          "nicheRelevant": true,
+          "looksEmd": false
+        },
+        {
+          "title": "Best Epoxy Floor Services in North Carolina",
+          "url": "https://www.mach1epoxy.com/state/north-carolina/",
+          "domain": "mach1epoxy.com",
+          "rankAbsolute": 10,
+          "nicheRelevant": false,
+          "looksEmd": false
+        },
+        {
+          "title": "Expert Concrete Flooring in Greenville, NC",
+          "url": "https://metrocrete.com/northcarolina/epoxy-floors-greenville/",
+          "domain": "metrocrete.com",
+          "rankAbsolute": 13,
+          "nicheRelevant": true,
+          "looksEmd": false
+        }
+      ],
+      "nicheRelevantCount": 2
+    },
+    "uniqueOrganicDomains": [
+      "mccordcontractors.com",
+      "allinqualityconcrete.com",
+      "expertepoxync.com",
+      "epoxysystems.net",
+      "mach1epoxy.com",
+      "metrocrete.com"
+    ],
+    "paidAds": {
+      "count": 0,
+      "links": []
+    },
+    "uniqueNicheOrganicDomains": [
+      "expertepoxync.com",
+      "epoxysystems.net",
+      "metrocrete.com"
+    ],
+    "nicheTokens": [
+      "commercial",
+      "epoxy",
+      "flooring"
+    ],
+    "mapPackReviews": {
+      "slotCount": 3,
+      "reviewSampleSize": 3,
+      "avgReviews": 129,
+      "maxReviews": 351,
+      "minReviews": 11,
+      "reviewsBySlot": [
+        11,
+        25,
+        351
+      ],
+      "reviewsLabel": "11/25/351"
+    },
+    "features": {
+      "localServicesAds": false,
+      "peopleAlsoAsk": true,
+      "googleReviews": false,
+      "paid": false,
+      "itemTypes": [
+        "local_pack",
+        "organic",
+        "people_also_ask",
+        "related_searches"
+      ]
+    },
+    "peopleAlsoAskQuestions": [
+      "How much does a commercial epoxy floor cost?",
+      "How much does 1000 sq ft of epoxy cost?",
+      "How much does it cost to epoxy a 20x20 garage floor?",
+      "What is the downside of epoxy flooring?"
+    ],
+    "organicTitles": [
+      "McCord Contractors | Flooring & Coating Specialists",
+      "All In Quality Concrete Flooring",
+      "Professional Epoxy Flooring In Wilmington | Expert Epoxy ...",
+      "epoxy flooring north carolina",
+      "Best Epoxy Floor Services in North Carolina",
+      "Expert Concrete Flooring in Greenville, NC",
+      "TOP 10 BEST Epoxy Garage Floor in Greenville, NC",
+      "Epoxy flooring installation professionals near Greenville, NC",
+      "Top 10 Best Epoxy flooring pros in Greenville, NC"
+    ]
+  }
+}

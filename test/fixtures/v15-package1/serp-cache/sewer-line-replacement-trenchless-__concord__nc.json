@@ -1,0 +1,740 @@
+{
+  "rowIndex": 3,
+  "rowKey": "sewer line replacement (trenchless)|concord|nc",
+  "items": [
+    {
+      "type": "organic",
+      "rank_group": 1,
+      "rank_absolute": 1,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[1]/div[2]/div[2]/div[1]/div[1]/div[1]/div[1]/div[1]",
+      "domain": "nextlevelpipelining.com",
+      "title": "Trenchless Sewer Pipe Lining Concord, NC",
+      "url": "https://nextlevelpipelining.com/service-areas/concord-nc/trenchless-sewer-pipe-lining-concord-nc/",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://nextlevelpipelining.com › service-areas › trenchle...",
+      "website_name": "Next Level Pipe Lining",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "If you'd like to make an appointment to have your pipes fixed with our sewer pipe lining methods, please give us a call at (980) 303-1017. Our professional ... Read more",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "980) 303-1017"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "people_also_ask",
+      "rank_group": 1,
+      "rank_absolute": 2,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[1]/div[2]/div[2]/div[1]/div[1]/div[3]/div[1]/div[1]/div[1]",
+      "items": [
+        {
+          "type": "people_also_ask_element",
+          "title": "Is trenchless pipe repair expensive?",
+          "seed_question": null,
+          "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[1]/div[2]/div[2]/div[1]/div[1]/div[3]/div[1]/div[1]/div[1]/div[1]/div[2]/div[1]",
+          "expanded_element": [
+            {
+              "type": "people_also_ask_ai_overview_expanded_element",
+              "items": null,
+              "references": null,
+              "asynchronous_ai_overview": true
+            }
+          ]
+        },
+        {
+          "type": "people_also_ask_element",
+          "title": "What are the disadvantages of trenchless sewer line replacement?",
+          "seed_question": null,
+          "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[1]/div[2]/div[2]/div[1]/div[1]/div[3]/div[1]/div[1]/div[1]/div[1]/div[2]/div[2]",
+          "expanded_element": [
+            {
+              "type": "people_also_ask_ai_overview_expanded_element",
+              "items": null,
+              "references": null,
+              "asynchronous_ai_overview": true
+            }
+          ]
+        },
+        {
+          "type": "people_also_ask_element",
+          "title": "Is trenchless sewer repair better?",
+          "seed_question": null,
+          "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[1]/div[2]/div[2]/div[1]/div[1]/div[3]/div[1]/div[1]/div[1]/div[1]/div[2]/div[3]",
+          "expanded_element": [
+            {
+              "type": "people_also_ask_ai_overview_expanded_element",
+              "items": null,
+              "references": null,
+              "asynchronous_ai_overview": true
+            }
+          ]
+        },
+        {
+          "type": "people_also_ask_element",
+          "title": "Can you do a trenchless sewer line replacement?",
+          "seed_question": null,
+          "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[1]/div[2]/div[2]/div[1]/div[1]/div[3]/div[1]/div[1]/div[1]/div[1]/div[2]/div[4]",
+          "expanded_element": [
+            {
+              "type": "people_also_ask_ai_overview_expanded_element",
+              "items": null,
+              "references": null,
+              "asynchronous_ai_overview": true
+            }
+          ]
+        }
+      ],
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 2,
+      "rank_absolute": 3,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[1]/div[2]/div[2]/div[1]/div[1]/div[5]/div[1]/div[1]",
+      "domain": "northcarolina.1daytrenchlesssewerrepair.com",
+      "title": "Trenchless Sewer Repairs Concord NC",
+      "url": "https://northcarolina.1daytrenchlesssewerrepair.com/trenchless-sewer-repairs-concord-nc/",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://northcarolina.1daytrenchlesssewerrepair.com › tr...",
+      "website_name": "1 Day Trenchless Sewer Repairs",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "Experienced in all types of trenchless sewer, drain and water line replacement and repair we can dispatch one of our experts to your location quickly and come ... Read more",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "Experienced in all types of trenchless sewer, drain and water line replacement"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "local_pack",
+      "rank_group": 1,
+      "rank_absolute": 4,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[1]/div[2]/div[2]/div[1]/div[1]/div[7]/div[1]/div[1]/div[1]/div[1]/div[3]/div[1]/div[1]/div[1]/div[1]",
+      "title": "Sustainable Plumbing of NC",
+      "description": "7+ years in business · Concord, NC \nClosed · Opens 8 AM Mon \n\"Reached out, got a quote and scheduled the service for the same day.\" \n",
+      "domain": "sustainable-plumbing.com",
+      "phone": "(704) 703-2730",
+      "booking_url": "https://book.housecallpro.com/book/Sustainable-Plumbing-LLC/c3be10584ee94cd5b4b5e1ef919d814b?v2=true&lead_source=google&merchant_id=f5204e1a-45e6-4585-9428-43303cf71071&rwg_token=AE37R_hYeBZ5_n--0yqC50PxIlNwCwHaGVsoOD1ypAWEHl-Fx4s5PBvaIKVfZBwTDpVEuYzd0PSN3v8d-DoMmj5keYCSo7GwYQ%3D%3D&source=cat",
+      "url": "http://sustainable-plumbing.com/",
+      "is_paid": false,
+      "rating": {
+        "rating_type": "Max5",
+        "value": 5,
+        "votes_count": 414,
+        "rating_max": 5
+      },
+      "cid": "6802148902109836974",
+      "rectangle": null
+    },
+    {
+      "type": "local_pack",
+      "rank_group": 2,
+      "rank_absolute": 5,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[1]/div[2]/div[2]/div[1]/div[1]/div[7]/div[1]/div[1]/div[1]/div[1]/div[3]/div[1]/div[3]/div[1]/div[1]",
+      "title": "Three Way Plumbing",
+      "description": "25+ years in business · Concord, NC \nCloses soon · 7:30 PM \n\"Will not use any other plumbing service in Concord.\" \n",
+      "domain": "www.3wayplumbing.com",
+      "phone": "(704) 795-9349",
+      "booking_url": "https://book.housecallpro.com/book/Three-Way-Plumbing/a799114750e94e4bb632897eac31ee66?v2=true&lead_source=google&merchant_id=d6825405-3ab8-4755-b2de-6f3facf7a24d&rwg_token=AE37R_hhuIOAwGGFO58K3RzvO9vZtaPgNSgfyXozvFTQS9TwWyOh2vBPRkPujwE9FPodpEr2PWeoRydvOEWLftHc5b7G_hvlAA%3D%3D&source=cat",
+      "url": "http://www.3wayplumbing.com/",
+      "is_paid": false,
+      "rating": {
+        "rating_type": "Max5",
+        "value": 4.6,
+        "votes_count": 318,
+        "rating_max": 5
+      },
+      "cid": "4309957940557519237",
+      "rectangle": null
+    },
+    {
+      "type": "local_pack",
+      "rank_group": 3,
+      "rank_absolute": 6,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[1]/div[2]/div[2]/div[1]/div[1]/div[7]/div[1]/div[1]/div[1]/div[1]/div[3]/div[1]/div[5]/div[1]/div[1]",
+      "title": "Precision Sewer Line Repair CO",
+      "description": "5+ years in business \nClosed · Opens 7 AM Sat \n",
+      "domain": "precisionsewerlinerepaircharlotte.com",
+      "phone": "(980) 225-1916",
+      "booking_url": null,
+      "url": "https://precisionsewerlinerepaircharlotte.com/?utm_source=google&utm_medium=organic&utm_campaign=gbp&utm_content=charlotte-nc",
+      "is_paid": false,
+      "rating": {
+        "rating_type": "Max5",
+        "value": 4.9,
+        "votes_count": 16,
+        "rating_max": 5
+      },
+      "cid": "12910566315838842104",
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 3,
+      "rank_absolute": 7,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[1]/div[2]/div[2]/div[1]/div[1]/div[9]/div[1]/div[1]",
+      "domain": "www.yelp.com",
+      "title": "Best Trenchless Sewer Repair Services in Concord, NC",
+      "url": "https://www.yelp.com/questions/loc/concord-nc/trenchless-sewer-repair-services",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://www.yelp.com › questions › loc › trenchless-sew...",
+      "website_name": "Yelp",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "Trenchless sewer repair is typically available in Concord, NC. Service Pro Plumbing specifically lists trenchless water replacement systems among their services ... Read more",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "Trenchless sewer repair is typically available in Concord, NC"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 4,
+      "rank_absolute": 8,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[1]/div[2]/div[2]/div[1]/div[1]/div[11]/div[1]/div[1]",
+      "domain": "www.3wayplumbing.com",
+      "title": "Trenchless Sewer Repair Services in Charlotte Area",
+      "url": "https://www.3wayplumbing.com/sewer/trenchless/",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://www.3wayplumbing.com › sewer › trenchless",
+      "website_name": "Three Way Plumbing",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "Call 704-754-4218 or contact us online to get started. 174 Church St. NE | Concord, NC 28025 … call (704)-795-9349",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "174 Church St. NE | Concord, NC 28025"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 5,
+      "rank_absolute": 9,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[1]/div[2]/div[2]/div[1]/div[1]/div[13]/div[1]/div[1]",
+      "domain": "trenchless-pipesolutions.com",
+      "title": "Sewer & Drain Services in Concord, NC",
+      "url": "https://trenchless-pipesolutions.com/areas-we-serve/concord/",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://trenchless-pipesolutions.com › Contact Us",
+      "website_name": "Trenchless Pipe Solutions",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "Trenchless Pipe Solutions offers reliable sewer &amp; drain services in Concord, NC. (336) 448-3365 Schedule (336) 448-3365 Schedule",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "336) 448-3365"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 6,
+      "rank_absolute": 10,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[1]/div[2]/div[2]/div[1]/div[1]/div[15]/div[1]/div[1]",
+      "domain": "www.rotorooter.com",
+      "title": "Concord NC Plumbing, Drain & Water Cleanup Services",
+      "url": "https://www.rotorooter.com/concordnc/",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://www.rotorooter.com › concordnc",
+      "website_name": "Roto-Rooter",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "Roto-Rooter provides trenchless pipe lining and full excavation services. Sewer line excavation and replacement. Concord? Yes. Trenchless pipe lining installs ...",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": {
+        "rating_type": "Max5",
+        "value": 4.9,
+        "votes_count": 82,
+        "rating_max": 5
+      },
+      "price": null,
+      "highlighted": [
+        "Roto-Rooter provides trenchless pipe lining and full excavation services"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 7,
+      "rank_absolute": 11,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[1]/div[2]/div[2]/div[1]/div[1]/div[17]/div[1]/div[1]",
+      "domain": "sustainable-plumbing.com",
+      "title": "Sewer & Water Line Services | Concord & Huntersville, NC",
+      "url": "https://sustainable-plumbing.com/sewer-water-lines/",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://sustainable-plumbing.com › sewer-water-lines",
+      "website_name": "Sustainable Plumbing",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "Experienced with residential line replacement and trenchless-friendly repairs. Call (704) 703",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "line replacement",
+        "trenchless"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 8,
+      "rank_absolute": 12,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[1]/div[2]/div[2]/div[1]/div[1]/div[19]/div[1]/div[1]",
+      "domain": "www.benjaminfranklinplumbing.com",
+      "title": "Trenchless Sewer Line Repair in Charlotte, NC",
+      "url": "https://www.benjaminfranklinplumbing.com/charlotte/services/sewers/trenchless-sewers/",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://www.benjaminfranklinplumbing.com › sewers › t...",
+      "website_name": "Benjamin Franklin Plumbing",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "Contact our trenchless sewer experts at (704) 802-1379 or book service online! Advantages of Trenchless Sewer Line Repairs. Swift Repairs: Trenchless solutions ... Read more",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "Contact our trenchless sewer experts at (704) 802-1379"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 9,
+      "rank_absolute": 13,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[1]/div[2]/div[2]/div[1]/div[1]/div[21]/div[1]/div[1]",
+      "domain": "www.erservicesclt.com",
+      "title": "Concord Sewer Line Repair & Sewer Line Replacement Service",
+      "url": "https://www.erservicesclt.com/concord/sewer-line-repair-installation/",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://www.erservicesclt.com › concord › sewer-line-re...",
+      "website_name": "erservicesclt.com",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "Searching for Plumber Concord NC for a quick sewer line repair or replacement in Concord NC? Call E.R. Services today at 704-846-5371.",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "Call E.R. Services today at 704-846-5371"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 10,
+      "rank_absolute": 14,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[1]/div[2]/div[2]/div[1]/div[1]/div[23]/div[1]/div[1]",
+      "domain": "liningworks.com",
+      "title": "Concord Sewer Repair & Drain Clealing",
+      "url": "https://liningworks.com/areas-we-serve/concord-nc/",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://liningworks.com › Areas We Serve",
+      "website_name": "LiningWorks",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "Nov 18, 2024 — Concord's Local Sewer Repair Specialists. No-Dig Trenchless Solutions That Save Time & Money. Book Your No-obligation Estimate Today.",
+      "pre_snippet": "11/18/2024 00:00:00",
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "Concord's Local Sewer Repair Specialists"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": "2024-11-18 00:00:00 +00:00",
+      "rectangle": null
+    },
+    {
+      "type": "related_searches",
+      "rank_group": 1,
+      "rank_absolute": 15,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[1]/div[3]/div[1]/div[3]/div[1]/div[1]/div[1]/div[1]/div[2]",
+      "items": [
+        "Sewer line replacement trenchless concord nc near me",
+        "Sewer line replacement trenchless concord nc cost"
+      ],
+      "rectangle": null
+    }
+  ],
+  "classified": {
+    "mapPackPresent": true,
+    "localPack": [
+      {
+        "title": "Sustainable Plumbing of NC",
+        "url": "http://sustainable-plumbing.com/",
+        "domain": "sustainable-plumbing.com",
+        "rating": 5,
+        "reviewsCount": 414,
+        "hasWebsite": true
+      },
+      {
+        "title": "Three Way Plumbing",
+        "url": "http://www.3wayplumbing.com/",
+        "domain": "3wayplumbing.com",
+        "rating": 4.6,
+        "reviewsCount": 318,
+        "hasWebsite": true
+      },
+      {
+        "title": "Precision Sewer Line Repair CO",
+        "url": "https://precisionsewerlinerepaircharlotte.com/?utm_source=google&utm_medium=organic&utm_campaign=gbp&utm_content=charlotte-nc",
+        "domain": "precisionsewerlinerepaircharlotte.com",
+        "rating": 4.9,
+        "reviewsCount": 16,
+        "hasWebsite": true
+      }
+    ],
+    "mapPackSlotCount": 3,
+    "mapPackWebsiteCount": 3,
+    "mapPackNoWebsiteCount": 0,
+    "directories": {
+      "count": 1,
+      "links": [
+        {
+          "title": "Best Trenchless Sewer Repair Services in Concord, NC",
+          "url": "https://www.yelp.com/questions/loc/concord-nc/trenchless-sewer-repair-services",
+          "domain": "yelp.com",
+          "rankAbsolute": 7
+        }
+      ]
+    },
+    "organicHomePages": {
+      "count": 0,
+      "links": [],
+      "nicheRelevantCount": 0
+    },
+    "organicSubPages": {
+      "count": 9,
+      "links": [
+        {
+          "title": "Trenchless Sewer Pipe Lining Concord, NC",
+          "url": "https://nextlevelpipelining.com/service-areas/concord-nc/trenchless-sewer-pipe-lining-concord-nc/",
+          "domain": "nextlevelpipelining.com",
+          "rankAbsolute": 1,
+          "nicheRelevant": true,
+          "looksEmd": false
+        },
+        {
+          "title": "Trenchless Sewer Repairs Concord NC",
+          "url": "https://northcarolina.1daytrenchlesssewerrepair.com/trenchless-sewer-repairs-concord-nc/",
+          "domain": "northcarolina.1daytrenchlesssewerrepair.com",
+          "rankAbsolute": 3,
+          "nicheRelevant": true,
+          "looksEmd": true
+        },
+        {
+          "title": "Trenchless Sewer Repair Services in Charlotte Area",
+          "url": "https://www.3wayplumbing.com/sewer/trenchless/",
+          "domain": "3wayplumbing.com",
+          "rankAbsolute": 8,
+          "nicheRelevant": true,
+          "looksEmd": false
+        },
+        {
+          "title": "Sewer & Drain Services in Concord, NC",
+          "url": "https://trenchless-pipesolutions.com/areas-we-serve/concord/",
+          "domain": "trenchless-pipesolutions.com",
+          "rankAbsolute": 9,
+          "nicheRelevant": true,
+          "looksEmd": false
+        },
+        {
+          "title": "Concord NC Plumbing, Drain & Water Cleanup Services",
+          "url": "https://www.rotorooter.com/concordnc/",
+          "domain": "rotorooter.com",
+          "rankAbsolute": 10,
+          "nicheRelevant": false,
+          "looksEmd": false
+        },
+        {
+          "title": "Sewer & Water Line Services | Concord & Huntersville, NC",
+          "url": "https://sustainable-plumbing.com/sewer-water-lines/",
+          "domain": "sustainable-plumbing.com",
+          "rankAbsolute": 11,
+          "nicheRelevant": true,
+          "looksEmd": false
+        },
+        {
+          "title": "Trenchless Sewer Line Repair in Charlotte, NC",
+          "url": "https://www.benjaminfranklinplumbing.com/charlotte/services/sewers/trenchless-sewers/",
+          "domain": "benjaminfranklinplumbing.com",
+          "rankAbsolute": 12,
+          "nicheRelevant": true,
+          "looksEmd": false
+        },
+        {
+          "title": "Concord Sewer Line Repair & Sewer Line Replacement Service",
+          "url": "https://www.erservicesclt.com/concord/sewer-line-repair-installation/",
+          "domain": "erservicesclt.com",
+          "rankAbsolute": 13,
+          "nicheRelevant": true,
+          "looksEmd": false
+        },
+        {
+          "title": "Concord Sewer Repair & Drain Clealing",
+          "url": "https://liningworks.com/areas-we-serve/concord-nc/",
+          "domain": "liningworks.com",
+          "rankAbsolute": 14,
+          "nicheRelevant": false,
+          "looksEmd": false
+        }
+      ],
+      "nicheRelevantCount": 7
+    },
+    "uniqueOrganicDomains": [
+      "nextlevelpipelining.com",
+      "northcarolina.1daytrenchlesssewerrepair.com",
+      "3wayplumbing.com",
+      "trenchless-pipesolutions.com",
+      "rotorooter.com",
+      "sustainable-plumbing.com",
+      "benjaminfranklinplumbing.com",
+      "erservicesclt.com",
+      "liningworks.com"
+    ],
+    "paidAds": {
+      "count": 0,
+      "links": []
+    },
+    "uniqueNicheOrganicDomains": [
+      "nextlevelpipelining.com",
+      "northcarolina.1daytrenchlesssewerrepair.com",
+      "3wayplumbing.com",
+      "trenchless-pipesolutions.com",
+      "sustainable-plumbing.com",
+      "benjaminfranklinplumbing.com",
+      "erservicesclt.com"
+    ],
+    "nicheTokens": [
+      "sewer",
+      "line",
+      "replacement",
+      "trenchless"
+    ],
+    "mapPackReviews": {
+      "slotCount": 3,
+      "reviewSampleSize": 3,
+      "avgReviews": 249.3,
+      "maxReviews": 414,
+      "minReviews": 16,
+      "reviewsBySlot": [
+        414,
+        318,
+        16
+      ],
+      "reviewsLabel": "414/318/16"
+    },
+    "features": {
+      "localServicesAds": false,
+      "peopleAlsoAsk": true,
+      "googleReviews": false,
+      "paid": false,
+      "itemTypes": [
+        "organic",
+        "people_also_ask",
+        "local_pack",
+        "related_searches"
+      ]
+    },
+    "peopleAlsoAskQuestions": [
+      "Is trenchless pipe repair expensive?",
+      "What are the disadvantages of trenchless sewer line replacement?",
+      "Is trenchless sewer repair better?",
+      "Can you do a trenchless sewer line replacement?"
+    ],
+    "organicTitles": [
+      "Trenchless Sewer Pipe Lining Concord, NC",
+      "Trenchless Sewer Repairs Concord NC",
+      "Trenchless Sewer Repair Services in Charlotte Area",
+      "Sewer & Drain Services in Concord, NC",
+      "Concord NC Plumbing, Drain & Water Cleanup Services",
+      "Sewer & Water Line Services | Concord & Huntersville, NC",
+      "Trenchless Sewer Line Repair in Charlotte, NC",
+      "Concord Sewer Line Repair & Sewer Line Replacement Service",
+      "Concord Sewer Repair & Drain Clealing",
+      "Best Trenchless Sewer Repair Services in Concord, NC"
+    ]
+  }
+}

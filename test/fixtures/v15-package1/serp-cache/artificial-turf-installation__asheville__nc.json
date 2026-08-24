@@ -1,0 +1,722 @@
+{
+  "rowIndex": 14,
+  "rowKey": "artificial turf installation|asheville|nc",
+  "items": [
+    {
+      "type": "local_pack",
+      "rank_group": 1,
+      "rank_absolute": 1,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[1]/div[2]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[2]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]",
+      "title": "Southwest Greens of Asheville",
+      "description": "No reviews · Turf supplier \nAlexander, NC · (941) 730-7268 \nClosed · Opens 9 AM Sat \n",
+      "domain": "www.southwestgreensofasheville.com",
+      "phone": "(941) 730-7268",
+      "booking_url": null,
+      "url": "https://www.southwestgreensofasheville.com/",
+      "is_paid": false,
+      "rating": null,
+      "cid": "11627765248852450603",
+      "rectangle": null
+    },
+    {
+      "type": "local_pack",
+      "rank_group": 2,
+      "rank_absolute": 2,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[1]/div[2]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[2]/div[1]/div[1]/div[1]/div[1]/div[1]/div[3]/div[1]/div[1]",
+      "title": "Turf Labs LLC",
+      "description": "Closed · Opens 8 AM Sat \n\"We hired Turf Labs to clean up a landslide on our road.\" \n",
+      "domain": "www.turfinstallationashevillenc.com",
+      "phone": "(828) 552-7710",
+      "booking_url": null,
+      "url": "https://www.turfinstallationashevillenc.com/",
+      "is_paid": false,
+      "rating": {
+        "rating_type": "Max5",
+        "value": 3.5,
+        "votes_count": 2,
+        "rating_max": 5
+      },
+      "cid": "12987690980151125163",
+      "rectangle": null
+    },
+    {
+      "type": "local_pack",
+      "rank_group": 3,
+      "rank_absolute": 3,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[1]/div[2]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[2]/div[1]/div[1]/div[1]/div[1]/div[1]/div[5]/div[1]/div[1]",
+      "title": "Gardens for Living",
+      "description": "Fairview, NC · (828) 274-7225 \nClosed · Opens 9 AM Mon \n\"The crew is reliable, professional, tidy, and a pleasure to have around.\" \n",
+      "domain": "gardensforliving.com",
+      "phone": "(828) 274-7225",
+      "booking_url": null,
+      "url": "http://gardensforliving.com/",
+      "is_paid": false,
+      "rating": {
+        "rating_type": "Max5",
+        "value": 4.9,
+        "votes_count": 26,
+        "rating_max": 5
+      },
+      "cid": "3635164874353473797",
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 1,
+      "rank_absolute": 4,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[1]/div[2]/div[1]/div[1]/div[2]/div[1]/div[1]",
+      "domain": "www.southwestgreensofasheville.com",
+      "title": "Southwest Greens of Asheville: Synthetic Grass & Artificial Turf ...",
+      "url": "https://www.southwestgreensofasheville.com/",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://www.southwestgreensofasheville.com",
+      "website_name": "Southwest Greens of Asheville",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "Delivering synthetic turf to the Asheville area. 16 Enchanted Oak Lane Alexander, NC 28701 (828) 417-5507 Business Hours Mo: 8 AM – 6 PM",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "16 Enchanted Oak Lane Alexander, NC 28701"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 2,
+      "rank_absolute": 5,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[1]/div[2]/div[1]/div[1]/div[4]/div[1]/div[1]",
+      "domain": "www.carolinaartificiallawns.com",
+      "title": "Artificial Grass in Asheville, NC | Turf Lawns for Pets & Golf",
+      "url": "https://www.carolinaartificiallawns.com/asheville-nc/",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://www.carolinaartificiallawns.com › asheville-nc",
+      "website_name": "SYNLawn® Carolina",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "Realistic artificial grass for Asheville, NC homes & businesses. Perfect for backyards, lawns, golf greens, pet turf & more. Contact us for a free quote!",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "Realistic artificial grass for Asheville, NC homes & businesses"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "people_also_ask",
+      "rank_group": 1,
+      "rank_absolute": 6,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[1]/div[2]/div[1]/div[1]/div[6]/div[1]/div[1]/div[1]",
+      "items": [
+        {
+          "type": "people_also_ask_element",
+          "title": "What is the average cost of installing artificial turf?",
+          "seed_question": null,
+          "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[1]/div[2]/div[1]/div[1]/div[6]/div[1]/div[1]/div[1]/div[1]/div[2]/div[1]",
+          "expanded_element": [
+            {
+              "type": "people_also_ask_ai_overview_expanded_element",
+              "items": null,
+              "references": null,
+              "asynchronous_ai_overview": true
+            }
+          ]
+        },
+        {
+          "type": "people_also_ask_element",
+          "title": "How much does it cost to have artificial grass installed?",
+          "seed_question": null,
+          "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[1]/div[2]/div[1]/div[1]/div[6]/div[1]/div[1]/div[1]/div[1]/div[2]/div[2]",
+          "expanded_element": [
+            {
+              "type": "people_also_ask_ai_overview_expanded_element",
+              "items": null,
+              "references": null,
+              "asynchronous_ai_overview": true
+            }
+          ]
+        },
+        {
+          "type": "people_also_ask_element",
+          "title": "What should you put down before laying artificial turf?",
+          "seed_question": null,
+          "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[1]/div[2]/div[1]/div[1]/div[6]/div[1]/div[1]/div[1]/div[1]/div[2]/div[3]",
+          "expanded_element": [
+            {
+              "type": "people_also_ask_ai_overview_expanded_element",
+              "items": null,
+              "references": null,
+              "asynchronous_ai_overview": true
+            }
+          ]
+        },
+        {
+          "type": "people_also_ask_element",
+          "title": "Why are people moving out of Asheville, NC?",
+          "seed_question": null,
+          "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[1]/div[2]/div[1]/div[1]/div[6]/div[1]/div[1]/div[1]/div[1]/div[2]/div[4]",
+          "expanded_element": [
+            {
+              "type": "people_also_ask_ai_overview_expanded_element",
+              "items": null,
+              "references": null,
+              "asynchronous_ai_overview": true
+            }
+          ]
+        }
+      ],
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 3,
+      "rank_absolute": 7,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[1]/div[2]/div[1]/div[1]/div[8]/div[1]/div[1]",
+      "domain": "www.yelp.com",
+      "title": "THE BEST 10 ARTIFICIAL TURF IN ASHEVILLE, NC",
+      "url": "https://www.yelp.com/search?cflt=artificialturf&find_loc=Asheville%2C+NC",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://www.yelp.com › Home Services › Artificial Turf",
+      "website_name": "Yelp",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "Top 10 Best Artificial Turf Near Asheville, North Carolina - With Real Reviews · Blue Ridge Property Services · Ritcheys Removal & Landscape Company · Lion Stone ... Read more",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": {
+        "rating_type": "Max5",
+        "value": 3.9,
+        "votes_count": 91,
+        "rating_max": 5
+      },
+      "price": null,
+      "highlighted": [
+        "Blue Ridge Property Services"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 4,
+      "rank_absolute": 8,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[1]/div[2]/div[1]/div[1]/div[10]/div[1]/div[1]",
+      "domain": "www.facebook.com",
+      "title": "Asheville landscaper recommendations for turf and putting ...",
+      "url": "https://www.facebook.com/groups/whatsupashevillenc/posts/2159891794452445/",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "9 comments  ·  1 year ago",
+      "website_name": "Facebook · What's Up - Asheville, NC",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "Mestanza Landscape LLC and Ramrod and Company LLC are recommended for turf and putting green installation. Shyann Casey Anderson. Read more",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "Mestanza Landscape LLC and Ramrod and Company LLC"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 5,
+      "rank_absolute": 9,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[1]/div[2]/div[1]/div[1]/div[12]/div[1]/div[1]",
+      "domain": "www.globalsynturf.com",
+      "title": "Synthetic Grass in Asheville, North Carolina",
+      "url": "https://www.globalsynturf.com/asheville-north-carolina",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://www.globalsynturf.com › ... › Buncombe County",
+      "website_name": "Global Syn-Turf, Inc.",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "Our experienced installers in Asheville are happy to offer free estimates and quick installation. Call (877) SYN-TURF",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "installers",
+        "Asheville",
+        "installation",
+        "TURF"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 6,
+      "rank_absolute": 10,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[1]/div[2]/div[1]/div[1]/div[14]/div[1]/div[1]",
+      "domain": "find.fusionturf.com",
+      "title": "Asheville, North Carolina 28805 Artificial Turf Installers",
+      "url": "https://find.fusionturf.com/north-carolina/asheville/28805/",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://find.fusionturf.com › north-carolina › asheville",
+      "website_name": "FusionTurf",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "Artificial Grass Installers located in Asheville NC, 28805. Book a free on site consultation with your local FusionTurf artificial turf installer in Asheville. ...",
+      "pre_snippet": null,
+      "extended_snippet": "5.0  · Review by Meghan W",
+      "images": null,
+      "amp_version": false,
+      "rating": {
+        "rating_type": "Max5",
+        "value": 5,
+        "votes_count": null,
+        "rating_max": 5
+      },
+      "price": null,
+      "highlighted": [
+        "Artificial Grass Installers",
+        "Asheville NC",
+        "artificial turf installer",
+        "Asheville"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 7,
+      "rank_absolute": 11,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[1]/div[2]/div[1]/div[1]/div[16]/div[1]/div[1]",
+      "domain": "www.turfinstallationashevillenc.com",
+      "title": "Artificial Turf Installation in Asheville, NC | Turf Labs LLC",
+      "url": "https://www.turfinstallationashevillenc.com/",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://www.turfinstallationashevillenc.com",
+      "website_name": "turfinstallationashevillenc.com",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "Turf Labs LLC is an Artificial Turf Installation Service in Asheville, North Carolina and surrounding areas. We specialize in a variety of Turf Installation ...",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "Artificial Turf Installation Service in Asheville, North Carolina"
+      ],
+      "links": [
+        {
+          "type": "link_element",
+          "title": "Turf Installation",
+          "description": null,
+          "url": "https://www.turfinstallationashevillenc.com/turf-installation",
+          "domain": "www.turfinstallationashevillenc.com"
+        },
+        {
+          "type": "link_element",
+          "title": "Playground Turf",
+          "description": null,
+          "url": "https://www.turfinstallationashevillenc.com/playground-turf",
+          "domain": "www.turfinstallationashevillenc.com"
+        },
+        {
+          "type": "link_element",
+          "title": "Tennis Court Turf",
+          "description": null,
+          "url": "https://www.turfinstallationashevillenc.com/tennis-court-turf",
+          "domain": "www.turfinstallationashevillenc.com"
+        },
+        {
+          "type": "link_element",
+          "title": "About",
+          "description": null,
+          "url": "https://www.turfinstallationashevillenc.com/about",
+          "domain": "www.turfinstallationashevillenc.com"
+        }
+      ],
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 8,
+      "rank_absolute": 12,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[1]/div[2]/div[1]/div[1]/div[18]/div[1]/div[1]",
+      "domain": "www.snowcreekinc.com",
+      "title": "Why More Asheville Homeowners Are Choosing Synthetic ...",
+      "url": "https://www.snowcreekinc.com/snow-creek-blog/why-more-asheville-homeowners-are-choosing-synthetic-turf",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://www.snowcreekinc.com › snow-creek-blog › wh...",
+      "website_name": "Snow Creek Landscaping",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "Nov 1, 2025 — At Snow Creek Landscaping, we specialize in premium artificial turf systems designed to blend seamlessly with Asheville's natural surroundings — ... Read more",
+      "pre_snippet": "11/01/2025 00:00:00",
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "artificial turf",
+        "Asheville's"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": "2025-11-01 00:00:00 +00:00",
+      "rectangle": null
+    },
+    {
+      "type": "organic",
+      "rank_group": 9,
+      "rank_absolute": 13,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[1]/div[2]/div[1]/div[1]/div[20]/div[1]/div[1]",
+      "domain": "www.celebritygreens.com",
+      "title": "Putting Greens and Artificial Grass Installers in Asheville",
+      "url": "https://www.celebritygreens.com/asheville-nc/",
+      "cache_url": null,
+      "related_search_url": null,
+      "breadcrumb": "https://www.celebritygreens.com › asheville-nc",
+      "website_name": "Celebrity Greens",
+      "is_image": false,
+      "is_video": false,
+      "is_featured_snippet": false,
+      "is_malicious": false,
+      "is_web_story": false,
+      "checks": null,
+      "description": "Celebrity Greens of Asheville specializes in designing and installing premium Golf Greens and Artificial Turf in North Carolina.",
+      "pre_snippet": null,
+      "extended_snippet": null,
+      "images": null,
+      "amp_version": false,
+      "rating": null,
+      "price": null,
+      "highlighted": [
+        "designing and installing premium Golf Greens and Artificial Turf"
+      ],
+      "links": null,
+      "faq": null,
+      "extended_people_also_search": null,
+      "about_this_result": null,
+      "related_result": null,
+      "timestamp": null,
+      "rectangle": null
+    },
+    {
+      "type": "related_searches",
+      "rank_group": 1,
+      "rank_absolute": 14,
+      "page": 1,
+      "position": "left",
+      "xpath": "/html[1]/body[1]/div[3]/div[1]/div[14]/div[2]/div[2]/div[1]/div[3]/div[1]/div[1]/div[1]/div[1]/div[2]",
+      "items": [
+        "Artificial turf installation asheville nc reviews",
+        "Best artificial turf installation asheville nc",
+        "Artificial turf installation asheville nc near me"
+      ],
+      "rectangle": null
+    }
+  ],
+  "classified": {
+    "mapPackPresent": true,
+    "localPack": [
+      {
+        "title": "Southwest Greens of Asheville",
+        "url": "https://www.southwestgreensofasheville.com/",
+        "domain": "southwestgreensofasheville.com",
+        "rating": null,
+        "reviewsCount": null,
+        "hasWebsite": true
+      },
+      {
+        "title": "Turf Labs LLC",
+        "url": "https://www.turfinstallationashevillenc.com/",
+        "domain": "turfinstallationashevillenc.com",
+        "rating": 3.5,
+        "reviewsCount": 2,
+        "hasWebsite": true
+      },
+      {
+        "title": "Gardens for Living",
+        "url": "http://gardensforliving.com/",
+        "domain": "gardensforliving.com",
+        "rating": 4.9,
+        "reviewsCount": 26,
+        "hasWebsite": true
+      }
+    ],
+    "mapPackSlotCount": 3,
+    "mapPackWebsiteCount": 3,
+    "mapPackNoWebsiteCount": 0,
+    "directories": {
+      "count": 2,
+      "links": [
+        {
+          "title": "THE BEST 10 ARTIFICIAL TURF IN ASHEVILLE, NC",
+          "url": "https://www.yelp.com/search?cflt=artificialturf&find_loc=Asheville%2C+NC",
+          "domain": "yelp.com",
+          "rankAbsolute": 7
+        },
+        {
+          "title": "Asheville landscaper recommendations for turf and putting ...",
+          "url": "https://www.facebook.com/groups/whatsupashevillenc/posts/2159891794452445/",
+          "domain": "facebook.com",
+          "rankAbsolute": 8
+        }
+      ]
+    },
+    "organicHomePages": {
+      "count": 2,
+      "links": [
+        {
+          "title": "Southwest Greens of Asheville: Synthetic Grass & Artificial Turf ...",
+          "url": "https://www.southwestgreensofasheville.com/",
+          "domain": "southwestgreensofasheville.com",
+          "rankAbsolute": 4,
+          "nicheRelevant": true,
+          "looksEmd": false
+        },
+        {
+          "title": "Artificial Turf Installation in Asheville, NC | Turf Labs LLC",
+          "url": "https://www.turfinstallationashevillenc.com/",
+          "domain": "turfinstallationashevillenc.com",
+          "rankAbsolute": 11,
+          "nicheRelevant": true,
+          "looksEmd": true
+        }
+      ],
+      "nicheRelevantCount": 2
+    },
+    "organicSubPages": {
+      "count": 5,
+      "links": [
+        {
+          "title": "Artificial Grass in Asheville, NC | Turf Lawns for Pets & Golf",
+          "url": "https://www.carolinaartificiallawns.com/asheville-nc/",
+          "domain": "carolinaartificiallawns.com",
+          "rankAbsolute": 5,
+          "nicheRelevant": true,
+          "looksEmd": false
+        },
+        {
+          "title": "Synthetic Grass in Asheville, North Carolina",
+          "url": "https://www.globalsynturf.com/asheville-north-carolina",
+          "domain": "globalsynturf.com",
+          "rankAbsolute": 9,
+          "nicheRelevant": false,
+          "looksEmd": false
+        },
+        {
+          "title": "Asheville, North Carolina 28805 Artificial Turf Installers",
+          "url": "https://find.fusionturf.com/north-carolina/asheville/28805/",
+          "domain": "find.fusionturf.com",
+          "rankAbsolute": 10,
+          "nicheRelevant": true,
+          "looksEmd": false
+        },
+        {
+          "title": "Why More Asheville Homeowners Are Choosing Synthetic ...",
+          "url": "https://www.snowcreekinc.com/snow-creek-blog/why-more-asheville-homeowners-are-choosing-synthetic-turf",
+          "domain": "snowcreekinc.com",
+          "rankAbsolute": 12,
+          "nicheRelevant": false,
+          "looksEmd": false
+        },
+        {
+          "title": "Putting Greens and Artificial Grass Installers in Asheville",
+          "url": "https://www.celebritygreens.com/asheville-nc/",
+          "domain": "celebritygreens.com",
+          "rankAbsolute": 13,
+          "nicheRelevant": false,
+          "looksEmd": false
+        }
+      ],
+      "nicheRelevantCount": 2
+    },
+    "uniqueOrganicDomains": [
+      "southwestgreensofasheville.com",
+      "turfinstallationashevillenc.com",
+      "carolinaartificiallawns.com",
+      "globalsynturf.com",
+      "find.fusionturf.com",
+      "snowcreekinc.com",
+      "celebritygreens.com"
+    ],
+    "paidAds": {
+      "count": 0,
+      "links": []
+    },
+    "uniqueNicheOrganicDomains": [
+      "southwestgreensofasheville.com",
+      "turfinstallationashevillenc.com",
+      "carolinaartificiallawns.com",
+      "find.fusionturf.com"
+    ],
+    "nicheTokens": [
+      "artificial",
+      "turf",
+      "installation"
+    ],
+    "mapPackReviews": {
+      "slotCount": 3,
+      "reviewSampleSize": 3,
+      "avgReviews": 9.3,
+      "maxReviews": 26,
+      "minReviews": 0,
+      "reviewsBySlot": [
+        0,
+        2,
+        26
+      ],
+      "reviewsLabel": "0/2/26"
+    },
+    "features": {
+      "localServicesAds": false,
+      "peopleAlsoAsk": true,
+      "googleReviews": false,
+      "paid": false,
+      "itemTypes": [
+        "local_pack",
+        "organic",
+        "people_also_ask",
+        "related_searches"
+      ]
+    },
+    "peopleAlsoAskQuestions": [
+      "What is the average cost of installing artificial turf?",
+      "How much does it cost to have artificial grass installed?",
+      "What should you put down before laying artificial turf?",
+      "Why are people moving out of Asheville, NC?"
+    ],
+    "organicTitles": [
+      "Southwest Greens of Asheville: Synthetic Grass & Artificial Turf ...",
+      "Artificial Turf Installation in Asheville, NC | Turf Labs LLC",
+      "Artificial Grass in Asheville, NC | Turf Lawns for Pets & Golf",
+      "Synthetic Grass in Asheville, North Carolina",
+      "Asheville, North Carolina 28805 Artificial Turf Installers",
+      "Why More Asheville Homeowners Are Choosing Synthetic ...",
+      "Putting Greens and Artificial Grass Installers in Asheville",
+      "THE BEST 10 ARTIFICIAL TURF IN ASHEVILLE, NC",
+      "Asheville landscaper recommendations for turf and putting ..."
+    ]
+  }
+}
