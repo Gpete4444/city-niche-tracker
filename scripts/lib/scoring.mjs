@@ -201,7 +201,7 @@ export function classifySerpSoftness({
 
   return {
     id: 'mixed',
-    note: 'Between soft and hard — review organic homepage count, domains, Map Pack, and Stage 2 displaceability.',
+    note: 'Between soft and hard ΓÇö review organic homepage count, domains, Map Pack, and Stage 2 displaceability.',
   };
 }
 
@@ -227,7 +227,7 @@ export function classifyDisplaceabilityBand(score) {
 }
 
 /**
- * Aggregate organic page rows into a displaceability score (1–10, higher = easier).
+ * Aggregate organic page rows into a displaceability score (1ΓÇô10, higher = easier).
  */
 export function scoreDisplaceability(pageRows = []) {
   const organicAll = pageRows.filter((p) => p.kind !== 'map_pack');
@@ -253,7 +253,7 @@ export function scoreDisplaceability(pageRows = []) {
       fetchFailedCount,
       hint:
         fetchFailedCount > 0
-          ? `All ${fetchFailedCount} organic page fetch(es) failed — displaceability incomplete.`
+          ? `All ${fetchFailedCount} organic page fetch(es) failed ΓÇö displaceability incomplete.`
           : 'No organic pages to score.',
     };
   }
@@ -280,7 +280,7 @@ export function scoreDisplaceability(pageRows = []) {
   if (strongNichePageShare >= 0.35 || score <= 3) {
     hint = rubric.displaceability.aggregateHints.severalStrongPages;
   } else if (score < 7) {
-    hint = 'Mixed page strength — review individual enrichment.pages before committing.';
+    hint = 'Mixed page strength ΓÇö review individual enrichment.pages before committing.';
   }
   if (fetchFailedCount > 0) {
     hint = `${hint} (${fetchFailedCount} page fetch failure(s) excluded from aggregate).`;
@@ -355,7 +355,7 @@ export function applyDecisionRules({
 /**
  * Weighted overall opportunity score (1 decimal).
  * Requires Stage 1 trio: demand, competition, mapPackGap.
- * jobValue and displaceability are optional — weights renormalize over present inputs.
+ * jobValue and displaceability are optional ΓÇö weights renormalize over present inputs.
  */
 export function proposedScore({
   demand,
