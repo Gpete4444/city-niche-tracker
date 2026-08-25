@@ -1,4 +1,5 @@
 import {
+  autoAcceptNarrativeDraft,
   buildCopyPrompt,
   extractPromptTemplate,
   getCandidateDetail,
@@ -51,7 +52,7 @@ function parseJsonLoose(text) {
 export { parseJsonLoose };
 
 /**
- * Save a Claude.ai (or other) narrative JSON paste as a draft for review/Accept.
+ * Save a Claude.ai (or other) narrative JSON paste and auto-accept when valid.
  */
 export function pasteNarrativeDraft(candidateId, raw) {
   const detail = getCandidateDetail(candidateId);
@@ -92,9 +93,16 @@ export function pasteNarrativeDraft(candidateId, raw) {
     model: null,
     parseError: false,
   });
+  const auto = autoAcceptNarrativeDraft(candidateId);
   return {
     ok: true,
-    draft,
+    draft: auto.accepted ? null : draft,
+    accepted: Boolean(auto.accepted),
+    acceptError: auto.accepted ? null : auto.error || null,
+    acceptCode: auto.accepted ? null : auto.code || null,
+    jobCostOverride: auto.jobCostOverride || false,
+    narrative: auto.narrative || null,
+    approved: auto.approved || null,
     candidate: getCandidateDetail(candidateId),
   };
 }
@@ -121,7 +129,7 @@ function attachClaudeCost(usage, model, costKey) {
 
 /**
  * Call Anthropic Messages API with the candidate-research prompt + research JSON.
- * Writes a draft file; does not accept automatically.
+ * Writes a draft and auto-accepts when validation passes.
  */
 export async function generateNarrativeDraft(candidateId) {
   const detail = getCandidateDetail(candidateId);
@@ -190,6 +198,7 @@ export async function generateNarrativeDraft(candidateId) {
       ok: false,
       parseError: true,
       draft,
+      accepted: false,
       model,
       ...cost,
       copyPrompt: buildCopyPrompt(candidateId),
@@ -197,10 +206,17 @@ export async function generateNarrativeDraft(candidateId) {
   }
 
   const draft = saveNarrativeDraft(candidateId, parsed.value, { model, usage, parseError: false });
+  const auto = autoAcceptNarrativeDraft(candidateId);
   return {
     ok: true,
     parseError: false,
-    draft,
+    draft: auto.accepted ? null : draft,
+    accepted: Boolean(auto.accepted),
+    acceptError: auto.accepted ? null : auto.error || null,
+    acceptCode: auto.accepted ? null : auto.code || null,
+    jobCostOverride: auto.jobCostOverride || false,
+    narrative: auto.narrative || null,
+    approved: auto.approved || null,
     model,
     ...cost,
     copyPrompt: buildCopyPrompt(candidateId),

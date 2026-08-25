@@ -83,19 +83,32 @@ export function acsPlacePopCsvPath() {
   );
 }
 
-function normalizePlaceName(name) {
+function stripCensusPlaceTypeSuffix(name) {
   return String(name || '')
-    .toLowerCase()
-    .replace(/\s+(city|town|village|borough|municipality|cdp|urban county)\s*$/i, '')
-    .replace(/[^a-z0-9\s]/g, ' ')
-    .replace(/\s+/g, ' ')
+    .replace(/\s+CDP$/i, '')
+    .replace(/\s+urban county$/i, '')
+    .replace(/\s+municipality$/i, '')
+    // LSAD legal types are lowercase in NAMELSAD ("Park City city"); do not strip proper-name "City"
+    .replace(/\s+(city|town|village|borough)$/, '')
     .trim();
 }
 
-function displayCityLabel(place) {
-  return String(place || '')
-    .replace(/\s+(city|town|village|borough|municipality|cdp|urban county)\s*$/i, '')
+function normalizePlaceName(name) {
+  let s = stripCensusPlaceTypeSuffix(name)
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
     .trim();
+  // Expand common abbreviations so St./Saint and Mt./Mount share one key
+  s = s
+    .replace(/\bst\b/g, 'saint')
+    .replace(/\bmt\b/g, 'mount')
+    .replace(/\bft\b/g, 'fort');
+  return s;
+}
+
+function displayCityLabel(place) {
+  return stripCensusPlaceTypeSuffix(place);
 }
 
 function parsePop(raw) {

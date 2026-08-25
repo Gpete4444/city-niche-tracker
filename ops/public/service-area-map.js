@@ -210,6 +210,8 @@ async function mountGeoSelectMap(opts) {
   let destroyed = false;
   let seededFromRadius = false;
   let didFit = false;
+  /** @type {{ key: 'name' | 'population', dir: 'asc' | 'desc' }} */
+  let listSort = { key: 'name', dir: 'asc' };
 
   const helpText = isDiscovery
     ? 'Click an in-range city (Min–Max pop) as center. Radius adds/drops in-range cities.'
@@ -221,6 +223,11 @@ async function mountGeoSelectMap(opts) {
         <button type="button" class="btn primary" id="${uid}-accept">Accept selected cities</button>
       </div>
       <div id="${uid}-page-picker" class="sa-page-picker hidden" hidden></div>
+      <div id="${uid}-save-progress" class="job-progress hidden" aria-live="polite" style="margin-top:0.65rem">
+        <div class="job-progress-track"><div class="job-progress-bar" id="${uid}-save-progress-bar"></div></div>
+        <p class="job-progress-label" id="${uid}-save-progress-label">Saving…</p>
+        <p class="job-progress-detail" id="${uid}-save-progress-detail">Starting…</p>
+      </div>
       <p class="muted small" id="${uid}-accept-status"></p>`;
 
   mapHost.innerHTML = `<div id="${uid}-map" class="sa-map-canvas" role="application" aria-label="${
@@ -235,7 +242,7 @@ async function mountGeoSelectMap(opts) {
       <span class="muted small" id="${uid}-status">Loading map…</span>
       <h4 class="sa-list-title">Selected cities <span id="${uid}-count" class="muted"></span></h4>
       <p class="muted small">${esc(helpText)}</p>
-      <ul id="${uid}-list" class="sa-list"></ul>
+      <div id="${uid}-list" class="sa-table-wrap"></div>
       ${acceptBlock}
     </div>
   `;
@@ -245,10 +252,31 @@ async function mountGeoSelectMap(opts) {
   const countEl = controlsHost.querySelector(`#${uid}-count`);
   const acceptStatus = controlsHost.querySelector(`#${uid}-accept-status`);
   const pagePickerEl = controlsHost.querySelector(`#${uid}-page-picker`);
+  const saveProgressEl = controlsHost.querySelector(`#${uid}-save-progress`);
+  const saveProgressBar = controlsHost.querySelector(`#${uid}-save-progress-bar`);
+  const saveProgressLabel = controlsHost.querySelector(`#${uid}-save-progress-label`);
+  const saveProgressDetail = controlsHost.querySelector(`#${uid}-save-progress-detail`);
   const slider = controlsHost.querySelector(`#${uid}-radius`);
   const radiusVal = controlsHost.querySelector(`#${uid}-radius-val`);
   const acceptBtn = controlsHost.querySelector(`#${uid}-accept`);
   const mapEl = mapHost.querySelector(`#${uid}-map`);
+
+  function setSaveProgress(visible, { label, detail, current, total } = {}) {
+    if (!saveProgressEl) return;
+    saveProgressEl.classList.toggle('hidden', !visible);
+    if (saveProgressLabel && label) saveProgressLabel.textContent = label;
+    if (saveProgressDetail && detail) saveProgressDetail.textContent = detail;
+    if (saveProgressBar) {
+      const known = Number(total) > 0 && Number(current) >= 0;
+      saveProgressBar.classList.toggle('is-determinate', known);
+      if (known) {
+        const pct = Math.max(4, Math.min(100, Math.round((Number(current) / Number(total)) * 100)));
+        saveProgressBar.style.width = `${pct}%`;
+      } else {
+        saveProgressBar.style.width = '';
+      }
+    }
+  }
 
   /** Operator-controlled SEO page keys (includes primary). */
   let pageKeySet = new Set();
@@ -388,39 +416,104 @@ async function mountGeoSelectMap(opts) {
     });
   }
 
+  function sortIndicator(key) {
+    if (listSort.key !== key) return '';
+    return listSort.dir === 'asc' ? ' ↑' : ' ↓';
+  }
+
+  function compareSelectedRows(a, b, pk) {
+    const aKey = placeKey(a.name, a.state);
+    const bKey = placeKey(b.name, b.state);
+    const ap = Boolean(pk) && aKey === pk;
+    const bp = Boolean(pk) && bKey === pk;
+    if (ap !== bp) return ap ? -1 : 1;
+
+    const dir = listSort.dir === 'desc' ? -1 : 1;
+    if (listSort.key === 'population') {
+      const aPop = popByKey.has(aKey) ? Number(popByKey.get(aKey)) : null;
+      const bPop = popByKey.has(bKey) ? Number(popByKey.get(bKey)) : null;
+      const aOk = aPop != null && Number.isFinite(aPop);
+      const bOk = bPop != null && Number.isFinite(bPop);
+      // Missing pop: last when desc (high→low), first when asc (low→high)
+      if (aOk !== bOk) {
+        if (listSort.dir === 'desc') return aOk ? -1 : 1;
+        return aOk ? 1 : -1;
+      }
+      if (aOk && bOk && aPop !== bPop) return (aPop - bPop) * dir;
+      return a.name.localeCompare(b.name);
+    }
+    const byName = a.name.localeCompare(b.name);
+    if (byName) return byName * dir;
+    return String(a.state || '').localeCompare(String(b.state || '')) * dir;
+  }
+
   function renderList() {
     const pages = pageKeys();
     const pk = primaryKey();
-    const rows = [...selected.values()].sort((a, b) => {
-      const ap = placeKey(a.name, a.state) === pk;
-      const bp = placeKey(b.name, b.state) === pk;
-      if (ap !== bp) return ap ? -1 : 1;
-      return a.name.localeCompare(b.name);
-    });
+    const rows = [...selected.values()].sort((a, b) => compareSelectedRows(a, b, pk));
     if (countEl) countEl.textContent = `(${rows.length})`;
     if (!listEl) return;
-    listEl.innerHTML = rows
+
+    const pageHead = showPages ? `<th class="sa-th-page" scope="col"></th>` : '';
+    const body = rows
       .map((r) => {
         const key = placeKey(r.name, r.state);
         const isPrimary = Boolean(pk) && key === pk;
         const hasPage = showPages && pages.has(key);
         const pop = popByKey.get(key);
-        const pageBtn = showPages
-          ? `<button type="button" class="sa-page-toggle${hasPage ? ' is-on' : ''}" data-page-key="${esc(
+        const pageCell = showPages
+          ? `<td class="sa-td-page"><button type="button" class="sa-page-toggle${hasPage ? ' is-on' : ''}" data-page-key="${esc(
               key,
             )}" ${isPrimary ? 'disabled title="Primary always has a page"' : 'title="Toggle location page"'}>${
               hasPage ? PAGE_ICON : 'Page'
-            }</button>`
+            }</button></td>`
           : '';
-        return `<li class="sa-list-item${isPrimary ? ' is-primary' : ''}${hasPage ? ' has-page' : ''}" data-key="${esc(key)}">
-          ${pageBtn}
-          <button type="button" class="sa-list-btn" ${isPrimary ? 'disabled' : ''}>
-            <span class="sa-list-name">${esc(r.name)}, ${esc(r.state)}</span>
-            <span class="muted">${pop != null ? esc(fmtPop(pop)) : ''}${isPrimary ? ' · center' : ' · remove'}</span>
-          </button>
-        </li>`;
+        return `<tr class="sa-list-item${isPrimary ? ' is-primary' : ''}${hasPage ? ' has-page' : ''}" data-key="${esc(key)}">
+          ${pageCell}
+          <td class="sa-td-city">
+            <button type="button" class="sa-list-btn" ${isPrimary ? 'disabled' : ''} title="${
+              isPrimary ? 'Primary center' : 'Remove from coverage'
+            }">
+              <span class="sa-list-name">${esc(r.name)}, ${esc(r.state)}</span>
+              <span class="muted">${isPrimary ? 'center' : 'remove'}</span>
+            </button>
+          </td>
+          <td class="sa-td-pop muted">${pop != null ? esc(fmtPop(pop)) : '—'}</td>
+        </tr>`;
       })
       .join('');
+
+    listEl.innerHTML = `
+      <table class="sa-table">
+        <thead>
+          <tr>
+            ${pageHead}
+            <th scope="col">
+              <button type="button" class="sa-sort-btn${listSort.key === 'name' ? ' is-active' : ''}" data-sort="name">City${sortIndicator(
+                'name',
+              )}</button>
+            </th>
+            <th scope="col" class="sa-th-pop">
+              <button type="button" class="sa-sort-btn${listSort.key === 'population' ? ' is-active' : ''}" data-sort="population">Pop${sortIndicator(
+                'population',
+              )}</button>
+            </th>
+          </tr>
+        </thead>
+        <tbody>${body || `<tr><td colspan="${showPages ? 3 : 2}" class="muted" style="padding:0.5rem 0.6rem">None selected</td></tr>`}</tbody>
+      </table>`;
+
+    listEl.querySelectorAll('.sa-sort-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const key = btn.getAttribute('data-sort') === 'population' ? 'population' : 'name';
+        if (listSort.key === key) {
+          listSort = { key, dir: listSort.dir === 'asc' ? 'desc' : 'asc' };
+        } else {
+          listSort = { key, dir: key === 'population' ? 'desc' : 'asc' };
+        }
+        renderList();
+      });
+    });
     listEl.querySelectorAll('.sa-page-toggle:not([disabled])').forEach((btn) => {
       btn.addEventListener('click', (ev) => {
         ev.preventDefault();
@@ -509,16 +602,41 @@ async function mountGeoSelectMap(opts) {
   async function doAccept() {
     if (!onAccept) return;
     if (acceptBtn) acceptBtn.disabled = true;
-    if (acceptStatus) acceptStatus.textContent = 'Saving…';
+    if (acceptStatus) acceptStatus.textContent = '';
+    setSaveProgress(true, {
+      label: 'Saving…',
+      detail: 'Saving coverage + location pages…',
+      current: 0,
+      total: 0,
+    });
     try {
-      await onAccept({
-        radiusMiles: radius,
-        selectedCities: [...selected.values()],
-        primaryCity,
-        locationPageCities: locationPageCitiesPayload(),
-      });
+      await onAccept(
+        {
+          radiusMiles: radius,
+          selectedCities: [...selected.values()],
+          primaryCity,
+          locationPageCities: locationPageCitiesPayload(),
+        },
+        {
+          onProgress: (p) => {
+            setSaveProgress(true, {
+              label: p.label || 'Saving…',
+              detail: p.detail || p.label || 'Working…',
+              current: p.current,
+              total: p.total,
+            });
+          },
+        },
+      );
+      setSaveProgress(false);
       if (acceptStatus) acceptStatus.textContent = 'Saved coverage + location pages.';
     } catch (e) {
+      setSaveProgress(true, {
+        label: 'Save failed',
+        detail: e.message || String(e),
+        current: 0,
+        total: 0,
+      });
       if (acceptStatus) acceptStatus.textContent = e.message || String(e);
     } finally {
       if (acceptBtn) acceptBtn.disabled = false;

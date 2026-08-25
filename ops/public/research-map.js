@@ -31,7 +31,7 @@ let labelsPermanent = false;
 let labelTimer = null;
 const permanentLabelLayers = new Set();
 /** Status line to restore after a background reload. */
-let highlightStatus = null;
+let selectionLabel = null;
 
 const ui = {
   citiesOn: true,
@@ -84,6 +84,13 @@ function setStatus(text, kind = '') {
   if (!n) return;
   n.textContent = text || '';
   n.dataset.kind = kind;
+}
+
+function setSelectionLabel(text) {
+  selectionLabel = text || null;
+  const n = el('rm-selection');
+  if (!n) return;
+  n.textContent = selectionLabel || '';
 }
 
 function popInRange(pop) {
@@ -145,6 +152,7 @@ function bindFeature(layer, kind, feature) {
     if (stateInput) stateInput.value = p.state || '';
     if (cityInput) cityInput.value = kind === 'places' ? p.name || '' : '';
     highlightFeature(feature, kind);
+    setSelectionLabel(`${p.name || ''}, ${p.state || ''} · ${fmtPop(p.population)}`);
   });
 }
 
@@ -379,8 +387,7 @@ function restyleLoadedLayers() {
       layer.setStyle(featureStyle(kind, { selected: true, inRange }));
     });
   }
-  if (highlightStatus) setStatus(highlightStatus, 'ok');
-  else setStatus(statusFromLayers(), 'ok');
+  setStatus(statusFromLayers(), 'ok');
   scheduleLabelUpdate();
 }
 
@@ -430,8 +437,7 @@ async function reloadLayers({ fit = false } = {}) {
         map.fitBounds(US_BOUNDS);
       }
 
-      if (highlightStatus) setStatus(highlightStatus, 'ok');
-      else if (!ui.citiesOn && !ui.countiesOn) setStatus('Both layers off');
+      if (!ui.citiesOn && !ui.countiesOn) setStatus('Both layers off');
       else {
         const scope = layerStateScope ? ` · ${layerStateScope}` : '';
         const parts = [];
@@ -504,8 +510,7 @@ function zoomToFeature(feature, kind = 'places') {
   if (!feature || !map) return;
   highlightFeature(feature, kind);
   const p = feature.properties || {};
-  highlightStatus = `${p.name || ''}, ${p.state || ''} · ${fmtPop(p.population)}`;
-  setStatus(highlightStatus, 'ok');
+  setSelectionLabel(`${p.name || ''}, ${p.state || ''} · ${fmtPop(p.population)}`);
 }
 
 async function onShow() {
@@ -544,6 +549,7 @@ async function onShow() {
         });
       }
       setStatus(`No map match for ${city}, ${stateAbbr}`, 'err');
+      setSelectionLabel(null);
       return;
     }
 
@@ -568,10 +574,9 @@ async function onShow() {
     layerStateScope = stateAbbr;
     zoomToFeature(feature, 'places');
     if (widened) {
-      highlightStatus = `${feature.properties?.name || city}, ${stateAbbr} · ${fmtPop(
-        pop,
-      )} (filter widened)`;
-      setStatus(highlightStatus, 'ok');
+      setSelectionLabel(
+        `${feature.properties?.name || city}, ${stateAbbr} · ${fmtPop(pop)} (filter widened)`,
+      );
     }
     await reloadLayers();
     return;
@@ -593,7 +598,7 @@ async function onShow() {
         const layer = Lref.geoJSON(data);
         const b = layer.getBounds();
         if (b.isValid()) map.fitBounds(b.pad(0.08));
-        highlightStatus = null;
+        setSelectionLabel(null);
         setStatus(`Zoomed to ${stateAbbr}`, 'ok');
       } else {
         setStatus(`No counties for ${stateAbbr}`, 'err');
@@ -797,7 +802,7 @@ function wireControls() {
   wired = true;
   wireSuggest();
   el('rm-apply')?.addEventListener('click', () => {
-    highlightStatus = null;
+    setSelectionLabel(null);
     readFilterInputs();
     if (placesLayer || countiesLayer) restyleLoadedLayers();
     else reloadLayers().catch((error) => setStatus(error?.message || 'Load failed', 'err'));
@@ -817,7 +822,7 @@ function wireControls() {
   });
   el('rm-reset')?.addEventListener('click', async () => {
     layerStateScope = '';
-    highlightStatus = null;
+    setSelectionLabel(null);
     if (highlightLayer && map) {
       try {
         map.removeLayer(highlightLayer);

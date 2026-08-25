@@ -79,11 +79,11 @@ Scores each organic homepage/sub-page (not a promise of ranking in 4–6 months)
 | `moderate` | Mixed |
 | `strong_niche_page` | Purpose-built niche page / higher page Rank |
 
-| Displaceability score | Band | Decision hint |
+| Displaceability score | Band | Notes |
 | --- | --- | --- |
-| ≥ 7 | high | Mostly thin stubs → lean **pursue** even at mid proposedScore |
+| ≥ 7 | high | Mostly thin stubs — favorable openness signal |
 | 4–6 | mid | Mixed — review `enrichment.pages` |
-| ≤ 3 | low | Strong niche pages → **deprioritize** |
+| ≤ 3 | low | Strong niche pages — harder organic lane |
 
 ## SERP softness
 
@@ -91,16 +91,15 @@ Scores each organic homepage/sub-page (not a promise of ranking in 4–6 months)
 - **Hard:** (≥2 niche homepages **and** Map Pack present) **or** ≥8 unique organic domains  
 - **Mixed:** everything else → use displaceability when available
 
-## Decision rules (specialty / high-ticket)
+## Decision rules (Overall score)
 
-1. Mid+ volume + soft SERP → **pursue**
-2. Mid+ volume + mixed SERP + high displaceability → **pursue**
-3. Mid volume + mixed SERP + low displaceability → **deprioritize**
-4. Mid volume + hard SERP → **deprioritize**
-5. Low volume + soft SERP + high ticket → **maybe** (portfolio bet)
-6. Low volume otherwise → **pass** (if ticket still unknown and SERP is soft → **review**)
-7. High/very-high volume + hard SERP → **pass_unless_gbp_angle**
-8. Else → **review**
+Rover recommends from **Overall (proposedScore)** after Research stages **1 Research · 2 Enrich · 3 Narrative** are complete:
+
+1. Stages 1–3 incomplete or no Overall score → **review**
+2. Overall **≥ 7** → **pursue**
+3. Overall **≥ 6 and &lt; 7** → **maybe**
+4. Overall **&lt; 6** → **pass**
+5. **hold** is human-only (not auto-recommended)
 
 ## Path to win: two local SERP lanes
 

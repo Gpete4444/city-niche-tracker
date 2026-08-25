@@ -293,12 +293,16 @@ export function findPlaceFeatureLocal(city, state) {
   const { byState } = loadPlaces();
   const abbr = String(state || '').trim().toUpperCase();
   const needle = normalizePlaceName(city);
+  if (!needle || !abbr) return null;
   const list = byState.get(abbr) || [];
   const exact = list.find((f) => normalizePlaceName(f.properties?.name) === needle);
   if (exact) return exact;
-  return (
-    list.find((f) => normalizePlaceName(f.properties?.name).startsWith(needle)) || null
+  // Multi-word prefix only (e.g. "Salt Lake" → "Salt Lake City"); never bare "Park" → "Park City"
+  if (!needle.includes(' ')) return null;
+  const prefixes = list.filter((f) =>
+    normalizePlaceName(f.properties?.name).startsWith(`${needle} `),
   );
+  return prefixes.length === 1 ? prefixes[0] : null;
 }
 
 /**

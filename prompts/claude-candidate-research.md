@@ -87,7 +87,7 @@ Return ONE JSON object (no markdown fences) with this shape:
     "ticketClass": "low|mid|high",
     "displaceabilityBand": "low|mid|high|null",
     "decision": {
-      "decision": "pursue|deprioritize|maybe|pass|pass_unless_gbp_angle|review",
+      "decision": "pursue|maybe|pass|hold|review",
       "ruleId": "string",
       "summary": "string"
     },

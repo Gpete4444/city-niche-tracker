@@ -14,7 +14,7 @@
       document.documentElement.setAttribute('data-theme', t);
     } catch (_) {}
   </script>
-  <link rel="stylesheet" href="/styles.css?v=20260823jobs1" />
+  <link rel="stylesheet" href="/styles.css?v=20260825mapSelection" />
   <link rel="stylesheet" href="/brand/rover-loader.css" />
 </head>
 <body>
@@ -24,7 +24,28 @@
         <img class="top-brand-logo top-brand-logo--light" src="/brand/rover-logo-light.png" alt="" width="800" height="168" decoding="async" />
         <img class="top-brand-logo top-brand-logo--dark" src="/brand/rover-logo-dark.png" alt="" width="800" height="168" decoding="async" />
       </span>
-      <span class="top-version muted small" title="Rover product version">v1.1</span>
+      <span class="top-version muted small" title="Rover product version">v1.2</span>
+    </div>
+    <nav class="top-nav" aria-label="Primary">
+      <div class="nav-group" data-nav-group="potential">
+        <span class="nav-group-label">Potential Candidates</span>
+        <div class="nav-group-btns">
+          <button type="button" class="nav-btn active" data-view="discovery">Discovery</button>
+          <button type="button" class="nav-btn" data-view="research">Research</button>
+        </div>
+      </div>
+      <button type="button" class="nav-btn nav-btn-map" data-view="map">Map</button>
+      <div class="nav-group" data-nav-group="candidates">
+        <span class="nav-group-label">Candidates</span>
+        <div class="nav-group-btns">
+          <button type="button" class="nav-btn" data-view="website-builder">Website Builder</button>
+          <button type="button" class="nav-btn" data-view="launched-sites">Launched Sites</button>
+          <button type="button" class="nav-btn" data-view="phone">Phone</button>
+        </div>
+      </div>
+    </nav>
+    <div class="top-right">
+      <div id="dfs-balance" class="balance-chip muted">DFS …</div>
       <div class="jobs-wrap">
         <button
           type="button"
@@ -48,27 +69,6 @@
           </div>
         </div>
       </div>
-    </div>
-    <nav class="top-nav" aria-label="Primary">
-      <div class="nav-group" data-nav-group="potential">
-        <span class="nav-group-label">Potential Candidates</span>
-        <div class="nav-group-btns">
-          <button type="button" class="nav-btn active" data-view="discovery">Discovery</button>
-          <button type="button" class="nav-btn" data-view="research">Research</button>
-        </div>
-      </div>
-      <button type="button" class="nav-btn nav-btn-map" data-view="map">Map</button>
-      <div class="nav-group" data-nav-group="candidates">
-        <span class="nav-group-label">Candidates</span>
-        <div class="nav-group-btns">
-          <button type="button" class="nav-btn" data-view="website-builder">Website Builder</button>
-          <button type="button" class="nav-btn" data-view="launched-sites">Launched Sites</button>
-          <button type="button" class="nav-btn" data-view="phone">Phone</button>
-        </div>
-      </div>
-    </nav>
-    <div class="top-right">
-      <div id="dfs-balance" class="balance-chip muted">DFS …</div>
       <div class="settings-wrap">
         <button
           type="button"
@@ -154,6 +154,7 @@
       <div id="candidate-source-legend" class="discovery-source-legend" aria-label="Column data sources"></div>
 
       <div class="candidate-filters">
+        <div class="candidate-filters-stack">
         <div class="candidate-filter-row">
           <div class="candidate-filter-cluster">
             <span class="candidate-filter-label">Find</span>
@@ -165,18 +166,7 @@
               <option value="maybe">maybe</option>
               <option value="review">review</option>
               <option value="hold">hold</option>
-              <option value="deprioritize">deprioritize</option>
               <option value="pass">pass</option>
-              <option value="pass_unless_gbp_angle">pass_unless_gbp_angle</option>
-            </select>
-            <select id="candidate-stage-filter">
-              <option value="">Stage: all</option>
-              <option value="new">new</option>
-              <option value="researched">researched</option>
-              <option value="enriched">enriched</option>
-              <option value="narrative_draft">narrative_draft</option>
-              <option value="narrative_accepted">narrative_accepted</option>
-              <option value="prospected">prospected</option>
             </select>
             <select id="candidate-batch-filter" data-tip="Filter by discovery batch">
               <option value="">Batch: all</option>
@@ -190,49 +180,54 @@
               <option value="archived">Archived</option>
               <option value="all">All</option>
             </select>
-          </div>
-          <div class="candidate-filter-cluster">
-            <span class="candidate-filter-label">Selection</span>
-            <button type="button" class="btn" id="candidate-select-filtered">Select filtered</button>
-            <button type="button" class="btn" id="candidate-clear-selection">Clear selection</button>
-            <button
-              type="button"
-              class="btn"
-              id="candidate-add-to-sites-btn"
-              disabled
-              data-tip="Upsert checkbox selection into Launched Sites"
-            >Add to Launched Sites</button>
-            <span id="candidate-selection-count" class="candidate-filter-meta muted"></span>
             <span id="candidate-filter-count" class="candidate-filter-meta muted"></span>
           </div>
         </div>
-        <div class="candidate-filter-row">
-          <div class="candidate-filter-cluster">
-            <span class="candidate-filter-label">Decision</span>
-            <select id="candidate-batch-decision" disabled>
-              <option value="">—</option>
-              <option value="pursue">pursue</option>
-              <option value="maybe">maybe</option>
-              <option value="review">review</option>
-              <option value="hold">hold</option>
-              <option value="deprioritize">deprioritize</option>
-              <option value="pass">pass</option>
-              <option value="pass_unless_gbp_angle">pass_unless_gbp_angle</option>
-            </select>
-            <button type="button" class="btn" id="candidate-batch-decision-btn" disabled>Apply</button>
+        <details id="candidate-bulk-actions" class="candidate-bulk-details">
+          <summary class="candidate-bulk-summary">
+            <span class="candidate-filter-label">Selection/Decision/Groups</span>
+            <span id="candidate-bulk-summary-meta" class="candidate-filter-meta muted"></span>
+          </summary>
+          <div class="candidate-bulk-body">
+            <div class="candidate-filter-cluster">
+              <span class="candidate-filter-label">Selection</span>
+              <button type="button" class="btn" id="candidate-select-filtered">Select filtered</button>
+              <button type="button" class="btn" id="candidate-clear-selection">Clear selection</button>
+              <button
+                type="button"
+                class="btn"
+                id="candidate-add-to-sites-btn"
+                disabled
+                data-tip="Upsert checkbox selection into Launched Sites"
+              >Add to Launched Sites</button>
+              <span id="candidate-selection-count" class="candidate-filter-meta muted"></span>
+            </div>
+            <div class="candidate-filter-cluster">
+              <span class="candidate-filter-label">Decision</span>
+              <select id="candidate-batch-decision" disabled>
+                <option value="">—</option>
+                <option value="pursue">pursue</option>
+                <option value="maybe">maybe</option>
+                <option value="review">review</option>
+                <option value="hold">hold</option>
+                <option value="pass">pass</option>
+              </select>
+              <button type="button" class="btn" id="candidate-batch-decision-btn" disabled>Apply</button>
+            </div>
+            <div class="candidate-filter-cluster">
+              <span class="candidate-filter-label">Groups</span>
+              <select id="candidate-group-action" disabled data-tip="Named group for selection">
+                <option value="">—</option>
+                <option value="__new">New group…</option>
+              </select>
+              <button type="button" class="btn" id="candidate-group-add-btn" disabled data-tip="Add selection to group">Add</button>
+              <button type="button" class="btn" id="candidate-group-remove-btn" disabled data-tip="Remove selection from group">Remove</button>
+              <button type="button" class="btn" id="candidate-group-manage-btn" data-tip="Rename or delete a named group">Manage groups</button>
+              <button type="button" class="btn" id="candidate-archive-btn" disabled data-tip="Hide selection from Active list (keeps files)">Archive</button>
+              <button type="button" class="btn" id="candidate-unarchive-btn" disabled data-tip="Restore selection to Active list">Unarchive</button>
+            </div>
           </div>
-          <div class="candidate-filter-cluster">
-            <span class="candidate-filter-label">Groups</span>
-            <select id="candidate-group-action" disabled data-tip="Named group for selection">
-              <option value="">—</option>
-              <option value="__new">New group…</option>
-            </select>
-            <button type="button" class="btn" id="candidate-group-add-btn" disabled data-tip="Add selection to group">Add</button>
-            <button type="button" class="btn" id="candidate-group-remove-btn" disabled data-tip="Remove selection from group">Remove</button>
-            <button type="button" class="btn" id="candidate-group-manage-btn" data-tip="Rename or delete a named group">Manage groups</button>
-            <button type="button" class="btn" id="candidate-archive-btn" disabled data-tip="Hide selection from Active list (keeps files)">Archive</button>
-            <button type="button" class="btn" id="candidate-unarchive-btn" disabled data-tip="Restore selection to Active list">Unarchive</button>
-          </div>
+        </details>
         </div>
       </div>
 
@@ -281,7 +276,7 @@
             <button type="button" data-tab="enrichment" data-stage="2" class="tab tab-stage-2">2 · Enrich</button>
             <button type="button" data-tab="narrative" data-stage="3" class="tab tab-stage-narr">3 · Narrative</button>
             <span class="tab-sep" aria-hidden="true"></span>
-            <button type="button" data-tab="prospects" data-stage="4" class="tab tab-stage-4 tab-secondary">Prospects</button>
+            <button type="button" data-tab="prospects" data-stage="4" class="tab tab-stage-4 tab-secondary">4 · Prospects</button>
           </div>
           <div class="tabs-row tabs-row-build" data-pipeline-tabs="website-builder">
             <span class="tabs-row-label">Website Builder</span>
@@ -607,7 +602,7 @@
               class="btn primary"
               id="discovery-process-btn"
               disabled
-              data-tip="Requires a Human decision on every row. pursue/maybe/review/hold → Candidates; pass/deprioritize → tracked list."
+              data-tip="Requires a Human decision on every row. pursue/maybe/review/hold → Candidates; pass → tracked list."
             >Process batch</button>
             <button
               type="button"
@@ -631,17 +626,13 @@
             <option value="maybe">maybe</option>
             <option value="review">review</option>
             <option value="hold">hold</option>
-            <option value="deprioritize">deprioritize</option>
             <option value="pass">pass</option>
-            <option value="pass_unless_gbp_angle">pass_unless_gbp_angle</option>
           </select>
           <select id="discovery-filter-rec">
             <option value="">Rec: all</option>
             <option value="pursue">pursue</option>
             <option value="maybe">maybe</option>
             <option value="review">review</option>
-            <option value="deprioritize">deprioritize</option>
-            <option value="pass_unless_gbp_angle">pass_unless_gbp_angle</option>
           </select>
           <select id="discovery-filter-mappack">
             <option value="">Map Pack: all</option>
@@ -717,10 +708,10 @@
             />
             <ul id="rm-city-suggest" class="suggest-list hidden" role="listbox" hidden></ul>
           </span>
-          <span class="muted rm-city-hint">Type to filter — showing top matches.</span>
         </label>
         <button type="button" class="btn primary" id="rm-show">Show</button>
         <button type="button" class="btn" id="rm-reset">Reset</button>
+        <span id="rm-selection" class="rm-selection" aria-live="polite"></span>
         <span id="rm-status" class="rm-status muted"></span>
       </div>
       <div id="research-map" class="rm-canvas" aria-label="Research map"></div>
@@ -946,6 +937,6 @@
     </div>
   </div>
 
-  <script src="/app.js?v=20260819sc6" type="module"></script>
+  <script src="/app.js?v=20260825mapSelection" type="module"></script>
 </body>
 </html>

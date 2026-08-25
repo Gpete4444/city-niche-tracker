@@ -118,7 +118,11 @@ function simplifyGeometry(geometry) {
 
 function displayPlaceName(raw) {
   return String(raw || '')
-    .replace(/\s+(city|town|village|borough|municipality|cdp|urban county)\s*$/i, '')
+    .replace(/\s+CDP$/i, '')
+    .replace(/\s+urban county$/i, '')
+    .replace(/\s+municipality$/i, '')
+    // LSAD legal types are lowercase in NAMELSAD ("Park City city"); do not strip proper-name "City"
+    .replace(/\s+(city|town|village|borough)$/, '')
     .trim();
 }
 

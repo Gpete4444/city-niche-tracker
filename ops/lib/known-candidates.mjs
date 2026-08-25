@@ -140,7 +140,7 @@ export function trackedDecisionsPath() {
   return TRACKED_CSV;
 }
 
-/** Load pass/deprioritize/etc. tracking rows. */
+/** Load tracked (pass/etc.) decisions. */
 export function loadTrackedDecisions() {
   if (!existsSync(TRACKED_CSV)) return [];
   try {

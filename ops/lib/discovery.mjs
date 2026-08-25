@@ -68,7 +68,7 @@ export const DISCOVERY_COLUMNS = [
 /** Human decisions that create/link Candidates. */
 export const PROMOTE_DECISIONS = ['pursue', 'maybe', 'review', 'hold'];
 /** Human decisions stored for anti-dupe only — not Candidates. */
-export const TRACK_ONLY_DECISIONS = ['pass', 'deprioritize', 'pass_unless_gbp_angle'];
+export const TRACK_ONLY_DECISIONS = ['pass'];
 
 export function discoveryRowProcessStatus(row) {
   const status = String(row?.process_status || '').trim().toLowerCase();

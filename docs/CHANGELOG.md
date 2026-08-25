@@ -1,5 +1,16 @@
 # Rover changelog
 
+## Version 1.2 (`1.2.0`)
+
+Operator UX and decision/map reliability since 1.1:
+
+- **Tables:** Content-fit column widths with session drag-resize; Batch/Notes default ~14ch; Discovery Notes match; stage progress column; freeze strip; Homepages/Subpages centered
+- **Research filters:** Compact Find + Selection/Decision/Groups accordion (manual open only; no auto-toggle; no deselect on accordion/toolbar chrome)
+- **Stages:** Always-visible Stage 1–4 boxes (actions disabled until selection) to stop table jump
+- **Short viewports:** Page scroll unlocked on Discovery / Research / Website Builder / Launched Sites / Phone when the window is short or narrow
+- **Decisions:** Score-based recommend (pursue ≥7 / maybe 6–7 / pass <6); Discovery stays review until Research stages 1–3; migration helper on startup
+- **Map:** Fix *City place names (Park City, etc.); St/Mt/Ft aliases; safer Show matching; selection label beside Reset
+
 ## Version 1.1 (`1.1.0`) — continued
 
 ### Structural Openness

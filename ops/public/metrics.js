@@ -342,19 +342,19 @@ export function serpSoftnessHtml(id) {
       'SERP softness: soft',
       '≤1 niche homepage and ≤5 unique organic domains.',
       'Few dedicated niche sites — favorable for a new site.',
-      'Used by pursue/deprioritize decision rules (separate from Organic openness 1–10).',
+      'Used by Overall score / openness signals (separate from decision bands).',
     ].join('\n'),
     mixed: [
       'SERP softness: mixed',
       'Between soft and hard — not sparse, not fully crowded.',
       'Weight displaceability and Organic openness more heavily.',
-      'Used by pursue/deprioritize decision rules (separate from Organic openness 1–10).',
+      'Used by Overall score / openness signals (separate from decision bands).',
     ].join('\n'),
     hard: [
       'SERP softness: hard',
       'Map Pack filled with strong locals and/or several dedicated niche sites (≥2 homes + pack, or ≥8 unique domains).',
       'Difficult blue-link SERP.',
-      'Used by pursue/deprioritize decision rules (separate from Organic openness 1–10).',
+      'Used by Overall score / openness signals (separate from decision bands).',
     ].join('\n'),
   };
   const tone = id === 'soft' ? 'good' : id === 'hard' ? 'bad' : id === 'mixed' ? 'mixed' : 'neutral';

@@ -398,7 +398,7 @@ function placeSeoLabels(items, bounds) {
   return result;
 }
 
-export async function generateCoverageMapSvg(config, outputPath) {
+export async function generateCoverageMapSvg(config, outputPath, { onProgress } = {}) {
   const areas = config.coverageAreas?.length
     ? config.coverageAreas
     : [
@@ -413,6 +413,14 @@ export async function generateCoverageMapSvg(config, outputPath) {
     throw Object.assign(new Error('No coverage areas / suburbs configured'), { status: 400 });
   }
 
+  const report = (payload) => {
+    try {
+      onProgress?.(payload);
+    } catch {
+      /* ignore UI callback errors */
+    }
+  };
+
   const userAgent = `${config.domain || 'rover.local'} coverage-map generator`;
   const boundaries = [];
   const missingBoundaries = [];
@@ -421,13 +429,21 @@ export async function generateCoverageMapSvg(config, outputPath) {
   for (let i = 0; i < areas.length; i++) {
     const area = areas[i];
     const label = `${String(area.name || '').trim()}, ${String(area.state || '').trim()}`;
-    console.log(`[coverage-map] ${i + 1}/${total} ${label || area.name || 'unknown'}…`);
+    const current = i + 1;
+    report({
+      phase: 'coverage-map',
+      current,
+      total,
+      label: label || String(area.name || 'unknown'),
+      detail: `Coverage map ${current}/${total} · ${label || area.name || 'unknown'}`,
+    });
+    console.log(`[coverage-map] ${current}/${total} ${label || area.name || 'unknown'}…`);
     try {
       boundaries.push(await fetchBoundary(area, userAgent));
     } catch (e) {
       missingBoundaries.push(label.replace(/,\s*$/, '') || String(area.name || 'unknown'));
       console.warn(
-        `[coverage-map] ${i + 1}/${total} skipped: ${e?.message || e}`,
+        `[coverage-map] ${current}/${total} skipped: ${e?.message || e}`,
       );
     }
     await sleep(1100);
@@ -621,6 +637,13 @@ export async function generateCoverageMapSvg(config, outputPath) {
   <text x="40" y="662" class="attribution">Boundary data © OpenStreetMap contributors · ODbL</text>
 </svg>`;
 
+  report({
+    phase: 'coverage-map-write',
+    current: total,
+    total,
+    label: 'Writing SVG',
+    detail: `Writing coverage map (${boundaries.length}/${total} outlined)…`,
+  });
   mkdirSync(path.dirname(outputPath), { recursive: true });
   writeFileSync(outputPath, svg, 'utf8');
   const warning = missingBoundaries.length
@@ -673,8 +696,10 @@ function patchIndexCoverageMap(candidateId, src, alt) {
 
 /**
  * Generate coverage map for a candidate into site-images + public + content FM.
+ * @param {string} candidateId
+ * @param {{ onProgress?: (p: object) => void }} [opts]
  */
-export async function generateCoverageMapForCandidate(candidateId) {
+export async function generateCoverageMapForCandidate(candidateId, { onProgress } = {}) {
   const p = pathsFor(candidateId);
   const config =
     readJson(p.siteConfig) ||
@@ -686,7 +711,14 @@ export async function generateCoverageMapForCandidate(candidateId) {
 
   mkdirSync(p.siteImages, { recursive: true });
   const abs = path.join(p.siteImages, 'coverage-map.svg');
-  const result = await generateCoverageMapSvg(config, abs);
+  const result = await generateCoverageMapSvg(config, abs, { onProgress });
+  onProgress?.({
+    phase: 'coverage-map-finalize',
+    current: result.requested || result.areas,
+    total: result.requested || result.areas,
+    label: 'Finalizing',
+    detail: 'Copying coverage map into site…',
+  });
   copyFileSync(abs, path.join(ROOT, 'public', 'images', 'coverage-map.svg'));
   syncSiteImagesToPublic(candidateId);
 

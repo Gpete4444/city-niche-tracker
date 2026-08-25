@@ -166,7 +166,7 @@ Almost every in-app **button / paste / Accept** step is **~5–30 seconds** of y
 | **Process batch**                     | Keepers → Research; passes → tracked       |
 
 
-**Forward:** pursue, maybe, review, hold · **Tracked only:** pass, deprioritize
+**Forward:** pursue, maybe, review, hold · **Tracked only:** pass
 
 ### Screen: Research
 

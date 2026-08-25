@@ -11,6 +11,7 @@ import express from 'express';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadEnvFile, fetchUserBalance } from '../scripts/lib/dataforseo.mjs';
+import { migrateDecisionsToScoreModel } from './lib/migrate-decisions-score.mjs';
 import { listPalettes } from '../scripts/lib/site-palettes.mjs';
 import { listFontThemes } from '../scripts/lib/site-fonts.mjs';
 import {
@@ -404,13 +405,37 @@ app.get('/api/map/coverage-preview', (req, res) => {
 });
 
 app.post('/api/candidates/:id/site-config/service-area', async (req, res) => {
+  const writeLine = (obj) => {
+    if (res.writableEnded) return;
+    res.write(`${JSON.stringify(obj)}\n`);
+  };
   try {
     const body = req.body || {};
+    res.status(200);
+    res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.flushHeaders?.();
+
+    writeLine({
+      type: 'progress',
+      label: 'Saving…',
+      detail: 'Saving coverage + location pages…',
+      current: 0,
+      total: 0,
+    });
     const result = acceptServiceArea(req.params.id, {
       radiusMiles: body.radiusMiles,
       selectedCities: body.selectedCities,
       claudeOrder: body.claudeOrder,
       locationPageCities: body.locationPageCities,
+    });
+
+    writeLine({
+      type: 'progress',
+      label: 'Saving…',
+      detail: 'Seeding location page stubs…',
+      current: 0,
+      total: 0,
     });
     let locationStubs = null;
     try {
@@ -418,15 +443,65 @@ app.post('/api/candidates/:id/site-config/service-area', async (req, res) => {
     } catch (e) {
       locationStubs = { error: e.message || String(e) };
     }
+
+    const mapTotal = Array.isArray(result.coverageAreas) ? result.coverageAreas.length : 0;
+    writeLine({
+      type: 'progress',
+      label: 'Coverage map',
+      detail:
+        mapTotal > 0
+          ? `Building coverage map (0/${mapTotal})…`
+          : 'Building coverage map…',
+      current: 0,
+      total: mapTotal,
+    });
+
     let coverageMap = null;
     try {
-      coverageMap = await generateCoverageMapForCandidate(req.params.id);
+      coverageMap = await generateCoverageMapForCandidate(req.params.id, {
+        onProgress: (p) => {
+          writeLine({
+            type: 'progress',
+            label: 'Coverage map',
+            detail: p.detail || p.label || 'Building coverage map…',
+            current: Number(p.current) || 0,
+            total: Number(p.total) || mapTotal,
+          });
+        },
+      });
     } catch (e) {
       coverageMap = { error: e.message || String(e) };
+      writeLine({
+        type: 'progress',
+        label: 'Coverage map',
+        detail: coverageMap.error || 'Coverage map failed (coverage still saved)',
+        current: mapTotal,
+        total: mapTotal,
+      });
     }
-    res.json({ ...result, locationStubs, coverageMap });
+
+    writeLine({
+      type: 'done',
+      ...result,
+      locationStubs,
+      coverageMap,
+    });
+    res.end();
   } catch (error) {
-    sendError(res, error);
+    if (!res.headersSent) {
+      sendError(res, error);
+      return;
+    }
+    try {
+      writeLine({
+        type: 'error',
+        error: error.message || String(error),
+        code: error.code || null,
+      });
+    } catch {
+      /* ignore */
+    }
+    res.end();
   }
 });
 
@@ -2794,4 +2869,12 @@ app.listen(PORT, HOST, () => {
   console.log(
     `DataForSEO: ${process.env.DATAFORSEO_LOGIN ? 'configured' : 'missing'} · Anthropic: ${process.env.ANTHROPIC_API_KEY ? 'configured' : 'missing'} · GSC OAuth: ${process.env.GOOGLE_GSC_CLIENT_ID && process.env.GOOGLE_GSC_CLIENT_SECRET ? 'configured' : 'missing'}`,
   );
+  try {
+    const r = migrateDecisionsToScoreModel();
+    console.log(
+      `Decision migrate (score model): candidates ${r.candidates}, batches ${r.discoveryBatches}, tracked ${r.tracked}`,
+    );
+  } catch (err) {
+    console.warn('Decision migrate skipped:', err.message || err);
+  }
 });

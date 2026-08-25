@@ -8,6 +8,7 @@ import {
 } from 'node:fs';
 import path from 'node:path';
 import { proposedScore as computeProposedScore } from '../../scripts/lib/scoring.mjs';
+import { recommendCandidate } from './discovery-recommend.mjs';
 import {
   annotateSerpNicheRelevance,
   averageKeywordCpc,
@@ -143,11 +144,9 @@ export function deriveStage(id) {
 
 export const CANDIDATE_DECISIONS = [
   'pursue',
-  'deprioritize',
   'maybe',
   'pass',
   'hold',
-  'pass_unless_gbp_angle',
   'review',
 ];
 
@@ -418,7 +417,7 @@ export function listCandidates() {
         formatJobCostRange(narrative?.averageJobCostUsd) ||
         formatJobCostRange(research?.averageJobCostUsd) ||
         null;
-      return {
+      const row = {
         id,
         ...summary,
         ...prospectSummary,
@@ -435,6 +434,12 @@ export function listCandidates() {
         researchCostUsd: meta.lastCosts?.research ?? summary.estimatedApiCostUsd ?? null,
         meta,
         updatedAt: meta.updatedAt,
+      };
+      const rec = recommendCandidate(row);
+      return {
+        ...row,
+        recommended_decision: rec.recommended_decision,
+        recommended_reason: rec.recommended_reason,
       };
     });
 }
@@ -706,14 +711,14 @@ export function validateNarrativeAccept(draft, discoverySeed = null, { allowJobC
     return { ok: false, error: 'Draft is empty or invalid', code: 'empty' };
   }
   if (draft.parseError) {
-    return { ok: false, error: 'Draft has a parse error — fix JSON before Accept', code: 'parse' };
+    return { ok: false, error: 'Draft has a parse error — fix JSON and Load again', code: 'parse' };
   }
   const avg = draft.averageJobCostUsd;
   const mid = jobCostMidpoint(avg);
   if (mid == null || mid <= 0) {
     return {
       ok: false,
-      error: 'averageJobCostUsd (low/high/midpoint) is required before Accept',
+      error: 'averageJobCostUsd (low/high/midpoint) is required',
       code: 'job_cost_missing',
     };
   }
@@ -721,7 +726,7 @@ export function validateNarrativeAccept(draft, discoverySeed = null, { allowJobC
   if (jobVal == null || Number.isNaN(Number(jobVal))) {
     return {
       ok: false,
-      error: 'scoring.scoreInputs.jobValue is required before Accept',
+      error: 'scoring.scoreInputs.jobValue is required',
       code: 'job_value_missing',
     };
   }
@@ -799,6 +804,44 @@ export function buildApprovedPackage(id, narrative, research, meta = {}, discove
 
 export function getApprovedPackage(id) {
   return readJson(pathsFor(id).approved);
+}
+
+/**
+ * Commit a narrative draft if validation passes.
+ * Job-cost seed-band mismatches auto-override (no separate Accept click).
+ * Leaves the draft in place when validation fails for other reasons.
+ */
+export function autoAcceptNarrativeDraft(id) {
+  const p = pathsFor(id);
+  const draft = readJson(p.narrativeDraft);
+  if (!draft) return { accepted: false, skipped: true, reason: 'no_draft' };
+  if (draft.parseError) {
+    return { accepted: false, skipped: true, reason: 'parse_error', draft };
+  }
+  try {
+    const result = acceptNarrative(id, { allowJobCostOverride: false });
+    return { accepted: true, jobCostOverride: false, ...result };
+  } catch (error) {
+    if (error.code === 'job_cost_seed_mismatch') {
+      try {
+        const result = acceptNarrative(id, { allowJobCostOverride: true });
+        return { accepted: true, jobCostOverride: true, ...result };
+      } catch (retryError) {
+        return {
+          accepted: false,
+          error: retryError.message,
+          code: retryError.code || null,
+          draft: readJson(p.narrativeDraft),
+        };
+      }
+    }
+    return {
+      accepted: false,
+      error: error.message,
+      code: error.code || null,
+      draft: readJson(p.narrativeDraft),
+    };
+  }
 }
 
 export function acceptNarrative(id, { allowJobCostOverride = false } = {}) {

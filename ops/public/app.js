@@ -25,13 +25,17 @@ import {
   ensureResearchMapReady,
   invalidateResearchMapSize,
   openResearchMap,
-} from './research-map.js?v=20260818map1';
+} from './research-map.js?v=20260825mapSelection';
 import {
   mountServiceAreaMap,
   mountDiscoveryCitiesMap,
   setServiceAreaTableMode,
   setDiscoveryTableMapMode,
-} from './service-area-map.js?v=20260819pages';
+} from './service-area-map.js?v=20260825saProgress';
+import {
+  enableResizableTablesIn,
+  enableTableColumnResize,
+} from './table-col-resize.js?v=20260825batchNotes14ch';
 
 /** @type {{ destroy: () => void, invalidateSize?: () => void } | null} */
 let serviceAreaMount = null;
@@ -348,7 +352,6 @@ const state = {
   selectedId: null,
   selectedIds: new Set(),
   candidateDecisionFilter: '',
-  candidateStageFilter: '',
   candidateBatchFilter: '',
   candidateGroupFilter: '',
   candidateVisibilityFilter: 'active',
@@ -436,11 +439,9 @@ const DISCOVERY_DECISION_OPTS = [
   '',
   'pursue',
   'maybe',
-  'deprioritize',
   'pass',
   'hold',
   'review',
-  'pass_unless_gbp_angle',
 ];
 
 async function api(path, options = {}) {
@@ -1397,7 +1398,7 @@ async function confirmPaidAction(act) {
         ? `<ul>
             <li>Model: <code>${esc(preview.model || state.health?.model || '')}</code></li>
             <li>Uses paid API tokens</li>
-            ${act === 'narrative' ? '<li>Result is a <strong>draft only</strong> until you click Accept</li>' : ''}
+            ${act === 'narrative' ? '<li>Valid JSON is <strong>accepted automatically</strong> (approved package written)</li>' : ''}
           </ul>`
         : '<p class="muted">Charged to your DataForSEO account when the job runs.</p>'
     }
@@ -1477,9 +1478,7 @@ function refreshDecisionFilterCounts() {
     maybe: `maybe (${counts.maybe ?? 0})`,
     review: `review (${counts.review ?? 0})`,
     hold: `hold (${counts.hold ?? 0})`,
-    deprioritize: `deprioritize (${counts.deprioritize ?? 0})`,
     pass: `pass (${counts.pass ?? 0})`,
-    pass_unless_gbp_angle: `pass_unless_gbp_angle (${counts.pass_unless_gbp_angle ?? 0})`,
   };
   for (const opt of sel.options) {
     if (labels[opt.value] != null) opt.textContent = labels[opt.value];
@@ -1488,7 +1487,6 @@ function refreshDecisionFilterCounts() {
 
 function filteredCandidates() {
   const f = state.candidateDecisionFilter;
-  const stageF = state.candidateStageFilter;
   const batchF = state.candidateBatchFilter;
   const groupF = state.candidateGroupFilter;
   const vis = state.candidateVisibilityFilter || 'active';
@@ -1505,7 +1503,6 @@ function filteredCandidates() {
     } else if (f && c.decision !== f) {
       return false;
     }
-    if (stageF && c.stage !== stageF) return false;
     if (batchF && c.source?.batchId !== batchF) return false;
     if (groupF === '__ungrouped') {
       if ((c.groupIds || []).length) return false;
@@ -1589,6 +1586,7 @@ function candidateSortValue(c, key) {
       null
     );
   }
+  if (key === '_stageProgress') return candidateHighestStageStep(c);
   if (key === 'city') return [c.primaryCity, c.state].filter(Boolean).join(', ');
   if (key === 'volume') return c.clusterVolumeSum;
   if (key === 'jobCost') return c.jobCostText || '';
@@ -1622,9 +1620,7 @@ const CANDIDATE_DECISION_OPTS = [
   'maybe',
   'review',
   'hold',
-  'deprioritize',
   'pass',
-  'pass_unless_gbp_angle',
 ];
 
 const CANDIDATE_TABLE_COLS = [
@@ -1633,6 +1629,13 @@ const CANDIDATE_TABLE_COLS = [
     label: '',
     tip: 'Select rows for stage runs',
     cellClass: 'col-narrow',
+  },
+  {
+    key: '_stageProgress',
+    label: '',
+    tip: 'Highest completed stage: 1 Research · 2 Enrich · 3 Narrative · 4 Prospects',
+    cellClass: 'col-stage-progress',
+    sortable: true,
   },
   {
     key: 'niche',
@@ -1657,70 +1660,6 @@ const CANDIDATE_TABLE_COLS = [
     sortable: true,
     cellClass: 'col-short',
     source: 'claude',
-  },
-  {
-    key: 'population',
-    label: 'Population',
-    tip: 'US Census place population when available',
-    sortable: true,
-    cellClass: 'col-short',
-    source: 'census',
-  },
-  {
-    key: 'researchMap',
-    label: 'Map',
-    tip: 'Open research Map tab zoomed to this city',
-    sortable: false,
-    cellClass: 'col-short',
-    source: 'ops',
-  },
-  {
-    key: 'mapPack',
-    label: 'Map Pack',
-    tip: 'Map Pack present (Yes/No). When Yes, shows review counts per pack slot (e.g. 78/14/235). LSA if Local Services Ads detected.',
-    sortable: true,
-    cellClass: 'col-mappack',
-    source: 'dfs',
-  },
-  {
-    key: 'volume',
-    label: 'Search vol.',
-    tip: 'Stage 1 Ads Planner cluster search volume / month (sum across measured geos).',
-    sortable: true,
-    cellClass: 'col-truncate',
-    source: 'dfs',
-  },
-  {
-    key: 'jobCost',
-    label: 'Job Cost',
-    tip: 'Average job value / ticket size from research or narrative',
-    sortable: true,
-    cellClass: 'col-truncate',
-    source: 'claude',
-  },
-  {
-    key: 'orgHome',
-    label: 'Homepages',
-    tip: 'Niche-relevant / all organic homepages (title+URL token match). Directories excluded.',
-    sortable: true,
-    cellClass: 'col-short',
-    source: 'dfs',
-  },
-  {
-    key: 'orgSub',
-    label: 'Subpages',
-    tip: 'Niche-relevant / all organic subpages (title+URL token match). Directories excluded.',
-    sortable: true,
-    cellClass: 'col-short',
-    source: 'dfs',
-  },
-  {
-    key: 'avgCpc',
-    label: 'CPC',
-    tip: 'Average CPC from Stage 1 Ads keywords (monetization signal). Blank until research.',
-    sortable: true,
-    cellClass: 'col-short',
-    source: 'dfs',
   },
   {
     key: 'proposedScore',
@@ -1771,19 +1710,75 @@ const CANDIDATE_TABLE_COLS = [
     source: 'ops',
   },
   {
-    key: 'decision',
-    label: 'Decision',
-    tip: 'Decision group — autosaves on change',
+    key: 'volume',
+    label: 'Search vol.',
+    tip: 'Stage 1 Ads Planner cluster search volume / month (sum across measured geos).',
     sortable: true,
-    cellClass: 'col-human',
+    cellClass: 'col-truncate',
+    source: 'dfs',
+  },
+  {
+    key: 'mapPack',
+    label: 'Map Pack',
+    tip: 'Map Pack present (Yes/No). When Yes, shows review counts per pack slot (e.g. 78/14/235). LSA if Local Services Ads detected.',
+    sortable: true,
+    cellClass: 'col-mappack',
+    source: 'dfs',
+  },
+  {
+    key: 'researchMap',
+    label: 'Map',
+    tip: 'Open research Map tab zoomed to this city',
+    sortable: false,
+    cellClass: 'col-short col-center',
     source: 'ops',
   },
   {
-    key: 'stage',
-    label: 'Stage',
-    tip: 'Pipeline progress',
+    key: 'orgHome',
+    label: 'Homepages',
+    tip: 'Niche-relevant / all organic homepages (title+URL token match). Directories excluded.',
+    sortable: true,
+    cellClass: 'col-short col-center',
+    source: 'dfs',
+  },
+  {
+    key: 'orgSub',
+    label: 'Subpages',
+    tip: 'Niche-relevant / all organic subpages (title+URL token match). Directories excluded.',
+    sortable: true,
+    cellClass: 'col-short col-center',
+    source: 'dfs',
+  },
+  {
+    key: 'avgCpc',
+    label: 'CPC',
+    tip: 'Average CPC from Stage 1 Ads keywords (monetization signal). Blank until research.',
     sortable: true,
     cellClass: 'col-short',
+    source: 'dfs',
+  },
+  {
+    key: 'population',
+    label: 'Population',
+    tip: 'US Census place population when available',
+    sortable: true,
+    cellClass: 'col-short',
+    source: 'census',
+  },
+  {
+    key: 'jobCost',
+    label: 'Job Cost',
+    tip: 'Average job value / ticket size from research or narrative',
+    sortable: true,
+    cellClass: 'col-truncate',
+    source: 'claude',
+  },
+  {
+    key: 'decision',
+    label: 'Decision',
+    tip: 'Decision group — autosaves. Hover shows score-based Recommend (pursue ≥7, maybe 6–7, pass <6, review if stages 1–3 incomplete).',
+    sortable: true,
+    cellClass: 'col-human',
     source: 'ops',
   },
   {
@@ -1812,9 +1807,37 @@ const CANDIDATE_TABLE_COLS = [
   },
 ];
 
+const STAGE_STEP_TIPS = {
+  1: '1 · Research complete',
+  2: '2 · Enrich complete',
+  3: '3 · Narrative complete',
+  4: '4 · Prospects complete',
+};
+
+/** Highest completed Research→Prospects stage (0 = none). */
+function candidateHighestStageStep(c) {
+  const f = c?.stageFlags || {};
+  if (f.hasProspects) return 4;
+  if (f.hasNarrative) return 3;
+  if (f.hasEnrichment) return 2;
+  if (f.hasResearch) return 1;
+  return 0;
+}
+
+function stageStepIconHtml(step) {
+  const n = Number(step) || 0;
+  if (n < 1 || n > 4) return '<span class="muted">—</span>';
+  return `<span class="stage-step-icon stage-step-${n}" data-tip="${esc(
+    STAGE_STEP_TIPS[n],
+  )}">${n}</span>`;
+}
+
 function updateCandidateSelectionCount() {
+  const nSelected = state.selectedIds.size;
   const el = document.getElementById('candidate-selection-count');
-  if (el) el.textContent = `${state.selectedIds.size} selected`;
+  if (el) el.textContent = `${nSelected} selected`;
+  const bulkMeta = document.getElementById('candidate-bulk-summary-meta');
+  if (bulkMeta) bulkMeta.textContent = nSelected ? `${nSelected} selected` : '';
   const countEl = document.getElementById('candidate-filter-count');
   if (countEl) {
     const n = filteredCandidates().length;
@@ -1833,7 +1856,7 @@ function updateCandidateSelectionCount() {
   const addToSitesBtn = document.getElementById('candidate-add-to-sites-btn');
   const archiveBtn = document.getElementById('candidate-archive-btn');
   const unarchiveBtn = document.getElementById('candidate-unarchive-btn');
-  const disable = state.selectedIds.size === 0;
+  const disable = nSelected === 0;
   if (batchSel) batchSel.disabled = disable;
   if (batchBtn) batchBtn.disabled = disable;
   if (groupAction) groupAction.disabled = disable;
@@ -1864,13 +1887,10 @@ function emptyStateForFilter() {
       ? 'No pursue Candidates yet — mark pursue in Research to build here.'
       : 'No pursue yet — Process a discovery batch and Accept pursue rows.';
   }
-  if (f === 'pass' || f === 'deprioritize' || f === 'pass_unless_gbp_angle') {
+  if (f === 'pass') {
     return `No ${f} candidates — archive groups fill when you Process discovery rows with that decision.`;
   }
   if (f === '__undecided') return 'No undecided candidates.';
-  if (state.candidateStageFilter) {
-    return `No candidates in stage “${state.candidateStageFilter}” for this filter.`;
-  }
   if (state.candidateBatchFilter) {
     return `No candidates from discovery batch “${state.candidateBatchFilter}”.`;
   }
@@ -1889,6 +1909,10 @@ function emptyStateForFilter() {
 function syncCandidatesDetailVisibility() {
   const empty = document.getElementById('empty-detail');
   const detail = document.getElementById('detail');
+  const layout = document.getElementById('view-candidates');
+  const collapsed = state.selectedIds.size === 0 && !state.selectedId;
+  layout?.classList.toggle('layout-detail-collapsed', collapsed);
+
   if (!empty || !detail) return;
   if (state.selectedIds.size > 1) {
     empty.classList.add('hidden');
@@ -1906,6 +1930,96 @@ function syncCandidatesDetailVisibility() {
     state.selectedIds.size === 0 && !state.selectedId
       ? 'Select rows to run stages · click a row to open detail'
       : 'Loading…';
+}
+
+function syncSitesDetailVisibility() {
+  const layout = document.getElementById('view-sites');
+  layout?.classList.toggle('layout-detail-collapsed', !state.selectedSiteId);
+}
+
+function syncPhoneDetailVisibility() {
+  const layout = document.getElementById('view-phone');
+  const hasCall = Boolean(state.phone?.selectedCallId);
+  layout?.classList.toggle('layout-detail-collapsed', !hasCall);
+}
+
+/** Click empty table/panel chrome to clear row selection (not rows, controls, or thead). */
+const TABLE_DESELECT_IGNORE =
+  'thead, input, select, button, a, label, textarea, .col-resize-handle, .candidate-bulk-details, .discovery-filters-bar, .discovery-flow, .sites-gsc-status, .phone-calls-toolbar';
+const TABLE_DESELECT_ROW =
+  'tr[data-id], tr[data-call-id], tr[data-row-idx]';
+
+function eventPath(e) {
+  if (typeof e.composedPath === 'function') {
+    try {
+      const path = e.composedPath();
+      if (Array.isArray(path) && path.length) return path;
+    } catch {
+      /* ignore */
+    }
+  }
+  const path = [];
+  let node = e.target;
+  while (node) {
+    path.push(node);
+    node = node.parentNode;
+  }
+  return path;
+}
+
+function wireTableDeselectOnEmpty(roots, clearFn) {
+  const list = (Array.isArray(roots) ? roots : [roots]).filter(Boolean);
+  for (const root of list) {
+    if (root.dataset.deselectWired === '1') continue;
+    root.dataset.deselectWired = '1';
+    root.addEventListener('click', (e) => {
+      const path = eventPath(e);
+      // Use path, not closest(): row click may re-render tbody mid-bubble and detach the tr
+      // so `tbody tr[data-id]` no longer matches.
+      if (
+        path.some(
+          (n) =>
+            n &&
+            typeof n.matches === 'function' &&
+            (n.matches(TABLE_DESELECT_ROW) || n.matches(TABLE_DESELECT_IGNORE)),
+        )
+      ) {
+        return;
+      }
+      clearFn();
+    });
+  }
+}
+
+function clearCandidateRowSelection() {
+  if (!state.selectedId && state.selectedIds.size === 0 && !state.detail) return;
+  state.selectedId = null;
+  state.selectedIds.clear();
+  state.detail = null;
+  state.multiQueue = false;
+  syncCandidatesDetailVisibility();
+  renderList();
+  renderActions();
+}
+
+function clearSitesRowSelection() {
+  if (!state.selectedSiteId) return;
+  state.selectedSiteId = null;
+  renderSitesTable();
+  renderSitesDetail();
+}
+
+function clearPhoneCallSelection() {
+  if (!state.phone?.selectedCallId) return;
+  state.phone.selectedCallId = null;
+  renderPhoneCalls();
+  renderPhoneDetail();
+}
+
+function clearDiscoveryRowSelection() {
+  if (!state.discoverySelected?.size) return;
+  state.discoverySelected = new Set();
+  renderDiscoveryTable();
 }
 
 async function persistCandidateDecision(id, decision, notes) {
@@ -1957,6 +2071,11 @@ function renderList() {
     if (c.key === '_select') {
       return `<th data-tip="${esc(c.tip || '')}"><input type="checkbox" id="candidate-select-all" data-tip="Select filtered" /></th>`;
     }
+    if (c.key === '_stageProgress') {
+      const mark = sort.key === c.key ? (sort.dir === 1 ? ' ▲' : ' ▼') : '';
+      const cls = [c.sortable ? 'sortable' : '', c.cellClass || ''].filter(Boolean).join(' ');
+      return `<th class="${cls}" data-sort="${esc(c.key)}" data-tip="${esc(c.tip || '')}">${mark}</th>`;
+    }
     const mark = sort.key === c.key ? (sort.dir === 1 ? ' ▲' : ' ▼') : '';
     const cls = [c.sortable ? 'sortable' : '', c.cellClass || ''].filter(Boolean).join(' ');
     const srcTip =
@@ -1994,6 +2113,9 @@ function renderList() {
           return `<td${tdClass}><input type="checkbox" class="cand-check" data-id="${esc(
             c.id,
           )}" ${checked} /></td>`;
+        }
+        if (col.key === '_stageProgress') {
+          return `<td${tdClass}>${stageStepIconHtml(candidateHighestStageStep(c))}</td>`;
         }
         if (col.key === 'niche') {
           return `<td${tdClass} data-tip="${esc(c.id)}"><span class="cell-text">${esc(
@@ -2133,14 +2255,19 @@ function renderList() {
           return `<td${tdClass}>${serpSoftnessHtml(c.serpSoftness)}</td>`;
         }
         if (col.key === 'decision') {
-          return `<td${tdClass}><select class="cand-decision" data-id="${esc(c.id)}">${CANDIDATE_DECISION_OPTS.map(
+          const recTip = [c.recommended_decision, c.recommended_reason]
+            .filter(Boolean)
+            .join(' — ');
+          const tip = recTip
+            ? `Recommend: ${recTip}`
+            : 'Decision group — autosaves on change';
+          return `<td${tdClass} data-tip="${esc(tip)}"><select class="cand-decision" data-id="${esc(c.id)}">${CANDIDATE_DECISION_OPTS.map(
             (o) =>
               `<option value="${esc(o)}" ${
                 (c.decision || '') === o ? 'selected' : ''
               }>${esc(o || '—')}</option>`,
           ).join('')}</select></td>`;
         }
-        if (col.key === 'stage') return `<td${tdClass}>${esc(c.stage || '—')}</td>`;
         if (col.key === 'prospects') {
           if (c.prospectCount == null) return `<td${tdClass}>—</td>`;
           const tip =
@@ -2274,6 +2401,9 @@ function renderList() {
   });
   updateCandidateSelectionCount();
   renderActions();
+  enableTableColumnResize(document.getElementById('candidate-table'), {
+    freezeCols: 5,
+  });
 }
 
 async function selectCandidate(id) {
@@ -2382,6 +2512,9 @@ function renderMultiDetail() {
   document.querySelectorAll('#tab-panels [data-act]').forEach((btn) => {
     btn.addEventListener('click', () => handleAction(btn.dataset.act, btn));
   });
+  enableResizableTablesIn(document.getElementById('tab-panels'), {
+    storagePrefix: 'detail:multi',
+  });
 }
 
 function stageCheckMark() {
@@ -2389,7 +2522,7 @@ function stageCheckMark() {
 }
 
 function stageDraftMark() {
-  return `<span class="stage-draft" ${tipAttr('Draft present (not accepted yet)')}>draft</span>`;
+  return `<span class="stage-draft" ${tipAttr('Draft present (not committed yet)')}>draft</span>`;
 }
 
 function updateTabCompletion() {
@@ -2403,7 +2536,7 @@ function updateTabCompletion() {
     'site-config': '4 · Site-Config',
     content: '5 · Content',
     website: '6 · Website',
-    prospects: 'Prospects',
+    prospects: '4 · Prospects',
     logs: 'Logs',
   };
   document.querySelectorAll('.tab').forEach((tab) => {
@@ -2680,61 +2813,76 @@ function renderActions() {
   const targetCount = isMulti ? multiIds.length : state.selectedId || d ? 1 : 0;
   el.classList.remove('hidden');
 
-  if (targetCount === 0) {
-    el.innerHTML = `
-      <div class="stage-rail-head">Stages</div>
-      <p class="stage-toolbar-meta muted">Select rows, then run Stage 1–4 on the selection.</p>
-    `;
-    return;
-  }
-
   const agg = isMulti ? aggregateSelectedFlags() : null;
   const focusedId = isMulti ? null : state.selectedId;
   const listRow = focusedId
     ? state.candidates.find((c) => c.id === focusedId)
     : null;
   const detailMatches = Boolean(d && focusedId && d.id === focusedId);
-  const f = detailMatches
-    ? d.stageFlags || {}
-    : listRow?.stageFlags || d?.stageFlags || {};
+  const f =
+    targetCount === 0
+      ? {}
+      : detailMatches
+        ? d.stageFlags || {}
+        : listRow?.stageFlags || d?.stageFlags || {};
   const researchDone =
-    targetCount > 1
-      ? agg.hasResearch === agg.count && agg.count > 0
-      : Boolean(f.hasResearch);
+    targetCount === 0
+      ? false
+      : targetCount > 1
+        ? agg.hasResearch === agg.count && agg.count > 0
+        : Boolean(f.hasResearch);
   const enrichDone =
-    targetCount > 1
-      ? agg.hasEnrichment === agg.count && agg.count > 0
-      : Boolean(f.hasEnrichment);
+    targetCount === 0
+      ? false
+      : targetCount > 1
+        ? agg.hasEnrichment === agg.count && agg.count > 0
+        : Boolean(f.hasEnrichment);
   const narrAccepted =
-    targetCount > 1
-      ? agg.hasNarrative === agg.count && agg.count > 0
-      : Boolean(f.hasNarrative);
+    targetCount === 0
+      ? false
+      : targetCount > 1
+        ? agg.hasNarrative === agg.count && agg.count > 0
+        : Boolean(f.hasNarrative);
   const narrDraft =
-    targetCount > 1
-      ? agg.hasNarrativeDraft > 0 && agg.hasNarrative < agg.count
-      : Boolean(f.hasNarrativeDraft) && !f.hasNarrative;
+    targetCount === 0
+      ? false
+      : targetCount > 1
+        ? agg.hasNarrativeDraft > 0 && agg.hasNarrative < agg.count
+        : Boolean(f.hasNarrativeDraft) && !f.hasNarrative;
   const prospectsDone =
-    targetCount > 1
-      ? agg.hasProspects === agg.count && agg.count > 0
-      : Boolean(f.hasProspects);
-  const currentStage = !researchDone
-    ? 'research'
-    : !enrichDone
-      ? 'enrich'
-      : !narrAccepted
-        ? 'narrative'
-        : null;
+    targetCount === 0
+      ? false
+      : targetCount > 1
+        ? agg.hasProspects === agg.count && agg.count > 0
+        : Boolean(f.hasProspects);
+  const currentStage =
+    targetCount === 0
+      ? null
+      : !researchDone
+        ? 'research'
+        : !enrichDone
+          ? 'enrich'
+          : !narrAccepted
+            ? 'narrative'
+            : null;
   const busy = Boolean(state.activeJobId || state.activeBatchJobId || state.claudeBusy);
   const runningAct = state.activeAct;
   const batchLabel = targetCount > 1 ? ` (${targetCount})` : '';
   const stageBusyAttr = (act) => {
+    if (targetCount === 0) return 'disabled';
     if (!busy) return '';
     if (runningAct === act) return 'disabled aria-busy="true"';
     return 'disabled';
   };
   const aggMark = (k, n) =>
     targetCount > 1 ? ` <span class="muted">${k}/${n}</span>` : '';
-  const lc = (detailMatches ? d?.meta?.lastCosts : null) || listRow?.lastCosts || d?.meta?.lastCosts || {};
+  const lc =
+    targetCount === 0
+      ? {}
+      : (detailMatches ? d?.meta?.lastCosts : null) ||
+        listRow?.lastCosts ||
+        d?.meta?.lastCosts ||
+        {};
   const costBits = [
     lc.research != null ? `Research ${formatMoney(lc.research)}` : null,
     lc.enrich != null ? `Enrich ${formatMoney(lc.enrich)}` : null,
@@ -2743,9 +2891,13 @@ function renderActions() {
     lc.outreach != null ? `Outreach ~${formatMoney(lc.outreach)}` : null,
   ].filter(Boolean);
   const metaBits = [
+    targetCount === 0 ? 'Select rows, then run Stage 1–4 on the selection.' : null,
     isMulti ? `${targetCount} selected` : null,
-    costBits.length && !isMulti ? `Last: ${costBits.join(' · ')}` : null,
+    costBits.length && !isMulti && targetCount > 0
+      ? `Last: ${costBits.join(' · ')}`
+      : null,
   ].filter(Boolean);
+  const narrDisabled = busy || targetCount !== 1;
 
   el.innerHTML = `
     <div
@@ -2814,18 +2966,18 @@ function renderActions() {
         }</span></span>
         <div class="action-group-btns">
           <button type="button" class="btn btn-sm primary" data-act="copy-prompt" ${
-            busy || targetCount > 1 ? 'disabled' : ''
+            narrDisabled ? 'disabled' : ''
           } data-tip="Copy Claude.ai prompt, then paste the JSON result on the Narrative tab (default — no API cost)">Copy prompt</button>
-          ${openClaudeAiBtnHtml({ disabled: busy || targetCount > 1, sm: true })}
+          ${openClaudeAiBtnHtml({ disabled: narrDisabled, sm: true })}
         </div>
       </div>
       <span class="stage-rail-sep" aria-hidden="true"></span>
       <div class="action-group stage-4${prospectsDone ? ' action-done' : ''}${
         runningAct === 'prospects' || runningAct === 'outreach' ? ' action-running' : ''
       }">
-        <span class="action-group-head"><span class="action-group-title">Prospects</span><span class="action-group-num">${
+        <span class="action-group-head"><span class="action-group-title">Prospects</span><span class="action-group-num">4${
           prospectsDone
-            ? stageCheckMark()
+            ? ` ${stageCheckMark()}`
             : targetCount > 1
               ? aggMark(agg.hasProspects, agg.count)
               : ''
@@ -2854,9 +3006,9 @@ function renderActions() {
     </div>
     ${
       metaBits.length
-        ? `<p class="stage-toolbar-meta muted" data-tip="Last recorded run costs">${esc(
-            metaBits.join(' · '),
-          )}</p>`
+        ? `<p class="stage-toolbar-meta muted"${
+            targetCount === 0 ? '' : ' data-tip="Last recorded run costs"'
+          }>${esc(metaBits.join(' · '))}</p>`
         : ''
     }
   `;
@@ -2982,7 +3134,11 @@ async function handleAction(act, btn) {
           state.tab = 'narrative';
           renderDetail();
           await showActualCostModal({
-            title: result.parseError ? 'Narrative draft (parse error)' : 'Narrative draft ready',
+            title: result.parseError
+              ? 'Narrative draft (parse error)'
+              : result.accepted
+                ? 'Narrative accepted'
+                : 'Narrative draft needs fixes',
             costUsd: result.costUsd,
             costNote: result.costNote,
             provider: 'anthropic',
@@ -3054,7 +3210,7 @@ async function handleAction(act, btn) {
       await navigator.clipboard.writeText(data.prompt || '');
       state.tab = 'narrative';
       renderDetail();
-      showToast('Narrative prompt copied — paste Claude’s JSON → Load as draft → Accept.');
+      showToast('Narrative prompt copied — paste Claude’s JSON → Load as draft (auto-accepts when valid).');
       return;
     }
 
@@ -3292,18 +3448,16 @@ function renderOverview() {
 
   const decisionOptions = [
     'pursue',
-    'deprioritize',
     'maybe',
     'pass',
     'hold',
-    'pass_unless_gbp_angle',
     'review',
   ];
 
   const softNotes = {
-    soft: 'Few dedicated niche sites (≤1 homepage, ≤5 domains) — favorable; feeds pursue rules',
-    mixed: 'In between soft and hard — weigh openness + displaceability; feeds decision rules',
-    hard: 'Crowded SERP (pack + strong locals and/or many niche domains) — feeds deprioritize rules',
+    soft: 'Few dedicated niche sites (≤1 homepage, ≤5 domains) — favorable for openness',
+    mixed: 'In between soft and hard — weigh openness + displaceability',
+    hard: 'Crowded SERP (pack + strong locals and/or many niche domains)',
   };
   const dfsCosts = dfsCostBreakdown(state.detail);
 
@@ -3898,7 +4052,7 @@ function narrativePasteBoxHtml({ replace = false, hideHeading = false } = {}) {
   return `
     <div class="narrative-paste">
       ${hideHeading ? '' : `<h3>${replace ? 'Replace draft from paste' : 'Paste Claude.ai JSON'}</h3>`}
-      <p class="muted">Copy Claude’s JSON response, paste below, then Load as draft. Review the readable summary, then Accept draft or Reject draft.</p>
+      <p class="muted">Copy Claude’s JSON response, paste below, then Load as draft — valid narratives accept automatically.</p>
       <textarea id="narrative-paste" class="narrative-paste-input" rows="2" placeholder='{ "niche": "...", "scoring": { ... } }'></textarea>
       <div class="narrative-actions">
         <button type="button" class="btn primary" id="narrative-paste-btn">Load as draft</button>
@@ -3915,7 +4069,7 @@ function renderNarrative() {
   parts.push(
     panelHowToHtml({
       label: 'Narrative',
-      info: 'Copy prompt → Claude.ai → paste JSON → Load as draft → Accept. Optional Anthropic API draft is on the stage rail only when a key is set — never required.',
+      info: 'Copy prompt → Claude.ai → paste JSON → Load as draft (auto-accepts when valid). Optional Anthropic API is on the stage rail only when a key is set — never required.',
     }),
   );
   if (busy) {
@@ -4432,7 +4586,7 @@ function renderSiteConfig() {
     );
   } else if (!f.hasApproved) {
     parts.push(
-      `<div class="callout warn">Narrative is accepted but the approved package is missing — Accept the narrative draft again.</div>`,
+      `<div class="callout warn">Narrative is accepted but the approved package is missing — re-Load the narrative JSON (auto-accepts) to regenerate it.</div>`,
     );
   } else if (decision !== 'pursue') {
     parts.push(
@@ -10421,11 +10575,12 @@ function wireSiteConfigTab(d) {
         ? accepted.coverageAreas
         : (accepted.targetSuburbs || []).map((name) => ({ name, state: accepted.state })),
       claudeOrder: Array.isArray(accepted.targetSuburbs) ? accepted.targetSuburbs : [],
-      onAccept: async ({ radiusMiles, selectedCities, locationPageCities }) => {
-        const result = await api(
+      onAccept: async ({ radiusMiles, selectedCities, locationPageCities }, { onProgress } = {}) => {
+        const res = await fetch(
           `/api/candidates/${encodeURIComponent(d.id)}/site-config/service-area`,
           {
             method: 'POST',
+            headers: { 'content-type': 'application/json' },
             body: JSON.stringify({
               radiusMiles,
               selectedCities,
@@ -10434,15 +10589,71 @@ function wireSiteConfigTab(d) {
             }),
           },
         );
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data.error || res.statusText || 'Service area save failed');
+        }
+        const reader = res.body?.getReader();
+        if (!reader) throw new Error('No response stream from service-area save');
+        const decoder = new TextDecoder();
+        let buffer = '';
+        let result = null;
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+          for (const line of lines) {
+            const trimmed = line.trim();
+            if (!trimmed) continue;
+            let msg;
+            try {
+              msg = JSON.parse(trimmed);
+            } catch {
+              continue;
+            }
+            if (msg.type === 'progress') {
+              onProgress?.({
+                label: msg.label,
+                detail: msg.detail,
+                current: msg.current,
+                total: msg.total,
+              });
+            } else if (msg.type === 'error') {
+              throw new Error(msg.error || 'Service area save failed');
+            } else if (msg.type === 'done') {
+              result = msg;
+            }
+          }
+        }
+        if (buffer.trim()) {
+          let msg;
+          try {
+            msg = JSON.parse(buffer.trim());
+          } catch {
+            msg = null;
+          }
+          if (msg?.type === 'error') {
+            throw new Error(msg.error || 'Service area save failed');
+          }
+          if (msg?.type === 'done') result = msg;
+        }
+        if (!result) throw new Error('Service area save ended without a result');
         if (!state.siteConfigSoftDone) state.siteConfigSoftDone = {};
         state.siteConfigSoftDone['service-area'] = true;
         markSoftDonePrior('siteConfigSoftDone', SITE_CONFIG_STEP_ORDER, 'service-area');
         state.detail = result.candidate || (await api(`/api/candidates/${encodeURIComponent(d.id)}`));
+        const mapNote = result.coverageMap?.error
+          ? ` · map: ${result.coverageMap.error}`
+          : result.coverageMap?.warning
+            ? ` · ${result.coverageMap.warning}`
+            : '';
         showToast(
           `Service area saved · ${result.coverageAreas?.length || 0} coverage · ${
             result.targetSuburbs?.length || 0
-          } location pages`,
-          { tone: 'ok' },
+          } location pages${mapNote}`,
+          { tone: result.coverageMap?.error ? 'warn' : 'ok' },
         );
         advancePanelStep('site-config', 'phone');
         renderDetail();
@@ -10523,9 +10734,43 @@ function renderDetail() {
   document.getElementById('tab-panels').innerHTML = (panels[state.tab] || renderOverview)();
 
   const tabPanels = document.getElementById('tab-panels');
+  enableResizableTablesIn(tabPanels, {
+    storagePrefix: `detail:${state.tab || 'overview'}`,
+  });
   tabPanels.querySelectorAll('[data-act="accept"], [data-act="reject"]').forEach((btn) => {
     btn.addEventListener('click', () => handleAction(btn.dataset.act, btn));
   });
+
+  // Leftover drafts (pre–auto-accept): commit once when detail opens
+  if (
+    d.narrativeDraft &&
+    !d.narrativeDraft.parseError &&
+    !state._narrativeAutoAccepting &&
+    !(state.narrativeAutoAcceptFailed instanceof Set && state.narrativeAutoAcceptFailed.has(d.id))
+  ) {
+    state._narrativeAutoAccepting = true;
+    acceptNarrativeWithOverride(d.id)
+      .then(async () => {
+        if (state.narrativeAutoAcceptFailed instanceof Set) {
+          state.narrativeAutoAcceptFailed.delete(d.id);
+        }
+        state.detail = await api(`/api/candidates/${encodeURIComponent(d.id)}`);
+        await loadCandidates();
+        if (state.selectedId === d.id) renderDetail();
+        showToast('Narrative accepted');
+      })
+      .catch((error) => {
+        if (!(state.narrativeAutoAcceptFailed instanceof Set)) {
+          state.narrativeAutoAcceptFailed = new Set();
+        }
+        state.narrativeAutoAcceptFailed.add(d.id);
+        showToast(error.message || 'Narrative draft needs fixes');
+      })
+      .finally(() => {
+        state._narrativeAutoAccepting = false;
+      });
+  }
+
   const pasteBtn = document.getElementById('narrative-paste-btn');
   if (pasteBtn) {
     pasteBtn.addEventListener('click', async () => {
@@ -10546,7 +10791,16 @@ function renderDetail() {
         });
         state.detail = await api(`/api/candidates/${encodeURIComponent(d.id)}`);
         state.tab = 'narrative';
+        await loadCandidates();
         renderDetail();
+        if (state.detail?.stageFlags?.hasNarrative) {
+          if (state.narrativeAutoAcceptFailed instanceof Set) {
+            state.narrativeAutoAcceptFailed.delete(d.id);
+          }
+          showToast('Narrative accepted');
+        } else if (state.detail?.narrativeDraft) {
+          showToast('Draft saved — fix validation issues and Load again');
+        }
       } catch (error) {
         await showModal({
           title: 'Paste failed',
@@ -10617,6 +10871,19 @@ function renderDetail() {
 
 function wireUi() {
   wireOpsTooltips();
+  wireTableDeselectOnEmpty(
+    document.querySelector('.candidates-table-panel'),
+    clearCandidateRowSelection,
+  );
+  wireTableDeselectOnEmpty(document.querySelector('.sites-table-panel'), clearSitesRowSelection);
+  wireTableDeselectOnEmpty(document.querySelector('.phone-calls-panel'), clearPhoneCallSelection);
+  wireTableDeselectOnEmpty(
+    document.querySelector('.discovery-table-panel'),
+    clearDiscoveryRowSelection,
+  );
+  syncCandidatesDetailVisibility();
+  syncSitesDetailVisibility();
+  syncPhoneDetailVisibility();
   document.getElementById('btn-refresh').addEventListener('click', (event) => {
     event.preventDefault();
     event.stopPropagation();
@@ -10624,11 +10891,6 @@ function wireUi() {
   });
   document.getElementById('candidate-decision-filter')?.addEventListener('change', (e) => {
     state.candidateDecisionFilter = e.target.value;
-    renderList();
-    renderActions();
-  });
-  document.getElementById('candidate-stage-filter')?.addEventListener('change', (e) => {
-    state.candidateStageFilter = e.target.value;
     renderList();
     renderActions();
   });
@@ -10658,11 +10920,7 @@ function wireUi() {
     if (state.selectedIds.size > 1) renderMultiDetail();
   });
   document.getElementById('candidate-clear-selection')?.addEventListener('click', () => {
-    state.selectedIds.clear();
-    renderList();
-    renderActions();
-    syncCandidatesDetailVisibility();
-    if (state.selectedId && state.detail) renderDetail();
+    clearCandidateRowSelection();
   });
   document.getElementById('candidate-add-to-sites-btn')?.addEventListener('click', async () => {
     const ids = [...state.selectedIds];
@@ -11515,6 +11773,7 @@ function renderSitesTable() {
       renderSitesDetail();
     });
   });
+  enableTableColumnResize(table);
 }
 
 function selectedSite() {
@@ -11661,6 +11920,7 @@ function renderSitesDetail() {
   const empty = document.getElementById('sites-empty-detail');
   const body = document.getElementById('sites-detail-body');
   if (!empty || !body) return;
+  syncSitesDetailVisibility();
   const s = selectedSite();
   if (!s) {
     empty.classList.remove('hidden');
@@ -12429,12 +12689,14 @@ function renderPhoneCalls() {
       renderPhoneDetail();
     });
   });
+  enableTableColumnResize(document.getElementById('phone-calls-table'));
 }
 
 function renderPhoneDetail() {
   const empty = document.getElementById('phone-empty-detail');
   const body = document.getElementById('phone-detail-body');
   if (!empty || !body) return;
+  syncPhoneDetailVisibility();
   const call = (state.phone.calls || []).find(
     (c) => c.id === state.phone.selectedCallId || c.callSid === state.phone.selectedCallId,
   );
@@ -13103,7 +13365,7 @@ function updateDiscoveryProcessControls() {
           ? `Set Human on every row (${decided}/${total}) before processing`
           : pendingProcess === 0
             ? 'No unprocessed rows left — all decided rows are already processed'
-            : `Process ${pendingProcess} decided row(s): pursue/maybe/review/hold → Candidates; pass/deprioritize → tracked`,
+            : `Process ${pendingProcess} decided row(s): pursue/maybe/review/hold → Candidates; pass → tracked`,
     );
   }
 
@@ -13517,7 +13779,7 @@ const DISCOVERY_TABLE_COLS = [
     label: 'Homepages',
     sortable: true,
     tip: 'Organic homepage count from DFS SERP probe (URL path / only; directories excluded). Not niche-title filtered.',
-    cellClass: 'col-short',
+    cellClass: 'col-short col-center',
     source: 'dfs',
   },
   {
@@ -13525,7 +13787,7 @@ const DISCOVERY_TABLE_COLS = [
     label: 'Subpages',
     sortable: true,
     tip: 'Organic subpage count from DFS SERP probe (non-homepage URLs; directories excluded). Not niche-title filtered.',
-    cellClass: 'col-short',
+    cellClass: 'col-short col-center',
     source: 'dfs',
   },
   {
@@ -13540,7 +13802,7 @@ const DISCOVERY_TABLE_COLS = [
     key: 'recommended_decision',
     label: 'Recommend',
     sortable: true,
-    tip: 'Rover heuristic from Map Pack + organic (best after DFS probe)',
+    tip: 'Score-based: review until Research stages 1–3; then pursue ≥7 / maybe 6–7 / pass <6',
     cellClass: 'col-short',
     source: 'ops',
   },
@@ -13572,7 +13834,7 @@ const DISCOVERY_TABLE_COLS = [
     key: 'candidateId',
     label: 'Candidate',
     sortable: true,
-    tip: 'Candidate id after promote, or “tracked” for pass/deprioritize',
+    tip: 'Candidate id after promote, or “tracked” for pass',
     cellClass: 'col-truncate',
     source: 'ops',
   },
@@ -13826,7 +14088,7 @@ function renderDiscoveryTable() {
     }
     const mark =
       sort.key === c.key ? (sort.dir === 1 ? ' ▲' : ' ▼') : '';
-    const cls = c.sortable ? 'sortable' : '';
+    const cls = [c.sortable ? 'sortable' : '', c.cellClass || ''].filter(Boolean).join(' ');
     const label = c.label || (c.key === '_accept' ? 'Accept' : '');
     const srcTip = c.source && DISCOVERY_SOURCES[c.source] ? DISCOVERY_SOURCES[c.source].tip : '';
     const fullTip = [tip, srcTip].filter(Boolean).join(' · ');
@@ -13998,6 +14260,9 @@ function renderDiscoveryTable() {
     btn.addEventListener('click', async () => {
       await reopenDiscoveryIndices([Number(btn.dataset.reopenIdx)]);
     });
+  });
+  enableTableColumnResize(document.getElementById('discovery-table'), {
+    freezeCols: 4,
   });
 }
 
@@ -14510,9 +14775,7 @@ function wireDiscoveryUi() {
     const promoteCount = withDecision.filter((r) =>
       ['pursue', 'maybe', 'review', 'hold'].includes(r.human_decision),
     ).length;
-    const trackCount = withDecision.filter((r) =>
-      ['pass', 'deprioritize', 'pass_unless_gbp_angle'].includes(r.human_decision),
-    ).length;
+    const trackCount = withDecision.filter((r) => r.human_decision === 'pass').length;
     if (!withDecision.length) {
       await showModal({
         title: 'Nothing to process',
@@ -14541,7 +14804,7 @@ function wireDiscoveryUi() {
         : 'Process',
       bodyHtml: `<p><strong>${esc(String(promoteCount))}</strong> → Candidates · <strong>${esc(
         String(trackCount),
-      )}</strong> tracked (pass/deprioritize/…) · already done ${esc(String(alreadyCount))}.</p>
+      )}</strong> tracked (pass) · already done ${esc(String(alreadyCount))}.</p>
         <p><strong>Pursue → Stage 1:</strong> ${esc(String(pursueCount))} · est. $${esc(estLow)}–$${esc(estHigh)} DFS</p>
         ${adsLine}
         <p class="muted">Blank Human rows are ignored. Pass does not create Candidates.</p>`,

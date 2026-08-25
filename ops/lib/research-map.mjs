@@ -4,6 +4,7 @@
 
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
+import { normalizePlaceName } from './census.mjs';
 
 const ROOT = process.cwd();
 const MAP_DIR = path.join(ROOT, 'data', 'census', 'map');
@@ -130,27 +131,17 @@ export function findPlaceFeature(city, state) {
   const abbr = String(state || '')
     .trim()
     .toUpperCase();
-  const needle = String(city || '')
-    .trim()
-    .toLowerCase();
+  const needle = normalizePlaceName(city);
   if (!needle || !abbr) return null;
-  const exact = loaded.features.find((f) => {
-    const p = f.properties || {};
-    return (
-      String(p.state || '').toUpperCase() === abbr &&
-      String(p.name || '').toLowerCase() === needle
-    );
-  });
-  if (exact) return exact;
-  return (
-    loaded.features.find((f) => {
-      const p = f.properties || {};
-      return (
-        String(p.state || '').toUpperCase() === abbr &&
-        String(p.name || '')
-          .toLowerCase()
-          .startsWith(needle)
-      );
-    }) || null
+  const inState = loaded.features.filter(
+    (f) => String(f.properties?.state || '').toUpperCase() === abbr,
   );
+  const exact = inState.find((f) => normalizePlaceName(f.properties?.name) === needle);
+  if (exact) return exact;
+  // Multi-word prefix only (e.g. "Salt Lake" → "Salt Lake City"); never bare "Park" → "Park City"
+  if (!needle.includes(' ')) return null;
+  const prefixes = inState.filter((f) =>
+    normalizePlaceName(f.properties?.name).startsWith(`${needle} `),
+  );
+  return prefixes.length === 1 ? prefixes[0] : null;
 }
