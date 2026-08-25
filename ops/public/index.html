@@ -389,40 +389,6 @@
             <label>Min pop <input name="minPopulation" id="discovery-min-pop" type="number" value="70000" min="0" /></label>
             <label>Max pop <input name="maxPopulation" id="discovery-max-pop" type="number" value="200000" min="0" /></label>
           </div>
-          <p class="muted">Population is an approximate local-market screening preference. Nearby Census places may qualify a smaller named city.</p>
-          <details class="niche-fieldset niche-collapse">
-            <summary>Advanced / Testing</summary>
-            <p class="muted">Experimental approximation controls. They do not merge or eliminate named cities.</p>
-            <div class="form-row form-row-2">
-              <label>Nearby population radius (miles)
-                <input name="nearbyCityRadiusMiles" type="number" value="40" min="1" max="120" step="1" />
-              </label>
-              <label>Minimum nearby-place population
-                <input name="nearbyCityMinPopulation" type="number" value="5000" min="0" step="500" />
-              </label>
-            </div>
-            <p class="muted">Nearby SERP validation compares the primary city with persisted nearby places. Paid calls are previewed and confirmed separately.</p>
-            <div class="form-row form-row-3">
-              <label>Max nearby SERPs
-                <input name="maxNearbySerps" type="number" value="5" min="0" max="5" step="1" />
-              </label>
-              <label>Related min Jaccard
-                <input name="seoClusterMinJaccard" type="number" value="0.30" min="0" max="1" step="0.01" />
-              </label>
-              <label>Related min shared domains
-                <input name="seoClusterMinSharedDomains" type="number" value="2" min="1" max="10" step="1" />
-              </label>
-            </div>
-            <p class="muted">Selective pre-Human Ads research uses only checked surviving rows and enforces both paid-call caps.</p>
-            <div class="form-row form-row-2">
-              <label>Max pre-Human Ads rows
-                <input name="maxPreHumanAdsRows" type="number" value="5" min="1" max="10" step="1" />
-              </label>
-              <label>Max Ads volume calls
-                <input name="maxPreHumanAdsVolumeCalls" type="number" value="30" min="1" max="60" step="1" />
-              </label>
-            </div>
-          </details>
           <div id="discovery-map-controls" class="discovery-map-controls hidden" aria-live="polite"></div>
           <label>Seasonality
             <select name="seasonality">
@@ -583,12 +549,12 @@
       >
         <summary class="discovery-flow-summary">
           <span class="disc-step-mark" aria-hidden="true"></span>
-          <span class="discovery-flow-label">4 · Market evidence</span>
+          <span class="discovery-flow-label">4 · SERP probe</span>
           <button
             type="button"
             class="tip-info"
-            data-tip="Primary SERP probe (~$0.002/row), optional nearby SERP validation, and selective Ads demand. Full Ad volumes still land later in Candidates Stage 1."
-            aria-label="About Market evidence"
+            data-tip="SERP probe (~$0.002/row) fills Map Pack + organic/directory counts from DataForSEO. Real search volumes come later in Candidates Stage 1 (Ads)."
+            aria-label="About SERP probe"
           >
             i
           </button>
@@ -604,26 +570,6 @@
               Run SERP probe
             </button>
           </li>
-          <li>
-            <button
-              type="button"
-              class="btn"
-              id="discovery-nearby-serp-btn"
-              data-tip="Compare each surviving target SERP with up to five persisted nearby-city SERPs"
-            >
-              Run nearby SERP validation
-            </button>
-          </li>
-          <li>
-            <button
-              type="button"
-              class="btn"
-              id="discovery-ads-demand-btn"
-              data-tip="Research Google Ads demand only for the selected surviving Discovery rows"
-            >
-              Run Ads demand for selected
-            </button>
-          </li>
         </ol>
         <div id="discovery-probe-progress" class="job-progress hidden" aria-live="polite">
           <div class="job-progress-track">
@@ -632,27 +578,13 @@
           <p class="job-progress-label" id="discovery-probe-label">Probing…</p>
           <p class="job-progress-detail" id="discovery-probe-detail"></p>
         </div>
-        <div id="discovery-nearby-progress" class="job-progress hidden" aria-live="polite">
-          <div class="job-progress-track">
-            <div class="job-progress-bar discovery-probe-bar" id="discovery-nearby-bar" style="width:0%;animation:none"></div>
-          </div>
-          <p class="job-progress-label" id="discovery-nearby-label">Comparing nearby SERPs…</p>
-          <p class="job-progress-detail" id="discovery-nearby-detail"></p>
-        </div>
-        <div id="discovery-ads-progress" class="job-progress hidden" aria-live="polite">
-          <div class="job-progress-track">
-            <div class="job-progress-bar discovery-probe-bar" id="discovery-ads-bar" style="width:0%;animation:none"></div>
-          </div>
-          <p class="job-progress-label" id="discovery-ads-label">Ads demand…</p>
-          <p class="job-progress-detail" id="discovery-ads-detail"></p>
-        </div>
       </details>
     </section>
 
     <section class="panel discovery-table-panel">
       <div id="discovery-steps" class="discovery-step-rail" aria-label="Batch steps">
         <div class="disc-step" data-step="claude" data-tip="Import Claude CSV"><span class="disc-step-mark"></span><span class="disc-step-label">1 Claude</span></div>
-        <div class="disc-step" data-step="enrich" data-tip="Primary SERP + nearby + optional Ads"><span class="disc-step-mark"></span><span class="disc-step-label">2 SERP</span></div>
+        <div class="disc-step" data-step="enrich" data-tip="SERP probe (Map Pack + organic)"><span class="disc-step-mark"></span><span class="disc-step-label">2 SERP</span></div>
         <div class="disc-step" data-step="decisions" data-tip="Human decisions"><span class="disc-step-mark"></span><span class="disc-step-label">3 Decide</span></div>
         <div class="disc-step" data-step="processed" data-tip="Processed to Candidates"><span class="disc-step-mark"></span><span class="disc-step-label">4 Done</span></div>
       </div>

@@ -224,21 +224,9 @@ import {
   processDiscoveryBatch,
   recommendBatch,
   reopenDiscoveryRows,
-  rowKey,
-  rowsToDiscoveryRuntimeCsv,
   updateBatchDecisions,
 } from './lib/discovery.mjs';
 import { previewSerpProbe, runDiscoverySerpProbe, startDiscoverySerpProbe, getSerpProbeJob, discoveryStepStatus } from './lib/discovery-serp-probe.mjs';
-import {
-  getNearbySerpJob,
-  previewNearbySerpValidation,
-  startNearbySerpValidation,
-} from './lib/discovery-seo-cluster.mjs';
-import {
-  getSelectiveAdsDemandJob,
-  previewSelectiveAdsDemand,
-  startSelectiveAdsDemand,
-} from './lib/discovery-ads-demand.mjs';
 import { suggestPlaces } from './lib/census.mjs';
 import { aggregateStageFlags, getBatchJob, startBatchJobs } from './lib/batch-jobs.mjs';
 import { regenerateKnownCandidates } from './lib/known-candidates.mjs';
@@ -512,13 +500,6 @@ app.post('/api/discovery/pack', (req, res) => {
       categories,
       minPopulation: body.minPopulation,
       maxPopulation: body.maxPopulation,
-      nearbyCityRadiusMiles: body.nearbyCityRadiusMiles,
-      nearbyCityMinPopulation: body.nearbyCityMinPopulation,
-      maxNearbySerps: body.maxNearbySerps,
-      seoClusterMinJaccard: body.seoClusterMinJaccard,
-      seoClusterMinSharedDomains: body.seoClusterMinSharedDomains,
-      maxPreHumanAdsRows: body.maxPreHumanAdsRows,
-      maxPreHumanAdsVolumeCalls: body.maxPreHumanAdsVolumeCalls,
       maxRows: body.maxRows,
       seasonality: body.seasonality,
       tiers: Array.isArray(body.tiers)
@@ -636,124 +617,6 @@ app.get('/api/discovery/serp-probe-jobs/:jobId', (req, res) => {
     finishedAt: job.finishedAt,
     probe: job.status === 'running' ? null : job.probe,
     batch: job.status === 'running' ? null : job.batch,
-  });
-});
-
-app.get('/api/discovery/batches/:id/nearby-serp/preview', (req, res) => {
-  try {
-    const batchData = getBatch(req.params.id);
-    res.json(previewNearbySerpValidation(batchData, { rowKeyFn: rowKey }));
-  } catch (error) {
-    sendError(res, error);
-  }
-});
-
-app.post('/api/discovery/batches/:id/nearby-serp', (req, res) => {
-  try {
-    const body = req.body || {};
-    if (!String(body.expectedPlanToken || '').trim()) {
-      const error = new Error('expectedPlanToken is required');
-      error.status = 400;
-      throw error;
-    }
-    const batchData = getBatch(req.params.id);
-    const job = startNearbySerpValidation(batchData, {
-      expectedPlanToken: body.expectedPlanToken,
-      concurrency: Math.min(2, Math.max(1, Number(body.concurrency) || 1)),
-      rowKeyFn: rowKey,
-      rowsToDiscoveryRuntimeCsvFn: rowsToDiscoveryRuntimeCsv,
-    });
-    res.status(202).json({
-      jobId: job.id,
-      batchId: job.batchId,
-      status: job.status,
-      total: job.total,
-      done: job.done,
-      cacheHitComparisons: job.cacheHitComparisons,
-      liveCalls: job.liveCalls,
-    });
-  } catch (error) {
-    sendError(res, error);
-  }
-});
-
-app.get('/api/discovery/nearby-serp-jobs/:jobId', (req, res) => {
-  const job = getNearbySerpJob(req.params.jobId);
-  if (!job) return res.status(404).json({ error: 'Nearby SERP job not found' });
-  res.json({
-    id: job.id,
-    batchId: job.batchId,
-    status: job.status,
-    total: job.total,
-    done: job.done,
-    phase: job.phase,
-    currentKey: job.currentKey,
-    cacheHitComparisons: job.cacheHitComparisons,
-    liveCalls: job.liveCalls,
-    actualProviderCalls: job.actualProviderCalls,
-    actualCostUsd: job.actualCostUsd,
-    error: job.error,
-    finishedAt: job.finishedAt,
-    batch: job.status === 'running' ? null : job.result?.batch,
-    rows: job.status === 'running' ? null : job.result?.rows,
-    artifact: job.status === 'running' ? null : job.result?.artifact,
-  });
-});
-
-app.post('/api/discovery/batches/:id/ads-demand/preview', (req, res) => {
-  try {
-    const batchData = getBatch(req.params.id);
-    res.json(
-      previewSelectiveAdsDemand(batchData, {
-        indices: Array.isArray(req.body?.indices) ? req.body.indices : [],
-        rowKeyFn: rowKey,
-      }),
-    );
-  } catch (error) {
-    sendError(res, error);
-  }
-});
-
-app.post('/api/discovery/batches/:id/ads-demand', (req, res) => {
-  try {
-    const body = req.body || {};
-    const job = startSelectiveAdsDemand(getBatch(req.params.id), {
-      indices: Array.isArray(body.indices) ? body.indices : [],
-      expectedPlanToken: body.expectedPlanToken,
-      concurrency: Math.min(2, Math.max(1, Number(body.concurrency) || 1)),
-      rowKeyFn: rowKey,
-      rowsToDiscoveryRuntimeCsvFn: rowsToDiscoveryRuntimeCsv,
-    });
-    res.status(202).json({
-      jobId: job.id,
-      batchId: job.batchId,
-      status: job.status,
-      total: job.total,
-      done: job.done,
-    });
-  } catch (error) {
-    sendError(res, error);
-  }
-});
-
-app.get('/api/discovery/ads-demand-jobs/:jobId', (req, res) => {
-  const job = getSelectiveAdsDemandJob(req.params.jobId);
-  if (!job) return res.status(404).json({ error: 'Ads demand job not found' });
-  res.json({
-    id: job.id,
-    batchId: job.batchId,
-    status: job.status,
-    total: job.total,
-    done: job.done,
-    currentRowKey: job.currentRowKey,
-    relatedKeywordCalls: job.relatedKeywordCalls,
-    searchVolumeCalls: job.searchVolumeCalls,
-    adsLocationLoaderInvocations: job.adsLocationLoaderInvocations,
-    error: job.error,
-    finishedAt: job.finishedAt,
-    batch: job.status === 'running' ? null : job.result?.batch,
-    rows: job.status === 'running' ? null : job.result?.rows,
-    artifact: job.status === 'running' ? null : job.result?.artifact,
   });
 });
 

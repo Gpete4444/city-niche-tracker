@@ -16,13 +16,7 @@ import {
 import { writeSerpCache } from '../../scripts/lib/serp-cache.mjs';
 import { enrichClassifiedSerp } from '../../scripts/lib/serp-signals.mjs';
 import { applyRecommendations } from './discovery-recommend.mjs';
-import { invalidateSeoClusterEvidenceForSerpKeys } from './discovery-seo-cluster.mjs';
-import { evaluatePrimarySerpScreen } from './v15-primary-serp-screen.mjs';
-import {
-  getBatch,
-  rowKey,
-  rowsToDiscoveryRuntimeCsv,
-} from './discovery.mjs';
+import { getBatch, rowKey, rowsToCsv } from './discovery.mjs';
 
 loadEnvFile();
 
@@ -31,11 +25,7 @@ export const SERP_PROBE_ESTIMATE_USD = 0.002;
 const probeJobs = new Map();
 
 function writeBatchCsv(dir, _batch, rows) {
-  writeFileSync(
-    path.join(dir, 'candidates.csv'),
-    rowsToDiscoveryRuntimeCsv(rows),
-    'utf8',
-  );
+  writeFileSync(path.join(dir, 'candidates.csv'), rowsToCsv(rows), 'utf8');
 }
 
 /**
@@ -48,22 +38,18 @@ export function previewSerpProbe(batchId, { indices = null } = {}) {
     err.status = 400;
     throw err;
   }
-  const requestedCount =
-    Array.isArray(indices) && indices.length
-      ? [...new Set(indices.map((value) => Number(value)).filter(Number.isFinite))]
-          .filter((index) => index >= 0 && index < rows.length)
-          .length
-      : rows.length;
-
-  const targets = resolveTargets(rows, indices);
-  const populationSkippedCount = Math.max(0, requestedCount - targets.length);
+  let targets = rows.map((_, i) => i);
+  if (Array.isArray(indices) && indices.length) {
+    targets = indices
+      .map((n) => Number(n))
+      .filter((n) => Number.isFinite(n) && n >= 0 && n < rows.length);
+  }
   const n = targets.length;
   const hasCreds = Boolean(process.env.DATAFORSEO_LOGIN && process.env.DATAFORSEO_PASSWORD);
   return {
     batchId: batch.id,
     rowCount: rows.length,
     probeCount: n,
-    populationSkippedCount,
     estimateUsdLow: Number((n * SERP_PROBE_ESTIMATE_USD).toFixed(4)),
     estimateUsdHigh: Number((n * SERP_PROBE_ESTIMATE_USD * 1.5).toFixed(4)),
     estimateLabel: `~$${(n * SERP_PROBE_ESTIMATE_USD).toFixed(3)}–$${(
@@ -72,17 +58,13 @@ export function previewSerpProbe(batchId, { indices = null } = {}) {
       1.5
     ).toFixed(3)} for ${n} organic SERPs`,
     estimateDetail:
-      `One DataForSEO Google organic live SERP per population-qualified row. ${
-        populationSkippedCount
-          ? `${populationSkippedCount} row(s) outside the population preference will be skipped. `
-          : ''
-      }Map Pack + organic/directory counts only. Volumes come from Stage 1.`,
+      'One DataForSEO Google organic live SERP per row (Map Pack + organic/directory counts). Volumes come from Stage 1.',
     hasDataForSeo: hasCreds,
     confirmLabel: hasCreds ? `Probe ${n} rows` : 'Cannot run — add DataForSEO credentials',
   };
 }
 
-export function applySerpToRow(row, classified, checkUrl, { items = [] } = {}) {
+function applySerpToRow(row, classified, checkUrl) {
   const next = { ...row };
   next['Map Pack'] = classified.mapPackPresent ? 'Yes' : 'No';
   next['Organic Home Page'] = String(classified.organicHomePages.count);
@@ -118,60 +100,17 @@ export function applySerpToRow(row, classified, checkUrl, { items = [] } = {}) {
       ? String(classified.localPack.length)
       : 'N/A';
   }
-  const screen = evaluatePrimarySerpScreen({ classified, rawItems: items });
-  next.screenDecision = screen.screenDecision;
-  next.screenRule = screen.screenRule;
-  next.screenReason = screen.screenReason;
-  next.screenUniqueOrganicDomainCount = screen.evidence.uniqueOrganicDomainCount;
-  next.screenUniqueNicheOrganicDomainCount = screen.evidence.uniqueNicheOrganicDomainCount ?? '';
-  next.screenMapPackPresent = screen.evidence.mapPackPresent;
-  next.screenPaidPresent = screen.evidence.paidPresent;
-  next.screenPaidCount = screen.evidence.paidCount;
-  next.screenLsaPresent = screen.evidence.lsaPresent;
-  next.screenOrganicHomePageCount = screen.evidence.organicHomePageCount;
-  next.screenOrganicSubPageCount = screen.evidence.organicSubPageCount;
-  next.screenDirectoryCount = screen.evidence.directoryCount;
-  next.screenParameters = JSON.stringify(screen.parameters);
   return next;
 }
 
-function readPopulationContextForSerp(row) {
-  const raw = String(row?.populationContext || '').trim();
-  if (!raw) return null;
-  try {
-    const parsed = JSON.parse(raw);
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
-      ? parsed
-      : null;
-  } catch {
-    return null;
-  }
-}
-
-export function isPopulationEligibleForSerp(row) {
-  const context = readPopulationContextForSerp(row);
-
-  // Backward compatibility: old batches without Package-2 context
-  // remain probeable.
-  if (!context) return true;
-
-  return context.eligible !== false;
-}
-
 function resolveTargets(rows, indices) {
-  let targets = rows.map((_, index) => index);
-
+  let targets = rows.map((_, i) => i);
   if (Array.isArray(indices) && indices.length) {
-    targets = [
-      ...new Set(
-        indices
-          .map((value) => Number(value))
-          .filter((value) => Number.isFinite(value)),
-      ),
-    ].filter((index) => index >= 0 && index < rows.length);
+    targets = [...new Set(indices.map((n) => Number(n)).filter((n) => Number.isFinite(n)))].filter(
+      (n) => n >= 0 && n < rows.length,
+    );
   }
-
-  return targets.filter((index) => isPopulationEligibleForSerp(rows[index]));
+  return targets;
 }
 
 export function getSerpProbeJob(jobId) {
@@ -223,7 +162,6 @@ export function startDiscoverySerpProbe(batchId, { indices = null, concurrency =
 
   const conc = Math.min(2, Math.max(1, Number(concurrency) || 1));
   let nextRows = [...rows];
-  const changedSerpKeys = new Set();
   let cursor = 0;
 
   (async () => {
@@ -263,7 +201,7 @@ export function startDiscoverySerpProbe(batchId, { indices = null, concurrency =
             itemTypes: raw.itemTypes,
             items: raw.items,
           });
-          nextRows[i] = applySerpToRow(row, classified, raw.checkUrl, { items: raw.items });
+          nextRows[i] = applySerpToRow(row, classified, raw.checkUrl);
           const key = rowKey(row);
           try {
             writeSerpCache(dir, key, {
@@ -280,7 +218,6 @@ export function startDiscoverySerpProbe(batchId, { indices = null, concurrency =
               items: raw.items,
               classified,
             });
-            changedSerpKeys.add(key);
           } catch (cacheErr) {
             console.error(`SERP cache write failed for ${label}: ${cacheErr.message}`);
           }
@@ -307,17 +244,12 @@ export function startDiscoverySerpProbe(batchId, { indices = null, concurrency =
 
     try {
       await Promise.all(Array.from({ length: conc }, () => worker()));
-      nextRows = invalidateSeoClusterEvidenceForSerpKeys(nextRows, changedSerpKeys);
       nextRows = applyRecommendations(nextRows);
       writeBatchCsv(dir, batch, nextRows);
 
       const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
       const probeFile = `discovery-serp-probe-${stamp}.csv`;
-      writeFileSync(
-        path.join(dir, probeFile),
-        rowsToDiscoveryRuntimeCsv(nextRows),
-        'utf8',
-      );
+      writeFileSync(path.join(dir, probeFile), rowsToCsv(nextRows), 'utf8');
 
       const probeLog = {
         at: new Date().toISOString(),

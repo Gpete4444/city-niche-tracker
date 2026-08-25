@@ -13,32 +13,20 @@
 
 import { mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import {
   adsLocationName,
+  loadAdsLocations,
   loadEnvFile,
+  resolveAdsLocation,
 } from './lib/dataforseo.mjs';
-import { normalizeAdsMode } from './lib/ads-volume.mjs';
-import {
-  ADS_DEMAND_ENGINE_VERSION,
-  ADS_INTENT_CLASSIFIER_VERSION,
-  ADS_KEYWORD_CONTRACT_VERSION,
-  adsDemandAuthorityMatches,
-  adsDemandRowKey,
-  buildAdsKeywordSeeds,
-  collectAdsDemand,
-  normalizeAdsCities,
-  readPreHumanAdsSidecar,
-  summarizeAdsIntent,
-  writePreHumanAdsSidecar,
-} from './lib/ads-demand-research.mjs';
+import { fetchRelatedKeywords, fetchSearchVolumes, normalizeAdsMode } from './lib/ads-volume.mjs';
 import { classifySerpItems, fetchOrganicSerp } from './lib/serp-classify.mjs';
 import {
   classifiedToResearchSerp,
   isSerpCacheFresh,
   readSerpCache,
 } from './lib/serp-cache.mjs';
-import { enrichClassifiedSerp } from './lib/serp-signals.mjs';
+import { averageKeywordCpc, enrichClassifiedSerp } from './lib/serp-signals.mjs';
 import { applyEnrichmentToScoring, buildResearchScoring, shouldAutoEnrich, resolvePreservedJobFields, attachPreservedJobFields } from './lib/scoring.mjs';
 import { enrichResearchReport } from './lib/enrich.mjs';
 
@@ -144,9 +132,6 @@ function parseArgs(argv) {
     serpCache: '',
     forceSerp: false,
     volumesOnly: false,
-    adsCluster: null,
-    preHumanAdsRef: '',
-    adsDemandSignature: '',
   };
 
   for (let i = 0; i < argv.length; i += 1) {
@@ -222,9 +207,6 @@ function parseArgs(argv) {
     args.serpCache = cliSerpCache || raw.serpCache || args.serpCache || '';
     args.forceSerp = cliForceSerp || Boolean(raw.forceSerp);
     args.volumesOnly = cliVolumesOnly || Boolean(raw.volumesOnly);
-    args.adsCluster = Array.isArray(raw.adsCluster) ? raw.adsCluster : null;
-    args.preHumanAdsRef = String(raw.preHumanAdsRef || '');
-    args.adsDemandSignature = String(raw.adsDemandSignature || '');
   } else {
     args.adsMode = normalizeAdsMode(args.adsMode);
   }
@@ -286,13 +268,11 @@ function buildSpreadsheetFields(report) {
   };
 }
 
-export async function researchCandidate(args, dependencies = {}) {
+async function main() {
+  const args = parseArgs(process.argv.slice(2));
   const primary = parseCityState(args.primary);
   const cluster = args.cluster.map(parseCityState);
   const allCities = [primary, ...cluster.filter((c) => !(c.city === primary.city && c.state === primary.state))];
-  const adsCities = normalizeAdsCities(primary, args.adsCluster ?? args.cluster, {
-    sortRelated: args.adsCluster != null,
-  });
 
   const niche = args.niche.trim();
   const query = `${niche} ${primary.city} ${primary.state}`;
@@ -375,7 +355,7 @@ export async function researchCandidate(args, dependencies = {}) {
       );
     }
     console.error(`SERP: "${query}" @ ${primaryLocation}`);
-    serpRaw = await (dependencies.fetchOrganicSerpFn || fetchSerp)(query, primaryLocation);
+    serpRaw = await fetchSerp(query, primaryLocation);
     totalCost += serpRaw.cost;
     serp = classifySerpItems(serpRaw.items);
   }
@@ -391,163 +371,106 @@ export async function researchCandidate(args, dependencies = {}) {
   const nicheDomainCount =
     serp.uniqueNicheOrganicDomains?.length ?? serp.uniqueOrganicDomains?.length ?? 0;
 
-  let volumes = {
-    mode: 'per_city_sum',
-    adsMode: normalizeAdsMode(args.adsMode),
-    primaryLocation,
-    primaryVolumeSum: 0,
-    clusterVolumeSum: 0,
-    averageCpc: null,
-    relatedIdeasFromPrimary: [],
-    keywords: [],
-    citiesMeasured: [],
-    citiesWithoutAdsGeoTarget: [],
-    byCity: [],
-  };
-  let adsDemandMeta = null;
+  let related = { cost: 0, ideas: [] };
+  let keywords = [];
+  const volumesByCity = [];
+  const unsupportedCities = [];
 
   if (!args.skipVolumes) {
     const adsMode = normalizeAdsMode(args.adsMode);
     console.error(`Ads volume mode: ${adsMode}`);
-    let source = 'stage1_live';
-    let demand = null;
-    const expectedAuthority = {
-      version: ADS_DEMAND_ENGINE_VERSION,
-      keywordContractVersion: ADS_KEYWORD_CONTRACT_VERSION,
-      intentClassifierVersion: ADS_INTENT_CLASSIFIER_VERSION,
-      signature: args.adsDemandSignature,
-      niche,
-      rowKey: adsDemandRowKey({ niche, primary }),
-      target: primary,
-      adsCluster: adsCities.slice(1).map((city) => `${city.city},${city.state}`),
-      keywordConfiguration: {
-        seeds: buildAdsKeywordSeeds(niche, primary, seeds),
-        relatedLimit: args.related,
-      },
-    };
-    const priorAuthority = priorResearch?.adsDemandMeta
-      ? {
-          ...priorResearch.adsDemandMeta,
-          niche: priorResearch.niche,
-          rowKey: priorResearch.adsDemandMeta.rowKey,
-          target: priorResearch.adsDemandMeta.target || {
-            city: priorResearch.primaryCity,
-            state: priorResearch.state,
-          },
-          volumes: priorResearch.volumes,
+    const adsLocations = await loadAdsLocations();
+    const resolvedPrimary = resolveAdsLocation(adsLocations, primary.city, primary.state);
+    if (!resolvedPrimary) {
+      throw new Error(
+        `Google Ads has no geo target for "${primary.city}, ${primary.state}". Use a larger city or county for --primary.`,
+      );
+    }
+
+    console.error(`Related keywords @ ${resolvedPrimary.locationName} (seeds: ${seeds.join(', ')})`);
+    related = await fetchRelatedKeywords(
+      seeds,
+      resolvedPrimary.locationCode,
+      Math.max(args.related, 5),
+      { mode: adsMode },
+    );
+    totalCost += related.cost;
+
+    const seedExtras = seeds.map((s) => ({
+      keyword: s,
+      searchVolume: null,
+      competition: null,
+      competitionIndex: null,
+      cpc: null,
+    }));
+    const merged = [...seedExtras, ...related.ideas];
+    const deduped = [];
+    const seen = new Set();
+    for (const idea of merged) {
+      const key = idea.keyword.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      deduped.push(idea);
+    }
+    const selected = deduped.slice(0, args.related);
+
+    for (const place of allCities) {
+      const resolved = resolveAdsLocation(adsLocations, place.city, place.state);
+      if (!resolved) {
+        console.error(
+          `Skipping ${place.city}, ${place.state}: no Google Ads geo target (too small for Ads targeting).`,
+        );
+        unsupportedCities.push(`${place.city}, ${place.state}`);
+        continue;
+      }
+
+      console.error(`Volumes @ ${resolved.locationName} (${selected.length} keywords)`);
+      try {
+        const vol = await fetchSearchVolumes(
+          selected.map((k) => k.keyword),
+          resolved.locationCode,
+          { mode: adsMode },
+        );
+        totalCost += vol.cost;
+        volumesByCity.push({
+          city: place.city,
+          state: place.state,
+          locationName: resolved.locationName,
+          locationCode: resolved.locationCode,
+          keywords: vol.byKeyword,
+        });
+      } catch (error) {
+        console.error(`Volumes failed for ${resolved.locationName}: ${error.message}`);
+        unsupportedCities.push(`${place.city}, ${place.state}`);
+      }
+    }
+
+    keywords = selected.map((idea) => {
+      const perCity = {};
+      let clusterSum = 0;
+      let primaryVolume = null;
+      for (const cityBlock of volumesByCity) {
+        const row = cityBlock.keywords[idea.keyword.toLowerCase()];
+        const volume = row?.searchVolume ?? 0;
+        perCity[`${cityBlock.city}, ${cityBlock.state}`] = volume;
+        clusterSum += volume;
+        if (cityBlock.city === primary.city && cityBlock.state === primary.state) {
+          primaryVolume = volume;
         }
-      : null;
-    if (args.adsDemandSignature
-      && priorResearch?.volumes
-      && adsDemandAuthorityMatches(priorAuthority, {
-        signature: args.adsDemandSignature,
-        niche,
-        primary,
-        adsCluster: adsCities.slice(1),
-        seeds,
-        relatedLimit: args.related,
-        allowedStatuses: ['complete'],
-      })) {
-      volumes = priorResearch.volumes;
-      source = 'prior_reuse';
-      demand = {
-        status: 'complete',
-        provider: {
-          historicalEvidenceCostUsd: Number(priorResearch.adsDemandMeta.historicalEvidenceCostUsd) || 0,
-          newProviderCostUsd: 0,
-        },
-        volumes,
-        intentSummary: priorResearch.adsDemandMeta.intentSummary || null,
+      }
+      return {
+        keyword: idea.keyword,
+        primaryVolume,
+        clusterSum,
+        perCity,
+        competition: idea.competition,
+        cpc: idea.cpc,
       };
-    } else {
-      const sidecar = args.adsDemandSignature && args.preHumanAdsRef
-        ? readPreHumanAdsSidecar(args.preHumanAdsRef, dependencies.root || process.cwd())
-        : null;
-      const compatibleSidecar = adsDemandAuthorityMatches(sidecar, {
-        signature: args.adsDemandSignature,
-        niche,
-        primary,
-        adsCluster: adsCities.slice(1),
-        seeds,
-        relatedLimit: args.related,
-        allowedStatuses: ['complete', 'partial', 'unsupported_primary_ads_geo'],
-        requireEvidenceState: true,
-      }) ? sidecar : null;
-      if (compatibleSidecar) source = compatibleSidecar.status === 'complete' ? 'pre_human_ads' : 'stage1_resume';
-      demand = await collectAdsDemand({
-        niche,
-        primary,
-        adsCluster: adsCities.slice(1),
-        seeds,
-        relatedLimit: args.related,
-        adsMode,
-        priorState: compatibleSidecar,
-        reuseCompleteWithoutLocationLoad: true,
-        preserveClusterOrder: args.adsCluster == null,
-        dependencies: dependencies.adsDependencies || {},
-      });
-      if (compatibleSidecar) {
-        const updatedSidecar = {
-          ...compatibleSidecar,
-          ...demand,
-          version: ADS_DEMAND_ENGINE_VERSION,
-          keywordContractVersion: ADS_KEYWORD_CONTRACT_VERSION,
-          intentClassifierVersion: ADS_INTENT_CLASSIFIER_VERSION,
-          niche,
-          rowKey: expectedAuthority.rowKey,
-          signature: args.adsDemandSignature,
-          target: primary,
-          adsCluster: expectedAuthority.adsCluster,
-          keywordConfiguration: expectedAuthority.keywordConfiguration,
-          clusterAuthorityStatus: compatibleSidecar.clusterAuthorityStatus,
-          collectedAt: compatibleSidecar.collectedAt,
-          updatedAt: new Date().toISOString(),
-          intentSummary: summarizeAdsIntent(demand.volumes),
-        };
-        writePreHumanAdsSidecar(
-          args.preHumanAdsRef,
-          updatedSidecar,
-          dependencies.root || process.cwd(),
-        );
-        demand = updatedSidecar;
-      }
-      if (demand.status === 'unsupported_primary_ads_geo' && !args.adsDemandSignature) {
-        throw new Error(
-          `Google Ads has no geo target for "${primary.city}, ${primary.state}". Use a larger city or county for --primary.`,
-        );
-      }
-      if (demand.volumes) volumes = demand.volumes;
-      totalCost += Number(demand.provider?.newProviderCostUsd) || 0;
-    }
-    if (args.adsDemandSignature && demand.status !== 'complete') {
-      const error = new Error(`Package-4 Ads demand remains ${demand.status}; Stage 1 cannot finalize demand scoring.`);
-      error.code = 'ads_demand_incomplete';
-      error.adsDemandStatus = demand.status;
-      throw error;
-    }
-    adsDemandMeta = {
-      schemaVersion: ADS_DEMAND_ENGINE_VERSION,
-      keywordContractVersion: ADS_KEYWORD_CONTRACT_VERSION,
-      intentClassifierVersion: ADS_INTENT_CLASSIFIER_VERSION,
-      signature: args.adsDemandSignature || null,
-      niche,
-      rowKey: expectedAuthority.rowKey,
-      target: primary,
-      adsCluster: args.adsCluster ?? args.cluster,
-      collectedAt: new Date().toISOString(),
-      source,
-      status: demand.status,
-      supportedCities: volumes.citiesMeasured || [],
-      unsupportedCities: demand.unsupportedCities || volumes.citiesWithoutAdsGeoTarget || [],
-      failedGeos: demand.failedGeos || [],
-      keywordConfiguration: expectedAuthority.keywordConfiguration,
-      intentSummary: demand.intentSummary || null,
-      historicalEvidenceCostUsd: Number(demand.provider?.historicalEvidenceCostUsd) || 0,
-      newProviderCostUsd: Number(demand.provider?.newProviderCostUsd) || 0,
-    };
+    });
   }
 
-  const clusterVolumeSum = volumes.clusterVolumeSum;
+  const clusterVolumeSum = keywords.reduce((sum, k) => sum + (k.clusterSum ?? 0), 0);
+  const primaryVolumeSum = keywords.reduce((sum, k) => sum + (k.primaryVolume ?? 0), 0);
 
   const scoring = buildResearchScoring({
     clusterVolumeSum,
@@ -558,6 +481,7 @@ export async function researchCandidate(args, dependencies = {}) {
   if (serp.features?.localServicesAds && scoring.scoreInputs) {
     scoring.scoreInputs.notes = `${scoring.scoreInputs.notes || ''} Local Services Ads present on SERP — organic/phone leads may sit below LSAs.`.trim();
   }
+  const avgCpc = averageKeywordCpc(keywords);
 
   const report = {
     generatedAt: new Date().toISOString(),
@@ -578,8 +502,27 @@ export async function researchCandidate(args, dependencies = {}) {
           }
         : null,
     }),
-    volumes,
-    adsDemandMeta,
+    volumes: {
+      mode: 'per_city_sum',
+      adsMode: normalizeAdsMode(args.adsMode),
+      primaryLocation,
+      primaryVolumeSum,
+      clusterVolumeSum,
+      averageCpc: avgCpc,
+      relatedIdeasFromPrimary: related.ideas,
+      keywords,
+      citiesMeasured: volumesByCity.map((block) => `${block.city}, ${block.state}`),
+      citiesWithoutAdsGeoTarget: unsupportedCities,
+      byCity: volumesByCity.map((block) => ({
+        city: block.city,
+        state: block.state,
+        locationName: block.locationName,
+        locationCode: block.locationCode,
+        keywordVolumes: Object.fromEntries(
+          Object.entries(block.keywords).map(([k, v]) => [k, v.searchVolume]),
+        ),
+      })),
+    },
     scoring,
     scoreInputs: scoring.scoreInputs,
     proposedScore: scoring.proposedScore,
@@ -638,18 +581,11 @@ export async function researchCandidate(args, dependencies = {}) {
     writeFileSync(resolvedOut, json, 'utf8');
     console.error(`Wrote ${resolvedOut}`);
   }
-  return report;
+  process.stdout.write(json);
+  console.error(`Estimated DataForSEO cost this run: $${totalCost.toFixed(4)}`);
 }
 
-async function main() {
-  const report = await researchCandidate(parseArgs(process.argv.slice(2)));
-  process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
-  console.error(`Estimated DataForSEO cost this run: $${Number(report.estimatedApiCostUsd || 0).toFixed(4)}`);
-}
-
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  main().catch((error) => {
-    console.error(error.message || error);
-    process.exit(1);
-  });
-}
+main().catch((error) => {
+  console.error(error.message || error);
+  process.exit(1);
+});

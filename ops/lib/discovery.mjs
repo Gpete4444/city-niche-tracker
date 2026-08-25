@@ -10,20 +10,8 @@ import {
   writeFileSync,
 } from 'node:fs';
 import path from 'node:path';
-import { censusStatus, listUsStates } from './census.mjs';
+import { lookupPopulation, censusStatus, listUsStates } from './census.mjs';
 import { applyRecommendations, DISCOVERY_DECISIONS } from './discovery-recommend.mjs';
-import {
-  buildPopulationContext,
-  buildPopulationContexts,
-  populationPlaceKey,
-  V15_POPULATION_CONTEXT_PARAMETERS,
-} from './population-context.mjs';
-import { V15_SEO_CLUSTER_PARAMETERS } from './discovery-seo-cluster.mjs';
-import {
-  V15_PRE_HUMAN_ADS_PARAMETERS,
-  currentAdsDemandDisplay,
-  currentAdsDemandHandoff,
-} from './discovery-ads-demand.mjs';
 import { createCandidate, setDecision, pathsFor, saveMeta } from './candidates.mjs';
 import {
   findCandidateByGeo,
@@ -75,41 +63,6 @@ export const DISCOVERY_COLUMNS = [
   'process_status',
   'source_mode',
   'serp_source',
-];
-
-export const DISCOVERY_SCREEN_COLUMNS = [
-  'screenDecision',
-  'screenRule',
-  'screenReason',
-  'screenUniqueOrganicDomainCount',
-  'screenUniqueNicheOrganicDomainCount',
-  'screenMapPackPresent',
-  'screenPaidPresent',
-  'screenPaidCount',
-  'screenLsaPresent',
-  'screenOrganicHomePageCount',
-  'screenOrganicSubPageCount',
-  'screenDirectoryCount',
-  'screenParameters',
-];
-
-export const DISCOVERY_SEO_CLUSTER_COLUMNS = [
-  'seoClusterCities',
-  'seoClusterEvidence',
-];
-
-export const DISCOVERY_ADS_DEMAND_COLUMNS = [
-  'adsDemandStatus',
-  'adsDemandEvidence',
-  'adsResearchRef',
-];
-
-export const DISCOVERY_RUNTIME_COLUMNS = [
-  ...DISCOVERY_COLUMNS,
-  ...DISCOVERY_SCREEN_COLUMNS,
-  ...DISCOVERY_SEO_CLUSTER_COLUMNS,
-  ...DISCOVERY_ADS_DEMAND_COLUMNS,
-  'populationContext',
 ];
 
 /** Human decisions that create/link Candidates. */
@@ -210,14 +163,6 @@ export function rowsToCsv(rows, columns = DISCOVERY_COLUMNS) {
   return `${lines.join('\n')}\n`;
 }
 
-export function rowsToDiscoveryPackCsv(rows = []) {
-  return rowsToCsv(rows, DISCOVERY_COLUMNS);
-}
-
-export function rowsToDiscoveryRuntimeCsv(rows = []) {
-  return rowsToCsv(rows, DISCOVERY_RUNTIME_COLUMNS);
-}
-
 /** Minimal CSV parser supporting quotes and newlines inside quotes. */
 export function parseCsv(text) {
   const rows = [];
@@ -315,13 +260,6 @@ function normalizeFilters(filters = {}) {
   const maxRows = Math.min(100, Math.max(1, Number(filters.maxRows) || 40));
   const minPopulation = Number(filters.minPopulation);
   const maxPopulation = Number(filters.maxPopulation);
-  const nearbyCityRadiusMiles = Number(filters.nearbyCityRadiusMiles);
-  const nearbyCityMinPopulation = Number(filters.nearbyCityMinPopulation);
-  const maxNearbySerps = Number(filters.maxNearbySerps);
-  const seoClusterMinJaccard = Number(filters.seoClusterMinJaccard);
-  const seoClusterMinSharedDomains = Number(filters.seoClusterMinSharedDomains);
-  const maxPreHumanAdsRows = Number(filters.maxPreHumanAdsRows);
-  const maxPreHumanAdsVolumeCalls = Number(filters.maxPreHumanAdsVolumeCalls);
   const seasonalityRaw = String(filters.seasonality || 'year_round').toLowerCase();
   const seasonality = ['year_round', 'allow_seasonal', 'seasonal_only'].includes(seasonalityRaw)
     ? seasonalityRaw
@@ -351,42 +289,6 @@ function normalizeFilters(filters = {}) {
     maxRows,
     minPopulation: Number.isFinite(minPopulation) ? minPopulation : 70000,
     maxPopulation: Number.isFinite(maxPopulation) ? maxPopulation : 200000,
-    nearbyCityRadiusMiles:
-      Number.isFinite(nearbyCityRadiusMiles)
-      && nearbyCityRadiusMiles >= 1
-      && nearbyCityRadiusMiles <= 120
-        ? nearbyCityRadiusMiles
-        : V15_POPULATION_CONTEXT_PARAMETERS.nearbyCityRadiusMiles,
-    nearbyCityMinPopulation:
-      Number.isFinite(nearbyCityMinPopulation) && nearbyCityMinPopulation >= 0
-        ? nearbyCityMinPopulation
-        : V15_POPULATION_CONTEXT_PARAMETERS.nearbyCityMinPopulation,
-    maxNearbySerps:
-      Number.isInteger(maxNearbySerps) && maxNearbySerps >= 0 && maxNearbySerps <= 5
-        ? maxNearbySerps
-        : V15_SEO_CLUSTER_PARAMETERS.maxNearbySerps,
-    seoClusterMinJaccard:
-      Number.isFinite(seoClusterMinJaccard)
-      && seoClusterMinJaccard >= 0
-      && seoClusterMinJaccard <= 1
-        ? seoClusterMinJaccard
-        : V15_SEO_CLUSTER_PARAMETERS.seoClusterMinJaccard,
-    seoClusterMinSharedDomains:
-      Number.isInteger(seoClusterMinSharedDomains)
-      && seoClusterMinSharedDomains >= 1
-      && seoClusterMinSharedDomains <= 10
-        ? seoClusterMinSharedDomains
-        : V15_SEO_CLUSTER_PARAMETERS.seoClusterMinSharedDomains,
-    maxPreHumanAdsRows:
-      Number.isInteger(maxPreHumanAdsRows) && maxPreHumanAdsRows >= 1 && maxPreHumanAdsRows <= 10
-        ? maxPreHumanAdsRows
-        : V15_PRE_HUMAN_ADS_PARAMETERS.maxPreHumanAdsRows,
-    maxPreHumanAdsVolumeCalls:
-      Number.isInteger(maxPreHumanAdsVolumeCalls)
-      && maxPreHumanAdsVolumeCalls >= 1
-      && maxPreHumanAdsVolumeCalls <= 60
-        ? maxPreHumanAdsVolumeCalls
-        : V15_PRE_HUMAN_ADS_PARAMETERS.maxPreHumanAdsVolumeCalls,
     seasonality,
     tiers,
     mapPackPreference,
@@ -430,7 +332,7 @@ function mapPackLabel(v) {
 }
 
 /** Human-readable filter brief injected into Claude prompts. */
-export function buildFilterBrief(filters = {}, { populationContexts = [] } = {}) {
+export function buildFilterBrief(filters = {}) {
   const f = normalizeFilters(filters);
   let nichesLine;
   if (f.requiredNiches.length && f.niches.length) {
@@ -463,9 +365,7 @@ export function buildFilterBrief(filters = {}, { populationContexts = [] } = {})
           ? `OPEN within ${f.state} — choose the best cities in that state`
           : 'OPEN nationwide — choose the best cities'
     }`,
-    `- **Population band:** ${f.minPopulation.toLocaleString()} – ${f.maxPopulation.toLocaleString()} (approximate local-market screening preference)`,
-    `- **Nearby population approximation:** ${f.nearbyCityRadiusMiles} mile radius; include nearby Census places with ${f.nearbyCityMinPopulation.toLocaleString()}+ population`,
-    '- **Population qualification:** A smaller named city may qualify when nearby Census population reaches the preferred minimum. Keep each named city distinct; do not merge or eliminate cities from this context.',
+    `- **Population band (prefer):** ${f.minPopulation.toLocaleString()} – ${f.maxPopulation.toLocaleString()} (incorporated place / city proper when known)`,
     `- **Seasonality:** ${seasonalityLabel(f.seasonality)}`,
     f.requiredNiches.length
       ? `- **Ticket tiers allowed:** ${tiersLabel(f.tiers)} — apply when picking cities/services framing; Required niches override catalog tier membership`
@@ -480,20 +380,6 @@ export function buildFilterBrief(filters = {}, { populationContexts = [] } = {})
     '',
     'Respect these constraints. Prefer real municipalities. Do not invent fake cities.',
   ];
-  if (populationContexts.length) {
-    lines.push('', '## Rover local population context for operator-selected cities', '');
-    for (const context of populationContexts) {
-      const nearby = context.nearbyPopulation == null
-        ? 'unavailable'
-        : context.nearbyPopulation.toLocaleString();
-      lines.push(
-        `- ${context.city}, ${context.state}: city ${context.cityPopulation?.toLocaleString() ?? 'unavailable'}; nearby approximation ${nearby}; ${context.qualifiesBy}`,
-      );
-    }
-    if (populationContexts.some((context) => context.nearbyStatus !== 'available')) {
-      lines.push(`- Status: ${populationContexts.find((context) => context.setupMessage)?.setupMessage}`);
-    }
-  }
   return lines.join('\n');
 }
 
@@ -524,17 +410,8 @@ export function buildEmptyTemplateRows() {
 export function createDiscoveryPack(filters = {}) {
   ensureBatchesDir();
   const f = normalizeFilters(filters);
-  const populationContexts = buildPopulationContexts(
-    f.cities.map((city) => ({ city, state: f.state, explicitlySelected: true })),
-    {
-      selectedBandMin: f.minPopulation,
-      selectedBandMax: f.maxPopulation,
-      nearbyCityRadiusMiles: f.nearbyCityRadiusMiles,
-      nearbyCityMinPopulation: f.nearbyCityMinPopulation,
-    },
-  );
   const rows = buildEmptyTemplateRows();
-  const csv = rowsToDiscoveryPackCsv(rows);
+  const csv = rowsToCsv(rows);
   const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
   const label = autoLabel(f);
   const batchId = slugBatchId(label);
@@ -546,7 +423,7 @@ export function createDiscoveryPack(filters = {}) {
   const claudeCsvName = `${outputBasename}-claude.csv`;
   writeFileSync(path.join(dir, csvName), csv, 'utf8');
 
-  const filterBrief = buildFilterBrief(f, { populationContexts });
+  const filterBrief = buildFilterBrief(f);
   const highTicketNiches = loadHighTicketNiches();
   const promptVars = {
     FILTER_BRIEF: filterBrief,
@@ -576,13 +453,6 @@ export function createDiscoveryPack(filters = {}) {
       categories: f.categories,
       minPopulation: f.minPopulation,
       maxPopulation: f.maxPopulation,
-      nearbyCityRadiusMiles: f.nearbyCityRadiusMiles,
-      nearbyCityMinPopulation: f.nearbyCityMinPopulation,
-      maxNearbySerps: f.maxNearbySerps,
-      seoClusterMinJaccard: f.seoClusterMinJaccard,
-      seoClusterMinSharedDomains: f.seoClusterMinSharedDomains,
-      maxPreHumanAdsRows: f.maxPreHumanAdsRows,
-      maxPreHumanAdsVolumeCalls: f.maxPreHumanAdsVolumeCalls,
       maxRows: f.maxRows,
       seasonality: f.seasonality,
       tiers: f.tiers,
@@ -599,7 +469,6 @@ export function createDiscoveryPack(filters = {}) {
     outputBasename,
     rowCount: 0,
     census: censusStatus(),
-    populationContexts,
   };
   writeJson(path.join(dir, 'meta.json'), meta);
 
@@ -671,34 +540,6 @@ export function rowKey(row) {
 
 /** Soft fields from Discovery Claude — seed Stage 3 instead of reinventing. */
 export function discoveryNarrativeSeedFromRow(row, { batchId = null, rowIndex = null } = {}) {
-  let populationContext = null;
-  let seoClusterCities = [];
-  let seoClusterEvidence = null;
-  try {
-    populationContext = row.populationContext ? JSON.parse(row.populationContext) : null;
-  } catch {
-    populationContext = null;
-  }
-  try {
-    const parsed = row.seoClusterCities ? JSON.parse(row.seoClusterCities) : [];
-    seoClusterCities = Array.isArray(parsed) ? parsed : [];
-  } catch {
-    seoClusterCities = [];
-  }
-  try {
-    const parsed = row.seoClusterEvidence ? JSON.parse(row.seoClusterEvidence) : null;
-    seoClusterEvidence = parsed && typeof parsed === 'object' && !Array.isArray(parsed)
-      ? parsed
-      : null;
-  } catch {
-    seoClusterEvidence = null;
-  }
-  const adsDisplay = currentAdsDemandDisplay(row);
-  const hasStoredAdsEvidence = Boolean(String(row.adsDemandEvidence || '').trim());
-  const adsDemandEvidence = adsDisplay.current ? adsDisplay.evidence : null;
-  const adsDemandStatus = adsDisplay.current
-    ? adsDisplay.status
-    : hasStoredAdsEvidence ? 'stale' : null;
   return {
     source: 'discovery_claude',
     batchId,
@@ -709,12 +550,6 @@ export function discoveryNarrativeSeedFromRow(row, { batchId = null, rowIndex = 
     city: row.City || null,
     state: row.State ? String(row.State).toUpperCase() : null,
     population: row.Population || null,
-    populationContext,
-    seoClusterCities,
-    seoClusterEvidence,
-    adsDemandStatus,
-    adsDemandEvidence,
-    adsDemandNote: adsDemandStatus === 'stale' ? 'Ads demand evidence is stale and must be rerun' : null,
     averageJobCostText: row['Average Job Cost'] || null,
     estTimeToRankWithGbp: row['Est. time to rank with GBP'] || null,
     estTimeToRankWithoutGbp: row['Est. time to rank without GBP'] || null,
@@ -796,46 +631,32 @@ export function importDiscoveryCsv(batchId, csvText, { createIfMissing = true } 
   const maxPop = Number(prev.filters?.maxPopulation);
   const bandMin = Number.isFinite(minPop) ? minPop : 70000;
   const bandMax = Number.isFinite(maxPop) ? maxPop : 200000;
-  const nearbyCityRadiusMiles = Number(prev.filters?.nearbyCityRadiusMiles);
-  const nearbyCityMinPopulation = Number(prev.filters?.nearbyCityMinPopulation);
-  const explicitCityKeys = new Set(
-    (prev.filters?.cities || []).map((city) =>
-      populationPlaceKey(city, prev.filters?.state),
-    ),
-  );
   const popWarnings = [];
-  const populationContexts = [];
 
   let censusFilled = 0;
   let censusMiss = 0;
   for (const row of rows) {
-    const context = buildPopulationContext({
-      city: row.City,
-      state: row.State,
-      selectedBandMin: bandMin,
-      selectedBandMax: bandMax,
-      nearbyCityRadiusMiles,
-      nearbyCityMinPopulation,
-      explicitlySelected: explicitCityKeys.has(populationPlaceKey(row.City, row.State)),
-    });
-    populationContexts.push(context);
-    row.populationContext = JSON.stringify(context);
-    if (context.cityPopulation != null) {
-      row.Population = String(context.cityPopulation);
-      censusFilled += 1;
-    } else {
-      censusMiss += 1;
-      // Claude population is not authoritative; leave blank when local Census misses.
-      row.Population = '';
+    if (needsCensusPopulation(row.Population) && row.City && row.State) {
+      const pop = lookupPopulation(row.City, row.State);
+      if (pop != null) {
+        row.Population = String(pop);
+        censusFilled += 1;
+      } else {
+        censusMiss += 1;
+        // Clear ESTIMATE/junk so UI does not look like official Census
+        if (/^estimate\b/i.test(String(row.Population ?? '').trim())) {
+          row.Population = '';
+        }
+      }
     }
     if (!row.source_mode) row.source_mode = 'estimate';
     if (!row['Google Search Link'] && row.Niche && row.City && row.State) {
       row['Google Search Link'] = googleSearchLink(row.Niche, row.City, row.State);
     }
-    if (context.qualifiesBy === 'outside_preference') {
-      const retained = context.explicitlySelected ? '; retained because explicitly selected' : '';
-      const note = `Outside approximate population preference (${bandMin.toLocaleString()}–${bandMax.toLocaleString()})${retained}`;
-      popWarnings.push(`${row.City || '?'}, ${row.State || '?'}: ${context.cityPopulation?.toLocaleString() ?? 'unavailable'}`);
+    const pop = Number(String(row.Population || '').replace(/,/g, ''));
+    if (Number.isFinite(pop) && (pop < bandMin || pop > bandMax)) {
+      const note = `Outside preferred pop band (${bandMin.toLocaleString()}–${bandMax.toLocaleString()})`;
+      popWarnings.push(`${row.City || '?'}, ${row.State || '?'}: ${pop.toLocaleString()}`);
       if (!String(row.decision_notes || '').trim()) row.decision_notes = note;
     }
   }
@@ -844,12 +665,12 @@ export function importDiscoveryCsv(batchId, csvText, { createIfMissing = true } 
 
   const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
   const csvName = `discovery-imported-${stamp}.csv`;
-  writeFileSync(path.join(dir, csvName), rowsToDiscoveryPackCsv(scoredRows), 'utf8');
-  writeFileSync(path.join(dir, 'candidates.csv'), rowsToDiscoveryRuntimeCsv(scoredRows), 'utf8');
+  writeFileSync(path.join(dir, csvName), rowsToCsv(scoredRows), 'utf8');
+  writeFileSync(path.join(dir, 'candidates.csv'), rowsToCsv(scoredRows), 'utf8');
 
   const outputBasename = prev.outputBasename || `discovery-${prev.filters?.label || id}-${stamp}`;
   const claudeCsvName = prev.files?.claudeCsv || `${outputBasename}-claude.csv`;
-  writeFileSync(path.join(dir, claudeCsvName), rowsToDiscoveryPackCsv(scoredRows), 'utf8');
+  writeFileSync(path.join(dir, claudeCsvName), rowsToCsv(scoredRows), 'utf8');
 
   const meta = {
     ...prev,
@@ -870,17 +691,6 @@ export function importDiscoveryCsv(batchId, csvText, { createIfMissing = true } 
       missOnImport: censusMiss,
     },
     popBandWarnings: popWarnings.length ? popWarnings : undefined,
-    populationContextSummary: {
-      available: populationContexts.filter((context) => context.nearbyStatus === 'available').length,
-      unavailable: populationContexts.filter((context) => context.nearbyStatus !== 'available').length,
-      qualified: populationContexts.filter((context) => context.qualifiesBy !== 'outside_preference').length,
-      outsidePreference: populationContexts.filter((context) => context.qualifiesBy === 'outside_preference').length,
-      retainedExplicitly: populationContexts.filter(
-        (context) => context.qualifiesBy === 'outside_preference' && context.explicitlySelected,
-      ).length,
-      setupMessage:
-        populationContexts.find((context) => context.nearbyStatus !== 'available')?.setupMessage || null,
-    },
   };
   if (!meta.createdAt) meta.createdAt = new Date().toISOString();
 
@@ -929,7 +739,7 @@ export function updateBatchDecisions(batchId, updates = []) {
     }
     if (u.decision_notes != null) rows[idx].decision_notes = u.decision_notes;
   }
-  writeFileSync(path.join(dir, 'candidates.csv'), rowsToDiscoveryRuntimeCsv(rows), 'utf8');
+  writeFileSync(path.join(dir, 'candidates.csv'), rowsToCsv(rows), 'utf8');
   const meta = {
     ...batch,
     updatedAt: new Date().toISOString(),
@@ -942,7 +752,7 @@ export function updateBatchDecisions(batchId, updates = []) {
 export function recommendBatch(batchId) {
   const { batch, rows, dir } = getBatch(batchId);
   const next = applyRecommendations(rows);
-  writeFileSync(path.join(dir, 'candidates.csv'), rowsToDiscoveryRuntimeCsv(next), 'utf8');
+  writeFileSync(path.join(dir, 'candidates.csv'), rowsToCsv(next), 'utf8');
   const meta = {
     ...batch,
     updatedAt: new Date().toISOString(),
@@ -969,13 +779,7 @@ function parseSuburbsCluster(text, state) {
  */
 export function processDiscoveryBatch(
   batchId,
-  {
-    runStage1ForPursue = true,
-    decisions = null,
-    concurrency = 1,
-    adsMode = 'live',
-    startBatchJobsFn = startBatchJobs,
-  } = {},
+  { runStage1ForPursue = true, decisions = null, concurrency = 1, adsMode = 'live' } = {},
 ) {
   const { batch, rows, dir } = getBatch(batchId);
   if (!rows.length) {
@@ -1065,7 +869,6 @@ export function processDiscoveryBatch(
       city: row.City,
       state: String(row.State).toUpperCase(),
     };
-    const adsHandoff = currentAdsDemandHandoff(row, ROOT);
 
     try {
       if (candidateId && existsSync(pathsFor(candidateId).config)) {
@@ -1087,18 +890,6 @@ export function processDiscoveryBatch(
         setDecision(candidateId, decision, row.decision_notes || row.recommended_reason || null);
         saveMetaSource(candidateId, source);
         attachDiscoveryArtifacts(candidateId, row, dir, batch.id, i);
-        if (adsHandoff) {
-          const p = pathsFor(candidateId);
-          if (existsSync(p.config)) {
-            const config = JSON.parse(readFileSync(p.config, 'utf8'));
-            writeFileSync(p.config, `${JSON.stringify({
-              ...config,
-              adsCluster: adsHandoff.adsCluster,
-              preHumanAdsRef: adsHandoff.preHumanAdsRef,
-              adsDemandSignature: adsHandoff.adsDemandSignature,
-            }, null, 2)}\n`, 'utf8');
-          }
-        }
         row.candidateId = candidateId;
         row.process_status = 'promoted';
         nextRows[i] = row;
@@ -1130,9 +921,6 @@ export function processDiscoveryBatch(
         decisionNotes: row.decision_notes || row.recommended_reason || null,
         serpCache,
         discoverySeed,
-        adsCluster: adsHandoff?.adsCluster || null,
-        preHumanAdsRef: adsHandoff?.preHumanAdsRef || null,
-        adsDemandSignature: adsHandoff?.adsDemandSignature || null,
       });
       candidateId = created.id;
       row.candidateId = candidateId;
@@ -1148,11 +936,11 @@ export function processDiscoveryBatch(
     }
   }
 
-  writeFileSync(path.join(dir, 'candidates.csv'), rowsToDiscoveryRuntimeCsv(nextRows), 'utf8');
+  writeFileSync(path.join(dir, 'candidates.csv'), rowsToCsv(nextRows), 'utf8');
 
   let batchJob = null;
   if (runStage1ForPursue && pursueIds.length) {
-    batchJob = startBatchJobsFn({
+    batchJob = startBatchJobs({
       act: 'research',
       candidateIds: pursueIds,
       concurrency,
@@ -1240,7 +1028,7 @@ export function reopenDiscoveryRows(batchId, indices = []) {
     });
   }
 
-  writeFileSync(path.join(dir, 'candidates.csv'), rowsToDiscoveryRuntimeCsv(rows), 'utf8');
+  writeFileSync(path.join(dir, 'candidates.csv'), rowsToCsv(rows), 'utf8');
   const meta = {
     ...batch,
     updatedAt: new Date().toISOString(),
@@ -1262,9 +1050,6 @@ export function discoveryPresets() {
     trackOnlyDecisions: TRACK_ONLY_DECISIONS,
     jobCosts: loadNicheJobCosts(),
     census: censusStatus(),
-    populationContextDefaults: V15_POPULATION_CONTEXT_PARAMETERS,
-    seoClusterDefaults: V15_SEO_CLUSTER_PARAMETERS,
-    preHumanAdsDefaults: V15_PRE_HUMAN_ADS_PARAMETERS,
     states: listUsStates(),
     columns: DISCOVERY_COLUMNS,
   };

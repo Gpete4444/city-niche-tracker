@@ -545,9 +545,6 @@ export function createCandidate({
   decisionNotes = null,
   serpCache = null,
   discoverySeed = null,
-  adsCluster = null,
-  preHumanAdsRef = null,
-  adsDemandSignature = null,
 }) {
   if (!niche || !primary) throw new Error('niche and primary (City,ST) are required');
   const [city, state] = String(primary).split(',').map((s) => s.trim());
@@ -571,9 +568,6 @@ export function createCandidate({
   if (serpCache) {
     config.serpCache = String(serpCache).replace(/\\/g, '/');
   }
-  if (Array.isArray(adsCluster)) config.adsCluster = adsCluster.map((city) => String(city)).filter(Boolean);
-  if (preHumanAdsRef) config.preHumanAdsRef = String(preHumanAdsRef).replace(/\\/g, '/');
-  if (adsDemandSignature) config.adsDemandSignature = String(adsDemandSignature);
 
   writeJson(p.config, config);
   if (discoverySeed && typeof discoverySeed === 'object') {

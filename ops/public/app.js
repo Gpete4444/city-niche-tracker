@@ -32,7 +32,6 @@ import {
   setServiceAreaTableMode,
   setDiscoveryTableMapMode,
 } from './service-area-map.js?v=20260819pages';
-import { discoveryAdsEvidenceIsCurrent } from './discovery-ads-authority.js';
 
 /** @type {{ destroy: () => void, invalidateSize?: () => void } | null} */
 let serviceAreaMount = null;
@@ -13493,7 +13492,7 @@ const DISCOVERY_TABLE_COLS = [
     key: 'Population',
     label: 'Population',
     sortable: true,
-    tip: 'Census city/place population on import; nearby population is stored as approximate context',
+    tip: 'Census on import when available; else Claude estimate',
     cellClass: 'col-short',
     source: 'census',
   },
@@ -13541,25 +13540,9 @@ const DISCOVERY_TABLE_COLS = [
     key: 'recommended_decision',
     label: 'Recommend',
     sortable: true,
-    tip: 'Rover preliminary SERP screen',
+    tip: 'Rover heuristic from Map Pack + organic (best after DFS probe)',
     cellClass: 'col-short',
     source: 'ops',
-  },
-  {
-    key: 'seoClusterEvidence',
-    label: 'SEO market',
-    sortable: false,
-    tip: 'RELATED = Ads cluster; MIXED/SEPARATE = not cluster',
-    cellClass: 'col-truncate',
-    source: 'dfs',
-  },
-  {
-    key: 'adsDemandEvidence',
-    label: 'Ads demand',
-    sortable: false,
-    tip: 'Selective pre-Human Google Ads demand for the target and RELATED SEO-market cities',
-    cellClass: 'col-truncate',
-    source: 'dfs',
   },
   {
     key: '_accept',
@@ -13668,86 +13651,6 @@ function parseDiscoverySortValue(row, key) {
     return Number.isFinite(n) ? n : -1;
   }
   return String(row[key] ?? '').toLowerCase();
-}
-
-function discoverySeoMarketDisplay(row) {
-  let evidence = null;
-  try {
-    evidence = row?.seoClusterEvidence ? JSON.parse(row.seoClusterEvidence) : null;
-  } catch {
-    evidence = null;
-  }
-  if (!evidence || typeof evidence !== 'object' || Array.isArray(evidence)) {
-    return { label: '—', tip: 'Nearby SERP validation has not been run.' };
-  }
-  const status = String(evidence.status || 'unknown');
-  const summary = evidence.summary || {};
-  const related = Number(summary.relatedCount) || 0;
-  const mixed = Number(summary.mixedCount) || 0;
-  const separate = Number(summary.separateCount) || 0;
-  let label = status.replaceAll('_', ' ');
-  if (status === 'complete') {
-    const parts = [];
-    if (related) parts.push(`${related} related`);
-    if (mixed) parts.push(`${mixed} mixed`);
-    label = parts.length ? parts.join(' · ') : (separate ? 'separate' : 'complete');
-  } else if (status === 'partial') {
-    label = `partial${related ? ` · ${related} related` : ''}${mixed ? ` · ${mixed} mixed` : ''}`;
-  } else if (status === 'nearby_unavailable') {
-    label = 'nearby unavailable';
-  } else if (status === 'skipped_no_target_cache') {
-    label = 'run primary SERP first';
-  } else if (status === 'max_nearby_zero') {
-    label = 'off';
-  } else if (status === 'stale_serp_changed') {
-    label = 'stale — rerun nearby validation';
-  }
-  const thresholds = evidence.parameters
-    ? `RELATED: Jaccard ≥ ${evidence.parameters.seoClusterMinJaccard}, shared ≥ ${evidence.parameters.seoClusterMinSharedDomains}`
-    : '';
-  const details = Array.isArray(evidence.comparisons)
-    ? evidence.comparisons.map((item) => {
-        const city = [item.city, item.state].filter(Boolean).join(', ');
-        if (item.unresolved) return `${city}: unresolved (${item.error || 'unknown error'})`;
-        return `${city}: ${String(item.relationship || 'unknown').toLowerCase()} · J ${Number(item.jaccard || 0).toFixed(2)} · shared ${item.sharedDomainCount || 0} · top5 ${item.sharedTop5DomainCount || 0}`;
-      })
-    : [];
-  return {
-    label,
-    tip: [thresholds, ...details].filter(Boolean).join(' | ') || label,
-  };
-}
-
-function discoveryAdsDemandDisplay(row) {
-  let evidence = null;
-  let clusterEvidence = null;
-  let currentCluster = null;
-  try { evidence = row?.adsDemandEvidence ? JSON.parse(row.adsDemandEvidence) : null; } catch { evidence = null; }
-  try { clusterEvidence = row?.seoClusterEvidence ? JSON.parse(row.seoClusterEvidence) : null; } catch { clusterEvidence = null; }
-  try { currentCluster = row?.seoClusterCities ? JSON.parse(row.seoClusterCities) : []; } catch { currentCluster = null; }
-  if (!evidence || typeof evidence !== 'object' || Array.isArray(evidence)) {
-    return { label: 'not researched', tip: 'Select this surviving row to research Ads demand.' };
-  }
-  const stale = !discoveryAdsEvidenceIsCurrent(row, evidence, clusterEvidence, currentCluster);
-  if (stale) return { label: 'stale — rerun', tip: 'Ads inputs changed or Package-3 authority is stale. Rerun Ads demand before reuse.' };
-  const status = String(evidence.status || row.adsDemandStatus || '');
-  if (status === 'unsupported_primary_ads_geo') return { label: 'unsupported target geo', tip: 'Google Ads has no targetable primary-city geography.' };
-  if (status !== 'complete') return { label: status.replaceAll('_', ' ') || 'partial', tip: (evidence.failedGeos || []).map((geo) => `${geo.city}, ${geo.state}: ${geo.error || 'failed'}`).join(' | ') || status };
-  const target = evidence.targetVolume ?? '—';
-  const cluster = evidence.clusterVolume ?? '—';
-  const nonJob = Number(evidence.clusterVolume) > 0
-    ? Math.round((100 * (Number(evidence.clusterNonJobVolume) || 0)) / Number(evidence.clusterVolume))
-    : null;
-  const label = `Target ${target} · Cluster ${cluster}${nonJob == null ? '' : ` · ${nonJob}% non-job`}`;
-  const shares = evidence.intentShares?.cluster || {};
-  const tip = [
-    `Supported: ${(evidence.supportedCities || []).join(', ') || 'target only'}`,
-    `Unsupported: ${(evidence.unsupportedCities || []).join(', ') || 'none'}`,
-    `Ready ${Math.round(100 * (shares.readyToHire || 0))}% · commercial ${Math.round(100 * (shares.commercialResearch || 0))}% · informational ${Math.round(100 * (shares.informational || 0))}% · employment ${Math.round(100 * (shares.employmentIrrelevantOfRaw || 0))}%`,
-    `Collected ${evidence.collectedAt || '—'}`,
-    `Calls: related ${evidence.provider?.relatedKeywordCalls || 0} · volume ${evidence.provider?.searchVolumeCalls || 0}`,
-  ].join(' | ');
-  return { label, tip };
 }
 
 function getDiscoveryViewRows() {
@@ -13979,14 +13882,6 @@ function renderDiscoveryTable() {
           const cls = [col.cellClass, 'rec-cell'].filter(Boolean).join(' ');
           return `<td class="${esc(cls)}" data-tip="${esc(reason)}"><strong>${esc(rec)}</strong></td>`;
         }
-        if (col.key === 'seoClusterEvidence') {
-          const market = discoverySeoMarketDisplay(row);
-          return `<td${tdClass} data-tip="${esc(market.tip)}"><span class="cell-text">${esc(market.label)}</span></td>`;
-        }
-        if (col.key === 'adsDemandEvidence') {
-          const demand = discoveryAdsDemandDisplay(row);
-          return `<td${tdClass} data-tip="${esc(demand.tip)}"><span class="cell-text">${esc(demand.label)}</span></td>`;
-        }
         if (col.key === 'human_decision') {
           const v = row.human_decision || '';
           if (tracked) {
@@ -14118,9 +14013,6 @@ async function selectDiscoveryBatch(id) {
     stage,
     `${data.rows?.length || 0} rows`,
     data.batch.filters?.state || null,
-    data.batch.populationContextSummary?.setupMessage
-      || data.batch.populationContexts?.find((context) => context.setupMessage)?.setupMessage
-      || null,
     serp
       ? `SERP $${serp.costUsd ?? '?'} · MP ${serp.mapPackYes ?? '?'}/${serp.mapPackNo ?? '?'}`
       : null,
@@ -14274,25 +14166,6 @@ function wireDiscoveryUi() {
           ),
           minPopulation: Number(fd.get('minPopulation')) || 70000,
           maxPopulation: Number(fd.get('maxPopulation')) || 200000,
-          nearbyCityRadiusMiles: fd.get('nearbyCityRadiusMiles') === ''
-            ? 40
-            : Number(fd.get('nearbyCityRadiusMiles')),
-          nearbyCityMinPopulation: fd.get('nearbyCityMinPopulation') === ''
-            ? 5000
-            : Number(fd.get('nearbyCityMinPopulation')),
-          maxNearbySerps: fd.get('maxNearbySerps') === '' ? 5 : Number(fd.get('maxNearbySerps')),
-          seoClusterMinJaccard: fd.get('seoClusterMinJaccard') === ''
-            ? 0.30
-            : Number(fd.get('seoClusterMinJaccard')),
-          seoClusterMinSharedDomains: fd.get('seoClusterMinSharedDomains') === ''
-            ? 2
-            : Number(fd.get('seoClusterMinSharedDomains')),
-          maxPreHumanAdsRows: fd.get('maxPreHumanAdsRows') === ''
-            ? 5
-            : Number(fd.get('maxPreHumanAdsRows')),
-          maxPreHumanAdsVolumeCalls: fd.get('maxPreHumanAdsVolumeCalls') === ''
-            ? 30
-            : Number(fd.get('maxPreHumanAdsVolumeCalls')),
           maxRows: Number(fd.get('maxRows')) || 40,
           seasonality: String(fd.get('seasonality') || 'year_round'),
           tiers: [...event.target.querySelectorAll('input[name="tier"]:checked')].map(
@@ -14397,199 +14270,6 @@ function wireDiscoveryUi() {
   document.getElementById('discovery-enrich-pack-btn')?.addEventListener('click', () =>
     runDiscoverySerpProbeUi(),
   );
-  document.getElementById('discovery-nearby-serp-btn')?.addEventListener('click', () =>
-    runNearbySerpValidationUi(),
-  );
-  document.getElementById('discovery-ads-demand-btn')?.addEventListener('click', () =>
-    runDiscoveryAdsDemandUi(),
-  );
-
-  async function runDiscoveryAdsDemandUi() {
-    if (!state.discoveryBatchId || state.discoverySelected.size === 0) {
-      await showModal({
-        title: 'Select Discovery rows',
-        confirmLabel: 'OK',
-        bodyHtml: '<p>Select one or more surviving Discovery rows first.</p>',
-      });
-      return;
-    }
-    const indices = [...state.discoverySelected].sort((a, b) => a - b);
-    const progress = document.getElementById('discovery-ads-progress');
-    const bar = document.getElementById('discovery-ads-bar');
-    const labelEl = document.getElementById('discovery-ads-label');
-    const detailEl = document.getElementById('discovery-ads-detail');
-    const button = document.getElementById('discovery-ads-demand-btn');
-    try {
-      const preview = await api(
-        `/api/discovery/batches/${encodeURIComponent(state.discoveryBatchId)}/ads-demand/preview`,
-        { method: 'POST', body: JSON.stringify({ indices }) },
-      );
-      if (preview.capExceeded) {
-        await showModal({ title: 'Ads demand cap exceeded', confirmLabel: 'OK', bodyHtml: `<p>${esc(preview.capReason)}</p>` });
-        return;
-      }
-      const newWork = preview.adsLocationLoaderRequired || preview.relatedKeywordCallsMax > 0 || preview.searchVolumeCallsMax > 0;
-      if (newWork && !preview.hasDataForSeo) {
-        await showModal({
-          title: 'DataForSEO required',
-          confirmLabel: 'OK',
-          bodyHtml: '<p>This plan requires new paid provider work. Add DataForSEO credentials, then preview again.</p>',
-        });
-        return;
-      }
-      const ok = await showModal({
-        title: newWork ? 'Run selected Ads demand?' : 'Reuse existing Ads demand?',
-        confirmLabel: newWork ? 'Run approved provider calls' : 'Reuse evidence',
-        bodyHtml: `
-          <p>Selected ${esc(String(preview.selectedRows))} · eligible ${esc(String(preview.eligibleRows))} · skipped ${esc(String(preview.skippedRows))} · reusable ${esc(String(preview.reusableRows))}</p>
-          <p>Target + RELATED geos ${esc(String(preview.potentialAdsGeos))} · related-keyword calls ≤ ${esc(String(preview.relatedKeywordCallsMax))} · volume calls ≤ ${esc(String(preview.searchVolumeCallsMax))}</p>
-          <p>Ads-location cache ${preview.adsLocationCacheAvailable ? 'available' : 'missing'} · loader invocations ≤ ${esc(String(preview.adsLocationLoaderInvocationsMax))} · location provider GETs ≤ ${esc(String(preview.adsLocationProviderRequestsMax))}</p>
-          <p class="muted">Dollar estimate unavailable; authorization is bounded by the call counts above.</p>
-        `,
-      });
-      if (!ok) return;
-      if (button) button.disabled = true;
-      if (progress) progress.classList.remove('hidden');
-      if (bar) bar.style.width = '0%';
-      const started = await api(
-        `/api/discovery/batches/${encodeURIComponent(state.discoveryBatchId)}/ads-demand`,
-        { method: 'POST', body: JSON.stringify({ indices, expectedPlanToken: preview.planToken, concurrency: 2 }) },
-      );
-      const job = await new Promise((resolve, reject) => {
-        const tick = async () => {
-          try {
-            const next = await api(`/api/discovery/ads-demand-jobs/${encodeURIComponent(started.jobId)}`);
-            const pct = next.total ? Math.round((100 * (next.done || 0)) / next.total) : 100;
-            if (bar) bar.style.width = `${pct}%`;
-            if (labelEl) labelEl.textContent = `Ads demand ${next.done || 0} / ${next.total || 0}`;
-            if (detailEl) detailEl.textContent = `related ${next.relatedKeywordCalls || 0} · volume ${next.searchVolumeCalls || 0}`;
-            if (next.status === 'running') { setTimeout(tick, 400); return; }
-            if (next.status === 'error') throw new Error(next.error || 'Ads demand failed');
-            resolve(next);
-          } catch (error) { reject(error); }
-        };
-        tick();
-      });
-      await loadDiscoveryBatches();
-      await selectDiscoveryBatch(job.batchId || state.discoveryBatchId);
-      const summary = job.artifact?.summary || {};
-      await showModal({
-        title: job.status === 'partial' ? 'Ads demand partially complete' : 'Ads demand complete',
-        confirmLabel: 'OK',
-        bodyHtml: `<p>Complete ${esc(String(summary.completeRows || 0))} · partial ${esc(String(summary.partialRows || 0))} · skipped ${esc(String(summary.skippedRows || 0))}</p><p>New calls: related ${esc(String(summary.relatedKeywordCalls || 0))} · volume ${esc(String(summary.searchVolumeCalls || 0))}</p>`,
-      });
-    } catch (error) {
-      const message = error.code === 'ads_demand_plan_changed'
-        ? 'Ads demand plan changed. Preview again.'
-        : error.message;
-      await showModal({ title: 'Ads demand failed', confirmLabel: 'OK', bodyHtml: `<p>${esc(message)}</p>` });
-    } finally {
-      if (progress) progress.classList.add('hidden');
-      if (button) button.disabled = false;
-    }
-  }
-
-  async function runNearbySerpValidationUi() {
-    if (!state.discoveryBatchId) {
-      await showModal({
-        title: 'No batch',
-        confirmLabel: 'OK',
-        bodyHtml: '<p>Select a batch and import Claude CSV first.</p>',
-      });
-      return;
-    }
-    const progress = document.getElementById('discovery-nearby-progress');
-    const bar = document.getElementById('discovery-nearby-bar');
-    const labelEl = document.getElementById('discovery-nearby-label');
-    const detailEl = document.getElementById('discovery-nearby-detail');
-    const button = document.getElementById('discovery-nearby-serp-btn');
-    try {
-      const preview = await api(
-        `/api/discovery/batches/${encodeURIComponent(state.discoveryBatchId)}/nearby-serp/preview`,
-      );
-      const estimate = preview.liveCalls
-        ? `$${Number(preview.estimateUsdLow || 0).toFixed(4)}–$${Number(preview.estimateUsdHigh || 0).toFixed(4)}`
-        : '$0.0000';
-      const setup = (preview.setupMessages || [])
-        .map((message) => `<p class="muted">${esc(message)}</p>`)
-        .join('');
-      if (preview.liveCalls > 0 && !preview.hasDataForSeo) {
-        await showModal({
-          title: 'DataForSEO required',
-          confirmLabel: 'OK',
-          bodyHtml: `<p>This plan needs <strong>${esc(String(preview.liveCalls))}</strong> paid nearby SERP call(s). Add DataForSEO credentials, then preview again.</p>${setup}`,
-        });
-        return;
-      }
-      const ok = await showModal({
-        title: 'Validate nearby SERPs?',
-        confirmLabel: preview.liveCalls ? `Run ${preview.liveCalls} paid call(s)` : 'Run cache-only validation',
-        bodyHtml: `
-          <p><strong>${esc(String(preview.survivorTargetRows))}</strong> survivor target row(s) · ${esc(String(preview.skippedTargetRows))} skipped</p>
-          <p><strong>${esc(String(preview.comparisonCount))}</strong> comparisons · ${esc(String(preview.cacheHitComparisons))} cache hits · <strong>${esc(String(preview.liveCalls))}</strong> distinct live calls</p>
-          <p><strong>Estimated cost:</strong> ${esc(estimate)}</p>
-          <p class="muted">Primary target SERPs are reused and never repurchased by this action.</p>${setup}
-        `,
-      });
-      if (!ok) return;
-      if (button) button.disabled = true;
-      if (progress) progress.classList.remove('hidden');
-      if (bar) bar.style.width = '0%';
-      if (labelEl) labelEl.textContent = 'Starting nearby validation…';
-      if (detailEl) detailEl.textContent = `0 / ${preview.comparisonCount}`;
-      const started = await api(
-        `/api/discovery/batches/${encodeURIComponent(state.discoveryBatchId)}/nearby-serp`,
-        {
-          method: 'POST',
-          body: JSON.stringify({ expectedPlanToken: preview.planToken, concurrency: 2 }),
-        },
-      );
-      if (!started.jobId) throw new Error('Nearby validation did not return a job id');
-      const job = await new Promise((resolve, reject) => {
-        const tick = async () => {
-          try {
-            const next = await api(`/api/discovery/nearby-serp-jobs/${encodeURIComponent(started.jobId)}`);
-            const pct = next.total ? Math.round((100 * (next.done || 0)) / next.total) : 100;
-            if (bar) bar.style.width = `${pct}%`;
-            if (labelEl) labelEl.textContent = next.status === 'running'
-              ? (next.phase === 'fetch' ? 'Fetching missing nearby SERPs…' : `Comparing ${next.done || 0} / ${next.total}`)
-              : `Nearby validation ${next.status}`;
-            if (detailEl) detailEl.textContent = next.currentKey || `${next.done || 0} / ${next.total}`;
-            if (next.status === 'running') {
-              setTimeout(tick, 400);
-              return;
-            }
-            if (next.status === 'error') throw new Error(next.error || 'Nearby validation failed');
-            resolve(next);
-          } catch (error) {
-            reject(error);
-          }
-        };
-        tick();
-      });
-      await loadDiscoveryBatches();
-      await selectDiscoveryBatch(job.batchId || state.discoveryBatchId);
-      const summary = job.artifact?.summary || {};
-      await showModal({
-        title: job.status === 'partial' ? 'Nearby validation partially complete' : 'Nearby validation complete',
-        confirmLabel: 'OK',
-        bodyHtml: `<p>Related ${esc(String(summary.relatedCount || 0))} · mixed ${esc(String(summary.mixedCount || 0))} · separate ${esc(String(summary.separateCount || 0))}</p>
-          <p>Provider calls ${esc(String(summary.actualProviderCalls || 0))} · fetch errors ${esc(String(summary.fetchErrors || 0))} · cost ${esc(formatMoney(summary.actualCostUsd || 0))}</p>`,
-      });
-    } catch (error) {
-      const changed = error.code === 'nearby_serp_plan_changed'
-        ? 'Nearby SERP plan changed. Preview again.'
-        : error.message;
-      await showModal({
-        title: 'Nearby validation failed',
-        confirmLabel: 'OK',
-        bodyHtml: `<p>${esc(changed)}</p>`,
-      });
-    } finally {
-      if (progress) progress.classList.add('hidden');
-      if (button) button.disabled = false;
-    }
-  }
 
   async function runDiscoverySerpProbeUi() {
     if (!state.discoveryBatchId) {

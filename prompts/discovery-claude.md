@@ -34,7 +34,7 @@ If `FALLBACK_FENCE`, the single `csv` fence must follow immediately (complete fi
 
 - Prefer fewer honest rows over a padded table.
 - Never invent city names that do not exist.
-- Population: **leave blank** — Rover attaches US Census city/place population and nearby-population context on import. Do not calculate or estimate population.
+- Population: **leave blank** — ops attaches US Census place population on import. Do not write `ESTIMATE …` into Population (that blocks Census).
 - Never invent business names or URLs.
 - **Time-to-rank cells must be quoted text with units**, e.g. `"2-3 months"` / `"4-6 months"` — never bare `2-3` (spreadsheets turn that into dates).
 
@@ -47,7 +47,7 @@ If `FALLBACK_FENCE`, the single `csv` fence must follow immediately (complete fi
 5. Else if **Niches (suggested)** is set alone: soft preference — prefer those niches when a strong city fit exists; you may still pick other High-Ticket catalog niches that match tiers/categories. Custom suggested names are valid.
 6. Else if **Niches = OPEN**: pick from the **High-Ticket niches catalog** below; include **at least 3 different niches** when Max rows allows. Respect **Ticket tiers allowed** / **Min job cost** and **Catalog categories** from the filter brief (only those tiers — not “tier and above” unless listed).
 7. If **Cities = OPEN**: pick the best cities under the filter constraints.
-8. Treat the **Population band** as an approximate local-market screening preference. A smaller named city may qualify when Rover's supplied nearby Census context reaches the minimum. Do not merge, deduplicate, or eliminate named cities because they share nearby population. City proper above the maximum remains outside preference unless explicitly selected.
+8. Prefer cities with population roughly inside the **Population band** (avoid mega-metros above max unless the operator raised the cap). Rural/exurban niches (well, septic) may dip slightly below min pop when the fit is strong — note that in `confidence_narrative` / Notes.
 9. Respect **Seasonality** from the filter brief (year-round vs seasonal).
 10. **Map Pack preference** is soft guidance only (you do not have live SERP data). Prefer niches/cities that often lack a dedicated Map Pack when the brief says Prefer absent; still leave Map Pack blank for the DFS SERP probe.
 11. Soft organic / directory-heavy SERPs are a plus when you can judge from general knowledge — still leave SERP columns for Rover DFS SERP probe.

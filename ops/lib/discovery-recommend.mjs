@@ -1,6 +1,7 @@
-/** V1.5 primary-SERP screen compatibility mapping for Discovery rows. */
-
-import { visibleRecommendationForScreen } from './v15-primary-serp-screen.mjs';
+/**
+ * Lightweight discovery recommended-decision heuristic.
+ * Prefer DataForSEO-probed Map Pack/organic; blank Map Pack never auto-pursues.
+ */
 
 export const DISCOVERY_DECISIONS = [
   'pursue',
@@ -12,43 +13,126 @@ export const DISCOVERY_DECISIONS = [
   'pass_unless_gbp_angle',
 ];
 
+function parseOrganicCount(value) {
+  const s = String(value ?? '').trim();
+  if (!s || /^n\/?a$/i.test(s)) return null;
+  const n = Number(s.replace(/[^0-9.-]/g, ''));
+  return Number.isFinite(n) ? n : null;
+}
+
+function mapPackPresent(value) {
+  const s = String(value ?? '').trim().toLowerCase();
+  if (!s) return null;
+  if (s === 'yes' || s === 'y' || s === 'true' || s === '1') return true;
+  if (s === 'no' || s === 'n' || s === 'false' || s === '0') return false;
+  return null;
+}
+
 function confLow(...values) {
-  return values.some((value) => String(value || '').trim().toLowerCase() === 'low');
+  return values.some((v) => String(v || '').trim().toLowerCase() === 'low');
+}
+
+function confMedium(...values) {
+  return values.some((v) => String(v || '').trim().toLowerCase() === 'medium');
+}
+
+function isDfsProbed(row) {
+  return String(row.serp_source || '').toLowerCase().includes('dataforseo');
 }
 
 /**
- * Package 1 never infers pursuit from surviving the cheap primary-SERP screen.
- * Rows without the new screen evidence remain review/maybe instead of falling
- * back to the retired Map Pack + homepage-count veto.
  * @returns {{ recommended_decision: string, recommended_reason: string }}
  */
 export function recommendDiscoveryRow(row = {}) {
-  const screenDecision = String(row.screenDecision ?? '').trim().toUpperCase();
-  if (screenDecision === 'SCREEN_OUT' || screenDecision === 'SURVIVE') {
+  const pack = mapPackPresent(row['Map Pack']);
+  const homes = parseOrganicCount(row['Organic Home Page']);
+  const lowConf = confLow(row.confidence_serp, row.confidence_narrative);
+  const medConf = confMedium(row.confidence_serp);
+  const probed = isDfsProbed(row);
+
+  // Blank Map Pack = unknown — never treat as soft pursue
+  if (pack == null) {
+    if (lowConf) {
+      return {
+        recommended_decision: 'maybe',
+        recommended_reason: 'Map Pack unknown + low confidence — run DFS SERP probe',
+      };
+    }
     return {
-      recommended_decision: visibleRecommendationForScreen(screenDecision),
-      recommended_reason: row.screenReason || `V1.5 primary-SERP screen: ${screenDecision}`,
+      recommended_decision: 'review',
+      recommended_reason: 'Map Pack blank/unknown — run Discovery DFS SERP probe before pursue',
     };
   }
-  if (confLow(row.confidence_serp, row.confidence_narrative)) {
+
+  if (lowConf && pack === true && homes != null && homes >= 2) {
+    return {
+      recommended_decision: 'pass_unless_gbp_angle',
+      recommended_reason: 'Map Pack present + ≥2 niche homepages + low confidence',
+    };
+  }
+
+  if (pack === true && homes != null && homes >= 2) {
+    return {
+      recommended_decision: 'deprioritize',
+      recommended_reason: probed
+        ? 'DFS: Map Pack present + ≥2 organic niche homepages'
+        : 'Map Pack present + ≥2 organic niche homepages',
+    };
+  }
+
+  if (pack === true && (homes == null || homes <= 1)) {
+    return {
+      recommended_decision: 'pass_unless_gbp_angle',
+      recommended_reason: probed
+        ? 'DFS: Map Pack present but soft organic (≤1 homepage) — GBP angle only'
+        : 'Map Pack present but soft organic (≤1 homepage) — GBP angle only',
+    };
+  }
+
+  if (lowConf) {
     return {
       recommended_decision: 'maybe',
-      recommended_reason: 'Low confidence — run the V1.5 primary-SERP screen before human review',
+      recommended_reason: 'Low confidence on SERP or narrative estimates',
     };
   }
+
+  // Estimated (non-DFS) Map Pack=No at medium confidence → review, not pursue
+  if (pack === false && !probed && medConf) {
+    return {
+      recommended_decision: 'review',
+      recommended_reason: 'Estimated Map Pack=No at medium confidence — verify with DFS SERP probe',
+    };
+  }
+
+  if (pack === false && (homes == null || homes <= 1) && !lowConf) {
+    return {
+      recommended_decision: 'pursue',
+      recommended_reason: probed
+        ? 'DFS: No Map Pack + soft organic (≤1 homepage)'
+        : 'No Map Pack + soft organic (≤1 homepage) — estimate only',
+    };
+  }
+
+  if (pack === false && homes != null && homes >= 2) {
+    return {
+      recommended_decision: 'review',
+      recommended_reason: 'Map Pack absent but ≥2 niche homepages — mixed',
+    };
+  }
+
   return {
     recommended_decision: 'review',
-    recommended_reason: 'V1.5 primary-SERP screen evidence missing — review or run the SERP screen',
+    recommended_reason: 'Mixed or incomplete SERP signals',
   };
 }
 
 export function applyRecommendations(rows = []) {
   return rows.map((row) => {
-    const recommendation = recommendDiscoveryRow(row);
+    const rec = recommendDiscoveryRow(row);
     return {
       ...row,
-      recommended_decision: recommendation.recommended_decision,
-      recommended_reason: recommendation.recommended_reason,
+      recommended_decision: rec.recommended_decision,
+      recommended_reason: rec.recommended_reason,
     };
   });
 }
