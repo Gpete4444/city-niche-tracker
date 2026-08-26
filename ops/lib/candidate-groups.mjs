@@ -185,3 +185,24 @@ export function updateGroupMembers(id, ids = [], op = 'add') {
   saveGroupsRegistry(registry);
   return group;
 }
+
+/** Remove candidate ids from every named group (permanent delete). */
+export function purgeCandidateIds(ids = []) {
+  const remove = new Set(normalizeIds(ids));
+  if (!remove.size) return { groupsTouched: 0, idsRemoved: 0 };
+  const registry = loadGroupsRegistry();
+  let groupsTouched = 0;
+  let idsRemoved = 0;
+  for (const g of registry.groups) {
+    const before = (g.ids || []).length;
+    g.ids = (g.ids || []).filter((id) => !remove.has(id));
+    const dropped = before - g.ids.length;
+    if (dropped > 0) {
+      groupsTouched += 1;
+      idsRemoved += dropped;
+      g.updatedAt = nowIso();
+    }
+  }
+  if (idsRemoved) saveGroupsRegistry(registry);
+  return { groupsTouched, idsRemoved };
+}

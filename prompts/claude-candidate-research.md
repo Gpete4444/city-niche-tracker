@@ -65,6 +65,8 @@ Return ONE JSON object (no markdown fences) with this shape:
     "uniqueOrganicDomainCount": 0,
     "clusterVolumeSum": 0,
     "primaryVolumeSum": 0,
+    "demandVolumeSum": 0,
+    "suburbOverlapFactor": 0.25,
     "keywords": [],
     "displaceabilityScore": null,
     "medianDomainRank": null,

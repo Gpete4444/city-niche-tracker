@@ -13,10 +13,13 @@ export function esc(value) {
 
 const FALLBACK_RUBRIC = {
   demandBands: {
-    low: { maxExclusive: 100, label: 'Low', howToTreat: 'Only if soft SERP and high ticket.' },
-    mid: { minInclusive: 100, maxExclusive: 300, label: 'Mid', howToTreat: 'Default look-closer band.' },
-    high: { minInclusive: 300, maxExclusive: 700, label: 'High', howToTreat: 'Strong demand if SERP not locked.' },
-    very_high: { minInclusive: 700, label: 'Very high', howToTreat: 'Excellent demand — score competition harder.' },
+    low: { maxExclusive: 60, label: 'Low', howToTreat: 'Only if soft SERP and high ticket.' },
+    mid: { minInclusive: 60, maxExclusive: 180, label: 'Mid', howToTreat: 'Default look-closer band.' },
+    high: { minInclusive: 180, maxExclusive: 400, label: 'High', howToTreat: 'Strong demand if SERP not locked.' },
+    very_high: { minInclusive: 400, label: 'Very high', howToTreat: 'Excellent demand — score competition harder.' },
+  },
+  volumeMetric: {
+    suburbOverlapFactor: 0.25,
   },
   authorityMetric: {
     domainRankBands: {
@@ -85,7 +88,7 @@ export function classifyClusterVolume(volume) {
       };
     }
   }
-  return { id: 'low', label: 'Low', range: '<100', howToTreat: '', tone: 'bad', volume: v };
+  return { id: 'low', label: 'Low', range: '<60', howToTreat: '', tone: 'bad', volume: v };
 }
 
 export function clusterVolumeLegend() {
@@ -183,18 +186,40 @@ export function metricHtml({
   return `<span class="metric metric-${tone}" ${tipAttr(tip)}><strong>${esc(display)}</strong><span class="metric-max">/${esc(max)}</span>${suffix ? `<span class="metric-suffix">${suffix}</span>` : ''}</span>`;
 }
 
+/** Raw cluster sum — display only (demand bands apply to demandVolumeSum). */
 export function clusterVolumeHtml(volume) {
+  const v = Number(volume);
+  if (volume == null || Number.isNaN(v)) return `<span class="metric metric-neutral">—</span>`;
+  const tip = [
+    'Cluster search volume (sum of city geos) / month — display only.',
+    `Current: ${v}/mo`,
+    '',
+    'Demand bands and the Demand score use demandVolumeSum (primary + α × suburb volumes), not this raw cluster sum.',
+    'Higher cluster sum can still mean more measured geos — it is not double-count–corrected.',
+  ].join('\n');
+  return `<span class="metric metric-neutral" ${tipAttr(tip)}><strong>${esc(v)}</strong><span class="metric-suffix"> /mo</span></span>`;
+}
+
+/** Debiased demand volume used for scoring bands. */
+export function demandVolumeHtml(volume, { alpha = null } = {}) {
   const band = classifyClusterVolume(volume);
   if (band.volume == null) return `<span class="metric metric-neutral">—</span>`;
+  const factor =
+    alpha != null && Number.isFinite(Number(alpha))
+      ? Number(alpha)
+      : rubric.volumeMetric?.suburbOverlapFactor ??
+        FALLBACK_RUBRIC.volumeMetric?.suburbOverlapFactor ??
+        0.25;
   const tip = [
-    'Cluster search volume (sum of city geos) / month',
+    'Demand (scored) = primaryVolumeSum + α × max(0, cluster − primary)',
+    `α (suburbOverlapFactor) = ${factor}`,
     `Current: ${band.volume}/mo → ${band.label} (${band.range})`,
     band.howToTreat,
     '',
-    'Bands:',
+    'Bands (apply to demandVolumeSum, not raw cluster sum):',
     clusterVolumeLegend(),
     '',
-    'Higher volume = more demand.',
+    'Higher = more scored demand.',
   ].join('\n');
   return `<span class="metric metric-${band.tone}" ${tipAttr(tip)}><strong>${esc(band.volume)}</strong><span class="metric-suffix"> /mo</span> <span class="metric-band">${esc(band.label)} (${esc(band.range)})</span></span>`;
 }
@@ -376,15 +401,16 @@ export function legendHtml() {
 
 export const SCORE_INPUT_TIPS = {
   demand: [
-    '1–10 from clusterVolumeSum (Ads Planner volumes summed across measured city geos). Higher = better opportunity.',
+    '1–10 from demandVolumeSum = primary + α × suburb volumes (α default 0.25). Higher = better opportunity.',
+    'Bands apply to demandVolumeSum, not raw clusterVolumeSum (cluster is display-only).',
     'Scale:',
-    '<50 → 2',
-    '50–99 → 4',
-    '100–199 → 6',
-    '200–299 → 7',
-    '300–499 → 8',
-    '500–699 → 9',
-    '700+ → 10',
+    '<30 → 2',
+    '30–59 → 4',
+    '60–119 → 6',
+    '120–179 → 7',
+    '180–279 → 8',
+    '280–399 → 9',
+    '400+ → 10',
     'Not rough geo-phrase ranges.',
   ].join('\n'),
   competition: [

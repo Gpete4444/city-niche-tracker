@@ -512,3 +512,23 @@ export function deleteSite(id) {
   saveRegistry(registry);
   return { ok: true, id: removed.id, candidateId: removed.candidateId || null };
 }
+
+/** Drop Launched Sites registry rows that point at these Research candidates. */
+export function deleteSitesByCandidateIds(candidateIds = []) {
+  const want = new Set(
+    (candidateIds || []).map((id) => String(id || '').trim()).filter(Boolean),
+  );
+  if (!want.size) return { removed: [] };
+  const registry = loadRegistry();
+  const removed = [];
+  registry.sites = (registry.sites || []).filter((s) => {
+    const cid = String(s.candidateId || '').trim();
+    if (cid && want.has(cid)) {
+      removed.push({ id: s.id, candidateId: cid, domain: s.domain || null });
+      return false;
+    }
+    return true;
+  });
+  if (removed.length) saveRegistry(registry);
+  return { removed };
+}

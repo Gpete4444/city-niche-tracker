@@ -24,18 +24,64 @@ function median(nums) {
   return vals.length % 2 ? vals[mid] : (vals[mid - 1] + vals[mid]) / 2;
 }
 
-export function classifyDemandBand(clusterVolumeSum) {
-  const volume = Number(clusterVolumeSum) || 0;
-  for (const [id, band] of Object.entries(rubric.demandBands)) {
-    if (inRange(volume, band)) {
-      return { id, ...band, clusterVolumeSum: volume };
-    }
+/**
+ * De-overlap cluster Ads volume for scoring:
+ * demandVolumeSum = primary + α × max(0, cluster − primary).
+ * Falls back to clusterVolumeSum when primary is missing.
+ */
+export function computeDemandVolumeSum({
+  primaryVolumeSum = null,
+  clusterVolumeSum = null,
+  suburbOverlapFactor = null,
+} = {}) {
+  const alphaRaw =
+    suburbOverlapFactor != null ? Number(suburbOverlapFactor) : rubric.volumeMetric?.suburbOverlapFactor;
+  const alpha = Number.isFinite(alphaRaw) ? alphaRaw : 0.25;
+  const cluster =
+    clusterVolumeSum == null || Number.isNaN(Number(clusterVolumeSum))
+      ? null
+      : Number(clusterVolumeSum);
+  const primary =
+    primaryVolumeSum == null || Number.isNaN(Number(primaryVolumeSum))
+      ? null
+      : Number(primaryVolumeSum);
+
+  if (primary == null) {
+    return {
+      demandVolumeSum: cluster ?? 0,
+      suburbOverlapFactor: alpha,
+      usedPrimaryFallback: true,
+      primaryVolumeSum: null,
+      clusterVolumeSum: cluster,
+      suburbVolumeSum: null,
+    };
   }
-  return { id: 'low', ...rubric.demandBands.low, clusterVolumeSum: volume };
+
+  const clusterResolved = cluster ?? primary;
+  const suburbVolumeSum = Math.max(0, clusterResolved - primary);
+  return {
+    demandVolumeSum: primary + alpha * suburbVolumeSum,
+    suburbOverlapFactor: alpha,
+    usedPrimaryFallback: false,
+    primaryVolumeSum: primary,
+    clusterVolumeSum: clusterResolved,
+    suburbVolumeSum,
+  };
 }
 
-export function scoreDemand(clusterVolumeSum) {
-  const volume = Number(clusterVolumeSum) || 0;
+/** Classify demand band from demandVolumeSum (not raw cluster sum). */
+export function classifyDemandBand(demandVolumeSum) {
+  const volume = Number(demandVolumeSum) || 0;
+  for (const [id, band] of Object.entries(rubric.demandBands)) {
+    if (inRange(volume, band)) {
+      return { id, ...band, demandVolumeSum: volume };
+    }
+  }
+  return { id: 'low', ...rubric.demandBands.low, demandVolumeSum: volume };
+}
+
+export function scoreDemand(demandVolumeSum) {
+  const volume = Number(demandVolumeSum) || 0;
   for (const row of rubric.demandScoreScale) {
     if (inRange(volume, row)) return row.score;
   }
@@ -399,6 +445,8 @@ export function shouldAutoEnrich(scoring) {
  */
 export function buildResearchScoring({
   clusterVolumeSum,
+  primaryVolumeSum = null,
+  suburbOverlapFactor = null,
   mapPackPresent,
   classifiedSerp = null,
   softnessUniqueOrganicDomainCount,
@@ -407,8 +455,13 @@ export function buildResearchScoring({
   averageJobUsd = null,
   displaceability = null,
 }) {
-  const demandBand = classifyDemandBand(clusterVolumeSum);
-  const demand = scoreDemand(clusterVolumeSum);
+  const volumeMetric = computeDemandVolumeSum({
+    primaryVolumeSum,
+    clusterVolumeSum,
+    suburbOverlapFactor,
+  });
+  const demandBand = classifyDemandBand(volumeMetric.demandVolumeSum);
+  const demand = scoreDemand(volumeMetric.demandVolumeSum);
   const competition =
     preservedCompetition !== undefined
       ? {
@@ -435,6 +488,10 @@ export function buildResearchScoring({
     displaceabilityBandId: displaceabilityBand?.id ?? null,
   });
 
+  const demandVolumeNote = volumeMetric.usedPrimaryFallback
+    ? `Demand scored on clusterVolumeSum=${volumeMetric.demandVolumeSum} (primary missing; no de-overlap).`
+    : `Demand scored on demandVolumeSum=${volumeMetric.demandVolumeSum} (primary ${volumeMetric.primaryVolumeSum} + α=${volumeMetric.suburbOverlapFactor} × suburb ${volumeMetric.suburbVolumeSum}; cluster display ${volumeMetric.clusterVolumeSum}).`;
+
   const inputs = {
     demand,
     competition: competition.score,
@@ -442,6 +499,7 @@ export function buildResearchScoring({
     mapPackGap: mapPackGap.score,
     displaceability: displaceabilityScore,
     notes: [
+      demandVolumeNote,
       demandBand.howToTreat,
       competition.blueLinkCount == null
         ? `${competition.label}: ${competition.score ?? 'unavailable'}.`
@@ -462,11 +520,14 @@ export function buildResearchScoring({
     rubricVersion: rubric.version,
     appliesTo: rubric.appliesTo,
     volumeMetric: rubric.volumeMetric.field,
+    suburbOverlapFactor: volumeMetric.suburbOverlapFactor,
     authorityMetric: rubric.authorityMetric,
     demandBand: {
       id: demandBand.id,
       label: demandBand.label,
-      clusterVolumeSum: demandBand.clusterVolumeSum,
+      demandVolumeSum: demandBand.demandVolumeSum,
+      clusterVolumeSum: volumeMetric.clusterVolumeSum,
+      primaryVolumeSum: volumeMetric.primaryVolumeSum,
       howToTreat: demandBand.howToTreat,
     },
     serpSoftness,
@@ -516,12 +577,21 @@ export function applyEnrichmentToScoring(research, enrichment, jobSource = null)
     research.scoring?.scoreInputs?.competition ?? research.scoreInputs?.competition ?? null;
   const scoring = buildResearchScoring({
     clusterVolumeSum: research.volumes?.clusterVolumeSum ?? 0,
+    primaryVolumeSum: research.volumes?.primaryVolumeSum ?? null,
+    suburbOverlapFactor:
+      research.volumes?.suburbOverlapFactor ?? research.scoring?.suburbOverlapFactor ?? null,
     mapPackPresent: Boolean(research.serp?.mapPackPresent),
     softnessUniqueOrganicDomainCount: research.serp?.uniqueOrganicDomains?.length ?? 0,
     softnessOrganicHomePageCount: research.serp?.organicHomePages?.count ?? 0,
     preservedCompetition: stageOneCompetition,
     displaceability,
   });
+
+  if (research.volumes && typeof research.volumes === 'object' && scoring.demandBand?.demandVolumeSum != null) {
+    research.volumes.demandVolumeSum = scoring.demandBand.demandVolumeSum;
+    research.volumes.suburbOverlapFactor =
+      scoring.suburbOverlapFactor ?? research.volumes.suburbOverlapFactor;
+  }
 
   const source = jobSource || research;
   const priorJob =

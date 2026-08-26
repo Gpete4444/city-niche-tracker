@@ -1,5 +1,5 @@
 {
-  "version": 3,
+  "version": 4,
   "appliesTo": "specialty_high_ticket",
   "ticketClasses": {
     "low": {
@@ -8,7 +8,7 @@
     },
     "mid": {
       "avgJobUsd": { "minInclusive": 1500, "maxExclusive": 5000 },
-      "note": "Standard local services. Prefer mid+ cluster volume unless SERP is unusually soft."
+      "note": "Standard local services. Prefer mid+ demandVolumeSum unless SERP is unusually soft."
     },
     "high": {
       "avgJobUsd": { "minInclusive": 5000 },
@@ -16,11 +16,14 @@
     }
   },
   "volumeMetric": {
-    "field": "volumes.clusterVolumeSum",
-    "definition": "Sum of Google Ads Keyword Planner monthly volumes for the selected keyword set, measured per city geo that exists in Google Ads, then summed across the cluster. Not rough geo-phrase ranges on geo-suffixed phrases.",
+    "field": "volumes.demandVolumeSum",
+    "displayFields": ["volumes.primaryVolumeSum", "volumes.clusterVolumeSum"],
+    "suburbOverlapFactor": 0.25,
+    "definition": "demandVolumeSum = primaryVolumeSum + α × max(0, clusterVolumeSum − primaryVolumeSum), with α = suburbOverlapFactor (default 0.25). primaryVolumeSum and clusterVolumeSum remain Ads Keyword Planner monthly volumes measured per city geo; cluster is the raw sum across measured geos (display only). Not rough geo-phrase ranges on geo-suffixed phrases.",
     "interpretationNotes": [
       "primaryVolume = searches FROM the primary city geo, not searches about that city.",
-      "clusterSum adds independent city geos; it does not double-count the same search.",
+      "clusterVolumeSum sums independent city geos, but metro demand overlaps — raw cluster sum double-counts shared demand and rewards long suburb lists. Scoring uses demandVolumeSum instead.",
+      "Bands and demand score apply to demandVolumeSum, not raw clusterVolumeSum.",
       "Ads volumes are bucketed (10, 20, 30, 50…). Local niches are noisy at the low end.",
       "null means insufficient data; 0 means measured zero.",
       "Ads competition / CPC are auction metrics, not organic SEO difficulty. High CPC can signal commercial intent."
@@ -37,19 +40,19 @@
     }
   },
   "demandBands": {
-    "low": { "maxExclusive": 100, "label": "Low", "score": 4, "howToTreat": "Only pursue if job value is high AND SERP is soft. Thin demand; ranking cannot invent leads." },
-    "mid": { "minInclusive": 100, "maxExclusive": 300, "label": "Mid", "score": 7, "howToTreat": "Default worth-a-closer-look band for specialty trades." },
-    "high": { "minInclusive": 300, "maxExclusive": 700, "label": "High", "score": 8, "howToTreat": "Strong local demand for a specialty niche if competition is not locked up." },
-    "very_high": { "minInclusive": 700, "label": "Very high", "score": 10, "howToTreat": "Excellent demand — score competition harder; expect stronger Map Pack + organic sites." }
+    "low": { "maxExclusive": 60, "label": "Low", "score": 4, "howToTreat": "Only pursue if job value is high AND SERP is soft. Thin demand; ranking cannot invent leads." },
+    "mid": { "minInclusive": 60, "maxExclusive": 180, "label": "Mid", "score": 7, "howToTreat": "Default worth-a-closer-look band for specialty trades." },
+    "high": { "minInclusive": 180, "maxExclusive": 400, "label": "High", "score": 8, "howToTreat": "Strong local demand for a specialty niche if competition is not locked up." },
+    "very_high": { "minInclusive": 400, "label": "Very high", "score": 10, "howToTreat": "Excellent demand — score competition harder; expect stronger Map Pack + organic sites." }
   },
   "demandScoreScale": [
-    { "maxExclusive": 50, "score": 2 },
-    { "minInclusive": 50, "maxExclusive": 100, "score": 4 },
-    { "minInclusive": 100, "maxExclusive": 200, "score": 6 },
-    { "minInclusive": 200, "maxExclusive": 300, "score": 7 },
-    { "minInclusive": 300, "maxExclusive": 500, "score": 8 },
-    { "minInclusive": 500, "maxExclusive": 700, "score": 9 },
-    { "minInclusive": 700, "score": 10 }
+    { "maxExclusive": 30, "score": 2 },
+    { "minInclusive": 30, "maxExclusive": 60, "score": 4 },
+    { "minInclusive": 60, "maxExclusive": 120, "score": 6 },
+    { "minInclusive": 120, "maxExclusive": 180, "score": 7 },
+    { "minInclusive": 180, "maxExclusive": 280, "score": 8 },
+    { "minInclusive": 280, "maxExclusive": 400, "score": 9 },
+    { "minInclusive": 400, "score": 10 }
   ],
   "competitionScore": {
     "definition": "1–10 structural organic Openness from the first 10 reconstructed blue links. Higher means more organic opportunity. Stage 2 preserves this Stage-1 value.",

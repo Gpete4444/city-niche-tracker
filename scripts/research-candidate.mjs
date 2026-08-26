@@ -31,6 +31,7 @@ import {
   applyEnrichmentToScoring,
   attachPreservedJobFields,
   buildResearchScoring,
+  computeDemandVolumeSum,
   resolvePreservedJobFields,
   shouldAutoEnrich,
   stageOneSoftnessInputs,
@@ -262,7 +263,7 @@ function buildSpreadsheetFields(report) {
       .join('\n');
 
   return {
-    estClusterVolumeText: `${report.volumes.clusterVolumeSum} / mo (sum of city geos)`,
+    estClusterVolumeText: `${report.volumes.clusterVolumeSum} / mo cluster · ${report.volumes.demandVolumeSum} / mo demand (scored)`,
     topTargetKeywordsAndVolumesText: kwLines.join('\n'),
     mapPackText: report.serp.mapPackPresent ? 'Yes' : 'No',
     directoriesCount: report.serp.directories.count,
@@ -475,9 +476,15 @@ async function main() {
 
   const clusterVolumeSum = keywords.reduce((sum, k) => sum + (k.clusterSum ?? 0), 0);
   const primaryVolumeSum = keywords.reduce((sum, k) => sum + (k.primaryVolume ?? 0), 0);
+  const demandVolumes = computeDemandVolumeSum({
+    primaryVolumeSum,
+    clusterVolumeSum,
+  });
 
   const scoring = buildResearchScoring({
     clusterVolumeSum,
+    primaryVolumeSum,
+    suburbOverlapFactor: demandVolumes.suburbOverlapFactor,
     mapPackPresent: serp.mapPackPresent,
     classifiedSerp: serp,
     softnessUniqueOrganicDomainCount: stageOneSoftness.uniqueOrganicDomainCount,
@@ -513,6 +520,8 @@ async function main() {
       primaryLocation,
       primaryVolumeSum,
       clusterVolumeSum,
+      demandVolumeSum: demandVolumes.demandVolumeSum,
+      suburbOverlapFactor: demandVolumes.suburbOverlapFactor,
       averageCpc: avgCpc,
       relatedIdeasFromPrimary: related.ideas,
       keywords,

@@ -158,7 +158,7 @@ Almost every in-app **button / paste / Accept** step is **~5–30 seconds** of y
 
 | What you do                           | Why                                        |
 | ------------------------------------- | ------------------------------------------ |
-| **1 · New Discovery Pack**            | Creates a batch template and Claude prompt |
+| **1 · New Discovery Pack**            | Creates a Claude-only CSV template + prompt (filtered compact High-Ticket catalog, not the full guide) |
 | **2 · Send to Claude**                | Claude fills candidate rows for the pack   |
 | **3 · Import Claude CSV**             | Rows appear in the batch table             |
 | **4 · SERP probe**                    | Light competition signal before Research   |

@@ -5,9 +5,11 @@ import {
   readFileSync,
   writeFileSync,
   unlinkSync,
+  rmSync,
+  statSync,
 } from 'node:fs';
 import path from 'node:path';
-import { proposedScore as computeProposedScore } from '../../scripts/lib/scoring.mjs';
+import { computeDemandVolumeSum, proposedScore as computeProposedScore } from '../../scripts/lib/scoring.mjs';
 import { recommendCandidate } from './discovery-recommend.mjs';
 import {
   annotateSerpNicheRelevance,
@@ -249,6 +251,25 @@ function summarizeResearch(research) {
     proposedScore: recomputed ?? stored,
     overallProvisional: inputs.jobValue == null && recomputed != null,
     clusterVolumeSum: research.volumes?.clusterVolumeSum ?? null,
+    primaryVolumeSum: research.volumes?.primaryVolumeSum ?? null,
+    demandVolumeSum: (() => {
+      const stored =
+        research.volumes?.demandVolumeSum ?? research.scoring?.demandBand?.demandVolumeSum ?? null;
+      if (stored != null && Number.isFinite(Number(stored))) return Number(stored);
+      const computed = computeDemandVolumeSum({
+        primaryVolumeSum: research.volumes?.primaryVolumeSum ?? null,
+        clusterVolumeSum: research.volumes?.clusterVolumeSum ?? null,
+        suburbOverlapFactor:
+          research.volumes?.suburbOverlapFactor ?? research.scoring?.suburbOverlapFactor ?? null,
+      });
+      return research.volumes?.clusterVolumeSum != null || research.volumes?.primaryVolumeSum != null
+        ? computed.demandVolumeSum
+        : null;
+    })(),
+    suburbOverlapFactor:
+      research.volumes?.suburbOverlapFactor ??
+      research.scoring?.suburbOverlapFactor ??
+      null,
     averageCpc: avgCpc,
     mapPackPresent: serp.mapPackPresent ?? null,
     mapPackAvgReviews: mapPackReviews.avgReviews ?? null,
@@ -318,6 +339,9 @@ const RESEARCH_ARTIFACT_SUFFIXES = [
   '-discovery-seed.json',
   '-narrative.draft.json',
   '-prospects.draft.json',
+  '-business-address.json',
+  '-visual-edit-undo.json',
+  '-city-context.json',
   '-site-config.json',
   '-content.json',
   '-narrative.json',
@@ -789,6 +813,13 @@ export function buildApprovedPackage(id, narrative, research, meta = {}, discove
       ? {
           mapPackPresent: research.serp?.mapPackPresent ?? null,
           clusterVolumeSum: research.volumes?.clusterVolumeSum ?? null,
+          primaryVolumeSum: research.volumes?.primaryVolumeSum ?? null,
+          demandVolumeSum:
+            research.volumes?.demandVolumeSum ??
+            research.scoring?.demandBand?.demandVolumeSum ??
+            null,
+          suburbOverlapFactor:
+            research.volumes?.suburbOverlapFactor ?? research.scoring?.suburbOverlapFactor ?? null,
           averageCpc: research.volumes?.averageCpc ?? null,
           organicHomeCount: research.serp?.organicHomePages?.count ?? null,
           organicHomeNicheCount: research.serp?.organicHomePages?.nicheRelevantCount ?? null,
@@ -988,6 +1019,142 @@ export function setArchived(ids = [], archived = true) {
     }
   }
   return { updated, errors, archived: wantArchived };
+}
+
+function resolveCandidateGeo(id) {
+  const p = pathsFor(id);
+  const meta = loadMeta(id);
+  const config = readJson(p.config);
+  const research = readJson(p.research);
+  const primary = String(config?.primary || '');
+  const [primaryCityFromConfig, stateFromConfig] = primary.split(',').map((s) => s.trim());
+  const niche =
+    String(meta.niche || research?.niche || research?.summary?.niche || config?.niche || '').trim();
+  const city = String(
+    meta.primaryCity ||
+      research?.primaryCity ||
+      research?.summary?.primaryCity ||
+      primaryCityFromConfig ||
+      '',
+  ).trim();
+  const state = String(
+    meta.state || research?.state || research?.summary?.state || stateFromConfig || '',
+  )
+    .trim()
+    .toUpperCase();
+  return { niche, city, state };
+}
+
+function wipeCandidateFiles(id) {
+  const p = pathsFor(id);
+  const deletedFiles = [];
+  ensureResearchDir();
+  for (const file of readdirSync(RESEARCH_DIR)) {
+    if (candidateIdFromResearchFile(file) !== p.id) continue;
+    const full = path.join(RESEARCH_DIR, file);
+    try {
+      if (statSync(full).isFile()) {
+        unlinkSync(full);
+        deletedFiles.push(file);
+      }
+    } catch {
+      /* continue */
+    }
+  }
+  // Known path files that may not be covered by suffix list yet
+  for (const key of Object.keys(p)) {
+    if (key === 'id' || key === 'siteStaging' || key === 'siteImages') continue;
+    const full = p[key];
+    if (typeof full !== 'string' || !full.endsWith('.json')) continue;
+    if (!existsSync(full)) continue;
+    try {
+      unlinkSync(full);
+      deletedFiles.push(path.basename(full));
+    } catch {
+      /* continue */
+    }
+  }
+  const candidateDir = path.join(RESEARCH_DIR, p.id);
+  if (existsSync(candidateDir)) {
+    try {
+      rmSync(candidateDir, { recursive: true, force: true });
+    } catch {
+      /* continue */
+    }
+  }
+  return deletedFiles;
+}
+
+/**
+ * Permanently delete Research candidates and scrub Rover-local references
+ * (groups, tracked anti-dupe, Sites registry, Discovery batch candidateId links).
+ */
+export async function deleteCandidates(ids = []) {
+  const deleted = [];
+  const errors = [];
+  const geos = [];
+  const normalizedIds = [];
+
+  ensureResearchDir();
+  for (const raw of ids) {
+    let p;
+    try {
+      p = pathsFor(raw);
+    } catch (error) {
+      errors.push({ id: String(raw || ''), error: error.message });
+      continue;
+    }
+    const id = p.id;
+    if (!candidateHasCoreFiles(id) && !existsSync(path.join(RESEARCH_DIR, id))) {
+      const orphan = readdirSync(RESEARCH_DIR).some((f) => candidateIdFromResearchFile(f) === id);
+      if (!orphan) {
+        errors.push({ id, error: `Candidate not found: ${id}` });
+        continue;
+      }
+    }
+    normalizedIds.push(id);
+    try {
+      geos.push(resolveCandidateGeo(id));
+      const files = wipeCandidateFiles(id);
+      deleted.push({ id, filesRemoved: files.length });
+    } catch (error) {
+      errors.push({ id, error: error.message });
+    }
+  }
+
+  if (normalizedIds.length) {
+    try {
+      const groups = await import('./candidate-groups.mjs');
+      groups.purgeCandidateIds(normalizedIds);
+    } catch (error) {
+      console.warn('[deleteCandidates] group purge failed:', error.message);
+    }
+    try {
+      const sites = await import('./sites.mjs');
+      sites.deleteSitesByCandidateIds(normalizedIds);
+    } catch (error) {
+      console.warn('[deleteCandidates] sites scrub failed:', error.message);
+    }
+    try {
+      const known = await import('./known-candidates.mjs');
+      for (const g of geos) {
+        if (g.niche && g.city && g.state) {
+          known.removeTrackedDecision(g);
+        }
+      }
+      known.safeRegenerateKnownCandidates();
+    } catch (error) {
+      console.warn('[deleteCandidates] known/tracked scrub failed:', error.message);
+    }
+    try {
+      const discovery = await import('./discovery.mjs');
+      discovery.scrubCandidateIdsFromBatches(normalizedIds);
+    } catch (error) {
+      console.warn('[deleteCandidates] discovery batch scrub failed:', error.message);
+    }
+  }
+
+  return { deleted, errors };
 }
 
 function bumpKnownCandidates() {

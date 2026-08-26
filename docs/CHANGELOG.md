@@ -1,5 +1,14 @@
 # Rover changelog
 
+## Version 1.3 (`1.3.0`)
+
+Debiased demand scoring and tighter Discovery / Research operator UX since 1.2:
+
+- **Debiased demand (rubric v4):** Score on `demandVolumeSum = primary + α × suburb` (α = 0.25); bands low &lt;60 / mid 60–180 / high 180–400 / very_high ≥400. Primary and Cluster sums stay display-only; Keywords + Overview show **Demand (scored)**
+- **Discovery Claude pack:** Compact High-Ticket catalog in the pack; slim CSV columns; `suggested_suburbs` prefer 3–5 (pain/services stay ≤3)
+- **Research UX:** Permanent delete with two-step confirm; Shift+click checkbox ranges; State before Suburbs; state dropdown no longer capped at 20
+- **Docs:** Demand-volume decision + Ads-vs-Research volumes Word docs; scoring-rubric overlap guidance (cluster sum double-counts metro demand)
+
 ## Version 1.2 (`1.2.0`)
 
 Operator UX and decision/map reliability since 1.1:
@@ -8,7 +17,7 @@ Operator UX and decision/map reliability since 1.1:
 - **Research filters:** Compact Find + Selection/Decision/Groups accordion (manual open only; no auto-toggle; no deselect on accordion/toolbar chrome)
 - **Stages:** Always-visible Stage 1–4 boxes (actions disabled until selection) to stop table jump
 - **Short viewports:** Page scroll unlocked on Discovery / Research / Website Builder / Launched Sites / Phone when the window is short or narrow
-- **Decisions:** Score-based recommend (pursue ≥7 / maybe 6–7 / pass <6); Discovery stays review until Research stages 1–3; migration helper on startup
+- **Decisions:** Score-based recommend (pursue ≥7 / maybe 6–7 / pass &lt;6); Discovery stays review until Research stages 1–3; migration helper on startup
 - **Map:** Fix *City place names (Park City, etc.); St/Mt/Ft aliases; safer Show matching; selection label beside Reset
 
 ## Version 1.1 (`1.1.0`) — continued

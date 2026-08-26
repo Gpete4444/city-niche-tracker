@@ -17,10 +17,17 @@ Stage 2 is recommended when Stage 1 `enrichmentRecommended` is true (mid+ demand
 
 ## Volume method
 
-`volumes.clusterVolumeSum` = Google Ads Keyword Planner monthly volume for the selected keyword set, measured **per city geo**, then **summed** across Ads-targetable cities in the cluster.
+Ads Keyword Planner monthly volume for the selected keyword set is measured **per city geo**.
+
+- **`volumes.primaryVolumeSum`** — searches **from** the primary city geo (not about that city).
+- **`volumes.clusterVolumeSum`** — sum across Ads-targetable cities in the cluster (**display only**; metro geos overlap, so this double-counts shared demand and grows with longer suburb lists).
+- **`volumes.demandVolumeSum`** — what scoring uses:
+
+  `demandVolumeSum = primaryVolumeSum + α × max(0, clusterVolumeSum − primaryVolumeSum)`
+
+  Default **α = 0.25** (`volumeMetric.suburbOverlapFactor`). If primary is missing, fall back to cluster sum.
 
 - Not rough geo-phrase ranges on `…louisville ky` phrases.
-- `primaryVolume` = searches **from** that city geo.
 - Ads buckets (10, 20, 30, 50…) are noisy at the low end.
 - Ads `competition` / CPC ≠ organic difficulty.
 
@@ -40,12 +47,14 @@ Also collect **page Rank** per ranking URL — a strong domain can still have a 
 
 ## Demand bands (high-ticket specialty)
 
-| Band | Cluster vol / mo | Score | Treat as |
+Bands apply to **`demandVolumeSum`**, not raw cluster sum.
+
+| Band | Demand vol / mo | Score | Treat as |
 | --- | --- | --- | --- |
-| Low | &lt; 100 | ~2–4 | Only if soft SERP **and** high ticket |
-| Mid | 100–299 | ~6–7 | Default “look closer” |
-| High | 300–699 | ~8–9 | Strong demand if SERP not locked |
-| Very high | 700+ | 10 | Score competition harder |
+| Low | &lt; 60 | ~2–4 | Only if soft SERP **and** high ticket |
+| Mid | 60–179 | ~6–7 | Default “look closer” |
+| High | 180–399 | ~8–9 | Strong demand if SERP not locked |
+| Very high | 400+ | 10 | Score competition harder |
 
 Low-ticket niches (&lt; ~$1,500 avg job): treat each band one tier stricter.
 
@@ -53,7 +62,7 @@ Low-ticket niches (&lt; ~$1,500 avg job): treat each band one tier stricter.
 
 | Input | Who sets it | Meaning |
 | --- | --- | --- |
-| **demand** | Stage 1 | From cluster volume scale |
+| **demand** | Stage 1 | From demandVolumeSum scale (primary + α×suburb) |
 | **competition** | Stage 1; preserved in Stage 2 | Structural organic Openness from classified result type, blue-link position, all-domain breadth, and top-five homepage concentration |
 | **mapPackGap** | Stage 1 | 9 if Map Pack absent, 3 if present |
 | **jobValue** | Claude / human | From estimated average job cost |

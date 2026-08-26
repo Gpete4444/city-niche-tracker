@@ -1,8 +1,8 @@
 import {
-  classifyClusterVolume,
   clusterVolumeHtml,
   competitionOpennessTip,
   computeProposedScore,
+  demandVolumeHtml,
   displaceabilityBand,
   displaceabilityTip,
   domainRankBand,
@@ -62,6 +62,66 @@ function syncHeaderSelectAll(el, { selectedCount, totalCount }) {
   const selected = selectedCount || 0;
   el.checked = total > 0 && selected === total;
   el.indeterminate = selected > 0 && selected < total;
+}
+
+/**
+ * Shift+click contiguous range select for ordered row checkboxes (Gmail-style).
+ * Returns true if a range was applied (caller should skip normal toggle / set UI).
+ */
+function applyShiftRangeCheckboxClick(event, {
+  visibleKeys,
+  clickedKey,
+  anchorKey,
+  setAnchor,
+  isSelected,
+  setSelected,
+}) {
+  const keys = Array.isArray(visibleKeys) ? visibleKeys : [];
+  const clickIdx = keys.findIndex((k) => k === clickedKey);
+  if (clickIdx < 0) {
+    setAnchor?.(clickedKey);
+    return false;
+  }
+
+  if (!event.shiftKey || anchorKey == null) {
+    setAnchor?.(clickedKey);
+    return false;
+  }
+
+  const anchorIdx = keys.findIndex((k) => k === anchorKey);
+  if (anchorIdx < 0) {
+    setAnchor?.(clickedKey);
+    return false;
+  }
+
+  event.preventDefault();
+  event.stopPropagation();
+  const want = !isSelected(clickedKey);
+  const lo = Math.min(anchorIdx, clickIdx);
+  const hi = Math.max(anchorIdx, clickIdx);
+  for (let i = lo; i <= hi; i += 1) setSelected(keys[i], want);
+  return true;
+}
+
+/** After candidate row checkbox changes, refresh selection UI / detail. */
+function afterCandidateCheckboxSelection(list) {
+  syncHeaderSelectAll(document.getElementById('candidate-select-all'), {
+    selectedCount: list.filter((c) => state.selectedIds.has(c.id)).length,
+    totalCount: list.length,
+  });
+  updateCandidateSelectionCount();
+  if (state.selectedIds.size > 1) {
+    renderList();
+    renderActions();
+    renderMultiDetail();
+  } else if (state.selectedIds.size === 1) {
+    void selectCandidate([...state.selectedIds][0]);
+  } else {
+    renderList();
+    renderActions();
+    if (state.selectedId) renderDetail();
+    else syncCandidatesDetailVisibility();
+  }
 }
 
 /** Keep in sync with scripts/lib/site-palettes.mjs */
@@ -351,6 +411,8 @@ const state = {
   decisionCounts: {},
   selectedId: null,
   selectedIds: new Set(),
+  /** Last plain-clicked candidate id for Shift+click range select */
+  candidateCheckAnchor: null,
   candidateDecisionFilter: '',
   candidateBatchFilter: '',
   candidateGroupFilter: '',
@@ -415,6 +477,8 @@ const state = {
   discoveryBatchId: null,
   discoveryRows: [],
   discoverySelected: new Set(),
+  /** Last plain-clicked Discovery row index for Shift+click range select */
+  discoveryCheckAnchor: null,
   discoverySort: { key: null, dir: 1 },
   discoveryFilters: { text: '', human: '', rec: '', mapPack: '' },
   lastDiscoveryPack: null,
@@ -1588,7 +1652,7 @@ function candidateSortValue(c, key) {
   }
   if (key === '_stageProgress') return candidateHighestStageStep(c);
   if (key === 'city') return [c.primaryCity, c.state].filter(Boolean).join(', ');
-  if (key === 'volume') return c.clusterVolumeSum;
+  if (key === 'volume') return c.demandVolumeSum ?? c.clusterVolumeSum;
   if (key === 'jobCost') return c.jobCostText || '';
   if (key === 'orgHome') return c.organicHomeNicheCount ?? c.organicHomeCount;
   if (key === 'orgSub') return c.organicSubNicheCount ?? c.organicSubCount;
@@ -1712,7 +1776,7 @@ const CANDIDATE_TABLE_COLS = [
   {
     key: 'volume',
     label: 'Search vol.',
-    tip: 'Stage 1 Ads Planner cluster search volume / month (sum across measured geos).',
+    tip: 'Demand (scored) / month: primary + α×suburb volumes (α=0.25). Bands apply here, not raw cluster sum.',
     sortable: true,
     cellClass: 'col-truncate',
     source: 'dfs',
@@ -1856,6 +1920,7 @@ function updateCandidateSelectionCount() {
   const addToSitesBtn = document.getElementById('candidate-add-to-sites-btn');
   const archiveBtn = document.getElementById('candidate-archive-btn');
   const unarchiveBtn = document.getElementById('candidate-unarchive-btn');
+  const deleteBtn = document.getElementById('candidate-delete-btn');
   const disable = nSelected === 0;
   if (batchSel) batchSel.disabled = disable;
   if (batchBtn) batchBtn.disabled = disable;
@@ -1865,6 +1930,7 @@ function updateCandidateSelectionCount() {
   if (addToSitesBtn) addToSitesBtn.disabled = disable;
   if (archiveBtn) archiveBtn.disabled = disable;
   if (unarchiveBtn) unarchiveBtn.disabled = disable;
+  if (deleteBtn) deleteBtn.disabled = disable;
 }
 
 function emptyStateForFilter() {
@@ -2019,6 +2085,7 @@ function clearPhoneCallSelection() {
 function clearDiscoveryRowSelection() {
   if (!state.discoverySelected?.size) return;
   state.discoverySelected = new Set();
+  state.discoveryCheckAnchor = null;
   renderDiscoveryTable();
 }
 
@@ -2152,7 +2219,9 @@ function renderList() {
           })}</td>`;
         }
         if (col.key === 'volume') {
-          return `<td${tdClass}>${clusterVolumeHtml(c.clusterVolumeSum)}</td>`;
+          return `<td${tdClass}>${demandVolumeHtml(c.demandVolumeSum ?? c.clusterVolumeSum, {
+            alpha: c.suburbOverlapFactor,
+          })}</td>`;
         }
         if (col.key === 'jobCost') {
           return `<td${tdClass}><span class="cell-text">${esc(
@@ -2357,30 +2426,32 @@ function renderList() {
     });
   });
   tbody.querySelectorAll('.cand-check').forEach((cb) => {
+    cb.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const id = cb.dataset.id;
+      const visibleKeys = list.map((c) => c.id);
+      const ranged = applyShiftRangeCheckboxClick(e, {
+        visibleKeys,
+        clickedKey: id,
+        anchorKey: state.candidateCheckAnchor,
+        setAnchor: (key) => {
+          state.candidateCheckAnchor = key;
+        },
+        isSelected: (key) => state.selectedIds.has(key),
+        setSelected: (key, on) => {
+          if (on) state.selectedIds.add(key);
+          else state.selectedIds.delete(key);
+        },
+      });
+      if (ranged) afterCandidateCheckboxSelection(list);
+    });
     cb.addEventListener('change', (e) => {
       e.stopPropagation();
       const id = cb.dataset.id;
+      state.candidateCheckAnchor = id;
       if (cb.checked) state.selectedIds.add(id);
       else state.selectedIds.delete(id);
-      syncHeaderSelectAll(document.getElementById('candidate-select-all'), {
-        selectedCount: list.filter((c) => state.selectedIds.has(c.id)).length,
-        totalCount: list.length,
-      });
-      updateCandidateSelectionCount();
-      if (state.selectedIds.size > 1) {
-        renderList();
-        renderActions();
-        renderMultiDetail();
-      } else if (state.selectedIds.size === 1) {
-        const sole = [...state.selectedIds][0];
-        // Open detail follows the sole checkbox so rail actions match the panel
-        void selectCandidate(sole);
-      } else {
-        renderList();
-        renderActions();
-        if (state.selectedId) renderDetail();
-        else syncCandidatesDetailVisibility();
-      }
+      afterCandidateCheckboxSelection(list);
     });
   });
   tbody.querySelectorAll('select.cand-decision').forEach((sel) => {
@@ -3472,9 +3543,15 @@ function renderOverview() {
           : 'Needs Stage 1 research',
     ],
     [
-      'Cluster search volume',
-      clusterVolumeHtml(s.clusterVolumeSum),
-      s.clusterVolumeSum != null ? `${s.clusterVolumeSum} searches / mo across cluster geos` : '—',
+      'Demand (scored)',
+      demandVolumeHtml(s.demandVolumeSum ?? s.clusterVolumeSum, {
+        alpha: s.suburbOverlapFactor,
+      }),
+      s.demandVolumeSum != null
+        ? `${s.demandVolumeSum} / mo demandVolumeSum (primary ${s.primaryVolumeSum ?? '—'} · cluster ${s.clusterVolumeSum ?? '—'})`
+        : s.clusterVolumeSum != null
+          ? `${s.clusterVolumeSum} searches / mo cluster (legacy — rescore to get demandVolumeSum)`
+          : '—',
     ],
     [
       'Map Pack',
@@ -3805,6 +3882,12 @@ function renderKeywords() {
     <div class="stat-grid">
       ${statCard('Primary sum', `<span class="metric metric-neutral"><strong>${esc(vols.primaryVolumeSum)}</strong><span class="metric-suffix"> /mo</span></span>`)}
       ${statCard('Cluster sum', clusterVolumeHtml(vols.clusterVolumeSum))}
+      ${statCard(
+        'Demand (scored)',
+        demandVolumeHtml(vols.demandVolumeSum ?? vols.clusterVolumeSum, {
+          alpha: vols.suburbOverlapFactor,
+        }),
+      )}
       ${statCard('Cities measured', `<span class="metric metric-neutral">${esc((vols.citiesMeasured || []).join(', ') || '—')}</span>`)}
     </div>
     ${tableHtml(headers, rows)}
@@ -11010,6 +11093,9 @@ function wireUi() {
   document.getElementById('candidate-unarchive-btn')?.addEventListener('click', () => {
     applyCandidateArchive(false);
   });
+  document.getElementById('candidate-delete-btn')?.addEventListener('click', () => {
+    applyCandidatePermanentDelete();
+  });
   document.querySelectorAll('.tab').forEach((tab) => {
     tab.addEventListener('click', () => {
       state.tab = tab.dataset.tab;
@@ -13059,7 +13145,6 @@ function bindDiscoveryPlaceAutofill() {
           String(st.name || '').toLowerCase().includes(q)
         );
       })
-      .slice(0, 20)
       .map((st) => ({ value: st.abbr, label: `${st.abbr} — ${st.name}` }));
     showSuggestList(stateSuggest, items);
   };
@@ -13595,6 +13680,99 @@ async function applyCandidateArchive(archived) {
   }
 }
 
+async function applyCandidatePermanentDelete() {
+  const ids = [...state.selectedIds];
+  if (!ids.length) return;
+  const sample = ids
+    .slice(0, 8)
+    .map((id) => {
+      const c = state.candidates.find((x) => x.id === id);
+      const label = c
+        ? `${c.niche || '?'} · ${c.primaryCity || c.city || '?'} · ${c.state || '?'}`
+        : id;
+      return `<li><code>${esc(id)}</code> — ${esc(label)}</li>`;
+    })
+    .join('');
+  const more =
+    ids.length > 8 ? `<li class="muted">…and ${ids.length - 8} more</li>` : '';
+
+  const layer1 = await showModal({
+    title: 'Delete candidates permanently?',
+    confirmLabel: 'Continue',
+    danger: true,
+    bodyHtml: `<p>You are about to permanently delete <strong>${esc(String(ids.length))}</strong> Research candidate(s):</p>
+      <ul>${sample}${more}</ul>
+      <ul>
+        <li>Wipes all Research artifacts for each id under <code>research/</code> (JSON, drafts, staging/images folders).</li>
+        <li>Removes them from Discovery known / tracked anti-dupe lists so markets can be rediscovered.</li>
+        <li>Removes membership in named groups and clears Discovery batch <code>candidateId</code> links.</li>
+        <li>Removes matching <strong>Launched Sites</strong> registry rows for these candidate ids.</li>
+        <li>Does <strong>not</strong> release Twilio DIDs or tear down a live host / DNS.</li>
+      </ul>
+      <p class="muted small">Next step asks you to type <code>DELETE</code> to confirm.</p>`,
+  });
+  if (!layer1) return;
+
+  const layer2 = await showModal({
+    title: 'Type to confirm permanent delete',
+    confirmLabel: 'Delete permanently',
+    danger: true,
+    requireTypedConfirm: 'DELETE',
+    bodyHtml: `<p>Confirm permanent delete of <strong>${esc(String(ids.length))}</strong> candidate(s). This cannot be undone from the UI.</p>`,
+  });
+  if (!layer2) return;
+
+  try {
+    const result = await api('/api/candidates/delete', {
+      method: 'POST',
+      body: JSON.stringify({ ids }),
+    });
+    const deletedSet = new Set((result.deleted || []).map((d) => d.id));
+    for (const id of deletedSet) state.selectedIds.delete(id);
+    if (state.selectedId && deletedSet.has(state.selectedId)) {
+      state.selectedId = null;
+      state.detail = null;
+      syncCandidatesDetailVisibility();
+    }
+    await loadCandidates();
+    try {
+      await loadSites();
+    } catch {
+      /* optional */
+    }
+    if (state.selectedId && state.selectedIds.has(state.selectedId)) {
+      state.detail = await api(`/api/candidates/${encodeURIComponent(state.selectedId)}`);
+      if (state.selectedIds.size > 1) renderMultiDetail();
+      else renderDetail();
+    } else if (state.selectedIds.size > 1) {
+      renderMultiDetail();
+    } else if (state.selectedIds.size === 1) {
+      await selectCandidate([...state.selectedIds][0]);
+    }
+    renderList();
+    renderActions();
+    if (result.errors?.length) {
+      const bits = result.errors
+        .slice(0, 8)
+        .map((e) => `<li>${esc(e.id)}: ${esc(e.error)}</li>`)
+        .join('');
+      await showModal({
+        title: 'Delete partial',
+        confirmLabel: 'OK',
+        hideCancel: true,
+        bodyHtml: `<p>Some rows failed:</p><ul>${bits}</ul>`,
+      });
+    }
+  } catch (error) {
+    await showModal({
+      title: 'Delete failed',
+      confirmLabel: 'OK',
+      hideCancel: true,
+      bodyHtml: `<p>${esc(error.message)}</p>`,
+    });
+  }
+}
+
 async function manageCandidateGroups() {
   const groups = [...(state.candidateGroups || [])].sort((a, b) =>
     String(a.name).localeCompare(String(b.name), undefined, { sensitivity: 'base' }),
@@ -13695,6 +13873,7 @@ function clearDiscoveryBatch() {
   state.discoveryBatchId = null;
   state.discoveryRows = [];
   state.discoverySelected = new Set();
+  state.discoveryCheckAnchor = null;
   const title = document.getElementById('discovery-batch-title');
   if (title) title.textContent = 'No batch selected';
   const sub = document.getElementById('discovery-batch-sub');
@@ -13748,6 +13927,14 @@ const DISCOVERY_TABLE_COLS = [
     sortable: true,
     tip: 'Two-letter US state (Claude)',
     cellClass: 'col-short',
+    source: 'claude',
+  },
+  {
+    key: 'suggested_suburbs',
+    label: 'Suburbs',
+    sortable: true,
+    tip: 'Claude suggested nearby suburbs (count; hover cell for names)',
+    cellClass: 'col-short col-center',
     source: 'claude',
   },
   {
@@ -13899,6 +14086,13 @@ function discoveryRowMatchesFilters(row) {
   return true;
 }
 
+function parseSuggestedSuburbsList(raw) {
+  return String(raw || '')
+    .split(/;/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
 function parseDiscoverySortValue(row, key) {
   if (key === 'Population') {
     const n = Number(String(row.Population || '').replace(/,/g, ''));
@@ -13911,6 +14105,11 @@ function parseDiscoverySortValue(row, key) {
   if (key === 'Organic Sub Page') {
     const n = Number(String(row['Organic Sub Page'] || '').replace(/[^0-9.-]/g, ''));
     return Number.isFinite(n) ? n : -1;
+  }
+  if (key === 'suggested_suburbs') {
+    const raw = row.suggested_suburbs;
+    if (raw == null || String(raw).trim() === '') return -1;
+    return parseSuggestedSuburbsList(raw).length;
   }
   return String(row[key] ?? '').toLowerCase();
 }
@@ -14178,6 +14377,17 @@ function renderDiscoveryTable() {
           const val = row.candidateId || '';
           return `<td${tdClass} data-tip="${esc(val)}"><span class="cell-text">${esc(val || '—')}</span></td>`;
         }
+        if (col.key === 'suggested_suburbs') {
+          const raw = row.suggested_suburbs;
+          if (raw == null || String(raw).trim() === '') {
+            return `<td${tdClass}><span class="cell-text muted">—</span></td>`;
+          }
+          const cities = parseSuggestedSuburbsList(raw);
+          const tip = cities.length ? cities.join('\n') : '';
+          return `<td${tdClass}${tip ? ` data-tip="${esc(tip)}"` : ''}><span class="cell-text">${esc(
+            String(cities.length),
+          )}</span></td>`;
+        }
         const val = row[col.key] ?? '';
         return `<td${tdClass} data-tip="${esc(val)}"><span class="cell-text">${esc(val)}</span></td>`;
       });
@@ -14233,10 +14443,7 @@ function renderDiscoveryTable() {
     });
   });
   tbody.querySelectorAll('.disc-row-check').forEach((cb) => {
-    cb.addEventListener('change', () => {
-      const idx = Number(cb.dataset.discIdx);
-      if (cb.checked) state.discoverySelected.add(idx);
-      else state.discoverySelected.delete(idx);
+    const syncDiscSelectionUi = () => {
       syncHeaderSelectAll(document.getElementById('discovery-select-all'), {
         selectedCount: view.filter(({ index }) => state.discoverySelected.has(index))
           .length,
@@ -14249,6 +14456,38 @@ function renderDiscoveryTable() {
           isDiscoveryRowProcessed(state.discoveryRows[i]),
         );
       }
+    };
+    cb.addEventListener('click', (e) => {
+      const idx = Number(cb.dataset.discIdx);
+      const visibleKeys = view.map(({ index }) => index);
+      const ranged = applyShiftRangeCheckboxClick(e, {
+        visibleKeys,
+        clickedKey: idx,
+        anchorKey: state.discoveryCheckAnchor,
+        setAnchor: (key) => {
+          state.discoveryCheckAnchor = key;
+        },
+        isSelected: (key) => state.discoverySelected.has(key),
+        setSelected: (key, on) => {
+          if (on) state.discoverySelected.add(key);
+          else state.discoverySelected.delete(key);
+        },
+      });
+      if (ranged) {
+        // Reflect range on DOM checkboxes without full table re-render
+        tbody.querySelectorAll('.disc-row-check').forEach((box) => {
+          const i = Number(box.dataset.discIdx);
+          box.checked = state.discoverySelected.has(i);
+        });
+        syncDiscSelectionUi();
+      }
+    });
+    cb.addEventListener('change', () => {
+      const idx = Number(cb.dataset.discIdx);
+      state.discoveryCheckAnchor = idx;
+      if (cb.checked) state.discoverySelected.add(idx);
+      else state.discoverySelected.delete(idx);
+      syncDiscSelectionUi();
     });
   });
   tbody.querySelectorAll('[data-accept-idx]').forEach((btn) => {
@@ -14271,6 +14510,7 @@ async function selectDiscoveryBatch(id) {
   state.discoveryBatchId = data.batch.id;
   state.discoveryRows = data.rows || [];
   state.discoverySelected = new Set();
+  state.discoveryCheckAnchor = null;
   document.getElementById('discovery-batch-title').textContent = data.batch.id;
   const stage = shortDiscoveryStage(data.batch.stage);
   const serp = data.batch.lastSerpProbe;

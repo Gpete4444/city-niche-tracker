@@ -31,6 +31,7 @@ import {
   setDecision,
   setDecisions,
   setArchived,
+  deleteCandidates,
   pathsFor,
   CANDIDATE_DECISIONS,
 } from './lib/candidates.mjs';
@@ -923,6 +924,20 @@ app.post('/api/candidates/archive', (req, res) => {
     const ids = Array.isArray(body.ids) ? body.ids : [];
     const archived = body.archived !== false && body.archived !== 'false';
     const result = setArchived(ids, archived);
+    res.json(result);
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/candidates/delete', async (req, res) => {
+  try {
+    const body = req.body || {};
+    const ids = Array.isArray(body.ids) ? body.ids : [];
+    if (!ids.length) {
+      throw Object.assign(new Error('ids required'), { status: 400 });
+    }
+    const result = await deleteCandidates(ids);
     res.json(result);
   } catch (error) {
     sendError(res, error);

@@ -65,6 +65,21 @@ export const DISCOVERY_COLUMNS = [
   'serp_source',
 ];
 
+/** Columns Claude fills in Discovery (plus blank Population). Rover owns the rest after import. */
+export const DISCOVERY_CLAUDE_COLUMNS = [
+  'Niche',
+  'City',
+  'State',
+  'Population',
+  'Average Job Cost',
+  'Est. time to rank with GBP',
+  'Est. time to rank without GBP',
+  'pain_points',
+  'suggested_services',
+  'suggested_suburbs',
+  'confidence_narrative',
+];
+
 /** Human decisions that create/link Candidates. */
 export const PROMOTE_DECISIONS = ['pursue', 'maybe', 'review', 'hold'];
 /** Human decisions stored for anti-dupe only — not Candidates. */
@@ -331,6 +346,21 @@ function mapPackLabel(v) {
   return 'Prefer Map Pack absent (soft — estimate after Claude)';
 }
 
+/** Active niche-mode rules only (injected into discovery-claude.md). */
+export function buildNicheRules(filters = {}) {
+  const f = normalizeFilters(filters);
+  if (f.requiredNiches.length && f.niches.length) {
+    return `3. **Niche mode (hybrid):** For each Required niche, emit ≥1 row whose \`Niche\` cell is that name **verbatim (exact match after trim)** when Max rows allows — no catalog synonym substitution. Fill remaining rows preferring Suggested niches (soft); you may still pick other High-Ticket catalog niches that match tiers/categories when the Suggested list is short. Required is never an exclusive lock.`;
+  }
+  if (f.requiredNiches.length) {
+    return `3. **Niche mode (Required):** For each Required niche, emit ≥1 row whose \`Niche\` cell is that name **verbatim (exact match after trim)** when Max rows allows. Do not substitute catalog synonyms. Fill remaining rows from the High-Ticket catalog (OPEN soft), honoring tiers/categories. Required is never an exclusive lock — custom / off-catalog Required names are valid as exact \`Niche\` text.`;
+  }
+  if (f.niches.length) {
+    return `3. **Niche mode (Suggested):** Soft preference — prefer these niches when a strong city fit exists; you may still pick other High-Ticket catalog niches that match tiers/categories. Custom suggested names are valid.`;
+  }
+  return `3. **Niche mode (OPEN):** Pick from the High-Ticket niches catalog below; include at least 3 different niches when Max rows allows. Respect Ticket tiers / Min job cost / Catalog categories (only listed tiers — not “tier and above”).`;
+}
+
 /** Human-readable filter brief injected into Claude prompts. */
 export function buildFilterBrief(filters = {}) {
   const f = normalizeFilters(filters);
@@ -383,12 +413,139 @@ export function buildFilterBrief(filters = {}) {
   return lines.join('\n');
 }
 
-function loadHighTicketNiches() {
+/** Map a numbered section heading to a CATALOG_CATEGORIES label. */
+function categoryFromSectionHeading(heading) {
+  const cleaned = String(heading || '')
+    .replace(/^#+\s*/, '')
+    .replace(/\\\./g, '.')
+    .replace(/\\&/g, '&')
+    .trim();
+  let best = null;
+  for (const cat of CATALOG_CATEGORIES) {
+    if (cleaned.includes(cat) && (!best || cat.length > best.length)) best = cat;
+  }
+  return best;
+}
+
+function stripMdCell(raw) {
+  return String(raw || '')
+    .replace(/\\&/g, '&')
+    .replace(/\*\*/g, '')
+    .replace(/\|/g, '/')
+    .trim();
+}
+
+/**
+ * Parse primary niche tables from the High-Ticket guide (skip TOC, bonus, sorted lists, strategy).
+ * @returns {{ niche: string, tier: string, category: string, avgJob: string }[]}
+ */
+export function parseHighTicketCatalog(md) {
+  const text = String(md || '');
+  const entries = [];
+  const seen = new Set();
+  let category = null;
+  let inTierTable = false;
+
+  for (const rawLine of text.split(/\r?\n/)) {
+    const line = rawLine.trimEnd();
+    if (/^##\s+(Bonus|Quick-Reference|Strategy)\b/i.test(line.trim())) break;
+    if (/^##\s+\d/i.test(line.trim())) {
+      category = categoryFromSectionHeading(line.trim());
+      inTierTable = false;
+      continue;
+    }
+    if (!category) continue;
+    if (/^\|\s*[#\\]*\s*\|/i.test(line) && /Niche/i.test(line) && /Tier/i.test(line)) {
+      inTierTable = true;
+      continue;
+    }
+    if (/^\|\s*:?-{2,}/.test(line)) continue;
+    if (!inTierTable || !line.startsWith('|')) {
+      if (line.startsWith('##') || line.startsWith('---')) inTierTable = false;
+      continue;
+    }
+    const cells = line
+      .replace(/^\|/, '')
+      .replace(/\|$/, '')
+      .split('|')
+      .map(stripMdCell);
+    // # | Niche | Avg. Job Value | Tier | Notes
+    if (cells.length < 4) continue;
+    const niche = cells[1];
+    const avgJob = cells[2];
+    const tierRaw = cells[3];
+    if (!niche || /^niche/i.test(niche)) continue;
+    const tier = String(tierRaw || '')
+      .toLowerCase()
+      .replace(/[^a-z]/g, '');
+    if (!TIER_RANK[tier]) continue;
+    const key = `${niche.toLowerCase()}|${category.toLowerCase()}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    entries.push({
+      niche,
+      tier: tier.charAt(0).toUpperCase() + tier.slice(1),
+      category,
+      avgJob,
+    });
+  }
+  return entries;
+}
+
+let _cachedCatalogEntries = null;
+
+function loadHighTicketCatalogEntries() {
+  if (_cachedCatalogEntries) return _cachedCatalogEntries;
   const full = path.join(ROOT, 'data', 'high-ticket-rank-and-rent-niches.md');
   if (!existsSync(full)) {
-    return '_High-ticket niches catalog missing at data/high-ticket-rank-and-rent-niches.md._';
+    _cachedCatalogEntries = [];
+    return _cachedCatalogEntries;
   }
-  return readFileSync(full, 'utf8').trimEnd();
+  _cachedCatalogEntries = parseHighTicketCatalog(readFileSync(full, 'utf8'));
+  return _cachedCatalogEntries;
+}
+
+/**
+ * Compact, filter-matched niche list for the Discovery Claude prompt (not the full guide).
+ */
+export function buildCompactHighTicketCatalog(filters = {}) {
+  const f = normalizeFilters(filters);
+  const tierSet = new Set((f.tiers || []).map((t) => String(t).toLowerCase()));
+  const categorySet = f.categories.length
+    ? new Set(f.categories.map((c) => String(c).trim().toLowerCase()))
+    : null;
+
+  const entries = loadHighTicketCatalogEntries().filter((e) => {
+    if (tierSet.size && !tierSet.has(String(e.tier).toLowerCase())) return false;
+    if (categorySet && !categorySet.has(String(e.category).toLowerCase())) return false;
+    return true;
+  });
+
+  if (!entries.length) {
+    if (!loadHighTicketCatalogEntries().length) {
+      return '_High-ticket niches catalog missing or unreadable at data/high-ticket-rank-and-rent-niches.md._';
+    }
+    return '_No niches match the selected tiers/categories. Broaden filters or use Required/Suggested niches._';
+  }
+
+  const lines = [
+    'Niche | Category',
+    '--- | ---',
+    ...entries.map((e) => `${e.niche} | ${e.category}`),
+  ];
+  return lines.join('\n');
+}
+
+/** Expand Claude short CSVs (or full exports) onto DISCOVERY_COLUMNS. */
+export function normalizeDiscoveryImportRows(rows) {
+  return (rows || []).map((row) => {
+    const out = {};
+    for (const col of DISCOVERY_COLUMNS) {
+      const v = row?.[col];
+      out[col] = v == null ? '' : String(v);
+    }
+    return out;
+  });
 }
 
 function fillPrompt(relativePath, vars = {}) {
@@ -411,7 +568,7 @@ export function createDiscoveryPack(filters = {}) {
   ensureBatchesDir();
   const f = normalizeFilters(filters);
   const rows = buildEmptyTemplateRows();
-  const csv = rowsToCsv(rows);
+  const csv = rowsToCsv(rows, DISCOVERY_CLAUDE_COLUMNS);
   const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
   const label = autoLabel(f);
   const batchId = slugBatchId(label);
@@ -424,9 +581,10 @@ export function createDiscoveryPack(filters = {}) {
   writeFileSync(path.join(dir, csvName), csv, 'utf8');
 
   const filterBrief = buildFilterBrief(f);
-  const highTicketNiches = loadHighTicketNiches();
+  const highTicketNiches = buildCompactHighTicketCatalog(f);
   const promptVars = {
     FILTER_BRIEF: filterBrief,
+    NICHE_RULES: buildNicheRules(f),
     DISCOVERY_CSV: csv.trimEnd(),
     OUTPUT_BASENAME: outputBasename,
     CLAUDE_OUTPUT_CSV: claudeCsvName,
@@ -619,12 +777,13 @@ export function importDiscoveryCsv(batchId, csvText, { createIfMissing = true } 
   }
 
   const extracted = extractCsvFromChatPaste(csvText);
-  const rows = parseCsv(extracted);
-  if (!rows.length) {
+  const parsed = parseCsv(extracted);
+  if (!parsed.length) {
     const err = new Error('CSV has no data rows');
     err.status = 400;
     throw err;
   }
+  const rows = normalizeDiscoveryImportRows(parsed);
 
   const prev = readJson(path.join(dir, 'meta.json'), {});
   const minPop = Number(prev.filters?.minPopulation);
@@ -705,6 +864,57 @@ export function listBatches() {
     .map((name) => readJson(path.join(BATCHES_DIR, name, 'meta.json')))
     .filter(Boolean)
     .sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
+}
+
+/**
+ * Best-effort: blank candidateId / process_status on Discovery batch CSVs for deleted ids.
+ */
+export function scrubCandidateIdsFromBatches(candidateIds = []) {
+  const want = new Set(
+    (candidateIds || []).map((id) => String(id || '').trim()).filter(Boolean),
+  );
+  if (!want.size || !existsSync(BATCHES_DIR)) return { filesTouched: 0, rowsCleared: 0 };
+
+  let filesTouched = 0;
+  let rowsCleared = 0;
+
+  for (const name of readdirSync(BATCHES_DIR)) {
+    const dir = path.join(BATCHES_DIR, name);
+    let entries;
+    try {
+      entries = readdirSync(dir);
+    } catch {
+      continue;
+    }
+    for (const file of entries) {
+      if (!file.endsWith('.csv')) continue;
+      const full = path.join(dir, file);
+      let rows;
+      try {
+        rows = parseCsv(readFileSync(full, 'utf8'));
+      } catch {
+        continue;
+      }
+      if (!rows.length) continue;
+      let changed = false;
+      for (const row of rows) {
+        const cid = String(row.candidateId || '').trim();
+        if (!cid || !want.has(cid)) continue;
+        row.candidateId = '';
+        row.process_status = '';
+        changed = true;
+        rowsCleared += 1;
+      }
+      if (!changed) continue;
+      try {
+        writeFileSync(full, rowsToCsv(rows), 'utf8');
+        filesTouched += 1;
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+  return { filesTouched, rowsCleared };
 }
 
 export function getBatch(batchId) {

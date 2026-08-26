@@ -288,10 +288,9 @@ export function formatKnownCandidatesForPrompt({ stateFilter = null, limit = 500
   const lines = [
     header,
     '',
-    'Niche,City,State,decision,candidateId',
+    'Niche,City,State',
     ...rows.map(
-      (r) =>
-        `${csvEscape(r.niche)},${csvEscape(r.city)},${csvEscape(r.state)},${csvEscape(r.decision)},${csvEscape(r.id || (r.tracked ? 'tracked' : ''))}`,
+      (r) => `${csvEscape(r.niche)},${csvEscape(r.city)},${csvEscape(r.state)}`,
     ),
   ];
   return lines.join('\n');
