@@ -382,14 +382,19 @@ export function saveContentBrief(candidateId, body = {}) {
     body.siteArchetype || existing.siteArchetype,
   );
   const sections = normalizeBriefSections(body.sections ?? existing.sections ?? []);
+  const pagesRaw = body.pages !== undefined ? body.pages : existing.pages;
+  const pages = Array.isArray(pagesRaw) ? pagesRaw : undefined;
   const now = new Date().toISOString();
   const wasConfirmed = existing.status === 'confirmed';
+  const mode = body.mode || existing.mode || 'homepage_first';
   const brief = {
     status: 'draft',
     confirmedAt: null,
     siteArchetype: config.siteArchetype,
-    mode: body.mode || existing.mode || 'homepage_first',
+    mode,
     meta: {
+      ...(existing.meta || {}),
+      ...(body.meta || {}),
       pageType:
         body.meta?.pageType ||
         existing.meta?.pageType ||
@@ -404,11 +409,24 @@ export function saveContentBrief(candidateId, body = {}) {
       primaryService: body.meta?.primaryService || existing.meta?.primaryService || '',
     },
     sections,
-    source: existing.source || {
-      template: config.siteArchetype === 'single_service' ? 'specialty' : 'multi_service',
-      fromApproved: true,
-      fromSiteConfig: true,
-    },
+    ...(pages?.length ? { pages } : {}),
+    ...(body.supportingTopics !== undefined
+      ? { supportingTopics: body.supportingTopics }
+      : existing.supportingTopics !== undefined
+        ? { supportingTopics: existing.supportingTopics }
+        : {}),
+    ...(body.notes !== undefined
+      ? { notes: body.notes }
+      : existing.notes !== undefined
+        ? { notes: existing.notes }
+        : {}),
+    source:
+      body.source ||
+      existing.source || {
+        template: config.siteArchetype === 'single_service' ? 'specialty' : 'multi_service',
+        fromApproved: true,
+        fromSiteConfig: true,
+      },
     _ops: {
       savedAt: now,
       confirmedAt: null,
@@ -427,18 +445,33 @@ export function confirmContentBrief(candidateId, body = {}) {
   assertContentHandoffReady(candidateId);
   const p = pathsFor(candidateId);
   let brief = readJson(p.contentBrief);
-  if (!brief && body.sections) {
+  if (!brief && (body.sections || body.pages)) {
     saveContentBrief(candidateId, body);
     brief = readJson(p.contentBrief);
   }
-  if (!brief?.sections?.length) {
+  if (body.sections || body.pages || body.mode) {
+    const saved = saveContentBrief(candidateId, {
+      ...brief,
+      ...body,
+      sections: body.sections ?? brief?.sections,
+      pages: body.pages ?? brief?.pages,
+      mode: body.mode || brief?.mode,
+    });
+    brief = saved.brief;
+  }
+  const mode = brief?.mode || 'homepage_first';
+  if (mode === 'eight_pass') {
+    if (!Array.isArray(brief?.pages) || brief.pages.length < 1) {
+      const err = new Error(
+        'Soft eight-pass brief must include pages[] before confirming — re-Load Soft brief JSON from Claude',
+      );
+      err.status = 400;
+      throw err;
+    }
+  } else if (!brief?.sections?.length) {
     const err = new Error('Generate or save a content brief before confirming');
     err.status = 400;
     throw err;
-  }
-  if (body.sections) {
-    const saved = saveContentBrief(candidateId, body);
-    brief = saved.brief;
   }
   const now = new Date().toISOString();
   brief = {
@@ -846,8 +879,32 @@ export function pasteAgentContentDraft(candidateId, raw, { mode = 'homepage_firs
       lastSpeechCheckAt: new Date().toISOString(),
       fileList: Object.keys(files).sort(),
       socialProofMerge,
+      writeBatches: priorDraft?._ops?.writeBatches || {},
+      lastFinalCheckAt: priorDraft?._ops?.lastFinalCheckAt || null,
+      lastFinalCheckOk: priorDraft?._ops?.lastFinalCheckOk,
+      lastFinalCheckSummary: priorDraft?._ops?.lastFinalCheckSummary,
     },
   });
+  // Infer write batches from files (avoid circular import with content-eight-pass)
+  try {
+    const draftNow = readJson(p.contentDraft);
+    const fileKeys = Object.keys(draftNow?.files || {});
+    const batches = { ...(draftNow?._ops?.writeBatches || {}) };
+    const now = new Date().toISOString();
+    if (fileKeys.some((f) => /pages\/(index|about|contact)\.md$/i.test(f))) {
+      batches.home = batches.home || now;
+    }
+    if (fileKeys.some((f) => /\/services\//i.test(f))) {
+      batches.services = batches.services || now;
+    }
+    if (fileKeys.some((f) => /\/locations\//i.test(f))) {
+      batches.locations = batches.locations || now;
+    }
+    draftNow._ops = { ...(draftNow._ops || {}), writeBatches: batches };
+    writeJson(p.contentDraft, draftNow);
+  } catch {
+    // soft
+  }
   saveMeta(candidateId, { lastContentDraftAt: new Date().toISOString() });
   return {
     ok: true,

@@ -2233,8 +2233,27 @@ export async function acceptContent(
 
   if (!draft._ops?.lastSpeechCheckAt) {
     const err = new Error(
-      'Run Speech check (Editor step) before Accept — human-speech pass is required.',
+      'Run Speech check (Humanize step) before Accept — human-speech pass is required.',
     );
+    err.status = 400;
+    throw err;
+  }
+
+  const fieldPath = path.join(RESEARCH_DIR, `${p.id}-content-field-research.json`);
+  const fieldResearch = readJson(fieldPath);
+  if (!fieldResearch || fieldResearch.status !== 'loaded') {
+    const err = new Error('Load Field research before Accept (eight-pass Soft path).');
+    err.status = 400;
+    throw err;
+  }
+  const softBrief = readJson(path.join(RESEARCH_DIR, `${p.id}-content-brief.json`));
+  if (softBrief?.status !== 'confirmed') {
+    const err = new Error('Confirm Content brief before Accept.');
+    err.status = 400;
+    throw err;
+  }
+  if (!draft._ops?.lastFinalCheckAt) {
+    const err = new Error('Run Final check (Pass 8) before Accept.');
     err.status = 400;
     throw err;
   }
@@ -2396,6 +2415,7 @@ export async function acceptContent(
     Object.assign(acceptedFiles, locationStubs.files);
   }
 
+  const draftOps = draft._ops || {};
   const accepted = {
     files: acceptedFiles,
     _ops: {
@@ -2412,6 +2432,21 @@ export async function acceptContent(
         mode === 'homepage_first'
           ? 'optional full Writer pass for services/locations, or npm run build'
           : 'npm run build',
+      // Soft-path audit stamps (required before Accept — keep after draft delete)
+      ...(draftOps.lastSpeechCheckAt
+        ? { lastSpeechCheckAt: draftOps.lastSpeechCheckAt }
+        : {}),
+      ...(draftOps.lastFinalCheckAt
+        ? {
+            lastFinalCheckAt: draftOps.lastFinalCheckAt,
+            lastFinalCheckOk: draftOps.lastFinalCheckOk,
+            lastFinalCheckSummary: draftOps.lastFinalCheckSummary,
+          }
+        : {}),
+      ...(draftOps.writeBatches ? { writeBatches: draftOps.writeBatches } : {}),
+      ...(draftOps.speechLint ? { speechLint: draftOps.speechLint } : {}),
+      ...(draftOps.seoLint ? { seoLint: draftOps.seoLint } : {}),
+      ...(draftOps.autoFix ? { autoFix: draftOps.autoFix } : {}),
     },
   };
   writeJson(p.content, accepted);

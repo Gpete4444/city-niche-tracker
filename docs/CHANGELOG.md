@@ -1,5 +1,16 @@
 # Rover changelog
 
+## Version 1.4 (`1.4.0`)
+
+Site-Config **Address** finder (LoopNet + Places) and related operator UX since 1.3:
+
+- **Recommended vs Secondary:** Places-clean streets whose Maps locality matches the target city stay Recommended; suburb mismatches (e.g. Kearns / West Valley vs Salt Lake City) land in Secondary, with Geocoding + retier API for existing shortlists
+- **Pull budget:** First LoopNet pull defaults to 200/URL; Fetch deeper +100; per-city moving ceiling starts at 500/URL, doubles on confirm (absolute 2000/URL); UI shows total listing budgets (× search URLs), not confusing “per URL” depth
+- **Exhausted cache:** Fetch deeper confirms lead with 0-left warning — re-scrapes from the top, may add few/no new streets, Apify billable — before ceiling-raise / budget details
+- **Address step UI:** Compact layout (no long blurb / Cache exhausted box / duplicate inventory); Last search is Result + Cost with funnel under Technical details; LoopNet link beside Maps / Street View
+- **Maps / Street View links:** Prefer geocoded lat/lng; never put STE-* suite stubs in Maps search (avoids wrong Places matches); Street View uses `maps?q=…&layer=c` (no black `map_action=pano` links)
+- **Inventory / deepen:** City-cache inventory progress, Fetch deeper when 0 left, Manual commercial / recover / Use anyway paths documented in USER-FLOW and ENV-SETUP (Geocoding API required for locality tier)
+
 ## Version 1.3 (`1.3.0`)
 
 Debiased demand scoring and tighter Discovery / Research operator UX since 1.2:

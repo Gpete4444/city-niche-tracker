@@ -138,17 +138,17 @@ ANTHROPIC_API_KEY=sk-ant-api03-…
 
 ## 3. Site-config · address — Google Maps & Apify
 
-You can still **paste a home address** or **Skip** without these. **Find addresses** (LoopNet + Places) needs both.
+You can still use **Manual commercial**, **home paste**, recover / Use anyway, or **Skip** without these. **Find addresses** (LoopNet + Places) needs both.
 
 ### 3a. Google Maps (Places)
 
 #### What it’s for
 
-Screens and validates commercial address candidates in Site-Config → Address.
+Screens and validates commercial address candidates in Site-Config → Address (including expanded street-range endpoints). After a Places-clean pass, **Geocoding** resolves Maps locality so suburb mismatches (e.g. Kearns vs Salt Lake City) land in the **Secondary** tier.
 
 #### Required?
 
-**Required for Find addresses.** Optional if you only paste/skip.
+**Required for Find addresses.** Optional if you only paste/skip/manual.
 
 #### Env variable names
 
@@ -160,9 +160,9 @@ GOOGLE_MAPS_API_KEY=
 
 1. Open [Google Cloud Console](https://console.cloud.google.com/).
 2. Create a project (or select one) and enable **billing** for that project.
-3. Open [Places API (New)](https://console.cloud.google.com/apis/library/places.googleapis.com) → **Enable**.
+3. Open [Places API (New)](https://console.cloud.google.com/apis/library/places.googleapis.com) → **Enable**. Also enable [Geocoding API](https://console.cloud.google.com/apis/library/geocoding-backend.googleapis.com) (Maps locality / Secondary tier).
 4. Go to **APIs & Services → Credentials → Create credentials → API key**.
-5. Restrict the key to **Places API (New)** (recommended).
+5. Restrict the key to **Places API (New)** and **Geocoding API** (recommended).
 6. Copy the key into `.env`, save, restart Rover.
 
 #### Links
@@ -190,13 +190,15 @@ Pulls commercial listing candidates for the address finder.
 
 #### Required?
 
-**Required for Find addresses** (together with Google Maps). Optional if you only paste/skip.
+**Required for Find addresses** (together with Google Maps). Optional if you only paste/skip/manual.
 
 #### Env variable names
 
 ```env
 APIFY_TOKEN=
 APIFY_LOOPNET_ACTOR_ID=
+# Optional: maxItems per LoopNet search URL on first pull (default 200, absolute max 2000).
+# ADDRESS_SEARCH_MAX_LISTINGS=200
 ```
 
 #### Steps
@@ -208,6 +210,8 @@ APIFY_LOOPNET_ACTOR_ID=
 5. Open that actor’s page. The actor id is in the URL, often like `abotapi~loopnet-scraper` (username~actor-name).
 6. Paste that id into `APIFY_LOOPNET_ACTOR_ID` (no spaces).
 7. Save `.env`, restart Rover.
+
+Solidcode LoopNet runs two search URLs (office + retail); Rover’s Address step shows a **total pull budget** (maxItems × URL count). First pull defaults to 200/URL; Fetch deeper adds +100/URL. Each city starts with a **500**/URL ceiling that **doubles on confirm** when you would exceed it (absolute stop **2000**/URL). Fetch deeper re-scrapes from the top at the new max — not “new listings only.”
 
 #### Links
 

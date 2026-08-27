@@ -47,6 +47,7 @@ import {
   generateNarrativeDraft,
   generateProspectsOutreachDraft,
   pasteNarrativeDraft,
+  parseJsonLoose,
 } from './lib/claude.mjs';
 import {
   acceptSiteConfig,
@@ -64,8 +65,11 @@ import {
   searchBusinessAddresses,
   selectBusinessAddress,
   saveHomeBusinessAddress,
+  saveManualBusinessAddress,
   skipBusinessAddress,
   fetchApifyPlanUsage,
+  listRecoverableAddresses,
+  retierShortlistLocalities,
 } from './lib/address-screen.mjs';
 import {
   acceptContent,
@@ -123,6 +127,22 @@ import {
   pasteContentOutlinePackage,
   saveContentStructure,
 } from './lib/content-structure.mjs';
+import {
+  buildBatchedFullWritePrompt,
+  buildBookendsOnlyPrompt,
+  buildFieldResearchPrompt,
+  buildFinalCheckPrompt,
+  buildGbpCategoryPrompt,
+  buildSoftBriefPrompt,
+  getContentFieldResearch,
+  getWriteBatchStatus,
+  markWriteBatchComplete,
+  pasteAndConfirmSoftBrief,
+  saveContentFieldResearch,
+  saveGbpCategoryChecklist,
+  stampFinalCheck,
+  syncWriteBatchesFromDraft,
+} from './lib/content-eight-pass.mjs';
 import { buildBuildPackage, getBuildPackage } from './lib/build-package.mjs';
 import { stageSiteInWorker, getStagingSummary } from './lib/site-staging.mjs';
 import {
@@ -1149,6 +1169,7 @@ app.get('/api/candidates/:id/address', (req, res) => {
     res.json({
       package: getBusinessAddressPackage(req.params.id),
       candidate: getCandidateDetail(req.params.id),
+      recover: listRecoverableAddresses(req.params.id),
     });
   } catch (error) {
     sendError(res, error);
@@ -1158,7 +1179,16 @@ app.get('/api/candidates/:id/address', (req, res) => {
 app.post('/api/candidates/:id/address/search', async (req, res) => {
   try {
     const refreshLoopnet = Boolean(req.body?.refreshLoopnet);
-    res.json(await searchBusinessAddresses(req.params.id, { refreshLoopnet }));
+    const deepen =
+      req.body?.deepen == null ? null : Boolean(req.body.deepen);
+    const raisePullMax = Boolean(req.body?.raisePullMax);
+    res.json(
+      await searchBusinessAddresses(req.params.id, {
+        refreshLoopnet,
+        deepen,
+        raisePullMax,
+      }),
+    );
   } catch (error) {
     sendError(res, error);
   }
@@ -1184,6 +1214,32 @@ app.post('/api/candidates/:id/address/select', (req, res) => {
 app.post('/api/candidates/:id/address/home', (req, res) => {
   try {
     res.json(saveHomeBusinessAddress(req.params.id, req.body?.line || req.body?.address || ''));
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/candidates/:id/address/manual', (req, res) => {
+  try {
+    res.json(
+      saveManualBusinessAddress(req.params.id, req.body?.line || req.body?.address || ''),
+    );
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.get('/api/candidates/:id/address/recover', (req, res) => {
+  try {
+    res.json(listRecoverableAddresses(req.params.id));
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/candidates/:id/address/retier-locality', async (req, res) => {
+  try {
+    res.json(await retierShortlistLocalities(req.params.id));
   } catch (error) {
     sendError(res, error);
   }
@@ -1635,6 +1691,10 @@ app.post('/api/candidates/:id/content/structure/confirm', async (req, res) => {
 
 app.get('/api/candidates/:id/content/structure/write-prompt', async (req, res) => {
   try {
+    const batch = String(req.query.batch || 'all').toLowerCase();
+    if (batch && batch !== 'all') {
+      return res.json(await buildBatchedFullWritePrompt(req.params.id, batch));
+    }
     res.json(await buildFullWritePrompt(req.params.id));
   } catch (error) {
     sendError(res, error);
@@ -1678,6 +1738,169 @@ app.post('/api/candidates/:id/content/brief', (req, res) => {
 app.post('/api/candidates/:id/content/brief/confirm', (req, res) => {
   try {
     res.json(confirmContentBrief(req.params.id, req.body || {}));
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.get('/api/candidates/:id/content/field-research/prompt', async (req, res) => {
+  try {
+    res.json(
+      await buildFieldResearchPrompt(req.params.id, {
+        operatorNotes: req.query.notes || '',
+      }),
+    );
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.get('/api/candidates/:id/content/field-research', (req, res) => {
+  try {
+    const fieldResearch = getContentFieldResearch(req.params.id);
+    if (!fieldResearch) return res.status(404).json({ error: 'No field research' });
+    res.json({ fieldResearch });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/candidates/:id/content/field-research', (req, res) => {
+  try {
+    assertLaunchedEditAllowed(req.params.id, req.body || {});
+    const raw = req.body?.json ?? req.body?.text ?? req.body;
+    res.json(
+      saveContentFieldResearch(req.params.id, raw, {
+        operatorNotes: req.body?.operatorNotes || '',
+      }),
+    );
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.get('/api/candidates/:id/content/soft-brief/prompt', async (req, res) => {
+  try {
+    res.json(
+      await buildSoftBriefPrompt(req.params.id, {
+        operatorNotes: req.query.notes || '',
+      }),
+    );
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/candidates/:id/content/soft-brief/confirm', (req, res) => {
+  try {
+    assertLaunchedEditAllowed(req.params.id, req.body || {});
+    const raw = req.body?.json ?? req.body?.text ?? req.body;
+    res.json(pasteAndConfirmSoftBrief(req.params.id, raw));
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.get('/api/candidates/:id/content/final-check/prompt', async (req, res) => {
+  try {
+    res.json(await buildFinalCheckPrompt(req.params.id));
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/candidates/:id/content/final-check', (req, res) => {
+  try {
+    assertLaunchedEditAllowed(req.params.id, req.body || {});
+    const raw = req.body?.json ?? req.body?.text ?? req.body?.paste ?? '';
+    const text = typeof raw === 'string' ? raw.trim() : '';
+
+    // Prefer OK JSON (fenced Claude paste OK via parseJsonLoose)
+    if (raw && typeof raw === 'object' && !Array.isArray(raw) && raw.ok === true) {
+      return res.json(
+        stampFinalCheck(req.params.id, { ok: true, summary: raw.summary || '' }),
+      );
+    }
+    if (text && (text.startsWith('{') || text.includes('"ok"'))) {
+      const parsed = parseJsonLoose(text);
+      if (parsed.ok && parsed.value && typeof parsed.value === 'object' && parsed.value.ok === true) {
+        return res.json(
+          stampFinalCheck(req.params.id, {
+            ok: true,
+            summary: parsed.value.summary || '',
+          }),
+        );
+      }
+    }
+
+    if (text.includes('### FILE:')) {
+      const pasted = pasteAgentContentDraft(req.params.id, text, { mode: 'full' });
+      const stamped = stampFinalCheck(req.params.id, {
+        ok: true,
+        summary: 'FILE fixes loaded',
+      });
+      syncWriteBatchesFromDraft(req.params.id);
+      return res.json({
+        ...pasted,
+        finalCheck: true,
+        candidate: stamped.candidate || getCandidateDetail(req.params.id),
+      });
+    }
+
+    const err = new Error(
+      'Final check needs {"ok":true} JSON or ### FILE: fix blocks — paste Claude’s result and Load again.',
+    );
+    err.status = 400;
+    throw err;
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.get('/api/candidates/:id/content/bookends/prompt', async (req, res) => {
+  try {
+    res.json(await buildBookendsOnlyPrompt(req.params.id));
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/candidates/:id/content/write-batches/sync', (req, res) => {
+  try {
+    res.json(syncWriteBatchesFromDraft(req.params.id));
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.get('/api/candidates/:id/content/write-batches', (req, res) => {
+  try {
+    res.json(getWriteBatchStatus(req.params.id));
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/candidates/:id/content/write-batches/:batch', (req, res) => {
+  try {
+    res.json(markWriteBatchComplete(req.params.id, req.params.batch));
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.get('/api/candidates/:id/gbp-categories/prompt', (req, res) => {
+  try {
+    res.json(buildGbpCategoryPrompt(req.params.id));
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/candidates/:id/gbp-categories', (req, res) => {
+  try {
+    const raw = req.body?.json ?? req.body?.text ?? req.body;
+    res.json(saveGbpCategoryChecklist(req.params.id, raw));
   } catch (error) {
     sendError(res, error);
   }

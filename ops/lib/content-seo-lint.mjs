@@ -132,6 +132,45 @@ export function lintContentSeo(files, opts = {}) {
     }
   }
 
+  // Closing CTA cues on home / contact / service pages
+  const ctaRe = /call (us|now)|get (a )?free estimate|request (a )?quote|free estimate|contact us today/i;
+  for (const [rel, raw] of Object.entries(files || {})) {
+    if (!/\.md$/i.test(rel)) continue;
+    const isHome = /(^|\/)pages\/index\.md$/i.test(rel);
+    const isContact = /(^|\/)pages\/contact\.md$/i.test(rel);
+    const isService = /(^|\/)services\//i.test(rel);
+    if (!isHome && !isContact && !isService) continue;
+    const body = stripFrontmatter(raw);
+    if (!body.trim()) continue;
+    if (!ctaRe.test(body)) {
+      findings.push({
+        severity: 'soft',
+        file: rel,
+        rule: 'missing_closing_cta',
+        excerpt: 'No clear call / free-estimate CTA phrasing',
+        suggestion:
+          'Add a natural closing CTA (call now / free estimate) matching the page type — not a mid-paragraph banner.',
+      });
+    }
+  }
+
+  // Placeholder NAP leaked into copy (soft — Launch still hard-flags at go-live)
+  const napRe =
+    /\+1X{6,}|\+1XXXXXXXXXX|XXXXXXXXXX|leads@example\.com|@example\.com\b/i;
+  for (const [rel, raw] of Object.entries(files || {})) {
+    if (!/\.md$/i.test(rel) || !raw) continue;
+    if (!napRe.test(raw)) continue;
+    const m = String(raw).match(napRe);
+    findings.push({
+      severity: 'soft',
+      file: rel,
+      rule: 'placeholder_nap',
+      excerpt: String(m?.[0] || 'placeholder NAP').slice(0, 80),
+      suggestion:
+        'Set a real phone/email in Site-Config (or provision Twilio), then replace placeholders in copy — do not invent NAP in Claude.',
+    });
+  }
+
   // Title length (same fullTitle rules as BaseLayout)
   for (const [rel, raw] of Object.entries(files || {})) {
     if (!/\.md$/i.test(rel)) continue;

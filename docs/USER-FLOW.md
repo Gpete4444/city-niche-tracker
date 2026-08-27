@@ -62,11 +62,14 @@ Assumptions: you know the product, reuse defaults / Preset C, trust Claude after
 | **Site-Config subtotal**                                 | **~3 min**   | **~4 min**              | **~7 min**      |
 | **Website Builder · Content**                            |              |                         |                 |
 | 1 · Structure (Preset C)                                 | ~5–10 sec    | —                       | ~10 sec         |
-| 2 · Outline (copy → Claude → Load & confirm)             | ~20–30 sec   | ~3–5 min                | ~5 min          |
-| 3 · Full write (copy → Claude → Load FILEs)              | ~20–40 sec   | ~10–18 min              | ~15 min         |
-| 4 · Speech/SEO (auto; skim if clean)                     | ~10–20 sec   | ~1–2 min (auto)         | ~2 min          |
-| 5 · Accept content (+ auto logo / photos / map)          | ~5–10 sec    | ~1–3 min                | ~2 min          |
-| **Content subtotal**                                     | **~2 min**   | **~20 min**             | **~22 min**     |
+| 2 · Field research (copy → Claude → Load)                | ~20–30 sec   | ~3–6 min                | ~5 min          |
+| 3 · Content brief (copy → Claude → Load & confirm)       | ~15–25 sec   | ~2–4 min                | ~4 min          |
+| 4 · Outline (copy → Claude → Load & confirm)             | ~20–30 sec   | ~3–5 min                | ~5 min          |
+| 5 · Full write batched (Home / Services / Locations)     | ~40–90 sec   | ~12–22 min              | ~18 min         |
+| 6 · Humanize (editor pack + Speech/SEO)                  | ~20–40 sec   | ~3–8 min                | ~6 min          |
+| 7 · Final check (copy → Load OK / FILE fixes)            | ~10–20 sec   | ~2–4 min                | ~3 min          |
+| 8 · Accept content (+ auto logo / photos / map)          | ~5–10 sec    | ~1–3 min                | ~2 min          |
+| **Content subtotal**                                     | **~3 min**   | **~30 min**             | **~43 min**     |
 | **Website Builder · Website**                            |              |                         |                 |
 | 1 · Review images (glance; skip polish)                  | ~20–40 sec   | —                       | ~30 sec         |
 | 2 · Prepare preview (Stage + Assemble)                   | ~5–10 sec    | ~2–4 min                | ~3 min          |
@@ -95,8 +98,10 @@ Assumptions: you know the product, reuse defaults / Preset C, trust Claude after
 | ------------------------------------ | --------------- | -------------------------------------- |
 | Discovery Claude pack                | ~8–12 min       | Whole batch in one go                  |
 | Narrative / site-config Claude       | ~3–5 min each   | Short JSON replies                     |
-| **Content Full write (Claude)**      | **~10–18 min**  | Largest single wait                    |
-| Content outline Claude               | ~3–5 min        |                                        |
+| **Content Full write (Claude)**      | **~12–22 min**  | Largest wait (batched Home/Services/Locations) |
+| Content field research / brief       | ~5–10 min       | Pass 1 feed + synthesis                        |
+| Content outline Claude               | ~3–5 min        | Pass 2                                         |
+| Content Humanize + Final check       | ~5–12 min       | Passes 4–8                                     |
 | DataForSEO Research / Enrich / probe | ~1–3 min each   | Click is instant                       |
 | Prepare preview (assemble)           | ~2–4 min        | Local                                  |
 | Run launch (ship + CF)               | ~3–5 min        |                                        |
@@ -129,7 +134,7 @@ Almost every in-app **button / paste / Accept** step is **~5–30 seconds** of y
 | ------------------------------------------------- | ------------------------------------- |
 | Discovery batch only                              | ~12–20 min                            |
 | Research → pursue (no Enrich)                     | ~6–10 min                             |
-| Site-Config through Content Accept                | ~25–35 min (mostly Claude Full write) |
+| Site-Config through Content Accept                | ~35–50 min (mostly Claude Content path) |
 | Prepare → Launch (domain/keys ready)              | ~10–15 min                            |
 | **One site, cold start (batch + build + launch)** | **~1–1.5 hours**                      |
 
@@ -201,10 +206,20 @@ Geography assist for picking cities. Not a required pipeline stage.
 
 | Panel               | Steps                                                                             |
 | ------------------- | --------------------------------------------------------------------------------- |
-| **4 · Site-Config** | Colors → Address → Details → Paste draft → Accept services → Service area → Phone |
-| **5 · Content**     | Structure → Outline → Full write → Speech/SEO → Accept                            |
+| **4 · Site-Config** | Colors → Address → Details → Paste draft → Accept services → Service Area → Phone |
+| **5 · Content**     | Structure → Field research → Brief → Outline → batched Full write → Humanize → Final check → Accept |
 | **6 · Website**     | Review images → Prepare preview → Launch                                          |
 
+
+**Site-Config · Address (step 2)**
+
+- **Find addresses** — LoopNet city cache + Places. Numeric street ranges (e.g. `6778-6780 S 1300 E`) expand to start/end numbers (and small same-parity fills), then Places-screen each; claim a single number, not the range.
+- **Recommended vs Secondary** — Places-clean streets whose Google Maps locality matches the target city are **Recommended**. Places-clean but Maps locality outside the target (e.g. Kearns vs Salt Lake City) are **Secondary** (lower priority; confirm before use).
+- **Refresh LoopNet / Fetch deeper** — paid Apify re-scrape from the top of LoopNet (not delta-only). First pull defaults to **200 per search URL** (UI shows **total** budget ≈ ×2 URLs). When inventory shows **0 left**, Refresh becomes **Fetch deeper** (+100/URL). Each city has a moving ceiling (starts **500**/URL); when deepen would exceed it, Rover warns and on confirm **doubles** the ceiling (up to absolute **2000**/URL).
+- **Manual commercial** — paste any single commercial street + ZIP and claim it (`source: manual`).
+- **Unclaimed cleans / Use anyway** — when Find is empty: reuse prior Places-clean streets still free in the city, or override a Maps-dirty reject (confirm).
+- **Home paste / Skip** — residential NAP or leave street blank.
+- **Inventory line** — listings in city cache · reviewed · left · claimed (not the live LoopNet result count).
 
 **Before Run launch (outside Rover):** buy/point domain NS · Web3Forms key · Gmail routing destination.
 

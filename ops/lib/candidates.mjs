@@ -54,6 +54,7 @@ export function pathsFor(id) {
     contentResearch: path.join(RESEARCH_DIR, `${safe}-content-research.json`),
     contentOutline: path.join(RESEARCH_DIR, `${safe}-content-outline.json`),
     contentBrief: path.join(RESEARCH_DIR, `${safe}-content-brief.json`),
+    contentFieldResearch: path.join(RESEARCH_DIR, `${safe}-content-field-research.json`),
     contentStructure: path.join(RESEARCH_DIR, `${safe}-content-structure.json`),
     contentOutlinePackage: path.join(RESEARCH_DIR, `${safe}-content-outline-package.json`),
     buildPackage: path.join(RESEARCH_DIR, `${safe}-build-package.json`),
@@ -328,9 +329,11 @@ function formatJobCostRange(avg) {
 const RESEARCH_ARTIFACT_SUFFIXES = [
   '-content-outline-package.json',
   '-content-structure.json',
+  '-content-field-research.json',
   '-content-research.json',
   '-content-outline.json',
   '-content-brief.json',
+  '-gbp-categories.json',
   '-content.draft.json',
   '-site-config.draft.json',
   '-images-manifest.json',
@@ -498,6 +501,7 @@ export function getCandidateDetail(id) {
   const contentResearch = readJson(p.contentResearch);
   const contentOutline = readJson(p.contentOutline);
   const contentBrief = readJson(p.contentBrief);
+  const contentFieldResearch = readJson(p.contentFieldResearch);
   const contentStructure = readJson(p.contentStructure);
   const contentOutlinePackage = readJson(p.contentOutlinePackage);
   const buildPackage = readJson(p.buildPackage);
@@ -523,6 +527,10 @@ export function getCandidateDetail(id) {
       hasContentOutline: Boolean(contentOutline),
       hasContentBrief: Boolean(contentBrief),
       hasContentBriefConfirmed: Boolean(contentBrief?.status === 'confirmed'),
+      hasContentFieldResearch: Boolean(contentFieldResearch?.status === 'loaded'),
+      hasContentFinalCheck: Boolean(
+        contentDraft?._ops?.lastFinalCheckAt || contentAccepted?._ops?.lastFinalCheckAt,
+      ),
       hasContentStructure: Boolean(contentStructure),
       hasContentOutlinePackage: Boolean(contentOutlinePackage),
       hasContentOutlineConfirmed: Boolean(contentOutlinePackage?.status === 'confirmed'),
@@ -550,6 +558,7 @@ export function getCandidateDetail(id) {
     contentResearch,
     contentOutline,
     contentBrief,
+    contentFieldResearch,
     contentStructure,
     contentOutlinePackage,
     buildPackage,

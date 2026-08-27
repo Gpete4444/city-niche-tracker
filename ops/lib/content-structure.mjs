@@ -549,29 +549,36 @@ export function composeContentOutline(candidateId, selectionPatch = null) {
     createdAt: prior.createdAt || nowIso(),
   });
 
-  // Keep brief in sync for Accept/oneshot compatibility
-  const brief = {
-    status: 'draft',
-    siteArchetype:
-      selection.sections.includes('services') && !selection.sections.includes('offerProcess')
-        ? 'multi_service'
-        : selection.sections.includes('offerProcess')
-          ? 'single_service'
-          : config.siteArchetype || 'multi_service',
-    meta: {
-      pageType: 'Site outline (structure checklist)',
-      geography: `${config.primaryCity}, ${config.state}`,
-      niche: config.niche,
-      source: 'content-structure',
-    },
-    sections: outlineToBriefSections(sections),
-    homepageSections: outline.homepageSections,
-    pageIds: selection.pages,
-    _ops: { savedAt: nowIso(), source: 'structure-compose' },
-  };
-  writeJson(pathsFor(candidateId).contentBrief, brief);
+  // Keep legacy brief in sync unless Soft eight-pass brief already confirmed
+  const existingBrief = readJson(pathsFor(candidateId).contentBrief);
+  if (!(existingBrief?.mode === 'eight_pass' && existingBrief?.status === 'confirmed')) {
+    const brief = {
+      status: 'draft',
+      siteArchetype:
+        selection.sections.includes('services') && !selection.sections.includes('offerProcess')
+          ? 'multi_service'
+          : selection.sections.includes('offerProcess')
+            ? 'single_service'
+            : config.siteArchetype || 'multi_service',
+      meta: {
+        pageType: 'Site outline (structure checklist)',
+        geography: `${config.primaryCity}, ${config.state}`,
+        niche: config.niche,
+        source: 'content-structure',
+      },
+      sections: outlineToBriefSections(sections),
+      homepageSections: outline.homepageSections,
+      pageIds: selection.pages,
+      _ops: { savedAt: nowIso(), source: 'structure-compose' },
+    };
+    writeJson(pathsFor(candidateId).contentBrief, brief);
+  }
 
-  applyOutlineToSiteConfig(candidateId, { ...outline, siteArchetype: brief.siteArchetype });
+  const briefForArchetype = readJson(pathsFor(candidateId).contentBrief) || {};
+  applyOutlineToSiteConfig(candidateId, {
+    ...outline,
+    siteArchetype: briefForArchetype.siteArchetype || config.siteArchetype,
+  });
 
   saveMeta(candidateId, {
     lastContentStructureAt: nowIso(),
@@ -595,7 +602,7 @@ export function composeContentOutline(candidateId, selectionPatch = null) {
   return {
     outline,
     structure: getContentStructure(candidateId),
-    brief,
+    brief: readJson(pathsFor(candidateId).contentBrief),
     markdown: outlineToMarkdown(outline),
     warnings,
     candidate: getCandidateDetail(candidateId),
@@ -609,6 +616,13 @@ export async function buildStructurePrompt(candidateId) {
       status: 400,
     });
   }
+  const briefEarly = readJson(pathsFor(candidateId).contentBrief);
+  if (briefEarly?.status !== 'confirmed') {
+    throw Object.assign(
+      new Error('Confirm Content brief (Pass 1) before copying the Outline structure prompt'),
+      { status: 400 },
+    );
+  }
   const config = loadAcceptedSiteConfig(candidateId)?.config || {};
   let cityContext = getCachedCityContext(candidateId);
   try {
@@ -617,10 +631,18 @@ export async function buildStructurePrompt(candidateId) {
     // keep cached / null
   }
   const cityCompact = compactCityContextForPrompt(cityContext);
-  const prompt = `You are an SEO content strategist for a local rank-and-rent website.
+  let eightPrefix = '';
+  try {
+    const { injectEightPassContext } = await import('./content-eight-pass.mjs');
+    eightPrefix = `${injectEightPassContext(candidateId).prefix}\n\n`;
+  } catch {
+    // soft
+  }
+  const prompt = `${eightPrefix}You are an SEO content strategist for a local rank-and-rent website.
 
 ## Goal
 Refine the site OUTLINE only (headings, instructions, keyword map, image alts). Do NOT write full page body copy yet.
+Pass 2: for every section, set a clear H2 angle and job-to-be-done in \`instructions\` (what the section must accomplish and how it connects to the next).
 
 ## Business
 ${JSON.stringify(
@@ -665,12 +687,13 @@ ${JSON.stringify(outline, null, 2)}
 ## Instructions
 1. Improve H1/H2 headings for search intent and clarity (keep section ids stable). Place each keywordTargets[].keyword into the named headingHint / section.
 2. Keep or refine keywordTargets (primary + at least 2 supporting) and faqSeeds (6–10 PAA-style). Prefer SERP faqSeeds wording.
-3. Strengthen each section's \`instructions\` for value SEO: methods, costs/ranges, timelines, materials, DIY vs pro, when to call — where relevant to that section. For loc* / materials / intro / areas / aboutStory, require local climate + housing/neighborhood cues from City context (when present) and concrete method/product names.
+3. Strengthen each section's \`instructions\` for value SEO: methods, costs/ranges, timelines, materials, DIY vs pro, when to call — where relevant to that section. For loc* / materials / intro / areas / aboutStory, require local climate + housing/neighborhood cues from City context (when present) and concrete method/product names. Each instruction must state the section angle + reader job-to-be-done.
 4. Keep \`images\` slots; improve alt/caption TODOs if photos are enabled.
 5. Preserve pages and section ids unless a heading is clearly wrong. Do not add \`offerProcess\` when Services pages are selected (use \`process\` only).
 6. Use organicTitleHints to sound competitive in titles/H2s without copying brand names.
 7. Keep every section \`id\`, page list, and image path — refine headings, instructions, alts, and keyword/FAQ maps only.
-8. Return ONLY the full updated outline JSON object (same shape) in one response. No markdown fences unless needed.
+8. Honor the Confirmed content brief questions, local details, and competitor angles.
+9. Return ONLY the full updated outline JSON object (same shape) in one response. No markdown fences unless needed.
 
 Return the complete JSON outline.`;
 
@@ -706,24 +729,27 @@ export function pasteContentOutlinePackage(candidateId, raw) {
   }
   writeJson(outlinePath(candidateId), next);
 
-  const brief = {
-    status: 'draft',
-    siteArchetype: value.siteArchetype || 'multi_service',
-    meta: {
-      pageType: 'Site outline (uploaded)',
-      source: 'outline-paste',
-    },
-    sections: outlineToBriefSections(value.sections),
-    homepageSections: value.homepageSections || [],
-    pageIds: value.pageIds || [],
-    _ops: { savedAt: nowIso(), source: 'outline-paste' },
-  };
-  writeJson(pathsFor(candidateId).contentBrief, brief);
+  const existingBrief = readJson(pathsFor(candidateId).contentBrief);
+  if (!(existingBrief?.mode === 'eight_pass' && existingBrief?.status === 'confirmed')) {
+    const brief = {
+      status: 'draft',
+      siteArchetype: value.siteArchetype || 'multi_service',
+      meta: {
+        pageType: 'Site outline (uploaded)',
+        source: 'outline-paste',
+      },
+      sections: outlineToBriefSections(value.sections),
+      homepageSections: value.homepageSections || [],
+      pageIds: value.pageIds || [],
+      _ops: { savedAt: nowIso(), source: 'outline-paste' },
+    };
+    writeJson(pathsFor(candidateId).contentBrief, brief);
+  }
   applyOutlineToSiteConfig(candidateId, next);
   saveMeta(candidateId, { lastContentOutlineAt: nowIso(), lastContentBriefAt: nowIso() });
   return {
     outline: next,
-    brief,
+    brief: readJson(pathsFor(candidateId).contentBrief),
     markdown: outlineToMarkdown(next),
     candidate: getCandidateDetail(candidateId),
   };
@@ -758,14 +784,31 @@ export async function confirmContentOutline(candidateId) {
 
   const briefPath = pathsFor(candidateId).contentBrief;
   const brief = readJson(briefPath) || {};
-  writeJson(briefPath, {
-    ...brief,
-    status: 'confirmed',
-    confirmedAt: nowIso(),
-    sections: outlineToBriefSections(confirmed.sections),
-    homepageSections: confirmed.homepageSections || brief.homepageSections || [],
-    _ops: { ...(brief._ops || {}), confirmedAt: nowIso(), source: 'outline-confirm' },
-  });
+  if (brief.mode === 'eight_pass') {
+    // Preserve Soft Pass-1 brief pages[]; only stamp outline linkage
+    writeJson(briefPath, {
+      ...brief,
+      status: 'confirmed',
+      confirmedAt: brief.confirmedAt || nowIso(),
+      outlineSectionIds: (confirmed.sections || []).map((s) => s.id),
+      homepageSections: confirmed.homepageSections || brief.homepageSections || [],
+      _ops: {
+        ...(brief._ops || {}),
+        confirmedAt: brief._ops?.confirmedAt || nowIso(),
+        outlineLinkedAt: nowIso(),
+        source: brief._ops?.source || 'soft-brief-paste',
+      },
+    });
+  } else {
+    writeJson(briefPath, {
+      ...brief,
+      status: 'confirmed',
+      confirmedAt: nowIso(),
+      sections: outlineToBriefSections(confirmed.sections),
+      homepageSections: confirmed.homepageSections || brief.homepageSections || [],
+      _ops: { ...(brief._ops || {}), confirmedAt: nowIso(), source: 'outline-confirm' },
+    });
+  }
   applyOutlineToSiteConfig(candidateId, confirmed);
   saveMeta(candidateId, {
     lastContentOutlineConfirmedAt: nowIso(),
@@ -791,6 +834,10 @@ export async function buildFullWritePrompt(candidateId) {
       status: 400,
     });
   }
+  const briefGate = readJson(pathsFor(candidateId).contentBrief);
+  if (briefGate?.status !== 'confirmed') {
+    throw Object.assign(new Error('Confirm Content brief before Full write'), { status: 400 });
+  }
   const config = loadAcceptedSiteConfig(candidateId)?.config || {};
   const fileRules = buildRequiredFileRules(outline, config);
   const requiredCount = fileRules.count || 0;
@@ -810,10 +857,22 @@ export async function buildFullWritePrompt(candidateId) {
   }
   const cityCompact = compactCityContextForPrompt(cityContext);
 
-  const prompt = `You are an expert local SEO copywriter for a rank-and-rent service website.
+  let eightPrefix = '';
+  try {
+    const { injectEightPassContext } = await import('./content-eight-pass.mjs');
+    eightPrefix = `${injectEightPassContext(candidateId).prefix}\n\n`;
+  } catch {
+    // soft
+  }
+
+  const prompt = `${eightPrefix}You are an expert local SEO copywriter for a rank-and-rent service website.
 
 ## Goal
 Write FULL page content that follows the confirmed OUTLINE. Prioritize helpful, specific value Google rewards: methods, cost drivers and ranges (not fake quotes), timelines, materials, DIY vs pro, when to call a pro, and local proof from site-config socialProof.
+Pass 3: vary sentence length across sections; prefer commas over em dashes; honor the Confirmed content brief.
+**Burstiness:** mix short punchy lines with longer ones — location and service pages must not share one uniform long-sentence cadence.
+**Bookends:** for every FILE, make the first two and last two body sentences conversational and opinionated (contractor on the phone). Closing bookend should nudge call / free estimate when the page type expects it.
+**NAP:** use site-config phone, email, and businessName literally. Never invent numbers or leave placeholders like +1XXXXXXXXXX / leads@example.com.
 
 ## Site config
 \`\`\`json

@@ -117,6 +117,19 @@ export function lintContentSpeech(files, site = {}) {
           });
         }
       }
+
+      const proseForEmDash = stripStructuredLabelDashLines(sec.body);
+      if (/[—\u2014]/.test(proseForEmDash)) {
+        const m = proseForEmDash.match(/[^.\n]{0,40}[—\u2014][^.\n]{0,40}/);
+        findings.push({
+          file,
+          section: sec.heading || '(body)',
+          rule: 'em_dash',
+          excerpt: clip(m?.[0] || '—', 100),
+          suggestion:
+            'Replace prose em dashes (—) with commas or periods (en-dash OK in numeric ranges). Keep required **Label** — process/cost/timeline/materials bullets.',
+        });
+      }
     }
   }
 
@@ -173,6 +186,24 @@ function isEducationalHeading(heading) {
   const t = String(heading || '').toLowerCase();
   if (!t) return false;
   return /cost|how long|timeline|materials|permit|code|diy|when to call|hiring a pro/.test(t);
+}
+
+/**
+ * Drop Rover-required structured bullets that use Label — desc (process, cost, timeline, materials).
+ * Remaining text is checked for prose em dashes only.
+ */
+function stripStructuredLabelDashLines(body) {
+  return String(body || '')
+    .split('\n')
+    .filter((line) => !isStructuredLabelDashLine(line))
+    .join('\n');
+}
+
+/** `- **Title** — desc` or `**Tier** — $low–$high — …` (em or en dash after bold label). */
+function isStructuredLabelDashLine(line) {
+  const t = String(line || '');
+  // Optional list marker, bold label (may include a markdown link), then em/en dash
+  return /^\s*(?:[-*+]\s+)?\*\*.+?\*\*\s+[—–\u2013\u2014]\s+/.test(t);
 }
 
 function clip(s, n) {

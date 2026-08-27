@@ -33,14 +33,30 @@ Design + writer rules for Structure sections. Informed by contractor conversion 
 
 ## Human-speech pass (Content Editor + speech lint)
 
-Content chain: **Structure → Outline → Full write → Editor (human speech) → Accept**.
+Content chain (eight-pass Soft path, all required): **Structure → Field research → Brief → Outline → batched Full write → Humanize (Passes 4–7) → Final check → Accept**.
 
-- **Editor** (`prompts/agents/content-editor.md`) is the optional deeper human-speech LLM stage — not a separate product agent.
+- **Field research** — Claude JSON stand-in for Reddit/PAA/competitor angles (`*-content-field-research.json`). Optional operator notes enrich Brief only.
+- **Content brief** — Pass 1 synthesis; must Load & confirm before Outline/Full write.
+- **Outline** — Pass 2 strategic outline (shared guardrails + per-H2 angle / job-to-be-done).
+- **Full write** — Pass 3 batched by Home / Services / Locations (tone variance); Continue merge for stubs.
+- **Humanize / Editor** (`prompts/agents/content-editor.md`) — ordered Burstiness → Perplexity → Bookends → Conversion + findings. Optional **Copy bookends-only** is extra polish, not a skip.
+- **Final check** — Pass 8; Accept blocked until `lastFinalCheckAt` is set.
 - **Auto-fix** (`ops/lib/content-auto-fix.mjs`) runs on **Load FILE blocks** and **Speech check**: replaces AI stock phrases, strips leaked editor-prompt text, injects missing internal markdown links, and **drops off-niche homepage FAQs** (pets, civic trivia, unrelated appliances). No Anthropic call.
-- **Speech lint** (`ops/lib/content-speech-lint.mjs`) flags remaining speech issues. Speech check is required before Accept and **always shows a result modal** (“No new flags” / “N findings” + auto-fix count).
-- **SEO lint** (`ops/lib/content-seo-lint.mjs`): primary keyword in title/h1, FAQ vs SERP PAA `faqSeeds`, **`faq_off_niche`**, internal links. Critical SEO findings **block Accept** unless **Accept with SEO warnings** is checked.
-- Outline is grounded from research: keyword volumes, `serp.peopleAlsoAskQuestions`, `serp.organicTitles`.
+- **Speech lint** (`ops/lib/content-speech-lint.mjs`) flags remaining speech issues (including soft em-dash density). Speech check is required before Final check / Accept and **always shows a result modal**.
+- **SEO lint** (`ops/lib/content-seo-lint.mjs`): primary keyword in title/h1, FAQ vs SERP PAA `faqSeeds`, **`faq_off_niche`**, internal links, soft **`missing_closing_cta`**. Critical SEO findings **block Accept** unless **Accept with SEO warnings** is checked.
+- Outline is grounded from research: keyword volumes, `serp.peopleAlsoAskQuestions`, `serp.organicTitles`, plus confirmed brief + field research.
 - Editor step includes **Paste + Load** for revised `### FILE:` blocks (no jump back to Full write).
+
+### Entity matching {#entity-matching}
+
+Rank & Rent sites should mirror what a future GBP will claim:
+
+- **Home** = primary niche + city entity (head term in H1/title).
+- **Services** = offer entities you actually deliver (no phantom menu).
+- **Locations** = geo proof for real primary + suburb cities from site-config — not landmark page factories.
+- Prefer supporting topics only when the Brief lists them; avoid weekly-blog sprawl.
+
+Website → Launch (and Site-Config → Phone) offer an advisory **GBP category checklist** Claude paste — does not block Assemble.
 
 ### Stock image Pull (fail-soft)
 

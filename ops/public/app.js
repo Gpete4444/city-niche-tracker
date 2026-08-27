@@ -4433,6 +4433,158 @@ function baPlanBarHtml(plan) {
 }
 
 /** Readable Find funnel + cost for Last search + Find complete modal. */
+function baInventoryFromPkg(pkg, recover = null) {
+  // Prefer live city-cache recover payload when present (fresher than last Find stats).
+  if (recover?.inventoryTotal != null) {
+    return {
+      total: Number(recover.inventoryTotal),
+      reviewed: Number(recover.inventoryReviewed ?? 0),
+      left: Number(recover.unscreenedRemaining ?? 0),
+      claimed: Number(recover.usedAddressesInCity ?? pkg?.usedAddressesSummary ?? 0),
+    };
+  }
+
+  const stats = pkg?.lastSearchStats || {};
+  if (stats.inventoryTotal != null) {
+    const total = Number(stats.inventoryTotal);
+    const reviewed = Number(stats.inventoryReviewed ?? 0);
+    const left = Number(
+      stats.unscreenedRemaining != null
+        ? stats.unscreenedRemaining
+        : Math.max(0, total - reviewed),
+    );
+    const claimed = Number(
+      stats.usedAddressesInCity ?? pkg?.usedAddressesSummary ?? 0,
+    );
+    return { total, reviewed, left, claimed };
+  }
+
+  const listings = Array.isArray(pkg?.listingCache?.listings) ? pkg.listingCache.listings : [];
+  const screened = pkg?.screenedKeys || {};
+  let total = 0;
+  let reviewed = 0;
+  for (const row of listings) {
+    const street = String(row?.street || '')
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, ' ');
+    const zip = String(row?.zip || '')
+      .replace(/\D/g, '')
+      .slice(0, 5);
+    if (!street || !zip) continue;
+    total += 1;
+    if (screened[`${street}|${zip}`]) reviewed += 1;
+  }
+  const left =
+    stats.unscreenedRemaining != null
+      ? Number(stats.unscreenedRemaining)
+      : Math.max(0, total - reviewed);
+  const claimed = Number(stats.usedAddressesInCity ?? pkg?.usedAddressesSummary ?? 0);
+  return { total, reviewed, left, claimed };
+}
+
+function baInventoryProgressHtml(inv, { style = '', recover = null } = {}) {
+  const total = Number(inv?.total || 0);
+  if (total <= 0 && !recover?.lastPullMax && !recover?.nextPullMax && !recover?.lastPullBudget) {
+    return '';
+  }
+  const reviewed = Number(inv?.reviewed || 0);
+  const left = Number(inv?.left || 0);
+  const claimed = Number(inv?.claimed || 0);
+  const pct = total > 0 ? Math.min(100, Math.round((reviewed / total) * 100)) : 0;
+  const urlCount = Math.max(
+    1,
+    Number(recover?.pullUrlCount || inv?.pullUrlCount || 2),
+  );
+  const lastPull = Number(recover?.lastPullMax ?? inv?.lastPullMax ?? 0);
+  const nextPull = Number(recover?.nextPullMax ?? 0);
+  const lastBudget = Number(
+    recover?.lastPullBudget ?? inv?.lastPullBudget ?? (lastPull > 0 ? lastPull * urlCount : 0),
+  );
+  const nextBudget = Number(
+    recover?.nextPullBudget ?? (nextPull > 0 ? nextPull * urlCount : 0),
+  );
+  const hardBudget = Number(
+    recover?.pullHardMaxBudget ??
+      (Number(recover?.pullHardMax) > 0 ? Number(recover.pullHardMax) * urlCount : 0),
+  );
+  const proposedBudget = Number(
+    recover?.proposedHardMaxBudget ??
+      (Number(recover?.proposedHardMax) > 0
+        ? Number(recover.proposedHardMax) * urlCount
+        : 0),
+  );
+  const absBudget = Number(
+    recover?.absolutePullMaxBudget ??
+      (Number(recover?.absolutePullMax) > 0
+        ? Number(recover.absolutePullMax) * urlCount
+        : 0),
+  );
+  const canRaise = Boolean(recover?.canRaiseMax || recover?.needsMaxRaise);
+  const atSoftCeiling =
+    Boolean(recover?.deepenAtCap || recover?.needsMaxRaise) && canRaise;
+  const atAbsolute =
+    Boolean(recover?.deepenAtCap) && !canRaise && hardBudget > 0;
+
+  let suffix = '';
+  if (recover?.canDeepen && nextBudget > lastBudget && !atSoftCeiling && !atAbsolute) {
+    suffix = ` · next Fetch deeper → up to <strong>${nextBudget}</strong>`;
+  } else if (atSoftCeiling && proposedBudget > 0) {
+    suffix = ` · at ceiling (up to ${hardBudget || '—'}) — Fetch deeper raises ceiling to <strong>${proposedBudget}</strong>`;
+  } else if (atAbsolute) {
+    suffix = ` · at max (up to ${absBudget || hardBudget})`;
+  }
+
+  const depthNote =
+    lastBudget > 0
+      ? `<div class="muted small" style="margin-top:0.15rem">Last pull budget: up to <strong>${lastBudget}</strong> listings${suffix}</div>`
+      : '';
+  if (total <= 0) {
+    return depthNote
+      ? `<div class="ba-inventory" style="margin-top:0.35rem;${style}">${depthNote}</div>`
+      : '';
+  }
+  return `<div class="ba-inventory" style="margin-top:0.35rem;${style}">
+    <div class="muted small">Inventory: <strong>${total}</strong> listings · <strong>${reviewed}</strong> reviewed · <strong>${left}</strong> left${
+      claimed > 0 ? ` · ${claimed} claimed` : ''
+    }</div>
+    ${depthNote}
+    <div class="job-progress-track" style="height:6px;margin-top:0.25rem" title="${pct}% reviewed">
+      <div class="job-progress-bar" style="width:${pct}%;animation:none"></div>
+    </div>
+  </div>`;
+}
+
+/** Shared lead-in for Fetch deeper when inventory is 0 left. */
+function baExhaustedDeepenWarnHtml({
+  variant = 'deepen',
+  lastBudget = 0,
+  nextBudget = 0,
+  hardBudget = 0,
+  proposedBudget = 0,
+} = {}) {
+  const lead = `<p><strong>All cached listings are already screened (0 left).</strong></p>
+    <p class="muted">Fetch deeper re-scrapes LoopNet from the top (not “new only”) and <strong>may add few or no new streets</strong>. Apify is billable.</p>`;
+  if (variant === 'raise') {
+    return `${lead}
+      <p class="muted">This also <strong>doubles</strong> the city pull ceiling from up to <strong>${esc(
+        String(hardBudget),
+      )}</strong> → up to <strong>${esc(String(proposedBudget))}</strong>, then scrapes at up to <strong>${esc(
+        String(nextBudget),
+      )}</strong> listings.</p>`;
+  }
+  if (variant === 'absolute') {
+    return `${lead}
+      <p class="muted">Pull budget is already at the absolute max (up to <strong>${esc(
+        String(hardBudget),
+      )}</strong>). Refresh re-scrapes at max and may not help. Prefer Manual commercial, recover, or Use anyway.</p>`;
+  }
+  return `${lead}
+    <p class="muted">This raises the pull budget from up to <strong>${esc(
+      String(lastBudget),
+    )}</strong> → up to <strong>${esc(String(nextBudget))}</strong> listings.</p>`;
+}
+
 function baSearchReportBodyHtml(pkg, { title = 'Last search', failed = false } = {}) {
   const stats = pkg?.lastSearchStats || {};
   const cost = pkg?.lastSearchCost || {};
@@ -4451,6 +4603,7 @@ function baSearchReportBodyHtml(pkg, { title = 'Last search', failed = false } =
   const total = Number(stats.shortlistTotal ?? pkg?.shortlist?.length ?? 0);
   const unscreened = Number(stats.unscreenedRemaining ?? 0);
   const usedInCity = Number(stats.usedAddressesInCity ?? pkg?.usedAddressesSummary ?? 0);
+  const secondaryN = Number(stats.secondaryCount || 0);
 
   const rejectEntries = Object.entries(stats.rejectTallies || {}).sort((a, b) => b[1] - a[1]);
   const rejectLines = rejectEntries
@@ -4470,13 +4623,9 @@ function baSearchReportBodyHtml(pkg, { title = 'Last search', failed = false } =
       }`;
 
   const face = `<div class="ba-search-face" style="margin-top:0.35rem">
-    <div>${esc(loopnetLine)}${
-      skippedUsed ? ` · <strong>${skippedUsed}</strong> already used by another candidate` : ''
-    }</div>
-    <div>Places: <strong>${places}</strong> lookups · <strong>${localRejects}</strong> local rejects (no Maps)</div>
     <div>Result: <strong>${clean}</strong> clean · <strong>${added}</strong> new · <strong>${total}</strong> recommended${
-      unscreened > 0 ? ` · ${unscreened} still unscreened` : ''
-    }${usedInCity > 0 ? ` · ${usedInCity} claimed in city` : ''}</div>
+      secondaryN > 0 ? ` · <strong>${secondaryN}</strong> secondary` : ''
+    }</div>
     <div style="margin-top:0.25rem">Cost: Apify ${baApifyCostLabel(cost, stats)} · Places est. ${baFormatUsd(
       cost.placesEstUsd,
     )} · Total ~${baFormatUsd(placesTotal || cost.totalEstUsd)}</div>
@@ -4484,15 +4633,46 @@ function baSearchReportBodyHtml(pkg, { title = 'Last search', failed = false } =
 
   const billingHint =
     kind === 'apify_billing'
-      ? `<p style="margin:0.45rem 0 0">Apify blocked this run. Add credit at <a href="https://console.apify.com/billing/subscription" target="_blank" rel="noopener">Apify billing</a>, then retry. Home paste / Skip still work.</p>`
+      ? `<p style="margin:0.45rem 0 0">Apify blocked this run. Add credit at <a href="https://console.apify.com/billing/subscription" target="_blank" rel="noopener">Apify billing</a>, then retry. Manual commercial / home paste / Skip still work.</p>`
       : kind === 'apify_config'
         ? `<p style="margin:0.45rem 0 0">Add <code>APIFY_TOKEN</code>, <code>APIFY_LOOPNET_ACTOR_ID</code>, and <code>GOOGLE_MAPS_API_KEY</code> to <code>.env</code>, restart Rover, then retry.</p>`
-        : kind === 'cache_exhausted'
-          ? `<p style="margin:0.45rem 0 0">City LoopNet cache has no more free candidates (screened or already used). Use <strong>Refresh LoopNet</strong> to pull new listings (costs Apify).</p>`
-          : '';
+        : '';
+
+  const rangeNote =
+    Number(stats.rangesExpanded || 0) > 0 || Number(stats.rangesRequeued || 0) > 0
+      ? `<div class="muted small" style="margin-top:0.25rem">Ranges: ${
+          Number(stats.rangesRequeued || 0)
+            ? `${Number(stats.rangesRequeued)} requeued · `
+            : ''
+        }${Number(stats.rangesExpanded || 0)} expanded · ${Number(
+          stats.rangeEndpointsScreened || 0,
+        )} endpoints screened</div>`
+      : '';
+
+  const deepenNote = (() => {
+    if (!stats.deepened) return '';
+    const urls = Math.max(1, Number(stats.pullUrlCount) || 2);
+    const fromMax = Number(stats.lastPullMax);
+    const toMax = Number(stats.pullMax ?? stats.max);
+    const fromBudget =
+      Number.isFinite(fromMax) && fromMax > 0 ? fromMax * urls : null;
+    const toBudget = Number.isFinite(toMax) && toMax > 0 ? toMax * urls : null;
+    if (fromBudget == null || toBudget == null) return '';
+    return `<div class="muted small" style="margin-top:0.2rem">Fetch deeper: pull budget up to ${esc(
+      String(fromBudget),
+    )} → <strong>${esc(String(toBudget))}</strong> listings</div>`;
+  })();
 
   const details = `<details class="narrative-raw" style="margin-top:0.45rem">
     <summary class="muted small">Technical details</summary>
+    <div class="muted small" style="margin-top:0.35rem">${esc(loopnetLine)}${
+      skippedUsed ? ` · ${skippedUsed} already used by another candidate` : ''
+    }</div>
+    <div class="muted small" style="margin-top:0.2rem">Places: ${places} lookups · ${localRejects} local rejects (no Maps)${
+      unscreened > 0 ? ` · ${unscreened} still unscreened` : ''
+    }${usedInCity > 0 ? ` · ${usedInCity} claimed in city` : ''}</div>
+    ${deepenNote}
+    ${rangeNote}
     <div class="muted small" style="margin-top:0.35rem">
       Queried: <strong>${esc(
         query.location || [pkg?.city, pkg?.state].filter(Boolean).join(', ') || '—',
@@ -4524,15 +4704,16 @@ function baSearchReportBodyHtml(pkg, { title = 'Last search', failed = false } =
     ${baPlanBarHtml(plan)}
   </details>`;
 
+  const showError =
+    pkg?.lastSearchError && kind !== 'cache_exhausted'
+      ? `<p class="muted small" style="margin:0.45rem 0 0">${esc(pkg.lastSearchError)}</p>`
+      : '';
+
   return `<div class="callout ${failed ? 'danger' : 'ok'}" style="margin-top:0.75rem">
     <strong>${esc(title)}</strong>
     ${face}
     ${billingHint}
-    ${
-      pkg?.lastSearchError
-        ? `<p class="muted small" style="margin:0.45rem 0 0">${esc(pkg.lastSearchError)}</p>`
-        : ''
-    }
+    ${showError}
     ${details}
     <div class="muted small" style="margin-top:0.35rem">${esc(pkg?.lastSearchAt || '')}</div>
   </div>`;
@@ -4577,24 +4758,6 @@ function renderSiteConfig() {
     .toUpperCase();
   const addrCity = geoCity;
   const addrState = geoState;
-  const cityCacheKeyForUi = (() => {
-    const pkgCity = String(baPkg?.city || '').trim().toLowerCase();
-    const pkgState = String(baPkg?.state || '')
-      .trim()
-      .toUpperCase();
-    const geoMatch =
-      pkgCity &&
-      pkgState &&
-      pkgCity === geoCity.toLowerCase() &&
-      pkgState === geoState;
-    if (geoMatch && baPkg?.cityCacheKey) return baPkg.cityCacheKey;
-    if (geoCity && geoState) {
-      return `${geoCity.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${geoState
-        .toLowerCase()
-        .slice(0, 2)}`;
-    }
-    return '';
-  })();
   const stepDone = {
     details: Boolean(accepted) || Boolean(String(nap.domain || '').trim() && String(nap.businessName || '').trim()),
     look:
@@ -4753,19 +4916,18 @@ function renderSiteConfig() {
       baPkg?.status === 'error' ||
       baErrorKind === 'apify_billing' ||
       baErrorKind === 'apify_config' ||
-      baErrorKind === 'cache_exhausted' ||
-      (shortlist.length === 0 && (baStats?.listingsIn != null || baPkg?.lastSearchError)));
+      (baErrorKind !== 'cache_exhausted' &&
+        shortlist.length === 0 &&
+        (baStats?.listingsIn != null || baPkg?.lastSearchError)));
 
   const baFailureTitle =
     baErrorKind === 'apify_billing'
       ? 'Apify usage limit'
       : baErrorKind === 'apify_config'
         ? 'Find not configured'
-        : baErrorKind === 'cache_exhausted'
-          ? 'Cache exhausted'
-          : baSearchFailed
-            ? 'Find note'
-            : 'Last search';
+        : baSearchFailed
+          ? 'Find note'
+          : 'Last search';
 
   const baCacheSize = Number(
     baStats?.cacheSize ?? baPkg?.listingCache?.listings?.length ?? 0,
@@ -4775,6 +4937,9 @@ function renderSiteConfig() {
     (baCacheSize > 0 &&
       baStats?.unscreenedRemaining != null &&
       Number(baStats.unscreenedRemaining) === 0);
+
+  const baBusy = Boolean(state.baSearchBusy);
+  const baBusyMode = state.baSearchMode || 'find';
 
   const lastSearchReportHtml = baPkg?.lastSearchAt
     ? baSearchReportBodyHtml(baPkg, { title: baFailureTitle, failed: baSearchFailed })
@@ -4792,68 +4957,233 @@ function renderSiteConfig() {
       .catch(() => {});
   }
 
+  const baShortlistRowHtml = (row, i, { secondary = false } = {}) => {
+    const checks = Array.isArray(row.checks)
+      ? row.checks
+      : [
+          { pass: true, label: 'Single street number (not a numeric range)' },
+          ...(row.propertyType
+            ? [{ pass: true, label: `Property type allowed: ${row.propertyType}` }]
+            : []),
+          { pass: true, label: `ZIP present (${row.zip || '—'})` },
+          {
+            pass: true,
+            label: 'Places — no OPERATIONAL business at this street number',
+          },
+          ...(row.suite
+            ? [{ pass: null, label: `Suggested suite ${row.suite} (NAP-friendly stub)` }]
+            : []),
+          {
+            pass: null,
+            label: `Shortlist rank #${i + 1} of up to 25 (accumulated recommendations)`,
+          },
+        ];
+    const checkItems = checks
+      .map((c) => {
+        const mark = c.pass === true ? '✓' : c.pass === false ? '✗' : '·';
+        return `<li><span class="muted">${mark}</span> ${esc(c.label || '')}</li>`;
+      })
+      .join('');
+    const localityNote =
+      secondary && row.mapsLocality
+        ? `<div class="muted small" style="margin-top:0.2rem">Maps: <strong>${esc(
+            row.mapsLocality,
+          )}</strong> (not ${esc(addrCity || row.city || 'target city')})</div>`
+        : row.localityUnknown
+          ? `<div class="muted small" style="margin-top:0.2rem">Maps locality unknown — use with caution</div>`
+          : '';
+    return `<div class="callout" style="margin:0;padding:0.65rem 0.75rem${
+      secondary ? ';opacity:0.95' : ''
+    }">
+      <div style="display:flex;flex-wrap:wrap;gap:0.5rem;align-items:flex-start;justify-content:space-between">
+        <div>
+          <strong>${esc(row.street)}${row.suite ? `, ${esc(row.suite)}` : ''}</strong>
+          ${secondary ? ` <span class="muted small">Secondary</span>` : ''}
+          <div class="muted small">${esc(row.city)}, ${esc(row.state)} ${esc(row.zip)}${
+            row.propertyType ? ` · ${esc(row.propertyType)}` : ''
+          }${row.expandedFrom ? ` · from range ${esc(row.expandedFrom)}` : ''}${
+            row.foundAt ? ` · found ${esc(String(row.foundAt).slice(0, 10))}` : ''
+          }</div>
+          ${localityNote}
+          <div class="muted small" style="margin-top:0.25rem">
+            <a href="${esc(row.mapsUrl || '#')}" target="_blank" rel="noopener">Maps</a>
+            ·
+            <a href="${esc(row.streetViewUrl || '#')}" target="_blank" rel="noopener">Street View</a>
+            ${
+              /^https?:\/\//i.test(String(row.listingUrl || ''))
+                ? ` · <a href="${esc(row.listingUrl)}" target="_blank" rel="noopener">LoopNet</a>`
+                : ''
+            }
+          </div>
+          <details class="narrative-raw lint-findings" style="margin-top:0.4rem">
+            <summary><strong>How chosen</strong></summary>
+            <ul class="speech-lint-list" style="margin:0.35rem 0 0">${checkItems}</ul>
+          </details>
+        </div>
+        <button type="button" class="btn${
+          secondary ? '' : ' primary'
+        } ba-use-addr" data-ba-index="${i}" data-ba-tier="${
+          secondary ? 'secondary' : 'primary'
+        }" data-tip="Use this address in Business details">Use this</button>
+      </div>
+    </div>`;
+  };
+
+  const primaryShortlist = shortlist
+    .map((row, i) => ({ row, i }))
+    .filter(({ row }) => row.tier !== 'secondary');
+  const secondaryShortlist = shortlist
+    .map((row, i) => ({ row, i }))
+    .filter(({ row }) => row.tier === 'secondary');
+
   const shortlistHtml = shortlist.length
     ? `<div class="ba-shortlist" style="margin-top:0.75rem">
-        <p style="margin:0 0 0.4rem"><strong>Recommended addresses</strong>
-          <span class="muted small">(${shortlist.length} — kept across Finds; newest uniques first)</span>
-        </p>
-        <div style="display:flex;flex-direction:column;gap:0.5rem">
-        ${shortlist
-          .map((row, i) => {
-            const checks = Array.isArray(row.checks)
-              ? row.checks
-              : [
-                  { pass: true, label: 'Single street number (not a numeric range)' },
-                  ...(row.propertyType
-                    ? [{ pass: true, label: `Property type allowed: ${row.propertyType}` }]
-                    : []),
-                  { pass: true, label: `ZIP present (${row.zip || '—'})` },
-                  {
-                    pass: true,
-                    label: 'Places — no OPERATIONAL business at this street number',
-                  },
-                  ...(row.suite
-                    ? [{ pass: null, label: `Suggested suite ${row.suite} (NAP-friendly stub)` }]
-                    : []),
-                  {
-                    pass: null,
-                    label: `Shortlist rank #${i + 1} of up to 25 (accumulated recommendations)`,
-                  },
-                ];
-            const checkItems = checks
-              .map((c) => {
-                const mark = c.pass === true ? '✓' : c.pass === false ? '✗' : '·';
-                return `<li><span class="muted">${mark}</span> ${esc(c.label || '')}</li>`;
-              })
-              .join('');
-            return `<div class="callout" style="margin:0;padding:0.65rem 0.75rem">
-            <div style="display:flex;flex-wrap:wrap;gap:0.5rem;align-items:flex-start;justify-content:space-between">
-              <div>
-                <strong>${esc(row.street)}${row.suite ? `, ${esc(row.suite)}` : ''}</strong>
-                <div class="muted small">${esc(row.city)}, ${esc(row.state)} ${esc(row.zip)}${
-                  row.propertyType ? ` · ${esc(row.propertyType)}` : ''
-                }${row.foundAt ? ` · found ${esc(String(row.foundAt).slice(0, 10))}` : ''}</div>
-                <div class="muted small" style="margin-top:0.25rem">
-                  <a href="${esc(row.mapsUrl || '#')}" target="_blank" rel="noopener">Maps</a>
-                  ·
-                  <a href="${esc(row.streetViewUrl || '#')}" target="_blank" rel="noopener">Street View</a>
-                </div>
-                <details class="narrative-raw lint-findings" style="margin-top:0.4rem">
-                  <summary><strong>How chosen</strong></summary>
-                  <ul class="speech-lint-list" style="margin:0.35rem 0 0">${checkItems}</ul>
-                </details>
-              </div>
-              <button type="button" class="btn primary ba-use-addr" data-ba-index="${i}" data-tip="Use this address in Business details">Use this</button>
-            </div>
-          </div>`;
-          })
-          .join('')}
-        </div>
+        ${
+          primaryShortlist.length
+            ? `<p style="margin:0 0 0.4rem"><strong>Recommended</strong>
+                <span class="muted small">(${primaryShortlist.length})</span>
+              </p>
+              <div style="display:flex;flex-direction:column;gap:0.5rem;margin-bottom:${
+                secondaryShortlist.length ? '0.75rem' : '0'
+              }">
+                ${primaryShortlist.map(({ row, i }) => baShortlistRowHtml(row, i)).join('')}
+              </div>`
+            : ''
+        }
+        ${
+          secondaryShortlist.length
+            ? `<p style="margin:0 0 0.4rem"><strong>Secondary</strong>
+                <span class="muted small">(${secondaryShortlist.length})</span>
+              </p>
+              <div style="display:flex;flex-direction:column;gap:0.5rem">
+                ${secondaryShortlist
+                  .map(({ row, i }) => baShortlistRowHtml(row, i, { secondary: true }))
+                  .join('')}
+              </div>`
+            : ''
+        }
       </div>`
     : '';
 
-  const baBusy = Boolean(state.baSearchBusy);
-  const baBusyMode = state.baSearchMode || 'find';
+  const baRecover = state.baRecover?.[d?.id] || null;
+  const shortlistKeySet = new Set(
+    shortlist.map((row) => {
+      const street = String(row?.street || '')
+        .trim()
+        .toLowerCase()
+        .replace(/\s+/g, ' ');
+      const zip = String(row?.zip || '')
+        .replace(/\D/g, '')
+        .slice(0, 5);
+      return `${street}|${zip}`;
+    }),
+  );
+  const recoverCleans = (Array.isArray(baRecover?.cleans) ? baRecover.cleans : []).filter((row) => {
+    const street = String(row?.street || '')
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, ' ');
+    const zip = String(row?.zip || '')
+      .replace(/\D/g, '')
+      .slice(0, 5);
+    return !shortlistKeySet.has(`${street}|${zip}`);
+  });
+  const recoverOverrides = Array.isArray(baRecover?.overrides) ? baRecover.overrides : [];
+  const showRecover =
+    baCacheExhausted ||
+    baSearchFailed ||
+    shortlist.length === 0 ||
+    recoverCleans.length > 0 ||
+    recoverOverrides.length > 0;
+
+  const recoverRowHtml = (row, kind) => {
+    const btnClass = kind === 'override' ? 'btn ba-use-override' : 'btn primary ba-use-recover';
+    const btnLabel = kind === 'override' ? 'Use anyway' : 'Use this';
+    const warn =
+      kind === 'override'
+        ? `<div class="muted small" style="margin-top:0.2rem">Maps had a business here${
+            row.fail ? ` — ${esc(String(row.fail).replace(/^existing Maps business:\s*/i, ''))}` : ''
+          }. Operator risk.</div>`
+        : row.tier === 'secondary' && row.mapsLocality
+          ? `<div class="muted small" style="margin-top:0.2rem">Secondary — Maps: <strong>${esc(
+              row.mapsLocality,
+            )}</strong> (not ${esc(addrCity || row.city || 'target city')})</div>`
+          : '';
+    return `<div class="callout" style="margin:0;padding:0.55rem 0.7rem">
+      <div style="display:flex;flex-wrap:wrap;gap:0.5rem;align-items:flex-start;justify-content:space-between">
+        <div>
+          <strong>${esc(row.street)}${row.suite ? `, ${esc(row.suite)}` : ''}</strong>
+          ${row.tier === 'secondary' ? ` <span class="muted small">Secondary</span>` : ''}
+          <div class="muted small">${esc(row.city)}, ${esc(row.state)} ${esc(row.zip)}${
+            row.propertyType ? ` · ${esc(row.propertyType)}` : ''
+          }</div>
+          ${warn}
+          <div class="muted small" style="margin-top:0.2rem">
+            <a href="${esc(row.mapsUrl || '#')}" target="_blank" rel="noopener">Maps</a>
+            ·
+            <a href="${esc(row.streetViewUrl || '#')}" target="_blank" rel="noopener">Street View</a>
+            ${
+              /^https?:\/\//i.test(String(row.listingUrl || ''))
+                ? ` · <a href="${esc(row.listingUrl)}" target="_blank" rel="noopener">LoopNet</a>`
+                : ''
+            }
+          </div>
+        </div>
+        <button type="button" class="${btnClass}" data-ba-recover-kind="${esc(
+          kind,
+        )}" data-ba-dedupe-key="${esc(row.dedupeKey || '')}" data-ba-tier="${esc(
+          row.tier === 'secondary' ? 'secondary' : 'primary',
+        )}" ${baBusy ? 'disabled' : ''}>${btnLabel}</button>
+      </div>
+    </div>`;
+  };
+
+  const recoverHtml =
+    showRecover && (recoverCleans.length || recoverOverrides.length)
+      ? `<div class="ba-recover" style="margin-top:0.75rem">
+        ${
+          recoverCleans.length
+            ? `<p style="margin:0 0 0.35rem"><strong>Unclaimed cleans</strong>
+                <span class="muted small"> — prior Places-clean streets still free in this city</span></p>
+              <div style="display:flex;flex-direction:column;gap:0.4rem;margin-bottom:0.65rem">
+                ${recoverCleans.map((row) => recoverRowHtml(row, 'clean')).join('')}
+              </div>`
+            : ''
+        }
+        ${
+          recoverOverrides.length
+            ? `<details class="narrative-raw" style="margin-top:0.65rem">
+                <summary><strong>Use anyway</strong>
+                  <span class="muted small"> — ${recoverOverrides.length} Maps-dirty reject${
+                    recoverOverrides.length === 1 ? '' : 's'
+                  } (confirm before claiming)</span>
+                </summary>
+                <div style="display:flex;flex-direction:column;gap:0.4rem;margin-top:0.45rem">
+                  ${recoverOverrides.map((row) => recoverRowHtml(row, 'override')).join('')}
+                </div>
+              </details>`
+            : ''
+        }
+      </div>`
+      : '';
+
+  if (
+    d?.id &&
+    (ready || f.hasApproved) &&
+    !state._baRecoverAttempted?.[d.id] &&
+    !state.baRecover?.[d.id]
+  ) {
+    if (!state._baRecoverAttempted) state._baRecoverAttempted = {};
+    state._baRecoverAttempted[d.id] = true;
+    api(`/api/candidates/${encodeURIComponent(d.id)}/address/recover`)
+      .then((data) => {
+        if (!state.baRecover) state.baRecover = {};
+        state.baRecover[d.id] = data;
+        if (document.getElementById('ba-find-addresses')) renderDetail();
+      })
+      .catch(() => {});
+  }
+
   const baProgressHtml = baBusy
     ? `<div id="ba-search-progress" class="job-progress" aria-live="polite" style="margin-top:0.65rem">
         <div class="job-progress-track"><div class="job-progress-bar"></div></div>
@@ -4862,9 +5192,9 @@ function renderSiteConfig() {
         }</p>
         <p class="job-progress-detail">${
           baBusyMode === 'refresh'
-            ? `Pulling new LoopNet listings for ${esc(addrCity || 'city')}${
+            ? `Pulling LoopNet listings for ${esc(addrCity || 'city')}${
                 addrState ? `, ${esc(addrState)}` : ''
-              } (Apify billable), then screening with Places.`
+              } (Apify billable; deeper when cache is exhausted), then screening with Places.`
             : `Continuing from LoopNet cache when available, then screening with Places for ${esc(
                 addrCity || 'city',
               )}${addrState ? `, ${esc(addrState)}` : ''}. Cache hits skip Apify.`
@@ -4890,30 +5220,31 @@ function renderSiteConfig() {
       current: currentId === 'address' && !addressDone,
       info: `Find a clean commercial street in ${esc(
         addrCity || 'your city',
-      )} (or paste home / skip). Selection pre-fills Business details.`,
+      )} (or Manual / home / Skip). Selection pre-fills Business details.`,
       bodyHtml: `
-        <p class="disc-tool-blurb">Default: commercial finder for <strong>${esc(
-          addrCity || 'city',
-        )}${addrState ? `, ${esc(addrState)}` : ''}</strong>. LoopNet inventory, Places screens, and <strong>used addresses</strong> are shared across candidates in this city — Find will not recommend a street you already claimed. Re-Find continues from city cache (Apify $0); <strong>Refresh LoopNet</strong> re-scrapes (billable).</p>
         ${
-          cityCacheKeyForUi
-            ? `<p class="muted small" style="margin:0.35rem 0 0">City cache: <code>${esc(
-                cityCacheKeyForUi,
-              )}</code>${
-                baPkg?.usedAddressesSummary
-                  ? ` · ${Number(baPkg.usedAddressesSummary)} address(es) already claimed`
-                  : ''
-              }</p>`
+          baPkg || state.baRecover?.[d?.id]
+            ? baInventoryProgressHtml(
+                baInventoryFromPkg(baPkg, state.baRecover?.[d?.id] || null),
+                { recover: state.baRecover?.[d?.id] || null, style: 'margin-top:0' },
+              )
             : ''
         }
         ${selectedBanner}
         <div class="narrative-actions" style="flex-wrap:wrap;gap:0.5rem;align-items:center;margin-top:0.5rem">
-          <button type="button" class="btn${baCacheExhausted ? '' : ' primary'}" id="ba-find-addresses" data-tip="Search for unused commercial addresses in this city. Free if we already have a recent listing list." ${
+          <button type="button" class="btn${baCacheExhausted ? '' : ' primary'}" id="ba-find-addresses" data-tip="Search for unused commercial addresses in this city. Free if we already have a recent listing list. Ranges expand to start/end numbers." ${
             baBusy || !(ready || f.hasApproved) ? 'disabled' : ''
           }${baBusy ? ' aria-busy="true"' : ''}>Find addresses</button>
-          <button type="button" class="btn${baCacheExhausted ? ' primary' : ''}" id="ba-refresh-loopnet" data-tip="Download a fresh listing list (costs money), then look for new unused addresses." ${
-            baBusy || !(ready || f.hasApproved) ? 'disabled' : ''
-          }>Refresh LoopNet</button>
+          <button type="button" class="btn${baCacheExhausted ? ' primary' : ''}" id="ba-refresh-loopnet" data-tip="${
+            baCacheExhausted
+              ? 'Pull more LoopNet listings (raises budget or doubles the city ceiling when needed; costs Apify), then screen new streets.'
+              : 'Download a fresh listing list (costs money), then look for new unused addresses.'
+          }" ${baBusy || !(ready || f.hasApproved) ? 'disabled' : ''}>${
+            baCacheExhausted ? 'Fetch deeper' : 'Refresh LoopNet'
+          }</button>
+          <button type="button" class="btn" id="ba-show-manual" data-tip="Paste any commercial street and claim it for this candidate." ${
+            baBusy ? 'disabled' : ''
+          }>Manual commercial</button>
           <button type="button" class="btn" id="ba-show-home" data-tip="Use your home street instead of a commercial listing." ${
             baBusy ? 'disabled' : ''
           }>Use my home address</button>
@@ -4922,6 +5253,17 @@ function renderSiteConfig() {
           }>Skip address</button>
         </div>
         ${baProgressHtml}
+        <div id="ba-manual-panel" class="hidden" style="margin-top:0.65rem">
+          <label style="display:block">
+            <span class="muted small">Commercial street (include city, state, ZIP — single number, not a range)</span>
+            <input id="ba-manual-line" type="text" placeholder="6778 S 1300 E, ${esc(
+              addrCity || 'City',
+            )}, ${esc(addrState || 'ST')} 84121" style="width:100%;margin-top:0.25rem" />
+          </label>
+          <div class="narrative-actions" style="justify-content:flex-end;margin-top:0.4rem">
+            <button type="button" class="btn primary" id="ba-save-manual">Save commercial address</button>
+          </div>
+        </div>
         <div id="ba-home-panel" class="hidden" style="margin-top:0.65rem">
           <label style="display:block">
             <span class="muted small">Home street (include city, state, ZIP)</span>
@@ -4934,7 +5276,8 @@ function renderSiteConfig() {
           </div>
         </div>
         ${lastSearchReportHtml}
-        ${shortlistHtml}`,
+        ${shortlistHtml}
+        ${recoverHtml}`,
     }),
   );
 
@@ -5198,6 +5541,16 @@ function renderSiteConfig() {
         ? `
           <p class="disc-tool-blurb">Provision a local ranking number, then continue Content → Website Prepare / Launch.</p>
           ${phoneTrackingHint}
+          <details class="narrative-raw" style="margin-top:0.65rem">
+            <summary>GBP category checklist <span class="muted">(advisory)</span></summary>
+            <p class="disc-tool-blurb">Copy GBP category prompt → Claude → Load. Same checklist as Website → Launch. Does not block phone provision.</p>
+            <div class="narrative-actions" style="flex-wrap:wrap;gap:0.35rem;margin:0.5rem 0">
+              <button type="button" class="btn" id="sc-copy-gbp-categories">Copy GBP category prompt</button>
+              ${openClaudeAiBtnHtml({ sm: true })}
+              <button type="button" class="btn" id="sc-load-gbp-categories">Load checklist JSON</button>
+            </div>
+            <textarea id="sc-gbp-categories-paste" class="narrative-paste-input" rows="2" placeholder='{ "primaryCategory": "…", "additionalCategories": [] }'></textarea>
+          </details>
           <div class="narrative-actions" style="align-items:center;gap:0.5rem;flex-wrap:wrap;margin-top:0.5rem">
             <label class="muted small" style="display:inline-flex;align-items:center;gap:0.35rem">
               Area code (optional)
@@ -5284,7 +5637,16 @@ function contentStepHtml({
 }
 
 const SITE_CONFIG_STEP_ORDER = ['look', 'address', 'details', 'paste', 'services', 'service-area', 'phone'];
-const CONTENT_STEP_ORDER = ['structure', 'outline', 'write', 'editor', 'accept'];
+const CONTENT_STEP_ORDER = [
+  'structure',
+  'fieldResearch',
+  'brief',
+  'outline',
+  'write',
+  'editor',
+  'finalCheck',
+  'accept',
+];
 const WEBSITE_STEP_ORDER = ['images', 'prepare', 'launch', 'indexing'];
 
 /** Force open + pulse to stepId (Copy / handoff) without waiting for durable done. */
@@ -5563,9 +5925,12 @@ function speechCheckResultBodyHtml({ speechLint, seoLint, autoFix }) {
 
 function firstIncompleteContentStep(flags) {
   if (!flags.structure) return 'structure';
+  if (!flags.fieldResearch) return 'fieldResearch';
+  if (!flags.brief) return 'brief';
   if (!flags.outline) return 'outline';
   if (!flags.write) return 'write';
   if (!flags.editor) return 'editor';
+  if (!flags.finalCheck) return 'finalCheck';
   if (!flags.accepted) return 'accept';
   return 'accept';
 }
@@ -5589,20 +5954,75 @@ function contentUpNextHtml(stepDone, ready, { secCount = 0, outlineConfirmed = f
   let upNext = '';
   if (!stepDone.structure) {
     upNext = 'Up next: <strong>Structure</strong> — pages + sections → Continue';
+  } else if (!stepDone.fieldResearch) {
+    upNext =
+      'Up next: <strong>Field research</strong> — Copy field-research prompt → Claude.ai → Load';
+  } else if (!stepDone.brief) {
+    upNext =
+      'Up next: <strong>Content brief</strong> — Copy brief prompt → Claude.ai → Load &amp; confirm';
   } else if (!stepDone.outline) {
     upNext =
-      'Up next: <strong>Outline paste cycle</strong> — Copy structure prompt → Claude.ai → Load &amp; confirm';
+      'Up next: <strong>Outline</strong> — Copy structure prompt → Claude.ai → Load &amp; confirm';
   } else if (!stepDone.write) {
     upNext =
-      'Up next: <strong>Write paste cycle</strong> — Copy full-write prompt → Claude.ai → Load FILE (auto Speech/SEO Refinement)';
+      'Up next: <strong>Full write (batched)</strong> — Home / Services / Locations → Load FILE';
   } else if (!stepDone.editor) {
     upNext =
-      'Up next: <strong>Speech/SEO Refinement</strong> (auto on Load; re-run if needed) — Claude Copy/Load available for leftovers or soft SEO';
+      'Up next: <strong>Humanize</strong> — Copy editor prompt (Passes 4–7) → Load → clear findings';
+  } else if (!stepDone.finalCheck) {
+    upNext =
+      'Up next: <strong>Final check</strong> — Copy final-check prompt → Load OK / FILE fixes';
   } else {
     upNext =
       'Up next: <strong>Accept content</strong> — then <strong>Website → Prepare preview</strong>';
   }
   return statusLineHtml(`${upNext}${structureLine ? ` · ${structureLine}` : ''}`);
+}
+
+function contentPassStripHtml(stepDone, currentId) {
+  const labels = [
+    ['structure', 'Structure'],
+    ['fieldResearch', 'Field research'],
+    ['brief', 'Brief'],
+    ['outline', 'Outline'],
+    ['write', 'Write'],
+    ['editor', 'Humanize'],
+    ['finalCheck', 'Final'],
+    ['accept', 'Accept'],
+  ];
+  const chips = labels
+    .map(([id, label]) => {
+      const done = Boolean(stepDone[id]);
+      const cur = currentId === id && !done;
+      const cls = done ? 'is-done' : cur ? 'is-current' : 'is-todo';
+      return `<span class="content-pass-chip ${cls}">${done ? '✓ ' : ''}${esc(label)}</span>`;
+    })
+    .join('<span class="content-pass-sep">→</span>');
+  return `<div class="content-pass-strip" aria-label="Content pass progress">${chips}</div>`;
+}
+
+function contentAcceptScorecardHtml({
+  fieldOk,
+  briefOk,
+  writeOk,
+  editorOk,
+  finalOk,
+  filesLabel,
+  seoCriticalN,
+  speechN,
+  emDashN,
+}) {
+  const chip = (ok, label) =>
+    `<span class="metric metric-${ok ? 'good' : 'bad'}" ${tipAttr(label)}><strong>${
+      ok ? 'Yes' : 'No'
+    }</strong> <span class="metric-band">${esc(label)}</span></span>`;
+  return `<div class="stat-grid content-scorecard" style="margin:0.5rem 0 0.75rem">
+    ${chip(fieldOk, 'Field research')}
+    ${chip(briefOk, 'Brief confirmed')}
+    ${chip(writeOk, filesLabel || 'Write batches')}
+    ${chip(editorOk, `Humanize clear (speech ${speechN}, SEO crit ${seoCriticalN}, em-dash ${emDashN})`)}
+    ${chip(finalOk, 'Final check')}
+  </div>`;
 }
 
 function briefSectionsTableHtml(brief) {
@@ -6195,42 +6615,69 @@ function renderContent() {
   );
   const contentAcceptedLive = Boolean(accepted) || Boolean(f.hasContent);
   // After Accept, draft is deleted — still treat Speech/SEO as done (clean publish).
-  // Open draft: done only when Speech/SEO ran and findings are clear.
-  const editorClear = Boolean(speechChecked && !editorNeeds.needed);
+  // Soft progress: speech findings must clear. Critical SEO can use Accept override.
+  const editorClear = Boolean(speechChecked && editorNeeds.speechN === 0);
+  const fieldResearch = d?.contentFieldResearch;
+  const fieldOk = Boolean(fieldResearch?.status === 'loaded' || f.hasContentFieldResearch);
+  const briefOk = brief?.status === 'confirmed' || Boolean(f.hasContentBriefConfirmed);
+  const writeBatches = draft?._ops?.writeBatches || accepted?._ops?.writeBatches || {};
+  const pages = outlinePkg?.pages || {};
+  const needServices = Boolean(pages.services) && (d?.siteConfig?.services || []).length > 0;
+  const needLocations =
+    Boolean(pages.locations) &&
+    [d?.siteConfig?.primaryCity, ...(d?.siteConfig?.targetSuburbs || [])].filter(Boolean).length >
+      0;
+  const batchesComplete =
+    Boolean(writeBatches.home || writeBatches.all) &&
+    (!needServices || Boolean(writeBatches.services || writeBatches.all)) &&
+    (!needLocations || Boolean(writeBatches.locations || writeBatches.all));
+  const writeFilesReady =
+    Boolean(draft?.files) ||
+    Boolean(accepted?.files) ||
+    Boolean(f.hasContentDraft) ||
+    Boolean(f.hasContent);
+  const writeOk = writeFilesReady && (batchesComplete || contentAcceptedLive);
+  const finalOk = Boolean(
+    draft?._ops?.lastFinalCheckAt || accepted?._ops?.lastFinalCheckAt || f.hasContentFinalCheck,
+  );
+  const speechFindings = lintSource?._ops?.speechLint?.findings || [];
+  const emDashN = speechFindings.filter((x) => x.rule === 'em_dash').length;
   const stepDone = {
     structure: structureReady && Boolean(outlinePkg?.sections?.length),
+    fieldResearch: fieldOk,
+    brief: briefOk,
     outline: outlineConfirmed,
-    write:
-      Boolean(draft?.files) ||
-      Boolean(accepted?.files) ||
-      Boolean(f.hasContentDraft) ||
-      Boolean(f.hasContent),
+    write: writeOk,
     editor: editorClear || (contentAcceptedLive && !draft),
+    finalCheck: finalOk || (contentAcceptedLive && !draft),
     accepted: contentAcceptedLive,
-    brief: brief?.status === 'confirmed' || Boolean(f.hasContentBriefConfirmed),
-    oneshot:
-      Boolean(draft?.files) ||
-      Boolean(accepted?.files) ||
-      Boolean(f.hasContentDraft) ||
-      Boolean(f.hasContent),
+    oneshot: writeFilesReady,
     research: Boolean(research) || Boolean(f.hasContentResearch),
     outlineLegacy: Boolean(outline) || Boolean(f.hasContentOutline),
   };
-  // Open draft with findings: keep Speech/SEO as current (wins over Accept soft-advance)
-  if (draft && speechChecked && editorNeeds.needed) {
+  // Open draft with speech leftovers: keep Humanize as current
+  if (draft && speechChecked && editorNeeds.speechN > 0) {
     if (state.contentSoftDone?.editor) {
       const nextSoft = { ...state.contentSoftDone };
       delete nextSoft.editor;
       state.contentSoftDone = nextSoft;
     }
-    if (state.contentSoftCurrent === 'accept') {
+    if (state.contentSoftCurrent === 'accept' || state.contentSoftCurrent === 'finalCheck') {
       state.contentSoftCurrent = 'editor';
       state.contentFollowCurrent = 'editor';
       state.contentOpenStep = 'editor';
     }
   }
+  // Soft must not green Final without durable stamp (mixed scorecard signals)
+  if (state.contentSoftDone?.finalCheck && !finalOk) {
+    const nextSoft = { ...state.contentSoftDone };
+    delete nextSoft.finalCheck;
+    // Also clear accept soft-advance past an unstamped Final
+    delete nextSoft.accept;
+    state.contentSoftDone = nextSoft;
+  }
   const durableCurrent =
-    draft && speechChecked && editorNeeds.needed
+    draft && speechChecked && editorNeeds.speechN > 0
       ? 'editor'
       : stepDone.accepted
         ? null
@@ -6242,19 +6689,23 @@ function renderContent() {
   }
   const openId = state.contentOpenStep;
   const structureDone = stepDone.structure || isSoftDone('contentSoftDone', 'structure');
+  const fieldResearchDone =
+    stepDone.fieldResearch || isSoftDone('contentSoftDone', 'fieldResearch');
+  const briefDone = stepDone.brief || isSoftDone('contentSoftDone', 'brief');
   const outlineDone = stepDone.outline || isSoftDone('contentSoftDone', 'outline');
   const writeDone = stepDone.write || isSoftDone('contentSoftDone', 'write');
   const editorDone =
-    draft && speechChecked && editorNeeds.needed
+    draft && speechChecked && editorNeeds.speechN > 0
       ? false
       : stepDone.editor || isSoftDone('contentSoftDone', 'editor');
+  const finalCheckDone = Boolean(finalOk);
   const acceptDone = stepDone.accepted || isSoftDone('contentSoftDone', 'accept');
   const parts = [];
 
   parts.push(
     panelHowToHtml({
       label: 'Content',
-      info: 'Structure → outline Copy / Load & confirm → write Copy / Load (auto Speech/SEO Refinement) → Accept. Default path is Claude.ai paste (no Anthropic API). Then Website → Prepare preview.',
+      info: 'Eight-pass path (required): Structure → Field research → Brief → Outline → batched Full write → Humanize → Final check → Accept. Claude.ai paste only (no Anthropic API). Then Website → Prepare preview.',
     }),
   );
   if (isSelectedLaunched()) {
@@ -6270,6 +6721,34 @@ function renderContent() {
       outlineDrafted: Boolean(outlinePkg),
     }),
   );
+  parts.push(contentPassStripHtml(stepDone, currentId));
+  parts.push(
+    contentAcceptScorecardHtml({
+      fieldOk,
+      briefOk,
+      writeOk,
+      editorOk: stepDone.editor,
+      finalOk,
+      filesLabel: `Write (${[
+        writeBatches.home || writeBatches.all ? 'Home✓' : 'Home○',
+        needServices
+          ? writeBatches.services || writeBatches.all
+            ? 'Services✓'
+            : 'Services○'
+          : null,
+        needLocations
+          ? writeBatches.locations || writeBatches.all
+            ? 'Locations✓'
+            : 'Locations○'
+          : null,
+      ]
+        .filter(Boolean)
+        .join(' · ')})`,
+      seoCriticalN: seoCritical.length,
+      speechN: speechFindings.length,
+      emDashN,
+    }),
+  );
 
   parts.push(
     contentStepHtml({
@@ -6281,20 +6760,117 @@ function renderContent() {
       current: currentId === 'structure' && !structureDone,
       info: 'Choose site pages, then H2 blocks per page type. Prefer Preset C for ranking builds — selecting every section makes Full write heavy. Photo-capable sections can include image slots.',
       bodyHtml: ready
-        ? structureChecklistHtml(d, catalog)
+        ? `<div class="callout"><strong>Entity matching (Rank &amp; Rent):</strong> Home = primary niche+city · Services = offer entities only · Locations = geo proof for real suburbs. Mirror what a future GBP will claim — do not invent categories you will not deliver. Avoid weekly-blog sprawl. See <code>docs/SECTION-UX.md#entity-matching</code>.</div>
+        ${structureChecklistHtml(d, catalog)}`
         : `<p class="muted">Accept Site config to unlock the checklist.</p>`,
+    }),
+  );
+
+  const fieldQ = Array.isArray(fieldResearch?.homeownerQuestions)
+    ? fieldResearch.homeownerQuestions.length
+    : 0;
+  const fieldAngles = Array.isArray(fieldResearch?.competitorAngles)
+    ? fieldResearch.competitorAngles.length
+    : 0;
+  parts.push(
+    contentStepHtml({
+      id: 'fieldResearch',
+      num: 2,
+      title: 'Field research',
+      done: fieldResearchDone,
+      open: openId === 'fieldResearch',
+      current: currentId === 'fieldResearch' && !fieldResearchDone,
+      locked: !structureDone,
+      info: 'Required Pass 1 feed. Copy field-research prompt → Claude.ai (web OK) → Load JSON. Optional notes enrich the Brief; they do not replace Load.',
+      bodyHtml: `
+        ${
+          fieldOk
+            ? `<p class="muted">Loaded · ${esc(String(fieldQ))} questions · ${esc(
+                String(fieldAngles),
+              )} competitor angles</p>`
+            : `<div class="callout warn">Required — Load field research to continue.</div>`
+        }
+        ${contentActionRow({
+          n: 1,
+          label: 'Copy field-research prompt <span class="muted">(Required)</span>',
+          controlsHtml: `<button type="button" class="btn primary" id="cs-copy-field-research" ${
+            structureDone ? '' : 'disabled'
+          }>Copy field-research prompt</button>
+          ${openClaudeAiBtnHtml({ disabled: !structureDone })}`,
+        })}
+        ${contentActionRow({
+          n: 2,
+          label: 'Paste field-research JSON <span class="muted">(Required)</span>',
+          controlsHtml: `<textarea id="cs-field-research-paste" class="narrative-paste-input" rows="2" placeholder='{ "homeownerQuestions": [ ... ] }'></textarea>`,
+        })}
+        ${contentActionRow({
+          n: 3,
+          label: 'Operator notes <span class="muted">(Optional enrichment)</span>',
+          controlsHtml: `<textarea id="cs-field-notes" class="narrative-paste-input" rows="2" placeholder="Extra competitor URLs or notes Claude missed">${esc(
+            fieldResearch?.operatorNotes || '',
+          )}</textarea>`,
+        })}
+        ${contentActionRow({
+          n: 4,
+          label: 'Load field research <span class="muted">(Required)</span>',
+          controlsHtml: `<button type="button" class="btn primary" id="cs-load-field-research" ${
+            structureDone ? '' : 'disabled'
+          }>Load field research</button>`,
+        })}`,
+    }),
+  );
+
+  parts.push(
+    contentStepHtml({
+      id: 'brief',
+      num: 3,
+      title: 'Content brief',
+      done: briefDone,
+      open: openId === 'brief',
+      current: currentId === 'brief' && !briefDone,
+      locked: !fieldResearchDone,
+      info: 'Required Pass 1 synthesis. Copy brief prompt → Claude.ai → Load & confirm. Unlocks Outline.',
+      bodyHtml: `
+        ${
+          briefOk
+            ? `<p class="muted">Brief confirmed · ${esc(
+                String((brief?.pages || []).length || 0),
+              )} pages</p>`
+            : `<div class="callout warn">Required — confirm brief before Outline.</div>`
+        }
+        ${contentActionRow({
+          n: 1,
+          label: 'Copy brief prompt <span class="muted">(Required)</span>',
+          controlsHtml: `<button type="button" class="btn primary" id="cs-copy-brief" ${
+            fieldOk ? '' : 'disabled'
+          }>Copy brief prompt</button>
+          ${openClaudeAiBtnHtml({ disabled: !fieldOk })}`,
+        })}
+        ${contentActionRow({
+          n: 2,
+          label: 'Paste brief JSON <span class="muted">(Required)</span>',
+          controlsHtml: `<textarea id="cs-brief-paste" class="narrative-paste-input" rows="2" placeholder='{ "pages": [ ... ] }'></textarea>`,
+        })}
+        ${contentActionRow({
+          n: 3,
+          label: 'Load &amp; confirm brief <span class="muted">(Required)</span>',
+          controlsHtml: `<button type="button" class="btn primary" id="cs-confirm-brief" ${
+            fieldOk ? '' : 'disabled'
+          }>Load &amp; confirm brief</button>`,
+        })}`,
     }),
   );
 
   parts.push(
     contentStepHtml({
       id: 'outline',
-      num: 2,
-      title: 'Outline (paste cycle 1)',
+      num: 4,
+      title: 'Outline (Pass 2)',
       done: outlineDone,
       open: openId === 'outline',
       current: currentId === 'outline' && !outlineDone,
-      info: 'Paste cycle 1 of 2. Copy the SEO structure prompt, refine in Claude.ai, paste JSON back, then Load & confirm (one step). No Anthropic API required.',
+      locked: !briefDone,
+      info: 'Pass 2 — strategic outline. Copy structure prompt (needs confirmed brief), refine in Claude.ai, Load & confirm.',
       bodyHtml: `
         ${
           outlinePkg?.sections?.length
@@ -6307,9 +6883,9 @@ function renderContent() {
           n: 1,
           label: 'Copy structure prompt <span class="muted">(Required)</span>',
           controlsHtml: `<button type="button" class="btn primary" id="cs-copy-structure" ${
-            outlinePkg?.sections?.length ? '' : 'disabled'
+            outlinePkg?.sections?.length && briefOk ? '' : 'disabled'
           }>Copy structure prompt</button>
-          ${openClaudeAiBtnHtml({ disabled: !outlinePkg?.sections?.length })}`,
+          ${openClaudeAiBtnHtml({ disabled: !(outlinePkg?.sections?.length && briefOk) })}`,
         })}
         ${contentActionRow({
           n: 2,
@@ -6320,37 +6896,79 @@ function renderContent() {
           n: 3,
           label: 'Load &amp; confirm outline <span class="muted">(Required)</span>',
           hint: 'Loads Claude’s JSON and locks it for the full-write prompt.',
-          controlsHtml: `<button type="button" class="btn primary" id="cs-paste-outline">Load &amp; confirm outline</button>`,
+          controlsHtml: `<button type="button" class="btn primary" id="cs-paste-outline" ${
+            briefOk ? '' : 'disabled'
+          }>Load &amp; confirm outline</button>`,
         })}`,
     }),
   );
 
+  const batchChip = (key, label, needed) => {
+    if (!needed) return '';
+    const ok = Boolean(writeBatches[key] || writeBatches.all);
+    return `<span class="metric metric-${ok ? 'good' : 'mixed'}">${esc(label)} ${ok ? '✓' : '○'}</span>`;
+  };
   parts.push(
     contentStepHtml({
       id: 'write',
-      num: 3,
-      title: 'Full write (paste cycle 2)',
+      num: 5,
+      title: 'Full write (batched · Pass 3)',
       done: writeDone,
       open: openId === 'write',
       current: currentId === 'write' && !writeDone,
-      info: 'Paste cycle 2 of 2. Copy the full-write prompt (needs confirmed outline). Paste Claude’s ### FILE blocks and Load — Speech/SEO Refinement runs automatically when the draft is complete.',
+      locked: !outlineDone,
+      info: 'Pass 3 — batch by page group for tone variance. All enabled batches required. Prefer batches over Copy all (truncation risk).',
       bodyHtml: `
         ${incompleteDraftCalloutHtml(d)}
+        <div class="stat-grid" style="margin-bottom:0.5rem">
+          ${batchChip('home', 'Home', true)}
+          ${batchChip('services', 'Services', needServices)}
+          ${batchChip('locations', 'Locations', needLocations)}
+        </div>
         ${contentActionRow({
           n: 1,
-          label: 'Copy full-write prompt <span class="muted">(Required)</span>',
-          controlsHtml: `<button type="button" class="btn primary" id="cs-copy-write" ${
+          label: 'Copy Home batch <span class="muted">(Required)</span>',
+          controlsHtml: `<button type="button" class="btn primary" id="cs-copy-write-home" ${
             outlineConfirmed ? '' : 'disabled'
-          }>Copy full-write prompt</button>
+          }>Copy Home batch</button>
           ${openClaudeAiBtnHtml({ disabled: !outlineConfirmed })}`,
         })}
+        ${
+          needServices
+            ? contentActionRow({
+                n: 2,
+                label: 'Copy Services batch <span class="muted">(Required)</span>',
+                controlsHtml: `<button type="button" class="btn primary" id="cs-copy-write-services" ${
+                  outlineConfirmed ? '' : 'disabled'
+                }>Copy Services batch</button>`,
+              })
+            : ''
+        }
+        ${
+          needLocations
+            ? contentActionRow({
+                n: 3,
+                label: 'Copy Locations batch <span class="muted">(Required)</span>',
+                controlsHtml: `<button type="button" class="btn primary" id="cs-copy-write-locations" ${
+                  outlineConfirmed ? '' : 'disabled'
+                }>Copy Locations batch</button>`,
+              })
+            : ''
+        }
         ${contentActionRow({
-          n: 2,
+          n: 4,
+          label: 'Copy all (legacy) <span class="muted">(truncation risk)</span>',
+          controlsHtml: `<button type="button" class="btn" id="cs-copy-write" data-tip="Prefer batched copies for ranking builds" ${
+            outlineConfirmed ? '' : 'disabled'
+          }>Copy all</button>`,
+        })}
+        ${contentActionRow({
+          n: 5,
           label: 'Paste FILE blocks <span class="muted">(Required)</span>',
           controlsHtml: `<textarea id="ca-writer-paste" class="narrative-paste-input" rows="2" placeholder="### FILE: src/content/pages/index.md&#10;---&#10;..." data-tip="Paste ### FILE: markdown blocks"></textarea>`,
         })}
         ${contentActionRow({
-          n: 3,
+          n: 6,
           label: 'Load FILE blocks as draft <span class="muted">(Required)</span>',
           controlsHtml: `<button type="button" class="btn primary" id="ca-paste-writer" data-tip="Parse FILE blocks into candidate draft" ${ready ? '' : 'disabled'}>Load FILE blocks as draft</button>`,
         })}`,
@@ -6360,8 +6978,8 @@ function renderContent() {
   const editorClaudeLabel = editorNeeds.criticalSeoN
     ? 'Needed for Critical SEO'
     : needsEditorClaude
-      ? 'Recommended'
-      : 'Optional';
+      ? 'Required'
+      : 'Required pack';
   const editorStatusBits = [];
   if (stepDone.accepted) {
     editorStatusBits.push(
@@ -6370,13 +6988,13 @@ function renderContent() {
   }
   if (!speechChecked && !stepDone.accepted) {
     editorStatusBits.push(
-      `<div class="callout warn">Speech/SEO Refinement not run yet — Accept stays blocked.</div>`,
+      `<div class="callout warn">Humanize not run yet — Final check / Accept stay blocked.</div>`,
     );
   } else if (needsEditorClaude) {
     editorStatusBits.push(editorRewriteWhyHtml(editorNeeds));
   } else if (speechChecked && !stepDone.accepted) {
     editorStatusBits.push(
-      `<div class="callout"><strong>No Claude rewrite needed.</strong> Up next: <strong>Accept content</strong>.</div>
+      `<div class="callout"><strong>Humanize clear.</strong> Up next: <strong>Final check</strong>.</div>
                 <p class="muted">Speech/SEO Refinement run at ${esc(
                   String(lintSource?._ops?.lastSpeechCheckAt || ''),
                 )}</p>`,
@@ -6387,7 +7005,7 @@ function renderContent() {
     ? `        ${contentActionRow({
           n: 2,
           label: `Copy editor prompt <span class="muted">(${editorClaudeLabel})</span>`,
-          hint: 'Prompt includes only files with open findings — paste back only changed FILEs; Load merges. Works from draft or accepted content.',
+          hint: 'Passes 4–7: Burstiness → Perplexity → Bookends → Conversion + findings. Paste back only changed FILEs; Load merges.',
           controlsHtml: `<button type="button" class="btn primary" id="ca-copy-editor" data-tip="Copy findings-scoped editor prompt for Claude.ai" ${
             ready ? '' : 'disabled'
           }>Copy editor prompt</button>
@@ -6395,12 +7013,19 @@ function renderContent() {
         })}
         ${contentActionRow({
           n: 3,
+          label: 'Copy bookends-only <span class="muted">(extra polish)</span>',
+          controlsHtml: `<button type="button" class="btn" id="ca-copy-bookends" ${
+            ready && hasEditableContent ? '' : 'disabled'
+          }>Copy bookends-only</button>`,
+        })}
+        ${contentActionRow({
+          n: 4,
           label: 'Paste revised FILE blocks',
           hint: 'Load here after Claude — then Speech/SEO Refinement again.',
           controlsHtml: `<textarea id="ca-editor-paste" class="narrative-paste-input" rows="2" placeholder="### FILE: src/content/pages/index.md&#10;---&#10;..." data-tip="Paste revised ### FILE: blocks"></textarea>`,
         })}
         ${contentActionRow({
-          n: 4,
+          n: 5,
           label: 'Load FILE blocks as draft',
           controlsHtml: `<button type="button" class="btn" id="ca-paste-editor" data-tip="Parse FILE blocks into candidate draft" ${ready ? '' : 'disabled'}>Load FILE blocks as draft</button>`,
         })}
@@ -6414,12 +7039,13 @@ function renderContent() {
   parts.push(
     contentStepHtml({
       id: 'editor',
-      num: 4,
-      title: 'Speech/SEO Refinement',
+      num: 6,
+      title: 'Humanize (Passes 4–7)',
       done: editorDone,
       open: openId === 'editor',
       current: currentId === 'editor' && !editorDone,
-      info: 'Speech/SEO Refinement runs automatically after a complete FILE Load. Re-run anytime. Copy editor prompt / Load stay available for speech leftovers, Critical SEO, and soft SEO — including after Accept (Load seeds a new draft; Accept again to publish).',
+      locked: !writeDone,
+      info: 'Required. Speech/SEO Refinement runs automatically after a complete FILE Load. Copy editor prompt runs Burstiness → Perplexity → Bookends → Conversion. Clear all findings before Final check.',
       bodyHtml: `
         ${incompleteDraftCalloutHtml(d)}
         ${contentActionRow({
@@ -6444,26 +7070,85 @@ function renderContent() {
 
   parts.push(
     contentStepHtml({
+      id: 'finalCheck',
+      num: 7,
+      title: 'Final check (Pass 8)',
+      done: finalCheckDone,
+      open: openId === 'finalCheck',
+      current: currentId === 'finalCheck' && !finalCheckDone,
+      locked: !editorDone,
+      info: 'Required Pass 8. Copy final-check prompt → Claude returns {"ok":true} or ### FILE fixes → Load. Accept stays blocked until this runs.',
+      bodyHtml: `
+        ${
+          finalOk
+            ? `<div class="callout"><strong>Final check recorded</strong> at ${esc(
+                String(draft?._ops?.lastFinalCheckAt || accepted?._ops?.lastFinalCheckAt || ''),
+              )}${
+                draft?._ops?.lastFinalCheckSummary
+                  ? ` — ${esc(draft._ops.lastFinalCheckSummary)}`
+                  : ''
+              }</div>`
+            : `<div class="callout warn">Required — run Final check before Accept.</div>`
+        }
+        ${contentActionRow({
+          n: 1,
+          label: 'Copy final-check prompt <span class="muted">(Required)</span>',
+          controlsHtml: `<button type="button" class="btn primary" id="cs-copy-final" ${
+            editorDone && writeFilesReady ? '' : 'disabled'
+          }>Copy final-check prompt</button>
+          ${openClaudeAiBtnHtml({ disabled: !(editorDone && writeFilesReady) })}`,
+        })}
+        ${contentActionRow({
+          n: 2,
+          label: 'Paste OK JSON or FILE fixes <span class="muted">(Required)</span>',
+          controlsHtml: `<textarea id="cs-final-paste" class="narrative-paste-input" rows="2" placeholder='{"ok":true} or ### FILE: …'></textarea>`,
+        })}
+        ${contentActionRow({
+          n: 3,
+          label: 'Load final-check result <span class="muted">(Required)</span>',
+          controlsHtml: `<button type="button" class="btn primary" id="cs-load-final" ${
+            editorDone && writeFilesReady ? '' : 'disabled'
+          }>Load final-check result</button>`,
+        })}`,
+    }),
+  );
+
+  const acceptReady =
+    Boolean(draft) &&
+    speechChecked &&
+    fieldOk &&
+    briefOk &&
+    writeOk &&
+    editorNeeds.speechN === 0 &&
+    finalOk;
+  parts.push(
+    contentStepHtml({
       id: 'accept',
-      num: 5,
+      num: 8,
       title: 'Accept content',
       done: acceptDone,
       open: openId === 'accept',
       current: currentId === 'accept' && !stepDone.accepted,
-      info: 'Accept writes shared src/content/, auto-pulls stock photos when enabled, and generates logo + coverage map when possible. Then open Website → Prepare preview.',
+      locked: !finalCheckDone,
+      info: 'Accept writes shared src/content/, auto-pulls stock photos when enabled, and generates logo + coverage map when possible. Scorecard above must be green. Then open Website → Prepare preview.',
       bodyHtml: `
         ${incompleteDraftCalloutHtml(d)}
+        ${
+          !acceptReady && draft
+            ? `<div class="callout warn">Accept locked until Field research, Brief, Write batches, Humanize (clear), and Final check are done. See scorecard above.</div>`
+            : ''
+        }
         ${
           seoCritical.length
             ? `<div class="callout warn"><strong>Critical SEO:</strong> ${esc(
                 seoCritical.map((f) => f.excerpt || f.rule).join('; '),
-              )}. Use Copy editor prompt on the Speech/SEO Refinement step, or check override below.</div>
+              )}. Use Copy editor prompt on the Humanize step, or check override below.</div>
               <label class="check"><input type="checkbox" id="content-accept-seo-override" /> Accept with SEO warnings</label>`
             : ''
         }
         <div class="narrative-actions" style="justify-content:flex-end">
           <button type="button" class="btn primary" id="content-accept-btn" data-tip="Accept draft — write files into src/content/" ${
-            draft && speechChecked ? '' : 'disabled'
+            acceptReady ? '' : 'disabled'
           }>Accept content</button>
         </div>
         <div id="ca-accept-progress" class="job-progress hidden" aria-live="polite">
@@ -7570,6 +8255,17 @@ function renderWebsite() {
         </div>`
             : ''
         }
+        <details class="narrative-raw" style="margin-top:0.75rem">
+          <summary>GBP category checklist <span class="muted">(advisory)</span></summary>
+          <p class="disc-tool-blurb">After rent path: Copy GBP category prompt → Claude → Load checklist JSON. Advisory only — does not block Assemble / Launch.</p>
+          <div class="narrative-actions" style="flex-wrap:wrap;gap:0.35rem;margin:0.5rem 0">
+            <button type="button" class="btn" id="ca-copy-gbp-categories">Copy GBP category prompt</button>
+            ${openClaudeAiBtnHtml({ sm: true })}
+            <button type="button" class="btn" id="ca-load-gbp-categories">Load checklist JSON</button>
+          </div>
+          <textarea id="ca-gbp-categories-paste" class="narrative-paste-input" rows="2" placeholder='{ "primaryCategory": "…", "additionalCategories": [] }'></textarea>
+          <p class="muted small" id="ca-gbp-categories-status"></p>
+        </details>
         <p class="muted">${
           flags.alreadyLive
             ? 'Push updates = ship only (GitHub + build + Worker). Re-assemble via Prepare preview when template/content changed.'
@@ -8032,11 +8728,11 @@ function wireContentTab(d) {
         method: 'POST',
         body: JSON.stringify(withLaunchedConfirmBody(selection)),
       });
-      await refresh(result.candidate, 'outline');
+      await refresh(result.candidate, 'fieldResearch');
       if (result.warnings?.length) {
         showToast(result.warnings.join(' '), { tone: 'warn' });
       } else {
-        showToast('Outline composed — copy structure prompt next.');
+        showToast('Outline composed — Field research next.');
       }
     } catch (error) {
       await showModal({
@@ -8097,6 +8793,200 @@ function wireContentTab(d) {
         'Full-write prompt',
       ),
     );
+
+  document
+    .getElementById('cs-copy-write-home')
+    ?.addEventListener(
+      'click',
+      copyPrompt(
+        `/api/candidates/${encodeURIComponent(id)}/content/structure/write-prompt?batch=home`,
+        'Home batch prompt',
+      ),
+    );
+  document
+    .getElementById('cs-copy-write-services')
+    ?.addEventListener(
+      'click',
+      copyPrompt(
+        `/api/candidates/${encodeURIComponent(id)}/content/structure/write-prompt?batch=services`,
+        'Services batch prompt',
+      ),
+    );
+  document
+    .getElementById('cs-copy-write-locations')
+    ?.addEventListener(
+      'click',
+      copyPrompt(
+        `/api/candidates/${encodeURIComponent(id)}/content/structure/write-prompt?batch=locations`,
+        'Locations batch prompt',
+      ),
+    );
+
+  document
+    .getElementById('cs-copy-field-research')
+    ?.addEventListener('click', async () => {
+      try {
+        const notes = document.getElementById('cs-field-notes')?.value || '';
+        const q = notes.trim()
+          ? `?notes=${encodeURIComponent(notes.trim())}`
+          : '';
+        const data = await api(
+          `/api/candidates/${encodeURIComponent(id)}/content/field-research/prompt${q}`,
+        );
+        await navigator.clipboard.writeText(data.prompt || '');
+        showToast('Field-research prompt copied to clipboard.');
+      } catch (error) {
+        await showModal({
+          title: 'Copy failed',
+          confirmLabel: 'OK',
+          bodyHtml: `<p>${esc(error.message)}</p>`,
+        });
+      }
+    });
+
+  document.getElementById('cs-load-field-research')?.addEventListener('click', async () => {
+    const text = document.getElementById('cs-field-research-paste')?.value || '';
+    if (!text.trim()) {
+      await showModal({
+        title: 'Nothing to paste',
+        confirmLabel: 'OK',
+        bodyHtml: '<p>Paste the field-research JSON from Claude first.</p>',
+      });
+      return;
+    }
+    try {
+      if (!(await confirmLaunchedSiteChange('Load field research'))) return;
+      const notes = document.getElementById('cs-field-notes')?.value || '';
+      const result = await api(
+        `/api/candidates/${encodeURIComponent(id)}/content/field-research`,
+        {
+          method: 'POST',
+          body: JSON.stringify(
+            withLaunchedConfirmBody({ json: text, operatorNotes: notes }),
+          ),
+        },
+      );
+      await refresh(result.candidate, 'brief');
+      showToast('Field research loaded — Content brief next.');
+    } catch (error) {
+      await showModal({
+        title: 'Field research load failed',
+        confirmLabel: 'OK',
+        bodyHtml: `<p>${esc(error.message)}</p>`,
+      });
+    }
+  });
+
+  document.getElementById('cs-copy-brief')?.addEventListener('click', async () => {
+    try {
+      const notes = document.getElementById('cs-field-notes')?.value || '';
+      const q = notes.trim() ? `?notes=${encodeURIComponent(notes.trim())}` : '';
+      const data = await api(
+        `/api/candidates/${encodeURIComponent(id)}/content/soft-brief/prompt${q}`,
+      );
+      await navigator.clipboard.writeText(data.prompt || '');
+      showToast('Brief synthesis prompt copied to clipboard.');
+    } catch (error) {
+      await showModal({
+        title: 'Copy failed',
+        confirmLabel: 'OK',
+        bodyHtml: `<p>${esc(error.message)}</p>`,
+      });
+    }
+  });
+
+  document.getElementById('cs-confirm-brief')?.addEventListener('click', async () => {
+    const text = document.getElementById('cs-brief-paste')?.value || '';
+    if (!text.trim()) {
+      await showModal({
+        title: 'Nothing to paste',
+        confirmLabel: 'OK',
+        bodyHtml: '<p>Paste the Content brief JSON from Claude first.</p>',
+      });
+      return;
+    }
+    try {
+      if (!(await confirmLaunchedSiteChange('Load & confirm brief'))) return;
+      const result = await api(
+        `/api/candidates/${encodeURIComponent(id)}/content/soft-brief/confirm`,
+        {
+          method: 'POST',
+          body: JSON.stringify(withLaunchedConfirmBody({ json: text })),
+        },
+      );
+      await refresh(result.candidate, 'outline');
+      showToast('Brief confirmed — Outline next.');
+    } catch (error) {
+      await showModal({
+        title: 'Brief confirm failed',
+        confirmLabel: 'OK',
+        bodyHtml: `<p>${esc(error.message)}</p>`,
+      });
+    }
+  });
+
+  document
+    .getElementById('ca-copy-bookends')
+    ?.addEventListener(
+      'click',
+      copyPrompt(
+        `/api/candidates/${encodeURIComponent(id)}/content/bookends/prompt`,
+        'Bookends-only prompt',
+      ),
+    );
+
+  document
+    .getElementById('cs-copy-final')
+    ?.addEventListener(
+      'click',
+      copyPrompt(
+        `/api/candidates/${encodeURIComponent(id)}/content/final-check/prompt`,
+        'Final-check prompt',
+      ),
+    );
+
+  document.getElementById('cs-load-final')?.addEventListener('click', async () => {
+    const text = document.getElementById('cs-final-paste')?.value || '';
+    if (!text.trim()) {
+      await showModal({
+        title: 'Nothing to paste',
+        confirmLabel: 'OK',
+        bodyHtml: '<p>Paste {"ok":true} or ### FILE fixes from Claude first.</p>',
+      });
+      return;
+    }
+    try {
+      if (!(await confirmLaunchedSiteChange('Load final-check result'))) return;
+      const result = await api(
+        `/api/candidates/${encodeURIComponent(id)}/content/final-check`,
+        {
+          method: 'POST',
+          body: JSON.stringify(withLaunchedConfirmBody({ text })),
+        },
+      );
+      const stampedAt =
+        result.candidate?.contentDraft?._ops?.lastFinalCheckAt ||
+        result.candidate?.stageFlags?.hasContentFinalCheck;
+      if (!stampedAt) {
+        await showModal({
+          title: 'Final check not recorded',
+          confirmLabel: 'OK',
+          bodyHtml:
+            '<p>Server did not stamp Final check. Paste <code>{"ok":true}</code> or ### FILE fixes and Load again.</p>',
+        });
+        await refresh(result.candidate || state.detail, 'finalCheck');
+        return;
+      }
+      await refresh(result.candidate, 'accept');
+      showToast('Final check recorded — Accept when scorecard is green.');
+    } catch (error) {
+      await showModal({
+        title: 'Final check load failed',
+        confirmLabel: 'OK',
+        bodyHtml: `<p>${esc(error.message)}</p>`,
+      });
+    }
+  });
 
   document.querySelectorAll('.js-copy-continue-prompt').forEach((btn) => {
     btn.addEventListener('click', () => copyContinueWritePrompt(id));
@@ -8223,9 +9113,9 @@ function wireContentTab(d) {
           bodyHtml: speechCheckResultBodyHtml(data),
         });
       } else {
-        showToast('Speech/SEO Refinement clear — ready to Accept.');
+        showToast('Speech/SEO Refinement clear — Final check next.');
       }
-      await refresh(data.candidate || state.detail, needs.needed ? 'editor' : 'accept');
+      await refresh(data.candidate || state.detail, needs.needed ? 'editor' : 'finalCheck');
     } catch (error) {
       await showModal({
         title: 'Speech/SEO Refinement failed',
@@ -9378,6 +10268,47 @@ function wireContentTab(d) {
     }
   });
 
+  document
+    .getElementById('ca-copy-gbp-categories')
+    ?.addEventListener(
+      'click',
+      copyPrompt(
+        `/api/candidates/${encodeURIComponent(id)}/gbp-categories/prompt`,
+        'GBP category prompt',
+      ),
+    );
+  document.getElementById('ca-load-gbp-categories')?.addEventListener('click', async () => {
+    const text = document.getElementById('ca-gbp-categories-paste')?.value || '';
+    if (!text.trim()) {
+      await showModal({
+        title: 'Nothing to paste',
+        confirmLabel: 'OK',
+        bodyHtml: '<p>Paste the GBP category checklist JSON from Claude first.</p>',
+      });
+      return;
+    }
+    try {
+      const result = await api(`/api/candidates/${encodeURIComponent(id)}/gbp-categories`, {
+        method: 'POST',
+        body: JSON.stringify({ json: text }),
+      });
+      const statusEl = document.getElementById('ca-gbp-categories-status');
+      if (statusEl) {
+        statusEl.textContent = `Loaded · primary: ${
+          result.checklist?.primaryCategory || '—'
+        }`;
+      }
+      showToast('GBP category checklist saved (advisory).');
+      if (result.candidate) state.detail = result.candidate;
+    } catch (error) {
+      await showModal({
+        title: 'GBP checklist load failed',
+        confirmLabel: 'OK',
+        bodyHtml: `<p>${esc(error.message)}</p>`,
+      });
+    }
+  });
+
   document.getElementById('ca-launch-status')?.addEventListener('click', async () => {
     try {
       const st = await fillLaunchDefaults();
@@ -9950,9 +10881,29 @@ function wireSiteConfigTab(d) {
   };
   document.getElementById('ba-show-home')?.addEventListener('click', () => {
     document.getElementById('ba-home-panel')?.classList.remove('hidden');
+    document.getElementById('ba-manual-panel')?.classList.add('hidden');
+  });
+  document.getElementById('ba-show-manual')?.addEventListener('click', () => {
+    document.getElementById('ba-manual-panel')?.classList.remove('hidden');
+    document.getElementById('ba-home-panel')?.classList.add('hidden');
   });
 
-  const runBaAddressSearch = async ({ refreshLoopnet = false } = {}) => {
+  const refreshBaRecover = async () => {
+    try {
+      const data = await api(`/api/candidates/${encodeURIComponent(d.id)}/address/recover`);
+      if (!state.baRecover) state.baRecover = {};
+      state.baRecover[d.id] = data;
+      if (state._baRecoverAttempted) state._baRecoverAttempted[d.id] = true;
+    } catch {
+      /* ignore */
+    }
+  };
+
+  const runBaAddressSearch = async ({
+    refreshLoopnet = false,
+    deepen = null,
+    raisePullMax = false,
+  } = {}) => {
     if (state.baSearchBusy) return;
     state.baSearchBusy = true;
     state.baSearchMode = refreshLoopnet ? 'refresh' : 'find';
@@ -9964,14 +10915,23 @@ function wireSiteConfigTab(d) {
       renderDetail();
     };
     try {
+      const body = { refreshLoopnet: Boolean(refreshLoopnet) };
+      if (deepen != null) body.deepen = Boolean(deepen);
+      if (raisePullMax) body.raisePullMax = true;
       const result = await api(`/api/candidates/${encodeURIComponent(d.id)}/address/search`, {
         method: 'POST',
-        body: JSON.stringify({ refreshLoopnet: Boolean(refreshLoopnet) }),
+        body: JSON.stringify(body),
       });
       if (result?.candidate) state.detail = result.candidate;
       if (result?.apifyPlanUsage) state.apifyPlanUsage = result.apifyPlanUsage;
       else if (result?.package?.apifyPlanUsage) {
         state.apifyPlanUsage = result.package.apifyPlanUsage;
+      }
+      if (result?.recover) {
+        if (!state.baRecover) state.baRecover = {};
+        state.baRecover[d.id] = result.recover;
+      } else {
+        await refreshBaRecover();
       }
       const pkg = result?.package || state.detail?.businessAddress;
       const kind = pkg?.lastSearchErrorKind;
@@ -9983,7 +10943,7 @@ function wireSiteConfigTab(d) {
           hideCancel: true,
           bodyHtml: `<p>${esc(pkg?.lastSearchError || 'Apify usage limit reached.')}</p>
             <p>Add credit or upgrade at <a href="https://console.apify.com/billing/subscription" target="_blank" rel="noopener">Apify billing</a>, then retry Find.</p>
-            <p class="muted">Until then use <strong>Use my home address</strong> or <strong>Skip address</strong>.</p>`,
+            <p class="muted">Until then use <strong>Manual commercial</strong>, home paste, or <strong>Skip address</strong>.</p>`,
         });
         return;
       }
@@ -9991,7 +10951,7 @@ function wireSiteConfigTab(d) {
       const clean = Number(pkg?.lastSearchStats?.shortlist ?? 0);
       const title =
         kind === 'cache_exhausted'
-          ? 'Cache exhausted'
+          ? '0 left — Fetch deeper?'
           : clean === 0
             ? 'Find complete — no new cleans'
             : added > 0
@@ -10003,7 +10963,9 @@ function wireSiteConfigTab(d) {
         hideCancel: true,
         bodyHtml: baSearchReportBodyHtml(pkg, {
           title: 'This run',
-          failed: Boolean(kind && kind !== 'empty_screened'),
+          failed: Boolean(
+            kind && kind !== 'empty_screened' && kind !== 'cache_exhausted',
+          ),
         }),
       });
     } catch (error) {
@@ -10026,14 +10988,14 @@ function wireSiteConfigTab(d) {
           hideCancel: true,
           bodyHtml: `<p>${esc(error.message)}</p>
           <p>Add credit or upgrade at <a href="https://console.apify.com/billing/subscription" target="_blank" rel="noopener">Apify billing</a>, then retry Find.</p>
-          <p class="muted">Until then use <strong>Use my home address</strong> or <strong>Skip address</strong>.</p>`,
+          <p class="muted">Until then use <strong>Manual commercial</strong>, home paste, or <strong>Skip address</strong>.</p>`,
         });
       } else {
         await showModal({
           title: 'Address search failed',
           confirmLabel: 'OK',
           hideCancel: true,
-          bodyHtml: `<p>${esc(error.message)}</p><p class="muted">You can still Use my home address or Skip. Check APIFY_* and GOOGLE_MAPS_API_KEY in .env for Find.</p>`,
+          bodyHtml: `<p>${esc(error.message)}</p><p class="muted">You can still use Manual commercial, home paste, or Skip. Check APIFY_* and GOOGLE_MAPS_API_KEY in .env for Find.</p>`,
         });
       }
     } finally {
@@ -10054,15 +11016,66 @@ function wireSiteConfigTab(d) {
         : null;
 
     if (cacheLen > 0 && fresh && unscreened === 0) {
+      const recover = state.baRecover?.[d.id];
+      const stats = pkg?.lastSearchStats || {};
+      const urlCount = Math.max(1, Number(recover?.pullUrlCount || stats.pullUrlCount || 2));
+      const step = Number(recover?.pullDepthStep || stats.pullDepthStep || 100);
+      const lastMax = Number(recover?.lastPullMax || stats.pullMax || 200);
+      const nextMax = Number(recover?.nextPullMax || lastMax + step);
+      const lastBudget = Number(recover?.lastPullBudget || lastMax * urlCount);
+      const nextBudget = Number(recover?.nextPullBudget || nextMax * urlCount);
+      const hardBudget = Number(
+        recover?.pullHardMaxBudget ||
+          Number(recover?.pullHardMax || stats.pullHardMax || 500) * urlCount,
+      );
+      const proposedBudget = Number(
+        recover?.proposedHardMaxBudget ||
+          Number(recover?.proposedHardMax || 0) * urlCount ||
+          hardBudget * 2,
+      );
+      const canRaise = Boolean(recover?.canRaiseMax || recover?.needsMaxRaise);
+      const needsRaise = Boolean(recover?.needsMaxRaise) || (Boolean(recover?.deepenAtCap) && canRaise);
+      const atAbsolute = Boolean(recover?.deepenAtCap) && !canRaise;
+
+      if (needsRaise && canRaise) {
+        const go = await showModal({
+          title: 'Cache exhausted — raise ceiling?',
+          confirmLabel: 'Double ceiling & fetch deeper',
+          cancelLabel: 'Cancel',
+          bodyHtml: baExhaustedDeepenWarnHtml({
+            variant: 'raise',
+            nextBudget,
+            hardBudget,
+            proposedBudget,
+          }),
+        });
+        if (!go) return;
+        await runBaAddressSearch({
+          refreshLoopnet: true,
+          deepen: true,
+          raisePullMax: true,
+        });
+        return;
+      }
+
       const go = await showModal({
-        title: 'No more cached candidates',
-        confirmLabel: 'Refresh LoopNet',
+        title: atAbsolute
+          ? 'Cache exhausted — at max'
+          : 'Cache exhausted — Fetch deeper?',
+        confirmLabel: atAbsolute ? 'Refresh anyway' : 'Fetch deeper (billable)',
         cancelLabel: 'Cancel',
-        bodyHtml: `<p>All listings in the cached LoopNet list are already screened.</p>
-          <p class="muted"><strong>Refresh LoopNet</strong> pulls new listings (costs Apify), then screens only streets you have not seen yet.</p>`,
+        bodyHtml: baExhaustedDeepenWarnHtml({
+          variant: atAbsolute ? 'absolute' : 'deepen',
+          lastBudget,
+          nextBudget,
+          hardBudget,
+        }),
       });
       if (!go) return;
-      await runBaAddressSearch({ refreshLoopnet: true });
+      await runBaAddressSearch({
+        refreshLoopnet: true,
+        deepen: !atAbsolute,
+      });
       return;
     }
 
@@ -10072,7 +11085,7 @@ function wireSiteConfigTab(d) {
         confirmLabel: 'Refresh LoopNet',
         cancelLabel: 'Screen remaining',
         bodyHtml: `<p>Cached listings are older than 7 days.</p>
-          <p class="muted"><strong>Refresh LoopNet</strong> re-scrapes (Apify billable). <strong>Screen remaining</strong> keeps the old cache and only runs Places on unscreened streets (Apify $0).</p>`,
+          <p class="muted"><strong>Refresh LoopNet</strong> re-scrapes (Apify billable). <strong>Screen remaining</strong> keeps the old cache and only runs Places on unscreened streets (Apify $0). Street ranges expand to start/end numbers.</p>`,
       });
       // showModal: confirm=true, cancel=false — need check how cancel works
       if (go === true) {
@@ -10088,15 +11101,107 @@ function wireSiteConfigTab(d) {
 
   document.getElementById('ba-refresh-loopnet')?.addEventListener('click', async () => {
     if (state.baSearchBusy) return;
+    const pkg = state.detail?.businessAddress;
+    const unscreened =
+      pkg?.lastSearchStats?.unscreenedRemaining != null
+        ? Number(pkg.lastSearchStats.unscreenedRemaining)
+        : state.baRecover?.[d.id]?.unscreenedRemaining != null
+          ? Number(state.baRecover[d.id].unscreenedRemaining)
+          : null;
+    const exhausted =
+      unscreened === 0 &&
+      (Number(pkg?.lastSearchStats?.inventoryTotal ?? state.baRecover?.[d.id]?.inventoryTotal ?? 0) >
+        0 ||
+        (Array.isArray(pkg?.listingCache?.listings) && pkg.listingCache.listings.length > 0));
+    const recover = state.baRecover?.[d.id];
+    const stats = pkg?.lastSearchStats || {};
+    const urlCount = Math.max(1, Number(recover?.pullUrlCount || stats.pullUrlCount || 2));
+    const step = Number(recover?.pullDepthStep || stats.pullDepthStep || 100);
+    const lastMax = Number(recover?.lastPullMax || stats.pullMax || 200);
+    const nextMax = Number(recover?.nextPullMax || lastMax + step);
+    const lastBudget = Number(recover?.lastPullBudget || lastMax * urlCount);
+    const nextBudget = Number(recover?.nextPullBudget || nextMax * urlCount);
+    const hardBudget = Number(
+      recover?.pullHardMaxBudget ||
+        Number(recover?.pullHardMax || stats.pullHardMax || 500) * urlCount,
+    );
+    const proposedBudget = Number(
+      recover?.proposedHardMaxBudget ||
+        Number(recover?.proposedHardMax || 0) * urlCount ||
+        hardBudget * 2,
+    );
+    const canRaise = Boolean(recover?.canRaiseMax || recover?.needsMaxRaise);
+    const needsRaise = Boolean(recover?.needsMaxRaise) || (Boolean(recover?.deepenAtCap) && canRaise);
+    const atAbsolute = Boolean(recover?.deepenAtCap) && !canRaise;
+
+    if (exhausted && needsRaise && canRaise) {
+      const go = await showModal({
+        title: 'Cache exhausted — raise ceiling?',
+        confirmLabel: 'Double ceiling & fetch deeper',
+        cancelLabel: 'Cancel',
+        bodyHtml: baExhaustedDeepenWarnHtml({
+          variant: 'raise',
+          nextBudget,
+          hardBudget,
+          proposedBudget,
+        }),
+      });
+      if (!go) return;
+      await runBaAddressSearch({
+        refreshLoopnet: true,
+        deepen: true,
+        raisePullMax: true,
+      });
+      return;
+    }
+
+    if (exhausted && !atAbsolute && !needsRaise) {
+      const go = await showModal({
+        title: 'Cache exhausted — Fetch deeper?',
+        confirmLabel: 'Fetch deeper (billable)',
+        cancelLabel: 'Cancel',
+        bodyHtml: baExhaustedDeepenWarnHtml({
+          variant: 'deepen',
+          lastBudget,
+          nextBudget,
+        }),
+      });
+      if (!go) return;
+      await runBaAddressSearch({ refreshLoopnet: true, deepen: true });
+      return;
+    }
+
     const go = await showModal({
-      title: 'Refresh LoopNet?',
-      confirmLabel: 'Refresh (billable)',
+      title: exhausted && atAbsolute ? 'Cache exhausted — at max' : 'Refresh LoopNet?',
+      confirmLabel: exhausted && atAbsolute ? 'Refresh anyway' : 'Refresh (billable)',
       cancelLabel: 'Cancel',
-      bodyHtml: `<p>This re-runs the Apify LoopNet actor for this city (billable), merges new listings into the cache, and screens streets not already decided.</p>
-        <p class="muted">Prefer <strong>Find addresses</strong> when the cache is still fresh — that continues without Apify.</p>`,
+      bodyHtml: exhausted && atAbsolute
+        ? baExhaustedDeepenWarnHtml({ variant: 'absolute', hardBudget })
+        : `<p>This re-runs the Apify LoopNet actor for this city (billable), merges new listings into the cache, and screens streets not already decided. Numeric ranges expand to start/end endpoints.</p>
+        <p class="muted">Prefer <strong>Find addresses</strong> when the cache is still fresh — that continues without Apify. When exhausted, use <strong>Fetch deeper</strong> to raise the pull budget.</p>`,
     });
     if (!go) return;
-    await runBaAddressSearch({ refreshLoopnet: true });
+    await runBaAddressSearch({
+      refreshLoopnet: true,
+      deepen: exhausted && !atAbsolute && !needsRaise,
+    });
+  });
+  document.getElementById('ba-save-manual')?.addEventListener('click', async () => {
+    const line = document.getElementById('ba-manual-line')?.value?.trim() || '';
+    try {
+      const result = await api(`/api/candidates/${encodeURIComponent(d.id)}/address/manual`, {
+        method: 'POST',
+        body: JSON.stringify({ line }),
+      });
+      await afterAddressChoice(result);
+    } catch (error) {
+      await showModal({
+        title: 'Save commercial address failed',
+        confirmLabel: 'OK',
+        hideCancel: true,
+        bodyHtml: `<p>${esc(error.message)}</p>`,
+      });
+    }
   });
   document.getElementById('ba-save-home')?.addEventListener('click', async () => {
     const line = document.getElementById('ba-home-line')?.value?.trim() || '';
@@ -10136,6 +11241,29 @@ function wireSiteConfigTab(d) {
       const idx = Number(btn.dataset.baIndex);
       const row = state.detail?.businessAddress?.shortlist?.[idx];
       if (!row) return;
+      const targetCity = String(
+        state.detail?.businessAddress?.city ||
+          state.detail?.siteConfig?.primaryCity ||
+          state.detail?.approved?.primaryCity ||
+          state.detail?.approved?.city ||
+          '',
+      ).trim();
+      if (row.tier === 'secondary' || btn.dataset.baTier === 'secondary') {
+        const go = await showModal({
+          title: 'Use Secondary address?',
+          confirmLabel: 'Use Secondary',
+          cancelLabel: 'Cancel',
+          bodyHtml: `<p><strong>${esc(row.street)}</strong>, ${esc(row.city)}, ${esc(row.state)} ${esc(
+            row.zip,
+          )}</p>
+            <p class="muted">Places-clean, but Google Maps locality is <strong>${esc(
+              row.mapsLocality || 'outside the target city',
+            )}</strong>${
+              targetCity ? ` (not ${esc(targetCity)})` : ''
+            }. Prefer an in-city Recommended address when available.</p>`,
+        });
+        if (!go) return;
+      }
       try {
         const result = await api(`/api/candidates/${encodeURIComponent(d.id)}/address/select`, {
           method: 'POST',
@@ -10146,7 +11274,7 @@ function wireSiteConfigTab(d) {
               city: row.city,
               state: row.state,
               zip: row.zip,
-              source: 'commercial',
+              source: row.tier === 'secondary' ? 'commercial_secondary' : 'commercial',
             },
           }),
         });
@@ -10159,6 +11287,87 @@ function wireSiteConfigTab(d) {
           bodyHtml: `<p>${esc(error.message)}</p>`,
         });
       }
+    });
+  });
+
+  const selectRecoverRow = async (kind, dedupeKey) => {
+    const pack = state.baRecover?.[d.id];
+    const list = kind === 'override' ? pack?.overrides : pack?.cleans;
+    const row = Array.isArray(list)
+      ? list.find((r) => String(r.dedupeKey || '') === String(dedupeKey || ''))
+      : null;
+    if (!row) return;
+    if (kind === 'override') {
+      const go = await showModal({
+        title: 'Use anyway?',
+        confirmLabel: 'Use anyway',
+        cancelLabel: 'Cancel',
+        bodyHtml: `<p><strong>${esc(row.street)}</strong>, ${esc(row.city)}, ${esc(row.state)} ${esc(
+          row.zip,
+        )}</p>
+          <p class="muted">Places previously found a Maps business at this street number${
+            row.fail ? ` (${esc(String(row.fail))})` : ''
+          }. Claiming it is an operator override — GBP verification may be harder.</p>`,
+      });
+      if (!go) return;
+    } else if (row.tier === 'secondary') {
+      const targetCity = String(
+        state.detail?.businessAddress?.city ||
+          state.detail?.siteConfig?.primaryCity ||
+          state.detail?.approved?.primaryCity ||
+          '',
+      ).trim();
+      const go = await showModal({
+        title: 'Use Secondary address?',
+        confirmLabel: 'Use Secondary',
+        cancelLabel: 'Cancel',
+        bodyHtml: `<p><strong>${esc(row.street)}</strong>, ${esc(row.city)}, ${esc(row.state)} ${esc(
+          row.zip,
+        )}</p>
+          <p class="muted">Maps locality is <strong>${esc(
+            row.mapsLocality || 'outside the target city',
+          )}</strong>${targetCity ? ` (not ${esc(targetCity)})` : ''}.</p>`,
+      });
+      if (!go) return;
+    }
+    try {
+      const result = await api(`/api/candidates/${encodeURIComponent(d.id)}/address/select`, {
+        method: 'POST',
+        body: JSON.stringify({
+          selection: {
+            street: row.street,
+            suite: row.suite || '',
+            city: row.city,
+            state: row.state,
+            zip: row.zip,
+            source:
+              kind === 'override'
+                ? 'override'
+                : row.tier === 'secondary'
+                  ? 'recovered_secondary'
+                  : 'recovered',
+          },
+        }),
+      });
+      await afterAddressChoice(result);
+    } catch (error) {
+      await showModal({
+        title: /already used/i.test(error.message || '') ? 'Address already claimed' : 'Select failed',
+        confirmLabel: 'OK',
+        hideCancel: true,
+        bodyHtml: `<p>${esc(error.message)}</p>`,
+      });
+    }
+  };
+
+  document.querySelectorAll('.ba-use-recover').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      await selectRecoverRow('clean', btn.dataset.baDedupeKey);
+    });
+  });
+  document.querySelectorAll('.ba-use-override').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      await selectRecoverRow('override', btn.dataset.baDedupeKey);
     });
   });
 
@@ -10596,6 +11805,45 @@ function wireSiteConfigTab(d) {
         title: 'Skip phone failed',
         confirmLabel: 'OK',
         hideCancel: true,
+        bodyHtml: `<p>${esc(error.message)}</p>`,
+      });
+    }
+  });
+
+  document.getElementById('sc-copy-gbp-categories')?.addEventListener('click', async () => {
+    try {
+      const data = await api(`/api/candidates/${encodeURIComponent(d.id)}/gbp-categories/prompt`);
+      await navigator.clipboard.writeText(data.prompt || '');
+      showToast('GBP category prompt copied to clipboard.');
+    } catch (error) {
+      await showModal({
+        title: 'Copy failed',
+        confirmLabel: 'OK',
+        bodyHtml: `<p>${esc(error.message)}</p>`,
+      });
+    }
+  });
+  document.getElementById('sc-load-gbp-categories')?.addEventListener('click', async () => {
+    const text = document.getElementById('sc-gbp-categories-paste')?.value || '';
+    if (!text.trim()) {
+      await showModal({
+        title: 'Nothing to paste',
+        confirmLabel: 'OK',
+        bodyHtml: '<p>Paste the GBP category checklist JSON from Claude first.</p>',
+      });
+      return;
+    }
+    try {
+      const result = await api(`/api/candidates/${encodeURIComponent(d.id)}/gbp-categories`, {
+        method: 'POST',
+        body: JSON.stringify({ json: text }),
+      });
+      showToast('GBP category checklist saved (advisory).');
+      if (result.candidate) state.detail = result.candidate;
+    } catch (error) {
+      await showModal({
+        title: 'GBP checklist load failed',
+        confirmLabel: 'OK',
         bodyHtml: `<p>${esc(error.message)}</p>`,
       });
     }
