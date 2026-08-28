@@ -33,9 +33,9 @@ Design + writer rules for Structure sections. Informed by contractor conversion 
 
 ## Human-speech pass (Content Editor + speech lint)
 
-Content chain (eight-pass Soft path, all required): **Structure → Field research → Brief → Outline → batched Full write → Humanize (Passes 4–7) → Final check → Accept**.
+Content chain (eight-pass Soft path, all required): **Structure → Site research → Brief → Outline → batched Full write → Humanize (Passes 4–7) → Final check → Accept**.
 
-- **Field research** — Claude JSON stand-in for Reddit/PAA/competitor angles (`*-content-field-research.json`). Optional operator notes enrich Brief only.
+- **Site research** — Claude JSON stand-in for Reddit/PAA/competitor angles (`*-content-field-research.json`). Optional operator notes enrich Brief only.
 - **Content brief** — Pass 1 synthesis; must Load & confirm before Outline/Full write.
 - **Outline** — Pass 2 strategic outline (shared guardrails + per-H2 angle / job-to-be-done).
 - **Full write** — Pass 3 batched by Home / Services / Locations (tone variance); Continue merge for stubs.

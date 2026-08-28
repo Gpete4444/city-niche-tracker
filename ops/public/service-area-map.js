@@ -1,6 +1,6 @@
 /**
  * Shared radius + click multi-select map.
- * - Service area (Website Builder): page icons + Accept
+ * - Service area (Website Track): page icons + Accept
  * - Discovery pack: sync city names into pack Cities field
  *
  * Map host = table panel slot; controls host = form / step body.
@@ -972,7 +972,7 @@ async function mountGeoSelectMap(opts) {
   };
 }
 
-/** Website Builder — Service area step. */
+/** Website — Service area step. */
 export async function mountServiceAreaMap(opts) {
   return mountGeoSelectMap({ ...opts, variant: 'service-area' });
 }

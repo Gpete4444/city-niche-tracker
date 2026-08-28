@@ -138,13 +138,13 @@ ANTHROPIC_API_KEY=sk-ant-api03-…
 
 ## 3. Site-config · address — Google Maps & Apify
 
-You can still use **Manual commercial**, **home paste**, recover / Use anyway, or **Skip** without these. **Find addresses** (LoopNet + Places) needs both.
+You can still use **Manual commercial**, **home paste**, recover / Use anyway, or **Skip** without these. **Find addresses** needs Google Maps + Apify token and at least one of LoopNet / Crexi actor ids.
 
 ### 3a. Google Maps (Places)
 
 #### What it’s for
 
-Screens and validates commercial address candidates in Site-Config → Address (including expanded street-range endpoints). After a Places-clean pass, **Geocoding** resolves Maps locality so suburb mismatches (e.g. Kearns vs Salt Lake City) land in the **Secondary** tier.
+Screens and validates commercial address candidates in Site-Config → Address. Each **Find** / **Fetch deeper** pulls and Places-checks up to **40 listings** total (LoopNet ~20/URL × office+retail; Crexi 40/URL). A street is rejected only when Places returns an **OPERATIONAL** Maps listing locked to that street number + ZIP (not temp/permanent closed). After a Places-clean pass, **Geocoding** resolves Maps locality so suburb mismatches land in the **Secondary** tier (metro radius only).
 
 #### Required?
 
@@ -154,6 +154,9 @@ Screens and validates commercial address candidates in Site-Config → Address (
 
 ```env
 GOOGLE_MAPS_API_KEY=
+
+# Optional: max Places Text Search calls per Address Find/Screen run (default 40 = listings batch).
+# PLACES_BUDGET_PER_RUN=40
 ```
 
 #### Steps
@@ -182,23 +185,24 @@ GOOGLE_MAPS_API_KEY=AIza…
 
 ---
 
-### 3b. Apify (LoopNet)
+### 3b. Apify (LoopNet + Crexi)
 
 #### What it’s for
 
-Pulls commercial listing candidates for the address finder.
+Pulls commercial listing candidates for the address finder from **LoopNet** and/or **Crexi** (Address step toggles). Same Apify token for both actors.
 
 #### Required?
 
-**Required for Find addresses** (together with Google Maps). Optional if you only paste/skip/manual.
+**Required for Find addresses** (together with Google Maps): `APIFY_TOKEN` plus **at least one** of `APIFY_LOOPNET_ACTOR_ID` / `APIFY_CREXI_ACTOR_ID`. Optional if you only paste/skip/manual.
 
 #### Env variable names
 
 ```env
 APIFY_TOKEN=
 APIFY_LOOPNET_ACTOR_ID=
-# Optional: maxItems per LoopNet search URL on first pull (default 200, absolute max 2000).
-# ADDRESS_SEARCH_MAX_LISTINGS=200
+APIFY_CREXI_ACTOR_ID=
+# Optional: maxItems per search URL on first pull (LoopNet default 20, Crexi 40; absolute max 2000).
+# ADDRESS_SEARCH_MAX_LISTINGS=20
 ```
 
 #### Steps
@@ -206,28 +210,30 @@ APIFY_LOOPNET_ACTOR_ID=
 1. Open [Apify Console → Integrations](https://console.apify.com/settings/integrations).
 2. Sign up or log in; add billing / credits if prompted.
 3. Copy your **API token** into `APIFY_TOKEN`.
-4. Open the [Apify Store](https://apify.com/store), search for a **LoopNet** actor you want to use (prefer actors around ~$1.20–$1.50 per 1K results when choosing).
-5. Open that actor’s page. The actor id is in the URL, often like `abotapi~loopnet-scraper` (username~actor-name).
-6. Paste that id into `APIFY_LOOPNET_ACTOR_ID` (no spaces).
+4. Open the [Apify Store](https://apify.com/store). Prefer actors around ~$1.20–$1.50 per 1K results.
+5. **LoopNet:** open a LoopNet actor page (e.g. Solidcode). Copy the id under the title (`username/actor-name`) and paste into `APIFY_LOOPNET_ACTOR_ID` using the `~` form (`username~actor-name`).
+6. **Crexi (optional):** open [Solidcode Crexi scraper](https://apify.com/solidcode/crexi-scraper). Copy `solidcode/crexi-scraper` → set `APIFY_CREXI_ACTOR_ID=solidcode~crexi-scraper`.
 7. Save `.env`, restart Rover.
 
-Solidcode LoopNet runs two search URLs (office + retail); Rover’s Address step shows a **total pull budget** (maxItems × URL count). First pull defaults to 200/URL; Fetch deeper adds +100/URL. Each city starts with a **500**/URL ceiling that **doubles on confirm** when you would exceed it (absolute stop **2000**/URL). Fetch deeper re-scrapes from the top at the new max — not “new listings only.”
+Rover’s Address step can run LoopNet, Crexi, or both. Each **Find** / **Fetch deeper** targets **~40 listings total** and **≤40 Places** checks (~$1.28 Places list worst case). LoopNet Solidcode uses two URLs (office + retail) at **20 maxItems/URL**; Crexi uses one search at **40**. Fetch deeper adds **+20/URL** (LoopNet) or **+40** (Crexi). Each city/source starts with a **500**/URL ceiling that **doubles on confirm** (absolute **2000**/URL). Fetch deeper re-scrapes from the top at the new max — not “new listings only.”
 
 #### Links
 
 - [Apify Integrations / token](https://console.apify.com/settings/integrations)
 - [Apify Store](https://apify.com/store)
+- [Solidcode Crexi scraper](https://apify.com/solidcode/crexi-scraper)
 
 #### Where to paste
 
 ```env
 APIFY_TOKEN=apify_api_…
 APIFY_LOOPNET_ACTOR_ID=username~loopnet-actor-name
+APIFY_CREXI_ACTOR_ID=solidcode~crexi-scraper
 ```
 
 #### How Settings shows ✓
 
-**Site-config · address → Apify** is green when **both** token and actor id are set.
+**Site-config · address** shows separate greens for **Apify token**, **LoopNet actor**, and **Crexi actor**.
 
 ---
 
@@ -659,7 +665,7 @@ GOOGLE_GSC_CLIENT_SECRET=GOCSPX-…
 | --- | --- |
 | Discovery & research | DataForSEO login + password |
 | Copy & AI | Anthropic API key |
-| Site-config · address | Google Maps key; Apify token + LoopNet actor id |
+| Site-config · address | Google Maps key; Apify token + LoopNet and/or Crexi actor id |
 | Website · images | At least one of Unsplash / Pexels / Pixabay |
 | Assemble & launch | GitHub owner (+ `gh auth login`); optional template & sites dir; Cloudflare account + token; notify email |
 | Phone | Four Twilio vars + OpenAI key; see PHONE-TRACKING.md |

@@ -1,5 +1,34 @@
 # Rover changelog
 
+## Version 1.5 (`1.5.0`)
+
+Address Find operator controls, theme system expansion, Phone layout, and Research/Website spend visibility:
+
+- **Address Find caps:** Clean target + Pull size inputs on Site-Config Address (browser localStorage); stop Places after N cleans; pull size drives Apify maxItems
+- **Address Find UI:** Drop inventory % bars; replace Technical details with closed Cost dropdown (estimate note + Apify prepaid text); rename to **Pull target**
+- **Address active listing gate:** Places rejects only **OPERATIONAL** Maps listings locked to street+ZIP (not temp/permanent closed); fail copy `active Maps listing`; legacy `existing Maps business` cache keys re-screen on Find
+- **Address metro + wrong-state:** Hard rejects outside candidate state / metro radius; recover and Use anyway respect locality
+- **Address 40-listing batches:** Find / Fetch deeper default pull **~40 listings** total (LoopNet 20/URL ×2, Crexi 40; deepen +20/+40); Places budget default stays 40
+- **Address sources:** LoopNet and Crexi toggles (run either or both); shared city cache with per-source pull budgets; `APIFY_CREXI_ACTOR_ID` + Settings greens; listing links labeled by portal
+- **Per-source inventory UX:** LoopNet and Crexi inventory/budget lines; Fetch deeper / exhausted modals only for checked sources
+- **Recommended tier:** Listing city must match the target; Crexi links normalized to `crexi.com/properties/{id}`
+- **Themes 1–8:** Light 1–4 (Teal, Blue, Sage, Warm) and Dark 5–8 (Dark Teal, Slate, Amber, Forest); settings picker with Light | Dark columns; one-time localStorage migrate; logo + stage arrows follow dark themes 5–8
+- **Theme accents:** Active stage pill, healthy DFS chip, and Launched|Phone separator use theme `--accent` / `--chip`
+- **Stage arrows:** PNG light/dark pipeline arrows between Discovery → Research → Website → Launched
+- **Phone detail:** Far-right call detail column always visible (empty state when no call selected)
+- **API $ column:** Research / Website candidates table shows summed `lastCosts` with pipeline-ordered breakdown tip
+- **Backfill Light SERP → Research:** Discovery toolbar copies batch Map Pack / homepage counts onto existing Candidate seeds (no DFS)
+- **Research Light SERP seed:** Process copies Discovery Map Pack / homepage / subpage counts onto Candidates for the Research table until Eval 1 · SERP / Volume
+- **Discovery Decision `ignore`:** Process marks the row done without Candidates or anti-dupe; sidebar Decision meanings legend; table column renamed Human → Decision
+- **Discovery Est. MSV:** Claude fills `Est. Monthly Search Volume` for Discovery triage only — not seeded into Research
+- **Discovery Niche head terms:** Suggested/OPEN expand to high-volume head-term Niche cells; **Required** still locks exact Niche text
+- **Discovery anti-dupe:** Generate Pack skips archived Candidates; Advanced sidebar to edit/wipe the do-not-repropose list
+- **Protection:** Website/Launched Candidates cannot be permanently deleted (Delete permanently, known Remove, wipe) — server returns 409
+- **Do-not-repropose editor:** Advanced list shows tracked/orphan pairs + Research Eval 1 only
+- **Evaluation order:** Enrich requires SERP/Volume; Narrative requires Enrich; Prospects requires Narrative (UI + API)
+- **Vocabulary:** Top nav Stages `1 Discovery → 2 Research → 3 Website → 4 Launched` then Phone · Map; Research Evaluations; Website Tracks 1–3
+- **Docs:** Operator work-flow + naming charts ([ROVER-FLOW.md](ROVER-FLOW.md)); USER-FLOW / ENV-SETUP Address updates
+
 ## Version 1.4 (`1.4.0`)
 
 Site-Config **Address** finder (LoopNet + Places) and related operator UX since 1.3:

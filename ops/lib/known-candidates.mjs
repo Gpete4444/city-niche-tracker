@@ -12,6 +12,11 @@ import {
   loadMeta,
   pathsFor,
 } from './candidates.mjs';
+import {
+  assertDeletableIds,
+  isUndeletableCandidate,
+  researchHighestEvalStep,
+} from './candidate-protection.mjs';
 
 const KNOWN_CSV = path.join(RESEARCH_DIR, 'known-candidates.csv');
 const TRACKED_CSV = path.join(RESEARCH_DIR, 'tracked-decisions.csv');
@@ -105,11 +110,13 @@ export function parsePrimary(primary) {
 }
 
 /**
- * Build a map geoKey → { id, niche, city, state, decision, updatedAt }
+ * Build a map geoKey → { id, niche, city, state, decision, updatedAt, archived }
+ * @param {{ includeArchived?: boolean }} [opts]
  */
-export function indexCandidatesByGeo() {
+export function indexCandidatesByGeo({ includeArchived = true } = {}) {
   const map = new Map();
   for (const c of listCandidates()) {
+    if (!includeArchived && c.archived) continue;
     const niche = c.niche || c.meta?.niche || '';
     const city = c.primaryCity || parsePrimary(c.meta?.primary).city || '';
     const state = (c.state || parsePrimary(c.meta?.primary).state || '').toUpperCase();
@@ -122,6 +129,7 @@ export function indexCandidatesByGeo() {
       state,
       decision: c.decision || '',
       updatedAt: c.updatedAt || c.meta?.updatedAt || '',
+      archived: Boolean(c.archived),
     });
   }
   return map;
@@ -129,7 +137,7 @@ export function indexCandidatesByGeo() {
 
 export function findCandidateByGeo({ niche, city, state }) {
   const key = candidateGeoKey({ niche, city, state });
-  return indexCandidatesByGeo().get(key) || null;
+  return indexCandidatesByGeo({ includeArchived: true }).get(key) || null;
 }
 
 export function knownCandidatesPath() {
@@ -221,9 +229,9 @@ export function removeTrackedDecision({ niche, city, state }) {
   return { removed: before.length - rows.length };
 }
 
-/** Candidates + tracked decisions for anti-dupe (candidates win on same geo). */
+/** Active Candidates + tracked decisions for anti-dupe (candidates win on same geo). Archived excluded. */
 export function indexKnownForPrompt() {
-  const map = indexCandidatesByGeo();
+  const map = indexCandidatesByGeo({ includeArchived: false });
   for (const t of loadTrackedDecisions()) {
     const key = candidateGeoKey(t);
     if (map.has(key)) continue;
@@ -240,10 +248,10 @@ export function indexKnownForPrompt() {
   return map;
 }
 
-/** Rewrite research/known-candidates.csv from all candidates (not tracked). */
+/** Rewrite research/known-candidates.csv from active (non-archived) candidates. */
 export function regenerateKnownCandidates() {
   mkdirSync(RESEARCH_DIR, { recursive: true });
-  const rows = [...indexCandidatesByGeo().values()].sort((a, b) => {
+  const rows = [...indexCandidatesByGeo({ includeArchived: false }).values()].sort((a, b) => {
     const ak = `${a.state}|${a.city}|${a.niche}`;
     const bk = `${b.state}|${b.city}|${b.niche}`;
     return ak.localeCompare(bk);
@@ -263,6 +271,183 @@ export function regenerateKnownCandidates() {
   }
   writeFileSync(KNOWN_CSV, `${lines.join('\n')}\n`, 'utf8');
   return { path: KNOWN_CSV, count: rows.length, rows };
+}
+
+/** Rows for Discovery Advanced editor (orphans/tracked + Research Eval exactly 1). */
+export function listKnownForEditor() {
+  const rows = [];
+  const candKeys = new Set();
+  for (const c of listCandidates()) {
+    if (c.archived) continue;
+    const niche = c.niche || c.meta?.niche || '';
+    const city = c.primaryCity || parsePrimary(c.meta?.primary).city || '';
+    const state = (c.state || parsePrimary(c.meta?.primary).state || '').toUpperCase();
+    if (!niche || !city || !state) continue;
+    if (isUndeletableCandidate(c.id)) continue;
+    if (researchHighestEvalStep(c.id) !== 1) continue;
+    const key = candidateGeoKey({ niche, city, state });
+    candKeys.add(key);
+    rows.push({
+      niche,
+      city,
+      state,
+      decision: c.decision || '',
+      candidateId: c.id,
+      source: 'candidate',
+      updatedAt: c.updatedAt || c.meta?.updatedAt || '',
+    });
+  }
+  for (const t of loadTrackedDecisions()) {
+    if (candKeys.has(candidateGeoKey(t))) continue;
+    rows.push({
+      niche: t.niche,
+      city: t.city,
+      state: t.state,
+      decision: t.decision,
+      candidateId: '',
+      source: 'tracked',
+      updatedAt: t.updatedAt || '',
+    });
+  }
+  rows.sort((a, b) => {
+    const ak = `${a.state}|${a.city}|${a.niche}`;
+    const bk = `${b.state}|${b.city}|${b.niche}`;
+    return ak.localeCompare(bk);
+  });
+  return rows;
+}
+
+/** Preview counts for wipe-to-active (no mutations). */
+export function previewPruneKnownToActive() {
+  const all = listCandidates();
+  const active = all.filter((c) => !c.archived);
+  const archived = all.filter((c) => c.archived);
+  const archivedDeletable = archived.filter((c) => !isUndeletableCandidate(c.id));
+  const archivedProtected = archived.filter((c) => isUndeletableCandidate(c.id));
+  const keepKeys = new Set();
+  for (const c of active) {
+    const niche = c.niche || c.meta?.niche || '';
+    const city = c.primaryCity || parsePrimary(c.meta?.primary).city || '';
+    const state = (c.state || parsePrimary(c.meta?.primary).state || '').toUpperCase();
+    if (!niche || !city || !state) continue;
+    keepKeys.add(candidateGeoKey({ niche, city, state }));
+  }
+  const tracked = loadTrackedDecisions();
+  const trackedDrop = tracked.filter((t) => !keepKeys.has(candidateGeoKey(t)));
+  return {
+    keepCount: active.length,
+    archivedDeleteCount: archivedDeletable.length,
+    archivedProtectedCount: archivedProtected.length,
+    archivedIds: archivedDeletable.map((c) => c.id),
+    trackedDropCount: trackedDrop.length,
+    knownAfter: keepKeys.size,
+  };
+}
+
+/**
+ * Keep Active Research candidates; permanently delete archived (except undeletable); drop tracked outside keep set.
+ */
+export async function pruneKnownToActiveCandidates() {
+  const preview = previewPruneKnownToActive();
+  const keepKeys = new Set();
+  for (const c of listCandidates().filter((x) => !x.archived)) {
+    const niche = c.niche || c.meta?.niche || '';
+    const city = c.primaryCity || parsePrimary(c.meta?.primary).city || '';
+    const state = (c.state || parsePrimary(c.meta?.primary).state || '').toUpperCase();
+    if (!niche || !city || !state) continue;
+    keepKeys.add(candidateGeoKey({ niche, city, state }));
+  }
+
+  let deleteResult = { deleted: [], errors: [] };
+  if (preview.archivedIds.length) {
+    assertDeletableIds(preview.archivedIds);
+    const { deleteCandidates } = await import('./candidates.mjs');
+    deleteResult = await deleteCandidates(preview.archivedIds);
+  }
+
+  const trackedBefore = loadTrackedDecisions();
+  const trackedKeep = trackedBefore.filter((t) => keepKeys.has(candidateGeoKey(t)));
+  const trackedDropped = trackedBefore.length - trackedKeep.length;
+  writeTrackedDecisions(trackedKeep);
+  const known = regenerateKnownCandidates();
+
+  return {
+    keepCount: preview.keepCount,
+    archivedDeleted: deleteResult.deleted?.length || 0,
+    archivedProtected: preview.archivedProtectedCount || 0,
+    archivedErrors: deleteResult.errors || [],
+    trackedDropped,
+    knownCount: known.count,
+    rows: listKnownForEditor(),
+  };
+}
+
+/**
+ * Remove known entries by Niche×City×State. Candidate → permanent delete; tracked-only → untrack.
+ * Refuses any key that maps to an undeletable (Website/Launched) candidate (no partial wipe).
+ */
+export async function removeKnownEntries(keys = []) {
+  const list = Array.isArray(keys) ? keys : [];
+  const idsToDelete = [];
+  const trackedToRemove = [];
+  const seenIds = new Set();
+  const blockedKeys = [];
+
+  for (const raw of list) {
+    const niche = String(raw?.niche || '').trim();
+    const city = String(raw?.city || '').trim();
+    const state = String(raw?.state || '')
+      .trim()
+      .toUpperCase();
+    if (!niche || !city || !state) continue;
+    const existing = findCandidateByGeo({ niche, city, state });
+    if (existing?.id) {
+      if (isUndeletableCandidate(existing.id)) {
+        blockedKeys.push({ niche, city, state, candidateId: existing.id });
+        continue;
+      }
+      if (!seenIds.has(existing.id)) {
+        seenIds.add(existing.id);
+        idsToDelete.push(existing.id);
+      }
+      continue;
+    }
+    trackedToRemove.push({ niche, city, state });
+  }
+
+  if (blockedKeys.length) {
+    const err = new Error(
+      `Cannot remove Website or Launched Candidate(s) from do-not-repropose: ${blockedKeys
+        .map((k) => k.candidateId)
+        .join(', ')}`,
+    );
+    err.status = 409;
+    err.code = 'UNDELETABLE_CANDIDATE';
+    err.details = { blocked: blockedKeys };
+    throw err;
+  }
+
+  let trackedRemoved = 0;
+  for (const t of trackedToRemove) {
+    const r = removeTrackedDecision(t);
+    trackedRemoved += r.removed;
+  }
+
+  let deleteResult = { deleted: [], errors: [] };
+  if (idsToDelete.length) {
+    assertDeletableIds(idsToDelete);
+    const { deleteCandidates } = await import('./candidates.mjs');
+    deleteResult = await deleteCandidates(idsToDelete);
+  } else {
+    regenerateKnownCandidates();
+  }
+
+  return {
+    deletedCandidates: deleteResult.deleted?.length || 0,
+    deleteErrors: deleteResult.errors || [],
+    trackedRemoved,
+    rows: listKnownForEditor(),
+  };
 }
 
 /**

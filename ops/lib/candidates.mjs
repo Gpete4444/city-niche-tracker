@@ -403,6 +403,7 @@ export function listCandidates() {
       const meta = loadMeta(id);
       const prospects = readJson(p.prospects);
       const narrative = readJson(p.narrative);
+      const discoverySeed = readJson(p.discoverySeed);
       const stageInfo = deriveStage(id);
       let summary = summarizeResearch(research) || {
         niche: config?.niche ?? meta.niche ?? null,
@@ -410,6 +411,35 @@ export function listCandidates() {
         state: config?.primary?.split(',')[1]?.trim() ?? null,
         cityCluster: config?.cluster ?? [],
       };
+      // Discovery Light SERP triage until Eval 1 writes research.serp
+      const light = discoverySeed?.lightSerp;
+      if (light && typeof light === 'object') {
+        const hasResearchSerp =
+          research?.serp &&
+          (research.serp.mapPackPresent != null ||
+            research.serp.organicHomePages != null ||
+            research.serp.organicSubPages != null);
+        if (!hasResearchSerp) {
+          summary = {
+            ...summary,
+            mapPackPresent:
+              summary.mapPackPresent != null ? summary.mapPackPresent : light.mapPackPresent,
+            organicHomeCount:
+              summary.organicHomeCount != null ? summary.organicHomeCount : light.organicHomeCount,
+            organicSubCount:
+              summary.organicSubCount != null ? summary.organicSubCount : light.organicSubCount,
+            organicHomeNicheCount:
+              summary.organicHomeNicheCount != null
+                ? summary.organicHomeNicheCount
+                : light.organicHomeNicheCount,
+            organicSubNicheCount:
+              summary.organicSubNicheCount != null
+                ? summary.organicSubNicheCount
+                : light.organicSubNicheCount,
+            lightSerpSource: light.source || 'discovery_light_serp',
+          };
+        }
+      }
       const narrJob =
         narrative?.scoring?.scoreInputs?.jobValue ?? narrative?.scoreInputs?.jobValue;
       if (
@@ -471,6 +501,46 @@ export function listCandidates() {
     });
 }
 
+/**
+ * Ensure volumes.byCity has Census population for UI (Cities measured).
+ * Read-time only — next SERP/Volume persists via research-candidate.
+ */
+function parseCityStateLabel(label) {
+  const s = String(label || '').trim();
+  const m = s.match(/^(.+),\s*([A-Za-z]{2})$/);
+  if (!m) return null;
+  return { city: m[1].trim(), state: m[2].toUpperCase() };
+}
+
+function ensureVolumesByCityPopulations(research) {
+  if (!research || typeof research !== 'object') return research;
+  const vols = research.volumes;
+  if (!vols || typeof vols !== 'object') return research;
+
+  let byCity = Array.isArray(vols.byCity) ? vols.byCity.map((row) => ({ ...row })) : [];
+  if (!byCity.length && Array.isArray(vols.citiesMeasured)) {
+    byCity = vols.citiesMeasured
+      .map((label) => parseCityStateLabel(label))
+      .filter(Boolean)
+      .map(({ city, state }) => ({ city, state, population: null }));
+  }
+
+  for (const row of byCity) {
+    const pop = Number(row.population);
+    if (Number.isFinite(pop) && pop > 0) continue;
+    const looked = lookupPopulation(row.city, row.state);
+    row.population = looked != null ? Number(looked) : null;
+  }
+
+  return {
+    ...research,
+    volumes: {
+      ...vols,
+      byCity,
+    },
+  };
+}
+
 export function getCandidateDetail(id) {
   const p = pathsFor(id);
   if (
@@ -487,7 +557,7 @@ export function getCandidateDetail(id) {
 
   healResearchJobValueFromNarrative(id);
 
-  const research = readJson(p.research);
+  const research = ensureVolumesByCityPopulations(readJson(p.research));
   const config = readJson(p.config);
   const meta = loadMeta(id);
   const narrative = readJson(p.narrative);

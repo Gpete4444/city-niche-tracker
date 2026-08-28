@@ -501,6 +501,39 @@ export function assertSiteConfigHandoffReady(candidateId, { allowNonPursue = fal
   return { detail, pack, decision };
 }
 
+export function buildDomainPickPrompt(candidateId, nap = {}) {
+  const { pack } = assertSiteConfigHandoffReady(candidateId, {
+    allowNonPursue: Boolean(nap.allowNonPursue),
+  });
+  const md = readPromptFile('prompts/claude-domain-pick.md');
+  const template = extractPromptTemplate(md);
+  const cluster = Array.isArray(pack.cityCluster)
+    ? pack.cityCluster.join('; ')
+    : String(pack.cityCluster || '').trim();
+  const businessName =
+    String(nap.businessName || '').trim() ||
+    String(pack.narrative?.businessName || pack.businessName || '').trim() ||
+    'omit';
+  const filled = template
+    .replace('{{NICHE}}', String(pack.niche || '').trim() || 'omit')
+    .replace(
+      '{{CITY}}',
+      String(pack.primaryCity || pack.city || '').trim() || 'omit',
+    )
+    .replace('{{STATE}}', String(pack.state || '').trim().toUpperCase() || 'omit')
+    .replace('{{CITY_CLUSTER}}', cluster || 'omit')
+    .replace('{{BUSINESS_NAME}}', businessName);
+  return {
+    prompt: filled,
+    package: {
+      niche: pack.niche ?? null,
+      primaryCity: pack.primaryCity ?? pack.city ?? null,
+      state: pack.state ?? null,
+      cityCluster: pack.cityCluster ?? null,
+    },
+  };
+}
+
 export function buildSiteConfigPrompt(candidateId, nap = {}) {
   const { pack } = assertSiteConfigHandoffReady(candidateId, {
     allowNonPursue: Boolean(nap.allowNonPursue),

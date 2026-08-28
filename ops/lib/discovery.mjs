@@ -37,6 +37,7 @@ export const DISCOVERY_COLUMNS = [
   'Est. Cluster Volume',
   'Top Target Keywords & Volumes',
   'Average Job Cost',
+  'Est. Monthly Search Volume',
   'Est. time to rank with GBP',
   'Est. time to rank without GBP',
   'Map Pack',
@@ -72,6 +73,7 @@ export const DISCOVERY_CLAUDE_COLUMNS = [
   'State',
   'Population',
   'Average Job Cost',
+  'Est. Monthly Search Volume',
   'Est. time to rank with GBP',
   'Est. time to rank without GBP',
   'pain_points',
@@ -84,10 +86,12 @@ export const DISCOVERY_CLAUDE_COLUMNS = [
 export const PROMOTE_DECISIONS = ['pursue', 'maybe', 'review', 'hold'];
 /** Human decisions stored for anti-dupe only — not Candidates. */
 export const TRACK_ONLY_DECISIONS = ['pass'];
+/** Human decisions that finish the batch row without Candidates or anti-dupe. */
+export const IGNORE_ONLY_DECISIONS = ['ignore'];
 
 export function discoveryRowProcessStatus(row) {
   const status = String(row?.process_status || '').trim().toLowerCase();
-  if (status === 'promoted' || status === 'tracked') return status;
+  if (status === 'promoted' || status === 'tracked' || status === 'ignored') return status;
   if (String(row?.candidateId || '').trim()) return 'promoted';
   return '';
 }
@@ -97,12 +101,34 @@ export function isDiscoveryRowProcessed(row) {
 }
 
 const WIZARD_NICHES = [
-  'Roof Repair',
-  'Drywall Repair',
-  'Concrete Repair',
-  'Kitchen & Bathroom Remodeling',
-  'Mold Removal',
+  'Artificial Grass',
+  'Asphalt Paving',
   'Commercial Roof Repair',
+  'Concrete',
+  'Concrete Repair',
+  'Custom Cabinets',
+  'Custom Countertops',
+  'Drywall',
+  'Electric Gate Repair',
+  'Epoxy Flooring',
+  'Fences',
+  'Foundation Repair',
+  'Kitchen & Bathroom Remodeling',
+  'Landscaping',
+  'Masonry',
+  'Metal Gates',
+  'Mobile Services',
+  'Mobile Windshield Repair',
+  'Mold Removal',
+  'Painting',
+  'Railing',
+  'Repair Service',
+  'Retaining Wall',
+  'Roof Repair',
+  'Tile Pavers',
+  'Tree Service',
+  'Windows',
+  'Wood Flooring',
 ];
 
 const CATALOG_CATEGORIES = [
@@ -350,15 +376,15 @@ function mapPackLabel(v) {
 export function buildNicheRules(filters = {}) {
   const f = normalizeFilters(filters);
   if (f.requiredNiches.length && f.niches.length) {
-    return `3. **Niche mode (hybrid):** For each Required niche, emit ≥1 row whose \`Niche\` cell is that name **verbatim (exact match after trim)** when Max rows allows — no catalog synonym substitution. Fill remaining rows preferring Suggested niches (soft); you may still pick other High-Ticket catalog niches that match tiers/categories when the Suggested list is short. Required is never an exclusive lock.`;
+    return `3. **Niche mode (hybrid):** For each Required niche, emit ≥1 row whose \`Niche\` cell is that name **verbatim (exact match after trim)** when Max rows allows — no synonym rename for those must-include rows. Fill remaining rows preferring Suggested themes (soft) as **high-volume head terms** (e.g. Suggested Drywall → Drywall Repair); you may pick other High-Ticket catalog niches as head terms when the Suggested list is short. Required is never an exclusive lock.`;
   }
   if (f.requiredNiches.length) {
-    return `3. **Niche mode (Required):** For each Required niche, emit ≥1 row whose \`Niche\` cell is that name **verbatim (exact match after trim)** when Max rows allows. Do not substitute catalog synonyms. Fill remaining rows from the High-Ticket catalog (OPEN soft), honoring tiers/categories. Required is never an exclusive lock — custom / off-catalog Required names are valid as exact \`Niche\` text.`;
+    return `3. **Niche mode (Required):** For each Required niche, emit ≥1 row whose \`Niche\` cell is that name **verbatim (exact match after trim)** when Max rows allows — no synonym rename for those must-include rows. Fill remaining rows from the High-Ticket catalog (OPEN soft) as **high-volume head terms**, honoring tiers/categories. Required is never an exclusive lock — do not restrict every row to Required names only.`;
   }
   if (f.niches.length) {
-    return `3. **Niche mode (Suggested):** Soft preference — prefer these niches when a strong city fit exists; you may still pick other High-Ticket catalog niches that match tiers/categories. Custom suggested names are valid.`;
+    return `3. **Niche mode (Suggested):** Soft preference — Suggested names are **theme seeds**. Prefer head-term niches under those themes when a strong city fit exists; diversify head terms across rows. You may still pick other High-Ticket catalog niches (as head terms) that match tiers/categories.`;
   }
-  return `3. **Niche mode (OPEN):** Pick from the High-Ticket niches catalog below; include at least 3 different niches when Max rows allows. Respect Ticket tiers / Min job cost / Catalog categories (only listed tiers — not “tier and above”).`;
+  return `3. **Niche mode (OPEN):** Pick from the High-Ticket niches catalog below as **head terms** (catalog lines that are already head terms are fine); include at least 3 different niches when Max rows allows. Respect Ticket tiers / Min job cost / Catalog categories (only listed tiers — not “tier and above”).`;
 }
 
 /** Human-readable filter brief injected into Claude prompts. */
@@ -366,17 +392,17 @@ export function buildFilterBrief(filters = {}) {
   const f = normalizeFilters(filters);
   let nichesLine;
   if (f.requiredNiches.length && f.niches.length) {
-    nichesLine = `- **Required niches (must-include):** ${f.requiredNiches.join('; ')}
-- **Niches (suggested):** ${f.niches.join('; ')}
-- **Niche rule:** Hybrid — for each Required niche, emit ≥1 row whose Niche cell is that name **verbatim (exact match after trim)** when Max rows allows. Do not substitute catalog synonyms or rewordings. Fill remaining rows preferring Suggested niches (soft); you may still pick other High-Ticket catalog niches that match tiers/categories when the Suggested list is short. Required is never an exclusive lock. Custom / off-catalog Required names are valid as exact Niche text.`;
+    nichesLine = `- **Required niches (must-include, exact Niche text):** ${f.requiredNiches.join('; ')}
+- **Suggested niche themes:** ${f.niches.join('; ')}
+- **Niche rule:** Hybrid — for each Required niche, ≥1 row whose Niche is that name **verbatim (exact match after trim)** when Max rows allows (no synonym rename for must-include rows). Remaining rows prefer Suggested themes as **high-volume head terms**; catalog overflow OK. Never put city/near-me in Niche. Required is never an exclusive lock.`;
   } else if (f.requiredNiches.length) {
-    nichesLine = `- **Required niches (must-include):** ${f.requiredNiches.join('; ')}
-- **Niche rule:** For each Required niche, emit ≥1 row whose Niche cell is that name **verbatim (exact match after trim)** when Max rows allows. Do not substitute catalog synonyms or rewordings. Fill remaining rows from the High-Ticket catalog (OPEN soft), honoring tiers/categories. Required is never an exclusive lock — do not restrict every row to Required names only. Custom / off-catalog Required names are valid as exact Niche text.`;
+    nichesLine = `- **Required niches (must-include, exact Niche text):** ${f.requiredNiches.join('; ')}
+- **Niche rule:** For each Required niche, ≥1 row whose Niche is that name **verbatim (exact match after trim)** when Max rows allows. Fill remaining rows from the High-Ticket catalog (OPEN soft) as **high-volume head terms**. Required is never an exclusive lock. Never put city/near-me in Niche.`;
   } else if (f.niches.length) {
-    nichesLine = `- **Niches (suggested):** ${f.niches.join('; ')}
-- **Niche rule:** Soft preference — prefer these niches when a strong city fit exists; you may still pick other High-Ticket catalog niches that match tiers/categories.`;
+    nichesLine = `- **Suggested niche themes:** ${f.niches.join('; ')}
+- **Niche rule:** Soft preference — treat Suggested as themes; emit **head-term** Niche cells (highest typical local-service volume variants). Diversify head terms across rows. Other catalog niches OK. Never put city/near-me in Niche.`;
   } else {
-    nichesLine = `- **Niches:** OPEN — choose from the High-Ticket catalog; include **at least 3 different niches** when possible`;
+    nichesLine = `- **Niches:** OPEN — choose **head-term** niches from the High-Ticket catalog; include **at least 3 different niches** when possible`;
   }
   const lines = [
     '## Operator filters (from Rover)',
@@ -696,8 +722,59 @@ export function rowKey(row) {
     .join('|');
 }
 
+function parseDiscoveryYesNo(value) {
+  const v = String(value || '')
+    .trim()
+    .toLowerCase();
+  if (v === 'yes' || v === 'y' || v === 'true' || v === '1') return true;
+  if (v === 'no' || v === 'n' || v === 'false' || v === '0') return false;
+  return null;
+}
+
+function parseDiscoveryCount(value) {
+  if (value == null || String(value).trim() === '') return null;
+  const n = Number(String(value).replace(/,/g, '').trim());
+  return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * Light SERP triage fields from Discovery batch row — shown on Research list
+ * before Eval 1 (does not create research.json / hasResearch).
+ */
+export function discoveryLightSerpFromRow(row = {}) {
+  const mapPackPresent = parseDiscoveryYesNo(row['Map Pack']);
+  const organicHomeCount = parseDiscoveryCount(row['Organic Home Page']);
+  const organicSubCount = parseDiscoveryCount(row['Organic Sub Page']);
+  const directoriesCount = parseDiscoveryCount(row.Directories);
+  const organicHomeNicheCount = parseDiscoveryCount(row.organic_home_niche);
+  const organicSubNicheCount = parseDiscoveryCount(row.organic_sub_niche);
+  const hasAny =
+    mapPackPresent != null ||
+    organicHomeCount != null ||
+    organicSubCount != null ||
+    directoriesCount != null ||
+    organicHomeNicheCount != null ||
+    organicSubNicheCount != null;
+  if (!hasAny) return null;
+  return {
+    source: 'discovery_light_serp',
+    mapPackPresent,
+    organicHomeCount,
+    organicSubCount,
+    directoriesCount,
+    organicHomeNicheCount,
+    organicSubNicheCount,
+    organicHomeLinks: row['Organic Home Page (Links)'] || null,
+    organicSubLinks: row['Organic Sub Page (Links)'] || null,
+    directoriesLinks: row['Directories (Links)'] || null,
+    confidenceSerp: row.confidence_serp || null,
+    serpSource: row.serp_source || null,
+  };
+}
+
 /** Soft fields from Discovery Claude — seed Stage 3 instead of reinventing. */
 export function discoveryNarrativeSeedFromRow(row, { batchId = null, rowIndex = null } = {}) {
+  const lightSerp = discoveryLightSerpFromRow(row);
   return {
     source: 'discovery_claude',
     batchId,
@@ -718,6 +795,7 @@ export function discoveryNarrativeSeedFromRow(row, { batchId = null, rowIndex = 
     decisionNotes: row.decision_notes || row.recommended_reason || null,
     humanDecision: row.human_decision || null,
     recommendedDecision: row.recommended_decision || null,
+    ...(lightSerp ? { lightSerp } : {}),
   };
 }
 
@@ -750,6 +828,104 @@ function attachDiscoveryArtifacts(candidateId, row, batchDir, batchId, rowIndex)
   const seed = discoveryNarrativeSeedFromRow(row, { batchId, rowIndex });
   writeFileSync(p.discoverySeed, `${JSON.stringify(seed, null, 2)}\n`, 'utf8');
   return { serpCache: serpRel, discoverySeed: true };
+}
+
+/**
+ * Copy Discovery Light SERP Map Pack / homepage counts onto existing Candidates'
+ * discovery-seed.json (no DFS, no research.json). For batches processed before seeding.
+ */
+export function backfillLightSerpFromBatch(batchId) {
+  const { batch, rows, dir } = getBatch(batchId);
+  if (!rows.length) {
+    const err = new Error('Batch has no rows');
+    err.status = 400;
+    throw err;
+  }
+
+  const updated = [];
+  const skipped = [];
+  const missing = [];
+
+  for (let i = 0; i < rows.length; i += 1) {
+    const row = rows[i];
+    const lightSerp = discoveryLightSerpFromRow(row);
+    if (!lightSerp) {
+      skipped.push({ index: i, reason: 'no_light_serp_columns' });
+      continue;
+    }
+
+    let candidateId = String(row.candidateId || '').trim();
+    if (!candidateId && discoveryRowProcessStatus(row) === 'promoted') {
+      const existing = findCandidateByGeo({
+        niche: row.Niche,
+        city: row.City,
+        state: row.State,
+      });
+      if (existing?.id) candidateId = existing.id;
+    }
+    if (!candidateId) {
+      missing.push({
+        index: i,
+        reason: 'no_candidate',
+        niche: row.Niche,
+        city: row.City,
+        state: row.State,
+      });
+      continue;
+    }
+
+    const p = pathsFor(candidateId);
+    if (!existsSync(p.config) && !existsSync(p.meta) && !existsSync(p.discoverySeed)) {
+      missing.push({ index: i, candidateId, reason: 'candidate_not_found' });
+      continue;
+    }
+
+    let seed = null;
+    if (existsSync(p.discoverySeed)) {
+      try {
+        seed = JSON.parse(readFileSync(p.discoverySeed, 'utf8'));
+      } catch {
+        seed = null;
+      }
+    }
+    if (!seed || typeof seed !== 'object') {
+      seed = discoveryNarrativeSeedFromRow(row, { batchId: batch.id, rowIndex: i });
+    } else {
+      seed = {
+        ...seed,
+        lightSerp,
+        batchId: seed.batchId || batch.id,
+        rowIndex: seed.rowIndex != null ? seed.rowIndex : i,
+        rowKey: seed.rowKey || rowKey(row),
+      };
+    }
+    writeFileSync(p.discoverySeed, `${JSON.stringify(seed, null, 2)}\n`, 'utf8');
+
+    const serpRel = resolveFreshSerpCacheRel(dir, rowKey(row));
+    if (serpRel && existsSync(p.config)) {
+      try {
+        const config = JSON.parse(readFileSync(p.config, 'utf8'));
+        if (config.serpCache !== serpRel) {
+          config.serpCache = serpRel;
+          writeFileSync(p.config, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+
+    updated.push({ index: i, candidateId });
+  }
+
+  return {
+    batchId: batch.id,
+    updated,
+    skipped,
+    missing,
+    updatedCount: updated.length,
+    skippedCount: skipped.length,
+    missingCount: missing.length,
+  };
 }
 
 /**
@@ -1004,6 +1180,7 @@ export function processDiscoveryBatch(
 
   const promoted = [];
   const tracked = [];
+  const ignored = [];
   const skipped = [];
   const pursueIds = [];
   let nextRows = applyRecommendations(rows);
@@ -1035,6 +1212,20 @@ export function processDiscoveryBatch(
     }
     if (!row.Niche || !row.City || !row.State) {
       skipped.push({ index: i, reason: 'missing Niche/City/State' });
+      continue;
+    }
+
+    if (IGNORE_ONLY_DECISIONS.includes(decision)) {
+      row.process_status = 'ignored';
+      row.candidateId = '';
+      nextRows[i] = row;
+      ignored.push({
+        index: i,
+        decision,
+        niche: row.Niche,
+        city: row.City,
+        state: String(row.State).toUpperCase(),
+      });
       continue;
     }
 
@@ -1162,6 +1353,7 @@ export function processDiscoveryBatch(
     at: new Date().toISOString(),
     promoted,
     tracked,
+    ignored,
     skipped,
     pursueQueued: pursueIds,
     batchJobId: batchJob?.id || null,
@@ -1192,6 +1384,7 @@ export function processDiscoveryBatch(
     rows: nextRows,
     promoted,
     tracked,
+    ignored,
     skipped,
     pursueIds,
     batchJob,
@@ -1258,6 +1451,7 @@ export function discoveryPresets() {
     decisions: DISCOVERY_DECISIONS,
     promoteDecisions: PROMOTE_DECISIONS,
     trackOnlyDecisions: TRACK_ONLY_DECISIONS,
+    ignoreOnlyDecisions: IGNORE_ONLY_DECISIONS,
     jobCosts: loadNicheJobCosts(),
     census: censusStatus(),
     states: listUsStates(),

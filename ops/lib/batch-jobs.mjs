@@ -18,6 +18,7 @@ import {
   getCandidateDetail,
   RESEARCH_DIR,
 } from './candidates.mjs';
+import { assertEvalPrerequisite } from './candidate-protection.mjs';
 
 const batchJobs = new Map();
 const JOBS_DIR = path.join(RESEARCH_DIR, '_jobs');
@@ -26,7 +27,7 @@ const STARTERS = {
   research: runResearchPrepared,
   enrich: runEnrichPrepared,
   prospects: runProspectsPrepared,
-  narrative: runNarrativeJob,
+  narrative: runNarrativePrepared,
 };
 
 function runResearchPrepared(candidateId, opts = {}) {
@@ -43,19 +44,18 @@ function runResearchPrepared(candidateId, opts = {}) {
 }
 
 function runEnrichPrepared(candidateId) {
-  const p = pathsFor(candidateId);
-  if (!existsSync(p.research)) {
-    throw new Error('No research JSON — run Stage 1 first');
-  }
+  assertEvalPrerequisite(candidateId, 'enrich');
   return runEnrich(candidateId);
 }
 
 function runProspectsPrepared(candidateId) {
-  const p = pathsFor(candidateId);
-  if (!existsSync(p.research)) {
-    throw new Error('No research JSON — run Stage 1 first');
-  }
+  assertEvalPrerequisite(candidateId, 'prospects');
   return runProspects(candidateId);
+}
+
+function runNarrativePrepared(candidateId) {
+  assertEvalPrerequisite(candidateId, 'narrative');
+  return runNarrativeJob(candidateId);
 }
 
 function persistBatch(batch) {

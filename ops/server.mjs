@@ -53,6 +53,7 @@ import {
   acceptSiteConfig,
   acceptServiceArea,
   buildSiteConfigPrompt,
+  buildDomainPickPrompt,
   getSiteConfigDraft,
   pasteSiteConfigDraft,
   setCandidateArchetype,
@@ -70,6 +71,7 @@ import {
   fetchApifyPlanUsage,
   listRecoverableAddresses,
   retierShortlistLocalities,
+  getAddressSourceReadiness,
 } from './lib/address-screen.mjs';
 import {
   acceptContent,
@@ -246,12 +248,23 @@ import {
   processDiscoveryBatch,
   recommendBatch,
   reopenDiscoveryRows,
+  backfillLightSerpFromBatch,
   updateBatchDecisions,
 } from './lib/discovery.mjs';
 import { previewSerpProbe, runDiscoverySerpProbe, startDiscoverySerpProbe, getSerpProbeJob, discoveryStepStatus } from './lib/discovery-serp-probe.mjs';
 import { suggestPlaces } from './lib/census.mjs';
 import { aggregateStageFlags, getBatchJob, startBatchJobs } from './lib/batch-jobs.mjs';
-import { regenerateKnownCandidates } from './lib/known-candidates.mjs';
+import {
+  regenerateKnownCandidates,
+  listKnownForEditor,
+  previewPruneKnownToActive,
+  pruneKnownToActiveCandidates,
+  removeKnownEntries,
+} from './lib/known-candidates.mjs';
+import {
+  assertDeletableIds,
+  assertEvalPrerequisite,
+} from './lib/candidate-protection.mjs';
 import { existsSync, writeFileSync, readFileSync } from 'node:fs';
 import { getScoringRubric } from '../scripts/lib/scoring.mjs';
 
@@ -303,10 +316,16 @@ app.get('/api/health', (_req, res) => {
     { name: 'Anthropic', group: 'Copy & AI', ok: envSet('ANTHROPIC_API_KEY') },
     // 3 · Site-config · address
     { name: 'Google Maps', group: 'Site-config · address', ok: envSet('GOOGLE_MAPS_API_KEY') },
+    { name: 'Apify token', group: 'Site-config · address', ok: envSet('APIFY_TOKEN') },
     {
-      name: 'Apify',
+      name: 'LoopNet actor',
       group: 'Site-config · address',
-      ok: envSet('APIFY_TOKEN', 'APIFY_LOOPNET_ACTOR_ID'),
+      ok: envSet('APIFY_LOOPNET_ACTOR_ID'),
+    },
+    {
+      name: 'Crexi actor',
+      group: 'Site-config · address',
+      ok: envSet('APIFY_CREXI_ACTOR_ID'),
     },
     // 4 · Website · images
     { name: 'Unsplash', group: 'Website · images', ok: envSet('UNSPLASH_ACCESS_KEY') },
@@ -534,6 +553,37 @@ app.get('/api/discovery/presets', (_req, res) => {
   }
 });
 
+app.get('/api/discovery/known', (_req, res) => {
+  try {
+    res.json({
+      rows: listKnownForEditor(),
+      prunePreview: previewPruneKnownToActive(),
+    });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/discovery/known/prune-to-active', async (_req, res) => {
+  try {
+    res.json(await pruneKnownToActiveCandidates());
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/discovery/known/remove', async (req, res) => {
+  try {
+    const keys = Array.isArray(req.body?.keys) ? req.body.keys : [];
+    if (!keys.length) {
+      throw Object.assign(new Error('keys array required'), { status: 400 });
+    }
+    res.json(await removeKnownEntries(keys));
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
 app.get('/api/discovery/places', (req, res) => {
   try {
     const q = String(req.query.q || '').trim();
@@ -736,6 +786,14 @@ app.post('/api/discovery/batches/:id/reopen', (req, res) => {
   try {
     const indices = Array.isArray(req.body?.indices) ? req.body.indices : [];
     res.json(reopenDiscoveryRows(req.params.id, indices));
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/discovery/batches/:id/backfill-light-serp', (req, res) => {
+  try {
+    res.json(backfillLightSerpFromBatch(req.params.id));
   } catch (error) {
     sendError(res, error);
   }
@@ -957,6 +1015,7 @@ app.post('/api/candidates/delete', async (req, res) => {
     if (!ids.length) {
       throw Object.assign(new Error('ids required'), { status: 400 });
     }
+    assertDeletableIds(ids);
     const result = await deleteCandidates(ids);
     res.json(result);
   } catch (error) {
@@ -986,10 +1045,7 @@ app.post('/api/candidates/:id/research', (req, res) => {
 
 app.post('/api/candidates/:id/enrich', (req, res) => {
   try {
-    const p = pathsFor(req.params.id);
-    if (!existsSync(p.research)) {
-      throw Object.assign(new Error('No research JSON — run Stage 1 first'), { status: 400 });
-    }
+    assertEvalPrerequisite(req.params.id, 'enrich');
     const job = runEnrich(req.params.id);
     res.json({ job });
   } catch (error) {
@@ -999,10 +1055,7 @@ app.post('/api/candidates/:id/enrich', (req, res) => {
 
 app.post('/api/candidates/:id/prospects', (req, res) => {
   try {
-    const p = pathsFor(req.params.id);
-    if (!existsSync(p.research)) {
-      throw Object.assign(new Error('No research JSON — run Stage 1 first'), { status: 400 });
-    }
+    assertEvalPrerequisite(req.params.id, 'prospects');
     const job = runProspects(req.params.id);
     res.json({ job });
   } catch (error) {
@@ -1069,6 +1122,7 @@ app.get('/api/candidates/:id/jobs', (req, res) => {
 
 app.post('/api/candidates/:id/narrative', async (req, res) => {
   try {
+    assertEvalPrerequisite(req.params.id, 'narrative');
     const result = await generateNarrativeDraft(req.params.id);
     res.json(result);
   } catch (error) {
@@ -1078,6 +1132,7 @@ app.post('/api/candidates/:id/narrative', async (req, res) => {
 
 app.post('/api/candidates/:id/narrative/paste', (req, res) => {
   try {
+    assertEvalPrerequisite(req.params.id, 'narrative');
     const raw = req.body?.json ?? req.body?.text ?? req.body;
     const result = pasteNarrativeDraft(req.params.id, raw);
     res.json(result);
@@ -1164,12 +1219,25 @@ app.get('/api/candidates/:id/site-config/prompt', (req, res) => {
   }
 });
 
+app.get('/api/candidates/:id/site-config/domain-prompt', (req, res) => {
+  try {
+    const nap = {
+      businessName: req.query.businessName,
+      allowNonPursue: req.query.allowNonPursue === '1' || req.query.allowNonPursue === 'true',
+    };
+    res.json(buildDomainPickPrompt(req.params.id, nap));
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
 app.get('/api/candidates/:id/address', (req, res) => {
   try {
     res.json({
       package: getBusinessAddressPackage(req.params.id),
       candidate: getCandidateDetail(req.params.id),
       recover: listRecoverableAddresses(req.params.id),
+      sources: getAddressSourceReadiness(),
     });
   } catch (error) {
     sendError(res, error);
@@ -1178,15 +1246,16 @@ app.get('/api/candidates/:id/address', (req, res) => {
 
 app.post('/api/candidates/:id/address/search', async (req, res) => {
   try {
-    const refreshLoopnet = Boolean(req.body?.refreshLoopnet);
-    const deepen =
-      req.body?.deepen == null ? null : Boolean(req.body.deepen);
-    const raisePullMax = Boolean(req.body?.raisePullMax);
+    const body = req.body || {};
     res.json(
       await searchBusinessAddresses(req.params.id, {
-        refreshLoopnet,
-        deepen,
-        raisePullMax,
+        sources: body.sources,
+        refresh: body.refresh,
+        deepen: body.deepen,
+        raisePullMax: body.raisePullMax,
+        refreshLoopnet: Boolean(body.refreshLoopnet),
+        cleanPerRun: body.cleanPerRun,
+        listingsPerRun: body.listingsPerRun,
       }),
     );
   } catch (error) {
@@ -3053,6 +3122,7 @@ app.post('/api/candidates/:id/ship', async (req, res) => {
 
 app.get('/api/candidates/:id/copy-prompt', (req, res) => {
   try {
+    assertEvalPrerequisite(req.params.id, 'narrative');
     res.json({ prompt: buildCopyPrompt(req.params.id) });
   } catch (error) {
     sendError(res, error);

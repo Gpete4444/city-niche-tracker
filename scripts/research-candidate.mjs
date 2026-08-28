@@ -37,6 +37,7 @@ import {
   stageOneSoftnessInputs,
 } from './lib/scoring.mjs';
 import { enrichResearchReport } from './lib/enrich.mjs';
+import { lookupPopulation } from '../ops/lib/census.mjs';
 
 loadEnvFile();
 
@@ -440,6 +441,7 @@ async function main() {
         volumesByCity.push({
           city: place.city,
           state: place.state,
+          population: lookupPopulation(place.city, place.state),
           locationName: resolved.locationName,
           locationCode: resolved.locationCode,
           keywords: vol.byKeyword,
@@ -530,6 +532,7 @@ async function main() {
       byCity: volumesByCity.map((block) => ({
         city: block.city,
         state: block.state,
+        population: block.population ?? null,
         locationName: block.locationName,
         locationCode: block.locationCode,
         keywordVolumes: Object.fromEntries(

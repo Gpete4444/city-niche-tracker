@@ -10,9 +10,10 @@ export const DISCOVERY_DECISIONS = [
   'pass',
   'hold',
   'review',
+  'ignore',
 ];
 
-/** Decisions auto-recommended (hold is human-only). */
+/** Decisions auto-recommended (hold / ignore are human-only). */
 export const AUTO_DECISIONS = ['pursue', 'maybe', 'pass', 'review'];
 
 /**
@@ -102,12 +103,19 @@ export function recommendCandidate(c = {}) {
 export function applyRecommendations(rows = []) {
   return rows.map((row) => {
     const rec = recommendDiscoveryRow(row);
+    const existingHuman = String(row.human_decision || '').trim();
+    const existingNotes = String(row.decision_notes ?? '').trim();
     return {
       ...row,
       recommended_decision: rec.recommended_decision,
       recommended_reason: rec.recommended_reason,
-      human_decision: rec.recommended_decision,
-      decision_notes: rec.recommended_reason,
+      // Never clobber operator Decision / notes (Process + Light SERP re-run this).
+      human_decision: existingHuman || rec.recommended_decision,
+      decision_notes: existingNotes
+        ? row.decision_notes
+        : existingHuman
+          ? row.decision_notes || ''
+          : rec.recommended_reason,
     };
   });
 }

@@ -7,18 +7,21 @@ A plain-language map of what you do in Rover, with **time estimates** for each s
 
 | Name          | What it means in Rover                                       |
 | ------------- | ------------------------------------------------------------ |
-| **Workspace** | A group in the top bar (Potential Candidates · Candidates)   |
-| **Screen**    | A button you click in the top bar (Discovery, Research, …)   |
+| **Stage**     | Top-bar pipeline: 1 Discovery → 2 Research → 3 Website → 4 Launched |
+| **Evaluation**| Numbered checklist inside Research (SERP/Volume → Prospects) |
+| **Track**     | Numbered checklist inside Website (Site-Config → Content → Launch) |
+| **Step**      | A numbered item inside a Discovery flow, Evaluation, or Track |
+| **Screen**    | A top-bar destination (includes satellites Phone · Map)      |
 | **Panel**     | A work area on a candidate’s detail side                     |
-| **Step**      | A numbered checklist inside Site-Config, Content, or Website |
+
+Visual overview: [ROVER-FLOW.md](ROVER-FLOW.md) (work-flow chart + naming hierarchy).
 
 
 ```text
-Potential Candidates          →          Candidates
-Discovery → Research → Map    →    Website Builder → Launched Sites → Phone
+1 Discovery → 2 Research → 3 Website → 4 Launched · Phone · Map
 ```
 
-Most markets die early on purpose. Only **pursue** rows get a full website build.
+Most markets die early on purpose. Only **pursue** rows become **Website Candidates** and get a full site build.
 
 ---
 
@@ -37,13 +40,13 @@ Assumptions: you know the product, reuse defaults / Preset C, trust Claude after
 | New Discovery Pack (filters → Generate)                  | ~30–60 sec   | —                       | ~1 min          |
 | Send to Claude (download + copy prompt)                  | ~10 sec      | ~8–12 min (pack)        | ~10 min         |
 | Import Claude CSV                                        | ~10–15 sec   | —                       | ~15 sec         |
-| SERP probe (batch)                                       | ~5 sec       | ~1–3 min                | ~2 min          |
-| Human decisions (Accept all + quick skim)                | ~1–2 min     | —                       | ~2 min          |
+| Light SERP (batch)                                       | ~5 sec       | ~1–3 min                | ~2 min          |
+| Decisions (Accept all + quick skim)                      | ~1–2 min     | —                       | ~2 min          |
 | Process batch                                            | ~10 sec      | ~15–30 sec              | ~30 sec         |
 | **Discovery subtotal (once per batch)**                  | **~3 min**   | **~11 min**             | **~15 min**     |
 | **Research** *(per pursue candidate)*                    |              |                         |                 |
 | Overview — glance scores                                 | ~10–20 sec   | —                       | ~20 sec         |
-| 1 · Research — run Ad volumes                            | ~5 sec       | ~1–3 min                | ~2 min          |
+| 1 · SERP / Volume — run Ad volumes                            | ~5 sec       | ~1–3 min                | ~2 min          |
 | 1 · Keywords — glance volumes                            | ~10–20 sec   | —                       | ~20 sec         |
 | 2 · Enrich *(optional; skip if not needed)*              | ~5 sec       | ~1–2 min                | ~2 min          |
 | 3 · Narrative — copy → Claude → Load → Accept            | ~30–45 sec   | ~3–5 min                | ~5 min          |
@@ -51,7 +54,7 @@ Assumptions: you know the product, reuse defaults / Preset C, trust Claude after
 | Prospects *(optional — not in totals)*                   | ~30 sec      | ~1–3 min                | ~3 min          |
 | **Research subtotal** *(incl. Enrich)*                   | **~2 min**   | **~8 min**              | **~10 min**     |
 | **Research subtotal** *(skip Enrich)*                    | **~2 min**   | **~6 min**              | **~8 min**      |
-| **Website Builder · Site-Config**                        |              |                         |                 |
+| **Website · Site-Config Track**                        |              |                         |                 |
 | 1 · Colors & fonts (pick + Apply)                        | ~10–20 sec   | —                       | ~20 sec         |
 | 2 · Address (Find + pick, or Skip)                       | ~15–30 sec   | ~30–60 sec if Find      | ~1 min          |
 | 3 · Business details (name / domain / NAP)               | ~30–60 sec   | —                       | ~1 min          |
@@ -60,9 +63,9 @@ Assumptions: you know the product, reuse defaults / Preset C, trust Claude after
 | 6 · Service area (confirm)                               | ~15–30 sec   | —                       | ~30 sec         |
 | 7 · Provision phone (or Skip)                            | ~10 sec      | ~15–30 sec              | ~30 sec         |
 | **Site-Config subtotal**                                 | **~3 min**   | **~4 min**              | **~7 min**      |
-| **Website Builder · Content**                            |              |                         |                 |
+| **Website · Content Track**                            |              |                         |                 |
 | 1 · Structure (Preset C)                                 | ~5–10 sec    | —                       | ~10 sec         |
-| 2 · Field research (copy → Claude → Load)                | ~20–30 sec   | ~3–6 min                | ~5 min          |
+| 2 · Site research (copy → Claude → Load)                | ~20–30 sec   | ~3–6 min                | ~5 min          |
 | 3 · Content brief (copy → Claude → Load & confirm)       | ~15–25 sec   | ~2–4 min                | ~4 min          |
 | 4 · Outline (copy → Claude → Load & confirm)             | ~20–30 sec   | ~3–5 min                | ~5 min          |
 | 5 · Full write batched (Home / Services / Locations)     | ~40–90 sec   | ~12–22 min              | ~18 min         |
@@ -70,7 +73,7 @@ Assumptions: you know the product, reuse defaults / Preset C, trust Claude after
 | 7 · Final check (copy → Load OK / FILE fixes)            | ~10–20 sec   | ~2–4 min                | ~3 min          |
 | 8 · Accept content (+ auto logo / photos / map)          | ~5–10 sec    | ~1–3 min                | ~2 min          |
 | **Content subtotal**                                     | **~3 min**   | **~30 min**             | **~43 min**     |
-| **Website Builder · Website**                            |              |                         |                 |
+| **Website · Launch Track**                            |              |                         |                 |
 | 1 · Review images (glance; skip polish)                  | ~20–40 sec   | —                       | ~30 sec         |
 | 2 · Prepare preview (Stage + Assemble)                   | ~5–10 sec    | ~2–4 min                | ~3 min          |
 | 2 · QA preview (spot-check key URLs)                     | ~1–2 min     | —                       | ~2 min          |
@@ -79,9 +82,9 @@ Assumptions: you know the product, reuse defaults / Preset C, trust Claude after
 | 3 · Run launch (paste keys + Auto ship)                  | ~30–60 sec   | ~3–5 min                | ~5 min          |
 | Verify Gmail + smoke-test form                           | ~1 min       | *(email may lag)*       | ~1–2 min        |
 | **Website / Launch subtotal**                            | **~8 min**   | **~7 min**              | **~15 min**     |
-| **Launched Sites**                                       |              |                         |                 |
+| **Launched**                                       |              |                         |                 |
 | First touch — rent / links (optional same day)           | ~20–30 sec   | —                       | ~30 sec         |
-| **Launched Sites subtotal**                              | **~30 sec**  | **—**                   | **~30 sec**     |
+| **Launched subtotal**                              | **~30 sec**  | **—**                   | **~30 sec**     |
 |                                                          |              |                         |                 |
 | **Total — Discovery batch (once)**                       | **~3 min**   | **~11 min**             | **~15 min**     |
 | **Total — one pursue site (Research → live, w/ Enrich)** | **~15 min**  | **~39 min**             | **~55 min**     |
@@ -147,14 +150,14 @@ Almost every in-app **button / paste / Accept** step is **~5–30 seconds** of y
 
 1. **Find markets** (Discovery) — shortlist niche × city ideas.
 2. **Prove the market** (Research) — search data, story, decide pursue or pass.
-3. **Build the site** (Website Builder) — brand, pages, content, preview, go live.
-4. **Run the portfolio** (Launched Sites · Phone) — rent status, calls, updates.
+3. **Build the site** (Website) — brand, pages, content, preview, go live.
+4. **Run the portfolio** (Launched · Phone) — rent status, calls, updates.
 
 ---
 
 
 
-## Workspace: Potential Candidates
+## Stages: Discovery + Research
 
 
 
@@ -163,15 +166,18 @@ Almost every in-app **button / paste / Accept** step is **~5–30 seconds** of y
 
 | What you do                           | Why                                        |
 | ------------------------------------- | ------------------------------------------ |
-| **1 · New Discovery Pack**            | Creates a Claude-only CSV template + prompt (filtered compact High-Ticket catalog, not the full guide) |
+| **1 · New Discovery Pack**            | Creates a Claude-only CSV template + prompt (filtered compact High-Ticket catalog, not the full guide). **Required** Niche text stays exact; **Suggested**/OPEN prefer **head terms** (e.g. Drywall → Drywall Repair). Claude also estimates **Est. Monthly Search Volume** (Niche+City) for Discovery triage only. |
 | **2 · Send to Claude**                | Claude fills candidate rows for the pack   |
 | **3 · Import Claude CSV**             | Rows appear in the batch table             |
-| **4 · SERP probe**                    | Light competition signal before Research   |
-| Set a **Human** decision on every row | Required before Process                    |
-| **Process batch**                     | Keepers → Research; passes → tracked       |
+| **4 · Light SERP**                    | Light competition signal before Research   |
+| Set a **Decision** on every row       | Required before Process                    |
+| **Process batch**                     | Keepers → Research; pass → tracked; ignore → skip (rediscoverable) |
+| **Advanced** (sidebar)                | Edit / wipe Generate Pack **do-not-repropose** editor (tracked orphans + Research Eval 1 only; Website/Launched never listed) |
 
 
-**Forward:** pursue, maybe, review, hold · **Tracked only:** pass
+**Forward:** pursue, maybe, review, hold · **Tracked only:** pass · **Skip (rediscoverable):** ignore
+
+Generate Pack tells Claude not to re-propose Niche×City×State pairs already in Active Research Candidates or tracked. Archived Candidates are excluded from the prompt. Use **Advanced → Edit do-not-repropose list** (shift-select + Remove) or **Wipe to match Active Research** to clean test leftovers. The Advanced editor only shows tracked/orphan pairs and Research Candidates at Evaluation 1 — Website/Launched Candidates cannot be removed or permanently deleted from Rover.
 
 ### Screen: Research
 
@@ -179,11 +185,11 @@ Almost every in-app **button / paste / Accept** step is **~5–30 seconds** of y
 | Panel         | What you do                                         |
 | ------------- | --------------------------------------------------- |
 | Overview      | Glance snapshot; set **pursue** when ready to build |
-| 1 · Research  | Run Ad volumes / SERP signals                       |
+| 1 · SERP / Volume  | Run Ad volumes / SERP signals                       |
 | 1 · Keywords  | Glance keyword volumes                              |
-| 2 · Enrich    | Optional competitor depth                           |
-| 3 · Narrative | Copy prompt → Claude → Load draft → Accept          |
-| Prospects     | Optional renter list (does not block build)         |
+| 2 · Enrich    | Requires Eval 1 complete                            |
+| 3 · Narrative | Requires Eval 2; Copy prompt → Claude → Load draft → Accept |
+| 4 · Prospects | Requires Eval 3 (Narrative accepted)                |
 | Logs          | Job history                                         |
 
 
@@ -197,35 +203,35 @@ Geography assist for picking cities. Not a required pipeline stage.
 
 
 
-## Workspace: Candidates
+## Stages: Website + Launched (+ satellites)
 
 
 
-### Screen: Website Builder
+### Screen: Website
 
 
 | Panel               | Steps                                                                             |
 | ------------------- | --------------------------------------------------------------------------------- |
-| **4 · Site-Config** | Colors → Address → Details → Paste draft → Accept services → Service Area → Phone |
-| **5 · Content**     | Structure → Field research → Brief → Outline → batched Full write → Humanize → Final check → Accept |
-| **6 · Website**     | Review images → Prepare preview → Launch                                          |
+| **1 · Site-Config** | Colors → Address → Details → Paste draft → Accept services → Service Area → Phone |
+| **2 · Content**     | Structure → Site research → Brief → Outline → batched Full write → Humanize → Final check → Accept |
+| **3 · Launch**     | Review images → Prepare preview → Launch                                          |
 
 
 **Site-Config · Address (step 2)**
 
-- **Find addresses** — LoopNet city cache + Places. Numeric street ranges (e.g. `6778-6780 S 1300 E`) expand to start/end numbers (and small same-parity fills), then Places-screen each; claim a single number, not the range.
-- **Recommended vs Secondary** — Places-clean streets whose Google Maps locality matches the target city are **Recommended**. Places-clean but Maps locality outside the target (e.g. Kearns vs Salt Lake City) are **Secondary** (lower priority; confirm before use).
-- **Refresh LoopNet / Fetch deeper** — paid Apify re-scrape from the top of LoopNet (not delta-only). First pull defaults to **200 per search URL** (UI shows **total** budget ≈ ×2 URLs). When inventory shows **0 left**, Refresh becomes **Fetch deeper** (+100/URL). Each city has a moving ceiling (starts **500**/URL); when deepen would exceed it, Rover warns and on confirm **doubles** the ceiling (up to absolute **2000**/URL).
+- **Find addresses** — LoopNet and/or **Crexi** (checkboxes; both on when both actors are configured) → shared city cache + Places. **Clean target** (default **10**, stop Places after that many cleans) and **Pull size** (default **40** listings per source; LoopNet ~half per office/retail URL) are set on the Address step and remembered in the browser. A street is rejected only for an **active OPERATIONAL Maps listing** locked to street number + ZIP (temp/permanent closed do not block). Same-state / metro streets screen first; outside-metro drops. Numeric street ranges expand to **start + end** only. Places budget stays env/default (`PLACES_BUDGET_PER_RUN`, default **40**). Crexi targets For Lease + Retail + Traditional Office (falls back to Office+Retail if subtype URLs return nothing). **Use Find** for a first pull of a checked source or when that source still has streets left.
+- **Recommended vs Secondary** — Places-clean streets are **Recommended** when Google Maps locality **and** the listing city both match the target city. Places-clean but Maps locality outside the target (e.g. Kearns vs Salt Lake City), or listing city outside the target even when Maps matches (e.g. Taylorsville listing geocoded as Salt Lake City), are **Secondary** when still inside the metro radius (lower priority; confirm before use).
+- **Refresh listings / Fetch deeper** — paid Apify re-scrape for **checked** sources only (not delta-only). Pull size follows the Address-step control; deepen steps stay +20/URL LoopNet / +40 Crexi (ceiling **500**→double up to **2000**/URL). **Fetch deeper** only when every checked source is at **0 left** (never-pulled Crexi is not “exhausted” — use Find). LoopNet Solidcode uses 2 URLs (office+retail); Crexi typically 1 startUrl.
 - **Manual commercial** — paste any single commercial street + ZIP and claim it (`source: manual`).
-- **Unclaimed cleans / Use anyway** — when Find is empty: reuse prior Places-clean streets still free in the city, or override a Maps-dirty reject (confirm).
+- **Unclaimed cleans / Use anyway** — when Find is empty: reuse prior Places-clean streets still free in the city, or override an active-listing reject (confirm). Old “existing Maps business” cache fails are eligible for re-screen on the next Find.
 - **Home paste / Skip** — residential NAP or leave street blank.
-- **Inventory line** — listings in city cache · reviewed · left · claimed (not the live LoopNet result count).
+- **Inventory line** — per-source listings · reviewed · left · **Pull target** (no fill bar). Last search shows Result + Cost; a closed **Cost** dropdown has the estimate footnote and Apify prepaid. Claimed count is city-wide.
 
 **Before Run launch (outside Rover):** buy/point domain NS · Web3Forms key · Gmail routing destination.
 
 **Already live?** Prepare preview → **Push updates**.
 
-### Screen: Launched Sites
+### Screen: Launched
 
 Portfolio tracking — rent status, renter, payment, infra links.
 

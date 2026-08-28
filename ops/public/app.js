@@ -481,6 +481,11 @@ const state = {
   discoveryCheckAnchor: null,
   discoverySort: { key: null, dir: 1 },
   discoveryFilters: { text: '', human: '', rec: '', mapPack: '' },
+  discoveryKnownMode: false,
+  discoveryKnownRows: [],
+  discoveryKnownSelected: new Set(),
+  discoveryKnownCheckAnchor: null,
+  discoveryKnownPrunePreview: null,
   lastDiscoveryPack: null,
   discoveryClaudeSent: false,
   sites: [],
@@ -506,6 +511,7 @@ const DISCOVERY_DECISION_OPTS = [
   'pass',
   'hold',
   'review',
+  'ignore',
 ];
 
 async function api(path, options = {}) {
@@ -703,6 +709,100 @@ function showToast(message, { tone = 'ok', ms = 4200 } = {}) {
   showToast._timer = setTimeout(() => {
     el.classList.add('hidden');
   }, ms);
+}
+
+function prefersReducedMotion() {
+  try {
+    return Boolean(window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches);
+  } catch {
+    return false;
+  }
+}
+
+/** Soft two-tone complete chime (Web Audio). Failures swallowed. */
+function playCompleteSound() {
+  if (prefersReducedMotion()) return;
+  try {
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if (!Ctx) return;
+    if (!playCompleteSound._ctx) playCompleteSound._ctx = new Ctx();
+    const ctx = playCompleteSound._ctx;
+    if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+    const now = ctx.currentTime;
+    const tones = [
+      { f: 660, t: 0, d: 0.12 },
+      { f: 880, t: 0.1, d: 0.18 },
+    ];
+    for (const { f, t, d } of tones) {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = f;
+      gain.gain.setValueAtTime(0.0001, now + t);
+      gain.gain.exponentialRampToValueAtTime(0.12, now + t + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + t + d);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(now + t);
+      osc.stop(now + t + d + 0.02);
+    }
+  } catch {
+    /* autoplay / unsupported */
+  }
+}
+
+/** Top-center slide-in “{step} complete” banner. */
+function showCompleteBanner(stepLabel, { ms = 3500 } = {}) {
+  const label = String(stepLabel || 'Step').trim() || 'Step';
+  let el = document.getElementById('ops-complete-banner');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'ops-complete-banner';
+    el.className = 'ops-complete-banner';
+    el.setAttribute('role', 'status');
+    el.setAttribute('aria-live', 'polite');
+    document.body.appendChild(el);
+  }
+  el.textContent = `${label} complete`;
+  const reduce = prefersReducedMotion();
+  el.classList.toggle('no-motion', reduce);
+  el.classList.remove('hidden', 'is-visible');
+  // Force reflow so re-showing retriggers the slide.
+  void el.offsetWidth;
+  requestAnimationFrame(() => {
+    el.classList.add('is-visible');
+  });
+  clearTimeout(showCompleteBanner._timer);
+  showCompleteBanner._timer = setTimeout(() => {
+    el.classList.remove('is-visible');
+    clearTimeout(showCompleteBanner._hideTimer);
+    showCompleteBanner._hideTimer = setTimeout(() => {
+      el.classList.add('hidden');
+    }, reduce ? 0 : 280);
+  }, ms);
+}
+
+/** Sound + top banner when an async loading bar finishes successfully. */
+function announceStepComplete(stepLabel) {
+  playCompleteSound();
+  showCompleteBanner(stepLabel);
+}
+
+/** Fill a .job-progress-bar from done/total; clear for indeterminate. */
+function setDeterminateProgress(barEl, { done, total } = {}) {
+  if (!barEl) return;
+  const t = Number(total);
+  const d = Number(done);
+  if (!Number.isFinite(t) || t <= 0) {
+    barEl.classList.remove('is-determinate');
+    barEl.style.width = '';
+    barEl.style.animation = '';
+    return;
+  }
+  const pct = Math.max(0, Math.min(100, Math.round((100 * (Number.isFinite(d) ? d : 0)) / t)));
+  barEl.classList.add('is-determinate');
+  barEl.style.animation = 'none';
+  barEl.style.width = `${pct}%`;
 }
 
 function slugifyPreviewName(name) {
@@ -991,18 +1091,41 @@ async function loadHealth() {
   }
 }
 
+/** One-time map: Light 1–4 / Dark 5–8 (schema v2). Old 5→4 Warm, old 4→5 Dark Teal. */
+function migrateThemeIdSchema(raw) {
+  const id = String(raw || '').trim();
+  if (id === 'dark') return '5';
+  if (id === 'light') return '1';
+  if (id === '4') return '5';
+  if (id === '5') return '4';
+  return id;
+}
+
 function normalizeThemeId(raw) {
-  if (raw === 'dark') return '4';
+  if (raw === 'dark') return '5';
   if (raw === 'light') return '1';
   const id = String(raw || '').trim();
-  return /^[1-6]$/.test(id) ? id : '1';
+  return /^[1-8]$/.test(id) ? id : '1';
 }
 
 function getTheme() {
   try {
+    migrateStoredThemeIfNeeded();
     return normalizeThemeId(localStorage.getItem('ops.theme'));
   } catch {
     return '1';
+  }
+}
+
+function migrateStoredThemeIfNeeded() {
+  try {
+    if (localStorage.getItem('ops.themeSchema') === '2') return;
+    const prev = localStorage.getItem('ops.theme');
+    const next = normalizeThemeId(migrateThemeIdSchema(prev));
+    localStorage.setItem('ops.theme', next);
+    localStorage.setItem('ops.themeSchema', '2');
+  } catch {
+    /* ignore */
   }
 }
 
@@ -1011,6 +1134,7 @@ function applyTheme(theme) {
   document.documentElement.setAttribute('data-theme', next);
   try {
     localStorage.setItem('ops.theme', next);
+    localStorage.setItem('ops.themeSchema', '2');
   } catch {
     /* ignore */
   }
@@ -1301,6 +1425,74 @@ function formatMoney(n, digits = 2) {
   return `$${num.toFixed(d)}`;
 }
 
+const API_SPEND_LABELS = {
+  research: 'SERP/Volume',
+  enrich: 'Enrich',
+  prospects: 'Prospects',
+  narrative: 'Narrative (est.)',
+  outreach: 'Outreach (est.)',
+  addressSearch: 'Address Find (est.)',
+};
+
+/** Pipeline order for API $ tip line items. */
+const API_SPEND_ORDER = [
+  'research',
+  'enrich',
+  'narrative',
+  'prospects',
+  'outreach',
+  'addressSearch',
+];
+
+function apiSpendLabelForKey(key) {
+  const k = String(key || '').trim();
+  if (API_SPEND_LABELS[k]) return API_SPEND_LABELS[k];
+  if (!k) return 'Other';
+  return k
+    .replace(/([A-Z])/g, ' $1')
+    .replace(/[_-]+/g, ' ')
+    .replace(/^\s+/, '')
+    .replace(/\b\w/g, (ch) => ch.toUpperCase());
+}
+
+function apiSpendOrderIndex(key) {
+  const i = API_SPEND_ORDER.indexOf(String(key || ''));
+  return i >= 0 ? i : API_SPEND_ORDER.length;
+}
+
+/** Sum meta lastCosts into line items + total (Research / Website table). */
+function candidateApiSpendBreakdown(c) {
+  const raw = c?.lastCosts || c?.meta?.lastCosts || {};
+  const parts = [];
+  if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+    for (const [key, val] of Object.entries(raw)) {
+      const n = Number(val);
+      if (!Number.isFinite(n) || n < 0) continue;
+      parts.push({ key, label: apiSpendLabelForKey(key), value: n });
+    }
+  }
+  parts.sort((a, b) => {
+    const d = apiSpendOrderIndex(a.key) - apiSpendOrderIndex(b.key);
+    if (d !== 0) return d;
+    return String(a.key).localeCompare(String(b.key));
+  });
+  const total =
+    parts.length > 0
+      ? Number(parts.reduce((sum, p) => sum + p.value, 0).toFixed(6))
+      : null;
+  return { parts, total };
+}
+
+function candidateApiSpendTip(breakdown) {
+  const parts = breakdown?.parts || [];
+  if (!parts.length || breakdown?.total == null) {
+    return 'No API spend recorded yet';
+  }
+  const lines = parts.map((p) => `${p.label}  ${formatMoney(p.value)}`);
+  lines.push('', `Total  ${formatMoney(breakdown.total)}`);
+  return lines.join('\n');
+}
+
 /** DataForSEO stage costs that sum to the Overview API cost total. */
 function dfsCostBreakdown(detail) {
   const research = detail?.research;
@@ -1349,7 +1541,7 @@ function dfsCostBreakdown(detail) {
         ? cumResearch
         : null;
 
-  let notes = 'Run Stage 1+';
+  let notes = 'Run SERP / Volume+';
   if (total != null) {
     if (parts.length >= 2) {
       notes = `${parts.map((p) => `${p.key} ${formatMoney(p.value)}`).join(' · ')} = ${formatMoney(total)}`;
@@ -1675,6 +1867,7 @@ function candidateSortValue(c, key) {
   if (key === 'prospects') return c.prospectCount;
   if (key === 'batch') return c.source?.batchId || '';
   if (key === 'notes') return c.decisionNotes || '';
+  if (key === 'apiSpend') return candidateApiSpendBreakdown(c).total;
   return c[key];
 }
 
@@ -1697,7 +1890,7 @@ const CANDIDATE_TABLE_COLS = [
   {
     key: '_stageProgress',
     label: '',
-    tip: 'Highest completed stage: 1 Research · 2 Enrich · 3 Narrative · 4 Prospects',
+    tip: 'Highest completed evaluation: 1 SERP/Volume · 2 Enrich · 3 Narrative · 4 Prospects',
     cellClass: 'col-stage-progress',
     sortable: true,
   },
@@ -1752,7 +1945,7 @@ const CANDIDATE_TABLE_COLS = [
   {
     key: 'disp',
     label: 'Displace.',
-    tip: 'Stage 2 — Displaceability 1–10. Higher = easier to outrank.',
+    tip: 'Evaluation 2 — Displaceability 1–10. Higher = easier to outrank.',
     sortable: true,
     cellClass: 'col-score-metric',
     source: 'ops',
@@ -1784,7 +1977,7 @@ const CANDIDATE_TABLE_COLS = [
   {
     key: 'mapPack',
     label: 'Map Pack',
-    tip: 'Map Pack present (Yes/No). When Yes, shows review counts per pack slot (e.g. 78/14/235). LSA if Local Services Ads detected.',
+    tip: 'Map Pack present (Yes/No). When Yes, shows review counts per pack slot (e.g. 78/14/235). LSA if Local Services Ads detected. May show Discovery Light SERP until Eval 1 · SERP / Volume.',
     sortable: true,
     cellClass: 'col-mappack',
     source: 'dfs',
@@ -1800,7 +1993,7 @@ const CANDIDATE_TABLE_COLS = [
   {
     key: 'orgHome',
     label: 'Homepages',
-    tip: 'Niche-relevant / all organic homepages (title+URL token match). Directories excluded.',
+    tip: 'Niche-relevant / all organic homepages (title+URL token match). Directories excluded. May show Discovery Light SERP counts until Eval 1 · SERP / Volume.',
     sortable: true,
     cellClass: 'col-short col-center',
     source: 'dfs',
@@ -1808,7 +2001,7 @@ const CANDIDATE_TABLE_COLS = [
   {
     key: 'orgSub',
     label: 'Subpages',
-    tip: 'Niche-relevant / all organic subpages (title+URL token match). Directories excluded.',
+    tip: 'Niche-relevant / all organic subpages (title+URL token match). Directories excluded. May show Discovery Light SERP counts until Eval 1 · SERP / Volume.',
     sortable: true,
     cellClass: 'col-short col-center',
     source: 'dfs',
@@ -1816,7 +2009,7 @@ const CANDIDATE_TABLE_COLS = [
   {
     key: 'avgCpc',
     label: 'CPC',
-    tip: 'Average CPC from Stage 1 Ads keywords (monetization signal). Blank until research.',
+    tip: 'Average CPC from SERP / Volume Ads keywords (monetization signal). Blank until SERP / Volume.',
     sortable: true,
     cellClass: 'col-short',
     source: 'dfs',
@@ -1848,7 +2041,7 @@ const CANDIDATE_TABLE_COLS = [
   {
     key: 'prospects',
     label: 'Prospects',
-    tip: 'Stage 4 — Prospect count (high priority in tip)',
+    tip: 'Evaluation 4 — Prospect count (high priority in tip)',
     sortable: true,
     cellClass: 'col-short',
     source: 'ops',
@@ -1869,10 +2062,18 @@ const CANDIDATE_TABLE_COLS = [
     cellClass: 'col-notes',
     source: 'ops',
   },
+  {
+    key: 'apiSpend',
+    label: 'API $',
+    tip: 'Recorded / estimated API spend for this candidate (hover for breakdown)',
+    sortable: true,
+    cellClass: 'col-short',
+    source: 'ops',
+  },
 ];
 
 const STAGE_STEP_TIPS = {
-  1: '1 · Research complete',
+  1: '1 · SERP / Volume complete',
   2: '2 · Enrich complete',
   3: '3 · Narrative complete',
   4: '4 · Prospects complete',
@@ -1886,6 +2087,36 @@ function candidateHighestStageStep(c) {
   if (f.hasEnrichment) return 2;
   if (f.hasResearch) return 1;
   return 0;
+}
+
+/** Website (pursue / site artifacts) or Launched — never permanently deletable in Rover. */
+function isUndeletableCandidateRow(c) {
+  if (!c) return false;
+  if (c.decision === 'pursue') return true;
+  const m = c.meta || {};
+  if (m.lastLaunchAt || m.lastShipAt) return true;
+  const f = c.stageFlags || {};
+  if (
+    f.hasSiteConfig ||
+    f.hasSiteConfigDraft ||
+    f.hasContent ||
+    f.hasContentDraft ||
+    f.hasContentBrief ||
+    f.hasContentResearch ||
+    f.hasBuildPackage ||
+    f.hasContentOutlinePackage ||
+    f.hasContentStructure
+  ) {
+    return true;
+  }
+  return false;
+}
+
+function undeletableIdsInSelection(ids = [...state.selectedIds]) {
+  return ids.filter((id) => {
+    const c = state.candidates.find((x) => x.id === id);
+    return isUndeletableCandidateRow(c);
+  });
 }
 
 function stageStepIconHtml(step) {
@@ -1930,7 +2161,21 @@ function updateCandidateSelectionCount() {
   if (addToSitesBtn) addToSitesBtn.disabled = disable;
   if (archiveBtn) archiveBtn.disabled = disable;
   if (unarchiveBtn) unarchiveBtn.disabled = disable;
-  if (deleteBtn) deleteBtn.disabled = disable;
+  if (deleteBtn) {
+    const blocked = undeletableIdsInSelection();
+    deleteBtn.disabled = disable || blocked.length > 0;
+    if (blocked.length) {
+      setElementTip(
+        deleteBtn,
+        'Website/Launched Candidates cannot be permanently deleted from Rover',
+      );
+    } else {
+      setElementTip(
+        deleteBtn,
+        'Permanently delete Research selection (not Website/Launched) and scrub Discovery anti-dupe / groups / Sites links',
+      );
+    }
+  }
 }
 
 function emptyStateForFilter() {
@@ -1940,7 +2185,7 @@ function emptyStateForFilter() {
     return 'No candidates yet — Process a discovery batch (all decisions land in groups here).';
   }
   if (state.view === 'website-builder' && !state.candidates.some((c) => c.decision === 'pursue' && !c.archived)) {
-    return 'No pursue Candidates yet — mark pursue in Research to open Website Builder.';
+    return 'No pursue Candidates yet — mark pursue in Research to open Website.';
   }
   if (vis === 'archived' && !(state.archivedCount ?? state.candidates.some((c) => c.archived))) {
     return 'No archived candidates — Archive hides rows from Active without deleting files.';
@@ -2005,8 +2250,8 @@ function syncSitesDetailVisibility() {
 
 function syncPhoneDetailVisibility() {
   const layout = document.getElementById('view-phone');
-  const hasCall = Boolean(state.phone?.selectedCallId);
-  layout?.classList.toggle('layout-detail-collapsed', !hasCall);
+  // Always keep the far-right call detail column visible (empty state when no call).
+  layout?.classList.remove('layout-detail-collapsed');
 }
 
 /** Click empty table/panel chrome to clear row selection (not rows, controls, or thead). */
@@ -2359,6 +2604,13 @@ function renderList() {
             c.id,
           )}" data-tip="${esc(notes)}" value="${esc(notes)}" /></td>`;
         }
+        if (col.key === 'apiSpend') {
+          const spend = candidateApiSpendBreakdown(c);
+          const tip = candidateApiSpendTip(spend);
+          const label =
+            spend.total == null ? '—' : esc(formatMoney(spend.total));
+          return `<td${tdClass} data-tip="${esc(tip)}">${label}</td>`;
+        }
         return `<td${tdClass}>—</td>`;
       });
       return `<tr class="${active}" data-id="${esc(c.id)}">${cells.join('')}</tr>`;
@@ -2600,13 +2852,13 @@ function updateTabCompletion() {
   const f = state.detail?.stageFlags || {};
   const labels = {
     overview: 'Overview',
-    serp: '1 · Research',
+    serp: '1 · SERP / Volume',
     keywords: '1 · Keywords',
     enrichment: '2 · Enrich',
     narrative: '3 · Narrative',
-    'site-config': '4 · Site-Config',
-    content: '5 · Content',
-    website: '6 · Website',
+    'site-config': '1 · Site-Config',
+    content: '2 · Content',
+    website: '3 · Launch',
     prospects: '4 · Prospects',
     logs: 'Logs',
   };
@@ -2645,7 +2897,7 @@ function updateTabCompletion() {
         : esc(base);
     tab.classList.toggle('active', key === state.tab);
     if (key === 'keywords') {
-      setElementTip(tab, 'Stage 1 · keyword volumes from research');
+      setElementTip(tab, 'Evaluation 1 · keyword volumes from SERP / Volume');
     }
   });
 }
@@ -2769,11 +3021,11 @@ function forceSerpCheckboxHtml(disabled = false) {
 function jobActLabel(act) {
   return (
     {
-      research: 'Stage 1 research',
-      enrich: 'Stage 2 enrich',
-      narrative: 'Stage 3 narrative',
-      prospects: 'Stage 4 prospects',
-      outreach: 'Claude outreach',
+      research: 'SERP / Volume',
+      enrich: 'Enrich',
+      narrative: 'Narrative',
+      prospects: 'Prospects',
+      outreach: 'Outreach',
     }[act] || act || 'job'
   );
 }
@@ -2939,8 +3191,12 @@ function renderActions() {
   const busy = Boolean(state.activeJobId || state.activeBatchJobId || state.claudeBusy);
   const runningAct = state.activeAct;
   const batchLabel = targetCount > 1 ? ` (${targetCount})` : '';
-  const stageBusyAttr = (act) => {
+  const enrichGateOk = researchDone;
+  const narrGateOk = enrichDone;
+  const prospectsGateOk = narrAccepted;
+  const stageBusyAttr = (act, gateOk = true) => {
     if (targetCount === 0) return 'disabled';
+    if (!gateOk) return 'disabled';
     if (!busy) return '';
     if (runningAct === act) return 'disabled aria-busy="true"';
     return 'disabled';
@@ -2955,30 +3211,39 @@ function renderActions() {
         d?.meta?.lastCosts ||
         {};
   const costBits = [
-    lc.research != null ? `Research ${formatMoney(lc.research)}` : null,
+    lc.research != null ? `SERP/Volume ${formatMoney(lc.research)}` : null,
     lc.enrich != null ? `Enrich ${formatMoney(lc.enrich)}` : null,
     lc.narrative != null ? `Narrative ~${formatMoney(lc.narrative)}` : null,
     lc.prospects != null ? `Prospects ${formatMoney(lc.prospects)}` : null,
     lc.outreach != null ? `Outreach ~${formatMoney(lc.outreach)}` : null,
   ].filter(Boolean);
   const metaBits = [
-    targetCount === 0 ? 'Select rows, then run Stage 1–4 on the selection.' : null,
+    targetCount === 0 ? 'Select rows, then run Evaluations 1–4 on the selection.' : null,
     isMulti ? `${targetCount} selected` : null,
     costBits.length && !isMulti && targetCount > 0
       ? `Last: ${costBits.join(' · ')}`
       : null,
   ].filter(Boolean);
-  const narrDisabled = busy || targetCount !== 1;
+  const narrDisabled = busy || targetCount !== 1 || !narrGateOk;
+  const enrichTip = !enrichGateOk
+    ? 'Complete Evaluation 1 (SERP / Volume) first'
+    : 'Evaluation 2 — page fetch, Domain Rank, thinness / displaceability';
+  const narrTip = !narrGateOk
+    ? 'Complete Evaluation 2 (Enrich) first'
+    : 'Copy Claude.ai prompt, then paste the JSON result on the Narrative tab (default — no API cost)';
+  const prospectsTip = !prospectsGateOk
+    ? 'Complete Evaluation 3 (Narrative) first'
+    : 'Find local businesses via Maps SERP (optional)';
 
   el.innerHTML = `
     <div
       class="actions-toolbar"
-      data-tip="✓ = stage has data. Select rows to batch Stage 1–4. Narrative Accept/Reject is on the Narrative tab (or multi-queue when several drafts)."
+      data-tip="✓ = stage has data. Select rows to batch Evaluations 1–4. Narrative Accept/Reject is on the Narrative tab (or multi-queue when several drafts)."
     >
       <div class="action-group stage-1${researchDone ? ' action-done' : ''}${
         runningAct === 'research' ? ' action-running' : ''
       }${currentStage === 'research' ? ' current' : ''}">
-        <span class="action-group-head"><span class="action-group-title">Research</span><span class="action-group-num">1${
+        <span class="action-group-head"><span class="action-group-title">SERP / Volume</span><span class="action-group-num">1${
           researchDone
             ? ` ${stageCheckMark()}`
             : targetCount > 1
@@ -3010,7 +3275,9 @@ function renderActions() {
               : ''
         }</span></span>
         <div class="action-group-btns">
-          <button type="button" class="btn btn-sm primary" data-act="enrich" data-tip="Stage 2 — page fetch, Domain Rank, thinness / displaceability" ${stageBusyAttr('enrich')}>${
+          <button type="button" class="btn btn-sm primary" data-act="enrich" data-tip="${esc(
+            enrichTip,
+          )}" ${stageBusyAttr('enrich', enrichGateOk)}>${
             runningAct === 'enrich'
               ? 'Running…'
               : targetCount > 1
@@ -3038,7 +3305,7 @@ function renderActions() {
         <div class="action-group-btns">
           <button type="button" class="btn btn-sm primary" data-act="copy-prompt" ${
             narrDisabled ? 'disabled' : ''
-          } data-tip="Copy Claude.ai prompt, then paste the JSON result on the Narrative tab (default — no API cost)">Copy prompt</button>
+          } data-tip="${esc(narrTip)}">Copy prompt</button>
           ${openClaudeAiBtnHtml({ disabled: narrDisabled, sm: true })}
         </div>
       </div>
@@ -3054,9 +3321,9 @@ function renderActions() {
               : ''
         }</span></span>
         <div class="action-group-btns">
-          <button type="button" class="btn btn-sm" data-act="prospects" data-tip="Find local businesses via Maps SERP (optional)" ${stageBusyAttr(
-            'prospects',
-          )}>${
+          <button type="button" class="btn btn-sm" data-act="prospects" data-tip="${esc(
+            prospectsTip,
+          )}" ${stageBusyAttr('prospects', prospectsGateOk)}>${
             runningAct === 'prospects'
               ? 'Running…'
               : targetCount > 1
@@ -3163,11 +3430,11 @@ async function warnResearchOrphansEnrichment(ids, forceSerp) {
       title: 'Force SERP keeps enrichment (may mark stale)',
       confirmLabel: 'Continue',
       bodyHtml: `<p><strong>${esc(String(enriched.length))}</strong> selected candidate(s) already have Stage 2 enrichment.</p>
-        <p>Stage 1 will <strong>keep</strong> Domain Rank / thinness. If Map Pack/organic URLs change, enrichment is marked <strong>stale</strong> — re-run Enrich when you want fresh Rank.</p>`,
+        <p>SERP / Volume will <strong>keep</strong> Domain Rank / thinness. If Map Pack/organic URLs change, enrichment is marked <strong>stale</strong> — re-run Enrich when you want fresh Rank.</p>`,
     });
   }
   return showModal({
-    title: 'Stage 1 will keep enrichment',
+    title: 'SERP / Volume will keep enrichment',
     confirmLabel: 'Continue',
     bodyHtml: `<p><strong>${esc(String(enriched.length))}</strong> selected candidate(s) already have Stage 2 enrichment.</p>
       <p>Ad volumes will re-pull (main cost). Map Pack/organic stays cached unless you check <strong>Force new SERP</strong>.</p>`,
@@ -3413,6 +3680,7 @@ function startJobPoll(jobId, act) {
         state.detail = await api(`/api/candidates/${encodeURIComponent(state.selectedId)}`);
         await loadCandidates();
         if (job.status === 'ok') {
+          announceStepComplete(jobActLabel(finishedAct));
           if (finishedAct === 'research') state.tab = 'serp';
           else if (finishedAct === 'enrich') state.tab = 'enrichment';
           else if (finishedAct === 'prospects') state.tab = 'prospects';
@@ -3540,7 +3808,7 @@ function renderOverview() {
         ? 'Provisional — job value not set yet'
         : overallScore != null
           ? 'Weighted blend of available inputs'
-          : 'Needs Stage 1 research',
+          : 'Needs SERP / Volume',
     ],
     [
       'Demand (scored)',
@@ -3707,7 +3975,7 @@ function domainRankCell(link, lookups) {
 
 function renderSerp() {
   const serp = state.detail.research?.serp;
-  if (!serp) return '<p class="muted">No research yet — run Stage 1 (blue group).</p>';
+  if (!serp) return '<p class="muted">No research yet — run SERP / Volume (Evaluation 1).</p>';
   const lookups = enrichmentLookups();
   const mapPackWebsiteCount =
     serp.mapPackWebsiteCount ??
@@ -3797,7 +4065,7 @@ function renderSerp() {
     ),
     thWithTip(
       'EMD?',
-      'Exact-match domain flag for every organic row. Niche tokens appear in the domain with hyphens stripped. Display heuristic — not used in proposedScore. Older JSON without looksEmd shows No until Stage 1 re-annotates.',
+      'Exact-match domain flag for every organic row. Niche tokens appear in the domain with hyphens stripped. Display heuristic — not used in proposedScore. Older JSON without looksEmd shows No until SERP / Volume re-annotates.',
     ),
     thWithTip('Title', 'SERP title'),
     thWithTip('URL', 'Landing URL'),
@@ -3858,9 +4126,43 @@ function renderSerp() {
 }
 
 
+function fmtCityPop(n) {
+  const v = Number(n);
+  if (!Number.isFinite(v) || v <= 0) return '';
+  if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(1).replace(/\.0$/, '')}M`;
+  if (v >= 1000) return `${Math.round(v / 1000)}k`;
+  return String(Math.round(v));
+}
+
+function citiesMeasuredHtml(vols) {
+  const byCity = Array.isArray(vols?.byCity) ? vols.byCity : [];
+  const lines = [];
+  if (byCity.length) {
+    for (const row of byCity) {
+      const city = String(row.city || '').trim();
+      const state = String(row.state || '').trim();
+      if (!city) continue;
+      const label = state ? `${city}, ${state}` : city;
+      const pop = fmtCityPop(row.population);
+      lines.push(pop ? `${label} · ${pop}` : label);
+    }
+  } else {
+    for (const label of vols?.citiesMeasured || []) {
+      const s = String(label || '').trim();
+      if (s) lines.push(s);
+    }
+  }
+  if (!lines.length) {
+    return `<span class="metric metric-neutral">—</span>`;
+  }
+  return `<span class="metric metric-neutral cities-measured-list">${lines
+    .map((line) => `<span class="cities-measured-item">${esc(line)}</span>`)
+    .join('')}</span>`;
+}
+
 function renderKeywords() {
   const vols = state.detail.research?.volumes;
-  if (!vols) return '<p class="muted">No volumes yet — run Stage 1 (blue group).</p>';
+  if (!vols) return '<p class="muted">No volumes yet — run SERP / Volume (Evaluation 1).</p>';
   const rows = (vols.keywords || []).map((k) => [
     esc(k.keyword),
     esc(k.primaryVolume),
@@ -3888,7 +4190,7 @@ function renderKeywords() {
           alpha: vols.suburbOverlapFactor,
         }),
       )}
-      ${statCard('Cities measured', `<span class="metric metric-neutral">${esc((vols.citiesMeasured || []).join(', ') || '—')}</span>`)}
+      ${statCard('Cities measured', citiesMeasuredHtml(vols))}
     </div>
     ${tableHtml(headers, rows)}
   `;
@@ -3917,7 +4219,7 @@ function renderEnrichment() {
     multiLocationPageCount,
   });
   const staleCallout = enr.stale
-    ? `<div class="callout warn"><strong>Enrichment stale</strong> — Stage 1 SERP URLs changed since this Rank/thinness run (${esc(
+    ? `<div class="callout warn"><strong>Enrichment stale</strong> — SERP / Volume URLs changed since this Rank/thinness run (${esc(
         enr.staleReason || 'serp_urls_changed',
       )}). Domain Rank still shows below; re-run Enrich for a fresh Stage 2.</div>`
     : '';
@@ -4286,6 +4588,7 @@ function saveSiteConfigNapFromForm(candidateId) {
       state.detail?.siteConfig?.siteArchetype ||
       state.detail?.siteConfigDraft?.siteArchetype ||
       'multi_service',
+    domainPick: prev.domainPick || null,
   };
   writeSiteConfigNapLocal(nap, id);
   return nap;
@@ -4299,6 +4602,88 @@ function saveSiteConfigLookToLocal({ paletteId, fontTheme } = {}) {
     paletteId: String(paletteId || prev.paletteId || 'slate-gold').trim() || 'slate-gold',
     fontTheme: String(fontTheme || prev.fontTheme || 'archivo-source').trim() || 'archivo-source',
   };
+  writeSiteConfigNapLocal(nap, id);
+  return nap;
+}
+
+/** Bare hostname for NAP / Domain field (no protocol, path, or trailing slash). */
+function normalizeDomainHostname(raw) {
+  let s = String(raw || '').trim().toLowerCase();
+  if (!s) return '';
+  s = s.replace(/^https?:\/\//i, '');
+  s = s.replace(/^www\./i, '');
+  s = s.split('/')[0].split('?')[0].split('#')[0].trim();
+  s = s.replace(/\.$/, '');
+  if (!/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/i.test(s)) {
+    return s.includes('.') ? s : '';
+  }
+  return s;
+}
+
+/** Parse Claude domain-pick paste into up to 5 suggestion rows. */
+function parseDomainPickPaste(text) {
+  const raw = String(text || '').trim();
+  if (!raw) return [];
+  const out = [];
+  const pushRow = (domain, available, note) => {
+    const host = normalizeDomainHostname(domain);
+    if (!host || out.some((r) => r.domain === host)) return;
+    let avail = null;
+    if (available === true || available === 'true' || available === 'yes') avail = true;
+    else if (available === false || available === 'false' || available === 'no') avail = false;
+    out.push({
+      domain: host,
+      available: avail,
+      note: String(note || '').trim() || null,
+    });
+  };
+  try {
+    const start = raw.indexOf('{');
+    const end = raw.lastIndexOf('}');
+    if (start >= 0 && end > start) {
+      const obj = JSON.parse(raw.slice(start, end + 1));
+      const list = Array.isArray(obj?.domains) ? obj.domains : Array.isArray(obj) ? obj : null;
+      if (list) {
+        for (const row of list) {
+          if (typeof row === 'string') pushRow(row, null, null);
+          else if (row && typeof row === 'object') {
+            pushRow(row.domain || row.host || row.url, row.available, row.note || row.reason);
+          }
+          if (out.length >= 5) break;
+        }
+      }
+    }
+  } catch {
+    /* fall through to line parse */
+  }
+  if (!out.length) {
+    for (const line of raw.split(/\r?\n/)) {
+      const cleaned = line
+        .replace(/^\s*[-*•]\s*/, '')
+        .replace(/^\s*\d+[.)]\s*/, '')
+        .trim();
+      if (!cleaned) continue;
+      const hostMatch = cleaned.match(
+        /(?:https?:\/\/)?(?:www\.)?([a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+)/i,
+      );
+      if (!hostMatch) continue;
+      pushRow(hostMatch[1], null, cleaned.replace(hostMatch[0], '').replace(/^[\s—\-|:]+/, '').trim());
+      if (out.length >= 5) break;
+    }
+  }
+  return out.slice(0, 5);
+}
+
+function writeDomainPickToNap({ domainPick: pickPatch, domain } = {}, candidateId) {
+  const id = candidateId || state.selectedId || state.detail?.id;
+  const prev = siteConfigNapFromLocal(id);
+  const prevPick =
+    prev.domainPick && typeof prev.domainPick === 'object' ? prev.domainPick : {};
+  const nap = {
+    ...prev,
+    domainPick: pickPatch ? { ...prevPick, ...pickPatch } : prevPick,
+  };
+  if (domain != null) nap.domain = String(domain);
   writeSiteConfigNapLocal(nap, id);
   return nap;
 }
@@ -4385,6 +4770,167 @@ function siteConfigServicesChoiceHtml({
 }
 
 const BA_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const BA_SOURCES_LS_KEY = 'baAddressSources';
+const BA_FIND_CAPS_LS_KEY = 'baAddressFindCaps';
+const BA_CLEAN_PER_RUN_DEFAULT = 10;
+const BA_LISTINGS_PER_RUN_DEFAULT = 40;
+const BA_CLEAN_PER_RUN_MIN = 1;
+const BA_CLEAN_PER_RUN_MAX = 25;
+const BA_LISTINGS_PER_RUN_MIN = 10;
+const BA_LISTINGS_PER_RUN_MAX = 200;
+
+function baGetSourceReadiness() {
+  return (
+    state.baSources ||
+    state.baRecover?.[state.detail?.id]?.readiness ||
+    state.detail?.businessAddress?.lastSearchStats?.readiness || {
+      token: false,
+      loopnet: false,
+      crexi: false,
+    }
+  );
+}
+
+function baLoadSourceToggles() {
+  const readiness = baGetSourceReadiness();
+  let saved = null;
+  try {
+    saved = JSON.parse(localStorage.getItem(BA_SOURCES_LS_KEY) || 'null');
+  } catch {
+    saved = null;
+  }
+  let loopnet = saved?.loopnet != null ? Boolean(saved.loopnet) : readiness.loopnet;
+  let crexi = saved?.crexi != null ? Boolean(saved.crexi) : readiness.crexi;
+  if (!readiness.loopnet) loopnet = false;
+  if (!readiness.crexi) crexi = false;
+  if (!loopnet && !crexi) {
+    if (readiness.loopnet) loopnet = true;
+    else if (readiness.crexi) crexi = true;
+  }
+  return { loopnet, crexi };
+}
+
+function baSaveSourceToggles(sources) {
+  try {
+    localStorage.setItem(
+      BA_SOURCES_LS_KEY,
+      JSON.stringify({
+        loopnet: Boolean(sources?.loopnet),
+        crexi: Boolean(sources?.crexi),
+      }),
+    );
+  } catch {
+    /* ignore */
+  }
+}
+
+function baClampCleanPerRun(raw) {
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return BA_CLEAN_PER_RUN_DEFAULT;
+  return Math.min(BA_CLEAN_PER_RUN_MAX, Math.max(BA_CLEAN_PER_RUN_MIN, Math.floor(n)));
+}
+
+function baClampListingsPerRun(raw) {
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return BA_LISTINGS_PER_RUN_DEFAULT;
+  return Math.min(BA_LISTINGS_PER_RUN_MAX, Math.max(BA_LISTINGS_PER_RUN_MIN, Math.floor(n)));
+}
+
+function baLoadFindCaps() {
+  let saved = null;
+  try {
+    saved = JSON.parse(localStorage.getItem(BA_FIND_CAPS_LS_KEY) || 'null');
+  } catch {
+    saved = null;
+  }
+  return {
+    cleanPerRun: baClampCleanPerRun(saved?.cleanPerRun ?? BA_CLEAN_PER_RUN_DEFAULT),
+    listingsPerRun: baClampListingsPerRun(saved?.listingsPerRun ?? BA_LISTINGS_PER_RUN_DEFAULT),
+  };
+}
+
+function baSaveFindCaps(caps) {
+  try {
+    localStorage.setItem(
+      BA_FIND_CAPS_LS_KEY,
+      JSON.stringify({
+        cleanPerRun: baClampCleanPerRun(caps?.cleanPerRun),
+        listingsPerRun: baClampListingsPerRun(caps?.listingsPerRun),
+      }),
+    );
+  } catch {
+    /* ignore */
+  }
+}
+
+function baReadFindCapsFromDom() {
+  const cleanEl = document.getElementById('ba-clean-per-run');
+  const pullEl = document.getElementById('ba-listings-per-run');
+  const loaded = baLoadFindCaps();
+  const caps = {
+    cleanPerRun: baClampCleanPerRun(cleanEl ? cleanEl.value : loaded.cleanPerRun),
+    listingsPerRun: baClampListingsPerRun(pullEl ? pullEl.value : loaded.listingsPerRun),
+  };
+  baSaveFindCaps(caps);
+  if (cleanEl) cleanEl.value = String(caps.cleanPerRun);
+  if (pullEl) pullEl.value = String(caps.listingsPerRun);
+  return caps;
+}
+
+function baReadSourceTogglesFromDom() {
+  const readiness = baGetSourceReadiness();
+  const loopnetEl = document.getElementById('ba-source-loopnet');
+  const crexiEl = document.getElementById('ba-source-crexi');
+  let loopnet = loopnetEl ? Boolean(loopnetEl.checked) : baLoadSourceToggles().loopnet;
+  let crexi = crexiEl ? Boolean(crexiEl.checked) : baLoadSourceToggles().crexi;
+  if (!readiness.loopnet) loopnet = false;
+  if (!readiness.crexi) crexi = false;
+  if (!loopnet && !crexi) {
+    if (readiness.loopnet) loopnet = true;
+    else if (readiness.crexi) crexi = true;
+  }
+  baSaveSourceToggles({ loopnet, crexi });
+  return { loopnet, crexi };
+}
+
+function baCanonicalCrexiUrl(url, idHint = '') {
+  const raw = String(url || '').trim();
+  const hint = String(idHint || '').trim();
+  const pickId = (s) => {
+    const str = String(s || '');
+    const trail = str.match(/\/(\d{4,})(?:\/?(?:\?|#|$))/);
+    if (trail) return trail[1];
+    const digits = str.match(/\b(\d{5,})\b/);
+    return digits ? digits[1] : '';
+  };
+  const id = pickId(raw) || pickId(hint);
+  if (id) return `https://www.crexi.com/properties/${id}`;
+  if (/^https?:\/\//i.test(raw) && /crexi\.com/i.test(raw)) return raw;
+  return '';
+}
+
+function baListingPortalLinksHtml(row) {
+  const urls = {
+    ...(row?.listingUrls && typeof row.listingUrls === 'object' ? row.listingUrls : {}),
+  };
+  if (row?.listingUrl && /^https?:\/\//i.test(String(row.listingUrl))) {
+    const src = row.source === 'crexi' ? 'crexi' : 'loopnet';
+    if (!urls[src]) urls[src] = row.listingUrl;
+  }
+  if (urls.crexi) {
+    urls.crexi = baCanonicalCrexiUrl(urls.crexi, row?.id) || urls.crexi;
+  }
+  const parts = [];
+  if (/^https?:\/\//i.test(String(urls.loopnet || ''))) {
+    parts.push(
+      `<a href="${esc(urls.loopnet)}" target="_blank" rel="noopener">LoopNet</a>`,
+    );
+  }
+  if (/^https?:\/\//i.test(String(urls.crexi || ''))) {
+    parts.push(`<a href="${esc(urls.crexi)}" target="_blank" rel="noopener">Crexi</a>`);
+  }
+  return parts.length ? ` · ${parts.join(' · ')}` : '';
+}
 
 function baFormatUsd(n) {
   if (n == null || Number.isNaN(Number(n))) return '—';
@@ -4424,12 +4970,9 @@ function baPlanBarHtml(plan) {
     return `<div class="muted small">Apify plan: used ${baFormatUsd(used)}</div>`;
   }
   const pct = Math.min(100, Math.round((used / max) * 100));
-  return `<div class="ba-plan-usage" style="margin-top:0.35rem">
-    <div class="muted small">Apify prepaid: <strong>${baFormatUsd(used)}</strong> used · <strong>${baFormatUsd(
-      rem,
-    )}</strong> left of ${baFormatUsd(max)} (${pct}%)</div>
-    <div class="job-progress-track" style="height:6px;margin-top:0.25rem"><div class="job-progress-bar" style="width:${pct}%;animation:none"></div></div>
-  </div>`;
+  return `<div class="muted small">Apify prepaid: <strong>${baFormatUsd(used)}</strong> used · <strong>${baFormatUsd(
+    rem,
+  )}</strong> left of ${baFormatUsd(max)} (${pct}%)</div>`;
 }
 
 /** Readable Find funnel + cost for Last search + Find complete modal. */
@@ -4483,61 +5026,195 @@ function baInventoryFromPkg(pkg, recover = null) {
   return { total, reviewed, left, claimed };
 }
 
-function baInventoryProgressHtml(inv, { style = '', recover = null } = {}) {
+function baSourceBudgetNums(budget = {}) {
+  const urlCount = Math.max(1, Number(budget.pullUrlCount || 2));
+  const lastPull = Number(budget.lastPullMax ?? 0);
+  const nextPull = Number(budget.nextPullMax ?? 0);
+  const lastBudget = Number(
+    budget.lastPullBudget ?? (lastPull > 0 ? lastPull * urlCount : 0),
+  );
+  const nextBudget = Number(
+    budget.nextPullBudget ?? (nextPull > 0 ? nextPull * urlCount : 0),
+  );
+  const hardBudget = Number(
+    budget.pullHardMaxBudget ??
+      (Number(budget.pullHardMax) > 0 ? Number(budget.pullHardMax) * urlCount : 0),
+  );
+  const proposedBudget = Number(
+    budget.proposedHardMaxBudget ??
+      (Number(budget.proposedHardMax) > 0
+        ? Number(budget.proposedHardMax) * urlCount
+        : 0),
+  );
+  const absBudget = Number(
+    budget.absolutePullMaxBudget ??
+      (Number(budget.absolutePullMax) > 0
+        ? Number(budget.absolutePullMax) * urlCount
+        : 0),
+  );
+  return { urlCount, lastBudget, nextBudget, hardBudget, proposedBudget, absBudget };
+}
+
+function baCheckedSourcesExhausted(recover, stats, toggles) {
+  const inv = recover?.sourceInventory || stats?.sourceInventory || {};
+  const readiness = baGetSourceReadiness();
+  const checked = [];
+  if (toggles.loopnet && readiness.loopnet) checked.push('loopnet');
+  if (toggles.crexi && readiness.crexi) checked.push('crexi');
+  if (!checked.length) return false;
+  return checked.every((src) => {
+    const row = inv[src];
+    if (row?.exhausted != null) return Boolean(row.exhausted);
+    const total = Number(row?.total ?? row?.inventoryTotal ?? 0);
+    const left = Number(row?.left ?? row?.unscreenedRemaining ?? 0);
+    return total > 0 && left === 0;
+  });
+}
+
+function baSourceLabelFromToggles(toggles) {
+  const parts = [];
+  if (toggles.loopnet) parts.push('LoopNet');
+  if (toggles.crexi) parts.push('Crexi');
+  return parts.length ? parts.join(' + ') : 'listings';
+}
+
+function baAggregateCheckedBudgets(recover, stats, toggles) {
+  const budgets = recover?.sourceBudgets || stats?.sourceBudgets || {};
+  const checked = [];
+  if (toggles.loopnet) checked.push('loopnet');
+  if (toggles.crexi) checked.push('crexi');
+  if (!checked.length) {
+    return {
+      lastBudget: Number(recover?.lastPullBudget || 0),
+      nextBudget: Number(recover?.nextPullBudget || 0),
+      hardBudget: Number(recover?.pullHardMaxBudget || 0),
+      proposedBudget: Number(recover?.proposedHardMaxBudget || 0),
+      absBudget: Number(recover?.absolutePullMaxBudget || 0),
+      canRaise: Boolean(recover?.canRaiseMax || recover?.needsMaxRaise),
+      needsRaise: Boolean(recover?.needsMaxRaise),
+      atAbsolute: Boolean(recover?.deepenAtCap) && !recover?.canRaiseMax,
+      sourceLabel: baSourceLabelFromToggles(toggles),
+    };
+  }
+  let lastBudget = 0;
+  let nextBudget = 0;
+  let hardBudget = 0;
+  let proposedBudget = 0;
+  let absBudget = 0;
+  let canRaise = false;
+  let needsRaise = false;
+  let atAbsolute = true;
+  for (const src of checked) {
+    const b = budgets[src] || {};
+    const nums = baSourceBudgetNums(b);
+    lastBudget += nums.lastBudget;
+    nextBudget += nums.nextBudget;
+    hardBudget += nums.hardBudget;
+    proposedBudget += nums.proposedBudget;
+    absBudget += nums.absBudget;
+    if (b.canRaiseMax || b.needsMaxRaise) canRaise = true;
+    if (b.needsMaxRaise || (b.deepenAtCap && (b.canRaiseMax || b.needsMaxRaise))) needsRaise = true;
+    if (!(b.deepenAtCap && !b.canRaiseMax)) atAbsolute = false;
+  }
+  if (checked.length === 1) {
+    const b = budgets[checked[0]] || {};
+    atAbsolute = Boolean(b.deepenAtCap) && !b.canRaiseMax;
+    needsRaise = Boolean(b.needsMaxRaise) || (Boolean(b.deepenAtCap) && Boolean(b.canRaiseMax));
+    canRaise = Boolean(b.canRaiseMax || b.needsMaxRaise);
+  }
+  return {
+    lastBudget,
+    nextBudget,
+    hardBudget,
+    proposedBudget,
+    absBudget,
+    canRaise,
+    needsRaise,
+    atAbsolute,
+    sourceLabel: baSourceLabelFromToggles(toggles),
+  };
+}
+
+function baOneSourceInventoryLineHtml(label, inv, budget, { muted = false } = {}) {
+  const total = Number(inv?.total ?? inv?.inventoryTotal ?? 0);
+  const reviewed = Number(inv?.reviewed ?? inv?.inventoryReviewed ?? 0);
+  const left = Number(inv?.left ?? inv?.unscreenedRemaining ?? 0);
+  const nums = baSourceBudgetNums(budget || {});
+  const canRaise = Boolean(budget?.canRaiseMax || budget?.needsMaxRaise);
+  const atSoftCeiling =
+    Boolean(budget?.deepenAtCap || budget?.needsMaxRaise) && canRaise;
+  const atAbsolute = Boolean(budget?.deepenAtCap) && !canRaise && nums.hardBudget > 0;
+  let suffix = '';
+  if (budget?.canDeepen && nums.nextBudget > nums.lastBudget && !atSoftCeiling && !atAbsolute) {
+    suffix = ` · next deeper → <strong>${nums.nextBudget}</strong>`;
+  } else if (atSoftCeiling && nums.proposedBudget > 0) {
+    suffix = ` · at ceiling (${nums.hardBudget || '—'}) — deeper raises to <strong>${nums.proposedBudget}</strong>`;
+  } else if (atAbsolute) {
+    suffix = ` · at max (${nums.absBudget || nums.hardBudget})`;
+  }
+  const opacity = muted ? 'opacity:0.65;' : '';
+  if (total <= 0) {
+    const notPulled = `<div class="muted small" style="${opacity}">${esc(
+      label,
+    )}: <strong>not pulled yet</strong> — use <strong>Find addresses</strong></div>`;
+    if (nums.lastBudget > 0) {
+      return `${notPulled}<div class="muted small" style="${opacity}margin-top:0.1rem">Pull target: <strong>${nums.lastBudget}</strong>${suffix}</div>`;
+    }
+    return notPulled;
+  }
+  return `<div style="margin-top:0.35rem;${opacity}">
+    <div class="muted small"><strong>${esc(label)}</strong>: <strong>${total}</strong> listings · <strong>${reviewed}</strong> reviewed · <strong>${left}</strong> left</div>
+    ${
+      nums.lastBudget > 0
+        ? `<div class="muted small" style="margin-top:0.1rem">Pull target: <strong>${nums.lastBudget}</strong>${suffix}</div>`
+        : ''
+    }
+  </div>`;
+}
+
+function baInventoryProgressHtml(inv, { style = '', recover = null, stats = null, toggles = null } = {}) {
+  const sourceInv = recover?.sourceInventory || stats?.sourceInventory || null;
+  const sourceBudgets = recover?.sourceBudgets || stats?.sourceBudgets || null;
+  const t = toggles || baLoadSourceToggles();
+  const claimed = Number(
+    recover?.usedAddressesInCity ?? inv?.claimed ?? stats?.usedAddressesInCity ?? 0,
+  );
+
+  if (sourceInv || sourceBudgets) {
+    const lnInv = sourceInv?.loopnet || {};
+    const cxInv = sourceInv?.crexi || {};
+    const lnBudget = sourceBudgets?.loopnet || {};
+    const cxBudget = sourceBudgets?.crexi || {};
+    const hasAny =
+      Number(lnInv.total || lnInv.inventoryTotal || 0) > 0 ||
+      Number(cxInv.total || cxInv.inventoryTotal || 0) > 0 ||
+      Number(lnBudget.lastPullMax || 0) > 0 ||
+      Number(cxBudget.lastPullMax || 0) > 0 ||
+      Number(lnBudget.lastPullBudget || 0) > 0 ||
+      Number(cxBudget.lastPullBudget || 0) > 0;
+    if (!hasAny && Number(inv?.total || 0) <= 0) return '';
+    return `<div class="ba-inventory" style="margin-top:0.35rem;${style}">
+      ${baOneSourceInventoryLineHtml('LoopNet', lnInv, lnBudget, { muted: !t.loopnet })}
+      ${baOneSourceInventoryLineHtml('Crexi', cxInv, cxBudget, { muted: !t.crexi })}
+      ${
+        claimed > 0
+          ? `<div class="muted small" style="margin-top:0.25rem">${claimed} claimed in city (all sources)</div>`
+          : ''
+      }
+    </div>`;
+  }
+
+  // Legacy single-strip fallback
   const total = Number(inv?.total || 0);
   if (total <= 0 && !recover?.lastPullMax && !recover?.nextPullMax && !recover?.lastPullBudget) {
     return '';
   }
   const reviewed = Number(inv?.reviewed || 0);
   const left = Number(inv?.left || 0);
-  const claimed = Number(inv?.claimed || 0);
-  const pct = total > 0 ? Math.min(100, Math.round((reviewed / total) * 100)) : 0;
-  const urlCount = Math.max(
-    1,
-    Number(recover?.pullUrlCount || inv?.pullUrlCount || 2),
-  );
-  const lastPull = Number(recover?.lastPullMax ?? inv?.lastPullMax ?? 0);
-  const nextPull = Number(recover?.nextPullMax ?? 0);
-  const lastBudget = Number(
-    recover?.lastPullBudget ?? inv?.lastPullBudget ?? (lastPull > 0 ? lastPull * urlCount : 0),
-  );
-  const nextBudget = Number(
-    recover?.nextPullBudget ?? (nextPull > 0 ? nextPull * urlCount : 0),
-  );
-  const hardBudget = Number(
-    recover?.pullHardMaxBudget ??
-      (Number(recover?.pullHardMax) > 0 ? Number(recover.pullHardMax) * urlCount : 0),
-  );
-  const proposedBudget = Number(
-    recover?.proposedHardMaxBudget ??
-      (Number(recover?.proposedHardMax) > 0
-        ? Number(recover.proposedHardMax) * urlCount
-        : 0),
-  );
-  const absBudget = Number(
-    recover?.absolutePullMaxBudget ??
-      (Number(recover?.absolutePullMax) > 0
-        ? Number(recover.absolutePullMax) * urlCount
-        : 0),
-  );
-  const canRaise = Boolean(recover?.canRaiseMax || recover?.needsMaxRaise);
-  const atSoftCeiling =
-    Boolean(recover?.deepenAtCap || recover?.needsMaxRaise) && canRaise;
-  const atAbsolute =
-    Boolean(recover?.deepenAtCap) && !canRaise && hardBudget > 0;
-
-  let suffix = '';
-  if (recover?.canDeepen && nextBudget > lastBudget && !atSoftCeiling && !atAbsolute) {
-    suffix = ` · next Fetch deeper → up to <strong>${nextBudget}</strong>`;
-  } else if (atSoftCeiling && proposedBudget > 0) {
-    suffix = ` · at ceiling (up to ${hardBudget || '—'}) — Fetch deeper raises ceiling to <strong>${proposedBudget}</strong>`;
-  } else if (atAbsolute) {
-    suffix = ` · at max (up to ${absBudget || hardBudget})`;
-  }
-
+  const nums = baSourceBudgetNums(recover || inv || {});
   const depthNote =
-    lastBudget > 0
-      ? `<div class="muted small" style="margin-top:0.15rem">Last pull budget: up to <strong>${lastBudget}</strong> listings${suffix}</div>`
+    nums.lastBudget > 0
+      ? `<div class="muted small" style="margin-top:0.15rem">Pull target: <strong>${nums.lastBudget}</strong></div>`
       : '';
   if (total <= 0) {
     return depthNote
@@ -4549,25 +5226,26 @@ function baInventoryProgressHtml(inv, { style = '', recover = null } = {}) {
       claimed > 0 ? ` · ${claimed} claimed` : ''
     }</div>
     ${depthNote}
-    <div class="job-progress-track" style="height:6px;margin-top:0.25rem" title="${pct}% reviewed">
-      <div class="job-progress-bar" style="width:${pct}%;animation:none"></div>
-    </div>
   </div>`;
 }
 
-/** Shared lead-in for Fetch deeper when inventory is 0 left. */
+/** Shared lead-in for Fetch deeper when checked-source inventory is 0 left. */
 function baExhaustedDeepenWarnHtml({
   variant = 'deepen',
   lastBudget = 0,
   nextBudget = 0,
   hardBudget = 0,
   proposedBudget = 0,
+  sourceLabel = 'listings',
 } = {}) {
-  const lead = `<p><strong>All cached listings are already screened (0 left).</strong></p>
-    <p class="muted">Fetch deeper re-scrapes LoopNet from the top (not “new only”) and <strong>may add few or no new streets</strong>. Apify is billable.</p>`;
+  const label = sourceLabel || 'listings';
+  const lead = `<p><strong>All cached ${esc(label)} listings are already screened (0 left).</strong></p>
+    <p class="muted">Fetch deeper re-scrapes <strong>${esc(
+      label,
+    )}</strong> from the top (not “new only”) and <strong>may add few or no new streets</strong>. Apify is billable.</p>`;
   if (variant === 'raise') {
     return `${lead}
-      <p class="muted">This also <strong>doubles</strong> the city pull ceiling from up to <strong>${esc(
+      <p class="muted">This also <strong>doubles</strong> the pull ceiling from up to <strong>${esc(
         String(hardBudget),
       )}</strong> → up to <strong>${esc(String(proposedBudget))}</strong>, then scrapes at up to <strong>${esc(
         String(nextBudget),
@@ -4588,39 +5266,18 @@ function baExhaustedDeepenWarnHtml({
 function baSearchReportBodyHtml(pkg, { title = 'Last search', failed = false } = {}) {
   const stats = pkg?.lastSearchStats || {};
   const cost = pkg?.lastSearchCost || {};
-  const query = pkg?.lastSearchQuery || {};
   const plan = pkg?.apifyPlanUsage || state.apifyPlanUsage || null;
   const kind = pkg?.lastSearchErrorKind || null;
-  const cacheSize = Number(stats.cacheSize ?? pkg?.listingCache?.listings?.length ?? 0);
-  const apifyReturned = Number(stats.apifyReturned ?? 0);
-  const considered = Number(stats.considered ?? stats.listingsIn ?? 0);
-  const skipped = Number(stats.skippedAlreadyScreened ?? 0);
-  const skippedUsed = Number(stats.skippedAlreadyUsed ?? 0);
-  const localRejects = Number(stats.localRejects ?? 0);
   const places = Number(stats.placesCalls ?? 0);
   const clean = Number(stats.shortlist ?? 0);
   const added = Number(stats.added ?? 0);
   const total = Number(stats.shortlistTotal ?? pkg?.shortlist?.length ?? 0);
-  const unscreened = Number(stats.unscreenedRemaining ?? 0);
-  const usedInCity = Number(stats.usedAddressesInCity ?? pkg?.usedAddressesSummary ?? 0);
   const secondaryN = Number(stats.secondaryCount || 0);
-
-  const rejectEntries = Object.entries(stats.rejectTallies || {}).sort((a, b) => b[1] - a[1]);
-  const rejectLines = rejectEntries
-    .slice(0, 8)
-    .map(([k, n]) => `${esc(k)} (${n})`)
-    .join(' · ');
 
   const placesTotal =
     cost?.apifyUsd != null && Number(cost.apifyUsd) > 0
       ? Number(cost.apifyUsd) + (Number(cost.placesEstUsd) || 0)
       : (Number(cost.apifyEstUsd) || 0) + (Number(cost.placesEstUsd) || 0);
-
-  const loopnetLine = stats.cacheHit
-    ? `LoopNet: city cache · ${cacheSize} listings · ${skipped} already screened · ${considered} considered`
-    : `LoopNet: ${apifyReturned} returned · ${considered} considered${
-        skipped ? ` · ${skipped} already screened` : ''
-      }`;
 
   const face = `<div class="ba-search-face" style="margin-top:0.35rem">
     <div>Result: <strong>${clean}</strong> clean · <strong>${added}</strong> new · <strong>${total}</strong> recommended${
@@ -4629,92 +5286,55 @@ function baSearchReportBodyHtml(pkg, { title = 'Last search', failed = false } =
     <div style="margin-top:0.25rem">Cost: Apify ${baApifyCostLabel(cost, stats)} · Places est. ${baFormatUsd(
       cost.placesEstUsd,
     )} · Total ~${baFormatUsd(placesTotal || cost.totalEstUsd)}</div>
+    ${
+      stats.placesBudgetReached || kind === 'places_budget'
+        ? `<div class="muted small" style="margin-top:0.25rem">Places budget: <strong>${esc(
+            String(places),
+          )}</strong> / ${esc(String(stats.placesBudget ?? '—'))} lookups this run — Find again to screen more.</div>`
+        : Number(stats.placesBudget) > 0
+          ? `<div class="muted small" style="margin-top:0.25rem">Places: ${esc(String(places))} lookups · budget ${esc(
+              String(stats.placesBudget),
+            )}/run</div>`
+          : ''
+    }
   </div>`;
 
   const billingHint =
     kind === 'apify_billing'
       ? `<p style="margin:0.45rem 0 0">Apify blocked this run. Add credit at <a href="https://console.apify.com/billing/subscription" target="_blank" rel="noopener">Apify billing</a>, then retry. Manual commercial / home paste / Skip still work.</p>`
       : kind === 'apify_config'
-        ? `<p style="margin:0.45rem 0 0">Add <code>APIFY_TOKEN</code>, <code>APIFY_LOOPNET_ACTOR_ID</code>, and <code>GOOGLE_MAPS_API_KEY</code> to <code>.env</code>, restart Rover, then retry.</p>`
-        : '';
+        ? `<p style="margin:0.45rem 0 0">Add <code>APIFY_TOKEN</code>, at least one of <code>APIFY_LOOPNET_ACTOR_ID</code> / <code>APIFY_CREXI_ACTOR_ID</code>, and <code>GOOGLE_MAPS_API_KEY</code> to <code>.env</code>, restart Rover, then retry.</p>`
+        : kind === 'places_budget'
+          ? `<p style="margin:0.45rem 0 0">Stopped early to cap Places spend. Run <strong>Find addresses</strong> again to continue screening remaining streets (another budget), or use Manual / recover / home / Skip.</p>`
+          : '';
 
-  const rangeNote =
-    Number(stats.rangesExpanded || 0) > 0 || Number(stats.rangesRequeued || 0) > 0
-      ? `<div class="muted small" style="margin-top:0.25rem">Ranges: ${
-          Number(stats.rangesRequeued || 0)
-            ? `${Number(stats.rangesRequeued)} requeued · `
-            : ''
-        }${Number(stats.rangesExpanded || 0)} expanded · ${Number(
-          stats.rangeEndpointsScreened || 0,
-        )} endpoints screened</div>`
+  const planHtml = baPlanBarHtml(plan);
+  const costDetails =
+    cost.note || planHtml
+      ? `<details class="narrative-raw" style="margin-top:0.45rem">
+    <summary class="muted small">Cost</summary>
+    ${
+      cost.note
+        ? `<div class="muted small" style="margin-top:0.35rem">${esc(cost.note)}</div>`
+        : ''
+    }
+    ${planHtml ? `<div style="margin-top:0.35rem">${planHtml}</div>` : ''}
+  </details>`
       : '';
-
-  const deepenNote = (() => {
-    if (!stats.deepened) return '';
-    const urls = Math.max(1, Number(stats.pullUrlCount) || 2);
-    const fromMax = Number(stats.lastPullMax);
-    const toMax = Number(stats.pullMax ?? stats.max);
-    const fromBudget =
-      Number.isFinite(fromMax) && fromMax > 0 ? fromMax * urls : null;
-    const toBudget = Number.isFinite(toMax) && toMax > 0 ? toMax * urls : null;
-    if (fromBudget == null || toBudget == null) return '';
-    return `<div class="muted small" style="margin-top:0.2rem">Fetch deeper: pull budget up to ${esc(
-      String(fromBudget),
-    )} → <strong>${esc(String(toBudget))}</strong> listings</div>`;
-  })();
-
-  const details = `<details class="narrative-raw" style="margin-top:0.45rem">
-    <summary class="muted small">Technical details</summary>
-    <div class="muted small" style="margin-top:0.35rem">${esc(loopnetLine)}${
-      skippedUsed ? ` · ${skippedUsed} already used by another candidate` : ''
-    }</div>
-    <div class="muted small" style="margin-top:0.2rem">Places: ${places} lookups · ${localRejects} local rejects (no Maps)${
-      unscreened > 0 ? ` · ${unscreened} still unscreened` : ''
-    }${usedInCity > 0 ? ` · ${usedInCity} claimed in city` : ''}</div>
-    ${deepenNote}
-    ${rangeNote}
-    <div class="muted small" style="margin-top:0.35rem">
-      Queried: <strong>${esc(
-        query.location || [pkg?.city, pkg?.state].filter(Boolean).join(', ') || '—',
-      )}</strong>
-      ${query.locationSlug ? ` · slug <code>${esc(query.locationSlug)}</code>` : ''}
-      ${query.actorId ? ` · actor <code>${esc(query.actorId)}</code>` : ''}
-      ${pkg?.cityCacheKey ? ` · city cache <code>${esc(pkg.cityCacheKey)}</code>` : ''}
-    </div>
-    ${
-      Array.isArray(query.searchUrls) && query.searchUrls.length
-        ? `<div class="muted small" style="margin-top:0.2rem">URLs: ${query.searchUrls
-            .map((u) => `<code>${esc(u)}</code>`)
-            .join(' · ')}</div>`
-        : ''
-    }
-    ${
-      rejectLines
-        ? `<div class="muted small" style="margin-top:0.25rem">Reject tallies: ${rejectLines}</div>`
-        : ''
-    }
-    ${
-      cost.apifyRunId
-        ? `<div class="muted small" style="margin-top:0.2rem"><a href="https://console.apify.com/view/runs/${esc(
-            cost.apifyRunId,
-          )}" target="_blank" rel="noopener">Apify run</a></div>`
-        : ''
-    }
-    ${cost.note ? `<div class="muted small" style="margin-top:0.2rem">${esc(cost.note)}</div>` : ''}
-    ${baPlanBarHtml(plan)}
-  </details>`;
 
   const showError =
     pkg?.lastSearchError && kind !== 'cache_exhausted'
       ? `<p class="muted small" style="margin:0.45rem 0 0">${esc(pkg.lastSearchError)}</p>`
       : '';
 
-  return `<div class="callout ${failed ? 'danger' : 'ok'}" style="margin-top:0.75rem">
+  return `<div class="callout ${
+    failed && kind !== 'places_budget' ? 'danger' : 'ok'
+  }" style="margin-top:0.75rem">
     <strong>${esc(title)}</strong>
     ${face}
     ${billingHint}
     ${showError}
-    ${details}
+    ${costDetails}
     <div class="muted small" style="margin-top:0.35rem">${esc(pkg?.lastSearchAt || '')}</div>
   </div>`;
 }
@@ -4770,6 +5390,10 @@ function renderSiteConfig() {
       Boolean(baSel?.street) ||
       Boolean(baPkg?.skipped) ||
       Boolean(d?.meta?.businessAddressStatus === 'skipped'),
+    domain:
+      Boolean(accepted?.domain) ||
+      Boolean(String(nap.domain || '').trim()) ||
+      isSoftDone('siteConfigSoftDone', 'domain'),
     paste: Boolean(draft) || Boolean(accepted),
     // Explicit save only — Claude-seeded coverageAreas do not complete this step.
     serviceArea: Boolean(accepted && d?.meta?.lastServiceAreaAt),
@@ -4784,28 +5408,31 @@ function renderSiteConfig() {
   const detailsDone = stepDone.details || isSoftDone('siteConfigSoftDone', 'details');
   const lookDone = stepDone.look || isSoftDone('siteConfigSoftDone', 'look');
   const addressDone = stepDone.address || isSoftDone('siteConfigSoftDone', 'address');
+  const domainDone = stepDone.domain || isSoftDone('siteConfigSoftDone', 'domain');
   const pasteDone = stepDone.paste || isSoftDone('siteConfigSoftDone', 'paste');
   const servicesDone =
     Boolean(accepted) || isSoftDone('siteConfigSoftDone', 'services');
   const serviceAreaDone =
     stepDone.serviceArea || isSoftDone('siteConfigSoftDone', 'service-area');
   const phoneDone = stepDone.phone;
-  // Forward-only: 1 look → 2 address → 3 details → 4 paste → 5 services → 6 service-area → 7 phone
+  // Forward-only: 1 look → 2 address → 3 domain → 4 details → 5 paste → 6 services → 7 service-area → 8 phone
   const durableCurrent = !lookDone
     ? 'look'
     : !addressDone
       ? 'address'
-      : !detailsDone
-        ? 'details'
-        : !pasteDone
-          ? 'paste'
-          : !servicesDone
-            ? 'services'
-            : !serviceAreaDone
-              ? 'service-area'
-              : !phoneDone
-                ? 'phone'
-                : null;
+      : !domainDone
+        ? 'domain'
+        : !detailsDone
+          ? 'details'
+          : !pasteDone
+            ? 'paste'
+            : !servicesDone
+              ? 'services'
+              : !serviceAreaDone
+                ? 'service-area'
+                : !phoneDone
+                  ? 'phone'
+                  : null;
   const currentId = resolvePanelCurrent('siteConfigSoftCurrent', durableCurrent);
   if (state.siteConfigFollowCurrent !== currentId) {
     state.siteConfigOpenStep = currentId;
@@ -4817,7 +5444,7 @@ function renderSiteConfig() {
   parts.push(
     panelHowToHtml({
       label: 'Site config',
-      info: '1 Colors & fonts → 2 Address → 3 Business details → 4 Paste & edit draft → 5 Review services & Accept → 6 Service area → 7 Provision phone → Content.',
+      info: '1 Colors & fonts → 2 Address → 3 Domain → 4 Business details → 5 Paste & edit draft → 6 Review services & Accept → 7 Service area → 8 Provision phone → Content.',
     }),
   );
   if (isSelectedLaunched()) {
@@ -4865,9 +5492,9 @@ function renderSiteConfig() {
   }
 
   const lockedUntilAccept =
-    '<p class="muted small">Locked until you <strong>Accept</strong> site-config in Review services (step 5).</p>';
+    '<p class="muted small">Locked until you <strong>Accept</strong> site-config in Review services (step 6).</p>';
   const lockedUntilDraft =
-    '<p class="muted small">Locked until you <strong>Load draft</strong> in Paste Claude’s reply (step 4).</p>';
+    '<p class="muted small">Locked until you <strong>Load draft</strong> in Paste Claude’s reply (step 5).</p>';
 
   parts.push(
     contentStepHtml({
@@ -4877,7 +5504,7 @@ function renderSiteConfig() {
       done: lookDone,
       open: openId === 'look',
       current: currentId === 'look' && !lookDone,
-      info: 'Pick a brand palette and a site-wide text font first. Apply saves the look, then continue to Address → Business details → Copy.',
+      info: 'Pick a brand palette and a site-wide text font first. Apply saves the look, then continue to Address → Domain → Business details → Copy.',
       bodyHtml: `
         <h4>Site colors</h4>
         <div class="site-config-palette">
@@ -4932,11 +5559,13 @@ function renderSiteConfig() {
   const baCacheSize = Number(
     baStats?.cacheSize ?? baPkg?.listingCache?.listings?.length ?? 0,
   );
-  const baCacheExhausted =
-    baErrorKind === 'cache_exhausted' ||
-    (baCacheSize > 0 &&
-      baStats?.unscreenedRemaining != null &&
-      Number(baStats.unscreenedRemaining) === 0);
+  const baSrcTogglesEarly = baLoadSourceToggles();
+  const baRecoverEarly = state.baRecover?.[d?.id] || null;
+  const baCacheExhausted = baCheckedSourcesExhausted(
+    baRecoverEarly,
+    baStats,
+    baSrcTogglesEarly,
+  );
 
   const baBusy = Boolean(state.baSearchBusy);
   const baBusyMode = state.baSearchMode || 'find';
@@ -4968,7 +5597,7 @@ function renderSiteConfig() {
           { pass: true, label: `ZIP present (${row.zip || '—'})` },
           {
             pass: true,
-            label: 'Places — no OPERATIONAL business at this street number',
+            label: 'Places — no active OPERATIONAL Maps listing at this street+ZIP',
           },
           ...(row.suite
             ? [{ pass: null, label: `Suggested suite ${row.suite} (NAP-friendly stub)` }]
@@ -4984,10 +5613,21 @@ function renderSiteConfig() {
         return `<li><span class="muted">${mark}</span> ${esc(c.label || '')}</li>`;
       })
       .join('');
-    const localityNote =
-      secondary && row.mapsLocality
+    const listingCityLabel = String(row.city || '').trim();
+    const mapsCityLabel = String(row.mapsLocality || '').trim();
+    const listingMapsDiffer =
+      listingCityLabel &&
+      mapsCityLabel &&
+      listingCityLabel.toLowerCase() !== mapsCityLabel.toLowerCase();
+    const localityNote = listingMapsDiffer
+      ? `<div class="muted small" style="margin-top:0.2rem">Listing: <strong>${esc(
+          listingCityLabel,
+        )}</strong> · Maps: <strong>${esc(mapsCityLabel)}</strong>${
+          secondary ? ` (not ${esc(addrCity || 'target city')})` : ''
+        }</div>`
+      : secondary && mapsCityLabel
         ? `<div class="muted small" style="margin-top:0.2rem">Maps: <strong>${esc(
-            row.mapsLocality,
+            mapsCityLabel,
           )}</strong> (not ${esc(addrCity || row.city || 'target city')})</div>`
         : row.localityUnknown
           ? `<div class="muted small" style="margin-top:0.2rem">Maps locality unknown — use with caution</div>`
@@ -5009,11 +5649,7 @@ function renderSiteConfig() {
             <a href="${esc(row.mapsUrl || '#')}" target="_blank" rel="noopener">Maps</a>
             ·
             <a href="${esc(row.streetViewUrl || '#')}" target="_blank" rel="noopener">Street View</a>
-            ${
-              /^https?:\/\//i.test(String(row.listingUrl || ''))
-                ? ` · <a href="${esc(row.listingUrl)}" target="_blank" rel="noopener">LoopNet</a>`
-                : ''
-            }
+            ${baListingPortalLinksHtml(row)}
           </div>
           <details class="narrative-raw lint-findings" style="margin-top:0.4rem">
             <summary><strong>How chosen</strong></summary>
@@ -5078,7 +5714,15 @@ function renderSiteConfig() {
       return `${street}|${zip}`;
     }),
   );
+  const recoverStateOk = (row) => {
+    const rowState = String(row?.state || '')
+      .trim()
+      .toUpperCase();
+    if (!geoState || !rowState) return true;
+    return rowState === geoState;
+  };
   const recoverCleans = (Array.isArray(baRecover?.cleans) ? baRecover.cleans : []).filter((row) => {
+    if (!recoverStateOk(row)) return false;
     const street = String(row?.street || '')
       .trim()
       .toLowerCase()
@@ -5088,7 +5732,9 @@ function renderSiteConfig() {
       .slice(0, 5);
     return !shortlistKeySet.has(`${street}|${zip}`);
   });
-  const recoverOverrides = Array.isArray(baRecover?.overrides) ? baRecover.overrides : [];
+  const recoverOverrides = (Array.isArray(baRecover?.overrides) ? baRecover.overrides : []).filter(
+    recoverStateOk,
+  );
   const showRecover =
     baCacheExhausted ||
     baSearchFailed ||
@@ -5099,16 +5745,34 @@ function renderSiteConfig() {
   const recoverRowHtml = (row, kind) => {
     const btnClass = kind === 'override' ? 'btn ba-use-override' : 'btn primary ba-use-recover';
     const btnLabel = kind === 'override' ? 'Use anyway' : 'Use this';
+    const listingCityLabel = String(row.city || '').trim();
+    const mapsCityLabel = String(row.mapsLocality || '').trim();
+    const listingMapsDiffer =
+      listingCityLabel &&
+      mapsCityLabel &&
+      listingCityLabel.toLowerCase() !== mapsCityLabel.toLowerCase();
     const warn =
       kind === 'override'
-        ? `<div class="muted small" style="margin-top:0.2rem">Maps had a business here${
-            row.fail ? ` — ${esc(String(row.fail).replace(/^existing Maps business:\s*/i, ''))}` : ''
+        ? `<div class="muted small" style="margin-top:0.2rem">Active Maps listing at this address${
+            row.fail
+              ? ` — ${esc(
+                  String(row.fail)
+                    .replace(/^existing Maps business:\s*/i, '')
+                    .replace(/^active Maps listing:\s*/i, ''),
+                )}`
+              : ''
           }. Operator risk.</div>`
-        : row.tier === 'secondary' && row.mapsLocality
-          ? `<div class="muted small" style="margin-top:0.2rem">Secondary — Maps: <strong>${esc(
-              row.mapsLocality,
-            )}</strong> (not ${esc(addrCity || row.city || 'target city')})</div>`
-          : '';
+        : listingMapsDiffer
+          ? `<div class="muted small" style="margin-top:0.2rem">Listing: <strong>${esc(
+              listingCityLabel,
+            )}</strong> · Maps: <strong>${esc(mapsCityLabel)}</strong>${
+              row.tier === 'secondary' ? ` (not ${esc(addrCity || 'target city')})` : ''
+            }</div>`
+          : row.tier === 'secondary' && mapsCityLabel
+            ? `<div class="muted small" style="margin-top:0.2rem">Secondary — Maps: <strong>${esc(
+                mapsCityLabel,
+              )}</strong> (not ${esc(addrCity || row.city || 'target city')})</div>`
+            : '';
     return `<div class="callout" style="margin:0;padding:0.55rem 0.7rem">
       <div style="display:flex;flex-wrap:wrap;gap:0.5rem;align-items:flex-start;justify-content:space-between">
         <div>
@@ -5122,11 +5786,7 @@ function renderSiteConfig() {
             <a href="${esc(row.mapsUrl || '#')}" target="_blank" rel="noopener">Maps</a>
             ·
             <a href="${esc(row.streetViewUrl || '#')}" target="_blank" rel="noopener">Street View</a>
-            ${
-              /^https?:\/\//i.test(String(row.listingUrl || ''))
-                ? ` · <a href="${esc(row.listingUrl)}" target="_blank" rel="noopener">LoopNet</a>`
-                : ''
-            }
+            ${baListingPortalLinksHtml(row)}
           </div>
         </div>
         <button type="button" class="${btnClass}" data-ba-recover-kind="${esc(
@@ -5154,7 +5814,7 @@ function renderSiteConfig() {
           recoverOverrides.length
             ? `<details class="narrative-raw" style="margin-top:0.65rem">
                 <summary><strong>Use anyway</strong>
-                  <span class="muted small"> — ${recoverOverrides.length} Maps-dirty reject${
+                  <span class="muted small"> — ${recoverOverrides.length} local-metro active-listing reject${
                     recoverOverrides.length === 1 ? '' : 's'
                   } (confirm before claiming)</span>
                 </summary>
@@ -5179,6 +5839,7 @@ function renderSiteConfig() {
       .then((data) => {
         if (!state.baRecover) state.baRecover = {};
         state.baRecover[d.id] = data;
+        if (data?.readiness) state.baSources = data.readiness;
         if (document.getElementById('ba-find-addresses')) renderDetail();
       })
       .catch(() => {});
@@ -5188,14 +5849,14 @@ function renderSiteConfig() {
     ? `<div id="ba-search-progress" class="job-progress" aria-live="polite" style="margin-top:0.65rem">
         <div class="job-progress-track"><div class="job-progress-bar"></div></div>
         <p class="job-progress-label">${
-          baBusyMode === 'refresh' ? 'Refreshing LoopNet…' : 'Finding addresses…'
+          baBusyMode === 'refresh' ? 'Refreshing listings…' : 'Finding addresses…'
         }</p>
         <p class="job-progress-detail">${
           baBusyMode === 'refresh'
-            ? `Pulling LoopNet listings for ${esc(addrCity || 'city')}${
+            ? `Pulling checked sources for ${esc(addrCity || 'city')}${
                 addrState ? `, ${esc(addrState)}` : ''
               } (Apify billable; deeper when cache is exhausted), then screening with Places.`
-            : `Continuing from LoopNet cache when available, then screening with Places for ${esc(
+            : `Continuing from city cache when available, then screening with Places for ${esc(
                 addrCity || 'city',
               )}${addrState ? `, ${esc(addrState)}` : ''}. Cache hits skip Apify.`
         }</p>
@@ -5210,6 +5871,47 @@ function renderSiteConfig() {
       ? `<div class="callout" style="margin-top:0.5rem">Address skipped — street left blank for site-config.</div>`
       : '';
 
+  const baSrcToggles = baSrcTogglesEarly;
+  const baSrcReady = baGetSourceReadiness();
+  const baFindCaps = baLoadFindCaps();
+  const sourceToggleHtml = `<div class="muted small" style="margin-top:0.5rem;display:flex;flex-wrap:wrap;gap:0.85rem;align-items:center">
+    <span>Sources:</span>
+    <label style="display:inline-flex;align-items:center;gap:0.3rem;cursor:${
+      baSrcReady.loopnet ? 'pointer' : 'not-allowed'
+    }" data-tip="${
+      baSrcReady.loopnet
+        ? 'Include LoopNet in Find / Refresh'
+        : 'Set APIFY_LOOPNET_ACTOR_ID in .env'
+    }">
+      <input type="checkbox" id="ba-source-loopnet" ${baSrcToggles.loopnet ? 'checked' : ''} ${
+        !baSrcReady.loopnet || baBusy ? 'disabled' : ''
+      } /> LoopNet
+    </label>
+    <label style="display:inline-flex;align-items:center;gap:0.3rem;cursor:${
+      baSrcReady.crexi ? 'pointer' : 'not-allowed'
+    }" data-tip="${
+      baSrcReady.crexi ? 'Include Crexi in Find / Refresh' : 'Set APIFY_CREXI_ACTOR_ID in .env'
+    }">
+      <input type="checkbox" id="ba-source-crexi" ${baSrcToggles.crexi ? 'checked' : ''} ${
+        !baSrcReady.crexi || baBusy ? 'disabled' : ''
+      } /> Crexi
+    </label>
+  </div>
+  <div class="muted small" style="margin-top:0.45rem;display:flex;flex-wrap:wrap;gap:0.85rem;align-items:center">
+    <label style="display:inline-flex;align-items:center;gap:0.3rem" data-tip="Stop Places screening after this many clean streets (1–25)">
+      Clean target
+      <input type="number" id="ba-clean-per-run" min="${BA_CLEAN_PER_RUN_MIN}" max="${BA_CLEAN_PER_RUN_MAX}" step="1" value="${
+        baFindCaps.cleanPerRun
+      }" ${baBusy ? 'disabled' : ''} style="width:3.5rem" />
+    </label>
+    <label style="display:inline-flex;align-items:center;gap:0.3rem" data-tip="How many listings to pull per source on Find / Refresh (10–200)">
+      Pull size
+      <input type="number" id="ba-listings-per-run" min="${BA_LISTINGS_PER_RUN_MIN}" max="${BA_LISTINGS_PER_RUN_MAX}" step="1" value="${
+        baFindCaps.listingsPerRun
+      }" ${baBusy ? 'disabled' : ''} style="width:3.5rem" />
+    </label>
+  </div>`;
+
   parts.push(
     contentStepHtml({
       id: 'address',
@@ -5220,27 +5922,33 @@ function renderSiteConfig() {
       current: currentId === 'address' && !addressDone,
       info: `Find a clean commercial street in ${esc(
         addrCity || 'your city',
-      )} (or Manual / home / Skip). Selection pre-fills Business details.`,
+      )} (or Manual / home / Skip). Selection pre-fills Business details; next step is Domain.`,
       bodyHtml: `
         ${
           baPkg || state.baRecover?.[d?.id]
             ? baInventoryProgressHtml(
                 baInventoryFromPkg(baPkg, state.baRecover?.[d?.id] || null),
-                { recover: state.baRecover?.[d?.id] || null, style: 'margin-top:0' },
+                {
+                  recover: state.baRecover?.[d?.id] || null,
+                  stats: baPkg?.lastSearchStats || null,
+                  toggles: baSrcTogglesEarly,
+                  style: 'margin-top:0',
+                },
               )
             : ''
         }
         ${selectedBanner}
+        ${sourceToggleHtml}
         <div class="narrative-actions" style="flex-wrap:wrap;gap:0.5rem;align-items:center;margin-top:0.5rem">
-          <button type="button" class="btn${baCacheExhausted ? '' : ' primary'}" id="ba-find-addresses" data-tip="Search for unused commercial addresses in this city. Free if we already have a recent listing list. Ranges expand to start/end numbers." ${
+          <button type="button" class="btn${baCacheExhausted ? '' : ' primary'}" id="ba-find-addresses" data-tip="Pull and screen checked sources. Use Find for a first Crexi/LoopNet pull or when that source still has streets left. Cache hits skip Apify." ${
             baBusy || !(ready || f.hasApproved) ? 'disabled' : ''
           }${baBusy ? ' aria-busy="true"' : ''}>Find addresses</button>
           <button type="button" class="btn${baCacheExhausted ? ' primary' : ''}" id="ba-refresh-loopnet" data-tip="${
             baCacheExhausted
-              ? 'Pull more LoopNet listings (raises budget or doubles the city ceiling when needed; costs Apify), then screen new streets.'
-              : 'Download a fresh listing list (costs money), then look for new unused addresses.'
+              ? 'Checked sources are at 0 left — raise pull depth (Apify billable), then screen new streets.'
+              : 'Re-scrape checked sources (Apify billable). Prefer Find when a source is not exhausted yet.'
           }" ${baBusy || !(ready || f.hasApproved) ? 'disabled' : ''}>${
-            baCacheExhausted ? 'Fetch deeper' : 'Refresh LoopNet'
+            baCacheExhausted ? 'Fetch deeper' : 'Refresh listings'
           }</button>
           <button type="button" class="btn" id="ba-show-manual" data-tip="Paste any commercial street and claim it for this candidate." ${
             baBusy ? 'disabled' : ''
@@ -5287,22 +5995,106 @@ function renderSiteConfig() {
   const preCity = baSel?.city || nap.addressCity || addrCity;
   const preState = baSel?.state || nap.addressState || addrState;
 
+  const domainPick =
+    nap.domainPick && typeof nap.domainPick === 'object' ? nap.domainPick : {};
+  const domainSuggestions = Array.isArray(domainPick.suggestions)
+    ? domainPick.suggestions
+    : [];
+  const selectedDomain = normalizeDomainHostname(domainPick.selectedDomain || '');
+  const customDomain = String(domainPick.customDomain || '').trim();
+  const domainChoiceReady = Boolean(
+    selectedDomain || normalizeDomainHostname(customDomain),
+  );
+  const domainRowsHtml = domainSuggestions.length
+    ? `<ul class="sc-domain-pick-list">${domainSuggestions
+        .map((row) => {
+          const host = normalizeDomainHostname(row.domain);
+          if (!host) return '';
+          const on = selectedDomain && selectedDomain === host && !customDomain;
+          const avail =
+            row.available === true
+              ? ' · maybe available'
+              : row.available === false
+                ? ' · likely taken'
+                : '';
+          const note = row.note ? ` — ${esc(row.note)}` : '';
+          return `<li class="sc-domain-pick-row">
+            <span class="sc-domain-pick-label"><code>${esc(host)}</code>${esc(avail)}${note}</span>
+            <label class="sc-domain-pick-toggle" data-tip="Select this domain (only one)">
+              <input type="checkbox" class="sc-domain-pick-opt" data-domain="${esc(host)}" ${
+                on ? 'checked' : ''
+              } />
+              <span class="sc-domain-pick-switch" aria-hidden="true"></span>
+            </label>
+          </li>`;
+        })
+        .join('')}</ul>`
+    : `<p class="muted small">Paste Claude’s reply and Load to see top Exact Match suggestions.</p>`;
+
+  parts.push(
+    contentStepHtml({
+      id: 'domain',
+      num: 3,
+      title: 'Domain',
+      done: domainDone,
+      open: openId === 'domain',
+      current: currentId === 'domain' && !domainDone,
+      info: 'Copy the Exact Domain Match prompt, paste Claude’s top 5, pick one (or enter a custom host), buy on Cloudflare if needed, then Continue to Business details.',
+      bodyHtml: `
+        <p class="disc-tool-blurb">Claude suggests Exact Domain Match hosts for this niche + city. Availability is Claude’s best guess only — confirm when you buy.</p>
+        <div class="narrative-actions">
+          <button type="button" class="btn primary" id="sc-domain-copy-prompt" data-tip="Copy Exact Domain Match prompt for Claude.ai" ${
+            ready || f.hasApproved ? '' : 'disabled'
+          }>Copy domain prompt</button>
+          ${openClaudeAiBtnHtml({
+            disabled: !(ready || f.hasApproved),
+            id: 'sc-domain-open-claude',
+            tip: 'Open Claude.ai (paste the copied domain prompt)',
+          })}
+        </div>
+        <div class="narrative-paste" style="margin-top:0.65rem">
+          <h4>Paste Claude’s domain list</h4>
+          <textarea id="sc-domain-paste" class="narrative-paste-input" rows="2" placeholder="Paste Claude’s JSON or domain list…" data-tip="Paste Exact Domain Match reply"></textarea>
+          <div class="narrative-actions">
+            <button type="button" class="btn primary" id="sc-domain-paste-load" data-tip="Parse pasted domains into the list below">Load</button>
+          </div>
+        </div>
+        <div class="sc-domain-pick" style="margin-top:0.65rem">
+          <h4>Suggestions</h4>
+          ${domainRowsHtml}
+          <label class="sc-domain-custom" style="display:block;margin-top:0.55rem">
+            <span class="label-with-tip-head">
+              <span>Custom domain</span>
+              <button type="button" class="tip-info" data-tip="Use your own host instead of a suggestion. Clears any toggle." aria-label="About Custom domain">i</button>
+            </span>
+            <input id="sc-domain-custom" type="text" value="${esc(customDomain)}" placeholder="yourdomain.com" />
+          </label>
+          <div class="narrative-actions" style="margin-top:0.65rem;flex-wrap:wrap;gap:0.4rem">
+            <a class="btn" href="https://dash.cloudflare.com/" target="_blank" rel="noopener noreferrer" id="sc-domain-cloudflare" data-tip="Open Cloudflare Dashboard — register or transfer the domain (Registrar), then Continue">Buy on Cloudflare</a>
+            <button type="button" class="btn primary" id="sc-domain-continue" data-tip="Save chosen domain into Business details" ${
+              domainChoiceReady ? '' : 'disabled'
+            }>Continue</button>
+          </div>
+        </div>`,
+    }),
+  );
+
   parts.push(
     contentStepHtml({
       id: 'details',
-      num: 3,
+      num: 4,
       title: 'Business details',
       done: detailsDone,
       open: openId === 'details',
       current: currentId === 'details' && !detailsDone,
-      info: 'Fill domain, name, email, and radius. Phone is optional here — ranking number comes in step 7. Address comes from step 2 when set. Copy site-config prompt, then Paste.',
+      info: 'Domain comes from step 3 when set. Fill name, email, and radius. Phone is optional here — ranking number comes in step 8. Address comes from step 2 when set. Copy site-config prompt, then Paste.',
       bodyHtml: `
         <p class="disc-tool-blurb">Used when you copy the prompt and merged into the draft if Claude leaves blanks.</p>
         <div class="site-config-nap">
           <label>
             <span class="label-with-tip-head">
               <span>Domain</span>
-              <button type="button" class="tip-info" data-tip="Public hostname without https:// (e.g. yourdomain.com)." aria-label="About Domain">i</button>
+              <button type="button" class="tip-info" data-tip="Public hostname without https:// (e.g. yourdomain.com). Prefills from Domain step." aria-label="About Domain">i</button>
             </span>
             <input id="sc-domain" type="text" value="${esc(nap.domain || '')}" placeholder="yourdomain.com" />
           </label>
@@ -5316,9 +6108,9 @@ function renderSiteConfig() {
           <label>
             <span class="label-with-tip-head">
               <span>Phone</span>
-              <button type="button" class="tip-info" data-tip="Optional for the Claude prompt. Your ranking number is set in step 7 (Provision phone) and replaces this on the live site-config." aria-label="About Phone">i</button>
+              <button type="button" class="tip-info" data-tip="Optional for the Claude prompt. Your ranking number is set in step 8 (Provision phone) and replaces this on the live site-config." aria-label="About Phone">i</button>
             </span>
-            <input id="sc-phone" type="text" value="${esc(nap.phone || '')}" placeholder="Optional — provision in step 7" />
+            <input id="sc-phone" type="text" value="${esc(nap.phone || '')}" placeholder="Optional — provision in step 8" />
           </label>
           <label>
             <span class="label-with-tip-head">
@@ -5415,9 +6207,9 @@ function renderSiteConfig() {
         <label>
           <span class="label-with-tip-head">
             <span>Phone</span>
-            <button type="button" class="tip-info" data-tip="Optional Claude seed. Ranking number is set in step 7 and replaces this on the live site-config." aria-label="About draft Phone">i</button>
+            <button type="button" class="tip-info" data-tip="Optional Claude seed. Ranking number is set in step 8 and replaces this on the live site-config." aria-label="About draft Phone">i</button>
           </span>
-          <input id="sc-edit-phone" type="text" value="${esc(draft.phone || '')}" placeholder="Optional — provision in step 7" />
+          <input id="sc-edit-phone" type="text" value="${esc(draft.phone || '')}" placeholder="Optional — provision in step 8" />
         </label>
         <label>Email <input id="sc-edit-email" type="email" value="${esc(draft.email || '')}" /></label>
         <label class="site-config-span2">Tagline <input id="sc-edit-tagline" type="text" value="${esc(draft.tagline || '')}" /></label>
@@ -5455,7 +6247,7 @@ function renderSiteConfig() {
   parts.push(
     contentStepHtml({
       id: 'paste',
-      num: 4,
+      num: 5,
       title: 'Paste Claude’s reply',
       done: pasteDone,
       open: openId === 'paste',
@@ -5484,7 +6276,7 @@ function renderSiteConfig() {
   parts.push(
     contentStepHtml({
       id: 'services',
-      num: 5,
+      num: 6,
       title: 'Review services',
       done: servicesDone,
       open: openId === 'services',
@@ -5500,7 +6292,7 @@ function renderSiteConfig() {
   parts.push(
     contentStepHtml({
       id: 'service-area',
-      num: 6,
+      num: 7,
       title: 'Service area',
       done: serviceAreaDone,
       open: openId === 'service-area',
@@ -5530,7 +6322,7 @@ function renderSiteConfig() {
   parts.push(
     contentStepHtml({
       id: 'phone',
-      num: 7,
+      num: 8,
       title: 'Provision phone number',
       done: phoneDone,
       open: openId === 'phone',
@@ -5636,7 +6428,16 @@ function contentStepHtml({
   </section>`;
 }
 
-const SITE_CONFIG_STEP_ORDER = ['look', 'address', 'details', 'paste', 'services', 'service-area', 'phone'];
+const SITE_CONFIG_STEP_ORDER = [
+  'look',
+  'address',
+  'domain',
+  'details',
+  'paste',
+  'services',
+  'service-area',
+  'phone',
+];
 const CONTENT_STEP_ORDER = [
   'structure',
   'fieldResearch',
@@ -5956,7 +6757,7 @@ function contentUpNextHtml(stepDone, ready, { secCount = 0, outlineConfirmed = f
     upNext = 'Up next: <strong>Structure</strong> — pages + sections → Continue';
   } else if (!stepDone.fieldResearch) {
     upNext =
-      'Up next: <strong>Field research</strong> — Copy field-research prompt → Claude.ai → Load';
+      'Up next: <strong>Site research</strong> — Copy field-research prompt → Claude.ai → Load';
   } else if (!stepDone.brief) {
     upNext =
       'Up next: <strong>Content brief</strong> — Copy brief prompt → Claude.ai → Load &amp; confirm';
@@ -5982,7 +6783,7 @@ function contentUpNextHtml(stepDone, ready, { secCount = 0, outlineConfirmed = f
 function contentPassStripHtml(stepDone, currentId) {
   const labels = [
     ['structure', 'Structure'],
-    ['fieldResearch', 'Field research'],
+    ['fieldResearch', 'Site research'],
     ['brief', 'Brief'],
     ['outline', 'Outline'],
     ['write', 'Write'],
@@ -6017,7 +6818,7 @@ function contentAcceptScorecardHtml({
       ok ? 'Yes' : 'No'
     }</strong> <span class="metric-band">${esc(label)}</span></span>`;
   return `<div class="stat-grid content-scorecard" style="margin:0.5rem 0 0.75rem">
-    ${chip(fieldOk, 'Field research')}
+    ${chip(fieldOk, 'Site research')}
     ${chip(briefOk, 'Brief confirmed')}
     ${chip(writeOk, filesLabel || 'Write batches')}
     ${chip(editorOk, `Humanize clear (speech ${speechN}, SEO crit ${seoCriticalN}, em-dash ${emDashN})`)}
@@ -6705,7 +7506,7 @@ function renderContent() {
   parts.push(
     panelHowToHtml({
       label: 'Content',
-      info: 'Eight-pass path (required): Structure → Field research → Brief → Outline → batched Full write → Humanize → Final check → Accept. Claude.ai paste only (no Anthropic API). Then Website → Prepare preview.',
+      info: 'Eight-pass path (required): Structure → Site research → Brief → Outline → batched Full write → Humanize → Final check → Accept. Claude.ai paste only (no Anthropic API). Then Website → Prepare preview.',
     }),
   );
   if (isSelectedLaunched()) {
@@ -6776,7 +7577,7 @@ function renderContent() {
     contentStepHtml({
       id: 'fieldResearch',
       num: 2,
-      title: 'Field research',
+      title: 'Site research',
       done: fieldResearchDone,
       open: openId === 'fieldResearch',
       current: currentId === 'fieldResearch' && !fieldResearchDone,
@@ -7135,7 +7936,7 @@ function renderContent() {
         ${incompleteDraftCalloutHtml(d)}
         ${
           !acceptReady && draft
-            ? `<div class="callout warn">Accept locked until Field research, Brief, Write batches, Humanize (clear), and Final check are done. See scorecard above.</div>`
+            ? `<div class="callout warn">Accept locked until Site research, Brief, Write batches, Humanize (clear), and Final check are done. See scorecard above.</div>`
             : ''
         }
         ${
@@ -8373,14 +9174,22 @@ const SHIP_PROGRESS_STEPS = [
   'Workers Builds (best-effort)…',
 ];
 
-function setLaunchProgress(visible, label, detail) {
+function setLaunchProgress(visible, label, detail, { step = null, total = null } = {}) {
   const box = document.getElementById('ca-launch-progress');
   const labelEl = document.getElementById('ca-launch-progress-label');
   const detailEl = document.getElementById('ca-launch-progress-detail');
+  const bar = box?.querySelector('.job-progress-bar');
   if (!box) return;
   box.classList.toggle('hidden', !visible);
   if (labelEl && label) labelEl.textContent = label;
   if (detailEl && detail) detailEl.textContent = detail;
+  if (!visible) {
+    setDeterminateProgress(bar, {});
+  } else if (total != null) {
+    // step is 0-based index of current phase; show completed fraction including current kickoff
+    const done = step == null ? 0 : Math.min(Number(total), Number(step) + 1);
+    setDeterminateProgress(bar, { done, total: Number(total) });
+  }
 }
 
 function setAssembleProgress(visible, detail) {
@@ -8448,6 +9257,7 @@ function formatAcceptElapsed(ms) {
 function startAcceptProgressTicker() {
   const startedAt = Date.now();
   let stepIdx = 0;
+  const total = ACCEPT_PROGRESS_STEPS.length;
   const tick = () => {
     const elapsed = formatAcceptElapsed(Date.now() - startedAt);
     const step = ACCEPT_PROGRESS_STEPS[stepIdx] || ACCEPT_PROGRESS_STEPS.at(-1);
@@ -8458,6 +9268,8 @@ function startAcceptProgressTicker() {
     setAcceptProgress(true, {
       label: 'Accepting…',
       detail: stillWorking,
+      step: stepIdx,
+      total,
     });
     stepIdx = Math.min(stepIdx + 1, ACCEPT_PROGRESS_STEPS.length - 1);
   };
@@ -8465,14 +9277,21 @@ function startAcceptProgressTicker() {
   return setInterval(tick, 2000);
 }
 
-function setAcceptProgress(visible, { label, detail } = {}) {
+function setAcceptProgress(visible, { label, detail, step = null, total = null } = {}) {
   const box = document.getElementById('ca-accept-progress');
   const labelEl = document.getElementById('ca-accept-progress-label');
   const detailEl = document.getElementById('ca-accept-progress-detail');
+  const bar = document.getElementById('ca-accept-progress-bar');
   if (!box) return;
   box.classList.toggle('hidden', !visible);
   if (labelEl && label) labelEl.textContent = label;
   if (detailEl && detail) detailEl.textContent = detail;
+  if (!visible) {
+    setDeterminateProgress(bar, {});
+  } else if (total != null) {
+    const done = step == null ? 0 : Math.min(Number(total), Number(step) + 1);
+    setDeterminateProgress(bar, { done, total: Number(total) });
+  }
 }
 
 function setImagesProgress(visible, { label, detail, current, total } = {}) {
@@ -8484,15 +9303,11 @@ function setImagesProgress(visible, { label, detail, current, total } = {}) {
   box.classList.toggle('hidden', !visible);
   if (labelEl && label) labelEl.textContent = label;
   if (detailEl && detail) detailEl.textContent = detail;
-  if (bar) {
+  if (!visible) {
+    setDeterminateProgress(bar, {});
+  } else {
     const known = Number(total) > 0 && Number(current) >= 0;
-    bar.classList.toggle('is-determinate', known);
-    if (known) {
-      const pct = Math.max(4, Math.min(100, Math.round((Number(current) / Number(total)) * 100)));
-      bar.style.width = `${pct}%`;
-    } else {
-      bar.style.width = '';
-    }
+    setDeterminateProgress(bar, known ? { done: Number(current), total: Number(total) } : {});
   }
 }
 
@@ -8732,7 +9547,7 @@ function wireContentTab(d) {
       if (result.warnings?.length) {
         showToast(result.warnings.join(' '), { tone: 'warn' });
       } else {
-        showToast('Outline composed — Field research next.');
+        showToast('Outline composed — Site research next.');
       }
     } catch (error) {
       await showModal({
@@ -8867,10 +9682,10 @@ function wireContentTab(d) {
         },
       );
       await refresh(result.candidate, 'brief');
-      showToast('Field research loaded — Content brief next.');
+      showToast('Site research loaded — Content brief next.');
     } catch (error) {
       await showModal({
-        title: 'Field research load failed',
+        title: 'Site research load failed',
         confirmLabel: 'OK',
         bodyHtml: `<p>${esc(error.message)}</p>`,
       });
@@ -9374,6 +10189,7 @@ function wireContentTab(d) {
         current: total,
         total: total || 1,
       });
+      announceStepComplete(replace ? 'Replace photos' : 'Pull photos');
       await refresh(result.candidate, 'images', 'website');
       const lines = (result.human || []).map((h) => `<p>${esc(h)}</p>`).join('');
       const files = (result.files || [])
@@ -9713,6 +10529,7 @@ function wireContentTab(d) {
       state.preparePreviewHold = false;
       await refresh(prepared.candidate || state.detail, 'launch', 'website');
       setAssembleProgress(true, preview?.ok ? 'Preview ready' : 'Preview failed');
+      announceStepComplete('Prepare preview');
       const buildLine = prepared.build?.ok
         ? prepared.build?.buildSkipped
           ? `Build skipped (dist still fresh${buildMs ? ` · ${buildMs}` : ''})`
@@ -9805,6 +10622,7 @@ function wireContentTab(d) {
         current: 3,
         total: 3,
       });
+      announceStepComplete('Generate logo');
       await refresh(result.candidate, 'images', 'website');
       await showModal({
         title: 'Logo generated',
@@ -9845,6 +10663,7 @@ function wireContentTab(d) {
         current: 1,
         total: 1,
       });
+      announceStepComplete('Coverage map');
       await refresh(result.candidate, 'images', 'website');
       const miss = Array.isArray(result.missingBoundaries) ? result.missingBoundaries : [];
       const missHtml = miss.length
@@ -10371,10 +11190,17 @@ function wireContentTab(d) {
       el.disabled = true;
     });
     let stepIdx = 0;
-    setLaunchProgress(true, 'Pushing updates…', SHIP_PROGRESS_STEPS[0]);
+    const shipTotal = SHIP_PROGRESS_STEPS.length;
+    setLaunchProgress(true, 'Pushing updates…', SHIP_PROGRESS_STEPS[0], {
+      step: 0,
+      total: shipTotal,
+    });
     const shipTimer = setInterval(() => {
       stepIdx = Math.min(stepIdx + 1, SHIP_PROGRESS_STEPS.length - 1);
-      setLaunchProgress(true, 'Pushing updates…', SHIP_PROGRESS_STEPS[stepIdx]);
+      setLaunchProgress(true, 'Pushing updates…', SHIP_PROGRESS_STEPS[stepIdx], {
+        step: stepIdx,
+        total: shipTotal,
+      });
     }, 12000);
     try {
       const result = await api(`/api/candidates/${encodeURIComponent(id)}/ship`, {
@@ -10382,6 +11208,7 @@ function wireContentTab(d) {
         body: JSON.stringify({}),
       });
       await refresh(result.candidate || state.detail, 'launch', 'website');
+      announceStepComplete('Push updates');
       const human = (result.human || []).map((h) => `<li>${esc(h)}</li>`).join('');
       await showModal({
         title: result.ok ? 'Updates pushed' : 'Push partial',
@@ -10459,10 +11286,17 @@ function wireContentTab(d) {
       el.disabled = true;
     });
     let stepIdx = 0;
-    setLaunchProgress(true, 'Launching…', LAUNCH_PROGRESS_STEPS[0]);
+    const launchTotal = LAUNCH_PROGRESS_STEPS.length;
+    setLaunchProgress(true, 'Launching…', LAUNCH_PROGRESS_STEPS[0], {
+      step: 0,
+      total: launchTotal,
+    });
     const launchTimer = setInterval(() => {
       stepIdx = Math.min(stepIdx + 1, LAUNCH_PROGRESS_STEPS.length - 1);
-      setLaunchProgress(true, 'Launching…', LAUNCH_PROGRESS_STEPS[stepIdx]);
+      setLaunchProgress(true, 'Launching…', LAUNCH_PROGRESS_STEPS[stepIdx], {
+        step: stepIdx,
+        total: launchTotal,
+      });
     }, 12000);
     try {
       const body = { ...pendingBody, allowIncompleteLaunch };
@@ -10471,6 +11305,7 @@ function wireContentTab(d) {
         body: JSON.stringify(body),
       });
       await refresh(result.candidate, 'indexing', 'website');
+      announceStepComplete('Launch');
       const human = (result.human || []).map((h) => `<li>${esc(h)}</li>`).join('');
       const shipOk = result.ship?.ok ? 'Ship (GitHub/Worker) ok' : result.ship ? 'Ship partial/failed' : 'Ship skipped';
       const cfOk = result.cloudflare?.ok ? 'Cloudflare domain/email ran' : 'Cloudflare domain/email skipped or incomplete';
@@ -10619,6 +11454,7 @@ function wireContentTab(d) {
         }
         clearInterval(acceptTimer);
         setAcceptProgress(false);
+        announceStepComplete('Accept content');
         await refresh(result.candidate, 'prepare', 'website');
         const map = result.coverageMap;
         const logo = result.logo;
@@ -10876,9 +11712,126 @@ function wireSiteConfigTab(d) {
     if (result?.candidate) state.detail = result.candidate;
     if (!state.siteConfigSoftDone) state.siteConfigSoftDone = {};
     state.siteConfigSoftDone.address = true;
-    advancePanelStep('site-config', 'details');
+    advancePanelStep('site-config', 'domain');
     renderDetail();
   };
+
+  const syncDomainContinueEnabled = () => {
+    const btn = document.getElementById('sc-domain-continue');
+    if (!btn) return;
+    const custom = normalizeDomainHostname(document.getElementById('sc-domain-custom')?.value);
+    const checked = [...document.querySelectorAll('.sc-domain-pick-opt:checked')];
+    btn.disabled = !(custom || checked.length === 1);
+  };
+
+  document.getElementById('sc-domain-copy-prompt')?.addEventListener('click', async () => {
+    try {
+      const nap = siteConfigNapFromLocal(d.id);
+      const qs = new URLSearchParams({
+        businessName: nap.businessName || '',
+      });
+      const data = await api(
+        `/api/candidates/${encodeURIComponent(d.id)}/site-config/domain-prompt?${qs}`,
+      );
+      await navigator.clipboard.writeText(data.prompt || '');
+      showToast('Domain prompt copied — paste into Claude.ai, then Load the reply below.');
+    } catch (error) {
+      await showModal({
+        title: 'Copy failed',
+        confirmLabel: 'OK',
+        bodyHtml: `<p>${esc(error.message)}</p>`,
+      });
+    }
+  });
+
+  document.getElementById('sc-domain-paste-load')?.addEventListener('click', () => {
+    const text = document.getElementById('sc-domain-paste')?.value || '';
+    const suggestions = parseDomainPickPaste(text);
+    if (!suggestions.length) {
+      showToast('No domains found in paste — use the JSON block or a list of hostnames.', {
+        tone: 'warn',
+      });
+      return;
+    }
+    writeDomainPickToNap({
+      domainPick: {
+        suggestions,
+        selectedDomain: null,
+        customDomain: '',
+      },
+    });
+    state.tab = 'site-config';
+    state.siteConfigOpenStep = 'domain';
+    state.siteConfigSoftCurrent = 'domain';
+    renderDetail();
+    showToast(`Loaded ${suggestions.length} domain suggestion${suggestions.length === 1 ? '' : 's'}.`);
+  });
+
+  document.querySelectorAll('.sc-domain-pick-opt').forEach((input) => {
+    input.addEventListener('change', () => {
+      const host = normalizeDomainHostname(input.dataset.domain);
+      if (input.checked) {
+        document.querySelectorAll('.sc-domain-pick-opt').forEach((el) => {
+          if (el !== input) el.checked = false;
+        });
+        const customEl = document.getElementById('sc-domain-custom');
+        if (customEl) customEl.value = '';
+        writeDomainPickToNap({
+          domainPick: { selectedDomain: host, customDomain: '' },
+        });
+      } else {
+        writeDomainPickToNap({
+          domainPick: { selectedDomain: null },
+        });
+      }
+      syncDomainContinueEnabled();
+    });
+  });
+
+  document.getElementById('sc-domain-custom')?.addEventListener('input', () => {
+    const customEl = document.getElementById('sc-domain-custom');
+    const customRaw = String(customEl?.value || '').trim();
+    if (customRaw) {
+      document.querySelectorAll('.sc-domain-pick-opt').forEach((el) => {
+        el.checked = false;
+      });
+      writeDomainPickToNap({
+        domainPick: {
+          selectedDomain: null,
+          customDomain: customRaw,
+        },
+      });
+    } else {
+      writeDomainPickToNap({
+        domainPick: { customDomain: '' },
+      });
+    }
+    syncDomainContinueEnabled();
+  });
+
+  document.getElementById('sc-domain-continue')?.addEventListener('click', () => {
+    const custom = normalizeDomainHostname(document.getElementById('sc-domain-custom')?.value);
+    const checked = [...document.querySelectorAll('.sc-domain-pick-opt:checked')];
+    const fromToggle = checked.length === 1 ? normalizeDomainHostname(checked[0].dataset.domain) : '';
+    const chosen = custom || fromToggle;
+    if (!chosen) {
+      showToast('Select a suggestion or enter a custom domain.', { tone: 'warn' });
+      return;
+    }
+    writeDomainPickToNap({
+      domain: chosen,
+      domainPick: {
+        selectedDomain: custom ? null : chosen,
+        customDomain: custom || '',
+      },
+    });
+    if (!state.siteConfigSoftDone) state.siteConfigSoftDone = {};
+    state.siteConfigSoftDone.domain = true;
+    advancePanelStep('site-config', 'details');
+    renderDetail();
+    showToast(`Domain set · ${chosen}`);
+  });
+
   document.getElementById('ba-show-home')?.addEventListener('click', () => {
     document.getElementById('ba-home-panel')?.classList.remove('hidden');
     document.getElementById('ba-manual-panel')?.classList.add('hidden');
@@ -10900,13 +11853,27 @@ function wireSiteConfigTab(d) {
   };
 
   const runBaAddressSearch = async ({
-    refreshLoopnet = false,
+    refresh = false,
     deepen = null,
     raisePullMax = false,
+    refreshLoopnet = null,
   } = {}) => {
     if (state.baSearchBusy) return;
+    const sources = baReadSourceTogglesFromDom();
+    const findCaps = baReadFindCapsFromDom();
+    if (!sources.loopnet && !sources.crexi) {
+      await showModal({
+        title: 'No listing source selected',
+        confirmLabel: 'OK',
+        hideCancel: true,
+        bodyHtml:
+          '<p>Check <strong>LoopNet</strong> and/or <strong>Crexi</strong>, or set the matching actor id in <code>.env</code>.</p>',
+      });
+      return;
+    }
+    const doRefresh = refreshLoopnet != null ? Boolean(refreshLoopnet) : Boolean(refresh);
     state.baSearchBusy = true;
-    state.baSearchMode = refreshLoopnet ? 'refresh' : 'find';
+    state.baSearchMode = doRefresh ? 'refresh' : 'find';
     if (!state.siteConfigOpenStep) state.siteConfigOpenStep = 'address';
     renderDetail();
     const stopBaBusy = () => {
@@ -10915,14 +11882,33 @@ function wireSiteConfigTab(d) {
       renderDetail();
     };
     try {
-      const body = { refreshLoopnet: Boolean(refreshLoopnet) };
-      if (deepen != null) body.deepen = Boolean(deepen);
-      if (raisePullMax) body.raisePullMax = true;
+      const body = {
+        sources,
+        cleanPerRun: findCaps.cleanPerRun,
+        listingsPerRun: findCaps.listingsPerRun,
+        refresh: {
+          loopnet: doRefresh && sources.loopnet,
+          crexi: doRefresh && sources.crexi,
+        },
+      };
+      if (deepen != null) {
+        body.deepen = {
+          loopnet: Boolean(deepen) && sources.loopnet,
+          crexi: Boolean(deepen) && sources.crexi,
+        };
+      }
+      if (raisePullMax) {
+        body.raisePullMax = {
+          loopnet: sources.loopnet,
+          crexi: sources.crexi,
+        };
+      }
       const result = await api(`/api/candidates/${encodeURIComponent(d.id)}/address/search`, {
         method: 'POST',
         body: JSON.stringify(body),
       });
       if (result?.candidate) state.detail = result.candidate;
+      if (result?.sources) state.baSources = result.sources;
       if (result?.apifyPlanUsage) state.apifyPlanUsage = result.apifyPlanUsage;
       else if (result?.package?.apifyPlanUsage) {
         state.apifyPlanUsage = result.package.apifyPlanUsage;
@@ -10930,6 +11916,7 @@ function wireSiteConfigTab(d) {
       if (result?.recover) {
         if (!state.baRecover) state.baRecover = {};
         state.baRecover[d.id] = result.recover;
+        if (result.recover.readiness) state.baSources = result.recover.readiness;
       } else {
         await refreshBaRecover();
       }
@@ -10947,6 +11934,7 @@ function wireSiteConfigTab(d) {
         });
         return;
       }
+      announceStepComplete(doRefresh ? 'Refresh addresses' : 'Find addresses');
       const added = Number(pkg?.lastSearchStats?.added ?? 0);
       const clean = Number(pkg?.lastSearchStats?.shortlist ?? 0);
       const title =
@@ -10964,7 +11952,10 @@ function wireSiteConfigTab(d) {
         bodyHtml: baSearchReportBodyHtml(pkg, {
           title: 'This run',
           failed: Boolean(
-            kind && kind !== 'empty_screened' && kind !== 'cache_exhausted',
+            kind &&
+              kind !== 'empty_screened' &&
+              kind !== 'cache_exhausted' &&
+              kind !== 'places_budget',
           ),
         }),
       });
@@ -11010,32 +12001,23 @@ function wireSiteConfigTab(d) {
     const cacheLen = Array.isArray(cache?.listings) ? cache.listings.length : 0;
     const age = cache?.fetchedAt ? Date.now() - Date.parse(cache.fetchedAt) : Infinity;
     const fresh = Number.isFinite(age) && age >= 0 && age < BA_CACHE_TTL_MS;
-    const unscreened =
-      pkg?.lastSearchStats?.unscreenedRemaining != null
-        ? Number(pkg.lastSearchStats.unscreenedRemaining)
-        : null;
+    const toggles = baReadSourceTogglesFromDom();
+    const recover = state.baRecover?.[d.id];
+    const stats = pkg?.lastSearchStats || {};
+    const exhausted = baCheckedSourcesExhausted(recover, stats, toggles);
 
-    if (cacheLen > 0 && fresh && unscreened === 0) {
-      const recover = state.baRecover?.[d.id];
-      const stats = pkg?.lastSearchStats || {};
-      const urlCount = Math.max(1, Number(recover?.pullUrlCount || stats.pullUrlCount || 2));
-      const step = Number(recover?.pullDepthStep || stats.pullDepthStep || 100);
-      const lastMax = Number(recover?.lastPullMax || stats.pullMax || 200);
-      const nextMax = Number(recover?.nextPullMax || lastMax + step);
-      const lastBudget = Number(recover?.lastPullBudget || lastMax * urlCount);
-      const nextBudget = Number(recover?.nextPullBudget || nextMax * urlCount);
-      const hardBudget = Number(
-        recover?.pullHardMaxBudget ||
-          Number(recover?.pullHardMax || stats.pullHardMax || 500) * urlCount,
-      );
-      const proposedBudget = Number(
-        recover?.proposedHardMaxBudget ||
-          Number(recover?.proposedHardMax || 0) * urlCount ||
-          hardBudget * 2,
-      );
-      const canRaise = Boolean(recover?.canRaiseMax || recover?.needsMaxRaise);
-      const needsRaise = Boolean(recover?.needsMaxRaise) || (Boolean(recover?.deepenAtCap) && canRaise);
-      const atAbsolute = Boolean(recover?.deepenAtCap) && !canRaise;
+    if (exhausted) {
+      const agg = baAggregateCheckedBudgets(recover, stats, toggles);
+      const {
+        lastBudget,
+        nextBudget,
+        hardBudget,
+        proposedBudget,
+        canRaise,
+        needsRaise,
+        atAbsolute,
+        sourceLabel,
+      } = agg;
 
       if (needsRaise && canRaise) {
         const go = await showModal({
@@ -11047,11 +12029,12 @@ function wireSiteConfigTab(d) {
             nextBudget,
             hardBudget,
             proposedBudget,
+            sourceLabel,
           }),
         });
         if (!go) return;
         await runBaAddressSearch({
-          refreshLoopnet: true,
+          refresh: true,
           deepen: true,
           raisePullMax: true,
         });
@@ -11069,11 +12052,12 @@ function wireSiteConfigTab(d) {
           lastBudget,
           nextBudget,
           hardBudget,
+          sourceLabel,
         }),
       });
       if (!go) return;
       await runBaAddressSearch({
-        refreshLoopnet: true,
+        refresh: true,
         deepen: !atAbsolute,
       });
       return;
@@ -11081,58 +12065,56 @@ function wireSiteConfigTab(d) {
 
     if (cacheLen > 0 && !fresh) {
       const go = await showModal({
-        title: 'LoopNet cache is stale',
-        confirmLabel: 'Refresh LoopNet',
+        title: 'Listing cache is stale',
+        confirmLabel: 'Refresh listings',
         cancelLabel: 'Screen remaining',
         bodyHtml: `<p>Cached listings are older than 7 days.</p>
-          <p class="muted"><strong>Refresh LoopNet</strong> re-scrapes (Apify billable). <strong>Screen remaining</strong> keeps the old cache and only runs Places on unscreened streets (Apify $0). Street ranges expand to start/end numbers.</p>`,
+          <p class="muted"><strong>Refresh listings</strong> re-scrapes checked sources (Apify billable). <strong>Screen remaining</strong> keeps the old cache and only runs Places on unscreened streets (Apify $0). Street ranges expand to start/end numbers.</p>`,
       });
-      // showModal: confirm=true, cancel=false — need check how cancel works
       if (go === true) {
-        await runBaAddressSearch({ refreshLoopnet: true });
+        await runBaAddressSearch({ refresh: true });
       } else if (go === false) {
-        await runBaAddressSearch({ refreshLoopnet: false });
+        await runBaAddressSearch({ refresh: false });
       }
       return;
     }
 
-    await runBaAddressSearch({ refreshLoopnet: false });
+    await runBaAddressSearch({ refresh: false });
+  });
+
+  document.getElementById('ba-source-loopnet')?.addEventListener('change', () => {
+    baReadSourceTogglesFromDom();
+    renderDetail();
+  });
+  document.getElementById('ba-source-crexi')?.addEventListener('change', () => {
+    baReadSourceTogglesFromDom();
+    renderDetail();
+  });
+  document.getElementById('ba-clean-per-run')?.addEventListener('change', () => {
+    baReadFindCapsFromDom();
+  });
+  document.getElementById('ba-listings-per-run')?.addEventListener('change', () => {
+    baReadFindCapsFromDom();
   });
 
   document.getElementById('ba-refresh-loopnet')?.addEventListener('click', async () => {
     if (state.baSearchBusy) return;
     const pkg = state.detail?.businessAddress;
-    const unscreened =
-      pkg?.lastSearchStats?.unscreenedRemaining != null
-        ? Number(pkg.lastSearchStats.unscreenedRemaining)
-        : state.baRecover?.[d.id]?.unscreenedRemaining != null
-          ? Number(state.baRecover[d.id].unscreenedRemaining)
-          : null;
-    const exhausted =
-      unscreened === 0 &&
-      (Number(pkg?.lastSearchStats?.inventoryTotal ?? state.baRecover?.[d.id]?.inventoryTotal ?? 0) >
-        0 ||
-        (Array.isArray(pkg?.listingCache?.listings) && pkg.listingCache.listings.length > 0));
+    const toggles = baReadSourceTogglesFromDom();
     const recover = state.baRecover?.[d.id];
     const stats = pkg?.lastSearchStats || {};
-    const urlCount = Math.max(1, Number(recover?.pullUrlCount || stats.pullUrlCount || 2));
-    const step = Number(recover?.pullDepthStep || stats.pullDepthStep || 100);
-    const lastMax = Number(recover?.lastPullMax || stats.pullMax || 200);
-    const nextMax = Number(recover?.nextPullMax || lastMax + step);
-    const lastBudget = Number(recover?.lastPullBudget || lastMax * urlCount);
-    const nextBudget = Number(recover?.nextPullBudget || nextMax * urlCount);
-    const hardBudget = Number(
-      recover?.pullHardMaxBudget ||
-        Number(recover?.pullHardMax || stats.pullHardMax || 500) * urlCount,
-    );
-    const proposedBudget = Number(
-      recover?.proposedHardMaxBudget ||
-        Number(recover?.proposedHardMax || 0) * urlCount ||
-        hardBudget * 2,
-    );
-    const canRaise = Boolean(recover?.canRaiseMax || recover?.needsMaxRaise);
-    const needsRaise = Boolean(recover?.needsMaxRaise) || (Boolean(recover?.deepenAtCap) && canRaise);
-    const atAbsolute = Boolean(recover?.deepenAtCap) && !canRaise;
+    const exhausted = baCheckedSourcesExhausted(recover, stats, toggles);
+    const agg = baAggregateCheckedBudgets(recover, stats, toggles);
+    const {
+      lastBudget,
+      nextBudget,
+      hardBudget,
+      proposedBudget,
+      canRaise,
+      needsRaise,
+      atAbsolute,
+      sourceLabel,
+    } = agg;
 
     if (exhausted && needsRaise && canRaise) {
       const go = await showModal({
@@ -11144,11 +12126,12 @@ function wireSiteConfigTab(d) {
           nextBudget,
           hardBudget,
           proposedBudget,
+          sourceLabel,
         }),
       });
       if (!go) return;
       await runBaAddressSearch({
-        refreshLoopnet: true,
+        refresh: true,
         deepen: true,
         raisePullMax: true,
       });
@@ -11164,25 +12147,33 @@ function wireSiteConfigTab(d) {
           variant: 'deepen',
           lastBudget,
           nextBudget,
+          sourceLabel,
         }),
       });
       if (!go) return;
-      await runBaAddressSearch({ refreshLoopnet: true, deepen: true });
+      await runBaAddressSearch({ refresh: true, deepen: true });
       return;
     }
 
     const go = await showModal({
-      title: exhausted && atAbsolute ? 'Cache exhausted — at max' : 'Refresh LoopNet?',
+      title: exhausted && atAbsolute ? 'Cache exhausted — at max' : 'Refresh listings?',
       confirmLabel: exhausted && atAbsolute ? 'Refresh anyway' : 'Refresh (billable)',
       cancelLabel: 'Cancel',
-      bodyHtml: exhausted && atAbsolute
-        ? baExhaustedDeepenWarnHtml({ variant: 'absolute', hardBudget })
-        : `<p>This re-runs the Apify LoopNet actor for this city (billable), merges new listings into the cache, and screens streets not already decided. Numeric ranges expand to start/end endpoints.</p>
-        <p class="muted">Prefer <strong>Find addresses</strong> when the cache is still fresh — that continues without Apify. When exhausted, use <strong>Fetch deeper</strong> to raise the pull budget.</p>`,
+      bodyHtml:
+        exhausted && atAbsolute
+          ? baExhaustedDeepenWarnHtml({
+              variant: 'absolute',
+              hardBudget,
+              sourceLabel,
+            })
+          : `<p>This re-runs Apify for <strong>${esc(
+              sourceLabel,
+            )}</strong> (checked sources) for this city (billable), merges new listings into the cache, and screens streets not already decided. Numeric ranges expand to start/end endpoints.</p>
+        <p class="muted">Prefer <strong>Find addresses</strong> when a checked source is not exhausted — that continues without raising pull depth. When exhausted, use <strong>Fetch deeper</strong>.</p>`,
     });
     if (!go) return;
     await runBaAddressSearch({
-      refreshLoopnet: true,
+      refresh: true,
       deepen: exhausted && !atAbsolute && !needsRaise,
     });
   });
@@ -11275,6 +12266,9 @@ function wireSiteConfigTab(d) {
               state: row.state,
               zip: row.zip,
               source: row.tier === 'secondary' ? 'commercial_secondary' : 'commercial',
+              lat: row.lat,
+              lng: row.lng,
+              listingSource: row.source || undefined,
             },
           }),
         });
@@ -11765,7 +12759,7 @@ function wireSiteConfigTab(d) {
         confirmLabel: 'OK',
         hideCancel: true,
         bodyHtml: `<p><strong>${esc(result.provisioned?.phone || result.provisioned?.e164 || '')}</strong> written to site-config.</p>
-          <p class="muted small">Continue Content, then Website Prepare / Launch. Use Launched Sites → Update site phone number if you need to re-ship later.</p>`,
+          <p class="muted small">Continue Content, then Website Prepare / Launch. Use Launched → Update site phone number if you need to re-ship later.</p>`,
       });
     } catch (error) {
       if (status) status.textContent = '';
@@ -12384,14 +13378,14 @@ function applyPipelineTabMode() {
     document.getElementById('candidates-view-title') ||
     document.querySelector('#view-candidates .panel-head h1');
   if (titleEl) {
-    titleEl.textContent = mode === 'website-builder' ? 'Website Builder' : 'Research';
+    titleEl.textContent = mode === 'website-builder' ? 'Website' : 'Research';
   }
   const subEl = document.getElementById('candidates-view-sub');
   if (subEl) {
     subEl.textContent =
       mode === 'website-builder'
-        ? 'Committed Candidates (pursue) — Site-Config, Content, Prepare / Launch'
-        : 'Potential Candidates — SERP, enrich, narrative, prospects';
+        ? 'Website Candidates (pursue) — Site-Config, Content, Launch'
+        : 'Research Candidates — SERP/Volume, Enrich, Narrative, Prospects';
   }
 }
 
@@ -12706,15 +13700,10 @@ function setSitesMetricsProgress({ visible, label, detail, pct } = {}) {
   wrap.classList.toggle('hidden', !visible);
   if (labelEl && label != null) labelEl.textContent = label;
   if (detailEl && detail != null) detailEl.textContent = detail;
-  if (bar) {
-    if (pct == null || !Number.isFinite(Number(pct))) {
-      bar.classList.remove('is-determinate');
-      bar.style.width = '';
-    } else {
-      const clamped = Math.max(0, Math.min(100, Number(pct)));
-      bar.classList.add('is-determinate');
-      bar.style.width = `${clamped}%`;
-    }
+  if (pct == null || !Number.isFinite(Number(pct))) {
+    setDeterminateProgress(bar, {});
+  } else {
+    setDeterminateProgress(bar, { done: Number(pct), total: 100 });
   }
 }
 
@@ -13199,11 +14188,11 @@ async function publishSitePhoneFromSites(s) {
       const goWebsite = await showModal({
         title: 'Package prepared',
         confirmLabel: 'Open Website tab',
-        cancelLabel: 'Stay on Launched Sites',
+        cancelLabel: 'Stay on Launched',
         bodyHtml: `<p>Stage → Assemble finished${
-          buildOk ? '' : ' (build reported a problem — check Website Builder)'
+          buildOk ? '' : ' (build reported a problem — check Website)'
         }. Assembled site-config includes the new phone.</p>
-          <p>This listing is <strong>not live yet</strong>. Finish first go-live with <strong>Website Builder → Run launch</strong> (domain / email / Web3Forms). Launch is not run from Launched Sites.</p>`,
+          <p>This listing is <strong>not live yet</strong>. Finish first go-live with <strong>Website → Run launch</strong> (domain / email / Web3Forms). Launch is not run from Launched.</p>`,
       });
       if (goWebsite) {
         setView('website-builder');
@@ -13439,7 +14428,7 @@ function renderSitesDetail() {
     </div>
     <div class="sites-danger-zone">
       <h3>Remove</h3>
-      <p class="muted small">Removes this listing from Launched Sites only. Research candidate and live site are kept.</p>
+      <p class="muted small">Removes this listing from Launched only. Research candidate and live site are kept.</p>
       <button type="button" class="btn danger solid" id="sites-delete-btn">Remove from Sites</button>
     </div>
   `;
@@ -13792,10 +14781,10 @@ function renderSitesDetail() {
       s.phoneTracking?.provider === 'twilio' && (s.phoneTracking?.e164 || s.phoneTracking?.twilioSid),
     );
     const layer1 = await showModal({
-      title: 'Remove from Launched Sites?',
+      title: 'Remove from Launched?',
       confirmLabel: 'Continue',
       danger: true,
-      bodyHtml: `<p>You are about to remove <strong>${esc(label)}</strong> from the Launched Sites table.</p>
+      bodyHtml: `<p>You are about to remove <strong>${esc(label)}</strong> from the Launched table.</p>
         <ul>
           <li>Removes this listing from the Sites registry only.</li>
           <li>Does <strong>not</strong> delete the Research candidate, site-config, or the live website.</li>
@@ -13815,7 +14804,7 @@ function renderSitesDetail() {
       confirmLabel: 'Remove permanently',
       danger: true,
       requireTypedConfirm: 'REMOVE',
-      bodyHtml: `<p>Confirm removal of <strong>${esc(label)}</strong> from Launched Sites.</p>
+      bodyHtml: `<p>Confirm removal of <strong>${esc(label)}</strong> from Launched.</p>
         <p class="muted small">This cannot be undone from the UI (you can re-add the candidate later).</p>`,
     });
     if (!layer2) return;
@@ -13957,7 +14946,7 @@ function renderPhoneSites() {
     </button>`);
   }
   if (!rows.length) {
-    parts.push(`<p class="muted small" style="padding:0.5rem">No Twilio DIDs yet — provision from Launched Sites.</p>`);
+    parts.push(`<p class="muted small" style="padding:0.5rem">No Twilio DIDs yet — provision from Launched.</p>`);
   }
   root.innerHTML = parts.join('');
   root.querySelectorAll('[data-phone-site]').forEach((btn) => {
@@ -14072,7 +15061,7 @@ function renderPhoneDetail() {
     <div class="narrative-actions" style="margin-top:0.75rem">
       ${
         call.siteId
-          ? `<button type="button" class="btn" id="phone-open-site">Open site in Launched Sites</button>`
+          ? `<button type="button" class="btn" id="phone-open-site">Open site in Launched</button>`
           : ''
       }
     </div>
@@ -14649,7 +15638,7 @@ function formatDiscoveryBatchOption(b) {
 
 function discoveryRowProcessStatus(row) {
   const status = String(row?.process_status || '').trim().toLowerCase();
-  if (status === 'promoted' || status === 'tracked') return status;
+  if (status === 'promoted' || status === 'tracked' || status === 'ignored') return status;
   if (String(row?.candidateId || '').trim()) return 'promoted';
   return '';
 }
@@ -14683,23 +15672,32 @@ function discoveryHumanDecisionProgress(rows = []) {
 function updateDiscoveryProcessControls() {
   const processBtn = document.getElementById('discovery-process-btn');
   const progressEl = document.getElementById('discovery-process-progress');
+  const backfillBtn = document.getElementById('discovery-backfill-light-serp');
   const { decided, total, pendingProcess, allDecided } = discoveryHumanDecisionProgress(
     state.discoveryRows,
   );
   const canProcess = allDecided && pendingProcess > 0;
+  const canBackfillLightSerp = state.discoveryRows.some((r) => {
+    if (String(r?.candidateId || '').trim()) return true;
+    return discoveryRowProcessStatus(r) === 'promoted';
+  });
 
   if (processBtn) {
     processBtn.disabled = !canProcess;
     setElementTip(
       processBtn,
       total === 0
-        ? 'Import a batch and set Human decisions first'
+        ? 'Import a batch and set Decisions first'
         : !allDecided
-          ? `Set Human on every row (${decided}/${total}) before processing`
+          ? `Set Decision on every row (${decided}/${total}) before processing`
           : pendingProcess === 0
             ? 'No unprocessed rows left — all decided rows are already processed'
-            : `Process ${pendingProcess} decided row(s): pursue/maybe/review/hold → Candidates; pass → tracked`,
+            : `Process ${pendingProcess} decided row(s): pursue/maybe/review/hold → Candidates; pass → tracked; ignore → skip (rediscoverable)`,
     );
+  }
+
+  if (backfillBtn) {
+    backfillBtn.disabled = !canBackfillLightSerp || !state.discoveryBatchId;
   }
 
   if (progressEl) {
@@ -14709,8 +15707,8 @@ function updateDiscoveryProcessControls() {
     } else {
       progressEl.hidden = false;
       progressEl.textContent = allDecided
-        ? `${decided}/${total} Human decisions made`
-        : `${decided}/${total} Human decisions made, complete decisions to process batch.`;
+        ? `${decided}/${total} Decisions made`
+        : `${decided}/${total} Decisions made, complete decisions to process batch.`;
     }
   }
 }
@@ -14931,6 +15929,29 @@ async function applyCandidateArchive(archived) {
 async function applyCandidatePermanentDelete() {
   const ids = [...state.selectedIds];
   if (!ids.length) return;
+  const blocked = undeletableIdsInSelection(ids);
+  if (blocked.length) {
+    const sample = blocked
+      .slice(0, 8)
+      .map((id) => {
+        const c = state.candidates.find((x) => x.id === id);
+        const label = c
+          ? `${c.niche || '?'} · ${c.primaryCity || c.city || '?'} · ${c.state || '?'}`
+          : id;
+        return `<li><code>${esc(id)}</code> — ${esc(label)}</li>`;
+      })
+      .join('');
+    const more =
+      blocked.length > 8 ? `<li class="muted">…and ${blocked.length - 8} more</li>` : '';
+    await showModal({
+      title: 'Cannot delete Website / Launched',
+      confirmLabel: 'OK',
+      bodyHtml: `<p>Website Candidates and Launched Candidates cannot be permanently deleted from Rover.</p>
+        <ul>${sample}${more}</ul>
+        <p class="muted">Deselect them (or use Archive for Research-only cleanup) and try again.</p>`,
+    });
+    return;
+  }
   const sample = ids
     .slice(0, 8)
     .map((id) => {
@@ -14954,7 +15975,7 @@ async function applyCandidatePermanentDelete() {
         <li>Wipes all Research artifacts for each id under <code>research/</code> (JSON, drafts, staging/images folders).</li>
         <li>Removes them from Discovery known / tracked anti-dupe lists so markets can be rediscovered.</li>
         <li>Removes membership in named groups and clears Discovery batch <code>candidateId</code> links.</li>
-        <li>Removes matching <strong>Launched Sites</strong> registry rows for these candidate ids.</li>
+        <li>Does <strong>not</strong> delete Website or Launched Candidates (blocked by Rover).</li>
         <li>Does <strong>not</strong> release Twilio DIDs or tear down a live host / DNS.</li>
       </ul>
       <p class="muted small">Next step asks you to type <code>DELETE</code> to confirm.</p>`,
@@ -15141,7 +16162,7 @@ function clearDiscoveryBatch() {
 const DISCOVERY_SOURCES = {
   claude: { id: 'claude', label: 'Claude', tip: 'From Claude narrative CSV' },
   census: { id: 'census', label: 'Census', tip: 'US Census population lookup on import' },
-  dfs: { id: 'dfs', label: 'DFS', tip: 'DataForSEO Discovery SERP probe' },
+  dfs: { id: 'dfs', label: 'DFS', tip: 'DataForSEO Discovery Light SERP' },
   ops: { id: 'ops', label: 'Rover', tip: 'Computed or set in Rover UI' },
 };
 
@@ -15197,7 +16218,7 @@ const DISCOVERY_TABLE_COLS = [
     key: 'Map Pack',
     label: 'Map Pack',
     sortable: true,
-    tip: 'Yes/No from DFS SERP probe',
+    tip: 'Yes/No from DFS Light SERP',
     cellClass: 'col-short',
     source: 'dfs',
   },
@@ -15210,10 +16231,18 @@ const DISCOVERY_TABLE_COLS = [
     source: 'claude',
   },
   {
+    key: 'Est. Monthly Search Volume',
+    label: 'Est. MSV',
+    sortable: true,
+    tip: 'Claude estimated monthly searches for Niche + City (primary only). Discovery triage only — not used after Process / Research.',
+    cellClass: 'col-short',
+    source: 'claude',
+  },
+  {
     key: 'Organic Home Page',
     label: 'Homepages',
     sortable: true,
-    tip: 'Organic homepage count from DFS SERP probe (URL path / only; directories excluded). Not niche-title filtered.',
+    tip: 'Organic homepage count from DFS Light SERP (URL path / only; directories excluded). Not niche-title filtered.',
     cellClass: 'col-short col-center',
     source: 'dfs',
   },
@@ -15221,7 +16250,7 @@ const DISCOVERY_TABLE_COLS = [
     key: 'Organic Sub Page',
     label: 'Subpages',
     sortable: true,
-    tip: 'Organic subpage count from DFS SERP probe (non-homepage URLs; directories excluded). Not niche-title filtered.',
+    tip: 'Organic subpage count from DFS Light SERP (non-homepage URLs; directories excluded). Not niche-title filtered.',
     cellClass: 'col-short col-center',
     source: 'dfs',
   },
@@ -15229,7 +16258,7 @@ const DISCOVERY_TABLE_COLS = [
     key: 'confidence_serp',
     label: 'Conf SERP',
     sortable: true,
-    tip: 'high after DFS SERP probe',
+    tip: 'high after DFS Light SERP',
     cellClass: 'col-short',
     source: 'dfs',
   },
@@ -15245,15 +16274,15 @@ const DISCOVERY_TABLE_COLS = [
     key: '_accept',
     label: 'Accept',
     sortable: false,
-    tip: 'Copy Recommend → Human',
+    tip: 'Copy Recommend → Decision',
     cellClass: 'col-narrow',
     source: 'ops',
   },
   {
     key: 'human_decision',
-    label: 'Human',
+    label: 'Decision',
     sortable: true,
-    tip: 'Your decision for Process batch',
+    tip: 'Your decision for Process batch (see sidebar Decision meanings)',
     cellClass: 'col-human',
     source: 'ops',
   },
@@ -15269,7 +16298,7 @@ const DISCOVERY_TABLE_COLS = [
     key: 'candidateId',
     label: 'Candidate',
     sortable: true,
-    tip: 'Candidate id after promote, or “tracked” for pass',
+    tip: 'Candidate id after promote, or “tracked” / “ignored”',
     cellClass: 'col-truncate',
     source: 'ops',
   },
@@ -15389,7 +16418,25 @@ function syncDiscoveryFilterInputs() {
   const count = document.getElementById('discovery-filter-count');
   if (count) {
     const n = getDiscoveryViewRows().length;
-    count.textContent = `Showing ${n} / ${state.discoveryRows.length}`;
+    const selected = state.discoverySelected?.size || 0;
+    count.textContent =
+      selected > 0
+        ? `Showing ${n} / ${state.discoveryRows.length} · ${selected} selected`
+        : `Showing ${n} / ${state.discoveryRows.length}`;
+  }
+  syncDiscoveryBulkHumanUi();
+}
+
+/** Show bulk Human select only when 2+ Discovery rows are selected. */
+function syncDiscoveryBulkHumanUi() {
+  const wrap = document.getElementById('discovery-bulk-human-wrap');
+  if (!wrap) return;
+  const show = (state.discoverySelected?.size || 0) > 1;
+  wrap.classList.toggle('hidden', !show);
+  wrap.hidden = !show;
+  if (!show) {
+    const sel = document.getElementById('discovery-bulk-human');
+    if (sel) sel.value = '';
   }
 }
 
@@ -15485,7 +16532,7 @@ async function reopenDiscoveryIndices(indices) {
       state.discoveryRows,
     );
     showToast(
-      `Reopened ${result.reopened?.length || 0} row(s). Change Human if needed, then Process batch.`,
+      `Reopened ${result.reopened?.length || 0} row(s). Change Decision if needed, then Process batch.`,
     );
   } catch (error) {
     await showModal({
@@ -15524,7 +16571,165 @@ async function acceptDiscoveryIndices(indices) {
   );
 }
 
+function discoveryKnownRowKey(row) {
+  return [row?.niche, row?.city, row?.state]
+    .map((v) => String(v || '').trim().toLowerCase())
+    .join('|');
+}
+
+function syncDiscoveryKnownChrome() {
+  const known = Boolean(state.discoveryKnownMode);
+  document.getElementById('discovery-known-chrome')?.classList.toggle('hidden', !known);
+  document.getElementById('discovery-batch-chrome')?.classList.toggle('hidden', known);
+  const mapHost = document.getElementById('discovery-map-canvas');
+  if (known && mapHost) mapHost.classList.add('hidden');
+  const removeBtn = document.getElementById('discovery-known-remove');
+  if (removeBtn) removeBtn.disabled = state.discoveryKnownSelected.size === 0;
+}
+
+async function loadDiscoveryKnownList() {
+  const data = await api('/api/discovery/known');
+  state.discoveryKnownRows = Array.isArray(data.rows) ? data.rows : [];
+  state.discoveryKnownPrunePreview = data.prunePreview || null;
+  state.discoveryKnownSelected = new Set();
+  state.discoveryKnownCheckAnchor = null;
+  const sub = document.getElementById('discovery-known-sub');
+  if (sub) {
+    const n = state.discoveryKnownRows.length;
+    const cand = state.discoveryKnownRows.filter((r) => r.source === 'candidate').length;
+    const tracked = n - cand;
+    sub.textContent = `${n} pairs · ${cand} Candidate · ${tracked} Tracked`;
+  }
+}
+
+async function enterDiscoveryKnownMode() {
+  state.discoveryKnownMode = true;
+  syncDiscoveryKnownChrome();
+  await loadDiscoveryKnownList();
+  renderDiscoveryTable();
+}
+
+function exitDiscoveryKnownMode() {
+  state.discoveryKnownMode = false;
+  state.discoveryKnownSelected = new Set();
+  state.discoveryKnownCheckAnchor = null;
+  syncDiscoveryKnownChrome();
+  renderDiscoveryTable();
+}
+
+function renderDiscoveryKnownTable() {
+  const thead = document.querySelector('#discovery-table thead');
+  const tbody = document.querySelector('#discovery-table tbody');
+  if (!thead || !tbody) return;
+  syncDiscoveryKnownChrome();
+  thead.innerHTML = `<tr>
+    <th data-tip="Select"><input type="checkbox" id="discovery-known-select-all" /></th>
+    <th>Niche</th>
+    <th>City</th>
+    <th>State</th>
+    <th>Decision</th>
+    <th>Source</th>
+  </tr>`;
+  const legend = document.getElementById('discovery-source-legend');
+  if (legend) legend.innerHTML = '';
+
+  const rows = state.discoveryKnownRows || [];
+  if (!rows.length) {
+    tbody.innerHTML =
+      '<tr><td colspan="6" class="muted">No do-not-repropose pairs — Generate Pack will allow any market that fits filters.</td></tr>';
+    syncHeaderSelectAll(document.getElementById('discovery-known-select-all'), {
+      selectedCount: 0,
+      totalCount: 0,
+    });
+    const removeBtn = document.getElementById('discovery-known-remove');
+    if (removeBtn) removeBtn.disabled = true;
+    return;
+  }
+
+  tbody.innerHTML = rows
+    .map((row) => {
+      const key = discoveryKnownRowKey(row);
+      const checked = state.discoveryKnownSelected.has(key) ? 'checked' : '';
+      const sourceLabel = row.source === 'tracked' ? 'Tracked' : 'Candidate';
+      return `<tr data-known-key="${esc(key)}">
+        <td><input type="checkbox" class="disc-known-check" data-known-key="${esc(key)}" ${checked} /></td>
+        <td>${esc(row.niche || '')}</td>
+        <td>${esc(row.city || '')}</td>
+        <td>${esc(row.state || '')}</td>
+        <td>${esc(row.decision || '—')}</td>
+        <td class="muted">${esc(sourceLabel)}${
+          row.candidateId ? ` · <span class="cell-text">${esc(row.candidateId)}</span>` : ''
+        }</td>
+      </tr>`;
+    })
+    .join('');
+
+  syncHeaderSelectAll(document.getElementById('discovery-known-select-all'), {
+    selectedCount: rows.filter((r) => state.discoveryKnownSelected.has(discoveryKnownRowKey(r)))
+      .length,
+    totalCount: rows.length,
+  });
+  const removeBtn = document.getElementById('discovery-known-remove');
+  if (removeBtn) removeBtn.disabled = state.discoveryKnownSelected.size === 0;
+
+  document.getElementById('discovery-known-select-all')?.addEventListener('change', (e) => {
+    const on = e.target.checked;
+    state.discoveryKnownSelected = new Set();
+    if (on) {
+      for (const r of rows) state.discoveryKnownSelected.add(discoveryKnownRowKey(r));
+    }
+    tbody.querySelectorAll('.disc-known-check').forEach((box) => {
+      box.checked = on;
+    });
+    if (removeBtn) removeBtn.disabled = state.discoveryKnownSelected.size === 0;
+  });
+
+  tbody.querySelectorAll('.disc-known-check').forEach((cb) => {
+    cb.addEventListener('click', (event) => {
+      const key = cb.dataset.knownKey;
+      const visibleKeys = rows.map((r) => discoveryKnownRowKey(r));
+      const ranged = applyShiftRangeCheckboxClick(event, {
+        visibleKeys,
+        clickedKey: key,
+        anchorKey: state.discoveryKnownCheckAnchor,
+        setAnchor: (k) => {
+          state.discoveryKnownCheckAnchor = k;
+        },
+        isSelected: (k) => state.discoveryKnownSelected.has(k),
+        setSelected: (k, on) => {
+          if (on) state.discoveryKnownSelected.add(k);
+          else state.discoveryKnownSelected.delete(k);
+        },
+      });
+      if (ranged) {
+        tbody.querySelectorAll('.disc-known-check').forEach((box) => {
+          box.checked = state.discoveryKnownSelected.has(box.dataset.knownKey);
+        });
+        syncHeaderSelectAll(document.getElementById('discovery-known-select-all'), {
+          selectedCount: state.discoveryKnownSelected.size,
+          totalCount: rows.length,
+        });
+        if (removeBtn) removeBtn.disabled = state.discoveryKnownSelected.size === 0;
+        return;
+      }
+      state.discoveryKnownCheckAnchor = key;
+      if (cb.checked) state.discoveryKnownSelected.add(key);
+      else state.discoveryKnownSelected.delete(key);
+      syncHeaderSelectAll(document.getElementById('discovery-known-select-all'), {
+        selectedCount: state.discoveryKnownSelected.size,
+        totalCount: rows.length,
+      });
+      if (removeBtn) removeBtn.disabled = state.discoveryKnownSelected.size === 0;
+    });
+  });
+}
+
 function renderDiscoveryTable() {
+  if (state.discoveryKnownMode) {
+    renderDiscoveryKnownTable();
+    return;
+  }
+  syncDiscoveryKnownChrome();
   const thead = document.querySelector('#discovery-table thead');
   const tbody = document.querySelector('#discovery-table tbody');
   const sort = state.discoverySort;
@@ -15568,14 +16773,19 @@ function renderDiscoveryTable() {
       const processStatus = discoveryRowProcessStatus(row);
       const processed = Boolean(processStatus);
       const tracked = processStatus === 'tracked';
+      const ignored = processStatus === 'ignored';
       const cells = DISCOVERY_TABLE_COLS.map((col) => {
         const tdClass = col.cellClass ? ` class="${esc(col.cellClass)}"` : '';
         if (col.key === '_select') {
           return `<td${tdClass}><input type="checkbox" data-disc-idx="${idx}" class="disc-row-check" ${checked} /></td>`;
         }
         if (col.key === '_accept') {
-          if (tracked) {
-            return `<td${tdClass}><button type="button" class="btn btn-sm" data-reopen-idx="${idx}" data-tip="Clear tracked status so you can change Human and Process again">Reopen</button></td>`;
+          if (tracked || ignored) {
+            return `<td${tdClass}><button type="button" class="btn btn-sm" data-reopen-idx="${idx}" data-tip="${
+              ignored
+                ? 'Clear ignored status so you can change Decision and Process again'
+                : 'Clear tracked status so you can change Decision and Process again'
+            }">Reopen</button></td>`;
           }
           if (processed) {
             return `<td${tdClass}><span class="metric metric-good" data-tip="In Candidates as ${esc(
@@ -15583,7 +16793,7 @@ function renderDiscoveryTable() {
             )}">✓ Candidates</span></td>`;
           }
           const disabled = !row.recommended_decision ? 'disabled' : '';
-          return `<td${tdClass}><button type="button" class="btn btn-accept" data-accept-idx="${idx}" data-tip="Copy Recommend → Human" ${disabled}>Accept</button></td>`;
+          return `<td${tdClass}><button type="button" class="btn btn-accept" data-accept-idx="${idx}" data-tip="Copy Recommend → Decision" ${disabled}>Accept</button></td>`;
         }
         if (col.key === 'recommended_decision') {
           const rec = row.recommended_decision || '—';
@@ -15597,6 +16807,11 @@ function renderDiscoveryTable() {
             return `<td${tdClass}><span class="metric disc-tracked-mark" data-tip="Tracked (${esc(
               v || '—',
             )}) — not in Candidates. Reopen to change.">○ Tracked · ${esc(v || '—')}</span></td>`;
+          }
+          if (ignored) {
+            return `<td${tdClass}><span class="metric disc-ignored-mark" data-tip="Ignored this batch — not tracked, can rediscover. Reopen to change.">○ Ignored · ${esc(
+              v || 'ignore',
+            )}</span></td>`;
           }
           if (processed) {
             return `<td${tdClass}><span class="metric metric-good" data-tip="In Candidates as ${esc(
@@ -15622,6 +16837,9 @@ function renderDiscoveryTable() {
           if (tracked) {
             return `<td${tdClass} data-tip="Tracked only — not a Candidate"><span class="cell-text muted">tracked</span></td>`;
           }
+          if (ignored) {
+            return `<td${tdClass} data-tip="Ignored this batch — rediscoverable"><span class="cell-text muted">ignored</span></td>`;
+          }
           const val = row.candidateId || '';
           return `<td${tdClass} data-tip="${esc(val)}"><span class="cell-text">${esc(val || '—')}</span></td>`;
         }
@@ -15642,6 +16860,7 @@ function renderDiscoveryTable() {
       const rowClass = [
         processed ? 'disc-row-processed' : '',
         tracked ? 'disc-row-tracked' : '',
+        ignored ? 'disc-row-ignored' : '',
       ]
         .filter(Boolean)
         .join(' ');
@@ -15704,6 +16923,7 @@ function renderDiscoveryTable() {
           isDiscoveryRowProcessed(state.discoveryRows[i]),
         );
       }
+      syncDiscoveryFilterInputs();
     };
     cb.addEventListener('click', (e) => {
       const idx = Number(cb.dataset.discIdx);
@@ -15772,7 +16992,7 @@ async function selectDiscoveryBatch(id) {
     data.batch.lastProcess
       ? `process +${data.batch.lastProcess.promoted?.length || 0} · ○${
           data.batch.lastProcess.tracked?.length || 0
-        } · −${data.batch.lastProcess.skipped?.length || 0}`
+        } · ░${data.batch.lastProcess.ignored?.length || 0} · −${data.batch.lastProcess.skipped?.length || 0}`
       : null,
   ]
     .filter(Boolean)
@@ -15791,7 +17011,9 @@ async function selectDiscoveryBatch(id) {
         String(lp.promoted?.length || 0),
       )} Candidates${linked ? ` (${esc(String(linked))} linked)` : ''} · ○${esc(
         String(lp.tracked?.length || 0),
-      )} tracked · −${esc(String(lp.skipped?.length || 0))} skipped · Stage 1 ×${esc(
+      )} tracked · ░${esc(String(lp.ignored?.length || 0))} ignored · −${esc(
+        String(lp.skipped?.length || 0),
+      )} skipped · SERP / Volume ×${esc(
         String(lp.pursueQueued?.length || 0),
       )}</p>`;
     } else {
@@ -16009,7 +17231,7 @@ function wireDiscoveryUi() {
       await showModal({
         title: 'Claude CSV imported',
         confirmLabel: 'OK',
-        bodyHtml: `<p>Loaded <strong>${esc(String(result.rows.length))}</strong> rows. Next: <strong>SERP probe</strong>.</p>${warnHtml}`,
+        bodyHtml: `<p>Loaded <strong>${esc(String(result.rows.length))}</strong> rows. Next: <strong>Light SERP</strong>.</p>${warnHtml}`,
       });
     } catch (error) {
       await showModal({
@@ -16037,17 +17259,24 @@ function wireDiscoveryUi() {
     const bar = document.getElementById('discovery-probe-bar');
     const labelEl = document.getElementById('discovery-probe-label');
     const detailEl = document.getElementById('discovery-probe-detail');
+    const indices = [...(state.discoverySelected || [])]
+      .map((n) => Number(n))
+      .filter((n) => Number.isFinite(n));
+    const scopedIndices = indices.length ? indices : null;
     showDiscoverySidebarStep('enrich');
     try {
+      const previewQs = scopedIndices
+        ? `?indices=${scopedIndices.map((n) => encodeURIComponent(String(n))).join(',')}`
+        : '';
       const preview = await api(
-        `/api/discovery/batches/${encodeURIComponent(state.discoveryBatchId)}/serp-probe/preview`,
+        `/api/discovery/batches/${encodeURIComponent(state.discoveryBatchId)}/serp-probe/preview${previewQs}`,
       );
       if (!preview.hasDataForSeo) {
         await showModal({
           title: 'DataForSEO required',
           confirmLabel: 'OK',
           bodyHtml:
-            '<p>Add <code>DATAFORSEO_LOGIN</code> / <code>DATAFORSEO_PASSWORD</code> to <code>.env</code> to run the Discovery SERP probe.</p>',
+            '<p>Add <code>DATAFORSEO_LOGIN</code> / <code>DATAFORSEO_PASSWORD</code> to <code>.env</code> to run Discovery Light SERP.</p>',
         });
         return;
       }
@@ -16056,7 +17285,7 @@ function wireDiscoveryUi() {
           ? `<p class="muted">DFS balance: ${esc(formatMoney(state.dfsBalance.balance))}</p>`
           : '';
       const ok = await showModal({
-        title: 'Run Discovery SERP probe?',
+        title: 'Run Discovery Light SERP?',
         confirmLabel: preview.confirmLabel || 'Probe',
         bodyHtml: `
           <p>${esc(preview.estimateLabel || '')}</p>
@@ -16069,16 +17298,19 @@ function wireDiscoveryUi() {
       const enrichBtn = document.getElementById('discovery-enrich-pack-btn');
       if (enrichBtn) enrichBtn.disabled = true;
       if (progress) progress.classList.remove('hidden');
-      if (bar) {
-        bar.style.width = '0%';
-        bar.style.animation = 'none';
-      }
-      if (labelEl) labelEl.textContent = 'Starting SERP probe…';
+      setDeterminateProgress(bar, { done: 0, total: preview.probeCount });
+      if (labelEl) labelEl.textContent = 'Starting Light SERP…';
       if (detailEl) detailEl.textContent = `0 / ${preview.probeCount}`;
 
       const started = await api(
         `/api/discovery/batches/${encodeURIComponent(state.discoveryBatchId)}/serp-probe`,
-        { method: 'POST', body: JSON.stringify({ concurrency: 1 }) },
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            concurrency: 1,
+            ...(scopedIndices ? { indices: scopedIndices } : {}),
+          }),
+        },
       );
       const jobId = started.jobId;
       if (!jobId) throw new Error('Probe did not return a job id');
@@ -16087,8 +17319,7 @@ function wireDiscoveryUi() {
         const tick = async () => {
           try {
             const job = await api(`/api/discovery/serp-probe-jobs/${encodeURIComponent(jobId)}`);
-            const pct = job.total ? Math.round((100 * (job.done || 0)) / job.total) : 0;
-            if (bar) bar.style.width = `${pct}%`;
+            setDeterminateProgress(bar, { done: job.done || 0, total: job.total });
             if (labelEl) {
               labelEl.textContent =
                 job.status === 'running'
@@ -16113,10 +17344,12 @@ function wireDiscoveryUi() {
       }).then(async (job) => {
         await loadDiscoveryBatches();
         await selectDiscoveryBatch(job.batchId || state.discoveryBatchId);
+        setDeterminateProgress(bar, {});
         if (progress) progress.classList.add('hidden');
+        announceStepComplete('Light SERP');
         const p = job.probe || job;
         await showModal({
-          title: 'SERP probe complete',
+          title: 'Light SERP complete',
           confirmLabel: 'OK',
           bodyHtml: `<p>Probed <strong>${esc(String(p.probed || job.total || 0))}</strong> · ok ${esc(
             String(p.ok ?? job.ok ?? 0),
@@ -16136,9 +17369,10 @@ function wireDiscoveryUi() {
         await loadDfsBalance();
       });
     } catch (error) {
+      setDeterminateProgress(bar, {});
       if (progress) progress.classList.add('hidden');
       await showModal({
-        title: 'SERP probe failed',
+        title: 'Light SERP failed',
         confirmLabel: 'OK',
         bodyHtml: `<p>${esc(error.message)}</p>`,
       });
@@ -16167,7 +17401,7 @@ function wireDiscoveryUi() {
     const ok = await showModal({
       title: 'Accept all recommendations?',
       confirmLabel: `Accept ${indices.length}`,
-      bodyHtml: `<p>Copy Recommend → Human for <strong>${esc(
+      bodyHtml: `<p>Copy Recommend → Decision for <strong>${esc(
         String(indices.length),
       )}</strong> visible row(s) (respects current filters).</p>`,
     });
@@ -16187,6 +17421,64 @@ function wireDiscoveryUi() {
     const idx = Number(el.dataset.idx);
     if (!Number.isFinite(idx)) return;
     void persistDiscoveryRowFromDom(idx);
+  });
+
+  document.getElementById('discovery-bulk-human')?.addEventListener('change', async (e) => {
+    const sel = e.target;
+    if (!(sel instanceof HTMLSelectElement)) return;
+    const raw = sel.value;
+    if (!raw) return;
+    const human_decision = raw === '__clear' ? '' : raw;
+    if (human_decision && !DISCOVERY_DECISION_OPTS.includes(human_decision)) {
+      sel.value = '';
+      return;
+    }
+    const selected = [...(state.discoverySelected || [])]
+      .map((n) => Number(n))
+      .filter((n) => Number.isFinite(n));
+    const editable = selected.filter((idx) => {
+      const row = state.discoveryRows[idx];
+      return row && !isDiscoveryRowProcessed(row);
+    });
+    if (!editable.length) {
+      sel.value = '';
+      await showModal({
+        title: 'Nothing to update',
+        confirmLabel: 'OK',
+        hideCancel: true,
+        bodyHtml:
+          '<p>Selected rows are already processed, tracked, or ignored. Reopen them first, or select editable rows.</p>',
+      });
+      return;
+    }
+    const updates = editable.map((idx) => {
+      const fromDom = discoveryDecisionUpdateFromDom(idx);
+      return {
+        index: idx,
+        human_decision,
+        decision_notes: fromDom?.decision_notes ?? state.discoveryRows[idx]?.decision_notes ?? '',
+      };
+    });
+    try {
+      await persistDiscoveryDecisions(updates);
+      updateDiscoveryStepChecks(
+        state.discoveryBatches.find((b) => b.id === state.discoveryBatchId) || {
+          id: state.discoveryBatchId,
+        },
+        state.discoveryRows,
+      );
+      updateDiscoveryProcessControls();
+      renderDiscoveryTable();
+    } catch (error) {
+      await showModal({
+        title: 'Save failed',
+        confirmLabel: 'OK',
+        hideCancel: true,
+        bodyHtml: `<p>${esc(error.message)}</p>`,
+      });
+    } finally {
+      sel.value = '';
+    }
   });
   discoveryTbody?.addEventListener('input', (e) => {
     const el = e.target;
@@ -16233,7 +17525,7 @@ function wireDiscoveryUi() {
       await showModal({
         title: 'Nothing to reopen',
         confirmLabel: 'OK',
-        bodyHtml: '<p>Select processed or tracked rows first.</p>',
+        bodyHtml: '<p>Select processed, tracked, or ignored rows first.</p>',
       });
       return;
     }
@@ -16241,10 +17533,150 @@ function wireDiscoveryUi() {
       title: 'Reopen selected rows?',
       confirmLabel: `Reopen ${indices.length}`,
       bodyHtml:
-        '<p>Clears processed/tracked markers so you can change Human and Process again. Existing Candidate files are kept.</p>',
+        '<p>Clears processed/tracked/ignored markers so you can change Decision and Process again. Existing Candidate files are kept.</p>',
     });
     if (!ok) return;
     await reopenDiscoveryIndices(indices);
+  });
+
+  document.getElementById('discovery-backfill-light-serp')?.addEventListener('click', async () => {
+    if (!state.discoveryBatchId) return;
+    const btn = document.getElementById('discovery-backfill-light-serp');
+    if (btn) btn.disabled = true;
+    try {
+      const result = await api(
+        `/api/discovery/batches/${encodeURIComponent(state.discoveryBatchId)}/backfill-light-serp`,
+        { method: 'POST', body: JSON.stringify({}) },
+      );
+      await loadCandidates();
+      await showModal({
+        title: 'Light SERP backfill complete',
+        confirmLabel: 'OK',
+        hideCancel: true,
+        bodyHtml: `<p>Updated <strong>${esc(String(result.updatedCount ?? 0))}</strong> Candidate seed(s).</p>
+          <p class="muted">Skipped ${esc(String(result.skippedCount ?? 0))} (no Light SERP columns) · missing Candidate ${esc(
+            String(result.missingCount ?? 0),
+          )}.</p>
+          <p>Open <strong>Research</strong> — Map Pack / Homepages / Subpages should show from Discovery until you run Eval 1 · SERP / Volume.</p>`,
+      });
+    } catch (error) {
+      await showModal({
+        title: 'Backfill failed',
+        confirmLabel: 'OK',
+        hideCancel: true,
+        bodyHtml: `<p>${esc(error.message)}</p>`,
+      });
+    } finally {
+      updateDiscoveryProcessControls();
+    }
+  });
+
+  document.getElementById('discovery-known-open')?.addEventListener('click', async () => {
+    try {
+      await enterDiscoveryKnownMode();
+    } catch (error) {
+      await showModal({
+        title: 'Could not load anti-dupe list',
+        confirmLabel: 'OK',
+        bodyHtml: `<p>${esc(error.message)}</p>`,
+      });
+    }
+  });
+
+  document.getElementById('discovery-known-back')?.addEventListener('click', () => {
+    exitDiscoveryKnownMode();
+  });
+
+  document.getElementById('discovery-known-remove')?.addEventListener('click', async () => {
+    const keys = [...state.discoveryKnownSelected];
+    if (!keys.length) return;
+    const selectedRows = state.discoveryKnownRows.filter((r) =>
+      keys.includes(discoveryKnownRowKey(r)),
+    );
+    const candN = selectedRows.filter((r) => r.source === 'candidate').length;
+    const trackedN = selectedRows.length - candN;
+    const ok = await showModal({
+      title: 'Remove from do-not-repropose?',
+      confirmLabel: `Remove ${selectedRows.length}`,
+      bodyHtml: `<p>Remove <strong>${esc(String(selectedRows.length))}</strong> selected pair(s).</p>
+        <ul>
+          <li><strong>${esc(String(candN))}</strong> Candidate — permanently deleted from Research</li>
+          <li><strong>${esc(String(trackedN))}</strong> Tracked-only — unblocked for Claude</li>
+        </ul>`,
+    });
+    if (!ok) return;
+    try {
+      const result = await api('/api/discovery/known/remove', {
+        method: 'POST',
+        body: JSON.stringify({
+          keys: selectedRows.map((r) => ({ niche: r.niche, city: r.city, state: r.state })),
+        }),
+      });
+      state.discoveryKnownRows = Array.isArray(result.rows) ? result.rows : [];
+      state.discoveryKnownSelected = new Set();
+      state.discoveryKnownCheckAnchor = null;
+      const sub = document.getElementById('discovery-known-sub');
+      if (sub) {
+        const n = state.discoveryKnownRows.length;
+        const cand = state.discoveryKnownRows.filter((r) => r.source === 'candidate').length;
+        sub.textContent = `${n} pairs · ${cand} Candidate · ${n - cand} Tracked`;
+      }
+      await loadCandidates();
+      renderDiscoveryTable();
+    } catch (error) {
+      await showModal({
+        title: 'Remove failed',
+        confirmLabel: 'OK',
+        bodyHtml: `<p>${esc(error.message)}</p>`,
+      });
+    }
+  });
+
+  document.getElementById('discovery-known-prune')?.addEventListener('click', async () => {
+    try {
+      const data = await api('/api/discovery/known');
+      const p = data.prunePreview || {};
+      const ok = await showModal({
+        title: 'Wipe do-not-repropose to Active Research?',
+        confirmLabel: 'Wipe',
+        bodyHtml: `<p>Keep <strong>${esc(String(p.keepCount ?? 0))}</strong> Active Candidates.</p>
+          <ul>
+            <li>Permanently delete <strong>${esc(String(p.archivedDeleteCount ?? 0))}</strong> archived / orphan Candidate id(s)</li>
+            <li>Skip <strong>${esc(String(p.archivedProtectedCount ?? 0))}</strong> archived Website/Launched (never deleted)</li>
+            <li>Drop <strong>${esc(String(p.trackedDropCount ?? 0))}</strong> tracked-only pair(s) outside Active</li>
+          </ul>
+          <p class="muted">After wipe, the editor list shows orphans + Research Eval 1 only. Full anti-dupe CSV for Claude is unchanged.</p>`,
+      });
+      if (!ok) return;
+      const result = await api('/api/discovery/known/prune-to-active', { method: 'POST', body: '{}' });
+      await loadCandidates();
+      if (state.discoveryKnownMode) {
+        state.discoveryKnownRows = Array.isArray(result.rows) ? result.rows : [];
+        state.discoveryKnownSelected = new Set();
+        state.discoveryKnownCheckAnchor = null;
+        const sub = document.getElementById('discovery-known-sub');
+        if (sub) {
+          const n = state.discoveryKnownRows.length;
+          const cand = state.discoveryKnownRows.filter((r) => r.source === 'candidate').length;
+          sub.textContent = `${n} pairs · ${cand} Candidate · ${n - cand} Tracked`;
+        }
+        renderDiscoveryTable();
+      }
+      await showModal({
+        title: 'Wipe complete',
+        confirmLabel: 'OK',
+        bodyHtml: `<p>Kept <strong>${esc(String(result.keepCount ?? 0))}</strong> Active.
+          Deleted <strong>${esc(String(result.archivedDeleted ?? 0))}</strong> archived/orphan.
+          Dropped <strong>${esc(String(result.trackedDropped ?? 0))}</strong> tracked.
+          Known list now <strong>${esc(String(result.knownCount ?? 0))}</strong>.</p>`,
+      });
+    } catch (error) {
+      await showModal({
+        title: 'Wipe failed',
+        confirmLabel: 'OK',
+        bodyHtml: `<p>${esc(error.message)}</p>`,
+      });
+    }
   });
 
   document.getElementById('discovery-process-btn')?.addEventListener('click', async () => {
@@ -16264,13 +17696,14 @@ function wireDiscoveryUi() {
       ['pursue', 'maybe', 'review', 'hold'].includes(r.human_decision),
     ).length;
     const trackCount = withDecision.filter((r) => r.human_decision === 'pass').length;
+    const ignoreCount = withDecision.filter((r) => r.human_decision === 'ignore').length;
     if (!withDecision.length) {
       await showModal({
         title: 'Nothing to process',
         confirmLabel: 'OK',
         bodyHtml: alreadyCount
-          ? '<p>All decided rows are already processed. Set decisions on remaining rows, Reopen tracked rows, or open Candidates.</p>'
-          : '<p>Set human decisions (or Accept recommendations) first.</p>',
+          ? '<p>All decided rows are already processed. Set decisions on remaining rows, Reopen tracked/ignored rows, or open Candidates.</p>'
+          : '<p>Set Decisions (or Accept recommendations) first.</p>',
       });
       return;
     }
@@ -16279,23 +17712,25 @@ function wireDiscoveryUi() {
     const adsMode = getAdsMode();
     const adsLine =
       pursueCount > 0
-        ? `<p><strong>Stage 1 Ads mode:</strong> ${
+        ? `<p><strong>SERP / Volume Ads mode:</strong> ${
             adsMode === 'standard'
               ? 'Standard queue (cheaper, slower — overnight OK)'
               : 'Live (faster)'
-          }. Change on Candidates → Ad volumes.</p>`
+          }. Change on Research → Ad volumes.</p>`
         : '';
     const ok = await showModal({
       title: 'Process discovery batch?',
       confirmLabel: pursueCount
-        ? `Process + Stage 1 (${pursueCount} pursue)`
+        ? `Process + SERP / Volume (${pursueCount} pursue)`
         : 'Process',
       bodyHtml: `<p><strong>${esc(String(promoteCount))}</strong> → Candidates · <strong>${esc(
         String(trackCount),
-      )}</strong> tracked (pass) · already done ${esc(String(alreadyCount))}.</p>
-        <p><strong>Pursue → Stage 1:</strong> ${esc(String(pursueCount))} · est. $${esc(estLow)}–$${esc(estHigh)} DFS</p>
+      )}</strong> tracked (pass) · <strong>${esc(String(ignoreCount))}</strong> ignored · already done ${esc(
+        String(alreadyCount),
+      )}.</p>
+        <p><strong>Pursue → SERP / Volume:</strong> ${esc(String(pursueCount))} · est. $${esc(estLow)}–$${esc(estHigh)} DFS</p>
         ${adsLine}
-        <p class="muted">Blank Human rows are ignored. Pass does not create Candidates.</p>`,
+        <p class="muted">Ignore skips this batch without blocking rediscovery. Pass tracks (anti-dupe) without Candidates.</p>`,
     });
     if (!ok) return;
     try {
@@ -16333,11 +17768,13 @@ function wireDiscoveryUi() {
         confirmLabel: openCandidates ? 'Open Research' : 'OK',
         bodyHtml: `<p>+<strong>${esc(String(result.promoted?.length || 0))}</strong> Candidates · ○<strong>${esc(
           String(result.tracked?.length || 0),
-        )}</strong> tracked · skipped ${esc(String(result.skipped?.length || 0))}${
+        )}</strong> tracked · ░<strong>${esc(
+          String(result.ignored?.length || 0),
+        )}</strong> ignored · skipped ${esc(String(result.skipped?.length || 0))}${
           alreadySkipped
             ? ` (${esc(String(alreadySkipped))} already processed)`
             : ''
-        } · Stage 1 queued for ${esc(String(result.pursueIds?.length || 0))} pursue.${
+        } · SERP / Volume queued for ${esc(String(result.pursueIds?.length || 0))} pursue.${
           (result.promoted || []).some((p) => p.linkedExisting)
             ? ` · ${esc(
                 String((result.promoted || []).filter((p) => p.linkedExisting).length),
@@ -16346,7 +17783,7 @@ function wireDiscoveryUi() {
         }</p><p class="muted">${
           openCandidates
             ? 'Switching to Research filtered to this batch.'
-            : 'Tracked passes stay out of Research — Reopen a row to change your mind.'
+            : 'Pass is tracked (anti-dupe). Ignore stays rediscoverable. Reopen a row to change your mind.'
         }</p>`,
       });
       updateDiscoveryStepChecks(result.batch, result.rows);
@@ -16370,6 +17807,7 @@ function wireDiscoveryUi() {
 async function pollBatchJob(batchJobId) {
   const progress = document.getElementById('job-progress');
   const detailEl = document.getElementById('job-progress-detail');
+  const bar = progress?.querySelector('.job-progress-bar');
   if (progress) progress.classList.remove('hidden');
   const tick = async () => {
     try {
@@ -16377,6 +17815,7 @@ async function pollBatchJob(batchJobId) {
       state.lastBatchJob = batch;
       const total = batch.children?.length || 0;
       const done = (batch.done || 0) + (batch.failed || 0);
+      setDeterminateProgress(bar, { done, total });
       const failBits = (batch.children || [])
         .filter((c) => c.status === 'error')
         .slice(0, 2)
@@ -16395,7 +17834,11 @@ async function pollBatchJob(batchJobId) {
       }
       state.activeBatchJobId = null;
       state.activeAct = null;
+      setDeterminateProgress(bar, {});
       if (progress) progress.classList.add('hidden');
+      if (batch.status === 'ok' || batch.status === 'done') {
+        announceStepComplete(`Batch ${jobActLabel(batch.act)}`);
+      }
       await loadCandidates();
       if (state.selectedIds.size > 1) renderMultiDetail();
       else if (state.selectedId) {
@@ -16419,6 +17862,7 @@ async function pollBatchJob(batchJobId) {
       });
     } catch (error) {
       state.activeBatchJobId = null;
+      setDeterminateProgress(bar, {});
       if (progress) progress.classList.add('hidden');
       await showModal({
         title: 'Batch poll failed',
