@@ -253,12 +253,30 @@ export function listSites() {
   return loadRegistry().sites.map(mergeSiteRow);
 }
 
+/** Portfolio row is launched only after Run launch / ship (not Site-Config domain or Twilio). */
+export function siteHasLaunched(row) {
+  return Boolean(row?.lastLaunchAt || row?.lastShipAt);
+}
+
+/** Launched table + GSC/rank portfolio — excludes pre-launch Twilio / Add-to-sites rows. */
+export function listLaunchedSites() {
+  return listSites().filter(siteHasLaunched);
+}
+
 export function getSite(id) {
   const row = loadRegistry().sites.find((s) => s.id === id);
   if (!row) {
     throw Object.assign(new Error('Site not found'), { status: 404 });
   }
   return mergeSiteRow(row);
+}
+
+/** Full registry lookup (including pre-launch Twilio rows). Missing → null. */
+export function getSiteByCandidateId(candidateId) {
+  const id = String(candidateId || '').trim();
+  if (!id) return null;
+  const row = loadRegistry().sites.find((s) => s.candidateId === id);
+  return row ? mergeSiteRow(row) : null;
 }
 
 /**
@@ -280,23 +298,13 @@ export function upsertSiteFromCandidate({ candidateId, status } = {}) {
   if (existing) {
     existing.updatedAt = nowIso();
     if (status && SITE_STATUSES.includes(status)) existing.status = status;
-    else if (
-      existing.status === 'building' &&
-      (hydrated.cloudflarePagesDone || hydrated.formsDone || hydrated.domain)
-    ) {
-      existing.status = 'live';
-    }
     saveRegistry(registry);
     return mergeSiteRow(existing);
   }
 
   const ts = nowIso();
   const initialStatus =
-    status && SITE_STATUSES.includes(status)
-      ? status
-      : hydrated.cloudflarePagesDone || hydrated.formsDone || hydrated.domain
-        ? 'live'
-        : 'building';
+    status && SITE_STATUSES.includes(status) ? status : 'building';
 
   const row = {
     id: newSiteId(),
@@ -315,11 +323,27 @@ export function upsertSiteFromCandidate({ candidateId, status } = {}) {
  */
 export function upsertSiteAfterLaunch(candidateId) {
   try {
-    return upsertSiteFromCandidate({ candidateId });
+    return upsertSiteFromCandidate({ candidateId, status: 'live' });
   } catch (error) {
     console.warn('[sites] upsert after launch failed:', error.message);
     return null;
   }
+}
+
+function assertLaunchedForPortfolioAdd(candidateId) {
+  const hydrated = hydrateFromCandidate(candidateId);
+  if (!hydrated) {
+    throw Object.assign(new Error(`Candidate not found: ${candidateId}`), { status: 404 });
+  }
+  if (!siteHasLaunched(hydrated)) {
+    throw Object.assign(
+      new Error(
+        'Only launched candidates can be added to Launched. Run Launch first (Site-Config phone does not count).',
+      ),
+      { status: 400 },
+    );
+  }
+  return hydrated;
 }
 
 /**
@@ -342,13 +366,10 @@ export function upsertSitesFromCandidates(candidateIds = []) {
 
   for (const raw of ids) {
     try {
-      const hydrated = hydrateFromCandidate(raw);
-      if (!hydrated) {
-        throw Object.assign(new Error(`Candidate not found: ${raw}`), { status: 404 });
-      }
+      const hydrated = assertLaunchedForPortfolioAdd(raw);
       const cid = hydrated.candidateId;
       const existed = known.has(cid);
-      const site = upsertSiteFromCandidate({ candidateId: cid });
+      const site = upsertSiteFromCandidate({ candidateId: cid, status: 'live' });
       if (existed) updated.push(site);
       else {
         added.push(site);
@@ -371,9 +392,10 @@ export function createManualSite(body = {}) {
     throw Object.assign(new Error('candidateId or domain is required'), { status: 400 });
   }
   if (body.candidateId) {
+    assertLaunchedForPortfolioAdd(body.candidateId);
     return upsertSiteFromCandidate({
       candidateId: body.candidateId,
-      status: body.status,
+      status: body.status && SITE_STATUSES.includes(body.status) ? body.status : 'live',
     });
   }
 

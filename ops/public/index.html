@@ -23,37 +23,59 @@
       document.documentElement.setAttribute('data-theme', t);
     } catch (_) {}
   </script>
-  <link rel="stylesheet" href="/styles.css?v=20260827sepAccent" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/styles.css?v=20260831themeSwap" />
   <link rel="stylesheet" href="/brand/rover-loader.css" />
 </head>
 <body>
+  <div id="app-boot-loading" class="app-boot-loading" role="status" aria-live="polite" aria-busy="true">
+    <div class="rover-loading-card">
+      <div class="rover-loader rover-loader--dark" role="img" aria-label="Loading">
+        <svg class="rover-loader-mark" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" focusable="false" aria-hidden="true">
+          <circle class="rover-loader-dot" cx="32" cy="32" r="7.5" />
+          <g class="rover-loader-ring rover-loader-ring--inner">
+            <circle cx="32" cy="32" r="15" transform="rotate(-45 32 32)" />
+          </g>
+          <g class="rover-loader-ring rover-loader-ring--outer">
+            <circle cx="32" cy="32" r="24" transform="rotate(-11 32 32)" />
+          </g>
+        </svg>
+        <img class="rover-loader-word" src="/brand/rover-wordmark-dark.png" alt="" width="618" height="81" decoding="async" />
+      </div>
+      <p class="rover-loading-text">Loading…</p>
+    </div>
+  </div>
   <header class="top">
     <div class="top-brand-cluster">
       <span class="top-brand" aria-label="Rover">
         <img class="top-brand-logo top-brand-logo--light" src="/brand/rover-logo-light.png" alt="" width="800" height="168" decoding="async" />
         <img class="top-brand-logo top-brand-logo--dark" src="/brand/rover-logo-dark.png" alt="" width="800" height="168" decoding="async" />
       </span>
-      <span class="top-version muted small" title="Rover product version">v1.5</span>
+      <span class="top-version muted small" title="Rover product version">v1.6</span>
     </div>
     <nav class="top-nav" aria-label="Primary">
       <div class="nav-pipeline" aria-label="Pipeline stages">
-        <button type="button" class="nav-btn active" data-view="discovery"><span class="nav-stage-num">1</span> Discovery</button>
+        <button type="button" class="nav-btn active" data-view="discovery" aria-label="1 Discovery"><span class="nav-stage-num">1</span> <span class="nav-label">Discovery</span></button>
         <img class="nav-pipeline-arrow nav-pipeline-arrow--light" src="/brand/stage-arrow.png?v=4" alt="" width="48" height="14" decoding="async" aria-hidden="true" />
         <img class="nav-pipeline-arrow nav-pipeline-arrow--dark" src="/brand/stage-arrow-dark.png?v=4" alt="" width="48" height="14" decoding="async" aria-hidden="true" />
-        <button type="button" class="nav-btn" data-view="research"><span class="nav-stage-num">2</span> Research</button>
+        <button type="button" class="nav-btn" data-view="research" aria-label="2 Research"><span class="nav-stage-num">2</span> <span class="nav-label">Research</span></button>
         <img class="nav-pipeline-arrow nav-pipeline-arrow--light" src="/brand/stage-arrow.png?v=4" alt="" width="48" height="14" decoding="async" aria-hidden="true" />
         <img class="nav-pipeline-arrow nav-pipeline-arrow--dark" src="/brand/stage-arrow-dark.png?v=4" alt="" width="48" height="14" decoding="async" aria-hidden="true" />
-        <button type="button" class="nav-btn" data-view="website-builder"><span class="nav-stage-num">3</span> Website</button>
+        <button type="button" class="nav-btn" data-view="website-builder" aria-label="3 Website"><span class="nav-stage-num">3</span> <span class="nav-label">Website</span></button>
         <img class="nav-pipeline-arrow nav-pipeline-arrow--light" src="/brand/stage-arrow.png?v=4" alt="" width="48" height="14" decoding="async" aria-hidden="true" />
         <img class="nav-pipeline-arrow nav-pipeline-arrow--dark" src="/brand/stage-arrow-dark.png?v=4" alt="" width="48" height="14" decoding="async" aria-hidden="true" />
-        <button type="button" class="nav-btn" data-view="launched-sites"><span class="nav-stage-num">4</span> Launched</button>
+        <button type="button" class="nav-btn" data-view="launched-sites" aria-label="4 Launched"><span class="nav-stage-num">4</span> <span class="nav-label">Launched</span></button>
       </div>
       <span class="nav-pipeline-sep" aria-hidden="true"></span>
-      <button type="button" class="nav-btn" data-view="phone">Phone</button>
-      <button type="button" class="nav-btn nav-btn-map" data-view="map">Map</button>
+      <button type="button" class="nav-btn nav-btn-map" data-view="map" aria-label="Map"><svg class="nav-icon" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><path fill="currentColor" d="M8 1.4a4.2 4.2 0 0 0-4.2 4.2c0 3.15 4.2 8.5 4.2 8.5s4.2-5.35 4.2-8.5A4.2 4.2 0 0 0 8 1.4zm0 5.7A1.5 1.5 0 1 1 8 4.1a1.5 1.5 0 0 1 0 3z"/></svg><span class="nav-label">Map</span></button>
+      <button type="button" class="nav-btn" data-view="photo" aria-label="Photo"><svg class="nav-icon" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><path fill="currentColor" d="M2.2 3.4h2.1l.7-1.1h6l.7 1.1h2.1c.8 0 1.4.6 1.4 1.4v7.4c0 .8-.6 1.4-1.4 1.4H2.2c-.8 0-1.4-.6-1.4-1.4V4.8c0-.8.6-1.4 1.4-1.4zM8 12.1a3.2 3.2 0 1 0 0-6.4 3.2 3.2 0 0 0 0 6.4zm0-1.5a1.7 1.7 0 1 1 0-3.4 1.7 1.7 0 0 1 0 3.4z"/></svg><span class="nav-label">Photo</span></button>
+      <button type="button" class="nav-btn" data-view="phone" aria-label="Phone"><svg class="nav-icon" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><path fill="currentColor" d="M4.1 1.6c.3-.3.8-.4 1.2-.2l2 1c.4.2.6.6.6 1.1l-.2 2.1c0 .3-.2.6-.5.8L6 7.4a8.5 8.5 0 0 0 2.6 2.6l1-.1c.3-.1.6 0 .8.3l1.6 1.6c.3.3.4.8.2 1.2l-1 2c-.2.4-.6.6-1.1.6C5.8 15.6.4 10.2.4 5.1c0-.5.2-.9.6-1.1l3.1-2.4z"/></svg><span class="nav-label">Phone</span></button>
     </nav>
     <div class="top-right">
       <div id="dfs-balance" class="balance-chip muted">DFS …</div>
+      <div id="fal-balance" class="balance-chip muted">Flux …</div>
       <div class="jobs-wrap">
         <button
           type="button"
@@ -135,8 +157,8 @@
               <div class="theme-col">
                 <span class="theme-col-label">Light</span>
                 <div class="theme-col-swatches">
-                  <button type="button" class="theme-swatch" data-theme-pick="1" data-tip="Teal" aria-label="Theme 1 Teal">1</button>
-                  <button type="button" class="theme-swatch" data-theme-pick="2" data-tip="Blue" aria-label="Theme 2 Blue">2</button>
+                  <button type="button" class="theme-swatch" data-theme-pick="1" data-tip="Blue" aria-label="Theme 1 Blue">1</button>
+                  <button type="button" class="theme-swatch" data-theme-pick="2" data-tip="Teal" aria-label="Theme 2 Teal">2</button>
                   <button type="button" class="theme-swatch" data-theme-pick="3" data-tip="Sage" aria-label="Theme 3 Sage">3</button>
                   <button type="button" class="theme-swatch" data-theme-pick="4" data-tip="Warm" aria-label="Theme 4 Warm">4</button>
                 </div>
@@ -157,6 +179,16 @@
       </div>
     </div>
   </header>
+
+  <div id="rover-master-progress" class="rover-master-progress hidden" aria-live="polite">
+    <div class="rover-master-progress-track">
+      <div class="job-progress-bar" id="rover-master-progress-bar"></div>
+    </div>
+    <p class="rover-master-progress-text">
+      <span id="rover-master-progress-label"></span>
+      <span id="rover-master-progress-detail" class="muted"></span>
+    </p>
+  </div>
 
   <main class="layout candidates-layout hidden" id="view-candidates">
     <section class="panel candidates-table-panel">
@@ -219,7 +251,7 @@
                 class="btn"
                 id="candidate-add-to-sites-btn"
                 disabled
-                data-tip="Upsert checkbox selection into Launched"
+                data-tip="Add launched checkbox selection to Launched (Run Launch first)"
               >Add to Launched</button>
               <span id="candidate-selection-count" class="candidate-filter-meta muted"></span>
             </div>
@@ -265,6 +297,7 @@
     <section class="panel detail-panel candidates-detail-panel" id="candidates-detail-panel">
       <div id="empty-detail" class="empty">Select rows to run stages · click a row to open detail</div>
       <div id="detail" class="hidden">
+        <div class="detail-chrome">
         <div class="panel-head">
           <div>
             <div class="heading-with-info">
@@ -308,6 +341,7 @@
               <button type="button" data-tab="website" data-stage="handoff" class="tab tab-stage-handoff">3 · Launch</button>
             </div>
           </div>
+        </div>
         </div>
 
         <div id="tab-panels"></div>
@@ -822,7 +856,7 @@
           <button type="button" id="sites-gsc-connect-btn" class="btn" data-tip="Connect Google Search Console (OAuth)">Connect GSC</button>
           <button type="button" id="sites-gsc-sync-btn" class="btn" data-tip="Pull 28d clicks/impressions from Search Console">Sync GSC</button>
           <button type="button" id="sites-rank-sync-btn" class="btn" data-tip="Weekly DataForSEO SERP rank check (Standard queue)">Check ranks</button>
-          <button type="button" id="sites-add-btn" class="btn primary" data-tip="Add a site from a candidate id">Add from candidate</button>
+          <button type="button" id="sites-add-btn" class="btn primary" data-tip="Add a launched candidate by id (Run Launch first)">Add from candidate</button>
           <button type="button" id="sites-refresh-btn" class="btn">Refresh</button>
         </div>
       </div>
@@ -926,6 +960,44 @@
     </aside>
   </main>
 
+  <main class="layout photo-layout hidden" id="view-photo">
+    <aside class="panel photo-lib-panel">
+      <div class="panel-head">
+        <div>
+          <h1>Photo</h1>
+          <div class="muted">Optional group organizer — skippable</div>
+        </div>
+      </div>
+      <label class="photo-niche-label">Niche
+        <select id="photo-niche-select" aria-label="Photo niche"></select>
+      </label>
+      <div id="photo-lib-list" class="photo-lib-list"></div>
+    </aside>
+    <section class="panel photo-group-panel">
+      <div class="panel-head">
+        <div>
+          <div id="photo-group-title" class="muted">Select a group</div>
+          <div id="photo-group-sub" class="muted small">Named groups are snapshots. Niche master grows on Prepare preview.</div>
+          <div id="photo-flux-toolbar" class="flux-toolbar"></div>
+        </div>
+      </div>
+      <div id="photo-group-body" class="photo-group-body">
+        <div class="empty">Open Photo to browse niche groups. Skipping this screen does not block Content, Accept, or Launch.</div>
+      </div>
+    </section>
+    <aside class="panel photo-swap-panel">
+      <div class="panel-head">
+        <div>
+          <h1>Swap</h1>
+          <div class="muted">Copies into this group only — not the live site</div>
+        </div>
+      </div>
+      <div id="photo-swap-rail" class="photo-swap-rail">
+        <div class="empty">Select a slot, then pick an alternate here.</div>
+      </div>
+    </aside>
+  </main>
+
   <div id="modal-root" class="modal-root hidden" aria-hidden="true">
     <div class="modal-backdrop" data-close="1"></div>
     <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
@@ -970,7 +1042,7 @@
     <div class="ve-body">
       <div class="ve-stage">
         <div id="ve-stage-loading" class="ve-stage-loading hidden" aria-hidden="true">
-          <div class="ve-stage-loading-card">
+          <div class="rover-loading-card">
             <div class="rover-loader rover-loader--dark" role="img" aria-label="Loading">
               <svg class="rover-loader-mark" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" focusable="false" aria-hidden="true">
                 <circle class="rover-loader-dot" cx="32" cy="32" r="7.5" />
@@ -983,7 +1055,7 @@
               </svg>
               <img class="rover-loader-word" src="/brand/rover-wordmark-dark.png" alt="" width="618" height="81" decoding="async" />
             </div>
-            <p id="ve-stage-loading-text" class="ve-stage-loading-text">Loading…</p>
+            <p id="ve-stage-loading-text" class="rover-loading-text">Loading…</p>
           </div>
         </div>
         <div class="ve-chrome" id="ve-chrome" data-device="desktop">
@@ -1030,6 +1102,14 @@
     </div>
   </div>
 
-  <script src="/app.js?v=20260826finalCheck" type="module"></script>
+  <div id="img-lightbox" class="img-lightbox hidden" hidden>
+    <button type="button" class="btn img-lightbox-close" id="img-lightbox-close">Close</button>
+    <button type="button" class="btn img-lightbox-nav prev" id="img-lightbox-prev" hidden>Previous</button>
+    <button type="button" class="btn img-lightbox-nav next" id="img-lightbox-next" hidden>Next</button>
+    <div class="img-lightbox-inner" id="img-lightbox-inner"></div>
+  </div>
+  <img id="img-peek" class="img-peek hidden" alt="" hidden />
+
+  <script src="/app.js?v=20260831revertCollapse" type="module"></script>
 </body>
 </html>

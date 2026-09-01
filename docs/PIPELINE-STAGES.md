@@ -15,7 +15,7 @@ Rover’s **Stages** (top-bar pipeline) are separate from Research **Evaluations
 
 **Candidate ranks:** Discovery Candidate → Research Candidate (after Process) → Website Candidate (`pursue`) → Launched Candidate.
 
-**Phone** and **Map** are satellites (not Stages): Phone = call-ops; Map = geography assist. Top-bar order places them **after** Stage 4.
+**Phone**, **Map**, and **Photo** are satellites (not Stages): Phone = call-ops; Map = geography assist; Photo = optional photo-group organizer. Top-bar order places them **after** Stage 4.
 
 ```mermaid
 flowchart LR
@@ -30,12 +30,12 @@ flowchart LR
 
 ## Top nav (names and order)
 
-**Order:** `1 Discovery` → `2 Research` → `3 Website` → `4 Launched` · `Phone` · `Map`
+**Order:** `1 Discovery` → `2 Research` → `3 Website` → `4 Launched` · `Phone` · `Map` · `Photo`
 
 | Kind | Tabs |
 |------|------|
 | **Stages** (numbered + arrows) | Discovery, Research, Website, Launched |
-| **Satellites** (unnumbered) | Phone, Map |
+| **Satellites** (unnumbered) | Phone, Map, Photo |
 
 ## Evaluations vs Tracks
 

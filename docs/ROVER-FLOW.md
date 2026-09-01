@@ -42,7 +42,7 @@ flowchart TD
     Live[Launched portfolio]
   end
 
-  Helpers[Helper screens · Phone · Map] -.-> L
+  Helpers[Helper screens · Phone · Map · Photo] -.-> L
 ```
 
 Most markets stop early on purpose. Only **pursue** becomes a **Website Candidate** and gets a full site.

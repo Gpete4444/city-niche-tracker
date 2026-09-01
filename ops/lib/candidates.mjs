@@ -62,6 +62,9 @@ export function pathsFor(id) {
     siteImages: path.join(RESEARCH_DIR, safe, 'site-images'),
     imagesManifest: path.join(RESEARCH_DIR, `${safe}-images-manifest.json`),
     imagesPullStatus: path.join(RESEARCH_DIR, `${safe}-images-pull.json`),
+    imagesPlan: path.join(RESEARCH_DIR, `${safe}-images-plan.json`),
+    baVariants: path.join(RESEARCH_DIR, `${safe}-ba-variants.json`),
+    photoGroup: path.join(RESEARCH_DIR, `${safe}-photo-group.json`),
     prospects: path.join(RESEARCH_DIR, `${safe}-prospects.json`),
     prospectsDraft: path.join(RESEARCH_DIR, `${safe}-prospects.draft.json`),
     businessAddress: path.join(RESEARCH_DIR, `${safe}-business-address.json`),
@@ -114,6 +117,17 @@ export function saveMeta(id, patch = {}) {
   const next = defaultMeta({ ...current, ...nextPatch, id: pathsFor(id).id });
   writeJson(pathsFor(id).meta, next);
   return next;
+}
+
+/** Add to a lastCosts key (Flux is cumulative; other keys are usually last-run). */
+export function addLastCost(id, key, deltaUsd) {
+  const name = String(key || '').trim();
+  const delta = Number(deltaUsd);
+  if (!name || !Number.isFinite(delta) || delta === 0) return loadMeta(id);
+  const current = loadMeta(id);
+  const prev = Number(current.lastCosts?.[name]) || 0;
+  const next = Number((prev + delta).toFixed(6));
+  return saveMeta(id, { lastCosts: { [name]: next } });
 }
 
 export function deriveStage(id) {
@@ -576,6 +590,26 @@ export function getCandidateDetail(id) {
   const contentOutlinePackage = readJson(p.contentOutlinePackage);
   const buildPackage = readJson(p.buildPackage);
   const imagesManifest = readJson(p.imagesManifest);
+  const imagesPlan = readJson(p.imagesPlan);
+  const photoGroupAttached = readJson(p.photoGroup);
+  const photoGroupNiche = String(
+    siteConfigAccepted?.niche || siteConfigDraft?.niche || config?.niche || '',
+  ).trim();
+  const photoGroupsIndex = readJson(path.join(RESEARCH_DIR, '_photo-groups', 'index.json'));
+  const photoGroups = (photoGroupsIndex?.groups || [])
+    .filter(
+      (g) =>
+        String(g.niche || '')
+          .trim()
+          .toLowerCase() === photoGroupNiche.toLowerCase(),
+    )
+    .slice()
+    .sort((a, b) => {
+      const am = a.kind === 'master' ? 0 : 1;
+      const bm = b.kind === 'master' ? 0 : 1;
+      return am - bm;
+    });
+  const photoNicheMaster = photoGroups.find((g) => g.kind === 'master') || null;
   const prospects = readJson(p.prospects);
   const businessAddress = readJson(p.businessAddress);
   const stageInfo = deriveStage(id);
@@ -601,6 +635,13 @@ export function getCandidateDetail(id) {
       hasContentFinalCheck: Boolean(
         contentDraft?._ops?.lastFinalCheckAt || contentAccepted?._ops?.lastFinalCheckAt,
       ),
+      hasContentImagesPlan: Boolean(
+        imagesPlan?.loadedAt ||
+          contentDraft?._ops?.lastImagesPlanAt ||
+          contentAccepted?._ops?.lastImagesPlanAt ||
+          photoGroupAttached?.groupId ||
+          (photoNicheMaster?.id && !photoGroupAttached?.skipped),
+      ),
       hasContentStructure: Boolean(contentStructure),
       hasContentOutlinePackage: Boolean(contentOutlinePackage),
       hasContentOutlineConfirmed: Boolean(contentOutlinePackage?.status === 'confirmed'),
@@ -608,7 +649,8 @@ export function getCandidateDetail(id) {
       hasImages: Boolean(imagesManifest?.files?.length),
       hasLogo:
         Boolean(siteConfigAccepted?.logo) ||
-        existsSync(path.join(p.siteImages, 'logo.svg')),
+        existsSync(path.join(p.siteImages, 'logo.svg')) ||
+        existsSync(path.join(p.siteImages, 'logo.png')),
       hasCoverageMap: existsSync(path.join(p.siteImages, 'coverage-map.svg')),
       hasBusinessAddress: Boolean(
         businessAddress?.selection || businessAddress?.skipped || businessAddress?.status,
@@ -633,6 +675,11 @@ export function getCandidateDetail(id) {
     contentOutlinePackage,
     buildPackage,
     imagesManifest,
+    imagesPlan,
+    photoGroupAttached,
+    photoGroupNiche,
+    photoNicheMaster,
+    photoGroups,
     prospects,
     businessAddress,
     summary: summarizeResearch(research),

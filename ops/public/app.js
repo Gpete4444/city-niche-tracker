@@ -31,7 +31,7 @@ import {
   mountDiscoveryCitiesMap,
   setServiceAreaTableMode,
   setDiscoveryTableMapMode,
-} from './service-area-map.js?v=20260825saProgress';
+} from './service-area-map.js?v=20260831masterBar';
 import {
   enableResizableTablesIn,
   enableTableColumnResize,
@@ -459,7 +459,24 @@ const state = {
     filterText: '',
     filterPhase: '',
   },
+  photoLib: {
+    niches: [],
+    niche: '',
+    groups: [],
+    groupId: null,
+    view: null,
+    selectedMatchKey: null,
+    selectedFilename: null,
+    selectedRail: null,
+    rolePhotos: [],
+    flux: null,
+    selectedChecks: {},
+  },
   imageMatchFilter: 'all',
+  flux: null,
+  reviewBa: null,
+  imageSlotChecks: {},
+  imageSlotBusy: null,
   multiQueue: false,
   lastBatchJob: null,
   tab: 'overview',
@@ -471,6 +488,7 @@ const state = {
   pollTimer: null,
   health: null,
   dfsBalance: null,
+  falBalance: null,
   balanceTimer: null,
   discoveryPresets: null,
   discoveryBatches: [],
@@ -515,10 +533,17 @@ const DISCOVERY_DECISION_OPTS = [
 ];
 
 async function api(path, options = {}) {
-  const res = await fetch(path, {
-    headers: { 'content-type': 'application/json', ...(options.headers || {}) },
-    ...options,
-  });
+  let res;
+  try {
+    res = await fetch(path, {
+      headers: { 'content-type': 'application/json', ...(options.headers || {}) },
+      ...options,
+    });
+  } catch {
+    throw new Error(
+      'Could not reach Rover ops — is npm run rover still running, or was the prompt response too large? Check the Rover terminal and retry.',
+    );
+  }
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     const err = new Error(data.error || res.statusText);
@@ -534,6 +559,7 @@ async function api(path, options = {}) {
     if (data.speechLint) err.speechLint = data.speechLint;
     if (data.twilioSid) err.twilioSid = data.twilioSid;
     if (data.e164) err.e164 = data.e164;
+    if (data.existingId) err.existingId = data.existingId;
     throw err;
   }
   return data;
@@ -805,6 +831,243 @@ function setDeterminateProgress(barEl, { done, total } = {}) {
   barEl.style.width = `${pct}%`;
 }
 
+/** Always-visible header strip; in-step bars still update locally. */
+function setMasterProgress({ visible, label, detail, done, total } = {}) {
+  const box = document.getElementById('rover-master-progress');
+  const labelEl = document.getElementById('rover-master-progress-label');
+  const detailEl = document.getElementById('rover-master-progress-detail');
+  const bar = document.getElementById('rover-master-progress-bar');
+  if (!box) return;
+  box.classList.toggle('hidden', !visible);
+  if (labelEl && label != null) labelEl.textContent = label;
+  if (detailEl && detail != null) detailEl.textContent = detail;
+  if (!visible) {
+    setDeterminateProgress(bar, {});
+    return;
+  }
+  const known = Number(total) > 0 && done != null && Number.isFinite(Number(done));
+  setDeterminateProgress(bar, known ? { done: Number(done), total: Number(total) } : {});
+}
+
+window.addEventListener('rover-progress', (ev) => {
+  setMasterProgress(ev.detail || {});
+});
+
+const FLUX_TYPICAL_MS = { photo: 60_000, pair: 150_000 };
+
+function fluxTypicalMs(kind, samples) {
+  const list = samples?.[kind];
+  if (Array.isArray(list) && list.length) {
+    return list.reduce((a, b) => a + b, 0) / list.length;
+  }
+  return FLUX_TYPICAL_MS[kind] || FLUX_TYPICAL_MS.photo;
+}
+
+function formatFluxElapsed(ms) {
+  const s = Math.max(0, Math.floor(Number(ms) / 1000) || 0);
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+}
+
+function formatFluxEta(ms) {
+  const n = Math.max(0, Number(ms) || 0);
+  if (n <= 0) return '';
+  const min = Math.round(n / 60000);
+  if (min < 1) return '<1 min left';
+  return min === 1 ? '~1 min left' : `~${min} min left`;
+}
+
+function fluxUiStatus(raw) {
+  const u = String(raw || '').toUpperCase();
+  if (['IN_PROGRESS', 'PROCESSING'].includes(u)) return 'generating';
+  if (['COMPLETED', 'OK', 'READY'].includes(u)) return 'finishing';
+  if (['FAILED', 'ERROR', 'CANCELLED'].includes(u)) return u.toLowerCase();
+  return 'queued';
+}
+
+function watchFluxProgress({
+  label,
+  detail,
+  index = 1,
+  total = 1,
+  kind = 'photo',
+  samples,
+} = {}) {
+  const watchStarted = Date.now();
+  let timer = null;
+  const paint = async () => {
+    let snap = { active: false };
+    try {
+      snap = await api('/api/images/flux-progress');
+    } catch {
+      snap = { active: false };
+    }
+    const status = fluxUiStatus(snap.status);
+    const step = snap.step || (kind === 'pair' ? 'before' : 'generate');
+    const elapsed = Date.now() - (Number(snap.startedAt) || watchStarted);
+    const waiting = Math.max(0, Number(total) - Number(index));
+    const typical = fluxTypicalMs(kind, samples);
+    const stepTypical =
+      step === 'after' ? Math.max(FLUX_TYPICAL_MS.photo, typical - FLUX_TYPICAL_MS.photo) : fluxTypicalMs(kind === 'pair' ? 'photo' : kind, samples);
+    const bits = [];
+    if (Number(total) > 1) bits.push(`${index} / ${total}`);
+    if (detail) bits.push(detail);
+    if (kind === 'pair' && (step === 'before' || step === 'after')) {
+      bits.push(step === 'before' ? 'Before' : 'After');
+    }
+    bits.push(status);
+    bits.push(formatFluxElapsed(elapsed));
+    const pos = snap.queuePosition;
+    if (status === 'queued' && pos != null && Number.isFinite(Number(pos))) {
+      bits.push(`#${Number(pos)} in queue`);
+    }
+    if (waiting) bits.push(`${waiting} waiting`);
+    if (status !== 'queued') {
+      const etaMs = Math.max(0, stepTypical - elapsed) + waiting * typical;
+      const eta = formatFluxEta(etaMs);
+      if (eta) bits.push(eta);
+    }
+    const intra = kind === 'pair' && step === 'after' ? 0.5 : 0;
+    const completed = Math.max(0, Number(index) - 1) + intra;
+    const queuedOnly = Number(total) <= 1 && status === 'queued';
+    const multi = Number(total) > 1;
+    setImagesProgress(true, {
+      label: multi
+        ? `Images loading ${index}`
+        : label || (kind === 'pair' ? 'Generating pair…' : 'Generating…'),
+      detail: multi ? `Images loading ${index}` : bits.join(' · '),
+      current: queuedOnly ? undefined : completed,
+      total: queuedOnly ? undefined : Number(total),
+    });
+  };
+  paint();
+  timer = setInterval(paint, 800);
+  return {
+    stop() {
+      if (timer) clearInterval(timer);
+      timer = null;
+    },
+  };
+}
+
+function findGeneratingSlotCard(key) {
+  const id = String(key || '').trim();
+  if (!id) return null;
+  const raw = id.replace(/^ba:/, '');
+  const keys = [...new Set([id, raw].filter(Boolean))];
+  const roots = [document.getElementById('ca-image-slots'), document.getElementById('photo-group-body')].filter(
+    Boolean,
+  );
+  for (const root of roots) {
+    for (const card of root.querySelectorAll('.image-slot-card')) {
+      const slotKey = card.getAttribute('data-slot-key') || '';
+      const matchKey = card.getAttribute('data-match-key') || '';
+      const checkId = card.querySelector('.slot-check-input')?.getAttribute('data-check-id') || '';
+      if (keys.some((k) => k === slotKey || k === matchKey || k === checkId)) return card;
+    }
+  }
+  return null;
+}
+
+function slotGenerateOverlayHtml() {
+  return `<div class="slot-generate-overlay" aria-hidden="true">
+    <div class="rover-loader rover-loader--dark rover-loader--mark-only">
+      <svg class="rover-loader-mark" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" focusable="false">
+        <circle class="rover-loader-dot" cx="32" cy="32" r="7.5" />
+        <g class="rover-loader-ring rover-loader-ring--inner">
+          <circle cx="32" cy="32" r="15" transform="rotate(-45 32 32)" />
+        </g>
+        <g class="rover-loader-ring rover-loader-ring--outer">
+          <circle cx="32" cy="32" r="24" transform="rotate(-11 32 32)" />
+        </g>
+      </svg>
+    </div>
+  </div>`;
+}
+
+function slotGenerateOverlayHost(card) {
+  if (!card) return null;
+  return card.querySelector('.ba-pair-thumbs') || card.querySelector('.slot-thumb');
+}
+
+function setSlotGenerateOverlay(card, on) {
+  const host = slotGenerateOverlayHost(card);
+  if (!host) return;
+  const overlay = host.querySelector(':scope > .slot-generate-overlay');
+  if (on) {
+    if (!overlay) host.insertAdjacentHTML('beforeend', slotGenerateOverlayHtml());
+  } else if (overlay) {
+    overlay.remove();
+  }
+}
+
+function beginSlotBusy(key, cardEl) {
+  const next = String(key || '').trim();
+  const prev = state.imageSlotBusy;
+  if (prev && prev !== next) {
+    const prevCard = findGeneratingSlotCard(prev);
+    if (prevCard) setSlotGenerateOverlay(prevCard, false);
+  }
+  state.imageSlotBusy = next || null;
+  if (!next) return;
+  const card =
+    (cardEl && typeof cardEl.closest === 'function' ? cardEl.closest('.image-slot-card') : null) ||
+    findGeneratingSlotCard(next);
+  if (!card) return;
+  setSlotGenerateOverlay(card, true);
+  if (typeof card.scrollIntoView === 'function') {
+    card.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  }
+}
+
+function waitSlotThumbLoaded(card, timeoutMs = 8000) {
+  const host = slotGenerateOverlayHost(card);
+  if (!host) return Promise.resolve();
+  const imgs = [...host.querySelectorAll('img')].filter((img) => !img.closest('.slot-generate-overlay'));
+  if (!imgs.length) return Promise.resolve();
+  return Promise.all(
+    imgs.map(
+      (img) =>
+        new Promise((resolve) => {
+          if (img.complete && img.naturalWidth) {
+            resolve();
+            return;
+          }
+          const done = () => {
+            img.removeEventListener('load', done);
+            img.removeEventListener('error', done);
+            clearTimeout(timer);
+            resolve();
+          };
+          const timer = setTimeout(done, timeoutMs);
+          img.addEventListener('load', done);
+          img.addEventListener('error', done);
+        }),
+    ),
+  );
+}
+
+async function settleSlotBusy() {
+  const key = state.imageSlotBusy;
+  if (!key) return;
+  const card = findGeneratingSlotCard(key);
+  if (card) {
+    setSlotGenerateOverlay(card, true);
+    await waitSlotThumbLoaded(card);
+    setSlotGenerateOverlay(card, false);
+  }
+  state.imageSlotBusy = null;
+}
+
+async function withFluxProgress(opts, fn) {
+  const watch = watchFluxProgress(opts);
+  if (opts?.detail) beginSlotBusy(opts.detail, opts.card);
+  try {
+    return await fn();
+  } finally {
+    watch.stop();
+  }
+}
+
 function slugifyPreviewName(name) {
   return String(name || '')
     .toLowerCase()
@@ -848,9 +1111,14 @@ function expectedDraftFilesFromDetail(d) {
     }
   }
   if (pages.has('locations')) {
-    for (const name of cfg.targetSuburbs || []) {
-      const slug = slugifyPreviewName(name);
-      if (slug) files.push(`src/content/locations/${slug}.md`);
+    const seen = new Set();
+    for (const name of [cfg.primaryCity, ...(cfg.targetSuburbs || [])]) {
+      const n = String(name || '').trim();
+      if (!n) continue;
+      const slug = slugifyPreviewName(n);
+      if (!slug || seen.has(slug)) continue;
+      seen.add(slug);
+      files.push(`src/content/locations/${slug}.md`);
     }
   }
   return files;
@@ -907,12 +1175,38 @@ function continueWriteControlsHtml({ sm = false } = {}) {
   </div>`;
 }
 
+function draftFileBatch(path) {
+  const p = String(path || '').replace(/\\/g, '/');
+  if (/\/pages\/(index|about|contact)\.md$/i.test(p)) return 'Home';
+  if (/\/services\//i.test(p)) return 'Services';
+  if (/\/locations\//i.test(p)) return 'Locations';
+  return null;
+}
+
+function uniqueDraftBatches(paths) {
+  const order = ['Home', 'Services', 'Locations'];
+  const set = new Set();
+  for (const rel of paths || []) {
+    const b = draftFileBatch(rel);
+    if (b) set.add(b);
+  }
+  return order.filter((b) => set.has(b));
+}
+
+function joinBatchNames(list) {
+  if (!list.length) return '';
+  if (list.length === 1) return list[0];
+  if (list.length === 2) return `${list[0]} and ${list[1]}`;
+  return `${list.slice(0, -1).join(', ')}, and ${list[list.length - 1]}`;
+}
+
 /** Shared incomplete-draft copy for modal + Content callouts */
 function incompleteDraftExplainHtml({
   have,
   expectedCount,
   missing,
   stubs = [],
+  expected = [],
   compact = false,
   showContinueControls = true,
 } = {}) {
@@ -924,17 +1218,31 @@ function incompleteDraftExplainHtml({
   const progress = miss.length
     ? `<strong>Loaded ${esc(String(haveN))} of ${esc(String(expN))} required files.</strong>`
     : `<strong>All ${esc(String(expN))} required files are present, but ${esc(String(stubList.length))} are stub/thin.</strong>`;
-  const howTo = `<ol class="narrative-list" style="margin:0.4rem 0 0;padding-left:1.25rem">
-      <li>Stay on <strong>Content → Full write</strong> (do not Accept yet).</li>
-      <li>Click <strong>Copy continue prompt</strong> → paste into Claude.ai (Open Claude.ai optional).</li>
-      <li>Copy Claude’s new <code>### FILE:</code> blocks → paste into <strong>Paste FILE blocks</strong>.</li>
-      <li>Click <strong>Load FILE blocks as draft</strong> again (Rover merges; gaps should clear).</li>
-      <li>Repeat if Claude truncates again, then <strong>Accept</strong>.</li>
-    </ol>`;
-  const whyHappens = miss.length
-    ? `<p style="margin:0.35rem 0 0"><strong>Why this happens:</strong> Claude has a limit on how long a single reply can be. A full site write is large, so it often stops mid-way and leaves later pages (usually locations) out. That is normal — use <strong>Copy continue prompt</strong> to finish the rest.</p>`
-    : `<p style="margin:0.35rem 0 0"><strong>Why this happens:</strong> Seed stubs or a truncated Claude reply can leave service/location pages too thin for Accept. Use <strong>Copy continue prompt</strong> to rewrite those files fully.</p>`;
-  const gate = `<p style="margin:0.35rem 0 0"><strong>Does this block you?</strong> Not on Content — you can keep loading chunks. You need all non-stub files before <strong>Accept</strong> / <strong>Prepare preview</strong> for a full site.</p>`;
+  const missingSet = new Set(miss);
+  const missingBatches = uniqueDraftBatches(miss);
+  const stubBatches = uniqueDraftBatches(stubList);
+  const present = (Array.isArray(expected) ? expected : []).filter((f) => !missingSet.has(f));
+  const loadedBatches = uniqueDraftBatches(present);
+  const bits = [];
+  if (miss.length) {
+    if (loadedBatches.length) {
+      const verb = loadedBatches.length === 1 ? 'is' : 'are';
+      bits.push(`${joinBatchNames(loadedBatches)} ${verb} loaded.`);
+    }
+    const copyWord = missingBatches.length === 1 ? 'that batch' : 'those batches';
+    const missingLabel = joinBatchNames(missingBatches) || 'the missing files';
+    bits.push(
+      `Continue with <strong>${esc(missingLabel)}</strong> — Copy ${copyWord} (or <strong>Copy continue prompt</strong>), paste FILE blocks, Load again.`,
+    );
+  }
+  if (stubList.length) {
+    bits.push(
+      `${esc(joinBatchNames(stubBatches) || 'Some')} pages are too thin — <strong>Copy continue prompt</strong> and Load again.`,
+    );
+  }
+  const instruct = bits.length
+    ? `<p style="margin:0.35rem 0 0">${bits.join(' ')}</p>`
+    : '';
   const controls = showContinueControls ? continueWriteControlsHtml({ sm: compact }) : '';
   const missBlock = miss.length
     ? `<details class="narrative-raw" style="margin-top:0.5rem" ${compact ? 'open' : ''}>
@@ -948,26 +1256,11 @@ function incompleteDraftExplainHtml({
         ${missingDraftFilesListHtml(stubList, { limit: compact ? 8 : 0 })}
       </details>`
     : '';
-  if (compact) {
-    return `<div class="callout warn">
-      <p style="margin:0">${progress}${
-        miss.length ? ` Missing ${esc(String(miss.length))} file(s).` : ''
-      }${stubList.length ? ` ${esc(String(stubList.length))} stub/thin.` : ''}</p>
-      ${whyHappens}
-      ${gate}
-      <p style="margin:0.35rem 0 0"><strong>How to finish</strong></p>
-      ${howTo}
-      ${controls}
-      ${missBlock}
-      ${stubBlock}
-    </div>`;
-  }
   return `<div class="callout warn">
-      <p style="margin:0 0 0.35rem">${progress}</p>
-      ${whyHappens}
-      ${gate}
-      <p style="margin:0.5rem 0 0"><strong>How to finish</strong></p>
-      ${howTo}
+      <p style="margin:0">${progress}${
+        compact && miss.length ? ` Missing ${esc(String(miss.length))} file(s).` : ''
+      }${compact && stubList.length ? ` ${esc(String(stubList.length))} stub/thin.` : ''}</p>
+      ${instruct}
       ${controls}
       ${missBlock}
       ${stubBlock}
@@ -999,6 +1292,7 @@ function incompleteDraftCalloutHtml(d) {
     expectedCount: expected.length,
     missing,
     stubs,
+    expected,
     compact: true,
   });
 }
@@ -1268,6 +1562,7 @@ function wireJobsUi() {
     try {
       renderHeavyJobs(snap);
       syncPrepareProgressFromJobs(snap);
+      syncLaunchProgressFromJobs(snap);
     } catch {
       /* ignore */
     }
@@ -1432,6 +1727,7 @@ const API_SPEND_LABELS = {
   narrative: 'Narrative (est.)',
   outreach: 'Outreach (est.)',
   addressSearch: 'Address Find (est.)',
+  flux: 'Flux',
 };
 
 /** Pipeline order for API $ tip line items. */
@@ -1442,6 +1738,7 @@ const API_SPEND_ORDER = [
   'prospects',
   'outreach',
   'addressSearch',
+  'flux',
 ];
 
 function apiSpendLabelForKey(key) {
@@ -1581,6 +1878,59 @@ function renderDfsBalance() {
   el.textContent = `DFS ${formatMoney(bal)}`;
 }
 
+function isFluxWalletError(error) {
+  if (error?.code === 'flux-exhausted' || error?.code === 'flux-insufficient') return true;
+  return /exhausted|below this job|user locked/i.test(String(error?.message || error || ''));
+}
+
+async function showFluxGenerateFailures(failures) {
+  if (!failures.length) return false;
+  const wallet = failures.find((line) => isFluxWalletError(line));
+  if (wallet) {
+    await showModal({
+      title: 'Generate failed',
+      confirmLabel: 'OK',
+      hideCancel: true,
+      bodyHtml: `<p>${esc(wallet)}</p>`,
+    });
+    return true;
+  }
+  return false;
+}
+
+function falBalanceChipTitle(b) {
+  if (b?.error) return b.error;
+  if (b && b.adminKeySet === false) {
+    return 'Set FAL_ADMIN_KEY in .env (fal dashboard → API keys → Admin), then restart Rover.';
+  }
+  return 'This key is API scope. Create an Admin key at fal.ai/dashboard/keys, set FAL_ADMIN_KEY, then restart Rover.';
+}
+
+function renderFalBalance() {
+  const el = document.getElementById('fal-balance');
+  if (!el) return;
+  const b = state.falBalance;
+  el.classList.remove('ok', 'warn', 'err', 'muted');
+  if (!b) {
+    el.classList.add('muted');
+    el.textContent = 'Flux …';
+    el.removeAttribute('title');
+    return;
+  }
+  if (!b.ok || b.balance == null) {
+    el.classList.add('err');
+    el.textContent = 'Flux —';
+    el.title = falBalanceChipTitle(b);
+    renderFluxSpendLine();
+    return;
+  }
+  const bal = Number(b.balance);
+  el.classList.add(bal < 1 ? 'warn' : 'ok');
+  el.textContent = `Flux ${formatMoney(bal)}`;
+  el.title = 'fal.ai account remaining credits (API and Admin keys share this balance)';
+  renderFluxSpendLine();
+}
+
 async function loadDfsBalance() {
   try {
     state.dfsBalance = await api('/api/dfs-balance');
@@ -1595,10 +1945,67 @@ async function loadDfsBalance() {
   renderDfsBalance();
 }
 
+function refreshImageWallets({ fresh = false, remind = false } = {}) {
+  loadFalBalance({ fresh, remind }).catch(() => {});
+}
+
+async function loadFalBalance({ fresh = false, remind = false } = {}) {
+  try {
+    const q = fresh ? '?fresh=1' : '';
+    state.falBalance = await api(`/api/images/flux-balance${q}`);
+  } catch (error) {
+    state.falBalance = {
+      ok: false,
+      balance: null,
+      error: error.message,
+      fetchedAt: new Date().toISOString(),
+    };
+  }
+  renderFalBalance();
+  if (remind) void maybeShowFalRetireReminder();
+}
+
+const FAL_RETIRE_SESSION_KEY = 'ops.falRetireReminded';
+let falRetireModalOpen = false;
+
+function falBalanceLooksDepleted(b) {
+  if (!b?.falKeySet) return false;
+  if (b.falDepleted) return true;
+  return b.ok && b.balance != null && Number(b.balance) + 1e-9 < 0.03;
+}
+
+async function maybeShowFalRetireReminder() {
+  if (falRetireModalOpen) return;
+  try {
+    if (sessionStorage.getItem(FAL_RETIRE_SESSION_KEY) === '1') return;
+  } catch {
+    /* private mode */
+  }
+  if (!falBalanceLooksDepleted(state.falBalance)) return;
+  falRetireModalOpen = true;
+  try {
+    await showModal({
+      title: 'fal remaining is used up',
+      confirmLabel: 'OK',
+      hideCancel: true,
+      bodyHtml: `<p>fal remaining is about $0. <strong>Flux generate will fail until you add fal credits.</strong></p>
+<p>Use <strong>OpenAI generate</strong> / <strong>OpenAI pair</strong> on a slot instead (same <code>OPENAI_API_KEY</code> as Phone).</p>`,
+    });
+    try {
+      sessionStorage.setItem(FAL_RETIRE_SESSION_KEY, '1');
+    } catch {
+      /* ignore */
+    }
+  } finally {
+    falRetireModalOpen = false;
+  }
+}
+
 function startBalancePolling() {
   if (state.balanceTimer) clearInterval(state.balanceTimer);
   state.balanceTimer = setInterval(() => {
     loadDfsBalance().catch(() => {});
+    loadFalBalance().catch(() => {});
   }, 60_000);
 }
 
@@ -2217,11 +2624,21 @@ function emptyStateForFilter() {
   return 'No candidates match these filters.';
 }
 
+/** Freeze row selection while Site-Config Service area (map) is open. */
+function candidateSelectionLocked() {
+  return (
+    document.getElementById('view-candidates')?.classList.contains('sa-map-open') ||
+    state.siteConfigOpenStep === 'service-area'
+  );
+}
+
 function syncCandidatesDetailVisibility() {
   const empty = document.getElementById('empty-detail');
   const detail = document.getElementById('detail');
   const layout = document.getElementById('view-candidates');
-  const collapsed = state.selectedIds.size === 0 && !state.selectedId;
+  const saMapOpen = candidateSelectionLocked();
+  const collapsed =
+    !saMapOpen && state.selectedIds.size === 0 && !state.selectedId;
   layout?.classList.toggle('layout-detail-collapsed', collapsed);
 
   if (!empty || !detail) return;
@@ -2256,7 +2673,7 @@ function syncPhoneDetailVisibility() {
 
 /** Click empty table/panel chrome to clear row selection (not rows, controls, or thead). */
 const TABLE_DESELECT_IGNORE =
-  'thead, input, select, button, a, label, textarea, .col-resize-handle, .candidate-bulk-details, .discovery-filters-bar, .discovery-flow, .sites-gsc-status, .phone-calls-toolbar';
+  'thead, input, select, button, a, label, textarea, .col-resize-handle, .candidate-bulk-details, .discovery-filters-bar, .discovery-flow, .sites-gsc-status, .phone-calls-toolbar, #sa-map-canvas, .sa-map-canvas-host, .leaflet-container';
 const TABLE_DESELECT_ROW =
   'tr[data-id], tr[data-call-id], tr[data-row-idx]';
 
@@ -2303,6 +2720,7 @@ function wireTableDeselectOnEmpty(roots, clearFn) {
 }
 
 function clearCandidateRowSelection() {
+  if (candidateSelectionLocked()) return;
   if (!state.selectedId && state.selectedIds.size === 0 && !state.detail) return;
   state.selectedId = null;
   state.selectedIds.clear();
@@ -2623,6 +3041,10 @@ function renderList() {
   });
 
   document.getElementById('candidate-select-all')?.addEventListener('change', (e) => {
+    if (candidateSelectionLocked()) {
+      e.target.checked = list.every((c) => state.selectedIds.has(c.id));
+      return;
+    }
     const on = e.target.checked;
     for (const c of list) {
       if (on) state.selectedIds.add(c.id);
@@ -2680,6 +3102,11 @@ function renderList() {
   tbody.querySelectorAll('.cand-check').forEach((cb) => {
     cb.addEventListener('click', (e) => {
       e.stopPropagation();
+      if (candidateSelectionLocked()) {
+        e.preventDefault();
+        cb.checked = state.selectedIds.has(cb.dataset.id);
+        return;
+      }
       const id = cb.dataset.id;
       const visibleKeys = list.map((c) => c.id);
       const ranged = applyShiftRangeCheckboxClick(e, {
@@ -2699,6 +3126,10 @@ function renderList() {
     });
     cb.addEventListener('change', (e) => {
       e.stopPropagation();
+      if (candidateSelectionLocked()) {
+        cb.checked = state.selectedIds.has(cb.dataset.id);
+        return;
+      }
       const id = cb.dataset.id;
       state.candidateCheckAnchor = id;
       if (cb.checked) state.selectedIds.add(id);
@@ -2730,6 +3161,7 @@ function renderList() {
 }
 
 async function selectCandidate(id) {
+  if (candidateSelectionLocked()) return;
   state.selectedId = id;
   state.multiQueue = false;
   state.contentOpenStep = null;
@@ -2950,6 +3382,101 @@ function setBaViewpoint(stepKey, viewpoint) {
   return next;
 }
 
+function cacheBaCardPrompts(matchKey, pair = {}) {
+  const key = String(matchKey || '').trim();
+  if (!key) return;
+  state.baPromptCache = state.baPromptCache || {};
+  state.baPromptCache[key] = {
+    lastPrompts: pair.lastPrompts || null,
+    promptsForGenerate: pair.promptsForGenerate || null,
+    promptPlan: pair.promptPlan || null,
+  };
+}
+
+function pickBaDisplayPrompts(matchKey) {
+  const key = String(matchKey || '').trim();
+  const cache = state.baPromptCache?.[key] || {};
+  const vp = getBaViewpoint(key);
+  const last = cache.lastPrompts;
+  if (last?.before && last?.after && (last.viewpoint || vp) === vp) {
+    return {
+      before: last.before,
+      after: last.after,
+      viewpoint: vp,
+      room: last.room || cache.promptsForGenerate?.[vp]?.room || null,
+      label: last.source === 'openai' ? 'Last sent to OpenAI' : 'Last sent',
+    };
+  }
+  const gen = cache.promptsForGenerate?.[vp];
+  if (gen?.before && gen?.after) {
+    return {
+      before: gen.before,
+      after: gen.after,
+      viewpoint: vp,
+      room: gen.room || null,
+      label: gen.source === 'claude' ? 'From Image queries' : 'Template fallback',
+    };
+  }
+  const plan = cache.promptPlan?.[vp];
+  if (plan?.before && plan?.after) {
+    return {
+      before: plan.before,
+      after: plan.after,
+      viewpoint: vp,
+      room: cache.promptPlan?.room || null,
+      label: 'From Image queries',
+    };
+  }
+  return null;
+}
+
+function fillBaPromptsPanel(card) {
+  if (!card) return;
+  const key = card.getAttribute('data-match-key') || '';
+  const panel = card.querySelector('.ba-prompts');
+  if (!panel) return;
+  const picked = pickBaDisplayPrompts(key);
+  const meta = panel.querySelector('.ba-prompts-meta');
+  const before = panel.querySelector('.ba-prompts-before');
+  const after = panel.querySelector('.ba-prompts-after');
+  if (!picked) {
+    if (meta) {
+      meta.textContent =
+        'Load Image queries (step 8) for this slot’s prompts, then OpenAI pair.';
+    }
+    if (before) before.textContent = '';
+    if (after) after.textContent = '';
+    return;
+  }
+  if (meta) {
+    meta.textContent = `${picked.label} · ${picked.viewpoint}${
+      picked.room ? ` · ${picked.room}` : ''
+    }`;
+  }
+  if (before) before.textContent = picked.before || '';
+  if (after) after.textContent = picked.after || '';
+}
+
+function baShowPromptsHtml(pair, matchKey) {
+  cacheBaCardPrompts(matchKey, pair);
+  const picked = pickBaDisplayPrompts(matchKey);
+  const meta = picked
+    ? `${esc(picked.label)} · ${esc(picked.viewpoint)}${picked.room ? ` · ${esc(picked.room)}` : ''}`
+    : 'Load Image queries (step 8) for this slot’s prompts, then OpenAI pair.';
+  return `<details class="ba-prompts" style="margin-top:0.25rem">
+    <summary style="cursor:pointer;font-size:0.8rem">Show prompts</summary>
+    <p class="muted ba-prompts-meta" style="margin:0.35rem 0 0.25rem;font-size:0.75rem">${meta}</p>
+    <p style="margin:0.2rem 0 0.15rem;font-size:0.75rem"><strong>Before</strong></p>
+    <pre class="ba-prompts-before" style="white-space:pre-wrap;font-size:0.72rem;margin:0;max-height:8rem;overflow:auto">${esc(
+      picked?.before || '',
+    )}</pre>
+    <p style="margin:0.35rem 0 0.15rem;font-size:0.75rem"><strong>After</strong></p>
+    <pre class="ba-prompts-after" style="white-space:pre-wrap;font-size:0.72rem;margin:0;max-height:8rem;overflow:auto">${esc(
+      picked?.after || '',
+    )}</pre>
+  </details>`;
+}
+
 function baViewpointSegmentHtml(stepKey = 'home') {
   const key = String(stepKey || 'home').trim() || 'home';
   const mode = getBaViewpoint(key);
@@ -2965,6 +3492,20 @@ function baViewpointSegmentHtml(stepKey = 'home') {
       mode === 'outside' ? ' active' : ''
     }" data-ba-viewpoint="outside">Outside</button>
   </div>`;
+}
+
+function baTargetFromGenerateEl(el) {
+  const card = el?.closest?.('.photo-ba-card') || el?.closest?.('.image-slot-card');
+  const raw = String(
+    el?.getAttribute?.('data-match-key') || card?.getAttribute('data-match-key') || 'home:1',
+  ).replace(/^ba:/, '');
+  const isSvc = raw.startsWith('svc:');
+  const fromCardSlug = String(card?.getAttribute('data-service-slug') || '').trim();
+  const serviceSlug = isSvc ? raw.slice(4) : fromCardSlug;
+  const pairIndex = isSvc
+    ? 1
+    : Number(card?.getAttribute('data-pair-index') || String(raw).split(':')[1] || 1) || 1;
+  return { matchKey: raw, serviceSlug, pairIndex };
 }
 
 function getForceSerp() {
@@ -4620,7 +5161,150 @@ function normalizeDomainHostname(raw) {
   return s;
 }
 
-/** Parse Claude domain-pick paste into up to 5 suggestion rows. */
+/** Mirrors ops/lib/site-config.mjs businessNameFromDomain (browser cannot import ops/lib). */
+function businessNameFromDomainClient(domain, { primaryCity, niche } = {}) {
+  const normKey = (s) =>
+    String(s || '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '');
+  const titleWord = (w) => {
+    const s = String(w || '').trim();
+    if (!s) return '';
+    if (/^(hvac|llc|inc)$/i.test(s)) return s.toUpperCase();
+    return s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
+  };
+  const suffixes = ['experts', 'solutions', 'group', 'elite', 'pros', 'pro'];
+  const leftover = [
+    'installation',
+    'installations',
+    'repair',
+    'repairs',
+    'service',
+    'services',
+    'cleaning',
+    'plumbing',
+    'plumber',
+    'roofing',
+    'concrete',
+    'drywall',
+    'sewer',
+    'drain',
+    'fencing',
+    'fence',
+    'painting',
+    'garage',
+    'windows',
+    'siding',
+    'hvac',
+    'door',
+    'doors',
+  ];
+
+  let host = String(domain || '')
+    .trim()
+    .toLowerCase()
+    .replace(/^https?:\/\//i, '')
+    .replace(/^www\./, '');
+  host = host.split('/')[0].split('?')[0].split('#')[0].replace(/\.$/, '');
+  const label = (host.split('.')[0] || host).replace(/[^a-z0-9]/g, '');
+  if (!label) return '';
+
+  let rest = label;
+  const parts = [];
+
+  const cityRaw = String(primaryCity || '').trim();
+  const citySlug = normKey(cityRaw);
+  if (citySlug && rest.startsWith(citySlug)) {
+    parts.push(cityRaw);
+    rest = rest.slice(citySlug.length);
+  }
+
+  const nicheRaw = String(niche || '').trim();
+  const nicheSlug = normKey(nicheRaw);
+  if (nicheSlug && rest.startsWith(nicheSlug)) {
+    parts.push(nicheRaw);
+    rest = rest.slice(nicheSlug.length);
+  } else if (nicheRaw) {
+    const nicheWords = nicheRaw.split(/\s+/).filter(Boolean);
+    const peeled = [];
+    let cursor = rest;
+    for (const w of nicheWords) {
+      const ws = normKey(w);
+      if (ws && cursor.startsWith(ws)) {
+        peeled.push(w);
+        cursor = cursor.slice(ws.length);
+      } else {
+        peeled.length = 0;
+        break;
+      }
+    }
+    if (peeled.length) {
+      parts.push(...peeled);
+      rest = cursor;
+    }
+  }
+
+  const sortedSuffixes = [...suffixes].sort((a, b) => b.length - a.length);
+  const suffixParts = [];
+  let guard = 0;
+  while (rest && guard++ < 8) {
+    let hit = false;
+    for (const suf of sortedSuffixes) {
+      if (rest === suf || (rest.endsWith(suf) && rest.length >= suf.length)) {
+        suffixParts.unshift(titleWord(suf));
+        rest = rest.slice(0, -suf.length);
+        hit = true;
+        break;
+      }
+    }
+    if (!hit) break;
+  }
+
+  if (rest) {
+    const known = [...leftover].sort((a, b) => b.length - a.length);
+    let cursor = rest;
+    let peelGuard = 0;
+    while (cursor && peelGuard++ < 24) {
+      let hit = false;
+      for (const k of known) {
+        if (cursor.startsWith(k)) {
+          parts.push(titleWord(k));
+          cursor = cursor.slice(k.length);
+          hit = true;
+          break;
+        }
+      }
+      if (hit) continue;
+      let bestIdx = -1;
+      let bestLen = 0;
+      for (const k of known) {
+        const idx = cursor.indexOf(k);
+        if (idx > 0 && (bestIdx < 0 || idx < bestIdx || (idx === bestIdx && k.length > bestLen))) {
+          bestIdx = idx;
+          bestLen = k.length;
+        }
+      }
+      if (bestIdx > 0) {
+        parts.push(titleWord(cursor.slice(0, bestIdx)));
+        cursor = cursor.slice(bestIdx);
+        continue;
+      }
+      parts.push(titleWord(cursor));
+      break;
+    }
+  }
+
+  parts.push(...suffixParts);
+  const name = parts.join(' ').replace(/\s+/g, ' ').trim();
+  if (name) return name;
+  return label
+    .split(/[^a-z0-9]+/i)
+    .filter(Boolean)
+    .map(titleWord)
+    .join(' ');
+}
+
+/** Parse Claude domain-pick paste into up to 10 suggestion rows. */
 function parseDomainPickPaste(text) {
   const raw = String(text || '').trim();
   if (!raw) return [];
@@ -4649,7 +5333,7 @@ function parseDomainPickPaste(text) {
           else if (row && typeof row === 'object') {
             pushRow(row.domain || row.host || row.url, row.available, row.note || row.reason);
           }
-          if (out.length >= 5) break;
+          if (out.length >= 10) break;
         }
       }
     }
@@ -4668,13 +5352,16 @@ function parseDomainPickPaste(text) {
       );
       if (!hostMatch) continue;
       pushRow(hostMatch[1], null, cleaned.replace(hostMatch[0], '').replace(/^[\s—\-|:]+/, '').trim());
-      if (out.length >= 5) break;
+      if (out.length >= 10) break;
     }
   }
-  return out.slice(0, 5);
+  return out.slice(0, 10);
 }
 
-function writeDomainPickToNap({ domainPick: pickPatch, domain } = {}, candidateId) {
+function writeDomainPickToNap(
+  { domainPick: pickPatch, domain, businessName, email } = {},
+  candidateId,
+) {
   const id = candidateId || state.selectedId || state.detail?.id;
   const prev = siteConfigNapFromLocal(id);
   const prevPick =
@@ -4684,6 +5371,8 @@ function writeDomainPickToNap({ domainPick: pickPatch, domain } = {}, candidateI
     domainPick: pickPatch ? { ...prevPick, ...pickPatch } : prevPick,
   };
   if (domain != null) nap.domain = String(domain);
+  if (businessName != null) nap.businessName = String(businessName);
+  if (email != null) nap.email = String(email);
   writeSiteConfigNapLocal(nap, id);
   return nap;
 }
@@ -4709,10 +5398,164 @@ function stripMdBoldDisplay(s) {
     .trim();
 }
 
-function serviceNamesBulletHtml(names) {
+function caSvcChoiceRowHtml(name, listKey) {
+  const n = String(name || '').trim();
+  return `<div class="ca-svc-choice-item is-on" data-svc-row>
+    <span class="ve-section-pos" aria-hidden="true"></span>
+    <label class="ca-svc-choice-label">
+      <input type="checkbox" class="ca-svc-check" data-list="${esc(listKey)}" value="${esc(n)}" checked />
+      <span>${esc(n)}</span>
+    </label>
+    <span class="ve-section-move">
+      <button type="button" class="ve-section-arrow" data-svc-move="up" data-list="${esc(
+        listKey,
+      )}" aria-label="Move ${esc(n)} up">▲</button>
+      <button type="button" class="ve-section-arrow" data-svc-move="down" data-list="${esc(
+        listKey,
+      )}" aria-label="Move ${esc(n)} down">▼</button>
+    </span>
+  </div>`;
+}
+
+function serviceNamesChoiceListHtml(names, listKey) {
   const list = (names || []).map((n) => String(n || '').trim()).filter(Boolean);
-  if (!list.length) return '<p class="muted" style="margin:0.25rem 0">None</p>';
-  return `<ul class="narrative-list ca-svc-choice-list">${list.map((n) => `<li>${esc(n)}</li>`).join('')}</ul>`;
+  const items = list.map((n) => caSvcChoiceRowHtml(n, listKey)).join('');
+  return `<div class="ca-svc-choice-list" data-list="${esc(listKey)}">
+    ${items}
+    <input type="text" class="ca-svc-custom" data-list="${esc(listKey)}" placeholder="Custom Service" autocomplete="off" />
+  </div>`;
+}
+
+/** Renumber checked rows and enable/disable ▲▼ (visual-editor style). */
+function refreshCaSvcListOrder(listEl) {
+  if (!listEl) return;
+  const rows = [...listEl.querySelectorAll('[data-svc-row]')];
+  const checkedRows = rows.filter((r) => r.querySelector('.ca-svc-check')?.checked);
+  let pos = 0;
+  for (const row of rows) {
+    const on = Boolean(row.querySelector('.ca-svc-check')?.checked);
+    row.classList.toggle('is-on', on);
+    const posEl = row.querySelector('.ve-section-pos');
+    if (posEl) posEl.textContent = on ? String(++pos) : '';
+    const midIdx = on ? checkedRows.indexOf(row) : -1;
+    const up = row.querySelector('[data-svc-move="up"]');
+    const down = row.querySelector('[data-svc-move="down"]');
+    if (up) up.disabled = !on || midIdx <= 0;
+    if (down) down.disabled = !on || midIdx < 0 || midIdx >= checkedRows.length - 1;
+  }
+}
+
+function moveCaSvcRow(btn) {
+  if (!btn || btn.disabled) return;
+  const dir = btn.dataset.svcMove === 'up' ? -1 : 1;
+  const row = btn.closest('[data-svc-row]');
+  const listEl = btn.closest('.ca-svc-choice-list');
+  if (!row || !listEl) return;
+  const checkedRows = [...listEl.querySelectorAll('[data-svc-row]')].filter((r) =>
+    r.querySelector('.ca-svc-check')?.checked,
+  );
+  const i = checkedRows.indexOf(row);
+  if (i < 0) return;
+  const j = i + dir;
+  if (j < 0 || j >= checkedRows.length) return;
+  const other = checkedRows[j];
+  if (dir < 0) other.before(row);
+  else other.after(row);
+  refreshCaSvcListOrder(listEl);
+}
+
+function createCaSvcChoiceRow(name, listKey) {
+  const wrap = document.createElement('div');
+  wrap.innerHTML = caSvcChoiceRowHtml(name, listKey);
+  return wrap.firstElementChild;
+}
+
+/** Checked residential/commercial names from Review services UI (or null if not mounted). */
+function collectServicesChoiceFromUi() {
+  const root =
+    document.getElementById('ca-svc-choice-draft') ||
+    document.getElementById('ca-svc-choice-accepted');
+  if (!root) return null;
+  const pick = (listKey) => {
+    const names = [];
+    const seen = new Set();
+    const listEl = root.querySelector(`.ca-svc-choice-list[data-list="${listKey}"]`);
+    const checks = listEl
+      ? listEl.querySelectorAll('.ca-svc-check:checked')
+      : root.querySelectorAll(`.ca-svc-check[data-list="${listKey}"]:checked`);
+    checks.forEach((cb) => {
+      const n = String(cb.value || '').trim();
+      if (!n) return;
+      const key = n.toLowerCase();
+      if (seen.has(key)) return;
+      seen.add(key);
+      names.push(n);
+    });
+    return names.slice(0, 12);
+  };
+  return {
+    services: pick('residential'),
+    commercialServices: pick('commercial'),
+  };
+}
+
+function commitCaSvcCustomInput(input) {
+  if (!input || !input.classList?.contains('ca-svc-custom')) return;
+  const listKey = String(input.dataset.list || '');
+  const name = String(input.value || '').trim();
+  if (!listKey || !name) return;
+  const wrap = input.closest('.ca-svc-choice-list');
+  if (!wrap) return;
+  const existing = [...wrap.querySelectorAll('.ca-svc-check')].map((cb) =>
+    String(cb.value || '')
+      .trim()
+      .toLowerCase(),
+  );
+  if (existing.includes(name.toLowerCase())) {
+    input.value = '';
+    return;
+  }
+  if (existing.length >= 12) {
+    input.value = '';
+    return;
+  }
+  const row = createCaSvcChoiceRow(name, listKey);
+  if (!row) return;
+  input.before(row);
+  input.value = '';
+  refreshCaSvcListOrder(wrap);
+}
+
+function wireServicesChoiceInputs() {
+  const root =
+    document.getElementById('ca-svc-choice-draft') ||
+    document.getElementById('ca-svc-choice-accepted');
+  if (!root || root.dataset.svcWired === '1') return;
+  root.dataset.svcWired = '1';
+  root.querySelectorAll('.ca-svc-choice-list').forEach((listEl) => refreshCaSvcListOrder(listEl));
+  root.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter') return;
+    const t = e.target;
+    if (!t?.classList?.contains('ca-svc-custom')) return;
+    e.preventDefault();
+    commitCaSvcCustomInput(t);
+  });
+  root.addEventListener('focusout', (e) => {
+    const t = e.target;
+    if (!t?.classList?.contains('ca-svc-custom')) return;
+    commitCaSvcCustomInput(t);
+  });
+  root.addEventListener('change', (e) => {
+    const t = e.target;
+    if (!t?.classList?.contains('ca-svc-check')) return;
+    refreshCaSvcListOrder(t.closest('.ca-svc-choice-list'));
+  });
+  root.addEventListener('click', (e) => {
+    const btn = e.target?.closest?.('[data-svc-move]');
+    if (!btn || !root.contains(btn)) return;
+    e.preventDefault();
+    moveCaSvcRow(btn);
+  });
 }
 
 /**
@@ -4727,25 +5570,17 @@ function siteConfigServicesChoiceHtml({
 } = {}) {
   const res = (residential || []).map((n) => String(n || '').trim()).filter(Boolean);
   const com = (commercial || []).map((n) => String(n || '').trim()).filter(Boolean);
-  const hasCommercial = com.length > 0;
-  const keepId =
+  const bothId =
     mode === 'accepted' ? 'site-config-accept-keep-commercial' : 'site-config-accept-with-commercial';
   const residentialId =
     mode === 'accepted' ? 'site-config-accept-residential-only-update' : 'site-config-accept-residential-only';
-  const singleAcceptId = mode === 'accepted' ? 'site-config-reaccept-btn' : 'site-config-accept-btn';
-  const keepLabel = mode === 'accepted' ? 'Keep commercial' : 'Accept with commercial';
-  const resLabel = mode === 'accepted' ? 'Update to residential only' : 'Accept residential only';
+  const commercialId =
+    mode === 'accepted' ? 'site-config-accept-commercial-only-update' : 'site-config-accept-commercial-only';
 
-  const actions = hasCommercial
-    ? `<div class="narrative-actions" style="justify-content:flex-start;flex-wrap:wrap;gap:0.5rem">
-        <button type="button" class="btn primary" id="${esc(keepId)}" data-tip="Keep commercial list — homepage shows Residential + Commercial grids">${esc(keepLabel)}</button>
-        <button type="button" class="btn" id="${esc(residentialId)}" data-tip="Clear commercialServices — one What we do grid, fewer card photos. No Claude re-prompt.">${esc(resLabel)}</button>
-      </div>
-      <p class="muted" style="margin:0.35rem 0 0;font-size:0.85rem">Residential only = one What we do grid. Commercial = second grid (needs more card photos). No new Claude prompt either way.</p>`
-    : `<div class="narrative-actions" style="justify-content:flex-start">
-        <button type="button" class="btn primary" id="${esc(singleAcceptId)}" data-tip="Write site-config and unlock Content">${
-          mode === 'accepted' ? 'Re-write site-config' : 'Accept site-config'
-        }</button>
+  const actions = `<div class="ca-svc-choice-actions">
+        <button type="button" class="btn" id="${esc(residentialId)}" data-tip="Write checked residential as primary services; clear commercialServices (one What we do grid).">Residential Only</button>
+        <button type="button" class="btn primary" id="${esc(bothId)}" data-tip="Write both checked lists — homepage Residential + Commercial grids when commercial is non-empty.">Residential + Commercial</button>
+        <button type="button" class="btn" id="${esc(commercialId)}" data-tip="Promote checked commercial to primary services; clear commercialServices (one What we do grid).">Commercial Only</button>
       </div>`;
 
   const heading = asStepBody
@@ -4758,11 +5593,11 @@ function siteConfigServicesChoiceHtml({
     <div class="ca-svc-choice-cols">
       <div>
         <p class="muted" style="margin:0 0 0.25rem;font-size:0.8rem;text-transform:uppercase;letter-spacing:0.04em">Residential / primary</p>
-        ${serviceNamesBulletHtml(res)}
+        ${serviceNamesChoiceListHtml(res, 'residential')}
       </div>
       <div>
         <p class="muted" style="margin:0 0 0.25rem;font-size:0.8rem;text-transform:uppercase;letter-spacing:0.04em">Commercial (optional homepage split)</p>
-        ${serviceNamesBulletHtml(com)}
+        ${serviceNamesChoiceListHtml(com, 'commercial')}
       </div>
     </div>
     ${actions}
@@ -4930,6 +5765,40 @@ function baListingPortalLinksHtml(row) {
     parts.push(`<a href="${esc(urls.crexi)}" target="_blank" rel="noopener">Crexi</a>`);
   }
   return parts.length ? ` · ${parts.join(' · ')}` : '';
+}
+
+/** Live-rebuild Maps/Street View hrefs from lat/lng so old shortlists pick up URL fixes. */
+function baAddressQueryWithoutSuite(row = {}) {
+  return [row.street, row.city, row.state, row.zip].filter(Boolean).join(', ');
+}
+
+function baHasCoords(row = {}) {
+  return (
+    row.lat != null &&
+    row.lng != null &&
+    row.lat !== '' &&
+    row.lng !== '' &&
+    Number.isFinite(Number(row.lat)) &&
+    Number.isFinite(Number(row.lng))
+  );
+}
+
+function baMapsHref(row = {}) {
+  if (baHasCoords(row)) {
+    return `https://www.google.com/maps/?q=${Number(row.lat)},${Number(row.lng)}`;
+  }
+  const q = baAddressQueryWithoutSuite(row);
+  if (q) return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(q)}`;
+  return row.mapsUrl || '#';
+}
+
+function baStreetViewHref(row = {}) {
+  if (baHasCoords(row)) {
+    return `https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${Number(row.lat)},${Number(row.lng)}`;
+  }
+  const q = baAddressQueryWithoutSuite(row);
+  if (q) return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(q)}`;
+  return row.streetViewUrl || '#';
 }
 
 function baFormatUsd(n) {
@@ -5646,9 +6515,9 @@ function renderSiteConfig() {
           }</div>
           ${localityNote}
           <div class="muted small" style="margin-top:0.25rem">
-            <a href="${esc(row.mapsUrl || '#')}" target="_blank" rel="noopener">Maps</a>
+            <a href="${esc(baMapsHref(row))}" target="_blank" rel="noopener">Maps</a>
             ·
-            <a href="${esc(row.streetViewUrl || '#')}" target="_blank" rel="noopener">Street View</a>
+            <a href="${esc(baStreetViewHref(row))}" target="_blank" rel="noopener">Street View</a>
             ${baListingPortalLinksHtml(row)}
           </div>
           <details class="narrative-raw lint-findings" style="margin-top:0.4rem">
@@ -5783,9 +6652,9 @@ function renderSiteConfig() {
           }</div>
           ${warn}
           <div class="muted small" style="margin-top:0.2rem">
-            <a href="${esc(row.mapsUrl || '#')}" target="_blank" rel="noopener">Maps</a>
+            <a href="${esc(baMapsHref(row))}" target="_blank" rel="noopener">Maps</a>
             ·
-            <a href="${esc(row.streetViewUrl || '#')}" target="_blank" rel="noopener">Street View</a>
+            <a href="${esc(baStreetViewHref(row))}" target="_blank" rel="noopener">Street View</a>
             ${baListingPortalLinksHtml(row)}
           </div>
         </div>
@@ -6039,9 +6908,9 @@ function renderSiteConfig() {
       done: domainDone,
       open: openId === 'domain',
       current: currentId === 'domain' && !domainDone,
-      info: 'Copy the Exact Domain Match prompt, paste Claude’s top 5, pick one (or enter a custom host), buy on Cloudflare if needed, then Continue to Business details.',
+      info: 'Copy the Exact Domain Match prompt, paste Claude’s top 10 (primary city first only), pick one (or enter a custom host), buy on Cloudflare if needed, then Continue to Business details.',
       bodyHtml: `
-        <p class="disc-tool-blurb">Claude suggests Exact Domain Match hosts for this niche + city. Availability is Claude’s best guess only — confirm when you buy.</p>
+        <p class="disc-tool-blurb">Claude suggests Exact Domain Match hosts that start with the primary city and the niche’s strongest keywords (plus a few city-first suffixes like pros / elite). No other cities. Availability is Claude’s best guess only — confirm when you buy.</p>
         <div class="narrative-actions">
           <button type="button" class="btn primary" id="sc-domain-copy-prompt" data-tip="Copy Exact Domain Match prompt for Claude.ai" ${
             ready || f.hasApproved ? '' : 'disabled'
@@ -6112,14 +6981,14 @@ function renderSiteConfig() {
             </span>
             <input id="sc-phone" type="text" value="${esc(nap.phone || '')}" placeholder="Optional — provision in step 8" />
           </label>
-          <label>
+          <label class="site-config-email">
             <span class="label-with-tip-head">
               <span>Email</span>
               <button type="button" class="tip-info" data-tip="Public site leads address (usually leads@yourdomain.com) — shown in footer, contact, and schema. Not your personal Gmail." aria-label="About Email">i</button>
             </span>
             <input id="sc-email" type="email" value="${esc(nap.email || '')}" placeholder="leads@yourdomain.com" />
           </label>
-          <label>
+          <label class="site-config-radius">
             <span class="label-with-tip-head">
               <span>Radius (mi)</span>
               <button type="button" class="tip-info" data-tip="Default radius seed for Service area map." aria-label="About Radius">i</button>
@@ -6282,7 +7151,6 @@ function renderSiteConfig() {
       open: openId === 'services',
       current: currentId === 'services' && !servicesDone,
       locked: !(draft || accepted),
-      info: 'Choose residential-only or keep commercial, then Accept to write site-config. After Accept you can adjust services here without re-pasting Claude.',
       bodyHtml: servicesBodyHtml,
     }),
   );
@@ -6408,7 +7276,9 @@ function contentStepHtml({
       locked ? ' locked' : ''
     }" data-content-step="${esc(id)}">
       <div class="content-step-head-wrap">
-        <span class="content-step-label">${esc(title)}</span>
+        <button type="button" class="content-step-head" data-content-toggle="${esc(id)}">
+          <span class="content-step-label">${esc(title)}</span>
+        </button>
         ${infoBtn}
       </div>
       <div class="content-step-body">${bodyHtml}</div>
@@ -6446,9 +7316,11 @@ const CONTENT_STEP_ORDER = [
   'write',
   'editor',
   'finalCheck',
+  'imageQueries',
+  'photoGroup',
   'accept',
 ];
-const WEBSITE_STEP_ORDER = ['images', 'prepare', 'launch', 'indexing'];
+const WEBSITE_STEP_ORDER = ['logoMap', 'images', 'prepare', 'launch', 'indexing'];
 
 /** Force open + pulse to stepId (Copy / handoff) without waiting for durable done. */
 function advancePanelStep(panel, stepId) {
@@ -6495,20 +7367,67 @@ function resolvePanelCurrent(softKey, durableCurrent) {
   return state[softKey] ?? durableCurrent;
 }
 
-/** Numbered action row: n · label + optional controls; done shows green ✓ */
-function contentActionRow({ n, label, hint, controlsHtml = '', done = false }) {
+/** Numbered action row: n · label + optional controls; done replaces n with ✓; loaded appends a check after the label. */
+function contentActionRow({ n, label, hint, controlsHtml = '', done = false, loaded = false }) {
+  const loadedMark = loaded
+    ? ` <span class="content-action-check" aria-label="Loaded">✓</span>`
+    : '';
   return `<div class="content-action-row${done ? ' content-action-row-done' : ''}">
     <div class="content-action-meta">
       <span class="content-action-num${done ? ' content-action-num-done' : ''}"${
         done ? ` ${tipAttr('Completed')}` : ''
       }>${done ? '✓' : esc(String(n))}</span>
       <div>
-        <div class="content-action-label">${label}</div>
+        <div class="content-action-label">${label}${loadedMark}</div>
         ${hint ? `<p class="disc-tool-blurb">${hint}</p>` : ''}
       </div>
     </div>
     ${controlsHtml ? `<div class="content-action-controls">${controlsHtml}</div>` : ''}
   </div>`;
+}
+
+function photoGroupSelectOptionsHtml(d) {
+  const groups = Array.isArray(d?.photoGroups) ? d.photoGroups : [];
+  const attached = d?.photoGroupAttached?.groupId || '';
+  const opts = ['<option value="">Select a saved photo group…</option>'];
+  for (const g of groups) {
+    const n = Number(g.slotCount || 0);
+    const ba = Number(g.baPairCount || 0);
+    const extra = ba ? ` · ${ba} BA` : '';
+    const sel = g.id === attached ? ' selected' : '';
+    const label =
+      g.kind === 'master'
+        ? `${g.niche || g.name || 'Niche'} master`
+        : g.name;
+    opts.push(
+      `<option value="${esc(g.id)}"${sel}>${esc(label)} (${n} photos${extra})</option>`,
+    );
+  }
+  return opts.join('');
+}
+
+function photoGroupToolbarHtml({ selectId, loadId, saveId, loadLabel, skipId }) {
+  const d = state.detail;
+  const select = `<select class="pg-select" id="${esc(selectId)}" data-tip="Niche master first, then named groups">
+        ${photoGroupSelectOptionsHtml(d)}
+      </select>`;
+  const loadBtn = `<button type="button" class="btn pg-load" id="${esc(loadId)}">${esc(loadLabel)}</button>`;
+  if (skipId) {
+    return `<div class="photo-group-toolbar">
+      ${select}
+      <button type="button" class="btn pg-skip" id="${esc(skipId)}">Skip</button>
+      ${loadBtn}
+    </div>`;
+  }
+  return `<div class="flex-wrap gap-2" style="display:flex;flex-wrap:wrap;gap:0.4rem;align-items:center">
+      ${select}
+      ${loadBtn}
+      ${
+        saveId
+          ? `<button type="button" class="btn" id="${esc(saveId)}" data-tip="Save this site’s stock photos, uploads, and ChatGPT before/after pairs">Save photo group</button>`
+          : ''
+      }
+    </div>`;
 }
 
 /**
@@ -6526,6 +7445,156 @@ function openClaudeAiBtnHtml({ disabled = false, sm = false, id = '', tip = '' }
     return `<span class="${cls}" aria-disabled="true"${idAttr} ${tipHtml}>Open Claude.ai</span>`;
   }
   return `<a class="${cls}" href="https://claude.ai" target="_blank" rel="noopener noreferrer"${idAttr} ${tipHtml}>Open Claude.ai</a>`;
+}
+
+function photoGroupPreviewBodyHtml(preview, { attach = false } = {}) {
+  const unused = Number(preview?.unused || 0);
+  const empty = Number(preview?.targetEmpty || 0);
+  const name = preview?.group?.name || 'this group';
+  return `<p>${
+    attach
+      ? 'Accept will copy these files instead of pulling stock. Logo and coverage map still generate.'
+      : 'Replaces matching Review images on this site. Unused saved photos stay in the group.'
+  }</p>
+    <p>Group <strong>${esc(name)}</strong>${
+      preview?.group?.niche ? ` · ${esc(preview.group.niche)}` : ''
+    }.</p>
+    <ul class="narrative-list">
+      <li>${esc(String(preview?.applied || 0))} stock slots will be filled</li>
+      <li>${esc(String(preview?.baApplied || 0))} ChatGPT before/after pairs</li>
+      ${
+        unused
+          ? `<li>${esc(String(unused))} saved photos unused (this Structure does not use those sections)</li>`
+          : ''
+      }
+      ${
+        empty
+          ? `<li>${esc(String(empty))} slots on this site stay empty</li>`
+          : ''
+      }
+    </ul>`;
+}
+
+async function savePhotoGroupFromUi(candidateId, { refresh, nextStep, tab } = {}) {
+  let nameInput = null;
+  const niche = state.detail?.siteConfig?.niche || state.detail?.config?.niche || '';
+  const ok = await showModal({
+    title: 'Save photo group',
+    confirmLabel: 'Save',
+    bodyHtml: `<p>Saves stock photos, uploads, and ChatGPT before/after pairs for <strong>${esc(
+      niche || 'this niche',
+    )}</strong>.</p>
+      <label class="modal-type-confirm-label"><span class="muted small">Group name</span>
+      <input id="pg-save-name" class="modal-type-confirm-input" type="text" autocomplete="off" /></label>`,
+    afterOpen: (body) => {
+      nameInput = body.querySelector('#pg-save-name');
+      nameInput?.focus();
+    },
+  });
+  if (!ok) return;
+  const name = String(nameInput?.value || '').trim();
+  if (!name) {
+    await showModal({
+      title: 'Name required',
+      confirmLabel: 'OK',
+      hideCancel: true,
+      bodyHtml: '<p>Enter a name for this photo group.</p>',
+    });
+    return;
+  }
+  if (!(await confirmLaunchedSiteChange('Save photo group'))) return;
+  const post = (replaceExisting) =>
+    api(`/api/candidates/${encodeURIComponent(candidateId)}/photo-groups`, {
+      method: 'POST',
+      body: JSON.stringify(withLaunchedConfirmBody({ name, replaceExisting })),
+    });
+  try {
+    let result;
+    try {
+      result = await post(false);
+    } catch (error) {
+      if (error.status !== 409) throw error;
+      const replace = await showModal({
+        title: 'Replace existing group?',
+        confirmLabel: 'Replace',
+        danger: true,
+        bodyHtml: `<p>${esc(error.message)}</p><p>Replace the saved files with this site’s current photos?</p>`,
+      });
+      if (!replace) return;
+      result = await post(true);
+    }
+    if (refresh) await refresh(result.candidate, nextStep, tab);
+    showToast(`Saved photo group “${result.group?.name || name}”.`);
+  } catch (error) {
+    await showModal({
+      title: 'Save photo group failed',
+      confirmLabel: 'OK',
+      hideCancel: true,
+      bodyHtml: `<p>${esc(error.message)}</p>`,
+    });
+  }
+}
+
+async function loadPhotoGroupFromUi(
+  candidateId,
+  selectId,
+  { attach = false, refresh, nextStep, tab } = {},
+) {
+  const groupId = document.getElementById(selectId)?.value || '';
+  if (!groupId) {
+    await showModal({
+      title: 'Pick a photo group',
+      confirmLabel: 'OK',
+      hideCancel: true,
+      bodyHtml: '<p>Select a saved photo group first.</p>',
+    });
+    return;
+  }
+  try {
+    const preview = await api(
+      `/api/candidates/${encodeURIComponent(candidateId)}/photo-groups/preview`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ groupId }),
+      },
+    );
+    const ok = await showModal({
+      title: attach ? 'Load photo group on Accept?' : 'Load photo group?',
+      confirmLabel: attach ? 'Load on Accept' : 'Replace photos',
+      bodyHtml: photoGroupPreviewBodyHtml(preview, { attach }),
+    });
+    if (!ok) return;
+    if (
+      !(await confirmLaunchedSiteChange(attach ? 'Attach photo group' : 'Load photo group'))
+    ) {
+      return;
+    }
+    const result = await api(
+      `/api/candidates/${encodeURIComponent(candidateId)}/photo-groups/${
+        attach ? 'attach' : 'load'
+      }`,
+      {
+        method: 'POST',
+        body: JSON.stringify(withLaunchedConfirmBody({ groupId })),
+      },
+    );
+    if (refresh) await refresh(result.candidate, nextStep, tab);
+    if (!attach) {
+      await refreshImageSlotsGrid(candidateId);
+    }
+    showToast(
+      attach
+        ? `Photo group “${result.attached?.name || preview.group?.name}” ready for Accept.`
+        : result.human?.[0] || 'Photo group loaded.',
+    );
+  } catch (error) {
+    await showModal({
+      title: attach ? 'Photo group failed' : 'Load photo group failed',
+      confirmLabel: 'OK',
+      hideCancel: true,
+      bodyHtml: `<p>${esc(error.message)}</p>`,
+    });
+  }
 }
 
 /** Advisory speech-lint findings for Content → Editor panel */
@@ -6648,7 +7717,7 @@ function lintSevDotHtml(tone, count, tip) {
   )}</span></span>`;
 }
 
-function editorRewriteWhyHtml(needs) {
+function editorRewriteWhyHtml(needs, workflowHtml) {
   if (!needs?.needed) return '';
   const bits = [];
   if (needs.speechN) {
@@ -6683,7 +7752,10 @@ function editorRewriteWhyHtml(needs) {
     <div class="editor-rewrite-status"><strong>${label}:</strong>${
       dots ? ` <span class="lint-sev-dots">${dots}</span>` : ''
     } ${bits.join(' · ')}</div>
-    <p class="editor-rewrite-workflow muted">Copy the editor prompt → fix in Claude.ai → paste FILE blocks → Load, then Speech/SEO Refinement again.</p>
+    <p class="editor-rewrite-workflow muted">${
+      workflowHtml ||
+      'Copy the editor prompt → fix in Claude.ai → paste FILE blocks → Load, then Speech/SEO Refinement again.'
+    }</p>
   </div>`;
 }
 
@@ -6700,14 +7772,14 @@ function speechCheckResultBodyHtml({ speechLint, seoLint, autoFix }) {
     : '<p class="muted">No auto-fixes needed this pass.</p>';
 
   if (!needs.needed) {
-    return `<p><strong>No rewrite needed.</strong> Speech leftovers and SEO flags are clear.</p>${fixLine}<p><strong>Up next:</strong> <strong>Accept content</strong>.</p>`;
+    return `<p><strong>No rewrite needed.</strong> Speech leftovers and SEO flags are clear.</p>${fixLine}<p><strong>Up next:</strong> <strong>Final check</strong>.</p>`;
   }
 
   if (needs.softOnly) {
     return `<p><strong>Recommended Claude pass for soft SEO.</strong></p>
     <p>${esc(String(needs.softSeoN))} soft SEO flag(s) remain (advisory — Accept is not blocked).</p>
     ${fixLine}
-    <p>Use <strong>Copy editor prompt</strong> below → Claude.ai → paste revised FILE blocks → Load, then Speech/SEO Refinement again. Or Accept now if you are fine shipping with soft flags.</p>`;
+    <p>Use <strong>Copy editor prompt</strong> on this step → Claude.ai → paste revised FILE blocks → Load. Or Accept now if you are fine shipping with soft flags.</p>`;
   }
 
   const bits = [];
@@ -6717,7 +7789,7 @@ function speechCheckResultBodyHtml({ speechLint, seoLint, autoFix }) {
   return `<p><strong>Additional Claude pass needed.</strong></p>
     <p>${bits.join(' · ')}.</p>
     ${fixLine}
-    <p>Rover auto-fix cleared what it could safely. Use <strong>Copy editor prompt</strong> below → Claude.ai → paste revised FILE blocks → Load, then Speech/SEO Refinement again.${
+    <p>Rover auto-fix cleared what it could safely. Use <strong>Copy editor prompt</strong> on this step → Claude.ai → paste revised FILE blocks → Load.${
       needs.criticalSeoN
         ? ' Critical SEO blocks Accept until fixed (or you override on Accept).'
         : ' You can still Accept if only speech leftovers remain.'
@@ -6732,6 +7804,7 @@ function firstIncompleteContentStep(flags) {
   if (!flags.write) return 'write';
   if (!flags.editor) return 'editor';
   if (!flags.finalCheck) return 'finalCheck';
+  if (!flags.photosReady) return 'imageQueries';
   if (!flags.accepted) return 'accept';
   return 'accept';
 }
@@ -6769,10 +7842,13 @@ function contentUpNextHtml(stepDone, ready, { secCount = 0, outlineConfirmed = f
       'Up next: <strong>Full write (batched)</strong> — Home / Services / Locations → Load FILE';
   } else if (!stepDone.editor) {
     upNext =
-      'Up next: <strong>Humanize</strong> — Copy editor prompt (Passes 4–7) → Load → clear findings';
+      'Up next: <strong>Humanize</strong> — Speech/SEO Refinement (Load FILE auto-runs lint)';
   } else if (!stepDone.finalCheck) {
     upNext =
       'Up next: <strong>Final check</strong> — Copy final-check prompt → Load OK / FILE fixes';
+  } else if (!stepDone.photosReady) {
+    upNext =
+      'Up next: <strong>Image queries</strong> or <strong>Load photo group</strong> — then Accept';
   } else {
     upNext =
       'Up next: <strong>Accept content</strong> — then <strong>Website → Prepare preview</strong>';
@@ -6780,7 +7856,7 @@ function contentUpNextHtml(stepDone, ready, { secCount = 0, outlineConfirmed = f
   return statusLineHtml(`${upNext}${structureLine ? ` · ${structureLine}` : ''}`);
 }
 
-function contentPassStripHtml(stepDone, currentId) {
+function contentPassStripHtml(stepDone, currentId, { photosOn = true } = {}) {
   const labels = [
     ['structure', 'Structure'],
     ['fieldResearch', 'Site research'],
@@ -6789,6 +7865,12 @@ function contentPassStripHtml(stepDone, currentId) {
     ['write', 'Write'],
     ['editor', 'Humanize'],
     ['finalCheck', 'Final'],
+    ...(photosOn
+      ? [
+          ['imageQueries', 'Images'],
+          ['photoGroup', 'Group'],
+        ]
+      : []),
     ['accept', 'Accept'],
   ];
   const chips = labels
@@ -6802,73 +7884,8 @@ function contentPassStripHtml(stepDone, currentId) {
   return `<div class="content-pass-strip" aria-label="Content pass progress">${chips}</div>`;
 }
 
-function contentAcceptScorecardHtml({
-  fieldOk,
-  briefOk,
-  writeOk,
-  editorOk,
-  finalOk,
-  filesLabel,
-  seoCriticalN,
-  speechN,
-  emDashN,
-}) {
-  const chip = (ok, label) =>
-    `<span class="metric metric-${ok ? 'good' : 'bad'}" ${tipAttr(label)}><strong>${
-      ok ? 'Yes' : 'No'
-    }</strong> <span class="metric-band">${esc(label)}</span></span>`;
-  return `<div class="stat-grid content-scorecard" style="margin:0.5rem 0 0.75rem">
-    ${chip(fieldOk, 'Site research')}
-    ${chip(briefOk, 'Brief confirmed')}
-    ${chip(writeOk, filesLabel || 'Write batches')}
-    ${chip(editorOk, `Humanize clear (speech ${speechN}, SEO crit ${seoCriticalN}, em-dash ${emDashN})`)}
-    ${chip(finalOk, 'Final check')}
-  </div>`;
-}
-
-function briefSectionsTableHtml(brief) {
-  const rows = Array.isArray(brief?.sections) ? brief.sections : [];
-  if (!rows.length) {
-    return `<p class="muted">No sections yet — Generate draft brief.</p>`;
-  }
-  const body = rows
-    .map(
-      (row, idx) => `<tr data-brief-idx="${idx}">
-      <td><select class="brief-level" data-tip="Heading level">
-        <option value="H1"${row.level === 'H1' ? ' selected' : ''}>H1</option>
-        <option value="H2"${row.level === 'H2' ? ' selected' : ''}>H2</option>
-        <option value="H3"${row.level === 'H3' ? ' selected' : ''}>H3</option>
-      </select></td>
-      <td><input type="text" class="brief-heading" value="${esc(row.heading || '')}" data-tip="Section heading" /></td>
-      <td><textarea class="brief-instructions" rows="2" data-tip="Writer instructions">${esc(
-        row.instructions || '',
-      )}</textarea></td>
-    </tr>`,
-    )
-    .join('');
-  return `<div class="brief-table-wrap">
-    <table class="brief-table">
-      <thead><tr><th>Level</th><th>Heading</th><th>Instructions</th></tr></thead>
-      <tbody id="brief-sections-body">${body}</tbody>
-    </table>
-  </div>`;
-}
-
-function collectBriefSectionsFromDom() {
-  const rows = [...document.querySelectorAll('#brief-sections-body tr')];
-  return rows.map((tr, idx) => ({
-    id: state.detail?.contentBrief?.sections?.[idx]?.id || `section-${idx + 1}`,
-    level: tr.querySelector('.brief-level')?.value || 'H2',
-    heading: tr.querySelector('.brief-heading')?.value || '',
-    instructions: tr.querySelector('.brief-instructions')?.value || '',
-    kind: state.detail?.contentBrief?.sections?.[idx]?.kind || null,
-    ...(state.detail?.contentBrief?.sections?.[idx]?.subHeadline
-      ? { subHeadline: state.detail.contentBrief.sections[idx].subHeadline }
-      : {}),
-  }));
-}
-
-function firstIncompleteWebsiteStep({ imagesDone, prepareDone, launched, indexingDone }) {
+function firstIncompleteWebsiteStep({ logoMapDone, imagesDone, prepareDone, launched, indexingDone }) {
+  if (!logoMapDone) return 'logoMap';
   if (!imagesDone) return 'images';
   if (!prepareDone) return 'prepare';
   if (!launched) return 'launch';
@@ -7422,12 +8439,18 @@ function renderContent() {
   const fieldOk = Boolean(fieldResearch?.status === 'loaded' || f.hasContentFieldResearch);
   const briefOk = brief?.status === 'confirmed' || Boolean(f.hasContentBriefConfirmed);
   const writeBatches = draft?._ops?.writeBatches || accepted?._ops?.writeBatches || {};
-  const pages = outlinePkg?.pages || {};
-  const needServices = Boolean(pages.services) && (d?.siteConfig?.services || []).length > 0;
-  const needLocations =
-    Boolean(pages.locations) &&
+  const pageIds = structurePageIdsFromDetail(d);
+  const wantServices = pageIds.includes('services');
+  const wantLocations = pageIds.includes('locations');
+  const haveServices =
+    [...(d?.siteConfig?.services || []), ...(d?.siteConfig?.commercialServices || [])].filter(
+      Boolean,
+    ).length > 0;
+  const haveLocations =
     [d?.siteConfig?.primaryCity, ...(d?.siteConfig?.targetSuburbs || [])].filter(Boolean).length >
       0;
+  const needServices = wantServices && haveServices;
+  const needLocations = wantLocations && haveLocations;
   const batchesComplete =
     Boolean(writeBatches.home || writeBatches.all) &&
     (!needServices || Boolean(writeBatches.services || writeBatches.all)) &&
@@ -7441,8 +8464,16 @@ function renderContent() {
   const finalOk = Boolean(
     draft?._ops?.lastFinalCheckAt || accepted?._ops?.lastFinalCheckAt || f.hasContentFinalCheck,
   );
-  const speechFindings = lintSource?._ops?.speechLint?.findings || [];
-  const emDashN = speechFindings.filter((x) => x.rule === 'em_dash').length;
+  const photosOn = Object.values(structure?.photos || {}).some((p) => p && p.enabled);
+  const queriesLoaded = Boolean(
+    d?.imagesPlan?.loadedAt ||
+      draft?._ops?.lastImagesPlanAt ||
+      accepted?._ops?.lastImagesPlanAt,
+  );
+  const photoGroupAttached = Boolean(d?.photoGroupAttached?.groupId);
+  const photoGroupSkipped = Boolean(d?.photoGroupAttached?.skipped) && !photoGroupAttached;
+  const masterReady = Boolean(d?.photoNicheMaster?.id) && !photoGroupSkipped;
+  const photosReady = !photosOn || queriesLoaded;
   const stepDone = {
     structure: structureReady && Boolean(outlinePkg?.sections?.length),
     fieldResearch: fieldOk,
@@ -7451,23 +8482,45 @@ function renderContent() {
     write: writeOk,
     editor: editorClear || (contentAcceptedLive && !draft),
     finalCheck: finalOk || (contentAcceptedLive && !draft),
+    imageQueries: !photosOn || queriesLoaded,
+    photoGroup: photoGroupAttached || photoGroupSkipped,
+    photosReady,
     accepted: contentAcceptedLive,
     oneshot: writeFilesReady,
     research: Boolean(research) || Boolean(f.hasContentResearch),
     outlineLegacy: Boolean(outline) || Boolean(f.hasContentOutline),
   };
-  // Open draft with speech leftovers: keep Humanize as current
+  // Open draft with speech leftovers: stay on Humanize (copy/paste lives here)
   if (draft && speechChecked && editorNeeds.speechN > 0) {
-    if (state.contentSoftDone?.editor) {
-      const nextSoft = { ...state.contentSoftDone };
-      delete nextSoft.editor;
-      state.contentSoftDone = nextSoft;
-    }
-    if (state.contentSoftCurrent === 'accept' || state.contentSoftCurrent === 'finalCheck') {
+    if (
+      state.contentSoftCurrent === 'accept' ||
+      state.contentSoftCurrent === 'finalCheck' ||
+      state.contentSoftCurrent === 'imageQueries' ||
+      state.contentSoftCurrent === 'photoGroup'
+    ) {
       state.contentSoftCurrent = 'editor';
       state.contentFollowCurrent = 'editor';
       state.contentOpenStep = 'editor';
     }
+  }
+  if (state.contentSoftDone?.editor && !stepDone.editor) {
+    const nextSoft = { ...state.contentSoftDone };
+    delete nextSoft.editor;
+    state.contentSoftDone = nextSoft;
+  }
+  if (state.contentSoftDone?.editorPack) {
+    const nextSoft = { ...state.contentSoftDone };
+    delete nextSoft.editorPack;
+    state.contentSoftDone = nextSoft;
+  }
+  if (
+    state.contentOpenStep === 'editorPack' ||
+    state.contentSoftCurrent === 'editorPack' ||
+    state.contentFollowCurrent === 'editorPack'
+  ) {
+    state.contentOpenStep = 'editor';
+    state.contentSoftCurrent = 'editor';
+    state.contentFollowCurrent = 'editor';
   }
   // Soft must not green Final without durable stamp (mixed scorecard signals)
   if (state.contentSoftDone?.finalCheck && !finalOk) {
@@ -7498,15 +8551,19 @@ function renderContent() {
   const editorDone =
     draft && speechChecked && editorNeeds.speechN > 0
       ? false
-      : stepDone.editor || isSoftDone('contentSoftDone', 'editor');
+      : stepDone.editor;
   const finalCheckDone = Boolean(finalOk);
+  const imageQueriesDone = Boolean(queriesLoaded);
+  const photoGroupDone = Boolean(photoGroupAttached || photoGroupSkipped);
   const acceptDone = stepDone.accepted || isSoftDone('contentSoftDone', 'accept');
   const parts = [];
 
   parts.push(
     panelHowToHtml({
       label: 'Content',
-      info: 'Eight-pass path (required): Structure → Site research → Brief → Outline → batched Full write → Humanize → Final check → Accept. Claude.ai paste only (no Anthropic API). Then Website → Prepare preview.',
+      info: photosOn
+        ? 'Content path (required): Structure → Site research → Brief → Outline → batched Full write → Humanize (Speech/SEO clear) → Final check → Image queries (required) → optional Load photo group → Accept. Claude.ai paste only (no Anthropic API). Then Website → Prepare preview.'
+        : 'Eight-pass path (required): Structure → Site research → Brief → Outline → batched Full write → Humanize (Speech/SEO clear) → Final check → Accept. Claude.ai paste only (no Anthropic API). Then Website → Prepare preview.',
     }),
   );
   if (isSelectedLaunched()) {
@@ -7522,34 +8579,7 @@ function renderContent() {
       outlineDrafted: Boolean(outlinePkg),
     }),
   );
-  parts.push(contentPassStripHtml(stepDone, currentId));
-  parts.push(
-    contentAcceptScorecardHtml({
-      fieldOk,
-      briefOk,
-      writeOk,
-      editorOk: stepDone.editor,
-      finalOk,
-      filesLabel: `Write (${[
-        writeBatches.home || writeBatches.all ? 'Home✓' : 'Home○',
-        needServices
-          ? writeBatches.services || writeBatches.all
-            ? 'Services✓'
-            : 'Services○'
-          : null,
-        needLocations
-          ? writeBatches.locations || writeBatches.all
-            ? 'Locations✓'
-            : 'Locations○'
-          : null,
-      ]
-        .filter(Boolean)
-        .join(' · ')})`,
-      seoCriticalN: seoCritical.length,
-      speechN: speechFindings.length,
-      emDashN,
-    }),
-  );
+  parts.push(contentPassStripHtml(stepDone, currentId, { photosOn }));
 
   parts.push(
     contentStepHtml({
@@ -7704,11 +8734,6 @@ function renderContent() {
     }),
   );
 
-  const batchChip = (key, label, needed) => {
-    if (!needed) return '';
-    const ok = Boolean(writeBatches[key] || writeBatches.all);
-    return `<span class="metric metric-${ok ? 'good' : 'mixed'}">${esc(label)} ${ok ? '✓' : '○'}</span>`;
-  };
   parts.push(
     contentStepHtml({
       id: 'write',
@@ -7721,14 +8746,20 @@ function renderContent() {
       info: 'Pass 3 — batch by page group for tone variance. All enabled batches required. Prefer batches over Copy all (truncation risk).',
       bodyHtml: `
         ${incompleteDraftCalloutHtml(d)}
-        <div class="stat-grid" style="margin-bottom:0.5rem">
-          ${batchChip('home', 'Home', true)}
-          ${batchChip('services', 'Services', needServices)}
-          ${batchChip('locations', 'Locations', needLocations)}
-        </div>
+        ${
+          wantServices && !haveServices
+            ? `<div class="callout warn">Structure includes <strong>Services</strong> pages, but site-config has no services — add them in Site config or turn Services off in Structure.</div>`
+            : ''
+        }
+        ${
+          wantLocations && !haveLocations
+            ? `<div class="callout warn">Structure includes <strong>Locations</strong> pages, but site-config has no primary city or suburbs — add them in Site config or turn Locations off in Structure.</div>`
+            : ''
+        }
         ${contentActionRow({
           n: 1,
           label: 'Copy Home batch <span class="muted">(Required)</span>',
+          loaded: Boolean(writeBatches.home || writeBatches.all),
           controlsHtml: `<button type="button" class="btn primary" id="cs-copy-write-home" ${
             outlineConfirmed ? '' : 'disabled'
           }>Copy Home batch</button>
@@ -7739,6 +8770,7 @@ function renderContent() {
             ? contentActionRow({
                 n: 2,
                 label: 'Copy Services batch <span class="muted">(Required)</span>',
+                loaded: Boolean(writeBatches.services || writeBatches.all),
                 controlsHtml: `<button type="button" class="btn primary" id="cs-copy-write-services" ${
                   outlineConfirmed ? '' : 'disabled'
                 }>Copy Services batch</button>`,
@@ -7750,6 +8782,7 @@ function renderContent() {
             ? contentActionRow({
                 n: 3,
                 label: 'Copy Locations batch <span class="muted">(Required)</span>',
+                loaded: Boolean(writeBatches.locations || writeBatches.all),
                 controlsHtml: `<button type="button" class="btn primary" id="cs-copy-write-locations" ${
                   outlineConfirmed ? '' : 'disabled'
                 }>Copy Locations batch</button>`,
@@ -7776,11 +8809,6 @@ function renderContent() {
     }),
   );
 
-  const editorClaudeLabel = editorNeeds.criticalSeoN
-    ? 'Needed for Critical SEO'
-    : needsEditorClaude
-      ? 'Required'
-      : 'Required pack';
   const editorStatusBits = [];
   if (stepDone.accepted) {
     editorStatusBits.push(
@@ -7789,10 +8817,15 @@ function renderContent() {
   }
   if (!speechChecked && !stepDone.accepted) {
     editorStatusBits.push(
-      `<div class="callout warn">Humanize not run yet — Final check / Accept stay blocked.</div>`,
+      `<div class="callout warn">Speech/SEO Refinement not run yet — Humanize stays incomplete until lint is clear.</div>`,
     );
   } else if (needsEditorClaude) {
-    editorStatusBits.push(editorRewriteWhyHtml(editorNeeds));
+    editorStatusBits.push(
+      editorRewriteWhyHtml(
+        editorNeeds,
+        'Copy editor prompt on this step → Claude.ai → paste FILE blocks → Load.',
+      ),
+    );
   } else if (speechChecked && !stepDone.accepted) {
     editorStatusBits.push(
       `<div class="callout"><strong>Humanize clear.</strong> Up next: <strong>Final check</strong>.</div>
@@ -7805,37 +8838,25 @@ function renderContent() {
   const editorClaudeChrome = hasEditableContent
     ? `        ${contentActionRow({
           n: 2,
-          label: `Copy editor prompt <span class="muted">(${editorClaudeLabel})</span>`,
+          label: 'Copy editor prompt',
           hint: 'Passes 4–7: Burstiness → Perplexity → Bookends → Conversion + findings. Paste back only changed FILEs; Load merges.',
           controlsHtml: `<button type="button" class="btn primary" id="ca-copy-editor" data-tip="Copy findings-scoped editor prompt for Claude.ai" ${
-            ready ? '' : 'disabled'
+            writeDone && ready ? '' : 'disabled'
           }>Copy editor prompt</button>
-          ${openClaudeAiBtnHtml({ disabled: !ready })}`,
+          ${openClaudeAiBtnHtml({ disabled: !(writeDone && ready) })}`,
         })}
         ${contentActionRow({
           n: 3,
-          label: 'Copy bookends-only <span class="muted">(extra polish)</span>',
-          controlsHtml: `<button type="button" class="btn" id="ca-copy-bookends" ${
-            ready && hasEditableContent ? '' : 'disabled'
-          }>Copy bookends-only</button>`,
-        })}
-        ${contentActionRow({
-          n: 4,
           label: 'Paste revised FILE blocks',
-          hint: 'Load here after Claude — then Speech/SEO Refinement again.',
+          hint: 'Load here after Claude — Speech/SEO Refinement runs automatically.',
           controlsHtml: `<textarea id="ca-editor-paste" class="narrative-paste-input" rows="2" placeholder="### FILE: src/content/pages/index.md&#10;---&#10;..." data-tip="Paste revised ### FILE: blocks"></textarea>`,
         })}
         ${contentActionRow({
-          n: 5,
+          n: 4,
           label: 'Load FILE blocks as draft',
-          controlsHtml: `<button type="button" class="btn" id="ca-paste-editor" data-tip="Parse FILE blocks into candidate draft" ${ready ? '' : 'disabled'}>Load FILE blocks as draft</button>`,
-        })}
-        <details class="narrative-raw content-advanced" style="margin-top:0.5rem">
-          <summary>Advanced</summary>
-          <p class="muted">Only if markdown was edited on disk outside Rover (e.g. Claude Code). Normal paste path: use Load above.</p>
-          <button type="button" class="btn" id="ca-import-disk-editor" ${ready ? '' : 'disabled'}>Import from src/content</button>
-        </details>`
-    : '';
+          controlsHtml: `<button type="button" class="btn primary" id="ca-paste-editor" data-tip="Parse FILE blocks into candidate draft" ${writeDone && ready ? '' : 'disabled'}>Load FILE blocks as draft</button>`,
+        })}`
+    : `<p class="muted">Load Full write FILE blocks first.</p>`;
 
   parts.push(
     contentStepHtml({
@@ -7846,7 +8867,7 @@ function renderContent() {
       open: openId === 'editor',
       current: currentId === 'editor' && !editorDone,
       locked: !writeDone,
-      info: 'Required. Speech/SEO Refinement runs automatically after a complete FILE Load. Copy editor prompt runs Burstiness → Perplexity → Bookends → Conversion. Clear all findings before Final check.',
+      info: 'Required. Speech/SEO Refinement auto-fixes then re-lints. After Load, Speech/SEO runs automatically. Step is done when lint is clear. Copy editor prompt is for leftover findings and Passes 4–7.',
       bodyHtml: `
         ${incompleteDraftCalloutHtml(d)}
         ${contentActionRow({
@@ -7914,6 +8935,100 @@ function renderContent() {
     }),
   );
 
+  if (photosOn) {
+    const imagePlanAt = String(
+      d?.imagesPlan?.loadedAt ||
+        draft?._ops?.lastImagesPlanAt ||
+        accepted?._ops?.lastImagesPlanAt ||
+        '',
+    );
+    const imageSlotN = Number(d?.imagesPlan?.slotCount || draft?._ops?.lastImagesPlanSlotCount || 0);
+    parts.push(
+      contentStepHtml({
+        id: 'imageQueries',
+        num: 8,
+        title: 'Image queries',
+        done: imageQueriesDone,
+        open: openId === 'imageQueries',
+        current: currentId === 'imageQueries' && !imageQueriesDone,
+        locked: !finalCheckDone,
+        info: 'Required. Copy prompt → paste JSON → Load. Stock slot queries plus before/after generate prompts. A photo group or niche master does not skip this step.',
+        bodyHtml: `
+        ${
+          imageQueriesDone
+            ? `<div class="callout"><strong>Image queries loaded</strong>${
+                imagePlanAt ? ` at ${esc(imagePlanAt)}` : ''
+              }${imageSlotN ? ` — ${esc(String(imageSlotN))} slot queries` : ''}</div>`
+            : `<div class="callout warn">Required before Accept. Load Image queries even if you will Load a named photo group or use the niche master on step 9.</div>`
+        }
+        ${contentActionRow({
+          n: 1,
+          label: 'Copy image-queries prompt <span class="muted">(Required)</span>',
+          hint: 'Lists every photo slot and every before/after key. Claude returns stock-search phrases plus inside/outside generate prompts. Do not skip.',
+          controlsHtml: `<button type="button" class="btn primary" id="cs-copy-images" ${
+            finalCheckDone && writeFilesReady ? '' : 'disabled'
+          }>Copy image-queries prompt</button>
+          ${openClaudeAiBtnHtml({ disabled: !(finalCheckDone && writeFilesReady) })}`,
+        })}
+        ${contentActionRow({
+          n: 2,
+          label: 'Paste image-queries JSON <span class="muted">(Required)</span>',
+          controlsHtml: `<textarea id="cs-images-paste" class="narrative-paste-input" rows="2" placeholder='{"profile":{...},"slots":{"hero-1":{"query":"…"}},"beforeAfter":{"home:1":{...}}}'></textarea>`,
+        })}
+        ${contentActionRow({
+          n: 3,
+          label: 'Load image queries <span class="muted">(Required)</span>',
+          controlsHtml: `<button type="button" class="btn primary" id="cs-load-images" ${
+            finalCheckDone && writeFilesReady ? '' : 'disabled'
+          }>Load image queries</button>`,
+        })}`,
+      }),
+    );
+    parts.push(
+      contentStepHtml({
+        id: 'photoGroup',
+        num: 9,
+        title: 'Load photo group',
+        done: photoGroupDone,
+        open: openId === 'photoGroup',
+        current: currentId === 'photoGroup' && !photoGroupDone,
+        locked: !finalCheckDone,
+        info: 'Optional. Reuse photos you already approved on another site in this niche, or let Accept use the niche master after the first Prepare preview. Save named groups later from Website → Review images or Photo.',
+        bodyHtml: `
+        ${
+          photoGroupAttached
+            ? `<div class="callout"><strong>Photo group “${esc(
+                d.photoGroupAttached.name || d.photoGroupAttached.groupId,
+              )}”</strong> selected — Accept will load those photos instead of pulling stock.${
+                d.photoGroupAttached.attachedAt
+                  ? ` Attached ${esc(d.photoGroupAttached.attachedAt)}.`
+                  : ''
+              }</div>`
+            : photoGroupSkipped
+              ? `<div class="callout"><strong>Skipped</strong> — Accept will pull stock from Image queries.</div>`
+              : d?.photoNicheMaster?.id
+                ? `<div class="callout">Accept will use <strong>${esc(
+                    d.photoNicheMaster.name ||
+                      `${d.photoGroupNiche || d.photoNicheMaster.niche || 'Niche'} master`,
+                  )}</strong>. Skip for a fresh stock Pull (Image queries required).</div>`
+                : `<div class="callout">Optional — skip if you loaded Image queries for a fresh stock Pull.</div>`
+        }
+        ${contentActionRow({
+          n: 1,
+          label: 'Load a saved photo group',
+          hint: 'Accept copies these files instead of pulling stock. Logo and coverage map still generate.',
+          done: photoGroupDone,
+          controlsHtml: photoGroupToolbarHtml({
+            selectId: 'cs-pg-select',
+            loadId: 'cs-pg-load',
+            skipId: 'cs-pg-skip',
+            loadLabel: 'Load',
+          }),
+        })}`,
+      }),
+    );
+  }
+
   const acceptReady =
     Boolean(draft) &&
     speechChecked &&
@@ -7921,22 +9036,25 @@ function renderContent() {
     briefOk &&
     writeOk &&
     editorNeeds.speechN === 0 &&
-    finalOk;
+    finalOk &&
+    photosReady;
   parts.push(
     contentStepHtml({
       id: 'accept',
-      num: 8,
+      num: photosOn ? 10 : 8,
       title: 'Accept content',
       done: acceptDone,
       open: openId === 'accept',
       current: currentId === 'accept' && !stepDone.accepted,
-      locked: !finalCheckDone,
-      info: 'Accept writes shared src/content/, auto-pulls stock photos when enabled, and generates logo + coverage map when possible. Scorecard above must be green. Then open Website → Prepare preview.',
+      locked: !finalCheckDone || (photosOn && !photosReady),
+      info: 'Accept writes shared src/content/. When photos are on, Image queries must be loaded first. Accept then copies a named group or niche master (including before/after pairs) or pulls stock (Skip on step 9). Logo + coverage map still run. Fresh stock Pull leaves before/after empty until Website → Review images → OpenAI pair.',
       bodyHtml: `
         ${incompleteDraftCalloutHtml(d)}
         ${
           !acceptReady && draft
-            ? `<div class="callout warn">Accept locked until Site research, Brief, Write batches, Humanize (clear), and Final check are done. See scorecard above.</div>`
+            ? `<div class="callout warn">Accept locked until Site research, Brief, Write batches, Humanize (Speech/SEO clear), and Final check${
+                photosOn ? ' — plus Image queries (step 8)' : ''
+              } — are done.</div>`
             : ''
         }
         ${
@@ -7993,98 +9111,10 @@ function renderContent() {
     }),
   );
 
-  parts.push(`
-    <details class="narrative-raw content-legacy">
-      <summary>Optional / Advanced — legacy Brief → One-shot</summary>
-      <p class="disc-tool-blurb">Previous default path. Prefer Structure → Outline → Full write above.</p>
-      ${contentActionRow({
-        n: 'A',
-        label: 'Generate / refresh draft brief',
-        controlsHtml: `<button type="button" class="btn" id="cb-generate" ${ready ? '' : 'disabled'}>Generate draft brief</button>`,
-      })}
-      ${briefSectionsTableHtml(brief)}
-      ${contentActionRow({
-        n: 'B',
-        label: 'Save brief / Confirm brief',
-        controlsHtml: `<button type="button" class="btn" id="cb-save" ${brief ? '' : 'disabled'}>Save brief</button>
-          <button type="button" class="btn" id="cb-confirm" ${brief ? '' : 'disabled'}>Confirm brief</button>`,
-      })}
-      ${contentActionRow({
-        n: 'C',
-        label: 'Copy legacy one-shot prompt',
-        controlsHtml: `<button type="button" class="btn" id="cb-copy-oneshot" ${
-          stepDone.brief ? '' : 'disabled'
-        }>Copy one-shot prompt</button>
-        ${openClaudeAiBtnHtml({ disabled: !stepDone.brief })}`,
-      })}
-    </details>
-  `);
-
-  parts.push(`
-    <details class="narrative-raw content-legacy">
-      <summary>Optional / Advanced — legacy Researcher → Outline → Writer</summary>
-      <p class="disc-tool-blurb">Previous multi-agent path.</p>
-      ${contentActionRow({
-        n: 'A',
-        label: 'Copy researcher prompt',
-        controlsHtml: `<button type="button" class="btn" id="ca-copy-researcher" data-tip="Copy researcher prompt for Claude" ${ready ? '' : 'disabled'}>Copy prompt</button>
-        ${openClaudeAiBtnHtml({ disabled: !ready })}`,
-      })}
-      ${contentActionRow({
-        n: 'B',
-        label: 'Paste researcher JSON',
-        controlsHtml: `<textarea id="ca-research-paste" class="narrative-paste-input" rows="2" placeholder="Paste researcher JSON" data-tip="Paste Claude researcher JSON"></textarea>
-          <button type="button" class="btn" id="ca-paste-researcher" data-tip="Save research pack for this candidate" ${ready ? '' : 'disabled'}>Save research</button>`,
-      })}
-      ${contentActionRow({
-        n: 'C',
-        label: 'Seed default outline',
-        controlsHtml: `<button type="button" class="btn" id="ca-seed-outline" data-tip="Seed default outline from archetype template" ${ready ? '' : 'disabled'}>Seed default outline</button>`,
-      })}
-      ${contentActionRow({
-        n: 'D',
-        label: 'Copy / paste outline',
-        controlsHtml: `<button type="button" class="btn" id="ca-copy-outline" data-tip="Copy outline prompt for Claude" ${ready ? '' : 'disabled'}>Copy outline prompt</button>
-          ${openClaudeAiBtnHtml({ disabled: !ready })}
-          <textarea id="ca-outline-paste" class="narrative-paste-input" rows="2" placeholder="Paste outline JSON" data-tip="Paste outline JSON"></textarea>
-          <button type="button" class="btn" id="ca-paste-outline" data-tip="Save outline for this candidate" ${ready ? '' : 'disabled'}>Save outline</button>`,
-      })}
-      ${contentActionRow({
-        n: 'E',
-        label: 'Copy writer prompt (outline-based)',
-        controlsHtml: `<button type="button" class="btn" id="ca-copy-writer" data-tip="Copy writer prompt" ${outline ? '' : 'disabled'}>Copy writer prompt</button>
-        ${openClaudeAiBtnHtml({ disabled: !outline })}`,
-      })}
-      ${
-        outline
-          ? `<details class="narrative-raw"><summary>Current outline</summary><div class="json-block">${esc(
-              JSON.stringify(outline, null, 2),
-            )}</div></details>`
-          : ''
-      }
-      ${research ? `<p class="muted">Research saved${research._ops?.savedAt ? ` · ${esc(research._ops.savedAt)}` : ''}</p>` : ''}
-    </details>
-  `);
-
-  parts.push(`
-    <details class="narrative-raw content-legacy">
-      <summary>Optional / Advanced — legacy full-suite one-shot markdown</summary>
-      <p class="disc-tool-blurb">Full-suite paste via <code>claude-markdown.md</code>.</p>
-      <div class="narrative-actions">
-        <button type="button" class="btn" id="content-copy-prompt" data-tip="Copy full one-shot markdown prompt" ${ready ? '' : 'disabled'}>Copy full markdown prompt</button>
-        ${openClaudeAiBtnHtml({ disabled: !ready })}
-      </div>
-      <textarea id="content-paste" class="narrative-paste-input" rows="2" placeholder="Optional: paste full ### FILE suite"></textarea>
-      <div class="narrative-actions">
-        <button type="button" class="btn" id="content-paste-btn" data-tip="Load legacy FILE suite as draft" ${ready ? '' : 'disabled'}>Load as draft</button>
-      </div>
-    </details>
-  `);
-
   return parts.join('');
 }
 
-function imagesStatusLine(d) {
+function imagesStatusLine(d, { withTime = true } = {}) {
   const m = d?.imagesManifest;
   if (!m?.files?.length) {
     const photosOn = Boolean(
@@ -8100,11 +9130,20 @@ function imagesStatusLine(d) {
         .map(([k, v]) => `${k}×${v}`)
         .join(' · ')}`
     : '';
-  const at = m.pulledAt ? ` · ${m.pulledAt}` : '';
+  const at = withTime && m.pulledAt ? ` · ${m.pulledAt}` : '';
   return `${m.files.length} file(s) on disk${srcPart}${at}`;
 }
 
-function imagesMatchDotHtml(grade, tip, { tipped = true } = {}) {
+function paintImagesStatusEl(el, d) {
+  if (!el || !d) return;
+  const short = imagesStatusLine(d, { withTime: false });
+  const full = imagesStatusLine(d);
+  el.textContent = short;
+  el.setAttribute('data-tip', full);
+  el.setAttribute('aria-label', full);
+}
+
+function imagesMatchDotHtml(grade, tip, { tipped = true, cycle = false, slotKey = '' } = {}) {
   const isEmpty = grade === 'missing' || grade === 'empty';
   const g = isEmpty
     ? 'empty'
@@ -8117,6 +9156,7 @@ function imagesMatchDotHtml(grade, tip, { tipped = true } = {}) {
   if (!tipped) {
     return `<span class="${cls}" aria-hidden="true"></span>`;
   }
+  const canCycle = Boolean(cycle && slotKey && (g === 'poor' || g === 'ok' || g === 'good'));
   const tipText =
     tip ||
     (isEmpty
@@ -8128,7 +9168,19 @@ function imagesMatchDotHtml(grade, tip, { tipped = true } = {}) {
           : g === 'ok'
             ? 'OK match'
             : 'Poor match');
+  const cycleTip = canCycle ? `${tipText}. Click to cycle Poor, OK, Good.` : tipText;
+  if (canCycle) {
+    return `<button type="button" class="${cls} img-match-dot-cycle" data-slot-grade-cycle data-slot-key="${esc(
+      slotKey,
+    )}" data-grade="${esc(g)}" data-tip="${esc(cycleTip)}" aria-label="${esc(cycleTip)}"></button>`;
+  }
   return `<span class="${cls}" data-tip="${esc(tipText)}" aria-label="${esc(tipText)}"></span>`;
+}
+
+function nextImageMatchGrade(grade) {
+  if (grade === 'poor') return 'ok';
+  if (grade === 'ok') return 'good';
+  return 'poor';
 }
 
 function imagesSlotGrade(slot) {
@@ -8228,10 +9280,211 @@ function imagesMatchTotalsHtml(totals, activeFilter = 'all') {
   </div>`;
 }
 
+function fluxIsConfigured(flux) {
+  return Boolean((flux || state.flux || state.photoLib?.flux)?.configured);
+}
+
+function fluxIsOpenaiConfigured(flux) {
+  return Boolean(
+    flux?.openaiKeySet || state.flux?.openaiKeySet || state.photoLib?.flux?.openaiKeySet,
+  );
+}
+
+function fluxJobsReady(nSlots, nPairs, flux) {
+  if (nSlots < 1 && nPairs < 1) return false;
+  if (nSlots && !fluxIsConfigured(flux)) return false;
+  if (nPairs && !fluxIsOpenaiConfigured(flux)) return false;
+  return true;
+}
+
+function fluxJobsHint(nSlots, nPairs, flux, cost) {
+  if (nSlots < 1 && nPairs < 1) return 'Check slots, then generate';
+  if (nPairs && !fluxIsOpenaiConfigured(flux)) {
+    return 'Set OPENAI_API_KEY in .env (same key as Phone), then restart Rover.';
+  }
+  if (nSlots && !fluxIsConfigured(flux)) {
+    return 'Set FAL_KEY in .env (Settings → Flux 2 Pro), then restart Rover.';
+  }
+  return cost || 'Select slots to generate';
+}
+
+function candidateFluxSpend(c) {
+  const n = Number(c?.lastCosts?.flux ?? c?.meta?.lastCosts?.flux);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+function candidateOpenaiSpend(c) {
+  const n = Number(c?.lastCosts?.openai ?? c?.meta?.lastCosts?.openai);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+function falRemainingLabel() {
+  const b = state.falBalance;
+  if (b?.ok && b.balance != null) return formatMoney(b.balance);
+  return '—';
+}
+
+function fluxSpendText(detail) {
+  return `Flux spend ${formatMoney(candidateFluxSpend(detail))} · remaining ${falRemainingLabel()} · OpenAI spend ${formatMoney(candidateOpenaiSpend(detail))}`;
+}
+
+function fluxSpendLineHtml(detail) {
+  return `<p id="ca-flux-spend" class="muted">${esc(fluxSpendText(detail))}</p>`;
+}
+
+function renderFluxSpendLine() {
+  const el = document.getElementById('ca-flux-spend');
+  if (!el) return;
+  el.textContent = fluxSpendText(state.detail);
+}
+
+function patchListLastCosts(candidate) {
+  if (!candidate?.id) return;
+  const costs = candidate.lastCosts || candidate.meta?.lastCosts;
+  if (!costs) return;
+  const row = (state.candidates || []).find((c) => c.id === candidate.id);
+  if (row) row.lastCosts = { ...(row.lastCosts || {}), ...costs };
+}
+
+function fluxCostLine(nSlots, nPairs) {
+  const gen = 0.03;
+  const pair = 0.09;
+  const total = nSlots * gen + nPairs * pair;
+  const bits = [];
+  if (nSlots) bits.push(`${nSlots} photo${nSlots === 1 ? '' : 's'} ≈ $${(nSlots * gen).toFixed(2)}`);
+  if (nPairs) bits.push(`${nPairs} pair${nPairs === 1 ? '' : 's'} ≈ $${(nPairs * pair).toFixed(2)}`);
+  return bits.length ? `${bits.join(' · ')} (about $${total.toFixed(2)})` : '';
+}
+
+function slotCheckHtml({ id, checked, extraClass = '' }) {
+  return `<label class="slot-check${extraClass ? ` ${extraClass}` : ''}"><input type="checkbox" class="slot-check-input" data-check-id="${esc(id)}"${checked ? ' checked' : ''} /></label>`;
+}
+
+function slotThumbImg(src, { alt = '', role = '' } = {}) {
+  if (!src) {
+    return `<div class="slot-thumb-empty muted">${role ? esc(role) : ''}</div>`;
+  }
+  return `<img class="slot-zoom-img" src="${esc(src)}" alt="${esc(alt)}" data-zoom-src="${esc(src)}" data-zoom-alt="${esc(alt || role)}" loading="lazy" />`;
+}
+
+function slotAiMark(kind) {
+  if (kind === 'flux') {
+    return '<svg class="btn-ai-logo" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path fill="currentColor" d="M8 1.1 9.1 5.8 13.9 7 9.1 8.2 8 14.9 6.9 8.2 2.1 7 6.9 5.8 8 1.1z"/></svg>';
+  }
+  if (kind === 'openai') {
+    return '<svg class="btn-ai-logo" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path fill="currentColor" d="M8 1.4 12.8 4.2v5.6L8 12.6 3.2 9.8V4.2L8 1.4zm0 1.9L4.8 5v4l3.2 1.8L11.2 9V5L8 3.3zm0 2.1 2.1 1.2v2.4L8 10.2 5.9 9V6.6L8 5.4z"/></svg>';
+  }
+  if (kind === 'chatgpt') {
+    return '<svg class="btn-ai-logo" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path fill="currentColor" d="M3 2.5h10c.8 0 1.5.7 1.5 1.5v6c0 .8-.7 1.5-1.5 1.5H7.2L3.5 14.2V11.5H3c-.8 0-1.5-.7-1.5-1.5v-6C1.5 3.2 2.2 2.5 3 2.5z"/></svg>';
+  }
+  return '';
+}
+
+function chatgptOpenBtnHtml() {
+  return `<a class="btn btn-sm btn-ai" href="https://chatgpt.com/" target="_blank" rel="noopener" data-tip="Open ChatGPT in a new tab">${slotAiMark('chatgpt')}<span>ChatGPT</span></a>`;
+}
+
+function variantTrayHtml(variants, { ba = false } = {}) {
+  const list = Array.isArray(variants) ? variants.filter((v) => (ba ? v.id : v.filename)) : [];
+  if (!list.length) return '';
+  const cards = list
+    .map((v) => {
+      if (ba) {
+        return `<button type="button" class="slot-variant ba slot-variant-use" data-pair-id="${esc(v.id)}" data-tip="Use this before/after pair">
+          <div class="slot-variant-pair">
+            ${v.beforeUrl ? `<img src="${esc(v.beforeUrl)}" alt="" data-zoom-src="${esc(v.beforeUrl)}" class="slot-zoom-tray" />` : '<div></div>'}
+            ${v.afterUrl ? `<img src="${esc(v.afterUrl)}" alt="" data-zoom-src="${esc(v.afterUrl)}" class="slot-zoom-tray" />` : '<div></div>'}
+          </div>
+        </button>`;
+      }
+      return `<button type="button" class="slot-variant slot-variant-use" data-filename="${esc(v.filename)}" data-tip="Use this photo">
+        ${v.previewUrl ? `<img src="${esc(v.previewUrl)}" alt="" data-zoom-src="${esc(v.previewUrl)}" class="slot-zoom-tray" />` : ''}
+      </button>`;
+    })
+    .join('');
+  return `<div class="slot-variant-tray">${cards}</div>`;
+}
+
+function fluxGenerateBtnHtml({ configured = true, extra = '', bulk = false } = {}) {
+  const tip = configured
+    ? bulk
+      ? 'Flux: generate each selected photo slot on fal (not Before & after). Replaces live photos; previous go to the tray. Tray keeps 8; oldest is removed. Uses Inside/Outside.'
+      : 'Flux: generate one photo on fal. Replaces the live slot; previous photo goes to the tray. Tray keeps 8; oldest is removed. Uses Inside/Outside.'
+    : 'Set FAL_KEY in .env (Settings → Flux 2 Pro), then restart Rover.';
+  const disabled = configured ? '' : ' disabled';
+  const bulkClass = bulk ? ' slot-generate-selected-flux' : '';
+  return `<button type="button" class="btn btn-sm btn-ai slot-generate${bulkClass}" data-tip="${esc(tip)}"${disabled}${extra}>${slotAiMark('flux')}<span>Flux</span></button>`;
+}
+
+function openaiGenerateBtnHtml({ pair = false, extra = '', bulk = false, flux } = {}) {
+  const configured = fluxIsOpenaiConfigured(flux);
+  const label = pair ? 'OpenAI pair' : 'OpenAI';
+  const tip = configured
+    ? bulk
+      ? 'GPT Image 2: generate each selected photo slot (~$0.04) and Before & after pair (~$0.09). Replaces live files; previous go to the tray. Tray keeps 8; oldest is removed. Uses Inside/Outside.'
+      : pair
+      ? 'GPT Image 2 medium. ChatGPT-style prompts for the current Inside/Outside. Generate Before, then edit After. ~$0.09. Replaces live pair; previous goes to the tray. Tray keeps 8; oldest is removed.'
+      : 'GPT Image 2 medium. ChatGPT-style prompt for the current Inside/Outside. ~$0.04. Replaces the live slot; previous photo goes to the tray. Tray keeps 8; oldest is removed.'
+    : 'Set OPENAI_API_KEY in .env (same key as Phone), then restart Rover.';
+  const disabled = configured ? '' : ' disabled';
+  const bulkClass = bulk ? ' slot-generate-selected-openai' : '';
+  return `<button type="button" class="btn btn-sm btn-ai slot-generate-openai${pair ? ' ba' : ''}${bulkClass}" data-tip="${esc(tip)}"${disabled}${extra}>${slotAiMark('openai')}<span>${esc(label)}</span></button>`;
+}
+
+function slotSourceActionsHtml({
+  kind = 'photo',
+  viewpointKey,
+  fluxConfigured = true,
+  generateExtra = '',
+  copyHtml = '',
+  filesHtml = '',
+} = {}) {
+  const generate =
+    kind === 'ba'
+      ? openaiGenerateBtnHtml({ pair: true, extra: generateExtra })
+      : `${fluxGenerateBtnHtml({ configured: fluxConfigured, extra: generateExtra })}${openaiGenerateBtnHtml({ extra: generateExtra })}`;
+  const files = String(filesHtml || '').trim()
+    ? `<div class="slot-files-row">${filesHtml}</div>`
+    : '';
+  return `<div class="slot-source-actions">
+    <div class="slot-ai-group">
+      ${baViewpointSegmentHtml(viewpointKey)}
+      <div class="slot-ai-group-btns">${generate}${copyHtml}${chatgptOpenBtnHtml()}</div>
+    </div>
+    ${files}
+  </div>`;
+}
+
+function selectedGenerateCostLine(nSlots, nPairs, provider) {
+  if (provider === 'openai') {
+    const gen = 0.04;
+    const pair = 0.09;
+    const total = nSlots * gen + nPairs * pair;
+    const bits = [];
+    if (nSlots) bits.push(`${nSlots} photo${nSlots === 1 ? '' : 's'} ≈ $${(nSlots * gen).toFixed(2)}`);
+    if (nPairs) bits.push(`${nPairs} pair${nPairs === 1 ? '' : 's'} ≈ $${(nPairs * pair).toFixed(2)}`);
+    return bits.length ? `${bits.join(' · ')} (about $${total.toFixed(2)})` : '';
+  }
+  return fluxCostLine(nSlots, 0);
+}
+
+function fluxToolbarHtml({ nSlots, nPairs, flux, id }) {
+  const n = nSlots + nPairs;
+  const fluxConfigured = fluxIsConfigured(flux);
+  const openaiConfigured = fluxIsOpenaiConfigured(flux);
+  const fluxExtra = nSlots < 1 ? ' disabled' : '';
+  const openaiExtra = n < 1 ? ' disabled' : '';
+  return `<div class="flux-toolbar" id="${esc(id)}">
+    <span class="review-selected-count">Selected images ${esc(String(n))}</span>
+    ${fluxGenerateBtnHtml({ configured: fluxConfigured, bulk: true, extra: fluxExtra })}
+    ${openaiGenerateBtnHtml({ bulk: true, extra: openaiExtra, flux })}
+  </div>`;
+}
+
 function imagesSlotCardHtml(slot) {
-  const thumb = slot.previewUrl
-    ? `<img src="${esc(slot.previewUrl)}" alt="" loading="lazy" style="width:100%;height:100%;object-fit:cover" />`
-    : `<span class="muted" style="font-size:0.75rem">Empty</span>`;
+  const configured = fluxIsConfigured();
+  const checked = Boolean(state.imageSlotChecks?.[slot.key]);
+  const thumb = slotThumbImg(slot.previewUrl, { role: 'Empty' });
   const grade = imagesSlotGrade(slot);
   const tip =
     grade === 'upload'
@@ -8242,142 +9495,326 @@ function imagesSlotCardHtml(slot) {
           : slot.score != null
             ? `Score ${slot.score}`
             : '');
-  const matchDot = grade ? imagesMatchDotHtml(grade, tip) : '';
+  const matchDot = grade
+    ? imagesMatchDotHtml(grade, tip, { cycle: true, slotKey: slot.key })
+    : '';
   const badge = slot.source
     ? `<span class="muted" style="font-size:0.75rem">${esc(slot.source)}</span>`
     : `<span class="muted" style="font-size:0.75rem">missing</span>`;
-  const q = stripMdBoldDisplay(String(slot.query || slot.queryHint || '').trim());
-  const qShort = q.length > 72 ? `${q.slice(0, 70)}…` : q;
-  const queryLine = q
-    ? `<span class="muted" style="font-size:0.7rem;line-height:1.25" title="${esc(q)}">Search: ${esc(qShort)}</span>`
-    : '';
   return `<div class="image-slot-card" data-slot-key="${esc(slot.key)}" style="border:1px solid var(--border);border-radius:6px;overflow:hidden;background:var(--bg-subtle)">
-    <div style="aspect-ratio:16/10;background:#0f172a0d;display:flex;align-items:center;justify-content:center">${thumb}</div>
+    ${slotCheckHtml({ id: slot.key, checked })}
+    <div class="slot-thumb" style="aspect-ratio:16/10;background:#0f172a0d;display:flex;align-items:center;justify-content:center">${thumb}</div>
     <div style="padding:0.45rem 0.55rem;display:flex;flex-direction:column;gap:0.25rem">
       <strong style="font-size:0.85rem;display:flex;align-items:center;gap:0.35rem">${matchDot}${esc(slot.label || slot.key)}</strong>
-      <span class="muted" style="font-size:0.75rem">${esc(slot.wiredFm || slot.key)}</span>
-      ${queryLine}
       ${badge}
-      <div style="display:flex;flex-wrap:wrap;gap:0.3rem;margin-top:0.15rem;align-items:center">
-        <button type="button" class="btn btn-sm ca-slot-repull" data-slot-key="${esc(slot.key)}" data-tip="Fetch a different stock photo for this slot">Re-pull</button>
+      ${slotSourceActionsHtml({
+        kind: 'photo',
+        viewpointKey: slot.key,
+        fluxConfigured: configured,
+        generateExtra: ` data-slot-key="${esc(slot.key)}"`,
+        copyHtml: `<button type="button" class="btn btn-sm ca-slot-chatgpt-prompt" data-slot-key="${esc(slot.key)}" data-tip="Copy a ChatGPT image prompt for this slot (uses Inside/Outside), then generate and Upload">Copy prompt</button>`,
+        filesHtml: `<button type="button" class="btn btn-sm ca-slot-repull" data-slot-key="${esc(slot.key)}" data-tip="Fetch a different stock photo for this slot">Re-pull</button>
         <label class="btn btn-sm" style="cursor:pointer;margin:0" data-tip="Upload a local image for this slot">
           Upload
           <input type="file" class="ca-slot-upload" data-slot-key="${esc(slot.key)}" accept="image/jpeg,image/png,image/webp,image/gif" hidden />
-        </label>
-        ${baViewpointSegmentHtml(slot.key)}
-        <button type="button" class="btn btn-sm ca-slot-chatgpt-prompt" data-slot-key="${esc(slot.key)}" data-tip="Copy a ChatGPT image prompt for this slot (uses Inside/Outside), then generate and Upload">Copy prompt</button>
-        <a class="btn btn-sm" href="https://chatgpt.com/" target="_blank" rel="noopener" data-tip="Open ChatGPT in a new tab">Open ChatGPT</a>
-      </div>
+        </label>`,
+      })}
     </div>
+    ${variantTrayHtml(slot.variants)}
   </div>`;
 }
 
-function baThumbUrl(candidateId, filename) {
-  if (!filename) return '';
-  return `/api/candidates/${encodeURIComponent(candidateId)}/images/file/${encodeURIComponent(filename)}`;
-}
-
-function baPreviewStripHtml(candidateId, before, after, emptyLabel = 'No pair imported yet.') {
-  const beforeSrc = before?.filename ? baThumbUrl(candidateId, before.filename) : '';
-  const afterSrc = after?.filename ? baThumbUrl(candidateId, after.filename) : '';
-  if (!beforeSrc && !afterSrc) {
-    return `<p class="muted ba-preview-empty" style="margin:0.4rem 0 0;font-size:0.85rem">${esc(emptyLabel)}</p>`;
-  }
-  const cell = (src, label, alt) =>
-    src
-      ? `<figure style="margin:0;flex:1;min-width:120px;max-width:220px">
-          <img src="${esc(src)}" alt="${esc(alt || label)}" style="width:100%;aspect-ratio:4/3;object-fit:cover;border-radius:6px;border:1px solid var(--border);display:block" />
-          <figcaption class="muted" style="margin-top:0.25rem;font-size:0.75rem;text-align:center">${esc(label)}</figcaption>
-        </figure>`
-      : `<div class="muted" style="flex:1;min-width:120px;max-width:220px;aspect-ratio:4/3;border:1px dashed var(--border);border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:0.8rem">${esc(label)} missing</div>`;
-  return `<div class="ba-preview" style="display:flex;flex-wrap:wrap;gap:0.65rem;margin-top:0.5rem">${cell(
-    beforeSrc,
-    'Before',
-    before?.alt,
-  )}${cell(afterSrc, 'After', after?.alt)}</div>`;
-}
-
-function baServiceStepHtml(candidateId, service, stepN) {
-  const slug = service.slug;
-  const done = Boolean(service.complete);
-  return contentActionRow({
-    n: stepN,
-    label: `Before & after — ${service.serviceName} (ChatGPT)`,
-    hint: `Copy prompts → generate in ChatGPT → import two images for <strong>${esc(
-      service.serviceName,
-    )}</strong> (earlier filename time = Before).`,
-    done,
-    controlsHtml: `
-      <div class="flex-wrap gap-2" style="display:flex;flex-wrap:wrap;gap:0.4rem;align-items:center" data-ba-service="${esc(
-        slug,
-      )}">
-        ${baViewpointSegmentHtml(slug)}
-        <button type="button" class="btn ca-ba-svc-copy" data-ba-service="${esc(
-          slug,
-        )}" data-ba-kind="before" data-tip="Copy BEFORE prompt for this service">Copy before</button>
-        <button type="button" class="btn ca-ba-svc-copy" data-ba-service="${esc(
-          slug,
-        )}" data-ba-kind="after" data-tip="Copy AFTER prompt for this service">Copy after</button>
-        <a class="btn" href="https://chatgpt.com/" target="_blank" rel="noopener" data-tip="Open ChatGPT in a new tab">Open ChatGPT</a>
-        <label class="btn" style="cursor:pointer" data-tip="Choose before then after image files">
+function reviewBaCardHtml(candidateId, pair) {
+  const key = pair.matchKey || (pair.slug ? `svc:${pair.slug}` : `home:${pair.pairIndex || 1}`);
+  const checkId = `ba:${key}`;
+  const checked = Boolean(state.imageSlotChecks?.[checkId]);
+  const label = pair.serviceName
+    ? `Before & after — ${pair.serviceName}`
+    : `Before & after — home ${pair.pairIndex || 1}`;
+  const kind = pair.slug ? 'service' : 'home';
+  return `<div class="image-slot-card photo-ba-card" data-ba="1" data-ba-kind="${esc(kind)}" data-match-key="${esc(key)}" data-pair-index="${esc(String(pair.pairIndex || 1))}" data-service-slug="${esc(pair.slug || '')}" style="border:1px solid var(--border);border-radius:6px;overflow:hidden;background:var(--bg-subtle)">
+    ${slotCheckHtml({ id: checkId, checked })}
+    <div class="ba-pair-thumbs">
+      <figure>${slotThumbImg(pair.beforeUrl, { alt: 'Before' })}<figcaption class="muted">Before</figcaption></figure>
+      <figure>${slotThumbImg(pair.afterUrl, { alt: 'After' })}<figcaption class="muted">After</figcaption></figure>
+    </div>
+    <div style="padding:0.45rem 0.55rem;display:flex;flex-direction:column;gap:0.25rem">
+      <strong style="font-size:0.85rem">${esc(label)}</strong>
+      ${slotSourceActionsHtml({
+        kind: 'ba',
+        viewpointKey: key,
+        generateExtra: ` data-match-key="${esc(key)}"`,
+        copyHtml: `<button type="button" class="btn btn-sm ca-ba-card-copy" data-ba-kind="before" data-service-slug="${esc(pair.slug || '')}" data-tip="Copy the current Inside/Outside BEFORE prompt (same text OpenAI pair uses)">Copy before</button>
+        <button type="button" class="btn btn-sm ca-ba-card-copy" data-ba-kind="after" data-service-slug="${esc(pair.slug || '')}" data-tip="Copy the current Inside/Outside AFTER prompt (same text OpenAI pair uses)">Copy after</button>`,
+        filesHtml: `<label class="btn btn-sm" style="cursor:pointer;margin:0" data-tip="Replaces the live pair; previous goes to the tray. Tray keeps 8; oldest is removed.">
           Import pair
-          <input type="file" class="ca-ba-svc-import" data-ba-service="${esc(
-            slug,
-          )}" accept="image/jpeg,image/png,image/webp" multiple hidden />
-        </label>
-      </div>
-      <p class="muted ca-ba-svc-status" data-ba-service="${esc(
-        slug,
-      )}" style="margin:0.35rem 0 0;font-size:0.85rem"></p>
-      <div class="ca-ba-svc-preview" data-ba-service="${esc(slug)}">${baPreviewStripHtml(
-        candidateId,
-        service.before,
-        service.after,
-        `No pair for ${service.serviceName} yet.`,
-      )}</div>`,
-  });
+          <input type="file" class="ca-ba-card-import" data-service-slug="${esc(pair.slug || '')}" data-pair-index="${esc(String(pair.pairIndex || 1))}" accept="image/jpeg,image/png,image/webp" multiple hidden />
+        </label>`,
+      })}
+      ${baShowPromptsHtml(pair, key)}
+    </div>
+    ${variantTrayHtml(pair.variants, { ba: true })}
+  </div>`;
 }
 
-async function refreshBeforeAfterUi(candidateId) {
-  const homePreview = document.getElementById('ca-ba-preview');
-  const svcHost = document.getElementById('ca-svc-ba-steps');
-  try {
-    const status = await api(
-      `/api/candidates/${encodeURIComponent(candidateId)}/images/before-after-status`,
-    );
-    if (homePreview) {
-      homePreview.innerHTML = baPreviewStripHtml(
-        candidateId,
-        status.home?.before,
-        status.home?.after,
-      );
-    }
-    if (svcHost) {
-      if (status.svcBeforeAfterEnabled && (status.services || []).length) {
-        svcHost.innerHTML = (status.services || [])
-          .map((svc, i) => baServiceStepHtml(candidateId, svc, 5 + i))
-          .join('');
-      } else {
-        svcHost.innerHTML = '';
-      }
-    }
-  } catch (error) {
-    if (homePreview) {
-      homePreview.innerHTML = `<p class="muted" style="margin:0.4rem 0 0;font-size:0.85rem">${esc(
-        error.message || 'Could not load before/after status',
-      )}</p>`;
-    }
-  }
+function siteImageFileUrl(candidateId, filename, bust) {
+  if (!candidateId || !filename) return '';
+  const q = bust ? `?v=${encodeURIComponent(bust)}` : '';
+  return `/api/candidates/${encodeURIComponent(candidateId)}/images/file/${encodeURIComponent(filename)}${q}`;
 }
 
-function imagesSlotsShellHtml() {
-  return `<div id="ca-image-slots" style="margin-top:0.75rem">
-    <p class="muted" style="margin:0 0 0.35rem;font-size:0.85rem">Per-slot review (near launch): Re-pull stock, Upload owner/ChatGPT photos, or Copy prompt → ChatGPT → Upload. Stage → Assemble after changes. Use All / poor / ok / good / uploaded / empty to filter.</p>
-    <div id="ca-image-slots-totals"></div>
+function logoMapPreviewCardHtml({ src, label, alt, emptyRole, kind }) {
+  const thumb = slotThumbImg(src, { alt, role: emptyRole });
+  return `<div class="image-slot-card logo-map-preview logo-map-preview-${esc(kind)}">
+    <div class="slot-thumb slot-thumb-contain">${thumb}</div>
+    <strong>${esc(label)}</strong>
+  </div>`;
+}
+
+function mapLabelPlacementSegmentHtml(selected) {
+  const mode = String(selected || '').toLowerCase() === 'center' ? 'center' : 'callout';
+  const tip =
+    'Centered = city name on the city. Callout = name off to the side with a line. Click Regenerate coverage map to apply (does not re-run Nominatim on toggle alone).';
+  return `<div class="ads-mode-segment" id="ca-map-label-placement" role="group" aria-label="City label placement" ${tipAttr(
+    tip,
+  )}>
+    <button type="button" class="ads-mode-seg${
+      mode === 'center' ? ' active' : ''
+    }" data-map-label-placement="center">Centered</button>
+    <button type="button" class="ads-mode-seg${
+      mode === 'callout' ? ' active' : ''
+    }" data-map-label-placement="callout">Callout</button>
+  </div>`;
+}
+
+function logoGenerateModeFromValue(value) {
+  const m = String(value || 'monogram').toLowerCase().replace(/[^a-z]/g, '');
+  if (m === 'mark' || m === 'icon') return 'mark';
+  if (m === 'marktext' || m === 'wordmark') return 'markText';
+  return 'monogram';
+}
+
+function logoAssetFilename(d) {
+  const src = String(d?.siteConfig?.logo?.src || '').trim();
+  const base = decodeURIComponent((src.split('/').pop() || '').split('?')[0]);
+  if (/^logo\.(svg|png|jpe?g|webp)$/i.test(base)) return base;
+  return 'logo.svg';
+}
+
+function logoGenerateModeSegmentHtml(selected) {
+  const mode = logoGenerateModeFromValue(selected);
+  const tip =
+    'Mark = simple 2D icon, no letters (~$0.04 OpenAI). Mark + text = icon plus the business name (~$0.04). Monogram = local SVG initials (free). Click Generate logo to apply.';
+  const seg = (id, label) =>
+    `<button type="button" class="ads-mode-seg${mode === id ? ' active' : ''}" data-logo-style="${esc(id)}">${esc(
+      label,
+    )}</button>`;
+  return `<div class="ads-mode-segment" id="ca-logo-style" role="group" aria-label="Logo style" ${tipAttr(tip)}>
+    ${seg('mark', 'Mark')}
+    ${seg('markText', 'Mark + text')}
+    ${seg('monogram', 'Monogram')}
+  </div>`;
+}
+
+function selectedLogoGenerateMode() {
+  return logoGenerateModeFromValue(
+    document.querySelector('#ca-logo-style .ads-mode-seg.active')?.getAttribute('data-logo-style'),
+  );
+}
+
+function syncLogoGenerateButton() {
+  const btn = document.getElementById('ca-generate-logo');
+  if (!btn) return;
+  const mode = selectedLogoGenerateMode();
+  const needsAi = mode === 'mark' || mode === 'markText';
+  const ok = !needsAi || fluxIsOpenaiConfigured();
+  btn.disabled = !ok;
+  const tip = !ok
+    ? 'Set OPENAI_API_KEY in .env (same key as Phone), then restart Rover.'
+    : needsAi
+      ? 'GPT Image 2 (~$0.04). Replaces the header logo. Uses the selected Mark or Mark + text style.'
+      : 'Local SVG monogram from the business name. Replaces the header logo.';
+  btn.setAttribute('data-tip', tip);
+}
+
+function imagesSlotsShellHtml({ spendHtml = '', actionsHtml = '', progressHtml = '', statusHtml = '' } = {}) {
+  return `<div id="ca-image-slots">
+    <div class="review-images-chrome">
+      ${spendHtml}
+      ${actionsHtml}
+      ${progressHtml}
+      ${statusHtml}
+      <div id="ca-flux-toolbar"></div>
+      <div id="ca-image-slots-totals"></div>
+    </div>
     <div id="ca-image-slots-grid" class="ca-image-slots-sections"></div>
     <p id="ca-image-slots-filter-empty" class="muted" style="display:none;font-size:0.85rem;margin:0.35rem 0 0"></p>
     <p id="ca-image-slots-empty" class="muted" style="display:none;font-size:0.85rem;margin:0.35rem 0 0">No Structure photo slots enabled.</p>
   </div>`;
+}
+
+function reviewBaCardsHtml(candidateId, baStatus) {
+  if (!baStatus) return '';
+  const home = baStatus.homePairs || [];
+  const services = baStatus.svcBeforeAfterEnabled ? baStatus.services || [] : [];
+  const cards = [
+    ...home.map((p) => reviewBaCardHtml(candidateId, p)),
+    ...services.map((p) => reviewBaCardHtml(candidateId, p)),
+  ].join('');
+  if (!cards) return '';
+  return `<section class="ca-image-slot-section" data-section-group="beforeAfter">
+      <h4 class="ca-image-slot-section-title">Before &amp; after</h4>
+      <div class="ca-image-slot-section-grid">${cards}</div>
+    </section>`;
+}
+
+function countReviewChecks() {
+  const checks = state.imageSlotChecks || {};
+  let nSlots = 0;
+  let nPairs = 0;
+  for (const [id, on] of Object.entries(checks)) {
+    if (!on) continue;
+    if (String(id).startsWith('ba:')) nPairs += 1;
+    else nSlots += 1;
+  }
+  return { nSlots, nPairs };
+}
+
+function renderReviewFluxToolbar() {
+  const el = document.getElementById('ca-flux-toolbar');
+  if (!el) return;
+  const { nSlots, nPairs } = countReviewChecks();
+  el.outerHTML = fluxToolbarHtml({
+    nSlots,
+    nPairs,
+    id: 'ca-flux-toolbar',
+  });
+}
+
+async function generateReviewSelected(candidateId, provider) {
+  const checks = state.imageSlotChecks || {};
+  const slotKeys = Object.keys(checks).filter((k) => checks[k] && !k.startsWith('ba:'));
+  const baKeys =
+    provider === 'openai'
+      ? Object.keys(checks).filter((k) => checks[k] && k.startsWith('ba:'))
+      : [];
+  const nSlots = slotKeys.length;
+  const nPairs = baKeys.length;
+  const n = nSlots + nPairs;
+  if (!n) return;
+  if (n >= 8) {
+    const ok = await showModal({
+      title: provider === 'openai' ? 'Generate OpenAI' : 'Generate Flux',
+      confirmLabel: 'Generate',
+      bodyHtml: `<p>${esc(selectedGenerateCostLine(nSlots, nPairs, provider))}</p><p>Generate ${n} job${n === 1 ? '' : 's'}?</p>`,
+    });
+    if (!ok) return;
+  }
+  if (
+    !(await confirmLaunchedSiteChange(
+      provider === 'openai' ? 'Generate OpenAI photos' : 'Generate Flux photos',
+    ))
+  ) {
+    return;
+  }
+  const slotPath = provider === 'openai' ? 'generate-openai' : 'generate';
+  const total = n;
+  const failures = [];
+  const samples = { photo: [], pair: [] };
+  let lastCandidate = null;
+  let walletStop = false;
+  let index = 0;
+  try {
+    for (const slotKey of slotKeys) {
+      index += 1;
+      const t0 = Date.now();
+      try {
+        await withFluxProgress(
+          {
+            label: 'Generating…',
+            detail: slotKey,
+            index,
+            total,
+            kind: 'photo',
+            samples,
+          },
+          async () => {
+            const result = await api(
+              `/api/candidates/${encodeURIComponent(candidateId)}/images/slots/${encodeURIComponent(slotKey)}/${slotPath}`,
+              {
+                method: 'POST',
+                body: JSON.stringify(
+                  withLaunchedConfirmBody({ viewpoint: getBaViewpoint(slotKey) }),
+                ),
+              },
+            );
+            if (result.candidate) lastCandidate = result.candidate;
+          },
+        );
+        samples.photo.push(Date.now() - t0);
+      } catch (error) {
+        failures.push(`${slotKey}: ${error.message}`);
+        if (isFluxWalletError(error)) {
+          walletStop = true;
+          break;
+        }
+      }
+    }
+    if (!walletStop) {
+      for (const baId of baKeys) {
+        index += 1;
+        const raw = baId.replace(/^ba:/, '');
+        const isSvc = raw.startsWith('svc:');
+        const slug = isSvc ? raw.slice(4) : '';
+        const pairIndex = isSvc ? 1 : Number(String(raw).split(':')[1]) || 1;
+        const t0 = Date.now();
+        try {
+          await withFluxProgress(
+            {
+              label: 'Generating pair…',
+              detail: raw,
+              index,
+              total,
+              kind: 'pair',
+              samples,
+            },
+            async () => {
+              const result = await api(
+                `/api/candidates/${encodeURIComponent(candidateId)}/images/before-after-generate-openai`,
+                {
+                  method: 'POST',
+                  body: JSON.stringify(
+                    withLaunchedConfirmBody({
+                      viewpoint: getBaViewpoint(raw),
+                      serviceSlug: slug,
+                      pairIndex,
+                    }),
+                  ),
+                },
+              );
+              if (result.candidate) lastCandidate = result.candidate;
+            },
+          );
+          samples.pair.push(Date.now() - t0);
+        } catch (error) {
+          failures.push(`${raw}: ${error.message}`);
+          if (isFluxWalletError(error)) break;
+        }
+      }
+    }
+    await refreshImageSlotInPlace(candidateId, lastCandidate);
+    if (failures.length) {
+      if (!(await showFluxGenerateFailures(failures))) {
+        showToast(`Generated with ${failures.length} error${failures.length === 1 ? '' : 's'}.`);
+      }
+    } else {
+      const label = provider === 'openai' ? 'OpenAI' : 'Flux';
+      showToast(`Generated ${total} ${label} job${total === 1 ? '' : 's'}.`);
+    }
+  } finally {
+    setImagesProgress(false);
+    refreshImageWallets({ fresh: true, remind: true });
+  }
 }
 
 function imagesSlotsGroupedHtml(slots) {
@@ -8417,7 +9854,19 @@ async function refreshImageSlotsGrid(candidateId) {
   try {
     const data = await api(`/api/candidates/${encodeURIComponent(candidateId)}/images/slots`);
     const slots = data?.slots || [];
-    if (!slots.length) {
+    if (data.flux) state.flux = data.flux;
+    let baHtml = '';
+    try {
+      const baStatus = await api(
+        `/api/candidates/${encodeURIComponent(candidateId)}/images/before-after-status`,
+      );
+      state.reviewBa = baStatus;
+      if (baStatus?.flux) state.flux = baStatus.flux;
+      if (filter === 'all') baHtml = reviewBaCardsHtml(candidateId, baStatus);
+    } catch {
+      state.reviewBa = null;
+    }
+    if (!slots.length && !baHtml) {
       grid.innerHTML = '';
       if (totalsEl) totalsEl.innerHTML = '';
       if (filterEmpty) {
@@ -8425,14 +9874,16 @@ async function refreshImageSlotsGrid(candidateId) {
         filterEmpty.textContent = '';
       }
       if (empty) empty.style.display = 'block';
+      renderReviewFluxToolbar();
       return;
     }
     if (empty) empty.style.display = 'none';
     if (totalsEl) totalsEl.innerHTML = imagesMatchTotalsHtml(data.matchTotals, filter);
     const visible = slots.filter((s) => imagesSlotMatchesFilter(s, filter));
-    grid.innerHTML = imagesSlotsGroupedHtml(visible);
+    grid.innerHTML = `${imagesSlotsGroupedHtml(visible)}${baHtml}`;
+    renderReviewFluxToolbar();
     if (filterEmpty) {
-      if (!visible.length) {
+      if (!visible.length && !baHtml) {
         filterEmpty.style.display = 'block';
         const labels = {
           all: 'No photo slots.',
@@ -8460,15 +9911,18 @@ async function refreshImageSlotsGrid(candidateId) {
 
 /** After slot Re-pull/Upload: keep Review images open; refresh grid + status only. */
 async function refreshImageSlotInPlace(candidateId, candidate) {
-  if (candidate) state.detail = candidate;
+  if (candidate) {
+    state.detail = candidate;
+    patchListLastCosts(candidate);
+  }
   state.websiteOpenStep = 'images';
   state.websiteFollowCurrent = 'images';
   state.websiteSoftCurrent = 'images';
   const statusEl = document.getElementById('ca-images-status');
-  if (statusEl && state.detail) {
-    statusEl.textContent = imagesStatusLine(state.detail);
-  }
+  paintImagesStatusEl(statusEl, state.detail);
+  renderFluxSpendLine();
   await refreshImageSlotsGrid(candidateId);
+  await settleSlotBusy();
   setImagesProgress(false);
 }
 
@@ -8477,7 +9931,88 @@ function wireImageSlotActions(candidateId, _refreshFn) {
   if (!root || root.dataset.wired === '1') return;
   root.dataset.wired = '1';
 
+  root.addEventListener('change', async (ev) => {
+    const input = ev.target.closest('.slot-check-input');
+    if (input && root.contains(input)) {
+      const id = input.getAttribute('data-check-id');
+      if (!id) return;
+      state.imageSlotChecks = { ...(state.imageSlotChecks || {}), [id]: input.checked };
+      renderReviewFluxToolbar();
+      return;
+    }
+    const baImport = ev.target.closest('.ca-ba-card-import');
+    if (!baImport || !root.contains(baImport)) return;
+    const files = [...(baImport.files || [])];
+    baImport.value = '';
+    if (files.length < 2) {
+      showToast('Select two images for the pair.');
+      return;
+    }
+    const slug = baImport.getAttribute('data-service-slug') || '';
+    try {
+      const payloadFiles = [];
+      for (const file of files.slice(0, 2)) {
+        payloadFiles.push({
+          name: file.name,
+          lastModified: file.lastModified || 0,
+          dataUrl: await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(String(reader.result || ''));
+            reader.onerror = () => reject(new Error(`Could not read ${file.name}`));
+            reader.readAsDataURL(file);
+          }),
+        });
+      }
+      await api(`/api/candidates/${encodeURIComponent(candidateId)}/images/before-after-import`, {
+        method: 'POST',
+        body: JSON.stringify(
+          withLaunchedConfirmBody({
+            files: payloadFiles,
+            serviceSlug: slug || undefined,
+            pairIndex: Number(baImport.getAttribute('data-pair-index') || 1) || 1,
+          }),
+        ),
+      });
+      await refreshImageSlotInPlace(candidateId);
+      showToast('Imported before/after pair.');
+    } catch (error) {
+      await showModal({
+        title: 'Import failed',
+        confirmLabel: 'OK',
+        hideCancel: true,
+        bodyHtml: `<p>${esc(error.message)}</p>`,
+      });
+    }
+  });
+
   root.addEventListener('click', async (ev) => {
+    const gradeBtn = ev.target.closest('[data-slot-grade-cycle]');
+    if (gradeBtn && root.contains(gradeBtn)) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      if (gradeBtn.disabled) return;
+      const slotKey = gradeBtn.getAttribute('data-slot-key');
+      const current = gradeBtn.getAttribute('data-grade');
+      if (!slotKey || (current !== 'poor' && current !== 'ok' && current !== 'good')) return;
+      const next = nextImageMatchGrade(current);
+      gradeBtn.disabled = true;
+      try {
+        await api(
+          `/api/candidates/${encodeURIComponent(candidateId)}/images/slots/${encodeURIComponent(slotKey)}/match-grade`,
+          { method: 'POST', body: JSON.stringify({ matchGrade: next }) },
+        );
+        await refreshImageSlotsGrid(candidateId);
+      } catch (error) {
+        gradeBtn.disabled = false;
+        await showModal({
+          title: 'Could not set match grade',
+          confirmLabel: 'OK',
+          hideCancel: true,
+          bodyHtml: `<p>${esc(error.message)}</p>`,
+        });
+      }
+      return;
+    }
     const bulkBtn = ev.target.closest('.img-match-bulk-repull');
     if (bulkBtn && root.contains(bulkBtn)) {
       ev.preventDefault();
@@ -8499,9 +10034,10 @@ function wireImageSlotActions(candidateId, _refreshFn) {
         let lastCandidate = null;
         for (let i = 0; i < targets.length; i += 1) {
           const slotKey = targets[i].key;
+          beginSlotBusy(slotKey);
           setImagesProgress(true, {
-            label: `Re-pulling ${gradeLabel}…`,
-            detail: slotKey,
+            label: `Images loading ${i + 1}`,
+            detail: `Images loading ${i + 1}`,
             current: i + 1,
             total: targets.length,
           });
@@ -8516,6 +10052,7 @@ function wireImageSlotActions(candidateId, _refreshFn) {
       } catch (error) {
         setImagesProgress(false);
         await refreshImageSlotsGrid(candidateId);
+        await settleSlotBusy();
         await showModal({
           title: 'Bulk Re-pull failed',
           confirmLabel: 'OK',
@@ -8546,6 +10083,232 @@ function wireImageSlotActions(candidateId, _refreshFn) {
       group.querySelectorAll('[data-ba-viewpoint]').forEach((b) => {
         b.classList.toggle('active', b.dataset.baViewpoint === next);
       });
+      fillBaPromptsPanel(group.closest('.photo-ba-card') || group.closest('.image-slot-card'));
+      return;
+    }
+    const fluxBulk = ev.target.closest('.slot-generate-selected-flux');
+    const openaiBulk = ev.target.closest('.slot-generate-selected-openai');
+    if ((fluxBulk || openaiBulk) && root.contains(fluxBulk || openaiBulk)) {
+      ev.preventDefault();
+      const btn = fluxBulk || openaiBulk;
+      if (btn.disabled) return;
+      btn.disabled = true;
+      try {
+        await generateReviewSelected(candidateId, fluxBulk ? 'flux' : 'openai');
+      } finally {
+        btn.disabled = false;
+        renderReviewFluxToolbar();
+      }
+      return;
+    }
+    const openaiBtn = ev.target.closest('.slot-generate-openai');
+    if (
+      openaiBtn &&
+      root.contains(openaiBtn) &&
+      !openaiBtn.classList.contains('slot-generate-selected-openai')
+    ) {
+      ev.preventDefault();
+      if (openaiBtn.disabled) return;
+      const isPair = openaiBtn.classList.contains('ba') || Boolean(openaiBtn.closest('.photo-ba-card'));
+      if (!(await confirmLaunchedSiteChange(isPair ? 'Generate OpenAI pair' : 'Generate OpenAI photo'))) return;
+      openaiBtn.disabled = true;
+      try {
+        if (isPair) {
+          const { matchKey, serviceSlug: slug, pairIndex } = baTargetFromGenerateEl(openaiBtn);
+          const result = await withFluxProgress(
+            {
+              label: 'Generating OpenAI pair…',
+              detail: matchKey,
+              card: openaiBtn.closest('.image-slot-card'),
+              index: 1,
+              total: 1,
+              kind: 'pair',
+            },
+            () =>
+              api(
+                `/api/candidates/${encodeURIComponent(candidateId)}/images/before-after-generate-openai`,
+                {
+                  method: 'POST',
+                  body: JSON.stringify(
+                    withLaunchedConfirmBody({
+                      viewpoint: getBaViewpoint(matchKey),
+                      serviceSlug: slug,
+                      pairIndex,
+                    }),
+                  ),
+                },
+              ),
+          );
+          showToast('Generated OpenAI before/after pair.');
+          await refreshImageSlotInPlace(candidateId, result.candidate);
+        } else {
+          const slotKey = openaiBtn.getAttribute('data-slot-key');
+          if (!slotKey) return;
+          const result = await withFluxProgress(
+            {
+              label: `Generating ${slotKey}…`,
+              detail: slotKey,
+              card: openaiBtn.closest('.image-slot-card'),
+              index: 1,
+              total: 1,
+              kind: 'photo',
+            },
+            () =>
+              api(
+                `/api/candidates/${encodeURIComponent(candidateId)}/images/slots/${encodeURIComponent(slotKey)}/generate-openai`,
+                {
+                  method: 'POST',
+                  body: JSON.stringify(
+                    withLaunchedConfirmBody({ viewpoint: getBaViewpoint(slotKey) }),
+                  ),
+                },
+              ),
+          );
+          showToast(`Generated ${slotKey}.`);
+          await refreshImageSlotInPlace(candidateId, result.candidate);
+        }
+      } catch (error) {
+        setImagesProgress(false);
+        await showModal({
+          title: 'Generate failed',
+          confirmLabel: 'OK',
+          hideCancel: true,
+          bodyHtml: `<p>${esc(error.message)}</p>`,
+        });
+      } finally {
+        setImagesProgress(false);
+        openaiBtn.disabled = false;
+        refreshImageWallets({ fresh: true, remind: true });
+      }
+      return;
+    }
+    const genBtn = ev.target.closest('.slot-generate');
+    if (
+      genBtn &&
+      root.contains(genBtn) &&
+      !genBtn.classList.contains('slot-generate-selected') &&
+      !genBtn.classList.contains('slot-generate-selected-flux')
+    ) {
+      ev.preventDefault();
+      if (genBtn.disabled) return;
+      if (!(await confirmLaunchedSiteChange('Generate Flux photo'))) return;
+      genBtn.disabled = true;
+      try {
+        const slotKey = genBtn.getAttribute('data-slot-key');
+        if (!slotKey) return;
+        const result = await withFluxProgress(
+            {
+              label: `Generating ${slotKey}…`,
+              detail: slotKey,
+              card: genBtn.closest('.image-slot-card'),
+              index: 1,
+              total: 1,
+              kind: 'photo',
+            },
+            () =>
+              api(
+                `/api/candidates/${encodeURIComponent(candidateId)}/images/slots/${encodeURIComponent(slotKey)}/generate`,
+                {
+                  method: 'POST',
+                  body: JSON.stringify(
+                    withLaunchedConfirmBody({ viewpoint: getBaViewpoint(slotKey) }),
+                  ),
+                },
+              ),
+          );
+          showToast(`Generated ${slotKey}.`);
+          await refreshImageSlotInPlace(candidateId, result.candidate);
+      } catch (error) {
+        setImagesProgress(false);
+        await showModal({
+          title: 'Generate failed',
+          confirmLabel: 'OK',
+          hideCancel: true,
+          bodyHtml: `<p>${esc(error.message)}</p>`,
+        });
+      } finally {
+        setImagesProgress(false);
+        genBtn.disabled = false;
+        refreshImageWallets({ fresh: true, remind: true });
+      }
+      return;
+    }
+    const varBtn = ev.target.closest('.slot-variant-use');
+    if (varBtn && root.contains(varBtn)) {
+      ev.preventDefault();
+      const card = varBtn.closest('.image-slot-card');
+      if (varBtn.getAttribute('data-pair-id')) {
+        const slug = card?.getAttribute('data-service-slug') || '';
+        const pairIndex = Number(card?.getAttribute('data-pair-index') || 1) || 1;
+        try {
+          await api(
+            `/api/candidates/${encodeURIComponent(candidateId)}/images/before-after/variants/use`,
+            {
+              method: 'POST',
+              body: JSON.stringify(
+                withLaunchedConfirmBody({
+                  pairId: varBtn.getAttribute('data-pair-id'),
+                  serviceSlug: slug,
+                  pairIndex,
+                }),
+              ),
+            },
+          );
+          await refreshImageSlotInPlace(candidateId);
+          showToast('Restored before/after pair.');
+        } catch (error) {
+          await showModal({
+            title: 'Swap failed',
+            confirmLabel: 'OK',
+            hideCancel: true,
+            bodyHtml: `<p>${esc(error.message)}</p>`,
+          });
+        }
+        return;
+      }
+      const slotKey = card?.getAttribute('data-slot-key');
+      const filename = varBtn.getAttribute('data-filename');
+      if (!slotKey || !filename) return;
+      try {
+        await api(
+          `/api/candidates/${encodeURIComponent(candidateId)}/images/slots/${encodeURIComponent(slotKey)}/variants/use`,
+          {
+            method: 'POST',
+            body: JSON.stringify(withLaunchedConfirmBody({ filename })),
+          },
+        );
+        await refreshImageSlotInPlace(candidateId);
+        showToast('Restored previous photo.');
+      } catch (error) {
+        await showModal({
+          title: 'Swap failed',
+          confirmLabel: 'OK',
+          hideCancel: true,
+          bodyHtml: `<p>${esc(error.message)}</p>`,
+        });
+      }
+      return;
+    }
+    const baCopy = ev.target.closest('.ca-ba-card-copy');
+    if (baCopy && root.contains(baCopy)) {
+      ev.preventDefault();
+      const kind = baCopy.getAttribute('data-ba-kind') || 'before';
+      const { matchKey, serviceSlug: slug, pairIndex } = baTargetFromGenerateEl(baCopy);
+      try {
+        const params = new URLSearchParams({
+          viewpoint: getBaViewpoint(matchKey),
+          pairIndex: String(pairIndex || 1),
+        });
+        if (slug) params.set('service', slug);
+        const prompts = await api(
+          `/api/candidates/${encodeURIComponent(candidateId)}/images/before-after-prompts?${params}`,
+        );
+        const text = prompts[kind] || prompts.pair || '';
+        await navigator.clipboard.writeText(text);
+        showToast(`Copied ${kind} prompt (${text.length} chars).`);
+      } catch (error) {
+        showToast(error.message || 'Copy failed');
+      }
       return;
     }
     const promptBtn = ev.target.closest('.ca-slot-chatgpt-prompt');
@@ -8584,6 +10347,7 @@ function wireImageSlotActions(candidateId, _refreshFn) {
     if (!slotKey) return;
     if (!(await confirmLaunchedSiteChange(`Re-pull photo slot ${slotKey}`))) return;
     btn.disabled = true;
+    beginSlotBusy(slotKey, btn.closest('.image-slot-card'));
     setImagesProgress(true, {
       label: `Re-pulling ${slotKey}…`,
       detail: 'Searching providers',
@@ -8604,6 +10368,7 @@ function wireImageSlotActions(candidateId, _refreshFn) {
       await refreshImageSlotInPlace(candidateId, result.candidate);
     } catch (error) {
       setImagesProgress(false);
+      await settleSlotBusy();
       await showModal({
         title: 'Re-pull failed',
         confirmLabel: 'OK',
@@ -8693,36 +10458,33 @@ function renderWebsite() {
   const pageIds = structurePageIdsFromDetail(d);
   const wantsServices = pageIds.includes('services');
   const wantsLocations = pageIds.includes('locations');
-  const imagesDone = Boolean(
-    d?.imagesManifest?.files?.length || f.hasImages || d?.siteConfig?.logo,
-  );
+  const imagesDone = Boolean(d?.imagesManifest?.files?.length || f.hasImages);
   const hasLogoAsset = Boolean(f.hasLogo || d?.siteConfig?.logo);
   const hasCoverageMapAsset = Boolean(f.hasCoverageMap);
+  const logoMapDone = hasLogoAsset;
   const hasStockPhotos = Boolean(d?.imagesManifest?.files?.length || f.hasImages);
   const pullPhotosBtnLabel = hasStockPhotos ? 'Re-pull photos' : 'Pull photos';
   const pullPhotosTip = hasStockPhotos
     ? 'Accept usually already pulled stock. Fills empty slots, or asks before replacing when every slot is full (not logo/map).'
     : 'Accept normally pulls stock. Use here if Accept skipped or failed.';
-  const pullPhotosHint = hasStockPhotos
-    ? 'Already on site from Accept (or a prior run) — fills gaps, or confirms before replacing stock only (not logo/map).'
-    : 'Usually auto after Accept — use if stock slots are still empty.';
   const logoBtnLabel = hasLogoAsset ? 'Regenerate logo' : 'Generate logo';
   const mapBtnLabel = hasCoverageMapAsset ? 'Regenerate coverage map' : 'Generate coverage map';
   const logoTip = hasLogoAsset
-    ? 'Accept usually already created this. Click to replace the existing header logo SVG.'
-    : 'Accept normally creates this. Use here if Accept skipped or failed.';
+    ? 'Accept usually already created this. Click to replace the existing header logo.'
+    : 'Accept normally creates a monogram. Use here if Accept skipped or failed, or to generate a 2D mark.';
   const mapTip = hasCoverageMapAsset
     ? 'Accept usually already created this. Click to replace the existing coverage-map.svg and homepage Areas map.'
     : 'Accept normally creates this when Areas exist. Use here if Accept skipped or failed.';
   const logoHint = hasLogoAsset
-    ? 'Already on site from Accept (or a prior run) — this button replaces the monogram SVG.'
-    : 'Usually auto after Accept — use if logo is still missing.';
+    ? 'Pick Mark, Mark + text, or Monogram, then generate.'
+    : 'Usually auto after Accept — use if logo is still missing. Pick a style, then generate.';
   const mapHint = hasCoverageMapAsset
-    ? 'Already on site from Accept (or a prior run) — this button replaces the Nominatim SVG / Areas map.'
-    : 'Usually auto after Accept when Areas exist — use if the map is still missing.';
+    ? 'Centered vs Callout replaces map on regenerate.'
+    : 'Usually auto after Accept when Areas exist — use if the map is still missing. Pick Centered or Callout, then generate.';
   const prepareDone = flags.staged && flags.assembled && !assembleStale;
   const indexingStepDone = isSoftDone('websiteSoftDone', 'indexing');
   const stepFlags = {
+    logoMapDone,
     imagesDone,
     prepareDone,
     launched: flags.launched,
@@ -8739,6 +10501,7 @@ function renderWebsite() {
     state.websiteFollowCurrent = currentId;
   }
   const openId = state.websiteOpenStep;
+  const logoMapStepDone = logoMapDone || isSoftDone('websiteSoftDone', 'logoMap');
   const imagesStepDone = imagesDone || isSoftDone('websiteSoftDone', 'images');
   // Hold blocks the green check so a re-Prepare does not look finished mid-run.
   const prepareStepDone =
@@ -8750,7 +10513,7 @@ function renderWebsite() {
   parts.push(
     panelHowToHtml({
       label: 'Website',
-      info: 'Review images → Prepare preview → Launch (or Push updates) → Indexing (Search Console + sitemap). Revert restores Rover from GitHub if a launched site drifted.',
+      info: 'Logo & Map → Review images → Prepare preview → Launch (or Push updates) → Indexing (Search Console + sitemap). Revert restores Rover from GitHub if a launched site drifted.',
     }),
   );
   if (flags.launched) {
@@ -8784,10 +10547,16 @@ function renderWebsite() {
     parts.push(
       `<div class="callout warn">Accept content on the <strong>Content</strong> tab first (all service/location FILEs when Structure includes them).</div>`,
     );
+  } else if (!logoMapDone) {
+    parts.push(
+      statusLineHtml(
+        'Up next: <strong>Logo &amp; Map</strong> — header logo (coverage map when Areas exist; usually auto after Accept).',
+      ),
+    );
   } else if (!imagesDone) {
     parts.push(
       statusLineHtml(
-        'Up next: <strong>Review images</strong> — stock photos, logo, and coverage map (usually auto after Accept).',
+        'Up next: <strong>Review images</strong> — stock photos and before/after (usually auto after Accept).',
       ),
     );
   } else if (!prepareDone) {
@@ -8827,70 +10596,96 @@ function renderWebsite() {
 
   parts.push(
     contentStepHtml({
-      id: 'images',
+      id: 'logoMap',
       num: 1,
+      title: 'Logo & Map',
+      done: logoMapStepDone,
+      open: openId === 'logoMap',
+      current: currentId === 'logoMap' && !logoMapStepDone,
+      info: 'Accept already generates the header logo (and a coverage map when Areas exist). Use these buttons if Accept skipped or to replace them. Coverage map is optional — Areas / Nominatim often skip it.',
+      bodyHtml: `
+        <div id="ca-logo-map-previews">
+        ${contentActionRow({
+          n: 1,
+          label: logoBtnLabel,
+          hint: logoHint,
+          done: hasLogoAsset,
+          controlsHtml: `<div class="logo-map-row-preview">
+            ${logoMapPreviewCardHtml({
+              src: hasLogoAsset
+                ? siteImageFileUrl(d.id, logoAssetFilename(d), d.meta?.lastLogoAt || 'logo')
+                : '',
+              label: 'Logo',
+              alt: 'Logo',
+              emptyRole: 'No logo yet',
+              kind: 'logo',
+            })}
+            ${logoGenerateModeSegmentHtml(d.meta?.logoGenerateMode)}
+            <button type="button" class="btn" id="ca-generate-logo" data-tip="${esc(
+              logoTip,
+            )}">${esc(logoBtnLabel)}</button>
+          </div>`,
+        })}
+        ${contentActionRow({
+          n: 2,
+          label: mapBtnLabel,
+          hint: mapHint,
+          done: hasCoverageMapAsset,
+          controlsHtml: `<div class="logo-map-row-preview">
+            ${logoMapPreviewCardHtml({
+              src: hasCoverageMapAsset
+                ? siteImageFileUrl(
+                    d.id,
+                    'coverage-map.svg',
+                    d.meta?.lastCoverageMapAt || 'map',
+                  )
+                : '',
+              label: 'Coverage map',
+              alt: 'Coverage map',
+              emptyRole: 'No map yet',
+              kind: 'map',
+            })}
+            ${mapLabelPlacementSegmentHtml(d.meta?.coverageMapLabelPlacement)}
+            <button type="button" class="btn" id="ca-generate-map" data-tip="${esc(
+              mapTip,
+            )}">${esc(mapBtnLabel)}</button>
+          </div>`,
+        })}
+        </div>
+        <div id="ca-logo-map-progress" class="job-progress hidden" aria-live="polite">
+          <div class="job-progress-track"><div class="job-progress-bar" id="ca-logo-map-progress-bar"></div></div>
+          <p class="job-progress-label" id="ca-logo-map-progress-label">Working…</p>
+          <p class="job-progress-detail" id="ca-logo-map-progress-detail">Starting…</p>
+        </div>`,
+    }),
+  );
+
+  parts.push(
+    contentStepHtml({
+      id: 'images',
+      num: 2,
       title: 'Review images',
       done: imagesStepDone,
       open: openId === 'images',
       current: currentId === 'images' && !imagesStepDone,
-      info: 'Accept content already pulls stock photos (and generates logo/map when possible). Use <strong>Pull photos</strong> to fill empty slots, or to replace the set when every slot is full. Per-slot Re-pull / Upload / Copy prompt (ChatGPT) for near-launch QA — process slots show step titles; What we do cards use named service slots. ChatGPT before/after is optional gallery polish.',
-      bodyHtml: `
-        ${contentActionRow({
-          n: 1,
-          label: pullPhotosBtnLabel,
-          hint: pullPhotosHint,
-          done: hasStockPhotos,
-          controlsHtml: `
-            <div class="flex-wrap gap-2" style="display:flex;flex-wrap:wrap;gap:0.4rem;align-items:center">
-              <button type="button" class="btn" id="ca-pull-images" data-tip="${esc(
+      info: 'Accept content already pulls stock photos. Use <strong>Pull photos</strong> to fill empty slots, or to replace the set when every slot is full. Per-slot Re-pull / Upload / Copy prompt (ChatGPT) for near-launch QA — process slots show step titles; What we do cards use named service slots. ChatGPT before/after is optional gallery polish. Logo and coverage map live under <strong>Logo &amp; Map</strong>.',
+      bodyHtml: `${imagesSlotsShellHtml({
+        actionsHtml: `<div class="photo-group-cluster">
+              <button type="button" class="btn pg-pull" id="ca-pull-images" data-tip="${esc(
                 pullPhotosTip,
               )}">${esc(pullPhotosBtnLabel)}</button>
+              <button type="button" class="btn pg-save" id="ca-pg-save" data-tip="Save this site’s stock photos, uploads, and ChatGPT before/after pairs">Save photo group</button>
+              <select class="pg-select" id="ca-pg-select" data-tip="Niche master first, then named groups">
+                ${photoGroupSelectOptionsHtml(d)}
+              </select>
+              <button type="button" class="btn pg-load" id="ca-pg-load" data-tip="Replace this site’s Review images with the selected group">Load</button>
             </div>`,
-        })}
-        ${contentActionRow({
-          n: 2,
-          label: logoBtnLabel,
-          hint: logoHint,
-          done: hasLogoAsset,
-          controlsHtml: `<button type="button" class="btn" id="ca-generate-logo" data-tip="${esc(
-            logoTip,
-          )}">${esc(logoBtnLabel)}</button>`,
-        })}
-        ${contentActionRow({
-          n: 3,
-          label: mapBtnLabel,
-          hint: mapHint,
-          done: hasCoverageMapAsset,
-          controlsHtml: `<button type="button" class="btn" id="ca-generate-map" data-tip="${esc(
-            mapTip,
-          )}">${esc(mapBtnLabel)}</button>`,
-        })}
-        ${contentActionRow({
-          n: 4,
-          label: 'Before & after (ChatGPT)',
-          hint: 'Homepage gallery: copy prompts → generate in ChatGPT (browser) → import two images (any order; earlier filename time = Before).',
-          controlsHtml: `
-            <div class="flex-wrap gap-2" style="display:flex;flex-wrap:wrap;gap:0.4rem;align-items:center">
-              ${baViewpointSegmentHtml('home')}
-              <button type="button" class="btn" id="ca-ba-copy-before" data-tip="Copy BEFORE image prompt">Copy before</button>
-              <button type="button" class="btn" id="ca-ba-copy-after" data-tip="Copy AFTER image prompt">Copy after</button>
-              <a class="btn" id="ca-ba-open-chatgpt" href="https://chatgpt.com/" target="_blank" rel="noopener" data-tip="Open ChatGPT in a new tab">Open ChatGPT</a>
-              <label class="btn" style="cursor:pointer" data-tip="Choose before then after image files">
-                Import pair
-                <input type="file" id="ca-ba-import-files" accept="image/jpeg,image/png,image/webp" multiple hidden />
-              </label>
-            </div>
-            <p class="muted" id="ca-ba-status" style="margin:0.35rem 0 0;font-size:0.85rem"></p>
-            <div id="ca-ba-preview"></div>`,
-        })}
-        <div id="ca-svc-ba-steps"></div>
-        <div id="ca-images-progress" class="job-progress hidden" aria-live="polite">
+        progressHtml: `<div id="ca-images-progress" class="job-progress hidden" aria-live="polite">
           <div class="job-progress-track"><div class="job-progress-bar" id="ca-images-progress-bar"></div></div>
           <p class="job-progress-label" id="ca-images-progress-label">Working…</p>
           <p class="job-progress-detail" id="ca-images-progress-detail">Starting…</p>
-        </div>
-        <div id="ca-images-status" class="callout muted">${esc(imagesStatusLine(d))}</div>
-        ${imagesSlotsShellHtml()}`,
+        </div>`,
+      })}`,
     }),
   );
 
@@ -8903,7 +10698,7 @@ function renderWebsite() {
   parts.push(
     contentStepHtml({
       id: 'prepare',
-      num: 2,
+      num: 3,
       title: 'Prepare preview',
       done: prepareStepDone,
       open: openId === 'prepare' || openId === 'stage' || openId === 'assemble',
@@ -8931,7 +10726,7 @@ function renderWebsite() {
   parts.push(
     contentStepHtml({
       id: 'launch',
-      num: 3,
+      num: 4,
       title: 'Launch',
       done: launchStepDone,
       open: openId === 'launch',
@@ -9087,7 +10882,7 @@ function renderWebsite() {
   parts.push(
     contentStepHtml({
       id: 'indexing',
-      num: 4,
+      num: 5,
       title: 'Indexing',
       done: indexingStepDone,
       open: openId === 'indexing',
@@ -9139,7 +10934,7 @@ function renderWebsite() {
       id: 'revert',
       title: 'Revert',
       plain: true,
-      open: true,
+      open: openId === 'revert',
       locked: !canRevert,
       info: 'Overwrites Rover content, structure, site-config, and images from GitHub origin/main for this site. Does not change the live Cloudflare deploy.',
       bodyHtml: canRevert
@@ -9159,36 +10954,71 @@ function renderWebsite() {
   return parts.join('');
 }
 
-const LAUNCH_PROGRESS_STEPS = [
-  'Writing keys / site-config…',
-  'GitHub create + push…',
-  'npm install + build…',
-  'Wrangler deploy…',
-  'Cloudflare domain / Email Routing…',
-];
+function shipProgressStepsFromOpts({
+  skipGithub = false,
+  skipBuild = false,
+  skipDeploy = false,
+  skipBuildsConnect = false,
+} = {}) {
+  const steps = [];
+  if (!skipGithub) steps.push('GitHub create + push…');
+  if (!skipBuild) steps.push('npm install + build…');
+  if (!skipDeploy) steps.push('Wrangler deploy…');
+  if (!skipBuildsConnect && !skipGithub) steps.push('Workers Builds…');
+  return steps;
+}
 
-const SHIP_PROGRESS_STEPS = [
-  'GitHub commit + push…',
-  'npm install + build…',
-  'Wrangler deploy…',
-  'Workers Builds (best-effort)…',
-];
+function launchProgressStepsFromForm(body = {}) {
+  const steps = ['Writing keys / site-config…'];
+  if (body.ship !== false) {
+    steps.push(
+      ...shipProgressStepsFromOpts({
+        skipGithub: Boolean(body.skipGithub),
+        skipBuild: Boolean(body.skipBuild),
+        skipDeploy: Boolean(body.skipDeploy),
+        skipBuildsConnect: Boolean(body.skipBuildsConnect),
+      }),
+    );
+  }
+  if (body.runCloudflare !== false) {
+    steps.push('Cloudflare domain / Email Routing…');
+  }
+  return steps;
+}
+
+function launchProgressLabel(kind, done, total) {
+  const base = kind === 'ship' ? 'Pushing updates' : 'Launching';
+  if (Number(total) > 0) return `${base} ${Number(done) || 0} / ${Number(total)}`;
+  return `${base}…`;
+}
 
 function setLaunchProgress(visible, label, detail, { step = null, total = null } = {}) {
   const box = document.getElementById('ca-launch-progress');
   const labelEl = document.getElementById('ca-launch-progress-label');
   const detailEl = document.getElementById('ca-launch-progress-detail');
   const bar = box?.querySelector('.job-progress-bar');
-  if (!box) return;
+  if (!box) {
+    if (visible) {
+      const done = total != null && step != null ? Math.min(Number(total), Number(step) + 1) : undefined;
+      setMasterProgress({ visible: true, label, detail, done, total });
+    } else {
+      setMasterProgress({ visible: false });
+    }
+    return;
+  }
   box.classList.toggle('hidden', !visible);
   if (labelEl && label) labelEl.textContent = label;
   if (detailEl && detail) detailEl.textContent = detail;
   if (!visible) {
     setDeterminateProgress(bar, {});
+    setMasterProgress({ visible: false });
   } else if (total != null) {
-    // step is 0-based index of current phase; show completed fraction including current kickoff
     const done = step == null ? 0 : Math.min(Number(total), Number(step) + 1);
     setDeterminateProgress(bar, { done, total: Number(total) });
+    setMasterProgress({ visible: true, label, detail, done, total: Number(total) });
+  } else {
+    setDeterminateProgress(bar, {});
+    setMasterProgress({ visible: true, label, detail });
   }
 }
 
@@ -9200,10 +11030,46 @@ function setAssembleProgress(visible, detail) {
   const box = document.getElementById('ca-assemble-progress');
   const detailEl = document.getElementById('ca-assemble-progress-detail');
   const labelEl = document.getElementById('ca-assemble-progress-label');
-  if (!box) return;
-  box.classList.toggle('hidden', !visible);
-  if (detailEl && detail != null) detailEl.textContent = String(detail);
-  if (labelEl && visible) labelEl.textContent = 'Preparing preview…';
+  const label = 'Preparing preview…';
+  const detailText = detail != null ? String(detail) : state.assembleProgress?.detail || '';
+  if (box) {
+    box.classList.toggle('hidden', !visible);
+    if (detailEl && detail != null) detailEl.textContent = String(detail);
+    if (labelEl && visible) labelEl.textContent = label;
+  }
+  setMasterProgress({
+    visible: Boolean(visible),
+    label: visible ? label : '',
+    detail: visible ? detailText : '',
+  });
+}
+
+function syncLaunchProgressFromJobs(snap) {
+  const id = String(state.selectedId || '').trim();
+  if (!id) return;
+  const jobs = Array.isArray(snap?.jobs) ? snap.jobs : [];
+  const job = jobs.find(
+    (j) =>
+      String(j.candidateId || '') === id &&
+      (j.phase === 'launch' || j.phase === 'ship') &&
+      (j.status === 'queued' || j.status === 'running'),
+  );
+  if (!job) return;
+  if (job.status === 'queued' && !(Number(job.progressTotal) > 0)) return;
+  const kind = job.phase === 'ship' ? 'ship' : 'launch';
+  const total = Number(job.progressTotal);
+  const done = Number(job.progressDone);
+  const known = Number.isFinite(total) && total > 0;
+  const n = Number.isFinite(done) && done > 0 ? done : 0;
+  const detail = job.status === 'queued' ? 'Queued…' : job.detail || '';
+  if (known) {
+    setLaunchProgress(true, launchProgressLabel(kind, n, total), detail, {
+      step: n > 0 ? n - 1 : 0,
+      total,
+    });
+    return;
+  }
+  setLaunchProgress(true, launchProgressLabel(kind, 0, 0), detail || 'Queued…');
 }
 
 /** Drive Website prepare spinner from Jobs SSE/poll for the held prepare jobId. */
@@ -9241,7 +11107,7 @@ function syncPrepareProgressFromJobs(snap) {
 
 const ACCEPT_PROGRESS_STEPS = [
   'Writing files to src/content…',
-  'Pulling stock photos (if enabled)…',
+  'Loading saved photos or pulling stock…',
   'Generating logo…',
   'Finishing assets (photos, logo, coverage map)…',
 ];
@@ -9282,33 +11148,51 @@ function setAcceptProgress(visible, { label, detail, step = null, total = null }
   const labelEl = document.getElementById('ca-accept-progress-label');
   const detailEl = document.getElementById('ca-accept-progress-detail');
   const bar = document.getElementById('ca-accept-progress-bar');
-  if (!box) return;
-  box.classList.toggle('hidden', !visible);
-  if (labelEl && label) labelEl.textContent = label;
-  if (detailEl && detail) detailEl.textContent = detail;
-  if (!visible) {
-    setDeterminateProgress(bar, {});
-  } else if (total != null) {
-    const done = step == null ? 0 : Math.min(Number(total), Number(step) + 1);
-    setDeterminateProgress(bar, { done, total: Number(total) });
+  const done =
+    visible && total != null ? (step == null ? 0 : Math.min(Number(total), Number(step) + 1)) : undefined;
+  if (box) {
+    box.classList.toggle('hidden', !visible);
+    if (labelEl && label) labelEl.textContent = label;
+    if (detailEl && detail) detailEl.textContent = detail;
+    if (!visible) {
+      setDeterminateProgress(bar, {});
+    } else if (total != null) {
+      setDeterminateProgress(bar, { done, total: Number(total) });
+    }
   }
+  setMasterProgress({
+    visible: Boolean(visible),
+    label,
+    detail,
+    done,
+    total: visible && total != null ? Number(total) : undefined,
+  });
 }
 
-function setImagesProgress(visible, { label, detail, current, total } = {}) {
-  const box = document.getElementById('ca-images-progress');
-  const labelEl = document.getElementById('ca-images-progress-label');
-  const detailEl = document.getElementById('ca-images-progress-detail');
-  const bar = document.getElementById('ca-images-progress-bar');
-  if (!box) return;
-  box.classList.toggle('hidden', !visible);
-  if (labelEl && label) labelEl.textContent = label;
-  if (detailEl && detail) detailEl.textContent = detail;
-  if (!visible) {
-    setDeterminateProgress(bar, {});
-  } else {
-    const known = Number(total) > 0 && Number(current) >= 0;
-    setDeterminateProgress(bar, known ? { done: Number(current), total: Number(total) } : {});
+function setImagesProgress(visible, { label, detail, current, total, box: boxPrefix = 'ca-images' } = {}) {
+  const prefix = boxPrefix || 'ca-images';
+  const box = document.getElementById(`${prefix}-progress`);
+  const labelEl = document.getElementById(`${prefix}-progress-label`);
+  const detailEl = document.getElementById(`${prefix}-progress-detail`);
+  const bar = document.getElementById(`${prefix}-progress-bar`);
+  const known = Number(total) > 0 && Number(current) >= 0;
+  if (box) {
+    box.classList.toggle('hidden', !visible);
+    if (labelEl && label) labelEl.textContent = label;
+    if (detailEl && detail) detailEl.textContent = detail;
+    if (!visible) {
+      setDeterminateProgress(bar, {});
+    } else {
+      setDeterminateProgress(bar, known ? { done: Number(current), total: Number(total) } : {});
+    }
   }
+  setMasterProgress({
+    visible: Boolean(visible),
+    label,
+    detail,
+    done: known ? Number(current) : undefined,
+    total: known ? Number(total) : undefined,
+  });
 }
 
 function wireContentTab(d) {
@@ -9741,16 +11625,6 @@ function wireContentTab(d) {
   });
 
   document
-    .getElementById('ca-copy-bookends')
-    ?.addEventListener(
-      'click',
-      copyPrompt(
-        `/api/candidates/${encodeURIComponent(id)}/content/bookends/prompt`,
-        'Bookends-only prompt',
-      ),
-    );
-
-  document
     .getElementById('cs-copy-final')
     ?.addEventListener(
       'click',
@@ -9759,6 +11633,77 @@ function wireContentTab(d) {
         'Final-check prompt',
       ),
     );
+
+  document
+    .getElementById('cs-copy-images')
+    ?.addEventListener(
+      'click',
+      copyPrompt(
+        `/api/candidates/${encodeURIComponent(id)}/content/images-prompt`,
+        'Image-queries prompt',
+      ),
+    );
+
+  document.getElementById('cs-load-images')?.addEventListener('click', async () => {
+    const text = document.getElementById('cs-images-paste')?.value || '';
+    if (!text.trim()) {
+      await showModal({
+        title: 'Nothing to paste',
+        confirmLabel: 'OK',
+        hideCancel: true,
+        bodyHtml: '<p>Paste the image-queries JSON from Claude first.</p>',
+      });
+      return;
+    }
+    try {
+      if (!(await confirmLaunchedSiteChange('Load image queries'))) return;
+      const result = await api(`/api/candidates/${encodeURIComponent(id)}/content/images-plan`, {
+        method: 'POST',
+        body: JSON.stringify(withLaunchedConfirmBody({ json: text })),
+      });
+      await refresh(result.candidate, 'accept');
+      const n = result.slotCount ? ` ${result.slotCount} slots` : '';
+      showToast(`Image queries loaded${n}. Accept next.`);
+    } catch (error) {
+      await showModal({
+        title: 'Image queries failed',
+        confirmLabel: 'OK',
+        hideCancel: true,
+        bodyHtml: `<p>${esc(error.message)}</p>`,
+      });
+    }
+  });
+
+  document.getElementById('cs-pg-load')?.addEventListener('click', () =>
+    loadPhotoGroupFromUi(id, 'cs-pg-select', {
+      attach: true,
+      refresh,
+      nextStep: 'accept',
+      tab: 'content',
+    }),
+  );
+  document.getElementById('cs-pg-skip')?.addEventListener('click', async () => {
+    try {
+      if (!(await confirmLaunchedSiteChange('Skip photo group'))) return;
+      const result = await api(`/api/candidates/${encodeURIComponent(id)}/photo-groups/skip`, {
+        method: 'POST',
+        body: JSON.stringify(withLaunchedConfirmBody({})),
+      });
+      await refresh(result.candidate, 'accept');
+      showToast(
+        result.attached?.groupId
+          ? 'Photo group already loaded — Accept next.'
+          : 'Load photo group skipped — Accept next.',
+      );
+    } catch (error) {
+      await showModal({
+        title: 'Skip photo group failed',
+        confirmLabel: 'OK',
+        hideCancel: true,
+        bodyHtml: `<p>${esc(error.message)}</p>`,
+      });
+    }
+  });
 
   document.getElementById('cs-load-final')?.addEventListener('click', async () => {
     const text = document.getElementById('cs-final-paste')?.value || '';
@@ -9792,8 +11737,12 @@ function wireContentTab(d) {
         await refresh(result.candidate || state.detail, 'finalCheck');
         return;
       }
-      await refresh(result.candidate, 'accept');
-      showToast('Final check recorded — Accept when scorecard is green.');
+      await refresh(result.candidate, photosOn && !photosReady ? 'imageQueries' : 'accept');
+      showToast(
+        photosOn && !photosReady
+          ? 'Final check recorded — Image queries next.'
+          : 'Final check recorded — Accept when all required passes are done.',
+      );
     } catch (error) {
       await showModal({
         title: 'Final check load failed',
@@ -9807,107 +11756,6 @@ function wireContentTab(d) {
     btn.addEventListener('click', () => copyContinueWritePrompt(id));
   });
 
-  document.getElementById('cb-generate')?.addEventListener('click', async () => {
-    try {
-      const result = await api(`/api/candidates/${encodeURIComponent(id)}/content/brief`, {
-        method: 'POST',
-        body: JSON.stringify({ regenerate: true }),
-      });
-      await refresh(result.candidate, 'structure');
-    } catch (error) {
-      await showModal({ title: 'Brief failed', confirmLabel: 'OK', bodyHtml: `<p>${esc(error.message)}</p>` });
-    }
-  });
-  document.getElementById('cb-save')?.addEventListener('click', async () => {
-    try {
-      const result = await api(`/api/candidates/${encodeURIComponent(id)}/content/brief`, {
-        method: 'POST',
-        body: JSON.stringify({
-          sections: collectBriefSectionsFromDom(),
-          meta: state.detail?.contentBrief?.meta || {},
-          siteArchetype: state.detail?.contentBrief?.siteArchetype,
-        }),
-      });
-      await refresh(result.candidate, 'structure');
-    } catch (error) {
-      await showModal({ title: 'Save failed', confirmLabel: 'OK', bodyHtml: `<p>${esc(error.message)}</p>` });
-    }
-  });
-  document.getElementById('cb-confirm')?.addEventListener('click', async () => {
-    try {
-      const result = await api(`/api/candidates/${encodeURIComponent(id)}/content/brief/confirm`, {
-        method: 'POST',
-        body: JSON.stringify({
-          sections: collectBriefSectionsFromDom(),
-          meta: state.detail?.contentBrief?.meta || {},
-          siteArchetype: state.detail?.contentBrief?.siteArchetype,
-        }),
-      });
-      await refresh(result.candidate, 'write');
-    } catch (error) {
-      await showModal({ title: 'Confirm failed', confirmLabel: 'OK', bodyHtml: `<p>${esc(error.message)}</p>` });
-    }
-  });
-  document
-    .getElementById('cb-copy-oneshot')
-    ?.addEventListener(
-      'click',
-      copyPrompt(`/api/candidates/${encodeURIComponent(id)}/content/oneshot/prompt`, 'One-shot prompt'),
-    );
-
-  document
-    .getElementById('ca-copy-researcher')
-    ?.addEventListener(
-      'click',
-      copyPrompt(`/api/candidates/${encodeURIComponent(id)}/content/researcher/prompt`, 'Researcher prompt'),
-    );
-  document.getElementById('ca-paste-researcher')?.addEventListener('click', async () => {
-    try {
-      const text = document.getElementById('ca-research-paste')?.value || '';
-      const result = await api(`/api/candidates/${encodeURIComponent(id)}/content/researcher/paste`, {
-        method: 'POST',
-        body: JSON.stringify({ json: text }),
-      });
-      await refresh(result.candidate);
-    } catch (error) {
-      await showModal({ title: 'Paste failed', confirmLabel: 'OK', bodyHtml: `<p>${esc(error.message)}</p>` });
-    }
-  });
-  document.getElementById('ca-seed-outline')?.addEventListener('click', async () => {
-    try {
-      const result = await api(`/api/candidates/${encodeURIComponent(id)}/content/outline/seed`, {
-        method: 'POST',
-        body: '{}',
-      });
-      await refresh(result.candidate);
-    } catch (error) {
-      await showModal({ title: 'Seed failed', confirmLabel: 'OK', bodyHtml: `<p>${esc(error.message)}</p>` });
-    }
-  });
-  document
-    .getElementById('ca-copy-outline')
-    ?.addEventListener(
-      'click',
-      copyPrompt(`/api/candidates/${encodeURIComponent(id)}/content/outline/prompt`, 'Outline prompt'),
-    );
-  document.getElementById('ca-paste-outline')?.addEventListener('click', async () => {
-    try {
-      const text = document.getElementById('ca-outline-paste')?.value || '';
-      const result = await api(`/api/candidates/${encodeURIComponent(id)}/content/outline/paste`, {
-        method: 'POST',
-        body: JSON.stringify({ json: text }),
-      });
-      await refresh(result.candidate);
-    } catch (error) {
-      await showModal({ title: 'Paste failed', confirmLabel: 'OK', bodyHtml: `<p>${esc(error.message)}</p>` });
-    }
-  });
-  document
-    .getElementById('ca-copy-writer')
-    ?.addEventListener(
-      'click',
-      copyPrompt(`/api/candidates/${encodeURIComponent(id)}/content/writer/prompt`, 'Writer prompt'),
-    );
   document
     .getElementById('ca-copy-editor')
     ?.addEventListener(
@@ -9918,6 +11766,7 @@ function wireContentTab(d) {
     try {
       const data = await api(`/api/candidates/${encodeURIComponent(id)}/content/speech-lint`);
       const needs = contentNeedsEditorRewrite(data);
+      const cand = data.candidate || state.detail;
       if (needs.needed) {
         await showModal({
           title: needs.softOnly
@@ -9930,7 +11779,7 @@ function wireContentTab(d) {
       } else {
         showToast('Speech/SEO Refinement clear — Final check next.');
       }
-      await refresh(data.candidate || state.detail, needs.needed ? 'editor' : 'finalCheck');
+      await refresh(cand, needs.needed ? 'editor' : 'finalCheck');
     } catch (error) {
       await showModal({
         title: 'Speech/SEO Refinement failed',
@@ -9969,11 +11818,13 @@ function wireContentTab(d) {
       if (missing.length) {
         await refresh(result.candidate, textareaId === 'ca-writer-paste' ? 'write' : 'editor');
         const stubs = launch?.stubs || [];
+        const expectedFiles = expectedDraftFilesFromDetail(result.candidate || state.detail);
         const incompleteHtml = incompleteDraftExplainHtml({
           have: launch?.have || 0,
-          expectedCount: launch?.expectedCount || missing.length,
+          expectedCount: launch?.expectedCount || expectedFiles.length || missing.length,
           missing,
           stubs,
+          expected: expectedFiles,
           compact: false,
           showContinueControls: true,
         });
@@ -10001,11 +11852,13 @@ function wireContentTab(d) {
       const stubsOnly = launch?.stubs || [];
       if (stubsOnly.length) {
         await refresh(result.candidate, textareaId === 'ca-writer-paste' ? 'write' : 'editor');
+        const expectedFiles = expectedDraftFilesFromDetail(result.candidate || state.detail);
         const incompleteHtml = incompleteDraftExplainHtml({
           have: launch?.have || 0,
-          expectedCount: launch?.expectedCount || 0,
+          expectedCount: launch?.expectedCount || expectedFiles.length || 0,
           missing: [],
           stubs: stubsOnly,
+          expected: expectedFiles,
           compact: false,
           showContinueControls: true,
         });
@@ -10034,8 +11887,8 @@ function wireContentTab(d) {
       }
       const candidate =
         speechData?.candidate || result.candidate || (await api(`/api/candidates/${encodeURIComponent(id)}`));
-      // Prefer Accept when lint is clean; stay on Speech/SEO Refinement when rewrite still recommended
-      await refresh(candidate, needsRewrite ? 'editor' : 'accept');
+      const nextStep = needsRewrite ? 'editor' : 'accept';
+      await refresh(candidate, nextStep);
       const bits = [
         'Draft loaded',
         fixN ? `auto-fixed ${fixN}` : null,
@@ -10062,44 +11915,6 @@ function wireContentTab(d) {
   document
     .getElementById('ca-paste-editor')
     ?.addEventListener('click', () => loadFileBlocks('ca-editor-paste'));
-  const importDiskToDraft = async () => {
-    try {
-      const pages = structurePageIdsFromDetail(state.detail);
-      const wantsFull =
-        pages.includes('services') ||
-        pages.includes('locations') ||
-        pages.includes('about') ||
-        pages.includes('contact') ||
-        state.detail?.contentOutlinePackage?.status === 'confirmed';
-      const mode = wantsFull ? 'full' : 'homepage_first';
-      const result = await api(`/api/candidates/${encodeURIComponent(id)}/content/import-disk`, {
-        method: 'POST',
-        body: JSON.stringify({ mode }),
-      });
-      await refresh(result.candidate, 'editor');
-      const msgs = [...(result.check?.errors || []), ...(result.check?.warnings || [])];
-      const fixN = result.autoFix?.changeCount || 0;
-      const fileN = Object.keys(result.draft?.files || {}).length;
-      await showModal({
-        title: 'Imported to candidate draft',
-        confirmLabel: 'OK',
-        bodyHtml: `<p>Loaded <strong>${esc(String(fileN))}</strong> file(s) from <code>src/content/</code> (${esc(
-          mode,
-        )}) into <code>research/${esc(
-          id,
-        )}-content.draft.json</code>. Accept when ready.</p>${
-          msgs.length ? `<p class="muted">${esc(msgs.join('; '))}</p>` : ''
-        }${fixN ? `<p class="muted">Auto-fixed ${esc(String(fixN))} issue(s).</p>` : ''}`,
-      });
-    } catch (error) {
-      await showModal({
-        title: 'Import failed',
-        confirmLabel: 'OK',
-        bodyHtml: `<p>${esc(error.message)}</p>`,
-      });
-    }
-  };
-  document.getElementById('ca-import-disk-editor')?.addEventListener('click', importDiskToDraft);
   const runPullImages = async () => {
     const pullBtn = document.getElementById('ca-pull-images');
     const setBusy = (busy) => {
@@ -10158,7 +11973,7 @@ function wireContentTab(d) {
         if (ps?.status === 'running') {
           setImagesProgress(true, {
             label: replace ? 'Replacing images…' : 'Pulling photos…',
-            detail: ps.label || `${ps.current || 0}/${ps.total || '?'}`,
+            detail: `Images loading ${ps.current || 0}`,
             current: ps.current,
             total: ps.total,
           });
@@ -10598,73 +12413,153 @@ function wireContentTab(d) {
     }
   });
   document.getElementById('ca-pull-images')?.addEventListener('click', () => runPullImages());
+  document.getElementById('ca-pg-save')?.addEventListener('click', () =>
+    savePhotoGroupFromUi(id, { refresh, nextStep: 'images', tab: 'website' }),
+  );
+  document.getElementById('ca-pg-load')?.addEventListener('click', () =>
+    loadPhotoGroupFromUi(id, 'ca-pg-select', {
+      attach: false,
+      refresh,
+      nextStep: 'images',
+      tab: 'website',
+    }),
+  );
   wireImageSlotActions(id, refresh);
   void refreshImageSlotsGrid(id);
-  void refreshBeforeAfterUi(id);
+  document.getElementById('ca-logo-style')?.addEventListener('click', (ev) => {
+    const seg = ev.target.closest('[data-logo-style]');
+    if (!seg) return;
+    ev.preventDefault();
+    document.querySelectorAll('#ca-logo-style [data-logo-style]').forEach((b) => {
+      b.classList.toggle('active', b === seg);
+    });
+    syncLogoGenerateButton();
+  });
   document.getElementById('ca-generate-logo')?.addEventListener('click', async () => {
     const btn = document.getElementById('ca-generate-logo');
+    const mode = selectedLogoGenerateMode();
+    const needsAi = mode === 'mark' || mode === 'markText';
+    if (needsAi && !fluxIsOpenaiConfigured()) {
+      await showModal({
+        title: 'OpenAI key required',
+        confirmLabel: 'OK',
+        hideCancel: true,
+        bodyHtml: '<p>Set <code>OPENAI_API_KEY</code> in .env (same key as Phone), then restart Rover.</p>',
+      });
+      return;
+    }
     if (!(await confirmLaunchedSiteChange('Generate / regenerate logo'))) return;
     if (btn) btn.disabled = true;
+    const logoCard = document.querySelector('#ca-logo-map-previews .logo-map-preview-logo');
+    if (needsAi && logoCard) setSlotGenerateOverlay(logoCard, true);
     setImagesProgress(true, {
       label: 'Generating logo…',
-      detail: 'Building SVG monogram',
+      detail: needsAi ? 'GPT Image 2…' : 'Building SVG monogram',
       current: 1,
       total: 3,
+      box: 'ca-logo-map',
     });
     try {
       const result = await api(`/api/candidates/${encodeURIComponent(id)}/logo/generate`, {
         method: 'POST',
-        body: JSON.stringify(withLaunchedConfirmBody({})),
+        body: JSON.stringify(withLaunchedConfirmBody({ mode })),
       });
       setImagesProgress(true, {
         label: 'Logo ready',
-        detail: result.path || '/images/logo.svg',
+        detail: result.path || result.logo?.src || '/images/logo.svg',
         current: 3,
         total: 3,
+        box: 'ca-logo-map',
       });
       announceStepComplete('Generate logo');
-      await refresh(result.candidate, 'images', 'website');
+      await refresh(result.candidate, 'logoMap', 'website');
       await showModal({
         title: 'Logo generated',
         confirmLabel: 'OK',
         hideCancel: true,
-        bodyHtml: `<p>Wrote <code>${esc(result.path || '/images/logo.svg')}</code> and set site-config <code>logo</code>. Use <strong>Prepare preview</strong> to see it on the header.</p>`,
+        bodyHtml: `<p>Wrote <code>${esc(result.path || result.logo?.src || '/images/logo.svg')}</code> and set site-config <code>logo</code>. Use <strong>Prepare preview</strong> to see it on the header.</p>`,
       });
     } catch (error) {
-      setImagesProgress(false);
+      setImagesProgress(false, { box: 'ca-logo-map' });
       await showModal({
         title: 'Logo failed',
         confirmLabel: 'OK',
         bodyHtml: `<p>${esc(error.message)}</p>`,
       });
     } finally {
+      if (logoCard) setSlotGenerateOverlay(logoCard, false);
       if (btn) btn.disabled = false;
-      setTimeout(() => setImagesProgress(false), 800);
+      syncLogoGenerateButton();
+      setTimeout(() => setImagesProgress(false, { box: 'ca-logo-map' }), 800);
     }
+  });
+  syncLogoGenerateButton();
+  document.getElementById('ca-map-label-placement')?.addEventListener('click', (ev) => {
+    const seg = ev.target.closest('[data-map-label-placement]');
+    if (!seg) return;
+    ev.preventDefault();
+    document.querySelectorAll('#ca-map-label-placement [data-map-label-placement]').forEach((b) => {
+      b.classList.toggle('active', b === seg);
+    });
   });
   document.getElementById('ca-generate-map')?.addEventListener('click', async () => {
     const btn = document.getElementById('ca-generate-map');
     if (!(await confirmLaunchedSiteChange('Generate coverage map'))) return;
     if (btn) btn.disabled = true;
+    const labelPlacement =
+      document
+        .querySelector('#ca-map-label-placement .ads-mode-seg.active')
+        ?.getAttribute('data-map-label-placement') === 'center'
+        ? 'center'
+        : 'callout';
     setImagesProgress(true, {
       label: 'Generating coverage map…',
-      detail: 'Looking up municipal boundaries (~1s per city)',
+      detail: 'Starting…',
       current: 0,
       total: 0,
+      box: 'ca-logo-map',
     });
+    let pollTimer = null;
+    const pollProgress = async () => {
+      try {
+        const snap = await api(
+          `/api/candidates/${encodeURIComponent(id)}/coverage-map/progress`,
+        );
+        if (!snap || (snap.status !== 'running' && !snap.active)) return;
+        const total = Number(snap.total) || 0;
+        const current = Number(snap.current) || 0;
+        setImagesProgress(true, {
+          label: total > 0 ? `Coverage map ${current}/${total}` : 'Generating coverage map…',
+          detail: snap.detail || snap.label || 'Starting…',
+          current,
+          total,
+          box: 'ca-logo-map',
+        });
+      } catch {
+        // ignore poll errors while generate runs
+      }
+    };
+    pollTimer = setInterval(pollProgress, 500);
+    void pollProgress();
     try {
       const result = await api(`/api/candidates/${encodeURIComponent(id)}/coverage-map/generate`, {
         method: 'POST',
-        body: JSON.stringify(withLaunchedConfirmBody({})),
+        body: JSON.stringify(withLaunchedConfirmBody({ labelPlacement })),
       });
+      if (pollTimer) {
+        clearInterval(pollTimer);
+        pollTimer = null;
+      }
+      const total = Number(result.requested || result.areas) || 1;
       setImagesProgress(true, {
         label: 'Coverage map ready',
         detail: `${result.areas || '?'} areas · ${result.path || 'coverage-map.svg'}`,
-        current: 1,
-        total: 1,
+        current: total,
+        total,
+        box: 'ca-logo-map',
       });
       announceStepComplete('Coverage map');
-      await refresh(result.candidate, 'images', 'website');
+      await refresh(result.candidate, 'logoMap', 'website');
       const miss = Array.isArray(result.missingBoundaries) ? result.missingBoundaries : [];
       const missHtml = miss.length
         ? `<p class="callout warn"><strong>No map outline</strong> (still listed as Also serving on the site): ${esc(
@@ -10684,195 +12579,22 @@ function wireContentTab(d) {
         } and wired <code>coverageMap</code> on homepage.</p>${missHtml}<p class="muted">Use <strong>Prepare preview</strong> to refresh Areas.</p>`,
       });
     } catch (error) {
-      setImagesProgress(false);
+      if (pollTimer) {
+        clearInterval(pollTimer);
+        pollTimer = null;
+      }
+      setImagesProgress(false, { box: 'ca-logo-map' });
       await showModal({
         title: 'Coverage map failed',
         confirmLabel: 'OK',
         bodyHtml: `<p>${esc(error.message)}</p>`,
       });
     } finally {
+      if (pollTimer) clearInterval(pollTimer);
       if (btn) btn.disabled = false;
-      setTimeout(() => setImagesProgress(false), 800);
+      setTimeout(() => setImagesProgress(false, { box: 'ca-logo-map' }), 800);
     }
   });
-
-  const baStatus = (msg) => {
-    const el = document.getElementById('ca-ba-status');
-    if (el) el.textContent = msg || '';
-  };
-  const baSvcStatus = (slug, msg) => {
-    const el = document.querySelector(`.ca-ba-svc-status[data-ba-service="${CSS.escape(slug)}"]`);
-    if (el) el.textContent = msg || '';
-  };
-  const copyBaPrompt = async (kind, serviceSlug = '') => {
-    try {
-      const stepKey = serviceSlug || 'home';
-      const viewpoint = getBaViewpoint(stepKey);
-      const params = new URLSearchParams({ viewpoint });
-      if (serviceSlug) params.set('service', serviceSlug);
-      const prompts = await api(
-        `/api/candidates/${encodeURIComponent(id)}/images/before-after-prompts?${params}`,
-      );
-      const text = prompts[kind] || prompts.pair || '';
-      await navigator.clipboard.writeText(text);
-      const note = `Copied ${kind} prompt · ${viewpoint} (${text.length} chars). Paste into ChatGPT.`;
-      if (serviceSlug) baSvcStatus(serviceSlug, note);
-      else baStatus(note);
-    } catch (error) {
-      if (serviceSlug) baSvcStatus(serviceSlug, error.message || 'Copy failed');
-      else baStatus(error.message || 'Copy failed');
-      await showModal({
-        title: 'Prompt failed',
-        confirmLabel: 'OK',
-        hideCancel: true,
-        bodyHtml: `<p>${esc(error.message)}</p>`,
-      });
-    }
-  };
-  document.getElementById('ca-ba-copy-before')?.addEventListener('click', () =>
-    copyBaPrompt('before'),
-  );
-  document.getElementById('ca-ba-copy-after')?.addEventListener('click', () =>
-    copyBaPrompt('after'),
-  );
-
-  const applyBaViewpointClick = (btn) => {
-    const group = btn.closest('[data-ba-viewpoint-step]');
-    const stepKey = group?.dataset?.baViewpointStep || 'home';
-    const next = setBaViewpoint(stepKey, btn.dataset.baViewpoint);
-    group?.querySelectorAll('[data-ba-viewpoint]').forEach((b) => {
-      b.classList.toggle('active', b.dataset.baViewpoint === next);
-    });
-  };
-  const homeBaControls = document.getElementById('ca-ba-copy-before')?.closest('.flex-wrap');
-  if (homeBaControls && homeBaControls.dataset.baViewpointWired !== '1') {
-    homeBaControls.dataset.baViewpointWired = '1';
-    homeBaControls.addEventListener('click', (ev) => {
-      const btn = ev.target.closest('[data-ba-viewpoint]');
-      if (!btn || !homeBaControls.contains(btn)) return;
-      applyBaViewpointClick(btn);
-    });
-  }
-
-  const fileToDataUrl = (file) =>
-    new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(String(reader.result || ''));
-      reader.onerror = () => reject(new Error(`Could not read ${file.name}`));
-      reader.readAsDataURL(file);
-    });
-
-  const importBaPair = async (files, serviceSlug = '') => {
-    const payloadFiles = [];
-    for (const file of files.slice(0, 2)) {
-      payloadFiles.push({
-        name: file.name,
-        lastModified: file.lastModified || 0,
-        dataUrl: await fileToDataUrl(file),
-      });
-    }
-    const body = { files: payloadFiles };
-    if (serviceSlug) body.serviceSlug = serviceSlug;
-    return api(`/api/candidates/${encodeURIComponent(id)}/images/before-after-import`, {
-      method: 'POST',
-      body: JSON.stringify(body),
-    });
-  };
-
-  document.getElementById('ca-ba-import-files')?.addEventListener('change', async (ev) => {
-    const input = ev.target;
-    const files = [...(input.files || [])];
-    if (!files.length) return;
-    if (files.length < 2) {
-      baStatus('Select two images (any order — earlier filename time becomes Before).');
-      input.value = '';
-      return;
-    }
-    baStatus('Importing before/after pair (ordering by filename time)…');
-    try {
-      const result = await importBaPair(files);
-      await refresh(result.candidate, 'images', 'website');
-      baStatus(
-        `Imported pair #${result.pairIndex}: ${result.files?.map((f) => f.filename).join(', ')}. Stage → Assemble to preview.`,
-      );
-      await showModal({
-        title: 'Before/after imported',
-        confirmLabel: 'OK',
-        hideCancel: true,
-        bodyHtml: `<p>Ordered by filename time (earlier = Before). Saved <code>${esc(
-          (result.files || []).map((f) => f.filename).join('</code>, <code>'),
-        )}</code>. Stock beforeAfter pulls were cleared. Stage → Assemble to preview.</p>`,
-      });
-    } catch (error) {
-      baStatus(error.message || 'Import failed');
-      await showModal({
-        title: 'Import failed',
-        confirmLabel: 'OK',
-        hideCancel: true,
-        bodyHtml: `<p>${esc(error.message)}</p>`,
-      });
-    } finally {
-      input.value = '';
-    }
-  });
-
-  const svcBaRoot = document.getElementById('ca-svc-ba-steps');
-  if (svcBaRoot && svcBaRoot.dataset.baWired !== '1') {
-    svcBaRoot.dataset.baWired = '1';
-    svcBaRoot.addEventListener('click', (ev) => {
-      const vpBtn = ev.target.closest('[data-ba-viewpoint]');
-      if (vpBtn && svcBaRoot.contains(vpBtn)) {
-        applyBaViewpointClick(vpBtn);
-        return;
-      }
-      const btn = ev.target.closest('.ca-ba-svc-copy');
-      if (!btn || !svcBaRoot.contains(btn)) return;
-      const slug = btn.getAttribute('data-ba-service') || '';
-      const kind = btn.getAttribute('data-ba-kind') || 'before';
-      copyBaPrompt(kind, slug);
-    });
-    svcBaRoot.addEventListener('change', async (ev) => {
-      const input = ev.target.closest('.ca-ba-svc-import');
-      if (!input || !svcBaRoot.contains(input)) return;
-      const slug = input.getAttribute('data-ba-service') || '';
-      const files = [...(input.files || [])];
-      if (!files.length) return;
-      if (files.length < 2) {
-        baSvcStatus(slug, 'Select two images (any order — earlier filename time becomes Before).');
-        input.value = '';
-        return;
-      }
-      baSvcStatus(slug, 'Importing before/after pair…');
-      try {
-        const result = await importBaPair(files, slug);
-        await refresh(result.candidate, 'images', 'website');
-        baSvcStatus(
-          slug,
-          `Imported ${result.serviceName || slug}: ${result.files?.map((f) => f.filename).join(', ')}. Stage → Assemble to preview.`,
-        );
-        await showModal({
-          title: 'Service before/after imported',
-          confirmLabel: 'OK',
-          hideCancel: true,
-          bodyHtml: `<p>Saved for <strong>${esc(
-            result.serviceName || slug,
-          )}</strong>: <code>${esc(
-            (result.files || []).map((f) => f.filename).join('</code>, <code>'),
-          )}</code>. Stage → Assemble to preview.</p>`,
-        });
-      } catch (error) {
-        baSvcStatus(slug, error.message || 'Import failed');
-        await showModal({
-          title: 'Import failed',
-          confirmLabel: 'OK',
-          hideCancel: true,
-          bodyHtml: `<p>${esc(error.message)}</p>`,
-        });
-      } finally {
-        input.value = '';
-      }
-    });
-  }
 
   document.getElementById('ca-open-assembled-preview')?.addEventListener('click', async () => {
     if (isAssembleStaleClient(state.detail)) {
@@ -11189,19 +12911,12 @@ function wireContentTab(d) {
     form?.querySelectorAll('input,button,select,textarea').forEach((el) => {
       el.disabled = true;
     });
-    let stepIdx = 0;
-    const shipTotal = SHIP_PROGRESS_STEPS.length;
-    setLaunchProgress(true, 'Pushing updates…', SHIP_PROGRESS_STEPS[0], {
+    const shipSteps = shipProgressStepsFromOpts({});
+    const shipTotal = shipSteps.length;
+    setLaunchProgress(true, launchProgressLabel('ship', 1, shipTotal), shipSteps[0], {
       step: 0,
       total: shipTotal,
     });
-    const shipTimer = setInterval(() => {
-      stepIdx = Math.min(stepIdx + 1, SHIP_PROGRESS_STEPS.length - 1);
-      setLaunchProgress(true, 'Pushing updates…', SHIP_PROGRESS_STEPS[stepIdx], {
-        step: stepIdx,
-        total: shipTotal,
-      });
-    }, 12000);
     try {
       const result = await api(`/api/candidates/${encodeURIComponent(id)}/ship`, {
         method: 'POST',
@@ -11229,7 +12944,6 @@ function wireContentTab(d) {
         bodyHtml: `<p>${esc(error.message)}</p>`,
       });
     } finally {
-      clearInterval(shipTimer);
       setLaunchProgress(false);
       form?.querySelectorAll('input,button,select,textarea').forEach((el) => {
         el.disabled = false;
@@ -11285,19 +12999,12 @@ function wireContentTab(d) {
     form?.querySelectorAll('input,button,select,textarea').forEach((el) => {
       el.disabled = true;
     });
-    let stepIdx = 0;
-    const launchTotal = LAUNCH_PROGRESS_STEPS.length;
-    setLaunchProgress(true, 'Launching…', LAUNCH_PROGRESS_STEPS[0], {
+    const launchSteps = launchProgressStepsFromForm(pendingBody);
+    const launchTotal = launchSteps.length;
+    setLaunchProgress(true, launchProgressLabel('launch', 1, launchTotal), launchSteps[0], {
       step: 0,
       total: launchTotal,
     });
-    const launchTimer = setInterval(() => {
-      stepIdx = Math.min(stepIdx + 1, LAUNCH_PROGRESS_STEPS.length - 1);
-      setLaunchProgress(true, 'Launching…', LAUNCH_PROGRESS_STEPS[stepIdx], {
-        step: stepIdx,
-        total: launchTotal,
-      });
-    }, 12000);
     try {
       const body = { ...pendingBody, allowIncompleteLaunch };
       const result = await api(`/api/candidates/${encodeURIComponent(id)}/launch`, {
@@ -11338,7 +13045,6 @@ function wireContentTab(d) {
         }`,
       });
     } finally {
-      clearInterval(launchTimer);
       setLaunchProgress(false);
       form?.querySelectorAll('input,button,select,textarea').forEach((el) => {
         el.disabled = false;
@@ -11347,46 +13053,6 @@ function wireContentTab(d) {
     }
   });
 
-  const copyBtn = document.getElementById('content-copy-prompt');
-  if (copyBtn) {
-    copyBtn.addEventListener(
-      'click',
-      copyPrompt(`/api/candidates/${encodeURIComponent(id)}/content/prompt`, 'Content prompt'),
-    );
-  }
-  const pasteBtn = document.getElementById('content-paste-btn');
-  if (pasteBtn) {
-    pasteBtn.addEventListener('click', async () => {
-      const text = document.getElementById('content-paste')?.value || '';
-      if (!text.trim()) {
-        await showModal({
-          title: 'Nothing to paste',
-          confirmLabel: 'OK',
-          bodyHtml: '<p>Paste Claude’s ### FILE blocks first.</p>',
-        });
-        return;
-      }
-      pasteBtn.disabled = true;
-      try {
-        if (!(await confirmLaunchedSiteChange('Paste content draft'))) {
-          pasteBtn.disabled = false;
-          return;
-        }
-        const result = await api(`/api/candidates/${encodeURIComponent(id)}/content/paste`, {
-          method: 'POST',
-          body: JSON.stringify(withLaunchedConfirmBody({ text })),
-        });
-        await refresh(result.candidate, 'accept');
-      } catch (error) {
-        await showModal({
-          title: 'Paste failed',
-          confirmLabel: 'OK',
-          bodyHtml: `<p>${esc(error.message)}</p>`,
-        });
-        pasteBtn.disabled = false;
-      }
-    });
-  }
   const acceptBtn = document.getElementById('content-accept-btn');
   if (acceptBtn) {
     acceptBtn.addEventListener('click', async () => {
@@ -11465,7 +13131,7 @@ function wireContentTab(d) {
         const mapWarn = mapMissing
           ? `<p class="callout warn">Coverage map missing${
               map.warning ? `: ${esc(map.warning)}` : ''
-            }. Accept already tried — re-run under <strong>Website</strong> → Review images → <strong>Regenerate coverage map</strong> (button says Generate if none exists yet), then Prepare preview.</p>`
+            }. Accept already tried — re-run under <strong>Website</strong> → Logo &amp; Map → <strong>Regenerate coverage map</strong> (button says Generate if none exists yet), then Prepare preview.</p>`
           : mapOk && mapMissList.length
             ? `<p class="callout warn">Coverage map drawn for <strong>${esc(
                 String(map.areas ?? ''),
@@ -11532,7 +13198,7 @@ function wireContentTab(d) {
           confirmLabel: 'OK',
           bodyHtml: `<p>Wrote <strong>${esc(String(result.written?.length || 0))}</strong> file(s) to <code>src/content/</code>.</p>
           ${imageWarn}${imageFailGuide}${imageLines}${assetChecklistHtml}${mapWarn}
-          <p><strong>Up next:</strong> <strong>Website</strong> → Review images → <strong>Prepare preview</strong> (full Stage + Assemble + open :4322).</p>`,
+          <p><strong>Up next:</strong> <strong>Website</strong> → Logo &amp; Map → Review images → <strong>Prepare preview</strong> (full Stage + Assemble + open :4322).</p>`,
         });
       } catch (error) {
         clearInterval(acceptTimer);
@@ -11818,8 +13484,37 @@ function wireSiteConfigTab(d) {
       showToast('Select a suggestion or enter a custom domain.', { tone: 'warn' });
       return;
     }
+    const d = state.detail;
+    const napPrev = siteConfigNapFromLocal(d?.id);
+    const ba = d?.businessAddress;
+    const primaryCity = String(
+      d?.approved?.primaryCity ||
+        d?.research?.primaryCity ||
+        d?.research?.summary?.primaryCity ||
+        d?.meta?.primaryCity ||
+        napPrev?.addressCity ||
+        ba?.selection?.city ||
+        ba?.city ||
+        d?.siteConfig?.primaryCity ||
+        d?.primaryCity ||
+        d?.city ||
+        '',
+    ).trim();
+    const niche = String(
+      d?.approved?.niche ||
+        d?.research?.niche ||
+        d?.research?.summary?.niche ||
+        d?.meta?.niche ||
+        d?.siteConfig?.niche ||
+        d?.niche ||
+        '',
+    ).trim();
+    const businessName = businessNameFromDomainClient(chosen, { primaryCity, niche });
+    const email = `leads@${chosen}`;
     writeDomainPickToNap({
       domain: chosen,
+      businessName,
+      email,
       domainPick: {
         selectedDomain: custom ? null : chosen,
         customDomain: custom || '',
@@ -11829,7 +13524,11 @@ function wireSiteConfigTab(d) {
     state.siteConfigSoftDone.domain = true;
     advancePanelStep('site-config', 'details');
     renderDetail();
-    showToast(`Domain set · ${chosen}`);
+    showToast(
+      businessName
+        ? `Domain set · ${chosen} · ${businessName}`
+        : `Domain set · ${chosen}`,
+    );
   });
 
   document.getElementById('ba-show-home')?.addEventListener('click', () => {
@@ -11876,9 +13575,17 @@ function wireSiteConfigTab(d) {
     state.baSearchMode = doRefresh ? 'refresh' : 'find';
     if (!state.siteConfigOpenStep) state.siteConfigOpenStep = 'address';
     renderDetail();
+    setMasterProgress({
+      visible: true,
+      label: doRefresh ? 'Refreshing listings…' : 'Finding addresses…',
+      detail: doRefresh
+        ? 'Pulling checked sources, then screening with Places.'
+        : 'City cache when available, then Places screening.',
+    });
     const stopBaBusy = () => {
       state.baSearchBusy = false;
       state.baSearchMode = 'find';
+      setMasterProgress({ visible: false });
       renderDetail();
     };
     try {
@@ -12464,9 +14171,12 @@ function wireSiteConfigTab(d) {
     });
   }
 
-  async function acceptSiteConfigFromUi(triggerBtn, { clearCommercial = false } = {}) {
+  async function acceptSiteConfigFromUi(triggerBtn, { servicesMode = 'both' } = {}) {
     if (triggerBtn) triggerBtn.disabled = true;
     try {
+      const mode =
+        servicesMode === 'residential' || servicesMode === 'commercial' ? servicesMode : 'both';
+      const clearCommercial = mode !== 'both';
       const nap = saveSiteConfigNapFromForm();
       const isPh = (v, known) => {
         const s = String(v || '').trim();
@@ -12488,13 +14198,50 @@ function wireSiteConfigTab(d) {
         [];
 
       const hasEditForm = Boolean(document.getElementById('sc-edit-businessName'));
+      const choiceLists = collectServicesChoiceFromUi();
+      const hasChoiceUi = Boolean(choiceLists);
+
+      if (hasChoiceUi && mode === 'commercial' && !choiceLists.commercialServices.length) {
+        await showModal({
+          title: 'No commercial services selected',
+          confirmLabel: 'OK',
+          hideCancel: true,
+          bodyHtml:
+            '<p>Check at least one commercial service (or add a custom) before <strong>Commercial Only</strong>.</p>',
+        });
+        if (triggerBtn) triggerBtn.disabled = false;
+        return false;
+      }
+      if (hasChoiceUi && mode === 'residential' && !choiceLists.services.length) {
+        await showModal({
+          title: 'No residential services selected',
+          confirmLabel: 'OK',
+          hideCancel: true,
+          bodyHtml:
+            '<p>Check at least one residential service (or add a custom) before <strong>Residential Only</strong>.</p>',
+        });
+        if (triggerBtn) triggerBtn.disabled = false;
+        return false;
+      }
+      if (hasChoiceUi && mode === 'both' && !choiceLists.services.length) {
+        await showModal({
+          title: 'No residential services selected',
+          confirmLabel: 'OK',
+          hideCancel: true,
+          bodyHtml:
+            '<p><strong>Residential + Commercial</strong> needs at least one checked residential service (primary list).</p>',
+        });
+        if (triggerBtn) triggerBtn.disabled = false;
+        return false;
+      }
+
       const needsDraftSeed =
         !hasEditForm &&
         !d.siteConfigDraft &&
         !state.detail?.siteConfigDraft &&
         Boolean(d.siteConfig || state.detail?.siteConfig);
 
-      if (hasEditForm || needsDraftSeed || clearCommercial) {
+      if (hasEditForm || needsDraftSeed || clearCommercial || hasChoiceUi) {
         const patch = hasEditForm
           ? {
               businessName:
@@ -12532,6 +14279,19 @@ function wireSiteConfigTab(d) {
             ? { commercialServices: '' }
             : {};
 
+        if (hasChoiceUi) {
+          if (mode === 'commercial') {
+            patch.services = choiceLists.commercialServices;
+            patch.commercialServices = '';
+          } else if (mode === 'residential') {
+            patch.services = choiceLists.services;
+            patch.commercialServices = '';
+          } else {
+            patch.services = choiceLists.services;
+            patch.commercialServices = choiceLists.commercialServices;
+          }
+        }
+
         if (hasEditForm) {
           if (nap.domain && isPh(patch.domain, 'example.com')) patch.domain = nap.domain;
           if (nap.phone && isPh(patch.phone, '+1XXXXXXXXXX')) patch.phone = nap.phone;
@@ -12561,15 +14321,20 @@ function wireSiteConfigTab(d) {
         remaining = checks.filter(([_, v, known]) => isPh(v, known)).map(([k]) => k);
       }
 
+      const modeBlurb =
+        mode === 'residential'
+          ? '<p>Writes site-config with <strong>residential services only</strong> (commercialServices cleared). No Claude re-prompt.</p>'
+          : mode === 'commercial'
+            ? '<p>Writes site-config with <strong>commercial services as primary</strong> (commercialServices cleared). No Claude re-prompt.</p>'
+            : '<p>Writes draft to <code>src/config/site-config.json</code> (backs up previous). Next step is content markdown.</p>';
+
       const ok = await showModal({
         title: 'Write site-config.json?',
         confirmLabel: remaining.length ? 'Write with placeholders' : 'Write file',
         bodyHtml: remaining.length
           ? `<p>Writes to <code>src/config/site-config.json</code> (backs up previous).</p>
                <p>Still placeholders: <code>${esc(remaining.join(', '))}</code> — OK for an early build; fill later in Edit draft.</p>`
-          : clearCommercial
-            ? '<p>Writes site-config with <strong>commercialServices cleared</strong> (one What we do grid). No Claude re-prompt.</p>'
-            : '<p>Writes draft to <code>src/config/site-config.json</code> (backs up previous). Next step is content markdown.</p>',
+          : modeBlurb,
       });
       if (!ok) {
         if (triggerBtn) triggerBtn.disabled = false;
@@ -12615,12 +14380,16 @@ function wireSiteConfigTab(d) {
       advancePanelStep('site-config', 'service-area');
       state.tab = 'site-config';
       renderDetail();
+      const wroteBit =
+        mode === 'residential'
+          ? ' with residential services only'
+          : mode === 'commercial'
+            ? ' with commercial services as primary'
+            : '';
       await showModal({
         title: 'Site config written',
         confirmLabel: 'OK',
-        bodyHtml: `<p>Wrote <code>${esc(result.path || 'src/config/site-config.json')}</code>${
-          clearCommercial ? ' with residential services only' : ''
-        }. Next: <strong>6 · Service area</strong> (map + radius), then <strong>7 · Provision phone</strong> / Content.</p>${
+        bodyHtml: `<p>Wrote <code>${esc(result.path || 'src/config/site-config.json')}</code>${wroteBit}. Next: <strong>6 · Service area</strong> (map + radius), then <strong>7 · Provision phone</strong> / Content.</p>${
           result.domainWarn?.mismatch
             ? `<div class="callout warn" style="margin-top:0.75rem"><strong>Domain vs brand:</strong> ${esc(
                 result.domainWarn.reason ||
@@ -12716,12 +14485,15 @@ function wireSiteConfigTab(d) {
       });
     }
   };
-  bindAccept('site-config-accept-btn');
-  bindAccept('site-config-reaccept-btn');
-  bindAccept('site-config-accept-with-commercial', { clearCommercial: false });
-  bindAccept('site-config-accept-keep-commercial', { clearCommercial: false });
-  bindAccept('site-config-accept-residential-only', { clearCommercial: true });
-  bindAccept('site-config-accept-residential-only-update', { clearCommercial: true });
+  wireServicesChoiceInputs();
+  bindAccept('site-config-accept-btn', { servicesMode: 'both' });
+  bindAccept('site-config-reaccept-btn', { servicesMode: 'both' });
+  bindAccept('site-config-accept-with-commercial', { servicesMode: 'both' });
+  bindAccept('site-config-accept-keep-commercial', { servicesMode: 'both' });
+  bindAccept('site-config-accept-residential-only', { servicesMode: 'residential' });
+  bindAccept('site-config-accept-residential-only-update', { servicesMode: 'residential' });
+  bindAccept('site-config-accept-commercial-only', { servicesMode: 'commercial' });
+  bindAccept('site-config-accept-commercial-only-update', { servicesMode: 'commercial' });
 
   document.getElementById('sc-provision-twilio')?.addEventListener('click', async () => {
     const cid = d.id;
@@ -12849,8 +14621,8 @@ function wireSiteConfigTab(d) {
     const btn = document.getElementById('sc-provision-twilio');
     if (!status || !d.id) return;
     try {
-      const data = await api('/api/sites');
-      const row = (data.sites || []).find((s) => s.candidateId === d.id);
+      const data = await api(`/api/candidates/${encodeURIComponent(d.id)}/portfolio-site`);
+      const row = data.site;
       const pt = row?.phoneTracking;
       if (pt?.provider === 'twilio' && pt.twilioSid) {
         status.textContent = `Twilio ${pt.e164 || ''} provisioned${
@@ -12887,6 +14659,7 @@ function wireSiteConfigTab(d) {
 
   if (serviceAreaOpen && saHost && saMapCanvas) {
     setServiceAreaTableMode(true);
+    syncCandidatesDetailVisibility();
     const accepted = d.siteConfig;
     void mountServiceAreaMap({
       mapHost: saMapCanvas,
@@ -12900,6 +14673,11 @@ function wireSiteConfigTab(d) {
         ? accepted.coverageAreas
         : (accepted.targetSuburbs || []).map((name) => ({ name, state: accepted.state })),
       claudeOrder: Array.isArray(accepted.targetSuburbs) ? accepted.targetSuburbs : [],
+      researchSuggestedSuburbs: Array.isArray(d.approved?.suggestedSuburbs)
+        ? d.approved.suggestedSuburbs
+        : Array.isArray(d.narrative?.suggestedSuburbs)
+          ? d.narrative.suggestedSuburbs
+          : [],
       onAccept: async ({ radiusMiles, selectedCities, locationPageCities }, { onProgress } = {}) => {
         const res = await fetch(
           `/api/candidates/${encodeURIComponent(d.id)}/site-config/service-area`,
@@ -12991,6 +14769,7 @@ function wireSiteConfigTab(d) {
 }
 
 function renderDetail() {
+  hideOpsTooltip();
   const d = state.detail;
   if (!d) return;
   if (state.selectedIds.size > 1) {
@@ -13239,6 +15018,7 @@ function wireUi() {
     renderList();
   });
   document.getElementById('candidate-select-filtered')?.addEventListener('click', () => {
+    if (candidateSelectionLocked()) return;
     for (const c of filteredCandidates()) state.selectedIds.add(c.id);
     renderList();
     renderActions();
@@ -13251,9 +15031,9 @@ function wireUi() {
     const ids = [...state.selectedIds];
     if (!ids.length) return;
     const ok = await showModal({
-      title: 'Add selection to Sites?',
-      confirmLabel: `Add to Sites (${ids.length})`,
-      bodyHtml: `<p>Upsert <strong>${esc(String(ids.length))}</strong> selected candidate(s) into the Sites portfolio. Existing rows are updated, not duplicated.</p>`,
+      title: 'Add selection to Launched?',
+      confirmLabel: `Add to Launched (${ids.length})`,
+      bodyHtml: `<p>Add <strong>${esc(String(ids.length))}</strong> selected candidate(s) that have already <strong>Run launch</strong>. Unlaunched rows (Site-Config phone only) are rejected.</p>`,
     });
     if (!ok) return;
     try {
@@ -13399,6 +15179,7 @@ function setView(view) {
   document.getElementById('view-sites')?.classList.toggle('hidden', view !== 'launched-sites');
   document.getElementById('view-phone')?.classList.toggle('hidden', view !== 'phone');
   document.getElementById('view-map')?.classList.toggle('hidden', view !== 'map');
+  document.getElementById('view-photo')?.classList.toggle('hidden', view !== 'photo');
   document.querySelectorAll('.nav-btn').forEach((btn) => {
     btn.classList.toggle('active', btn.dataset.view === view);
   });
@@ -13415,6 +15196,9 @@ function setView(view) {
   }
   if (view === 'phone') {
     loadPhoneView().catch(() => {});
+  }
+  if (view === 'photo') {
+    loadPhotoView().catch(() => {});
   }
   if (view === 'map') {
     // Shared readyPromise with openResearchMap — no second init / US fit race.
@@ -13682,6 +15466,7 @@ function renderSitesGscStatus() {
 /** Sites eligible for GSC/rank bulk jobs (matches server metricsEligibleSites). */
 function sitesMetricsEligible() {
   return (state.sites || []).filter((s) => {
+    if (!s.lastLaunchAt && !s.lastShipAt) return false;
     if (!['live', 'listed', 'rented', 'building'].includes(String(s.status || ''))) return false;
     return Boolean(s.domain || s.liveUrl);
   });
@@ -13696,15 +15481,24 @@ function setSitesMetricsProgress({ visible, label, detail, pct } = {}) {
   const bar = document.getElementById('sites-metrics-progress-bar');
   const labelEl = document.getElementById('sites-metrics-progress-label');
   const detailEl = document.getElementById('sites-metrics-progress-detail');
-  if (!wrap) return;
-  wrap.classList.toggle('hidden', !visible);
-  if (labelEl && label != null) labelEl.textContent = label;
-  if (detailEl && detail != null) detailEl.textContent = detail;
-  if (pct == null || !Number.isFinite(Number(pct))) {
-    setDeterminateProgress(bar, {});
-  } else {
-    setDeterminateProgress(bar, { done: Number(pct), total: 100 });
+  if (wrap) {
+    wrap.classList.toggle('hidden', !visible);
+    if (labelEl && label != null) labelEl.textContent = label;
+    if (detailEl && detail != null) detailEl.textContent = detail;
+    if (pct == null || !Number.isFinite(Number(pct))) {
+      setDeterminateProgress(bar, {});
+    } else {
+      setDeterminateProgress(bar, { done: Number(pct), total: 100 });
+    }
   }
+  const known = pct != null && Number.isFinite(Number(pct));
+  setMasterProgress({
+    visible: Boolean(visible),
+    label,
+    detail,
+    done: known ? Number(pct) : undefined,
+    total: known ? 100 : undefined,
+  });
 }
 
 function setSitesMetricsButtonsDisabled(busy) {
@@ -14051,7 +15845,7 @@ function renderSitesTable() {
   }).join('')}</tr>`;
 
   if (!rows.length) {
-    tbody.innerHTML = `<tr><td colspan="${SITE_TABLE_COLS.length}" class="muted">No sites yet — Launch a candidate or Add from candidate.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="${SITE_TABLE_COLS.length}" class="muted">No launched sites yet — Run Launch on a Website candidate.</td></tr>`;
   } else {
     tbody.innerHTML = rows
       .map((s) => {
@@ -14858,6 +16652,1259 @@ function phoneAnsweredLabel(call) {
     return { text: 'Missed', cls: 'missed' };
   }
   return { text: st || 'Unknown', cls: '' };
+}
+
+function photoLibStoredNiche() {
+  try {
+    return String(localStorage.getItem('ops.photoNiche') || '').trim();
+  } catch {
+    return '';
+  }
+}
+
+function photoLibStoreNiche(niche) {
+  try {
+    if (niche) localStorage.setItem('ops.photoNiche', niche);
+  } catch {
+    /* ignore */
+  }
+}
+
+function photoLibCurrent() {
+  return state.photoLib || {};
+}
+
+function photoLibFileDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onerror = () => reject(new Error('Could not read file'));
+    reader.readAsDataURL(file);
+  });
+}
+
+function photoLibMasterLabel(g) {
+  if (!g) return 'Niche master';
+  if (g.kind === 'master') return g.name || `${g.niche || 'Niche'} master`;
+  return g.name || g.id;
+}
+
+function photoLibSlotCardHtml(slot, { selected = false } = {}) {
+  const key = slot.matchKey || slot.key;
+  const configured = fluxIsConfigured(state.photoLib?.flux);
+  const checked = Boolean(state.photoLib.selectedChecks?.[key]);
+  const thumb = slotThumbImg(slot.previewUrl, { role: 'Empty' });
+  const grade = slot.matchGrade;
+  const matchDot = grade ? imagesMatchDotHtml(grade, slot.matchTip || grade) : '';
+  const badge = slot.missing
+    ? `<span class="muted" style="font-size:0.75rem">missing</span>`
+    : `<span class="muted" style="font-size:0.75rem">${esc(slot.source || 'stock')}</span>`;
+  return `<div class="image-slot-card photo-slot-card${selected ? ' selected' : ''}" data-match-key="${esc(
+    key,
+  )}" data-filename="${esc(slot.filename || '')}">
+    ${slotCheckHtml({ id: key, checked })}
+    <div class="slot-thumb" style="aspect-ratio:16/10;background:#0f172a0d;display:flex;align-items:center;justify-content:center">${thumb}</div>
+    <div style="padding:0.45rem 0.55rem;display:flex;flex-direction:column;gap:0.25rem">
+      <strong style="font-size:0.85rem;display:flex;align-items:center;gap:0.35rem">${matchDot}${esc(
+        slot.label || slot.key || key,
+      )}</strong>
+      ${badge}
+      ${slotSourceActionsHtml({
+        kind: 'photo',
+        viewpointKey: key,
+        fluxConfigured: configured,
+        generateExtra: ` data-match-key="${esc(key)}"`,
+        copyHtml: `<button type="button" class="btn btn-sm photo-slot-chatgpt" data-match-key="${esc(key)}" data-tip="Copy a ChatGPT image prompt for this slot">Copy prompt</button>`,
+        filesHtml: `<button type="button" class="btn btn-sm photo-slot-repull" data-match-key="${esc(key)}" data-tip="Fetch a different stock photo into this group">Re-pull</button>
+        <label class="btn btn-sm" style="cursor:pointer;margin:0" data-tip="Upload a local image into this group">
+          Upload
+          <input type="file" class="photo-slot-upload" data-match-key="${esc(key)}" accept="image/jpeg,image/png,image/webp,image/gif" hidden />
+        </label>
+        <button type="button" class="btn btn-sm photo-slot-swap" data-match-key="${esc(key)}" data-filename="${esc(slot.filename || '')}" data-tip="Select this slot, then pick an alternate in Swap">Swap</button>`,
+      })}
+    </div>
+    ${variantTrayHtml(slot.variants)}
+  </div>`;
+}
+
+function photoLibBaCardHtml(pair, { selected = false } = {}) {
+  const key = pair.matchKey;
+  const checked = Boolean(state.photoLib.selectedChecks?.[key]);
+  const label = pair.serviceName
+    ? `Before & after — ${pair.serviceName}`
+    : `Before & after — home ${pair.pairIndex || 1}`;
+  const kind = pair.serviceName || pair.serviceSlug ? 'service' : 'home';
+  return `<div class="image-slot-card photo-slot-card photo-ba-card${selected ? ' selected' : ''}" data-match-key="${esc(
+    key,
+  )}" data-ba="1" data-ba-kind="${esc(kind)}" data-filename="${esc(pair.before?.filename || '')}" data-pair-index="${esc(String(pair.pairIndex || 1))}" data-service-slug="${esc(pair.serviceSlug || '')}" data-service-name="${esc(pair.serviceName || '')}">
+    ${slotCheckHtml({ id: key, checked })}
+    <div class="ba-pair-thumbs">
+      <figure>${slotThumbImg(pair.beforeUrl, { alt: 'Before' })}<figcaption class="muted">Before</figcaption></figure>
+      <figure>${slotThumbImg(pair.afterUrl, { alt: 'After' })}<figcaption class="muted">After</figcaption></figure>
+    </div>
+    <div style="padding:0.55rem;display:flex;flex-direction:column;gap:0.35rem">
+      <strong style="font-size:0.85rem">${esc(label)}</strong>
+      ${slotSourceActionsHtml({
+        kind: 'ba',
+        viewpointKey: key,
+        generateExtra: ` data-match-key="${esc(key)}"`,
+        copyHtml: `<button type="button" class="btn btn-sm photo-ba-copy" data-match-key="${esc(key)}" data-ba-kind="before" data-tip="Copy the current Inside/Outside BEFORE prompt">Copy before</button>
+        <button type="button" class="btn btn-sm photo-ba-copy" data-match-key="${esc(key)}" data-ba-kind="after">Copy after</button>`,
+        filesHtml: `<label class="btn btn-sm" style="cursor:pointer;margin:0" data-tip="Replaces the live pair; previous goes to the tray. Tray keeps 8; oldest is removed.">
+          Import pair
+          <input type="file" class="photo-ba-import" data-match-key="${esc(key)}" data-ba-kind="${esc(kind)}" data-service-slug="${esc(pair.serviceSlug || '')}" data-service-name="${esc(pair.serviceName || '')}" data-pair-index="${esc(String(pair.pairIndex || 1))}" accept="image/jpeg,image/png,image/webp" multiple hidden />
+        </label>
+        <button type="button" class="btn btn-sm photo-slot-swap" data-match-key="${esc(key)}" data-ba="1" data-filename="${esc(pair.before?.filename || '')}">Swap pair</button>`,
+      })}
+      ${baShowPromptsHtml(pair, key)}
+    </div>
+    ${variantTrayHtml(pair.variants, { ba: true })}
+  </div>`;
+}
+
+function renderPhotoLibrary() {
+  const list = document.getElementById('photo-lib-list');
+  const select = document.getElementById('photo-niche-select');
+  const lib = photoLibCurrent();
+  if (select) {
+    const niches = lib.niches || [];
+    select.innerHTML = niches.length
+      ? niches
+          .map(
+            (n) =>
+              `<option value="${esc(n)}"${n === lib.niche ? ' selected' : ''}>${esc(n)}</option>`,
+          )
+          .join('')
+      : '<option value="">No niches yet</option>';
+  }
+  if (!list) return;
+  const groups = lib.groups || [];
+  if (!groups.length) {
+    list.innerHTML =
+      '<div class="empty">No groups for this niche yet. Save from Review images, or Prepare preview to seed the master.</div>';
+    return;
+  }
+  list.innerHTML = groups
+    .map((g) => {
+      const active = g.id === lib.groupId ? ' active' : '';
+      const isMaster = g.kind === 'master';
+      const badge = isMaster ? '<span class="photo-lib-badge">Master</span>' : '';
+      const n = Number(g.slotCount || 0);
+      const ba = Number(g.baPairCount || 0);
+      const actions = isMaster
+        ? `<button type="button" class="btn btn-sm photo-lib-dup" data-group-id="${esc(g.id)}">Duplicate</button>`
+        : `<button type="button" class="btn btn-sm photo-lib-rename" data-group-id="${esc(
+            g.id,
+          )}">Rename</button>
+           <button type="button" class="btn btn-sm photo-lib-dup" data-group-id="${esc(g.id)}">Duplicate</button>
+           <button type="button" class="btn btn-sm photo-lib-delete" data-group-id="${esc(g.id)}">Delete</button>`;
+      return `<div class="photo-lib-row${active}" data-group-id="${esc(g.id)}" role="button" tabindex="0">
+        <span class="photo-lib-row-name">${badge}${esc(photoLibMasterLabel(g))}</span>
+        <span class="photo-lib-row-meta">${n} photo${n === 1 ? '' : 's'}${ba ? ` · ${ba} BA` : ''}</span>
+        <span class="photo-lib-row-actions">${actions}</span>
+      </div>`;
+    })
+    .join('');
+}
+
+function countPhotoChecks() {
+  const lib = photoLibCurrent();
+  const checks = lib.selectedChecks || {};
+  let nSlots = 0;
+  let nPairs = 0;
+  for (const [id, on] of Object.entries(checks)) {
+    if (!on) continue;
+    if (String(id).startsWith('ba:')) nPairs += 1;
+    else nSlots += 1;
+  }
+  return { nSlots, nPairs };
+}
+
+function renderPhotoFluxToolbar() {
+  const el = document.getElementById('photo-flux-toolbar');
+  if (!el) return;
+  const { nSlots, nPairs } = countPhotoChecks();
+  const html = fluxToolbarHtml({
+    nSlots,
+    nPairs,
+    flux: photoLibCurrent().flux,
+    id: 'photo-flux-toolbar',
+  });
+  const wrap = document.createElement('div');
+  wrap.innerHTML = html;
+  el.replaceWith(wrap.firstElementChild);
+}
+
+async function generatePhotoSelected(provider) {
+  const lib = photoLibCurrent();
+  if (!lib.groupId) return;
+  const checks = lib.selectedChecks || {};
+  const slotIds = Object.keys(checks).filter((k) => checks[k] && !k.startsWith('ba:'));
+  const baIds =
+    provider === 'openai' ? Object.keys(checks).filter((k) => checks[k] && k.startsWith('ba:')) : [];
+  const ids = [...slotIds, ...baIds];
+  if (!ids.length) return;
+  const nSlots = slotIds.length;
+  const nPairs = baIds.length;
+  const n = nSlots + nPairs;
+  if (n >= 8) {
+    const ok = await showModal({
+      title: provider === 'openai' ? 'Generate OpenAI' : 'Generate Flux',
+      confirmLabel: 'Generate',
+      bodyHtml: `<p>${esc(selectedGenerateCostLine(nSlots, nPairs, provider))}</p>`,
+    });
+    if (!ok) return;
+  }
+  const slotPath = provider === 'openai' ? 'generate-openai' : 'generate';
+  const failures = [];
+  const samples = { photo: [], pair: [] };
+  let walletStop = false;
+  try {
+    let i = 0;
+    for (const id of slotIds) {
+      i += 1;
+      const t0 = Date.now();
+      try {
+        await withFluxProgress(
+          {
+            label: 'Generating…',
+            detail: id,
+            index: i,
+            total: n,
+            kind: 'photo',
+            samples,
+          },
+          () =>
+            api(`/api/photo-groups/${encodeURIComponent(lib.groupId)}/slots/${slotPath}`, {
+              method: 'POST',
+              body: JSON.stringify({ matchKey: id, viewpoint: getBaViewpoint(id) }),
+            }),
+        );
+        samples.photo.push(Date.now() - t0);
+      } catch (error) {
+        failures.push(`${id}: ${error.message}`);
+        if (isFluxWalletError(error)) {
+          walletStop = true;
+          break;
+        }
+      }
+    }
+    if (!walletStop) {
+      for (const id of baIds) {
+        i += 1;
+        const t0 = Date.now();
+        try {
+          await withFluxProgress(
+            {
+              label: 'Generating pair…',
+              detail: id,
+              index: i,
+              total: n,
+              kind: 'pair',
+              samples,
+            },
+            () =>
+              api(`/api/photo-groups/${encodeURIComponent(lib.groupId)}/before-after/generate-openai`, {
+                method: 'POST',
+                body: JSON.stringify({ matchKey: id, viewpoint: getBaViewpoint(id) }),
+              }),
+          );
+          samples.pair.push(Date.now() - t0);
+        } catch (error) {
+          failures.push(`${id}: ${error.message}`);
+          if (isFluxWalletError(error)) break;
+        }
+      }
+    }
+    await loadPhotoGroupView();
+    renderPhotoView();
+    await settleSlotBusy();
+    if (failures.length) {
+      if (!(await showFluxGenerateFailures(failures))) {
+        showToast(`Generated with ${failures.length} error${failures.length === 1 ? '' : 's'}.`);
+      }
+    } else {
+      const label = provider === 'openai' ? 'OpenAI' : 'Flux';
+      showToast(`Generated ${n} ${label} job${n === 1 ? '' : 's'}.`);
+    }
+  } finally {
+    await settleSlotBusy();
+    setMasterProgress({ visible: false });
+    refreshImageWallets({ fresh: true, remind: true });
+  }
+}
+
+function renderPhotoGroup() {
+  const body = document.getElementById('photo-group-body');
+  const title = document.getElementById('photo-group-title');
+  const sub = document.getElementById('photo-group-sub');
+  const lib = photoLibCurrent();
+  const view = lib.view;
+  if (title) {
+    title.textContent = view?.group
+      ? photoLibMasterLabel(view.group)
+      : lib.niche
+        ? 'Select a group'
+        : 'No photo groups yet';
+  }
+  if (sub) {
+    sub.textContent = view?.group?.kind === 'master'
+      ? 'Niche master — grows on Prepare preview. Load default is best grade, then newest.'
+      : 'Named snapshot. Edits write this group only — not the live site.';
+  }
+  if (!body) return;
+  renderPhotoFluxToolbar();
+  if (!view?.group) {
+    body.innerHTML =
+      '<div class="empty">Skipping Photo does not block Content, Accept, stock Pull, or Launch. Named groups save from Review images. The niche master fills in after Prepare preview.</div>';
+    return;
+  }
+  const selected = lib.selectedMatchKey;
+  const sections = (view.sections || [])
+    .map(
+      (g) => `<section class="ca-image-slot-section" data-section-group="${esc(g.sectionId)}">
+      <h4 class="ca-image-slot-section-title">${esc(g.label)}</h4>
+      <div class="ca-image-slot-section-grid">${(g.slots || [])
+        .map((s) => photoLibSlotCardHtml(s, { selected: s.matchKey === selected }))
+        .join('')}</div>
+    </section>`,
+    )
+    .join('');
+  const baHome = [...(view.beforeAfter?.home || [])];
+  if (!baHome.length) {
+    baHome.push({
+      pairIndex: 1,
+      matchKey: 'ba:home:1',
+      beforeUrl: null,
+      afterUrl: null,
+    });
+  }
+  const baSvc = view.beforeAfter?.services || [];
+  const baHtml = `<section class="ca-image-slot-section">
+      <h4 class="ca-image-slot-section-title">Before &amp; after</h4>
+      <div class="ca-image-slot-section-grid">${[
+        ...baHome.map((p) => photoLibBaCardHtml(p, { selected: p.matchKey === selected })),
+        ...baSvc.map((p) => photoLibBaCardHtml(p, { selected: p.matchKey === selected })),
+      ].join('')}</div>
+    </section>`;
+  body.innerHTML = `<div class="ca-image-slots-sections">${sections}${baHtml}</div>`;
+}
+
+function photoLibSelectedSlotTitle(lib) {
+  const key = lib.selectedMatchKey;
+  if (!key) return '';
+  for (const sec of lib.view?.sections || []) {
+    const hit = (sec.slots || []).find((s) => s.matchKey === key);
+    if (hit) return hit.label || hit.key || key;
+  }
+  const ba = [...(lib.view?.beforeAfter?.home || []), ...(lib.view?.beforeAfter?.services || [])];
+  const pair = ba.find((p) => p.matchKey === key);
+  if (pair) {
+    return pair.serviceName
+      ? `Before & after — ${pair.serviceName}`
+      : `Before & after — home ${pair.pairIndex || 1}`;
+  }
+  return key;
+}
+
+function photoRailSelKey({ fromGroupId, groupId, filename, ba, matchKey } = {}) {
+  return `${fromGroupId || groupId || ''}|${filename || ''}|${ba ? '1' : '0'}|${matchKey || ''}`;
+}
+
+function renderPhotoSwapRail() {
+  const rail = document.getElementById('photo-swap-rail');
+  if (!rail) return;
+  const lib = photoLibCurrent();
+  if (!lib.selectedMatchKey) {
+    rail.innerHTML = '<div class="empty">Select a slot, then pick an alternate here.</div>';
+    return;
+  }
+  const title = photoLibSelectedSlotTitle(lib);
+  const note = `<p class="muted photo-swap-rail-note">Alternates for “${esc(
+    title,
+  )}”. Copies into this group only — not the live site.</p>`;
+  const photos = lib.rolePhotos || [];
+  if (!photos.length) {
+    rail.innerHTML = `${note}<div class="empty">No other photos for this slot.</div>`;
+    return;
+  }
+  const selectedKey = photoRailSelKey(lib.selectedRail || {});
+  const cards = photos
+    .map((p) => {
+      const sel = photoRailSelKey({
+        fromGroupId: p.groupId,
+        filename: p.filename || '',
+        ba: p.ba,
+        matchKey: p.matchKey,
+      });
+      const selected = sel === selectedKey ? ' selected' : '';
+      const badge = p.kind === 'master' ? '<span class="photo-lib-badge">Master</span> ' : '';
+      if (p.ba) {
+        return `<button type="button" class="photo-swap-card${selected}" data-from-group="${esc(
+          p.groupId,
+        )}" data-match-key="${esc(p.matchKey)}" data-ba="1">
+          <div class="photo-swap-thumbs">
+            ${p.beforeUrl ? `<img src="${esc(p.beforeUrl)}" alt="" />` : '<div class="muted">Before</div>'}
+            ${p.afterUrl ? `<img src="${esc(p.afterUrl)}" alt="" />` : '<div class="muted">After</div>'}
+          </div>
+          <div class="photo-swap-card-meta">${badge}${esc(p.groupName || p.groupId)}</div>
+        </button>`;
+      }
+      const img = p.previewUrl
+        ? `<img src="${esc(p.previewUrl)}" alt="" />`
+        : '<div class="muted" style="aspect-ratio:16/10;display:flex;align-items:center;justify-content:center">Missing</div>';
+      const grade = p.matchGrade ? ` · ${p.matchGrade}` : '';
+      return `<button type="button" class="photo-swap-card${selected}" data-from-group="${esc(
+        p.groupId,
+      )}" data-match-key="${esc(p.matchKey)}" data-filename="${esc(p.filename || '')}">
+        ${img}
+        <div class="photo-swap-card-meta">${badge}${esc(p.groupName || p.groupId)}${esc(grade)}</div>
+      </button>`;
+    })
+    .join('');
+  const useDisabled = lib.selectedRail ? '' : ' disabled';
+  rail.innerHTML = `${note}${cards}<button type="button" class="btn primary photo-swap-use"${useDisabled}>Use in this group</button>`;
+}
+
+function renderPhotoView() {
+  renderPhotoLibrary();
+  renderPhotoGroup();
+  renderPhotoSwapRail();
+}
+
+async function loadPhotoSwapRail() {
+  const lib = photoLibCurrent();
+  if (!lib.niche || !lib.selectedMatchKey) {
+    lib.rolePhotos = [];
+    renderPhotoSwapRail();
+    return;
+  }
+  const q = new URLSearchParams({
+    niche: lib.niche,
+    key: lib.selectedMatchKey,
+    exclude: lib.groupId || '',
+    filename: lib.selectedFilename || '',
+  });
+  const data = await api(`/api/photo-library/roles?${q.toString()}`);
+  lib.rolePhotos = data.photos || [];
+  if (lib.selectedRail) {
+    const still = (lib.rolePhotos || []).some((p) => {
+      return (
+        photoRailSelKey({
+          fromGroupId: p.groupId,
+          filename: p.filename || '',
+          ba: p.ba,
+          matchKey: p.matchKey,
+        }) === photoRailSelKey(lib.selectedRail)
+      );
+    });
+    if (!still) lib.selectedRail = null;
+  }
+  renderPhotoSwapRail();
+}
+
+async function loadPhotoGroupView() {
+  const lib = photoLibCurrent();
+  if (!lib.groupId) {
+    lib.view = null;
+    lib.rolePhotos = [];
+    return;
+  }
+  lib.view = await api(`/api/photo-groups/${encodeURIComponent(lib.groupId)}`);
+  if (lib.view?.flux) lib.flux = lib.view.flux;
+  if (lib.selectedMatchKey) {
+    await loadPhotoSwapRail();
+  }
+}
+
+async function loadPhotoView() {
+  const lib = photoLibCurrent();
+  const preferred =
+    lib.niche ||
+    photoLibStoredNiche() ||
+    state.detail?.photoGroupNiche ||
+    state.detail?.siteConfig?.niche ||
+    '';
+  try {
+    const data = await api(
+      `/api/photo-library${preferred ? `?niche=${encodeURIComponent(preferred)}` : ''}`,
+    );
+    lib.niches = data.niches || [];
+    const match = lib.niches.find(
+      (n) => n.toLowerCase() === String(preferred).toLowerCase(),
+    );
+    lib.niche = match || lib.niches[0] || '';
+    if (lib.niche && lib.niche !== data.niche) {
+      const scoped = await api(`/api/photo-library?niche=${encodeURIComponent(lib.niche)}`);
+      lib.groups = scoped.groups || [];
+    } else {
+      lib.groups = data.groups || [];
+    }
+    photoLibStoreNiche(lib.niche);
+    if (!lib.groupId || !lib.groups.some((g) => g.id === lib.groupId)) {
+      const master = lib.groups.find((g) => g.kind === 'master');
+      lib.groupId = master?.id || lib.groups[0]?.id || null;
+    }
+    await loadPhotoGroupView();
+    renderPhotoView();
+  } catch (error) {
+    const body = document.getElementById('photo-group-body');
+    if (body) {
+      body.innerHTML = `<div class="empty">${esc(error.message || 'Could not load Photo')}</div>`;
+    }
+  }
+}
+
+async function photoLibPromptName(title, initial = '') {
+  let nameInput = null;
+  const ok = await showModal({
+    title,
+    confirmLabel: 'Save',
+    bodyHtml: `<label class="modal-type-confirm-label"><span class="muted small">Name</span>
+      <input id="photo-lib-name" class="modal-type-confirm-input" type="text" autocomplete="off" value="${esc(
+        initial,
+      )}" /></label>`,
+    afterOpen: (body) => {
+      nameInput = body.querySelector('#photo-lib-name');
+      nameInput?.focus();
+      nameInput?.select();
+    },
+  });
+  if (!ok) return null;
+  return String(nameInput?.value || '').trim();
+}
+
+function wireImageZoom() {
+  if (document.body.dataset.imgZoomWired === '1') return;
+  document.body.dataset.imgZoomWired = '1';
+  const peek = document.getElementById('img-peek');
+  const box = document.getElementById('img-lightbox');
+  const inner = document.getElementById('img-lightbox-inner');
+  const prevBtn = document.getElementById('img-lightbox-prev');
+  const nextBtn = document.getElementById('img-lightbox-next');
+  let peekTimer = null;
+  let lbItems = [];
+  let lbIndex = 0;
+  const hidePeek = () => {
+    clearTimeout(peekTimer);
+    if (!peek) return;
+    peek.onload = null;
+    peek.classList.add('hidden');
+    peek.classList.remove('img-peek-logo');
+    peek.hidden = true;
+  };
+  const placePeek = (anchor) => {
+    if (!peek || peek.hidden || !anchor?.isConnected) return;
+    const pad = 8;
+    const gap = 8;
+    const r = anchor.getBoundingClientRect();
+    const w = peek.offsetWidth || 360;
+    const h = peek.offsetHeight || 240;
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const spaceRight = vw - r.right - gap - pad;
+    const spaceLeft = r.left - gap - pad;
+    let left =
+      spaceLeft >= w || spaceLeft >= spaceRight ? r.left - gap - w : r.right + gap;
+    left = Math.min(Math.max(pad, left), Math.max(pad, vw - w - pad));
+    let top = r.top;
+    top = Math.min(Math.max(pad, top), Math.max(pad, vh - h - pad));
+    peek.style.left = `${left}px`;
+    peek.style.top = `${top}px`;
+  };
+  const showPeekFor = (img) => {
+    if (!peek || !img) return;
+    const src = img.getAttribute('data-zoom-src') || img.src;
+    const logoPeek =
+      Boolean(img.closest('.logo-map-preview-logo')) || /\/logo\.(svg|png)(\?|$)/i.test(src);
+    peek.classList.toggle('img-peek-logo', logoPeek);
+    const finish = () => {
+      requestAnimationFrame(() => placePeek(img));
+    };
+    peek.onload = finish;
+    peek.src = src;
+    peek.classList.remove('hidden');
+    peek.hidden = false;
+    if (peek.complete) finish();
+  };
+  const closeLightbox = () => {
+    if (!box) return;
+    box.classList.add('hidden');
+    box.hidden = true;
+    if (inner) inner.innerHTML = '';
+    lbItems = [];
+    if (prevBtn) prevBtn.hidden = true;
+    if (nextBtn) nextBtn.hidden = true;
+  };
+  const showLightboxEntry = (entry) => {
+    if (!box || !inner || !entry) return;
+    hidePeek();
+    const html = entry.ba
+      ? `<div class="img-lightbox-ba">${entry.srcs
+          .map((src) => `<img src="${esc(src)}" alt="" />`)
+          .join('')}</div>`
+      : `<img src="${esc(entry.srcs[0] || '')}" alt="" />`;
+    inner.innerHTML = `${html}${entry.caption ? `<div class="img-lightbox-caption">${esc(entry.caption)}</div>` : ''}`;
+    box.classList.remove('hidden');
+    box.hidden = false;
+    const many = lbItems.length > 1;
+    if (prevBtn) prevBtn.hidden = !many;
+    if (nextBtn) nextBtn.hidden = !many;
+  };
+  const collectLightboxItems = (fromEl) => {
+    const section =
+      fromEl.closest('#ca-logo-map-previews') ||
+      fromEl.closest('.ca-image-slot-section') ||
+      fromEl.closest('#ca-image-slots-grid') ||
+      fromEl.closest('#photo-group-body');
+    const cards = [...(section?.querySelectorAll('.image-slot-card') || [])];
+    return cards
+      .map((card) => {
+        const ba = card.getAttribute('data-ba') === '1';
+        const imgs = ba
+          ? [...card.querySelectorAll('.ba-pair-thumbs .slot-zoom-img')]
+          : [...card.querySelectorAll('.slot-thumb .slot-zoom-img')];
+        const srcs = imgs
+          .map((i) => i.getAttribute('data-zoom-src') || i.src)
+          .filter(Boolean);
+        if (!srcs.length) return null;
+        return {
+          ba,
+          srcs,
+          caption: card.querySelector('strong')?.textContent || '',
+          card,
+        };
+      })
+      .filter(Boolean);
+  };
+  const openFromImg = (img) => {
+    const card = img.closest('.image-slot-card');
+    lbItems = collectLightboxItems(img);
+    lbIndex = Math.max(
+      0,
+      lbItems.findIndex((item) => item.card === card),
+    );
+    showLightboxEntry(lbItems[lbIndex]);
+  };
+  const stepLightbox = (delta) => {
+    if (!lbItems.length || box?.hidden) return;
+    lbIndex = (lbIndex + delta + lbItems.length) % lbItems.length;
+    showLightboxEntry(lbItems[lbIndex]);
+  };
+  document.addEventListener(
+    'click',
+    (ev) => {
+      if (ev.target.closest('#img-lightbox-close') || ev.target.id === 'img-lightbox') {
+        closeLightbox();
+        return;
+      }
+      if (ev.target.closest('#img-lightbox-prev')) {
+        ev.preventDefault();
+        stepLightbox(-1);
+        return;
+      }
+      if (ev.target.closest('#img-lightbox-next')) {
+        ev.preventDefault();
+        stepLightbox(1);
+        return;
+      }
+      const img = ev.target.closest('.slot-zoom-img');
+      if (!img || img.classList.contains('slot-zoom-tray')) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      openFromImg(img);
+    },
+    true,
+  );
+  document.addEventListener('mouseover', (ev) => {
+    const img = ev.target.closest('.slot-zoom-img, .slot-zoom-tray');
+    if (!img || !img.src || box?.hidden === false) {
+      if (ev.target.closest('button:not(.slot-variant-use), a, .slot-check')) hidePeek();
+      return;
+    }
+    clearTimeout(peekTimer);
+    peekTimer = setTimeout(() => {
+      if (!peek || !img.isConnected) return;
+      showPeekFor(img);
+    }, 500);
+  });
+  document.addEventListener('mouseout', (ev) => {
+    if (!ev.target.closest('.slot-zoom-img, .slot-zoom-tray')) return;
+    hidePeek();
+  });
+  document.addEventListener('keydown', (ev) => {
+    if (box?.hidden) return;
+    if (ev.key === 'Escape') {
+      closeLightbox();
+      return;
+    }
+    if (ev.key === 'ArrowLeft') {
+      ev.preventDefault();
+      stepLightbox(-1);
+    }
+    if (ev.key === 'ArrowRight') {
+      ev.preventDefault();
+      stepLightbox(1);
+    }
+  });
+}
+
+function wirePhotoUi() {
+  const root = document.getElementById('view-photo');
+  if (!root || root.dataset.wired === '1') return;
+  root.dataset.wired = '1';
+
+  root.addEventListener('change', (ev) => {
+    const input = ev.target.closest('.slot-check-input');
+    if (!input || !root.contains(input)) return;
+    const id = input.getAttribute('data-check-id');
+    if (!id) return;
+    const lib = photoLibCurrent();
+    lib.selectedChecks = { ...(lib.selectedChecks || {}), [id]: input.checked };
+    renderPhotoFluxToolbar();
+  });
+
+  document.getElementById('photo-niche-select')?.addEventListener('change', async (ev) => {
+    const lib = photoLibCurrent();
+    lib.niche = ev.target.value;
+    lib.groupId = null;
+    lib.view = null;
+    lib.selectedMatchKey = null;
+    lib.selectedRail = null;
+    photoLibStoreNiche(lib.niche);
+    await loadPhotoView();
+  });
+
+  root.addEventListener('click', async (ev) => {
+    const lib = photoLibCurrent();
+    const vpBtn = ev.target.closest('[data-ba-viewpoint]');
+    if (vpBtn && root.contains(vpBtn)) {
+      const group = vpBtn.closest('[data-ba-viewpoint-step]');
+      if (!group) return;
+      ev.preventDefault();
+      const stepKey = group.dataset?.baViewpointStep || '';
+      const next = setBaViewpoint(stepKey, vpBtn.dataset.baViewpoint);
+      group.querySelectorAll('[data-ba-viewpoint]').forEach((b) => {
+        b.classList.toggle('active', b.dataset.baViewpoint === next);
+      });
+      fillBaPromptsPanel(group.closest('.photo-ba-card') || group.closest('.image-slot-card'));
+      return;
+    }
+
+    const fluxBulk = ev.target.closest('.slot-generate-selected-flux');
+    const openaiBulk = ev.target.closest('.slot-generate-selected-openai');
+    if ((fluxBulk || openaiBulk) && root.contains(fluxBulk || openaiBulk)) {
+      ev.preventDefault();
+      const btn = fluxBulk || openaiBulk;
+      if (!lib.groupId || btn.disabled) return;
+      btn.disabled = true;
+      try {
+        await generatePhotoSelected(fluxBulk ? 'flux' : 'openai');
+      } finally {
+        btn.disabled = false;
+        renderPhotoFluxToolbar();
+      }
+      return;
+    }
+
+    const openaiBtn = ev.target.closest('.slot-generate-openai');
+    if (
+      openaiBtn &&
+      root.contains(openaiBtn) &&
+      !openaiBtn.classList.contains('slot-generate-selected-openai')
+    ) {
+      ev.preventDefault();
+      if (!lib.groupId || openaiBtn.disabled) return;
+      openaiBtn.disabled = true;
+      const isPair = openaiBtn.classList.contains('ba') || Boolean(openaiBtn.closest('.photo-ba-card'));
+      try {
+        const matchKey = openaiBtn.getAttribute('data-match-key') || '';
+        if (isPair) {
+          await withFluxProgress(
+            {
+              label: 'Generating OpenAI pair…',
+              detail: matchKey,
+              card: openaiBtn.closest('.image-slot-card'),
+              index: 1,
+              total: 1,
+              kind: 'pair',
+            },
+            () =>
+              api(`/api/photo-groups/${encodeURIComponent(lib.groupId)}/before-after/generate-openai`, {
+                method: 'POST',
+                body: JSON.stringify({ matchKey, viewpoint: getBaViewpoint(matchKey) }),
+              }),
+          );
+          showToast('Generated OpenAI before/after pair.');
+        } else {
+          await withFluxProgress(
+            {
+              label: 'Generating photo…',
+              detail: matchKey,
+              card: openaiBtn.closest('.image-slot-card'),
+              index: 1,
+              total: 1,
+              kind: 'photo',
+            },
+            () =>
+              api(`/api/photo-groups/${encodeURIComponent(lib.groupId)}/slots/generate-openai`, {
+                method: 'POST',
+                body: JSON.stringify({ matchKey, viewpoint: getBaViewpoint(matchKey) }),
+              }),
+          );
+          showToast('Generated photo.');
+        }
+        await loadPhotoGroupView();
+        renderPhotoView();
+        await settleSlotBusy();
+      } catch (error) {
+        await settleSlotBusy();
+        await showModal({
+          title: 'Generate failed',
+          confirmLabel: 'OK',
+          hideCancel: true,
+          bodyHtml: `<p>${esc(error.message)}</p>`,
+        });
+      } finally {
+        openaiBtn.disabled = false;
+        setMasterProgress({ visible: false });
+        refreshImageWallets({ fresh: true, remind: true });
+      }
+      return;
+    }
+
+    const genBtn = ev.target.closest('.slot-generate');
+    if (
+      genBtn &&
+      root.contains(genBtn) &&
+      !genBtn.classList.contains('slot-generate-selected') &&
+      !genBtn.classList.contains('slot-generate-selected-flux')
+    ) {
+      ev.preventDefault();
+      if (!lib.groupId || genBtn.disabled) return;
+      genBtn.disabled = true;
+      try {
+        const matchKey = genBtn.getAttribute('data-match-key') || '';
+        await withFluxProgress(
+          {
+            label: 'Generating photo…',
+            detail: matchKey,
+            card: genBtn.closest('.image-slot-card'),
+            index: 1,
+            total: 1,
+            kind: 'photo',
+          },
+          () =>
+            api(`/api/photo-groups/${encodeURIComponent(lib.groupId)}/slots/generate`, {
+              method: 'POST',
+              body: JSON.stringify({ matchKey, viewpoint: getBaViewpoint(matchKey) }),
+            }),
+        );
+        showToast('Generated photo.');
+        await loadPhotoGroupView();
+        renderPhotoView();
+        await settleSlotBusy();
+      } catch (error) {
+        await settleSlotBusy();
+        await showModal({
+          title: 'Generate failed',
+          confirmLabel: 'OK',
+          hideCancel: true,
+          bodyHtml: `<p>${esc(error.message)}</p>`,
+        });
+      } finally {
+        genBtn.disabled = false;
+        setMasterProgress({ visible: false });
+        refreshImageWallets({ fresh: true, remind: true });
+      }
+      return;
+    }
+
+    const varBtn = ev.target.closest('.slot-variant-use');
+    if (varBtn && root.contains(varBtn)) {
+      ev.preventDefault();
+      if (!lib.groupId) return;
+      const card = varBtn.closest('.image-slot-card');
+      const matchKey = card?.getAttribute('data-match-key') || '';
+      try {
+        if (varBtn.getAttribute('data-pair-id')) {
+          await api(
+            `/api/photo-groups/${encodeURIComponent(lib.groupId)}/before-after/variants/use`,
+            {
+              method: 'POST',
+              body: JSON.stringify({ matchKey, pairId: varBtn.getAttribute('data-pair-id') }),
+            },
+          );
+          showToast('Restored before/after pair.');
+        } else {
+          await api(`/api/photo-groups/${encodeURIComponent(lib.groupId)}/slots/variants/use`, {
+            method: 'POST',
+            body: JSON.stringify({
+              matchKey,
+              filename: varBtn.getAttribute('data-filename'),
+            }),
+          });
+          showToast('Restored previous photo.');
+        }
+        await loadPhotoGroupView();
+        renderPhotoView();
+      } catch (error) {
+        await showModal({
+          title: 'Swap failed',
+          confirmLabel: 'OK',
+          hideCancel: true,
+          bodyHtml: `<p>${esc(error.message)}</p>`,
+        });
+      }
+      return;
+    }
+
+    const renameBtn = ev.target.closest('.photo-lib-rename');
+    if (renameBtn) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      const id = renameBtn.getAttribute('data-group-id');
+      const g = (lib.groups || []).find((x) => x.id === id);
+      const name = await photoLibPromptName('Rename photo group', g?.name || '');
+      if (!name) return;
+      try {
+        await api(`/api/photo-groups/${encodeURIComponent(id)}`, {
+          method: 'PATCH',
+          body: JSON.stringify({ name }),
+        });
+        await loadPhotoView();
+        showToast(`Renamed to “${name}”.`);
+      } catch (error) {
+        await showModal({
+          title: 'Rename failed',
+          confirmLabel: 'OK',
+          hideCancel: true,
+          bodyHtml: `<p>${esc(error.message)}</p>`,
+        });
+      }
+      return;
+    }
+
+    const dupBtn = ev.target.closest('.photo-lib-dup');
+    if (dupBtn) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      const id = dupBtn.getAttribute('data-group-id');
+      const g = (lib.groups || []).find((x) => x.id === id);
+      const name = await photoLibPromptName(
+        'Duplicate photo group',
+        `${photoLibMasterLabel(g)} copy`,
+      );
+      if (!name) return;
+      try {
+        const result = await api(`/api/photo-groups/${encodeURIComponent(id)}/duplicate`, {
+          method: 'POST',
+          body: JSON.stringify({ name }),
+        });
+        lib.groupId = result.group?.id || lib.groupId;
+        await loadPhotoView();
+        showToast(`Duplicated “${result.group?.name || name}”.`);
+      } catch (error) {
+        await showModal({
+          title: 'Duplicate failed',
+          confirmLabel: 'OK',
+          hideCancel: true,
+          bodyHtml: `<p>${esc(error.message)}</p>`,
+        });
+      }
+      return;
+    }
+
+    const delBtn = ev.target.closest('.photo-lib-delete');
+    if (delBtn) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      const id = delBtn.getAttribute('data-group-id');
+      const g = (lib.groups || []).find((x) => x.id === id);
+      const ok = await showModal({
+        title: 'Delete photo group?',
+        confirmLabel: 'Delete',
+        danger: true,
+        bodyHtml: `<p>Delete <strong>${esc(
+          g?.name || id,
+        )}</strong>? Sites that had this group attached will be detached (Skip / Image queries / master still work).</p>`,
+      });
+      if (!ok) return;
+      try {
+        await api(`/api/photo-groups/${encodeURIComponent(id)}`, { method: 'DELETE' });
+        if (lib.groupId === id) lib.groupId = null;
+        await loadPhotoView();
+        showToast('Photo group deleted.');
+      } catch (error) {
+        await showModal({
+          title: 'Delete failed',
+          confirmLabel: 'OK',
+          hideCancel: true,
+          bodyHtml: `<p>${esc(error.message)}</p>`,
+        });
+      }
+      return;
+    }
+
+    const row = ev.target.closest('.photo-lib-row');
+    if (row && !ev.target.closest('.photo-lib-row-actions')) {
+      const id = row.getAttribute('data-group-id');
+      if (id && id !== lib.groupId) {
+        lib.groupId = id;
+        lib.selectedMatchKey = null;
+        lib.selectedFilename = null;
+        lib.selectedRail = null;
+        lib.rolePhotos = [];
+        await loadPhotoGroupView();
+        renderPhotoView();
+      }
+      return;
+    }
+
+    const swapBtn = ev.target.closest('.photo-slot-swap');
+    if (swapBtn) {
+      ev.preventDefault();
+      lib.selectedMatchKey = swapBtn.getAttribute('data-match-key') || '';
+      lib.selectedFilename = swapBtn.getAttribute('data-filename') || '';
+      lib.selectedRail = null;
+      try {
+        await loadPhotoSwapRail();
+        renderPhotoGroup();
+      } catch (error) {
+        await showModal({
+          title: 'Swap rail failed',
+          confirmLabel: 'OK',
+          hideCancel: true,
+          bodyHtml: `<p>${esc(error.message)}</p>`,
+        });
+      }
+      return;
+    }
+
+    const useBtn = ev.target.closest('.photo-swap-use');
+    if (useBtn) {
+      ev.preventDefault();
+      if (!lib.groupId || !lib.selectedRail) return;
+      useBtn.disabled = true;
+      try {
+        await api(`/api/photo-groups/${encodeURIComponent(lib.groupId)}/slots/swap`, {
+          method: 'POST',
+          body: JSON.stringify({
+            matchKey: lib.selectedRail.matchKey,
+            fromGroupId: lib.selectedRail.fromGroupId,
+            filename: lib.selectedRail.filename || '',
+            ba: Boolean(lib.selectedRail.ba),
+          }),
+        });
+        lib.selectedRail = null;
+        await loadPhotoGroupView();
+        renderPhotoView();
+        showToast('Copied into this group.');
+      } catch (error) {
+        await showModal({
+          title: 'Swap failed',
+          confirmLabel: 'OK',
+          hideCancel: true,
+          bodyHtml: `<p>${esc(error.message)}</p>`,
+        });
+      } finally {
+        useBtn.disabled = false;
+      }
+      return;
+    }
+
+    const railCard = ev.target.closest('.photo-swap-card');
+    if (railCard) {
+      ev.preventDefault();
+      lib.selectedRail = {
+        fromGroupId: railCard.getAttribute('data-from-group') || '',
+        matchKey: railCard.getAttribute('data-match-key') || '',
+        filename: railCard.getAttribute('data-filename') || '',
+        ba: railCard.getAttribute('data-ba') === '1',
+      };
+      renderPhotoSwapRail();
+      return;
+    }
+
+    const card = ev.target.closest('.photo-slot-card');
+    if (card && !ev.target.closest('button, a, label, input')) {
+      lib.selectedMatchKey = card.getAttribute('data-match-key') || '';
+      lib.selectedFilename = card.getAttribute('data-filename') || '';
+      lib.selectedRail = null;
+      try {
+        await loadPhotoSwapRail();
+        renderPhotoGroup();
+      } catch {
+        renderPhotoGroup();
+      }
+      return;
+    }
+
+    const repullBtn = ev.target.closest('.photo-slot-repull');
+    if (repullBtn) {
+      ev.preventDefault();
+      if (!lib.groupId) return;
+      const matchKey = repullBtn.getAttribute('data-match-key');
+      repullBtn.disabled = true;
+      beginSlotBusy(matchKey, repullBtn.closest('.image-slot-card'));
+      try {
+        await api(`/api/photo-groups/${encodeURIComponent(lib.groupId)}/slots/repull`, {
+          method: 'POST',
+          body: JSON.stringify({ matchKey }),
+        });
+        await loadPhotoGroupView();
+        renderPhotoView();
+        await settleSlotBusy();
+        showToast('Re-pulled into this group.');
+      } catch (error) {
+        await settleSlotBusy();
+        await showModal({
+          title: 'Re-pull failed',
+          confirmLabel: 'OK',
+          hideCancel: true,
+          bodyHtml: `<p>${esc(error.message)}</p>`,
+        });
+      } finally {
+        repullBtn.disabled = false;
+      }
+      return;
+    }
+
+    const gptBtn = ev.target.closest('.photo-slot-chatgpt');
+    if (gptBtn) {
+      ev.preventDefault();
+      if (!lib.groupId) return;
+      const matchKey = gptBtn.getAttribute('data-match-key');
+      const viewpoint = getBaViewpoint(matchKey);
+      try {
+        const data = await api(
+          `/api/photo-groups/${encodeURIComponent(lib.groupId)}/slots/${encodeURIComponent(
+            matchKey,
+          )}/chatgpt-prompt?viewpoint=${encodeURIComponent(viewpoint)}`,
+        );
+        await navigator.clipboard.writeText(data.prompt || '');
+        showToast('ChatGPT prompt copied.');
+      } catch (error) {
+        await showModal({
+          title: 'Copy prompt failed',
+          confirmLabel: 'OK',
+          hideCancel: true,
+          bodyHtml: `<p>${esc(error.message)}</p>`,
+        });
+      }
+      return;
+    }
+
+    const baCopy = ev.target.closest('.photo-ba-copy');
+    if (baCopy) {
+      ev.preventDefault();
+      const kind = baCopy.getAttribute('data-ba-kind');
+      const key = baCopy.getAttribute('data-match-key') || '';
+      const viewpoint = getBaViewpoint(key);
+      if (!lib.groupId) return;
+      try {
+        const params = new URLSearchParams({
+          matchKey: key,
+          viewpoint,
+        });
+        const prompts = await api(
+          `/api/photo-groups/${encodeURIComponent(lib.groupId)}/before-after-prompts?${params}`,
+        );
+        const text = prompts[kind] || prompts.pair || '';
+        await navigator.clipboard.writeText(text);
+        showToast(`${kind === 'before' ? 'Before' : 'After'} prompt copied.`);
+      } catch (error) {
+        await showModal({
+          title: 'Copy failed',
+          confirmLabel: 'OK',
+          hideCancel: true,
+          bodyHtml: `<p>${esc(error.message)}</p>`,
+        });
+      }
+    }
+  });
+
+  root.addEventListener('change', async (ev) => {
+    const lib = photoLibCurrent();
+    const upload = ev.target.closest('.photo-slot-upload');
+    if (upload && upload.tagName === 'INPUT') {
+      const file = upload.files?.[0];
+      const matchKey = upload.getAttribute('data-match-key');
+      if (!file || !matchKey || !lib.groupId) {
+        upload.value = '';
+        return;
+      }
+      try {
+        const dataUrl = await photoLibFileDataUrl(file);
+        await api(`/api/photo-groups/${encodeURIComponent(lib.groupId)}/slots/upload`, {
+          method: 'POST',
+          body: JSON.stringify({
+            matchKey,
+            dataUrl,
+            alt: file.name.replace(/\.[^.]+$/, ''),
+          }),
+        });
+        await loadPhotoGroupView();
+        renderPhotoView();
+        showToast('Uploaded into this group.');
+      } catch (error) {
+        await showModal({
+          title: 'Upload failed',
+          confirmLabel: 'OK',
+          hideCancel: true,
+          bodyHtml: `<p>${esc(error.message)}</p>`,
+        });
+      } finally {
+        upload.value = '';
+      }
+      return;
+    }
+
+    const baImport = ev.target.closest('.photo-ba-import');
+    if (baImport && baImport.tagName === 'INPUT') {
+      const files = [...(baImport.files || [])].slice(0, 2);
+      if (files.length < 2 || !lib.groupId) {
+        baImport.value = '';
+        if (files.length && files.length < 2) {
+          await showModal({
+            title: 'Need two images',
+            confirmLabel: 'OK',
+            hideCancel: true,
+            bodyHtml: '<p>Choose a Before image and an After image.</p>',
+          });
+        }
+        return;
+      }
+      try {
+        const [beforeDataUrl, afterDataUrl] = await Promise.all(
+          files.map((f) => photoLibFileDataUrl(f)),
+        );
+        await api(`/api/photo-groups/${encodeURIComponent(lib.groupId)}/before-after/import`, {
+          method: 'POST',
+          body: JSON.stringify({
+            kind: baImport.getAttribute('data-ba-kind') || 'home',
+            pairIndex: Number(baImport.getAttribute('data-pair-index') || 1),
+            serviceSlug: baImport.getAttribute('data-service-slug') || '',
+            serviceName: baImport.getAttribute('data-service-name') || '',
+            beforeDataUrl,
+            afterDataUrl,
+          }),
+        });
+        await loadPhotoGroupView();
+        renderPhotoView();
+        showToast('Imported before/after pair.');
+      } catch (error) {
+        await showModal({
+          title: 'Import failed',
+          confirmLabel: 'OK',
+          hideCancel: true,
+          bodyHtml: `<p>${esc(error.message)}</p>`,
+        });
+      } finally {
+        baImport.value = '';
+      }
+    }
+  });
 }
 
 async function loadPhoneView() {
@@ -17104,12 +20151,22 @@ function wireDiscoveryUi() {
       if (btn.dataset.view === 'phone') {
         loadPhoneView().catch(() => {});
       }
+      if (btn.dataset.view === 'photo') {
+        loadPhotoView().catch(() => {});
+      }
     });
   });
 
   showDiscoverySidebarStep('pack');
   wireSitesUi();
   wirePhoneUi();
+  wirePhotoUi();
+  wireImageZoom();
+  api('/api/images/flux-status')
+    .then((data) => {
+      state.flux = data;
+    })
+    .catch(() => {});
 
   document.getElementById('discovery-batch-select')?.addEventListener('change', (event) => {
     const id = event.target.value;
@@ -17301,6 +20358,13 @@ function wireDiscoveryUi() {
       setDeterminateProgress(bar, { done: 0, total: preview.probeCount });
       if (labelEl) labelEl.textContent = 'Starting Light SERP…';
       if (detailEl) detailEl.textContent = `0 / ${preview.probeCount}`;
+      setMasterProgress({
+        visible: true,
+        label: 'Starting Light SERP…',
+        detail: `0 / ${preview.probeCount}`,
+        done: 0,
+        total: preview.probeCount,
+      });
 
       const started = await api(
         `/api/discovery/batches/${encodeURIComponent(state.discoveryBatchId)}/serp-probe`,
@@ -17331,6 +20395,18 @@ function wireDiscoveryUi() {
                 ? job.currentLabel
                 : `ok ${job.ok || 0} · errors ${job.errors || 0} · ${formatMoney(job.costUsd || 0)}`;
             }
+            setMasterProgress({
+              visible: true,
+              label:
+                job.status === 'running'
+                  ? `Probing ${job.done || 0} / ${job.total}`
+                  : `Probe ${job.status}`,
+              detail: job.currentLabel
+                ? job.currentLabel
+                : `ok ${job.ok || 0} · errors ${job.errors || 0} · ${formatMoney(job.costUsd || 0)}`,
+              done: job.done || 0,
+              total: job.total,
+            });
             if (job.status === 'running') {
               setTimeout(tick, 400);
               return;
@@ -17346,6 +20422,7 @@ function wireDiscoveryUi() {
         await selectDiscoveryBatch(job.batchId || state.discoveryBatchId);
         setDeterminateProgress(bar, {});
         if (progress) progress.classList.add('hidden');
+        setMasterProgress({ visible: false });
         announceStepComplete('Light SERP');
         const p = job.probe || job;
         await showModal({
@@ -17371,6 +20448,7 @@ function wireDiscoveryUi() {
     } catch (error) {
       setDeterminateProgress(bar, {});
       if (progress) progress.classList.add('hidden');
+      setMasterProgress({ visible: false });
       await showModal({
         title: 'Light SERP failed',
         confirmLabel: 'OK',
@@ -17809,6 +20887,11 @@ async function pollBatchJob(batchJobId) {
   const detailEl = document.getElementById('job-progress-detail');
   const bar = progress?.querySelector('.job-progress-bar');
   if (progress) progress.classList.remove('hidden');
+  setMasterProgress({
+    visible: true,
+    label: `Running ${jobActLabel(state.activeAct)}…`,
+    detail: 'Working…',
+  });
   const tick = async () => {
     try {
       const batch = await api(`/api/jobs/batches/${encodeURIComponent(batchJobId)}`);
@@ -17827,6 +20910,13 @@ async function pollBatchJob(batchJobId) {
         } queued${failBits ? ` · ${failBits}` : ''}`;
       }
       state.jobStatusLine = detailEl?.textContent || '';
+      setMasterProgress({
+        visible: true,
+        label: `Running ${jobActLabel(batch.act)}…`,
+        detail: state.jobStatusLine,
+        done,
+        total,
+      });
       if (state.selectedIds.size > 1) renderMultiDetail();
       if (batch.status === 'running') {
         state.pollTimer = setTimeout(tick, 800);
@@ -17836,6 +20926,7 @@ async function pollBatchJob(batchJobId) {
       state.activeAct = null;
       setDeterminateProgress(bar, {});
       if (progress) progress.classList.add('hidden');
+      setMasterProgress({ visible: false });
       if (batch.status === 'ok' || batch.status === 'done') {
         announceStepComplete(`Batch ${jobActLabel(batch.act)}`);
       }
@@ -17864,6 +20955,7 @@ async function pollBatchJob(batchJobId) {
       state.activeBatchJobId = null;
       setDeterminateProgress(bar, {});
       if (progress) progress.classList.add('hidden');
+      setMasterProgress({ visible: false });
       await showModal({
         title: 'Batch poll failed',
         confirmLabel: 'OK',
@@ -17874,19 +20966,30 @@ async function pollBatchJob(batchJobId) {
   tick();
 }
 
-await loadHealth();
-await loadDfsBalance();
-startBalancePolling();
-await loadRubric();
-wireSettingsUi();
-wireJobsUi();
-wireUi();
-renderDiscoverySourceLegend();
-setView('discovery');
 try {
-  await loadDiscoveryPresets();
-  await loadDiscoveryBatches();
-} catch {
-  /* discovery optional until server restart */
+  await loadHealth();
+  await loadDfsBalance();
+  await loadFalBalance();
+  startBalancePolling();
+  await loadRubric();
+  wireSettingsUi();
+  wireJobsUi();
+  wireUi();
+  renderDiscoverySourceLegend();
+  setView('discovery');
+  try {
+    await loadDiscoveryPresets();
+    await loadDiscoveryBatches();
+  } catch {
+    /* discovery optional until server restart */
+  }
+  await loadCandidates();
+} finally {
+  const boot = document.getElementById('app-boot-loading');
+  if (boot) {
+    boot.classList.add('hidden');
+    boot.setAttribute('aria-hidden', 'true');
+    boot.setAttribute('aria-busy', 'false');
+  }
 }
-await loadCandidates();
+void maybeShowFalRetireReminder();

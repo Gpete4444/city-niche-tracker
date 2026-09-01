@@ -1,5 +1,22 @@
 # Rover changelog
 
+## Unreleased
+
+## Version 1.6 (`1.6.0`)
+
+Photo library, Flux/OpenAI generate, launch step progress, and Review image trays:
+
+- **Photo library:** New Map / Photo / Phone tool tab for niche masters and named groups; Accept can attach or Skip
+- **Flux + OpenAI generate:** Per-slot and bulk generate on Review images and Photo; OpenAI pair for before/after; tray keeps 8
+- **Review images:** Click-to-cycle match grade; compact slot overlay loader (rings on black square); stock Re-pull archives the live photo onto the tray
+- **Logo:** Mark / Mark + text / Monogram; GPT Image 2 for mark modes
+- **Launch:** Determinate bar `Launching N / total` from real GitHub / build / deploy / CF steps (same for Push updates)
+- **Revert:** Collapsed by default (click header to expand)
+- **Nav:** Tool order Map, Photo, Phone with theme-colored icons
+- **Themes:** Theme 1 is Blue (default); Theme 2 is Teal
+- **Address Maps / Street View:** Pin `maps/?q=lat,lng`; Street View via official `map_action=pano&viewpoint=` from stored coords
+- **Content / map:** Coverage map and content-pass / auto-fix / image-query pipeline updates; service-area map polish
+
 ## Version 1.5 (`1.5.0`)
 
 Address Find operator controls, theme system expansion, Phone layout, and Research/Website spend visibility:

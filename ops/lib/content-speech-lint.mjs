@@ -26,13 +26,14 @@ const STIFF_LEAD_RE =
 
 /**
  * @param {Record<string, string>} files - relative path → markdown body
- * @param {{ primaryCity?: string, niche?: string }} [site]
+ * @param {{ primaryCity?: string, niche?: string, businessName?: string }} [site]
  * @returns {{ ok: boolean, findings: Array<{ file: string, section: string, rule: string, excerpt: string, suggestion: string }> }}
  */
 export function lintContentSpeech(files, site = {}) {
   const findings = [];
   const city = String(site.primaryCity || '').trim();
   const niche = String(site.niche || '').trim();
+  const businessName = String(site.businessName || '').trim();
   const cityRe = city
     ? new RegExp(
         `\\b(?:for|in|across)\\s+${escapeRegExp(city)}(?:['']s)?(?:\\s+/\\s+[\\w\\s]+)?(?:\\s+${escapeRegExp(niche)})?\\b`,
@@ -79,7 +80,12 @@ export function lintContentSpeech(files, site = {}) {
         });
       }
 
-      if (cityRe && leadPlain && cityRe.test(leadPlain) && isEducationalHeading(sec.heading)) {
+      if (
+        cityRe &&
+        leadPlain &&
+        isEducationalHeading(sec.heading) &&
+        isCityStuffedProseLead(leadPlain, city, cityRe)
+      ) {
         findings.push({
           file,
           section: sec.heading || '(lead)',
@@ -106,13 +112,13 @@ export function lintContentSpeech(files, site = {}) {
       }
 
       if (city && isEducationalHeading(sec.heading)) {
-        const matches = sec.body.match(new RegExp(escapeRegExp(city), 'gi')) || [];
-        if (matches.length >= 3) {
+        const matches = countCityMentions(sec.body, city, businessName);
+        if (matches >= 5) {
           findings.push({
             file,
             section: sec.heading || '(body)',
             rule: 'city_density',
-            excerpt: `“${city}” appears ${matches.length} times in this section`,
+            excerpt: `“${city}” appears ${matches} times in this section`,
             suggestion: 'Reduce city name repetition; one light local cue is enough.',
           });
         }
@@ -186,6 +192,28 @@ function isEducationalHeading(heading) {
   const t = String(heading || '').toLowerCase();
   if (!t) return false;
   return /cost|how long|timeline|materials|permit|code|diy|when to call|hiring a pro/.test(t);
+}
+
+function countCityMentions(text, city, businessName) {
+  let hay = String(text || '');
+  if (businessName) {
+    hay = hay.replace(new RegExp(escapeRegExp(businessName), 'gi'), '');
+  }
+  return (hay.match(new RegExp(`\\b${escapeRegExp(city)}\\b`, 'gi')) || []).length;
+}
+
+/** True stuffing: city in the first ~12 words of a prose lead — not a materials climate cue. */
+function isCityStuffedProseLead(leadPlain, city, cityRe) {
+  const lead = String(leadPlain || '').trim();
+  if (!lead || !city || !cityRe) return false;
+  if (isStructuredLabelDashLine(lead) || /^\s*[-*+]\s+/.test(lead)) return false;
+  const climate = new RegExp(
+    `\\b${escapeRegExp(city)}['']s\\s+(?:rain|damp|weather|climate|housing|moisture)\\b`,
+    'i',
+  );
+  if (climate.test(lead) && !cityRe.test(lead.replace(climate, ' '))) return false;
+  const first12 = lead.split(/\s+/).slice(0, 12).join(' ');
+  return cityRe.test(first12);
 }
 
 /**

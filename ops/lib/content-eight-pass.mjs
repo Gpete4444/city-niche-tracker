@@ -24,6 +24,12 @@ import {
   getContentStructure,
 } from './content-structure.mjs';
 import { getContentBrief, saveContentBrief, confirmContentBrief } from './content-agents.mjs';
+import {
+  listImageSlots,
+  persistNicheProfileFromPlan,
+  structureHasPhotosEnabled,
+} from './fill-site-images.mjs';
+import { listBaPromptSlots } from './chatgpt-before-after.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const AGENTS = path.join(ROOT, 'prompts', 'agents');
@@ -386,7 +392,6 @@ export async function buildBatchedFullWritePrompt(candidateId, batch = 'all') {
     const keep = filterFileRulesForBatch(outline, config, normalized);
     prompt += `\n\n## BATCH FILTER (${normalized})\nEmit ONLY these FILE paths this turn:\n${keep.markdown}\nDo not emit other site FILEs in this reply.\n`;
     return {
-      ...base,
       prompt,
       batch: normalized,
       requiredFileCount: keep.count,
@@ -394,11 +399,64 @@ export async function buildBatchedFullWritePrompt(candidateId, batch = 'all') {
     };
   }
 
-  return { ...base, prompt, batch: 'all' };
+  return { prompt, batch: 'all', requiredFileCount: base.requiredFileCount, batchFiles: [] };
+}
+
+function outlinePageIds(outline) {
+  const ids = outline?.pageIds;
+  if (Array.isArray(ids) && ids.length) return ids.map(String);
+  const pages = outline?.pages;
+  if (Array.isArray(pages)) {
+    return pages
+      .map((p) => (typeof p === 'string' ? p : p?.id))
+      .filter(Boolean)
+      .map(String);
+  }
+  if (pages && typeof pages === 'object') {
+    return Object.keys(pages).filter((k) => pages[k] && pages[k] !== false);
+  }
+  return ['home', 'about', 'contact'];
+}
+
+function configuredServiceNames(config = {}) {
+  const names = [];
+  const seen = new Set();
+  for (const raw of [...(config.services || []), ...(config.commercialServices || [])]) {
+    const name = typeof raw === 'string' ? raw : raw?.name;
+    const n = String(name || '').trim();
+    if (!n) continue;
+    const key = n.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    names.push(n);
+  }
+  return names;
+}
+
+function configuredLocationNames(config = {}) {
+  const names = [];
+  const seen = new Set();
+  for (const raw of [config.primaryCity, ...(config.targetSuburbs || [])]) {
+    const n = String(raw || '').trim();
+    if (!n) continue;
+    const key = n.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    names.push(n);
+  }
+  return names;
+}
+
+function slugifyBatchName(name) {
+  return String(name || '')
+    .toLowerCase()
+    .replace(/&/g, ' and ')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '');
 }
 
 function filterFileRulesForBatch(outline, config, batch) {
-  const pages = outline.pages || {};
+  const pageIds = new Set(outlinePageIds(outline));
   const paths = [];
   const lines = [];
   const add = (label, rel) => {
@@ -407,32 +465,19 @@ function filterFileRulesForBatch(outline, config, batch) {
   };
 
   if (batch === 'home') {
-    if (pages.home !== false) add('Home', 'src/content/pages/index.md');
-    if (pages.about) add('About', 'src/content/pages/about.md');
-    if (pages.contact) add('Contact', 'src/content/pages/contact.md');
+    if (pageIds.has('home')) add('Home', 'src/content/pages/index.md');
+    if (pageIds.has('about')) add('About', 'src/content/pages/about.md');
+    if (pageIds.has('contact')) add('Contact', 'src/content/pages/contact.md');
   } else if (batch === 'services') {
-    for (const svc of config.services || []) {
-      const name = typeof svc === 'string' ? svc : svc?.name;
-      if (!name) continue;
-      const slug = String(name)
-        .toLowerCase()
-        .replace(/&/g, ' and ')
-        .replace(/[^a-z0-9]+/g, '-')
-        .replace(/^-|-$/g, '');
+    for (const name of configuredServiceNames(config)) {
+      const slug = slugifyBatchName(name);
+      if (!slug) continue;
       add(name, `src/content/services/${slug}.md`);
     }
   } else if (batch === 'locations') {
-    const primary = config.primaryCity;
-    const suburbs = config.targetSuburbs || [];
-    const cities = [primary, ...suburbs].filter(Boolean);
-    const seen = new Set();
-    for (const city of cities) {
-      const slug = String(city)
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, '-')
-        .replace(/^-|-$/g, '');
-      if (seen.has(slug)) continue;
-      seen.add(slug);
+    for (const city of configuredLocationNames(config)) {
+      const slug = slugifyBatchName(city);
+      if (!slug) continue;
       add(city, `src/content/locations/${slug}.md`);
     }
   }
@@ -498,12 +543,12 @@ export function getWriteBatchStatus(candidateId, detail = null) {
   const batches = draft?._ops?.writeBatches || {};
   const outline = d?.contentOutlinePackage;
   const config = d?.siteConfig || {};
-  const pages = outline?.pages || {};
-  const needHome = pages.home !== false;
-  const needServices = Boolean(pages.services) && (config.services || []).length > 0;
+  const pageIds = outlinePageIds(outline);
+  const needHome =
+    pageIds.includes('home') || pageIds.includes('about') || pageIds.includes('contact');
+  const needServices = pageIds.includes('services') && configuredServiceNames(config).length > 0;
   const needLocations =
-    Boolean(pages.locations) &&
-    [config.primaryCity, ...(config.targetSuburbs || [])].filter(Boolean).length > 0;
+    pageIds.includes('locations') && configuredLocationNames(config).length > 0;
   const complete = {
     home: needHome ? Boolean(batches.home || batches.all) : true,
     services: needServices ? Boolean(batches.services || batches.all) : true,
@@ -564,33 +609,6 @@ export function stampFinalCheck(candidateId, { ok = true, summary = '' } = {}) {
   return { ok: true, candidate: getCandidateDetail(candidateId) };
 }
 
-export async function buildBookendsOnlyPrompt(candidateId) {
-  const config = loadAcceptedSiteConfig(candidateId)?.config || {};
-  const draft = readJson(pathsFor(candidateId).contentDraft);
-  if (!draft?.files) {
-    throw Object.assign(new Error('No draft for bookends pass'), { status: 400 });
-  }
-  const guardrails = loadContentGuardrails(config);
-  const prefer = Object.keys(draft.files).filter(
-    (f) => f.includes('/pages/index.md') || f.includes('/services/'),
-  );
-  const pick = prefer.length ? prefer.slice(0, 4) : Object.keys(draft.files).slice(0, 3);
-  const text = pick.map((rel) => `### FILE: ${rel}\n${draft.files[rel]}`).join('\n\n');
-  const prompt = `${guardrails}
-
-You are doing the HUMAN BOOKENDS pass only (Pass 6).
-
-Rewrite the **first two sentences** and the **last two sentences** of each FILE body (after frontmatter) with conversational, opinionated contractor voice. Keep the middle intact unless a bookend forces a tiny bridge edit.
-
-Phone / CTA language is welcome in the closing bookend when natural.
-
-FILES:
-${text}
-
-Return ### FILE blocks for files you changed only.`;
-  return { prompt };
-}
-
 export function buildGbpCategoryPrompt(candidateId) {
   const config = loadAcceptedSiteConfig(candidateId)?.config;
   if (!config) {
@@ -616,4 +634,159 @@ export function saveGbpCategoryChecklist(candidateId, raw) {
   const record = { ...parsed, savedAt: new Date().toISOString() };
   writeJson(filePath, record);
   return { ok: true, gbpCategories: record, candidate: getCandidateDetail(candidateId) };
+}
+
+function fewShotImageProfiles() {
+  const doc = readJson(path.join(ROOT, 'ops', 'data', 'niche-image-profiles.json'));
+  const want = new Set(['egress', 'kitchen', 'sewer']);
+  return (Array.isArray(doc?.profiles) ? doc.profiles : [])
+    .filter((p) => want.has(String(p?.id || '')))
+    .map((p) => ({
+      id: p.id,
+      boost: p.boost,
+      tokens: p.tokens,
+      requireNicheHit: p.requireNicheHit,
+      kindHints: p.kindHints,
+    }));
+}
+
+export function buildImageQueriesPrompt(candidateId) {
+  const config = loadAcceptedSiteConfig(candidateId)?.config;
+  if (!config) throw Object.assign(new Error('Accept Site config first'), { status: 400 });
+  if (!structureHasPhotosEnabled(candidateId)) {
+    throw Object.assign(new Error('Structure has no photo slots — skip Image queries'), {
+      status: 400,
+    });
+  }
+  const slots = listImageSlots(candidateId).map((s) => ({
+    key: s.key,
+    section: s.sectionId,
+    label: s.label || null,
+    service: s.serviceName || null,
+    processStep: s.processTitle || null,
+    material: s.materialTitle || null,
+  }));
+  const baSlots = listBaPromptSlots(candidateId);
+  if (!slots.length && !baSlots.length) {
+    throw Object.assign(new Error('No photo slots to query yet — finish Full write first'), {
+      status: 400,
+    });
+  }
+  const services = [
+    ...(Array.isArray(config.services) ? config.services : []),
+    ...(Array.isArray(config.commercialServices) ? config.commercialServices : []),
+  ];
+  const template = readAgentTemplate('content-image-queries.md');
+  const prompt = fillPlaceholders(template, {
+    NICHE: String(config.niche || '').trim() || 'home service',
+    SERVICES_JSON: JSON.stringify(services, null, 2),
+    SLOTS_JSON: JSON.stringify(slots, null, 2),
+    BA_SLOTS_JSON: JSON.stringify(baSlots, null, 2),
+    PROFILE_EXAMPLES_JSON: JSON.stringify(fewShotImageProfiles(), null, 2),
+  });
+  return { prompt, slotCount: slots.length, baSlotCount: baSlots.length, niche: config.niche, slots, baSlots };
+}
+
+export function saveImagesPlan(candidateId, raw) {
+  const parsed = parsePasteObject(raw);
+  const slotQueries = parsed?.slots && typeof parsed.slots === 'object' ? parsed.slots : null;
+  if (!slotQueries || Array.isArray(slotQueries)) {
+    throw Object.assign(
+      new Error('Image queries JSON needs a "slots" object keyed by slot key (hero-1, …).'),
+      { status: 400 },
+    );
+  }
+  const known = new Set(listImageSlots(candidateId).map((s) => s.key));
+  const slots = {};
+  for (const [key, val] of Object.entries(slotQueries)) {
+    if (!known.has(key)) continue;
+    const query = String(val?.query || val || '')
+      .trim()
+      .replace(/\s+/g, ' ');
+    if (!query) continue;
+    slots[key] = { query };
+  }
+  const baNeeded = listBaPromptSlots(candidateId);
+  if (!Object.keys(slots).length) {
+    if (known.size || !baNeeded.length) {
+      throw Object.assign(
+        new Error('No matching slot queries — use the keys from Copy prompt (hero-1, svcHero-…).'),
+        { status: 400 },
+      );
+    }
+  }
+  const rawBa = parsed?.beforeAfter && typeof parsed.beforeAfter === 'object' ? parsed.beforeAfter : {};
+  const beforeAfter = {};
+  const missingBa = [];
+  for (const slot of baNeeded) {
+    const entry = rawBa[slot.key];
+    const pick = (side) => ({
+      before: String(entry?.[side]?.before || '').trim(),
+      after: String(entry?.[side]?.after || '').trim(),
+    });
+    const inside = pick('inside');
+    const outside = pick('outside');
+    if (!inside.before || !inside.after || !outside.before || !outside.after) {
+      missingBa.push(slot.key);
+      continue;
+    }
+    beforeAfter[slot.key] = {
+      room: String(entry.room || '').trim() || null,
+      inside,
+      outside,
+    };
+  }
+  if (baNeeded.length && missingBa.length) {
+    throw Object.assign(
+      new Error(
+        `Image queries JSON needs beforeAfter prompts for: ${missingBa.join(', ')} (inside and outside, before and after).`,
+      ),
+      { status: 400 },
+    );
+  }
+
+  const config = loadAcceptedSiteConfig(candidateId)?.config || {};
+  const niche = String(config.niche || '').trim();
+  const services = [
+    ...(Array.isArray(config.services) ? config.services : []),
+    ...(Array.isArray(config.commercialServices) ? config.commercialServices : []),
+  ];
+  const profilePersist = persistNicheProfileFromPlan(niche, services, parsed.profile || {});
+
+  const loadedAt = new Date().toISOString();
+  const record = {
+    version: 1,
+    candidateId: pathsFor(candidateId).id,
+    loadedAt,
+    niche,
+    profile: parsed.profile || null,
+    profilePersist,
+    slots,
+    beforeAfter,
+    baSlotCount: Object.keys(beforeAfter).length,
+  };
+  writeJson(pathsFor(candidateId).imagesPlan, record);
+
+  const stampOps = (filePath) => {
+    const doc = readJson(filePath);
+    if (!doc) return;
+    doc._ops = {
+      ...(doc._ops || {}),
+      lastImagesPlanAt: loadedAt,
+      lastImagesPlanSlotCount: Object.keys(slots).length,
+      lastImagesPlanBaCount: Object.keys(beforeAfter).length,
+    };
+    writeJson(filePath, doc);
+  };
+  stampOps(pathsFor(candidateId).contentDraft);
+  stampOps(pathsFor(candidateId).content);
+
+  return {
+    ok: true,
+    loadedAt,
+    slotCount: Object.keys(slots).length,
+    baSlotCount: Object.keys(beforeAfter).length,
+    profilePersist,
+    candidate: getCandidateDetail(candidateId),
+  };
 }

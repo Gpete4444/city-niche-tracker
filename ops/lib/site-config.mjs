@@ -107,6 +107,154 @@ export function publicLeadsEmail(email, domain) {
   return e || (d ? `leads@${d}` : '');
 }
 
+const DOMAIN_NAME_SUFFIXES = ['experts', 'solutions', 'group', 'elite', 'pros', 'pro'];
+const DOMAIN_NAME_LEFTOVER_WORDS = [
+  'installation',
+  'installations',
+  'repair',
+  'repairs',
+  'service',
+  'services',
+  'cleaning',
+  'plumbing',
+  'plumber',
+  'roofing',
+  'concrete',
+  'drywall',
+  'sewer',
+  'drain',
+  'fencing',
+  'fence',
+  'painting',
+  'garage',
+  'windows',
+  'siding',
+  'hvac',
+  'door',
+  'doors',
+];
+
+function titleCaseDomainWord(w) {
+  const s = String(w || '').trim();
+  if (!s) return '';
+  if (/^(hvac|llc|inc)$/i.test(s)) return s.toUpperCase();
+  return s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
+}
+
+/**
+ * Derive a display business name from an Exact Match hostname + city/niche context.
+ * e.g. everettdrywallrepairpros.com + Everett + Drywall Repair → "Everett Drywall Repair Pros"
+ */
+export function businessNameFromDomain(domain, { primaryCity, niche } = {}) {
+  let host = String(domain || '')
+    .trim()
+    .toLowerCase()
+    .replace(/^https?:\/\//i, '')
+    .replace(/^www\./, '');
+  host = host.split('/')[0].split('?')[0].split('#')[0].replace(/\.$/, '');
+  const label = (host.split('.')[0] || host).replace(/[^a-z0-9]/g, '');
+  if (!label) return '';
+
+  let rest = label;
+  const parts = [];
+
+  const cityRaw = String(primaryCity || '').trim();
+  const citySlug = normNameKey(cityRaw);
+  if (citySlug && rest.startsWith(citySlug)) {
+    parts.push(cityRaw);
+    rest = rest.slice(citySlug.length);
+  }
+
+  const nicheRaw = String(niche || '').trim();
+  const nicheSlug = normNameKey(nicheRaw);
+  if (nicheSlug && rest.startsWith(nicheSlug)) {
+    parts.push(nicheRaw);
+    rest = rest.slice(nicheSlug.length);
+  } else if (nicheRaw) {
+    const nicheWords = nicheRaw.split(/\s+/).filter(Boolean);
+    const peeled = [];
+    let cursor = rest;
+    for (const w of nicheWords) {
+      const ws = normNameKey(w);
+      if (ws && cursor.startsWith(ws)) {
+        peeled.push(w);
+        cursor = cursor.slice(ws.length);
+      } else {
+        peeled.length = 0;
+        break;
+      }
+    }
+    if (peeled.length) {
+      parts.push(...peeled);
+      rest = cursor;
+    }
+  }
+
+  const suffixes = [...DOMAIN_NAME_SUFFIXES].sort((a, b) => b.length - a.length);
+  const suffixParts = [];
+  let guard = 0;
+  while (rest && guard++ < 8) {
+    let hit = false;
+    for (const suf of suffixes) {
+      if (rest === suf || (rest.endsWith(suf) && rest.length >= suf.length)) {
+        suffixParts.unshift(titleCaseDomainWord(suf));
+        rest = rest.slice(0, -suf.length);
+        hit = true;
+        break;
+      }
+    }
+    if (!hit) break;
+  }
+
+  if (rest) {
+    const known = [...DOMAIN_NAME_LEFTOVER_WORDS].sort((a, b) => b.length - a.length);
+    let cursor = rest;
+    let peelGuard = 0;
+    while (cursor && peelGuard++ < 24) {
+      let hit = false;
+      for (const k of known) {
+        if (cursor.startsWith(k)) {
+          parts.push(titleCaseDomainWord(k));
+          cursor = cursor.slice(k.length);
+          hit = true;
+          break;
+        }
+      }
+      if (hit) continue;
+      // Residual prefix before the next known token (e.g. city slug when context missing)
+      let bestIdx = -1;
+      let bestLen = 0;
+      for (const k of known) {
+        const idx = cursor.indexOf(k);
+        if (idx > 0 && (bestIdx < 0 || idx < bestIdx || (idx === bestIdx && k.length > bestLen))) {
+          bestIdx = idx;
+          bestLen = k.length;
+        }
+      }
+      if (bestIdx > 0) {
+        parts.push(titleCaseDomainWord(cursor.slice(0, bestIdx)));
+        cursor = cursor.slice(bestIdx);
+        continue;
+      }
+      parts.push(titleCaseDomainWord(cursor));
+      break;
+    }
+  }
+
+  parts.push(...suffixParts);
+  const name = parts.join(' ').replace(/\s+/g, ' ').trim();
+  if (name) return name;
+
+  // Fallback: naive camel/slug split of the full label
+  return label
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .replace(/[^a-z0-9]+/gi, ' ')
+    .split(/\s+/)
+    .filter(Boolean)
+    .map(titleCaseDomainWord)
+    .join(' ');
+}
+
 /**
  * Avoid shipping the niche label as the company name (weak brand on every page).
  */
@@ -507,9 +655,6 @@ export function buildDomainPickPrompt(candidateId, nap = {}) {
   });
   const md = readPromptFile('prompts/claude-domain-pick.md');
   const template = extractPromptTemplate(md);
-  const cluster = Array.isArray(pack.cityCluster)
-    ? pack.cityCluster.join('; ')
-    : String(pack.cityCluster || '').trim();
   const businessName =
     String(nap.businessName || '').trim() ||
     String(pack.narrative?.businessName || pack.businessName || '').trim() ||
@@ -521,7 +666,6 @@ export function buildDomainPickPrompt(candidateId, nap = {}) {
       String(pack.primaryCity || pack.city || '').trim() || 'omit',
     )
     .replace('{{STATE}}', String(pack.state || '').trim().toUpperCase() || 'omit')
-    .replace('{{CITY_CLUSTER}}', cluster || 'omit')
     .replace('{{BUSINESS_NAME}}', businessName);
   return {
     prompt: filled,
@@ -529,7 +673,6 @@ export function buildDomainPickPrompt(candidateId, nap = {}) {
       niche: pack.niche ?? null,
       primaryCity: pack.primaryCity ?? pack.city ?? null,
       state: pack.state ?? null,
-      cityCluster: pack.cityCluster ?? null,
     },
   };
 }

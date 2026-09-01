@@ -85,16 +85,57 @@ import {
   getImagesManifest,
   structureHasPhotosEnabled,
   listImageSlotStatus,
+  setImageSlotMatchGrade,
   repullImageSlot,
   uploadImageSlot,
   readSiteImageFile,
 } from './lib/fill-site-images.mjs';
-import { generateSiteLogo } from './lib/generate-site-logo.mjs';
-import { generateCoverageMapForCandidate } from './lib/generate-coverage-map.mjs';
 import {
-  buildBeforeAfterPrompts,
+  generateImageSlot,
+  generateImageSlotOpenai,
+  useImageSlotVariant,
+  generateCandidateBaPairOpenai,
+  useCandidateBaVariant,
+} from './lib/flux-generate.mjs';
+import { fluxStatus, getFalBalance, getFluxJobProgress } from './lib/image-providers/flux.mjs';
+import {
+  applyPhotoGroup,
+  attachPhotoGroup,
+  findNicheMaster,
+  skipPhotoGroup,
+  getAttachedPhotoGroup,
+  listPhotoGroups,
+  previewPhotoGroup,
+  savePhotoGroup,
+  readPhotoGroupFile,
+} from './lib/photo-groups.mjs';
+import {
+  listPhotoLibrary,
+  getPhotoGroupView,
+  listRolePhotos,
+  swapPhotoGroupSlot,
+  uploadPhotoGroupSlot,
+  repullPhotoGroupSlot,
+  chatgptPromptForGroupSlot,
+  importPhotoGroupBa,
+  removePhotoGroupSlot,
+  renamePhotoGroup,
+  duplicatePhotoGroup,
+  deletePhotoGroup,
+  upsertNicheMaster,
+  generatePhotoGroupSlot,
+  generatePhotoGroupSlotOpenai,
+  usePhotoGroupSlotVariant,
+  generatePhotoGroupBaPairOpenai,
+  usePhotoGroupBaVariant,
+  getPhotoGroupBaPrompts,
+} from './lib/photo-library.mjs';
+import { generateSiteLogo } from './lib/generate-site-logo.mjs';
+import { generateCoverageMapForCandidate, getCoverageMapProgress } from './lib/generate-coverage-map.mjs';
+import {
   importBeforeAfterPair,
   listBeforeAfterStatus,
+  resolveBaChatgptPrompts,
 } from './lib/chatgpt-before-after.mjs';
 import { buildSlotImagePrompt } from './lib/chatgpt-slot-image.mjs';
 import {
@@ -131,10 +172,10 @@ import {
 } from './lib/content-structure.mjs';
 import {
   buildBatchedFullWritePrompt,
-  buildBookendsOnlyPrompt,
   buildFieldResearchPrompt,
   buildFinalCheckPrompt,
   buildGbpCategoryPrompt,
+  buildImageQueriesPrompt,
   buildSoftBriefPrompt,
   getContentFieldResearch,
   getWriteBatchStatus,
@@ -142,6 +183,7 @@ import {
   pasteAndConfirmSoftBrief,
   saveContentFieldResearch,
   saveGbpCategoryChecklist,
+  saveImagesPlan,
   stampFinalCheck,
   syncWriteBatchesFromDraft,
 } from './lib/content-eight-pass.mjs';
@@ -162,6 +204,7 @@ import {
   listJobsSnapshot,
   onJobsChange,
   updateJobDetail,
+  updateJobProgress,
   setConcurrency,
 } from './lib/rover-heavy-jobs.mjs';
 import { assembleSiteInWorker, getAssembleChecklist, planAssembleReplace, finalizePreviousAssembledSite } from './lib/assemble-site.mjs';
@@ -173,7 +216,8 @@ import {
   createManualSite,
   deleteSite,
   getSite,
-  listSites,
+  getSiteByCandidateId,
+  listLaunchedSites,
   PAYMENT_METHODS,
   SITE_STATUSES,
   updateSite,
@@ -299,6 +343,7 @@ function sendError(res, error) {
   if (error.twilioSid) payload.twilioSid = error.twilioSid;
   if (error.e164) payload.e164 = error.e164;
   if (error.provisioned) payload.provisioned = error.provisioned;
+  if (error.existingId) payload.existingId = error.existingId;
   res.status(status).json(payload);
 }
 
@@ -331,6 +376,21 @@ app.get('/api/health', (_req, res) => {
     { name: 'Unsplash', group: 'Website · images', ok: envSet('UNSPLASH_ACCESS_KEY') },
     { name: 'Pexels', group: 'Website · images', ok: envSet('PEXELS_API_KEY') },
     { name: 'Pixabay', group: 'Website · images', ok: envSet('PIXABAY_API_KEY') },
+    {
+      name: 'Flux 2 Pro',
+      group: 'Website · images',
+      ok: envSet('FAL_KEY') || envSet('FAL_API_KEY'),
+    },
+    {
+      name: 'GPT Image (OpenAI)',
+      group: 'Website · images',
+      ok: envSet('OPENAI_API_KEY'),
+    },
+    {
+      name: 'Flux remaining',
+      group: 'Website · images',
+      ok: envSet('FAL_ADMIN_KEY'),
+    },
     // 5 · Assemble & launch
     { name: 'GitHub owner', group: 'Assemble & launch', ok: envSet('GITHUB_OWNER') },
     { name: 'Template repo', group: 'Assemble & launch', ok: envSet('TEMPLATE_GITHUB_REPO') },
@@ -1461,16 +1521,46 @@ app.post('/api/candidates/:id/content/accept', async (req, res) => {
     });
     let images = null;
     if (structureHasPhotosEnabled(acceptId)) {
-      console.log(`[accept] ${acceptId} pulling stock photos…`);
-      try {
-        images = await fillSiteImages(acceptId, { replace: false });
-      } catch (imageErr) {
-        images = {
-          ok: false,
-          warning: imageErr.message || String(imageErr),
-          human: [imageErr.message || String(imageErr)],
-          providerStatus: imageErr.providerStatus || null,
-        };
+      const attached = getAttachedPhotoGroup(acceptId);
+      const skipDoc = getCandidateDetail(acceptId).photoGroupAttached;
+      const applyGroup = async (groupId, label) => {
+        console.log(`[accept] ${acceptId} applying photo group “${label}”…`);
+        try {
+          return applyPhotoGroup(acceptId, groupId);
+        } catch (imageErr) {
+          return {
+            ok: false,
+            warning: imageErr.message || String(imageErr),
+            human: [imageErr.message || String(imageErr)],
+          };
+        }
+      };
+      const pullStock = async () => {
+        console.log(`[accept] ${acceptId} pulling stock photos…`);
+        try {
+          return await fillSiteImages(acceptId, { replace: false });
+        } catch (imageErr) {
+          return {
+            ok: false,
+            warning: imageErr.message || String(imageErr),
+            human: [imageErr.message || String(imageErr)],
+            providerStatus: imageErr.providerStatus || null,
+          };
+        }
+      };
+      if (attached?.groupId) {
+        images = await applyGroup(attached.groupId, attached.name || attached.groupId);
+      } else if (skipDoc?.skipped) {
+        images = await pullStock();
+      } else {
+        const detail = getCandidateDetail(acceptId);
+        const niche = detail.photoGroupNiche || detail.siteConfig?.niche || '';
+        const master = findNicheMaster(niche);
+        if (master?.id) {
+          images = await applyGroup(master.id, master.name || `${niche} master`);
+        } else {
+          images = await pullStock();
+        }
       }
     } else {
       console.log(`[accept] ${acceptId} photos skipped (structure has none enabled)`);
@@ -1478,7 +1568,7 @@ app.post('/api/candidates/:id/content/accept', async (req, res) => {
     let logo = null;
     console.log(`[accept] ${acceptId} generating logo…`);
     try {
-      logo = generateSiteLogo(acceptId);
+      logo = await generateSiteLogo(acceptId);
     } catch (logoErr) {
       logo = {
         ok: false,
@@ -1538,6 +1628,280 @@ app.post('/api/candidates/:id/content/accept', async (req, res) => {
   }
 });
 
+app.get('/api/photo-groups', (req, res) => {
+  try {
+    res.json({ groups: listPhotoGroups({ niche: req.query?.niche || '' }) });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/candidates/:id/photo-groups', (req, res) => {
+  try {
+    assertLaunchedEditAllowed(req.params.id, req.body || {});
+    const name = String(req.body?.name || '').trim();
+    const replaceExisting = Boolean(req.body?.replaceExisting);
+    res.json(savePhotoGroup(req.params.id, name, { replaceExisting }));
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/candidates/:id/photo-groups/preview', (req, res) => {
+  try {
+    const groupId = String(req.body?.groupId || req.query?.groupId || '').trim();
+    res.json(previewPhotoGroup(req.params.id, groupId));
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/candidates/:id/photo-groups/load', (req, res) => {
+  try {
+    assertLaunchedEditAllowed(req.params.id, req.body || {});
+    const groupId = String(req.body?.groupId || '').trim();
+    res.json(applyPhotoGroup(req.params.id, groupId));
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/candidates/:id/photo-groups/attach', (req, res) => {
+  try {
+    assertLaunchedEditAllowed(req.params.id, req.body || {});
+    const groupId = String(req.body?.groupId || '').trim();
+    res.json(attachPhotoGroup(req.params.id, groupId));
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/candidates/:id/photo-groups/skip', (req, res) => {
+  try {
+    assertLaunchedEditAllowed(req.params.id, req.body || {});
+    res.json(skipPhotoGroup(req.params.id));
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+function sendLocalImageFile(res, abs, filename) {
+  const ext = path.extname(filename).toLowerCase();
+  const type =
+    ext === '.png'
+      ? 'image/png'
+      : ext === '.webp'
+        ? 'image/webp'
+        : ext === '.gif'
+          ? 'image/gif'
+          : ext === '.svg'
+            ? 'image/svg+xml'
+            : 'image/jpeg';
+  res.setHeader('Content-Type', type);
+  res.setHeader('Cache-Control', 'no-store');
+  res.sendFile(abs);
+}
+
+app.get('/api/photo-library', (req, res) => {
+  try {
+    res.json(listPhotoLibrary({ niche: req.query?.niche || '' }));
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.get('/api/photo-library/roles', (req, res) => {
+  try {
+    res.json(
+      listRolePhotos({
+        niche: req.query?.niche || '',
+        matchKey: req.query?.key || req.query?.matchKey || '',
+        excludeGroupId: req.query?.exclude || req.query?.excludeGroupId || '',
+        excludeFilename: req.query?.filename || req.query?.excludeFilename || '',
+      }),
+    );
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.get('/api/photo-groups/:id/file/:filename', (req, res) => {
+  try {
+    const { abs, filename } = readPhotoGroupFile(req.params.id, req.params.filename);
+    sendLocalImageFile(res, abs, filename);
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.get('/api/photo-groups/:id', (req, res) => {
+  try {
+    res.json({ ...getPhotoGroupView(req.params.id), flux: fluxStatus() });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/photo-groups/:id/slots/swap', (req, res) => {
+  try {
+    res.json(swapPhotoGroupSlot(req.params.id, req.body || {}));
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/photo-groups/:id/slots/upload', (req, res) => {
+  try {
+    res.json(uploadPhotoGroupSlot(req.params.id, req.body || {}));
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/photo-groups/:id/slots/repull', async (req, res) => {
+  try {
+    res.json(await repullPhotoGroupSlot(req.params.id, req.body || {}));
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/photo-groups/:id/slots/remove', (req, res) => {
+  try {
+    res.json(removePhotoGroupSlot(req.params.id, req.body || {}));
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.get('/api/photo-groups/:id/slots/:key/chatgpt-prompt', (req, res) => {
+  try {
+    res.json(
+      chatgptPromptForGroupSlot(req.params.id, req.params.key, {
+        viewpoint: req.query?.viewpoint || 'inside',
+      }),
+    );
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/photo-groups/:id/slots/generate', async (req, res) => {
+  try {
+    res.json(
+      await generatePhotoGroupSlot(req.params.id, {
+        matchKey: req.body?.matchKey || req.body?.key,
+        viewpoint: req.body?.viewpoint || 'inside',
+      }),
+    );
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/photo-groups/:id/slots/generate-openai', async (req, res) => {
+  try {
+    res.json(
+      await generatePhotoGroupSlotOpenai(req.params.id, {
+        matchKey: req.body?.matchKey || req.body?.key,
+        viewpoint: req.body?.viewpoint || 'inside',
+      }),
+    );
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/photo-groups/:id/slots/variants/use', (req, res) => {
+  try {
+    res.json(
+      usePhotoGroupSlotVariant(req.params.id, {
+        matchKey: req.body?.matchKey || req.body?.key,
+        filename: req.body?.filename,
+      }),
+    );
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.get('/api/photo-groups/:id/before-after-prompts', (req, res) => {
+  try {
+    res.json(
+      getPhotoGroupBaPrompts(req.params.id, {
+        matchKey: req.query?.matchKey || req.query?.match || '',
+        viewpoint: req.query?.viewpoint || 'inside',
+        pairIndex: req.query?.pairIndex || 1,
+        serviceSlug: req.query?.service || req.query?.serviceSlug || '',
+      }),
+    );
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/photo-groups/:id/before-after/generate-openai', async (req, res) => {
+  try {
+    res.json(
+      await generatePhotoGroupBaPairOpenai(req.params.id, {
+        matchKey: req.body?.matchKey,
+        viewpoint: req.body?.viewpoint || 'inside',
+        kind: req.body?.kind,
+        pairIndex: req.body?.pairIndex,
+        serviceSlug: req.body?.serviceSlug,
+        serviceName: req.body?.serviceName,
+      }),
+    );
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/photo-groups/:id/before-after/variants/use', (req, res) => {
+  try {
+    res.json(
+      usePhotoGroupBaVariant(req.params.id, {
+        matchKey: req.body?.matchKey,
+        pairId: req.body?.pairId || req.body?.id,
+      }),
+    );
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/photo-groups/:id/before-after/import', (req, res) => {
+  try {
+    res.json(importPhotoGroupBa(req.params.id, req.body || {}));
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.patch('/api/photo-groups/:id', (req, res) => {
+  try {
+    res.json(renamePhotoGroup(req.params.id, req.body?.name));
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/photo-groups/:id/duplicate', (req, res) => {
+  try {
+    res.json(duplicatePhotoGroup(req.params.id, req.body?.name));
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.delete('/api/photo-groups/:id', (req, res) => {
+  try {
+    res.json(deletePhotoGroup(req.params.id));
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
 app.get('/api/candidates/:id/images', (req, res) => {
   try {
     res.json(getImagesManifest(req.params.id));
@@ -1548,7 +1912,7 @@ app.get('/api/candidates/:id/images', (req, res) => {
 
 app.get('/api/candidates/:id/images/slots', (req, res) => {
   try {
-    res.json(listImageSlotStatus(req.params.id));
+    res.json({ ...listImageSlotStatus(req.params.id), flux: fluxStatus() });
   } catch (error) {
     sendError(res, error);
   }
@@ -1557,20 +1921,7 @@ app.get('/api/candidates/:id/images/slots', (req, res) => {
 app.get('/api/candidates/:id/images/file/:filename', (req, res) => {
   try {
     const { abs, filename } = readSiteImageFile(req.params.id, req.params.filename);
-    const ext = path.extname(filename).toLowerCase();
-    const type =
-      ext === '.png'
-        ? 'image/png'
-        : ext === '.webp'
-          ? 'image/webp'
-          : ext === '.gif'
-            ? 'image/gif'
-            : ext === '.svg'
-              ? 'image/svg+xml'
-              : 'image/jpeg';
-    res.setHeader('Content-Type', type);
-    res.setHeader('Cache-Control', 'no-store');
-    res.sendFile(abs);
+    sendLocalImageFile(res, abs, filename);
   } catch (error) {
     sendError(res, error);
   }
@@ -1581,6 +1932,15 @@ app.post('/api/candidates/:id/images/pull', async (req, res) => {
     assertLaunchedEditAllowed(req.params.id, req.body || {});
     const replace = Boolean(req.body?.replace || req.query?.replace);
     const result = await fillSiteImages(req.params.id, { replace });
+    res.json(result);
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/candidates/:id/images/slots/:slotKey/match-grade', (req, res) => {
+  try {
+    const result = setImageSlotMatchGrade(req.params.id, req.params.slotKey, req.body?.matchGrade);
     res.json(result);
   } catch (error) {
     sendError(res, error);
@@ -1619,10 +1979,48 @@ app.get('/api/candidates/:id/images/slots/:slotKey/chatgpt-prompt', (req, res) =
   }
 });
 
-app.post('/api/candidates/:id/logo/generate', (req, res) => {
+app.post('/api/candidates/:id/images/slots/:slotKey/generate', async (req, res) => {
   try {
     assertLaunchedEditAllowed(req.params.id, req.body || {});
-    res.json(generateSiteLogo(req.params.id));
+    const result = await generateImageSlot(req.params.id, req.params.slotKey, {
+      viewpoint: req.body?.viewpoint || 'inside',
+    });
+    res.json(result);
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/candidates/:id/images/slots/:slotKey/generate-openai', async (req, res) => {
+  try {
+    assertLaunchedEditAllowed(req.params.id, req.body || {});
+    const result = await generateImageSlotOpenai(req.params.id, req.params.slotKey, {
+      viewpoint: req.body?.viewpoint || 'inside',
+    });
+    res.json(result);
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/candidates/:id/images/slots/:slotKey/variants/use', (req, res) => {
+  try {
+    assertLaunchedEditAllowed(req.params.id, req.body || {});
+    res.json(
+      useImageSlotVariant(req.params.id, req.params.slotKey, {
+        filename: req.body?.filename,
+      }),
+    );
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/candidates/:id/logo/generate', async (req, res) => {
+  try {
+    assertLaunchedEditAllowed(req.params.id, req.body || {});
+    const result = await generateSiteLogo(req.params.id, { mode: req.body?.mode });
+    res.json(result);
   } catch (error) {
     sendError(res, error);
   }
@@ -1631,8 +2029,18 @@ app.post('/api/candidates/:id/logo/generate', (req, res) => {
 app.post('/api/candidates/:id/coverage-map/generate', async (req, res) => {
   try {
     assertLaunchedEditAllowed(req.params.id, req.body || {});
-    const result = await generateCoverageMapForCandidate(req.params.id);
+    const result = await generateCoverageMapForCandidate(req.params.id, {
+      labelPlacement: req.body?.labelPlacement,
+    });
     res.json(result);
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.get('/api/candidates/:id/coverage-map/progress', (req, res) => {
+  try {
+    res.json(getCoverageMapProgress(req.params.id));
   } catch (error) {
     sendError(res, error);
   }
@@ -1640,10 +2048,58 @@ app.post('/api/candidates/:id/coverage-map/generate', async (req, res) => {
 
 app.get('/api/candidates/:id/images/before-after-prompts', (req, res) => {
   try {
+    const resolved = resolveBaChatgptPrompts(req.params.id, {
+      serviceSlug: req.query?.service || req.query?.serviceSlug || '',
+      pairIndex: req.query?.pairIndex || 1,
+      viewpoint: req.query?.viewpoint || 'inside',
+    });
+    res.json({
+      ...resolved,
+      chatgptUrl: 'https://chatgpt.com/',
+    });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.get('/api/images/flux-status', (_req, res) => {
+  res.json({ ok: true, ...fluxStatus() });
+});
+
+app.get('/api/images/flux-balance', async (req, res) => {
+  try {
+    const fresh = String(req.query?.fresh || '') === '1' || req.query?.fresh === 'true';
+    res.json(await getFalBalance({ fresh }));
+  } catch (error) {
+    res.json({
+      ok: false,
+      balance: null,
+      error: error.message || String(error),
+      fetchedAt: new Date().toISOString(),
+    });
+  }
+});
+
+app.get('/api/images/flux-progress', (_req, res) => {
+  res.json(getFluxJobProgress());
+});
+
+app.get('/api/candidates/:id/images/before-after-status', (req, res) => {
+  try {
+    res.json({ ...listBeforeAfterStatus(req.params.id), flux: fluxStatus() });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/candidates/:id/images/before-after-generate-openai', async (req, res) => {
+  try {
+    assertLaunchedEditAllowed(req.params.id, req.body || {});
     res.json(
-      buildBeforeAfterPrompts(req.params.id, {
-        serviceSlug: req.query?.service || req.query?.serviceSlug || '',
-        viewpoint: req.query?.viewpoint || 'inside',
+      await generateCandidateBaPairOpenai(req.params.id, {
+        viewpoint: req.body?.viewpoint || 'inside',
+        serviceSlug: req.body?.serviceSlug || req.body?.service || '',
+        pairIndex: req.body?.pairIndex || 1,
       }),
     );
   } catch (error) {
@@ -1651,9 +2107,16 @@ app.get('/api/candidates/:id/images/before-after-prompts', (req, res) => {
   }
 });
 
-app.get('/api/candidates/:id/images/before-after-status', (req, res) => {
+app.post('/api/candidates/:id/images/before-after/variants/use', (req, res) => {
   try {
-    res.json(listBeforeAfterStatus(req.params.id));
+    assertLaunchedEditAllowed(req.params.id, req.body || {});
+    res.json(
+      useCandidateBaVariant(req.params.id, {
+        pairId: req.body?.pairId || req.body?.id,
+        serviceSlug: req.body?.serviceSlug || '',
+        pairIndex: req.body?.pairIndex || 1,
+      }),
+    );
   } catch (error) {
     sendError(res, error);
   }
@@ -1761,10 +2224,16 @@ app.post('/api/candidates/:id/content/structure/confirm', async (req, res) => {
 app.get('/api/candidates/:id/content/structure/write-prompt', async (req, res) => {
   try {
     const batch = String(req.query.batch || 'all').toLowerCase();
-    if (batch && batch !== 'all') {
-      return res.json(await buildBatchedFullWritePrompt(req.params.id, batch));
-    }
-    res.json(await buildFullWritePrompt(req.params.id));
+    const built =
+      batch && batch !== 'all'
+        ? await buildBatchedFullWritePrompt(req.params.id, batch)
+        : await buildFullWritePrompt(req.params.id);
+    res.json({
+      prompt: built.prompt || '',
+      batch: built.batch || batch || 'all',
+      requiredFileCount: built.requiredFileCount ?? 0,
+      batchFiles: built.batchFiles || [],
+    });
   } catch (error) {
     sendError(res, error);
   }
@@ -1926,9 +2395,19 @@ app.post('/api/candidates/:id/content/final-check', (req, res) => {
   }
 });
 
-app.get('/api/candidates/:id/content/bookends/prompt', async (req, res) => {
+app.get('/api/candidates/:id/content/images-prompt', (req, res) => {
   try {
-    res.json(await buildBookendsOnlyPrompt(req.params.id));
+    res.json(buildImageQueriesPrompt(req.params.id));
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/candidates/:id/content/images-plan', (req, res) => {
+  try {
+    assertLaunchedEditAllowed(req.params.id, req.body || {});
+    const raw = req.body?.json ?? req.body?.text ?? req.body?.paste ?? req.body;
+    res.json(saveImagesPlan(req.params.id, raw));
   } catch (error) {
     sendError(res, error);
   }
@@ -2417,6 +2896,17 @@ app.post('/api/candidates/:id/prepare-preview', async (req, res) => {
           await finalizePreviousAssembledSite(result.previousSiteRoot);
         }
 
+        if (result.absoluteSiteRoot) {
+          try {
+            upsertNicheMaster(candidateId);
+          } catch (masterErr) {
+            console.warn(
+              `[prepare] ${candidateId} niche master upsert skipped:`,
+              masterErr.message || masterErr,
+            );
+          }
+        }
+
         let build = null;
         if (result.absoluteSiteRoot) {
           const needsBuild =
@@ -2575,7 +3065,7 @@ app.post('/api/candidates/:id/launch', async (req, res) => {
       candidateId,
       phase: 'launch',
       label: 'Launch',
-      run: async () => {
+      run: async ({ jobId }) => {
         const out = await launchSite(candidateId, {
           domain: body.domain,
           phone: body.phone,
@@ -2594,6 +3084,7 @@ app.post('/api/candidates/:id/launch', async (req, res) => {
           setupEmail: body.setupEmail !== false,
           markCloudflareProjectDone: Boolean(body.markCloudflareProjectDone),
           allowIncompleteLaunch: body.allowIncompleteLaunch === true,
+          onProgress: (p) => updateJobProgress(jobId, p),
         });
         const site = out.site || upsertSiteAfterLaunch(candidateId);
         return {
@@ -2618,7 +3109,7 @@ app.post('/api/candidates/:id/launch', async (req, res) => {
 
 app.get('/api/sites', (_req, res) => {
   try {
-    const sites = attachMetricsToSites(listSites());
+    const sites = attachMetricsToSites(listLaunchedSites());
     res.json({
       sites,
       statuses: SITE_STATUSES,
@@ -2642,9 +3133,7 @@ app.post('/api/sites', (req, res) => {
       const result = upsertSitesFromCandidates(body.candidateIds);
       return res.json(result);
     }
-    const site = body.candidateId
-      ? upsertSiteFromCandidate({ candidateId: body.candidateId, status: body.status })
-      : createManualSite(body);
+    const site = createManualSite(body);
     res.json({ site: attachMetricsToSites([site])[0] });
   } catch (error) {
     sendError(res, error);
@@ -2850,6 +3339,15 @@ app.post('/api/candidates/:id/phone/skip', (req, res) => {
       phoneSkippedAt: new Date().toISOString(),
     });
     res.json({ meta, candidate: getCandidateDetail(req.params.id) });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.get('/api/candidates/:id/portfolio-site', (req, res) => {
+  try {
+    const site = getSiteByCandidateId(req.params.id);
+    res.json({ site: site ? attachMetricsToSites([site])[0] : null });
   } catch (error) {
     sendError(res, error);
   }
@@ -3100,12 +3598,13 @@ app.post('/api/candidates/:id/ship', async (req, res) => {
       candidateId,
       phase: 'ship',
       label: 'Push / ship',
-      run: () =>
+      run: ({ jobId }) =>
         shipAssembledSite(candidateId, {
           skipGithub: Boolean(body.skipGithub),
           skipBuild: Boolean(body.skipBuild),
           skipDeploy: Boolean(body.skipDeploy),
           skipBuildsConnect: Boolean(body.skipBuildsConnect),
+          onProgress: (p) => updateJobProgress(jobId, p),
         }),
     });
     res.json(result);
@@ -3171,11 +3670,11 @@ app.use((req, res) => {
   res.status(404).send('Not found');
 });
 
-app.listen(PORT, HOST, () => {
+const server = app.listen(PORT, HOST, () => {
   console.log(`Rover dashboard: http://${HOST}:${PORT}`);
   console.log('Local only — do not expose this port publicly.');
   console.log(
-    `DataForSEO: ${process.env.DATAFORSEO_LOGIN ? 'configured' : 'missing'} · Anthropic: ${process.env.ANTHROPIC_API_KEY ? 'configured' : 'missing'} · GSC OAuth: ${process.env.GOOGLE_GSC_CLIENT_ID && process.env.GOOGLE_GSC_CLIENT_SECRET ? 'configured' : 'missing'}`,
+    `DataForSEO: ${process.env.DATAFORSEO_LOGIN ? 'configured' : 'missing'} · Anthropic: ${process.env.ANTHROPIC_API_KEY ? 'configured' : 'missing'} · GSC OAuth: ${process.env.GOOGLE_GSC_CLIENT_ID && process.env.GOOGLE_GSC_CLIENT_SECRET ? 'configured' : 'missing'} · Flux remaining: ${String(process.env.FAL_ADMIN_KEY || '').trim() ? 'FAL_ADMIN_KEY set' : 'FAL_ADMIN_KEY missing'}`,
   );
   try {
     const r = migrateDecisionsToScoreModel();
@@ -3186,3 +3685,5 @@ app.listen(PORT, HOST, () => {
     console.warn('Decision migrate skipped:', err.message || err);
   }
 });
+server.requestTimeout = 30 * 60 * 1000;
+server.headersTimeout = 31 * 60 * 1000;

@@ -147,6 +147,7 @@ async function fetchWikiSummary(title) {
         'User-Agent': WIKI_UA,
         Accept: 'application/json',
       },
+      signal: AbortSignal.timeout(8000),
     });
     if (res.status === 404) return { ok: false, note: 'wikipedia 404', title };
     if (!res.ok) return { ok: false, note: `wikipedia ${res.status}`, title };

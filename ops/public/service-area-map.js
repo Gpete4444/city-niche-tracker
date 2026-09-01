@@ -124,6 +124,45 @@ function labelHtml(esc, name, pop, { hasPage = false } = {}) {
   return `${icon}<span class="sa-label-name">${esc(name)}</span> <span class="sa-label-pop">${esc(fmtPop(pop))}</span>`;
 }
 
+/** Primary + research suggestedSuburbs only. */
+function suggestedLocationPagesBlockHtml(esc, { primaryCity, researchSuggested }) {
+  const pages = [];
+  const seen = new Set();
+  const push = (raw, isPrimary = false) => {
+    const name = String(raw || '').trim();
+    if (!name) return;
+    const key = normalizePlaceName(name);
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    pages.push({ name, isPrimary });
+  };
+  push(primaryCity, true);
+  const research = (researchSuggested || [])
+    .map((s) => String(s || '').trim())
+    .filter(Boolean);
+  for (const c of research) push(c, false);
+
+  const emptySeedNote =
+    research.length === 0
+      ? `<p class="muted small sa-suggested-pages-seed">No research suburb seed</p>`
+      : '';
+
+  const items = pages
+    .map(
+      (p) =>
+        `<li>${esc(p.name)}${p.isPrimary ? ' <span class="muted">(primary)</span>' : ''}</li>`,
+    )
+    .join('');
+
+  if (!pages.length && !emptySeedNote) return '';
+
+  return `<div class="sa-suggested-pages">
+    <h4 class="sa-list-title">Suggested location pages <span class="muted">(research seed)</span></h4>
+    ${pages.length ? `<ul class="sa-suggested-pages-list">${items}</ul>` : ''}
+    ${emptySeedNote}
+  </div>`;
+}
+
 /**
  * @param {{
  *   variant?: 'service-area' | 'discovery',
@@ -138,6 +177,7 @@ function labelHtml(esc, name, pop, { hasPage = false } = {}) {
  *   maxPop?: number | null,
  *   initialSelected?: Array<{name:string,state:string}|string>,
  *   claudeOrder?: string[],
+ *   researchSuggestedSuburbs?: string[],
  *   onAccept?: (payload: object) => Promise<void>,
  *   onSelectionChange?: (payload: { radiusMiles: number, selectedCities: Array<{name:string,state:string}>, primaryCity: string }) => void,
  * }} opts
@@ -156,6 +196,7 @@ async function mountGeoSelectMap(opts) {
     maxPop: initialMaxPop,
     initialSelected = [],
     claudeOrder = [],
+    researchSuggestedSuburbs = [],
     onAccept,
     onSelectionChange,
   } = opts;
@@ -210,6 +251,10 @@ async function mountGeoSelectMap(opts) {
   let destroyed = false;
   let seededFromRadius = false;
   let didFit = false;
+  /** @type {ResizeObserver | null} */
+  let resizeObserver = null;
+  /** @type {(() => void) | null} */
+  let onWindowResize = null;
   /** @type {{ key: 'name' | 'population', dir: 'asc' | 'desc' }} */
   let listSort = { key: 'name', dir: 'asc' };
 
@@ -230,6 +275,17 @@ async function mountGeoSelectMap(opts) {
       </div>
       <p class="muted small" id="${uid}-accept-status"></p>`;
 
+  const suggestedPagesBlock = showPages
+    ? suggestedLocationPagesBlockHtml(esc, {
+        primaryCity,
+        researchSuggested: researchSuggestedSuburbs,
+      })
+    : '';
+
+  const helpPara = isDiscovery
+    ? `<p class="muted small">${esc(helpText)}</p>`
+    : '';
+
   mapHost.innerHTML = `<div id="${uid}-map" class="sa-map-canvas" role="application" aria-label="${
     isDiscovery ? 'Discovery cities map' : 'Service area map'
   }"></div>`;
@@ -240,8 +296,9 @@ async function mountGeoSelectMap(opts) {
         <input id="${uid}-radius" type="range" min="5" max="60" step="1" value="${esc(String(radius))}" />
       </label>
       <span class="muted small" id="${uid}-status">Loading map…</span>
+      ${suggestedPagesBlock}
       <h4 class="sa-list-title">Selected cities <span id="${uid}-count" class="muted"></span></h4>
-      <p class="muted small">${esc(helpText)}</p>
+      ${helpPara}
       <div id="${uid}-list" class="sa-table-wrap"></div>
       ${acceptBlock}
     </div>
@@ -262,20 +319,33 @@ async function mountGeoSelectMap(opts) {
   const mapEl = mapHost.querySelector(`#${uid}-map`);
 
   function setSaveProgress(visible, { label, detail, current, total } = {}) {
-    if (!saveProgressEl) return;
-    saveProgressEl.classList.toggle('hidden', !visible);
-    if (saveProgressLabel && label) saveProgressLabel.textContent = label;
-    if (saveProgressDetail && detail) saveProgressDetail.textContent = detail;
-    if (saveProgressBar) {
-      const known = Number(total) > 0 && Number(current) >= 0;
-      saveProgressBar.classList.toggle('is-determinate', known);
-      if (known) {
-        const pct = Math.max(4, Math.min(100, Math.round((Number(current) / Number(total)) * 100)));
-        saveProgressBar.style.width = `${pct}%`;
-      } else {
-        saveProgressBar.style.width = '';
+    if (saveProgressEl) {
+      saveProgressEl.classList.toggle('hidden', !visible);
+      if (saveProgressLabel && label) saveProgressLabel.textContent = label;
+      if (saveProgressDetail && detail) saveProgressDetail.textContent = detail;
+      if (saveProgressBar) {
+        const known = Number(total) > 0 && Number(current) >= 0;
+        saveProgressBar.classList.toggle('is-determinate', known);
+        if (known) {
+          const pct = Math.max(4, Math.min(100, Math.round((Number(current) / Number(total)) * 100)));
+          saveProgressBar.style.width = `${pct}%`;
+        } else {
+          saveProgressBar.style.width = '';
+        }
       }
     }
+    const known = Number(total) > 0 && Number(current) >= 0;
+    window.dispatchEvent(
+      new CustomEvent('rover-progress', {
+        detail: {
+          visible: Boolean(visible),
+          label,
+          detail,
+          done: known ? Number(current) : undefined,
+          total: known ? Number(total) : undefined,
+        },
+      }),
+    );
   }
 
   /** Operator-controlled SEO page keys (includes primary). */
@@ -860,6 +930,15 @@ async function mountGeoSelectMap(opts) {
         attribution: '&copy; OpenStreetMap',
         maxZoom: 18,
       }).addTo(map);
+      map.on('zoomend', () => scheduleInvalidateSize());
+      onWindowResize = () => scheduleInvalidateSize();
+      window.addEventListener('resize', onWindowResize);
+      if (typeof ResizeObserver !== 'undefined' && mapEl) {
+        resizeObserver = new ResizeObserver(() => scheduleInvalidateSize());
+        resizeObserver.observe(mapEl);
+        if (mapHost && mapHost !== mapEl) resizeObserver.observe(mapHost);
+      }
+      scheduleInvalidateSize();
     }
 
     if (placesLayer) {
@@ -938,6 +1017,18 @@ async function mountGeoSelectMap(opts) {
     destroy() {
       destroyed = true;
       clearTimeout(debounceTimer);
+      if (resizeObserver) {
+        try {
+          resizeObserver.disconnect();
+        } catch {
+          /* ignore */
+        }
+        resizeObserver = null;
+      }
+      if (onWindowResize) {
+        window.removeEventListener('resize', onWindowResize);
+        onWindowResize = null;
+      }
       if (map) {
         map.remove();
         map = null;
@@ -984,18 +1075,20 @@ export async function mountDiscoveryCitiesMap(opts) {
 
 /** Show/hide candidate table vs service-area map canvas. */
 export function setServiceAreaTableMode(on) {
+  const layout = document.getElementById('view-candidates');
   const panel = document.querySelector('.candidates-table-panel');
   const wrap = document.querySelector('.candidates-table-wrap');
   const canvas = document.getElementById('sa-map-canvas');
   const filters = document.querySelector('.candidate-filters');
   const legend = document.getElementById('candidate-source-legend');
   const stageRail = document.getElementById('stage-rail');
+  if (layout) layout.classList.toggle('sa-map-open', Boolean(on));
   if (panel) panel.classList.toggle('sa-table-mode', Boolean(on));
   if (wrap) wrap.classList.toggle('hidden', Boolean(on));
   if (canvas) canvas.classList.toggle('hidden', !on);
   if (filters) filters.classList.toggle('hidden', Boolean(on));
   if (legend) legend.classList.toggle('hidden', Boolean(on));
-  if (stageRail && on) stageRail.classList.add('hidden');
+  if (stageRail) stageRail.classList.toggle('hidden', Boolean(on));
 }
 
 /** Show/hide discovery batch table vs pack cities map canvas. */

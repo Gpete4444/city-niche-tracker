@@ -95,7 +95,9 @@ export function lintContentSeo(files, opts = {}) {
     const k = String(kw || '').trim();
     if (!k || !homeBody) continue;
     const headings = extractHeadings(homeBody);
-    const hit = headings.some((h) => headingCoversKeyword(h, k));
+    const hit =
+      headings.some((h) => headingCoversKeyword(h, k)) ||
+      isCoveredNicheAlias(k, headings, opts.primaryKeyword || opts.niche);
     if (!hit) {
       const missing = missingKeywordTokens(headings, k);
       const missingNote = missing.length
@@ -480,6 +482,16 @@ export function normalizeKw(s) {
     .trim();
 }
 
+/** Fold drywall trade aliases so sheetrock/wallboard/dry wall match drywall H2s. */
+export function foldTradeAliases(s) {
+  return normalizeKw(s)
+    .replace(/\bdry wall\b/g, 'drywall')
+    .replace(/\bsheetrock\b/g, 'drywall')
+    .replace(/\bwallboard\b/g, 'drywall')
+    .replace(/\bgypsum board\b/g, 'drywall')
+    .replace(/\bgypsum\b/g, 'drywall');
+}
+
 const NICHE_FILLER = new Set([
   'remodeling',
   'remodel',
@@ -594,12 +606,14 @@ export function keywordTokens(keyword) {
  *   "Sewer Line Replacement Cost in West Jordan").
  */
 export function headingCoversKeyword(heading, keyword) {
-  const h = normalizeKw(heading);
-  const k = normalizeKw(keyword);
+  const h = foldTradeAliases(heading);
+  const k = foldTradeAliases(keyword);
   if (!k) return true;
   if (!h) return false;
   if (h.includes(k)) return true;
-  const tokens = keywordTokens(keyword);
+  const tokens = foldTradeAliases(keyword)
+    .split(' ')
+    .filter((t) => t.length > 2);
   if (!tokens.length) return h.includes(k);
   let from = 0;
   for (const token of tokens) {
@@ -608,6 +622,33 @@ export function headingCoversKeyword(heading, keyword) {
     from = idx + token.length;
   }
   return true;
+}
+
+const NICHE_ALIAS_FILLER = new Set([
+  'repair',
+  'repairs',
+  'replacement',
+  'install',
+  'installation',
+  'service',
+  'services',
+  'wall',
+  'walls',
+  'board',
+]);
+
+/** Supporting KWs that are only drywall/sheetrock aliases of the niche — covered if an H2 covers the niche. */
+function isCoveredNicheAlias(keyword, headings, nicheOrPrimary) {
+  const core = foldTradeAliases(nicheOrPrimary || '')
+    .split(' ')
+    .filter((t) => t.length > 2 && !NICHE_ALIAS_FILLER.has(t));
+  const kwCore = foldTradeAliases(keyword)
+    .split(' ')
+    .filter((t) => t.length > 2 && !NICHE_ALIAS_FILLER.has(t));
+  if (!core.length || !kwCore.length) return false;
+  const same = kwCore.every((t) => core.includes(t)) && core.every((t) => kwCore.includes(t));
+  if (!same) return false;
+  return (headings || []).some((h) => headingCoversKeyword(h, nicheOrPrimary));
 }
 
 /** Tokens from keyword that no single homepage H2 covers (for suggestions). */

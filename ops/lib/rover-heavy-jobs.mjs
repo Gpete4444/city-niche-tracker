@@ -105,6 +105,8 @@ function serializeHeavyJob(job, { includeResult = true } = {}) {
     startedAt: job.startedAt,
     finishedAt: job.finishedAt,
     detail: job.detail,
+    progressDone: job.progressDone ?? null,
+    progressTotal: job.progressTotal ?? null,
     check: job.check || null,
     contract: job.contract || null,
   };
@@ -271,6 +273,8 @@ export function startHeavyJob(opts) {
     startedAt: null,
     finishedAt: null,
     detail: null,
+    progressDone: null,
+    progressTotal: null,
     result: null,
     _run: opts.run,
   };
@@ -346,5 +350,17 @@ export function updateJobDetail(jobId, detail) {
   if (!job) return;
   job.detail = detail ? String(detail) : null;
   console.log('[rover-job]', job.candidateId, job.phase, job.detail || '');
+  emitChange();
+}
+
+export function updateJobProgress(jobId, { detail, done, total } = {}) {
+  const job = jobs.get(jobId);
+  if (!job) return;
+  if (detail != null) job.detail = String(detail);
+  if (done != null && Number.isFinite(Number(done))) job.progressDone = Number(done);
+  if (total != null && Number.isFinite(Number(total))) job.progressTotal = Number(total);
+  const frac =
+    job.progressTotal != null ? ` ${job.progressDone ?? 0}/${job.progressTotal}` : '';
+  console.log('[rover-job]', job.candidateId, job.phase, `${job.detail || ''}${frac}`);
   emitChange();
 }

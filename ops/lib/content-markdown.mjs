@@ -2233,12 +2233,11 @@ export async function acceptContent(
 
   if (!draft._ops?.lastSpeechCheckAt) {
     const err = new Error(
-      'Run Speech check (Humanize step) before Accept — human-speech pass is required.',
+      'Run Speech/SEO Refinement before Accept — human-speech pass is required.',
     );
     err.status = 400;
     throw err;
   }
-
   const fieldPath = path.join(RESEARCH_DIR, `${p.id}-content-field-research.json`);
   const fieldResearch = readJson(fieldPath);
   if (!fieldResearch || fieldResearch.status !== 'loaded') {
@@ -2256,6 +2255,26 @@ export async function acceptContent(
     const err = new Error('Run Final check (Pass 8) before Accept.');
     err.status = 400;
     throw err;
+  }
+  const structureDoc = readJson(p.contentStructure);
+  const photosOn = Object.values(structureDoc?.photos || {}).some((ph) => ph && ph.enabled);
+  if (photosOn) {
+    const imagesPlan = readJson(p.imagesPlan);
+    if (!imagesPlan?.loadedAt && !draft._ops?.lastImagesPlanAt) {
+      const err = new Error(
+        'Load Image queries (Step 8) before Accept. A photo group or niche master does not skip Image queries.',
+      );
+      err.status = 400;
+      throw err;
+    }
+    const { imagesPlanMeetsBaRequirements } = await import('./chatgpt-before-after.mjs');
+    if (!imagesPlanMeetsBaRequirements(candidateId, imagesPlan)) {
+      const err = new Error(
+        'Image queries JSON is missing before/after prompts. Copy the Image queries prompt, have Claude return beforeAfter for every BA key (inside and outside), then Load again.',
+      );
+      err.status = 400;
+      throw err;
+    }
   }
 
   const files = pruneFilesToStructure(normalizeContentFilesMap(draft.files, config), {
@@ -2435,6 +2454,9 @@ export async function acceptContent(
       // Soft-path audit stamps (required before Accept — keep after draft delete)
       ...(draftOps.lastSpeechCheckAt
         ? { lastSpeechCheckAt: draftOps.lastSpeechCheckAt }
+        : {}),
+      ...(draftOps.lastEditorPromptAt
+        ? { lastEditorPromptAt: draftOps.lastEditorPromptAt }
         : {}),
       ...(draftOps.lastFinalCheckAt
         ? {

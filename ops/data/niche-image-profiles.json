@@ -39,8 +39,18 @@
     {
       "id": "kitchen",
       "match": "kitchen|cabinetr|cabinet|countertop|counter top",
-      "boost": ["kitchen remodel", "kitchen cabinets", "kitchen island"],
-      "tokens": ["kitchen", "cabinet", "countertop", "island", "remodel"],
+      "boost": [
+        "kitchen remodel",
+        "kitchen cabinets",
+        "kitchen island"
+      ],
+      "tokens": [
+        "kitchen",
+        "cabinet",
+        "countertop",
+        "island",
+        "remodel"
+      ],
       "kindHints": {
         "hero": "modern remodeled kitchen island",
         "process": "kitchen cabinet install renovation",
@@ -51,8 +61,19 @@
     {
       "id": "bath",
       "match": "bath|shower|tub|vanity",
-      "boost": ["bathroom remodel", "bathroom renovation", "walk in shower"],
-      "tokens": ["bathroom", "shower", "tub", "tile", "vanity", "remodel"],
+      "boost": [
+        "bathroom remodel",
+        "bathroom renovation",
+        "walk in shower"
+      ],
+      "tokens": [
+        "bathroom",
+        "shower",
+        "tub",
+        "tile",
+        "vanity",
+        "remodel"
+      ],
       "kindHints": {
         "hero": "finished bathroom remodel tile shower",
         "process": "bathroom renovation demolition tile",
@@ -63,8 +84,17 @@
     {
       "id": "roof",
       "match": "roof|roofing|shingle",
-      "boost": ["roof replacement", "asphalt shingles", "roofline house"],
-      "tokens": ["roof", "shingle", "roofing", "gutter"],
+      "boost": [
+        "roof replacement",
+        "asphalt shingles",
+        "roofline house"
+      ],
+      "tokens": [
+        "roof",
+        "shingle",
+        "roofing",
+        "gutter"
+      ],
       "kindHints": {
         "hero": "new residential roof shingles exterior",
         "process": "roofers installing shingles",
@@ -75,8 +105,18 @@
     {
       "id": "hvac",
       "match": "hvac|furnace|air condition|heat pump|duct",
-      "boost": ["HVAC installation", "furnace technician", "air conditioner outdoor"],
-      "tokens": ["hvac", "furnace", "air conditioner", "ductwork", "thermostat"],
+      "boost": [
+        "HVAC installation",
+        "furnace technician",
+        "air conditioner outdoor"
+      ],
+      "tokens": [
+        "hvac",
+        "furnace",
+        "air conditioner",
+        "ductwork",
+        "thermostat"
+      ],
       "kindHints": {
         "hero": "home HVAC system outdoor unit",
         "process": "HVAC technician installing furnace",
@@ -87,7 +127,11 @@
     {
       "id": "plumbing",
       "match": "plumb|water heater|faucet|\\bpex\\b|under.?sink",
-      "boost": ["plumbing repair", "plumber pipes", "water heater"],
+      "boost": [
+        "plumbing repair",
+        "plumber pipes",
+        "water heater"
+      ],
       "tokens": [
         "plumbing",
         "pipe",
@@ -110,8 +154,18 @@
     {
       "id": "electrical",
       "match": "electr|wiring|panel|outlet",
-      "boost": ["electrical panel", "electrician wiring", "home electrical"],
-      "tokens": ["electrical", "electrician", "wiring", "panel", "outlet"],
+      "boost": [
+        "electrical panel",
+        "electrician wiring",
+        "home electrical"
+      ],
+      "tokens": [
+        "electrical",
+        "electrician",
+        "wiring",
+        "panel",
+        "outlet"
+      ],
       "kindHints": {
         "hero": "home electrical panel upgrade",
         "process": "electrician installing wiring",
@@ -122,8 +176,18 @@
     {
       "id": "flooring",
       "match": "floor|hardwood|laminate|vinyl plank|carpet",
-      "boost": ["hardwood flooring", "floor installation", "vinyl plank"],
-      "tokens": ["flooring", "hardwood", "laminate", "vinyl", "plank"],
+      "boost": [
+        "hardwood flooring",
+        "floor installation",
+        "vinyl plank"
+      ],
+      "tokens": [
+        "flooring",
+        "hardwood",
+        "laminate",
+        "vinyl",
+        "plank"
+      ],
       "kindHints": {
         "hero": "finished hardwood floor living room",
         "process": "flooring installation contractor",
@@ -134,8 +198,17 @@
     {
       "id": "paint",
       "match": "paint|painter|interior paint",
-      "boost": ["interior house painting", "fresh painted walls"],
-      "tokens": ["paint", "painter", "walls", "brush", "roller"],
+      "boost": [
+        "interior house painting",
+        "fresh painted walls"
+      ],
+      "tokens": [
+        "paint",
+        "painter",
+        "walls",
+        "brush",
+        "roller"
+      ],
       "kindHints": {
         "hero": "freshly painted interior room",
         "process": "painter rolling wall interior",
@@ -146,8 +219,18 @@
     {
       "id": "landscape",
       "match": "landscap|lawn|sod|irrigation",
-      "boost": ["residential landscaping", "lawn yard", "garden landscaping"],
-      "tokens": ["landscape", "lawn", "yard", "garden", "sod"],
+      "boost": [
+        "residential landscaping",
+        "lawn yard",
+        "garden landscaping"
+      ],
+      "tokens": [
+        "landscape",
+        "lawn",
+        "yard",
+        "garden",
+        "sod"
+      ],
       "kindHints": {
         "hero": "landscaped front yard residential",
         "process": "landscapers installing sod",
@@ -158,8 +241,15 @@
     {
       "id": "garage-door",
       "match": "garage door",
-      "boost": ["garage door installation", "residential garage door"],
-      "tokens": ["garage", "door", "opener"],
+      "boost": [
+        "garage door installation",
+        "residential garage door"
+      ],
+      "tokens": [
+        "garage",
+        "door",
+        "opener"
+      ],
       "kindHints": {
         "hero": "modern residential garage door",
         "process": "garage door installation",
@@ -170,8 +260,16 @@
     {
       "id": "fence",
       "match": "fence|fencing",
-      "boost": ["wood fence installation", "residential fence yard"],
-      "tokens": ["fence", "fencing", "yard", "privacy"],
+      "boost": [
+        "wood fence installation",
+        "residential fence yard"
+      ],
+      "tokens": [
+        "fence",
+        "fencing",
+        "yard",
+        "privacy"
+      ],
       "kindHints": {
         "hero": "wood privacy fence backyard",
         "process": "fence installation posts",
@@ -182,8 +280,17 @@
     {
       "id": "concrete",
       "match": "concrete|driveway|patio|sidewalk",
-      "boost": ["concrete driveway", "patio pour", "residential concrete"],
-      "tokens": ["concrete", "driveway", "patio", "slab"],
+      "boost": [
+        "concrete driveway",
+        "patio pour",
+        "residential concrete"
+      ],
+      "tokens": [
+        "concrete",
+        "driveway",
+        "patio",
+        "slab"
+      ],
       "kindHints": {
         "hero": "finished concrete driveway house",
         "process": "concrete pour finishing",
@@ -194,8 +301,16 @@
     {
       "id": "solar",
       "match": "solar|photovoltaic",
-      "boost": ["residential solar panels roof", "solar installation"],
-      "tokens": ["solar", "panels", "photovoltaic", "roof"],
+      "boost": [
+        "residential solar panels roof",
+        "solar installation"
+      ],
+      "tokens": [
+        "solar",
+        "panels",
+        "photovoltaic",
+        "roof"
+      ],
       "kindHints": {
         "hero": "solar panels on house roof",
         "process": "solar panel installation roof",
@@ -206,7 +321,11 @@
     {
       "id": "sewer",
       "match": "sewer|trenchless|pipe.?lining|drain.?line|septic",
-      "boost": ["sewer line replacement", "trenchless sewer repair", "sewer pipe excavation"],
+      "boost": [
+        "sewer line replacement",
+        "trenchless sewer repair",
+        "sewer pipe excavation"
+      ],
       "tokens": [
         "sewer",
         "pipe",
@@ -228,6 +347,39 @@
         "process": "sewer pipe trenchless installation contractor",
         "materials": "sewer pipe liner CIPP materials",
         "other": "underground sewer plumbing residential"
+      }
+    },
+    {
+      "id": "drywall-repair",
+      "match": "Drywall\\s+Repair|sheetrock|gypsum",
+      "boost": [
+        "patched drywall interior wall",
+        "drywall mud trowel joint compound",
+        "taping drywall seam",
+        "sanding drywall joint compound",
+        "texture spray gun drywall",
+        "knockdown texture interior drywall",
+        "popcorn ceiling drywall",
+        "drywall hole patch"
+      ],
+      "tokens": [
+        "drywall",
+        "sheetrock",
+        "gypsum",
+        "plaster",
+        "plasterboard",
+        "spackle",
+        "taping",
+        "skim",
+        "knockdown"
+      ],
+      "requireNicheHit": true,
+      "kindHints": {
+        "hero": "finished interior drywall wall patch",
+        "intro": "smooth painted drywall interior wall",
+        "process": "contractor taping mudding drywall",
+        "materials": "joint compound bucket drywall tape",
+        "other": "residential drywall repair interior"
       }
     }
   ]

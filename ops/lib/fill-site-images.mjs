@@ -430,10 +430,11 @@ export function listImageSlots(candidateId) {
     const without = slots.filter(
       (s) => s.sectionId !== 'svcHero' && s.sectionId !== 'services',
     );
+    const svcHeroSlots = [];
     const max = Math.min(svcHeroServiceNames.length, 24);
     for (let i = 0; i < max; i += 1) {
       const name = svcHeroServiceNames[i];
-      without.push({
+      svcHeroSlots.push({
         key: `svcHero-${i + 1}`,
         sectionId: 'svcHero',
         index: i + 1,
@@ -454,7 +455,9 @@ export function listImageSlots(candidateId) {
         preferredPath: null,
       });
     }
-    return without;
+    const heads = without.filter((s) => s.sectionId === 'hero' || s.sectionId === 'intro');
+    const rest = without.filter((s) => s.sectionId !== 'hero' && s.sectionId !== 'intro');
+    return overlayImagesPlanQueries(candidateId, [...heads, ...svcHeroSlots, ...rest]);
   }
 
   // What we do cards without Service pages: one slot per configured service name
@@ -486,7 +489,28 @@ export function listImageSlots(candidateId) {
     }
   }
 
-  return slots;
+  return overlayImagesPlanQueries(candidateId, slots);
+}
+
+/** Cap Unsplash/Pexels/Pixabay searches per slot (rate-limit). */
+const MAX_QUERY_VARIANTS = 3;
+
+function overlayImagesPlanQueries(candidateId, slots) {
+  const plan = readJson(pathsFor(candidateId).imagesPlan);
+  const byKey = plan?.slots && typeof plan.slots === 'object' ? plan.slots : {};
+  return (slots || []).map((slot) => {
+    const q = String(byKey[slot.key]?.query || '')
+      .trim()
+      .replace(/\s+/g, ' ');
+    if (!q) return slot;
+    return { ...slot, queryHint: q };
+  });
+}
+
+function slotAllowsSoftFill(slot, rankOpts) {
+  if (!rankOpts?.requireNicheHit) return true;
+  const id = String(slot.sectionId || '');
+  return id !== 'hero' && id !== 'svcHero';
 }
 
 /**
@@ -518,6 +542,8 @@ function loadNicheImageProfiles() {
       tokens: Array.isArray(row.tokens) ? row.tokens : [],
       requireNicheHit: Boolean(row.requireNicheHit),
       kindHints: row.kindHints && typeof row.kindHints === 'object' ? row.kindHints : {},
+      autoSeeded: Boolean(row.autoSeeded),
+      llmEnrichedAt: row.llmEnrichedAt || null,
       synthetic: false,
     });
   }
@@ -607,11 +633,16 @@ function scoreUploadedSlot(slot, { filename, alt, niche, services }) {
 }
 
 /** Niche-name fragments too weak to count as a niche hit alone (e.g. power lines). */
-const WEAK_NICHE_HIT_RE = /^(line|lines|replacement|service|services|home|local|free|estimate)$/i;
+const WEAK_NICHE_HIT_RE =
+  /^(line|lines|replacement|service|services|home|local|free|estimate|repair|matching|water|damage|texture|crack|nail|pop|ceiling|removal|area|install|installation|cleaning|clean)$/i;
+
+/** Captions that can still receive query-credit when alt misses niche tokens (wall/reno, not water drops). */
+const QUERY_CREDIT_SCENE_RE =
+  /\b(wall|walls|ceiling|interior|renovation|remodel|construction|jobsite|plaster|drywall|sheetrock|gypsum|trowel|spackle|skim|texture|mudding|joint\s*compound|home\s*improvement|building|room|house|ladder|ladders|contractor|tradesman|paint(?:ing|er|ed)?|patch(?:ed|ing)?|hole|crack|damage)\b/i;
 
 /** Titles/descriptions that are almost never right for home-service stock. */
 const OFF_NICHE_STOCK_RE =
-  /\b(lobster|seafood|bed(?:room)?|mattress|nightstand|camera\s*body|dslr|mirrorless|cinema\s*camera|\bred\s*camera\b|tripod|video\s*camera|photo\s*camera|security\s*camera|wall[- ]mounted\s*camera|surveillance\s*camera|tire|tyre|router\s*bit|circuit\s*board|fashion\s*model|fashion|makeup|walking\s*tour|taking\s*a\s*walk|coworking|latte|sushi|wedding\s*cake|yoga\s*mat|sewing|garment|tailor|fabric\s*workshop|locomotive|passenger\s*train|\bperon\b|train\s*station|medical|doctor|hospital|scrubs|antigen|vaccine|covid|tampon|sanitary|garbage\s*truck|waste\s*truck|rubbish\s*truck|trash\s*can|garbage\s*can|dumpster|sports?\s*field|field\s*striping|line\s*painter|darkroom|film\s*photography|photo\s*film|runway|couture|parking\s*permit|parking\s*lot|boom\s*gate|people\s*posing|posing\s*models|seagull|wildlife|perches|wall\s*art|mural|lobby\s*art|braided|flex\s*pipe|flex\s*hose|garden\s*hose|supply\s*line|pex\s*fitting|drain\s*tile|plowing|beach\s*bulldozer|bulldozer\s+on\s+a\s+beach)\b/i;
+  /\b(lobster|seafood|bed(?:room)?|mattress|nightstand|camera\s*body|dslr|mirrorless|cinema\s*camera|\bred\s*camera\b|tripod|video\s*camera|photo\s*camera|security\s*camera|wall[- ]mounted\s*camera|surveillance\s*camera|tire|tyre|router\s*bit|circuit\s*board|fashion\s*model|fashion|makeup|walking\s*tour|taking\s*a\s*walk|coworking|latte|sushi|wedding\s*cake|yoga\s*mat|sewing|garment|tailor|fabric\s*workshop|locomotive|passenger\s*train|\bperon\b|train\s*station|medical|doctor|hospital|scrubs|antigen|vaccine|covid|tampon|sanitary|garbage\s*truck|waste\s*truck|rubbish\s*truck|trash\s*can|garbage\s*can|dumpster|sports?\s*field|field\s*striping|line\s*painter|darkroom|film\s*photography|photo\s*film|runway|couture|parking\s*permit|parking\s*lot|boom\s*gate|people\s*posing|posing\s*models|seagull|wildlife|perches|wall\s*art|mural|lobby\s*art|braided|flex\s*pipe|flex\s*hose|garden\s*hose|supply\s*line|pex\s*fitting|drain\s*tile|plowing|beach\s*bulldozer|bulldozer\s+on\s+a\s+beach|sandy\s*beach|\bocean\b|mallorca|street\s*sign|smartphone|underwater|water\s*drops?|raindrops?|condensation|dew\s*drops?|auto\s*repair|car\s*repair|repair\s*shop|alcohol|movie\s*night|father\s+and\s+son|fire\s*hydrant|asphalt|paw\s*prints?|cushion|eating\s*popcorn|enjoys\s*popcorn|movie\s*popcorn|butterfly|dragonfly|grass[- ]?hopper|macroinsect|\binsects?\b|combine\s*harvester|dirt\s*road|paintball)\b/i;
 
 /** Sewer-camera slots: prefer inspection gear metadata. */
 const CAMERA_GEAR_RE =
@@ -629,7 +660,7 @@ const MATERIALS_REJECT_RE =
 
 /** Product/process cues — bare "kitchen" alone is too weak (lifestyle rooms). */
 const MATERIALS_TRADE_CUE_RE =
-  /\b(cabinet|wood|wooden|lumber|paint|painted|varnish|enamel|primer|hinge|veneer|finish|coating|oak|plywood|drawer|door\s*hardware|brush|spray\s*gun|swatch|sample|stain|lacquer|filler|paint\s*can|soft[- ]?close|refinish|refacing)\b/i;
+  /\b(cabinet|wood|wooden|lumber|paint|painted|varnish|enamel|primer|hinge|veneer|finish|coating|oak|plywood|drawer|door\s*hardware|brush|spray\s*gun|swatch|sample|stain|lacquer|filler|paint\s*can|soft[- ]?close|refinish|refacing|drywall|sheetrock|gypsum|joint\s*compound|spackle|mesh\s*tape|paper\s*tape|hopper|knockdown|corner\s*bead|trowel|mud)\b/i;
 
 const MATERIALS_BOKEH_ONLY_RE =
   /\b(bokeh|blur(?:red)?|out[- ]of[- ]focus|abstract\s*macro)\b/i;
@@ -671,6 +702,8 @@ function slotScoreContext(slot = {}) {
     (isMaterials && inspectionCameraProduct);
 
   const permitSlot = /permit/i.test(processTitle) || (/permit/i.test(label) && !isMaterials);
+  const heroOrIntroSlot =
+    sectionId === 'hero' || sectionId === 'intro' || sectionId === 'svcHero';
   let scoreFloor = SCORE_FLOOR;
   if (cameraSlot || permitSlot) scoreFloor = Math.max(SCORE_FLOOR, 4);
   else if (isMaterials) scoreFloor = Math.max(SCORE_FLOOR, 3);
@@ -678,6 +711,7 @@ function slotScoreContext(slot = {}) {
     cameraSlot,
     permitSlot,
     materialsSlot: isMaterials,
+    heroOrIntroSlot,
     scoreFloor,
   };
 }
@@ -692,6 +726,7 @@ function materialTitleTokenList(materialTitle) {
 
 function buildRankOpts(slot, niche, profile) {
   const slotCtx = slotScoreContext(slot);
+  const sectionId = String(slot.sectionId || '');
   return {
     scoreFloor: slotCtx.scoreFloor,
     requireNicheHit: Boolean(profile?.requireNicheHit),
@@ -699,6 +734,8 @@ function buildRankOpts(slot, niche, profile) {
     cameraSlot: slotCtx.cameraSlot,
     permitSlot: slotCtx.permitSlot,
     materialsSlot: Boolean(slotCtx.materialsSlot),
+    heroOrIntroSlot: Boolean(slotCtx.heroOrIntroSlot),
+    allowReuse: sectionId === 'svcHero',
     materialTitleTokens: slotCtx.materialsSlot
       ? materialTitleTokenList(slot.materialTitle)
       : [],
@@ -711,7 +748,7 @@ const USELESS_ALT_RE =
 
 /** Step/material words that poison Unsplash when searched or scored alone. */
 const AMBIGUOUS_SLOT_TOKEN_RE =
-  /^(cure|camera|liner|lining|diagnosis|diagnose|line|testing|test|insertion|insert|inspect|inspection)$/i;
+  /^(cure|camera|liner|lining|diagnosis|diagnose|line|testing|test|insertion|insert|inspect|inspection|sand|cut|prep|prime|tape|mud|wall|repair|water|damage|crack|area)$/i;
 
 /** Niche strings too vague for Unsplash alone — use profile boost instead. */
 const VAGUE_NICHE_RE =
@@ -755,18 +792,21 @@ function synthesizeNicheProfile(niche, services = []) {
   } catch {
     match = new RegExp(n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
   }
+  const tokenList = [...tokens];
+  const visual = tokenList.slice(0, 3).join(' ');
   return {
     id: nicheProfileId(n),
     match,
     matchSrc,
     boost,
-    tokens: [...tokens],
-    requireNicheHit: false,
+    tokens: tokenList,
+    requireNicheHit: tokenList.length > 0,
     kindHints: {
-      hero: n,
-      process: `${n} contractor jobsite`,
-      materials: `${n} materials`,
-      other: n,
+      hero: visual ? `${visual} residential` : n,
+      intro: visual ? `${visual} interior` : `${n} interior`,
+      process: visual ? `${visual} jobsite contractor` : `${n} jobsite`,
+      materials: visual ? `${visual} materials` : `${n} materials`,
+      other: visual || n,
     },
     synthetic: true,
   };
@@ -828,6 +868,89 @@ function persistSyntheticNicheProfile(profile) {
     return { saved: true, id };
   } catch (e) {
     return { saved: false, id, reason: e?.message || 'write_failed' };
+  }
+}
+
+function distinctiveProfileTokens(list = []) {
+  return [
+    ...new Set(
+      (list || [])
+        .map((t) =>
+          String(t || '')
+            .toLowerCase()
+            .trim(),
+        )
+        .filter(
+          (w) =>
+            w.length > 2 &&
+            !WEAK_NICHE_HIT_RE.test(w) &&
+            !PROFILE_STOP_RE.test(w) &&
+            !AMBIGUOUS_SLOT_TOKEN_RE.test(w),
+        ),
+    ),
+  ];
+}
+
+/**
+ * Persist/upgrade a niche profile from the Content Image queries paste.
+ * Overwrites autoSeeded stubs only — never hand-tuned or already-enriched rows.
+ */
+export function persistNicheProfileFromPlan(niche, services, rawProfile) {
+  const synth = synthesizeNicheProfile(niche, services);
+  if (!synth) return { saved: false, reason: 'no_niche' };
+  const tokens = distinctiveProfileTokens([
+    ...(Array.isArray(rawProfile?.tokens) ? rawProfile.tokens : []),
+    ...(synth.tokens || []),
+  ]);
+  const distinctive = new Set(tokens);
+  const boosts = (Array.isArray(rawProfile?.boost) ? rawProfile.boost : [])
+    .map((b) => String(b || '').trim())
+    .filter((b) => b && [...distinctive].some((t) => b.toLowerCase().includes(t)));
+  const kindHints = {
+    ...(synth.kindHints || {}),
+    ...(rawProfile?.kindHints && typeof rawProfile.kindHints === 'object'
+      ? rawProfile.kindHints
+      : {}),
+  };
+  const row = {
+    id: synth.id,
+    match: synth.matchSrc,
+    boost: boosts.length ? boosts : synth.boost || [],
+    tokens: tokens.length ? tokens : synth.tokens || [],
+    requireNicheHit: tokens.length > 0,
+    kindHints,
+    autoSeeded: false,
+    llmEnrichedAt: new Date().toISOString(),
+  };
+
+  const filePath = nicheProfilesPath();
+  let doc = readJson(filePath);
+  if (!doc || typeof doc !== 'object') {
+    doc = {
+      _comment:
+        'Niche image Pull profiles. Auto-appended when Pull runs on an unmatched niche. Advanced users may edit by hand.',
+      profiles: [],
+    };
+  }
+  if (!Array.isArray(doc.profiles)) doc.profiles = [];
+  const idx = doc.profiles.findIndex(
+    (r) => String(r?.id || '') === row.id || String(r?.match || '') === String(row.match),
+  );
+  if (idx >= 0) {
+    const existing = doc.profiles[idx];
+    const canUpgrade = Boolean(existing.autoSeeded) && !existing.llmEnrichedAt;
+    if (!canUpgrade) return { saved: false, id: row.id, reason: 'exists_hand_tuned' };
+    doc.profiles[idx] = { ...existing, ...row };
+  } else {
+    doc.profiles.push(row);
+  }
+  try {
+    mkdirSync(path.dirname(filePath), { recursive: true });
+    writeFileSync(filePath, `${JSON.stringify(doc, null, 2)}\n`, 'utf8');
+    reloadNicheImageProfiles();
+    return { saved: true, id: row.id };
+  } catch (e) {
+    return { saved: false, id: row.id, reason: e?.message || 'write_failed' };
   }
 }
 
@@ -974,6 +1097,12 @@ function disambiguateServiceQuery(serviceName, niche, profile) {
   if (sewerish && /clean/i.test(name)) {
     return 'hydro jet main sewer line cleaning';
   }
+  const primary = primaryNichePhrase(niche, profile);
+  const distinctive = (profile?.tokens || []).map((t) => String(t).toLowerCase());
+  const nameHay = name.toLowerCase();
+  if (distinctive.length && !distinctive.some((t) => t && nameHay.includes(t))) {
+    return `${primary} ${name}`.replace(/\s+/g, ' ').trim();
+  }
   return name;
 }
 
@@ -986,6 +1115,8 @@ function relevanceTokens({ niche, services, serviceName, sectionId, kind, label,
       .trim();
     if (!w || w.length < 3) return;
     if (AMBIGUOUS_SLOT_TOKEN_RE.test(w)) return;
+    if (PROFILE_STOP_RE.test(w)) return;
+    if (WEAK_NICHE_HIT_RE.test(w)) return;
     tokens.add(w);
   };
   for (const t of String(niche || '')
@@ -1075,20 +1206,22 @@ function scorePhoto(
     cameraSlot = false,
     permitSlot = false,
     materialsSlot = false,
+    heroOrIntroSlot = false,
     materialTitleTokens = [],
+    searchQuery = '',
   } = {},
 ) {
   const hay = `${photo?.description || ''} ${(photo?.tags || []).join(' ')}`.toLowerCase();
-  if (!hay.trim()) return 0;
+  const queryHay = String(searchQuery || '')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim();
   if (OFF_NICHE_STOCK_RE.test(hay)) return -20;
   if (cameraSlot && CAMERA_REJECT_RE.test(hay)) return -20;
   if (permitSlot && PERMIT_REJECT_RE.test(hay)) return -20;
   if (materialsSlot && MATERIALS_REJECT_RE.test(hay)) return -20;
-  if (
-    materialsSlot &&
-    MATERIALS_BOKEH_ONLY_RE.test(hay) &&
-    !MATERIALS_TRADE_CUE_RE.test(hay)
-  ) {
+  const bokehSlot = materialsSlot || heroOrIntroSlot;
+  if (bokehSlot && MATERIALS_BOKEH_ONLY_RE.test(hay) && !MATERIALS_TRADE_CUE_RE.test(hay)) {
     return -20;
   }
   if (
@@ -1098,14 +1231,25 @@ function scorePhoto(
   ) {
     return -20;
   }
+  const nicheHitMeta =
+    Boolean(hay.trim()) && (nicheTokens || []).some((t) => tokenInHay(hay, t));
+  const nicheHitQuery = (nicheTokens || []).some((t) => tokenInHay(queryHay, t));
+  const queryCreditOk =
+    nicheHitQuery && (!hay.trim() || QUERY_CREDIT_SCENE_RE.test(hay));
   if (requireNicheHit && nicheTokens.length) {
-    const hit = nicheTokens.some((t) => tokenInHay(hay, t));
-    if (!hit) return 0;
+    if (!nicheHitMeta && !queryCreditOk) return 0;
+  } else if (!hay.trim() && !queryCreditOk) {
+    return 0;
   }
   let score = 0;
   for (const t of tokens || []) {
     if (!t) continue;
     if (tokenInHay(hay, t)) score += 2;
+  }
+  if (score < SCORE_FLOOR && queryCreditOk) {
+    for (const t of nicheTokens || []) {
+      if (tokenInHay(queryHay, t)) score += 2;
+    }
   }
   // Extra weight: product title hits beat niche lifestyle matches
   if (materialsSlot && materialTitleTokens.length) {
@@ -1167,53 +1311,60 @@ function scorePhoto(
 
 function pickBestResult(results, usedIds, tokens, opts = {}) {
   const floor = opts.scoreFloor ?? SCORE_FLOOR;
-  const candidates = (results || []).filter((r) => r?.id && !usedIds.has(r.id));
-  const clean = candidates.filter((r) => {
+  const bokehSlot = opts.materialsSlot || opts.heroOrIntroSlot;
+  const rejectHay = (r) => {
     const hay = `${r?.description || ''} ${(r?.tags || []).join(' ')}`;
-    if (OFF_NICHE_STOCK_RE.test(hay)) return false;
-    if (opts.materialsSlot && MATERIALS_REJECT_RE.test(hay)) return false;
-    if (
-      opts.materialsSlot &&
-      MATERIALS_BOKEH_ONLY_RE.test(hay) &&
-      !MATERIALS_TRADE_CUE_RE.test(hay)
-    ) {
-      return false;
+    if (OFF_NICHE_STOCK_RE.test(hay)) return true;
+    if (opts.materialsSlot && MATERIALS_REJECT_RE.test(hay)) return true;
+    if (bokehSlot && MATERIALS_BOKEH_ONLY_RE.test(hay) && !MATERIALS_TRADE_CUE_RE.test(hay)) {
+      return true;
     }
     if (
       opts.materialsSlot &&
       MATERIALS_LIFESTYLE_KITCHEN_RE.test(hay) &&
       !MATERIALS_PRODUCT_DETAIL_RE.test(hay)
     ) {
-      return false;
+      return true;
     }
-    return true;
-  });
-  // Prefer non-denied; if none and allowDenied, use any unused (fail-soft last resort)
-  const pool = clean.length ? clean : opts.allowDenied ? candidates : [];
-  if (!pool.length) return null;
-  let best = null;
-  let bestScore = -Infinity;
-  for (const r of pool) {
-    const s = scorePhoto(r, tokens, opts);
-    if (s > bestScore) {
-      best = r;
-      bestScore = s;
-    }
-  }
-  if (!best) return null;
-  return {
-    pick: best,
-    score: bestScore,
-    lowScore: bestScore < floor,
-    deniedPool: !clean.length && Boolean(opts.allowDenied),
+    return false;
   };
+  const rankPool = (pool) => {
+    const clean = pool.filter((r) => !rejectHay(r));
+    const use = clean.length ? clean : opts.allowDenied ? pool : [];
+    if (!use.length) return null;
+    let best = null;
+    let bestScore = -Infinity;
+    for (const r of use) {
+      const s = scorePhoto(r, tokens, opts);
+      if (s > bestScore) {
+        best = r;
+        bestScore = s;
+      }
+    }
+    if (!best) return null;
+    return {
+      pick: best,
+      score: bestScore,
+      lowScore: bestScore < floor,
+      deniedPool: !clean.length && Boolean(opts.allowDenied),
+    };
+  };
+
+  const all = (results || []).filter((r) => r?.id);
+  const unused = all.filter((r) => !usedIds.has(r.id));
+  let ranked = rankPool(unused);
+  if ((!ranked?.pick || ranked.lowScore) && opts.allowReuse) {
+    const reused = rankPool(all);
+    if (reused?.pick && !reused.lowScore) return { ...reused, reused: true };
+  }
+  return ranked;
 }
 
 /**
  * Search providers: prefer above-floor clean picks; else keep best soft candidate.
  * @returns {Promise<{ chosen, download, providerUsed, relevanceScore, chosenQuery, softFill, errors }>}
  */
-async function searchStockForSlot({
+export async function searchStockForSlot({
   providers,
   queries,
   usedIds,
@@ -1223,6 +1374,8 @@ async function searchStockForSlot({
   pages = [1],
   priorPhotoId = null,
   sleepMs = 200,
+  allowSoftFill = true,
+  skipProviders = null,
 }) {
   const errors = [];
   let chosen = null;
@@ -1242,16 +1395,19 @@ async function searchStockForSlot({
     }
   };
 
+  const optsFor = (query) => ({ ...rankOpts, searchQuery: query });
+
   searchLoop: for (const query of queries) {
     for (const page of pages) {
       for (const provider of providers) {
+        if (skipProviders?.has(provider.id)) continue;
         const pageLabel = pages.length > 1 ? ` p${page}` : '';
         try {
           const results = await provider.search(query, { perPage, page });
-          const ranked = pickBestResult(results, usedIds, tokens, rankOpts);
+          const ranked = pickBestResult(results, usedIds, tokens, optsFor(query));
           if (!ranked?.pick) {
             const denied = pickBestResult(results, usedIds, tokens, {
-              ...rankOpts,
+              ...optsFor(query),
               allowDenied: true,
             });
             if (!denied?.pick) {
@@ -1285,14 +1441,23 @@ async function searchStockForSlot({
           softFill = false;
           break searchLoop;
         } catch (e) {
-          errors.push(`${provider.id}${pageLabel}: ${e.message || e}`);
+          const msg = e?.message || String(e);
+          errors.push(`${provider.id}${pageLabel}: ${msg}`);
+          if (
+            skipProviders &&
+            provider.id === 'unsplash' &&
+            /403|rate limit/i.test(msg)
+          ) {
+            skipProviders.add('unsplash');
+            errors.push('unsplash: skipped for rest of pull (rate limit)');
+          }
         }
         await sleep(sleepMs);
       }
     }
   }
 
-  if (!chosen && softCandidate) {
+  if (!chosen && softCandidate && allowSoftFill) {
     try {
       download = await softCandidate.provider.download(softCandidate.pick);
       chosen = softCandidate.pick;
@@ -1321,12 +1486,15 @@ function buildQuery({ niche, sectionId, label, kind, services, index, serviceNam
   const bucket = kindBucket(sectionId, kind);
 
   if (bucket === 'svcHero') {
+    if (profile?.kindHints?.hero) {
+      return String(profile.kindHints.hero).replace(/\s+/g, ' ').trim();
+    }
     const name = disambiguateServiceQuery(serviceName || label || '', niche, profile);
     return name || base;
   }
 
   if (bucket === 'hero') {
-    return base;
+    return (profile?.kindHints?.hero || base).replace(/\s+/g, ' ').trim();
   }
 
   if (bucket === 'intro') {
@@ -1342,7 +1510,7 @@ function buildQuery({ niche, sectionId, label, kind, services, index, serviceNam
   if (bucket === 'materials') {
     const title = disambiguateSlotTitle(materialTitle || '', niche, profile);
     // Trade-worded title (never bare "{title} close up" — that hits beauty/industrial stock)
-    if (title) return title.replace(/\s+/g, ' ').trim();
+    if (title) return `${base} ${title}`.replace(/\s+/g, ' ').trim();
     return (profile?.kindHints?.materials || `${base} product close up`).replace(/\s+/g, ' ').trim();
   }
 
@@ -1379,12 +1547,16 @@ function buildQueryVariants(slot, niche, services) {
   };
 
   if (bucket === 'svcHero') {
+    const ordered = [];
+    if (profile?.kindHints?.hero) ordered.push(profile.kindHints.hero);
+    for (const b of boostList.slice(0, 2)) {
+      if (b && b !== primary && b !== profile?.kindHints?.hero) ordered.push(b);
+    }
+    if (base && base !== primary) ordered.push(base);
     const svcQ = disambiguateServiceQuery(slot.serviceName || slot.label || '', niche, profile);
-    if (svcQ) variants.push(svcQ);
-    if (primary) variants.push(primary);
-    if (profile?.kindHints?.hero) variants.push(profile.kindHints.hero);
-    pushBoosts(4);
-    return [...new Set(variants.filter(Boolean))];
+    if (svcQ && svcQ !== primary) ordered.push(svcQ);
+    if (primary) ordered.push(primary);
+    return [...new Set(ordered.filter(Boolean))].slice(0, MAX_QUERY_VARIANTS);
   }
 
   if (primary && primary !== base) variants.push(primary);
@@ -1417,8 +1589,8 @@ function buildQueryVariants(slot, niche, services) {
       if (mt) {
         // Prefer disambiguated trade phrases; avoid bare title / texture traps
         variants.length = 0;
-        variants.push(mt);
         variants.push(`${primary} ${mt}`.replace(/\s+/g, ' ').trim());
+        variants.push(mt);
         const kitchenNiche = /kitchen|cabinet|countertop|cabinetr|refinish|refac/i.test(
           `${primary} ${niche || ''}`,
         );
@@ -1437,7 +1609,7 @@ function buildQueryVariants(slot, niche, services) {
     if (profile?.kindHints?.other) variants.push(profile.kindHints.other);
   }
 
-  return [...new Set(variants.filter(Boolean))];
+  return [...new Set(variants.filter(Boolean))].slice(0, MAX_QUERY_VARIANTS);
 }
 
 /** Safe photoId fragment for filenames (never keep provider prefixes / colons). */
@@ -1461,7 +1633,7 @@ function safeSlotKeyForFilename(key, max = 80) {
   );
 }
 
-function loadManifest(candidateId) {
+export function loadManifest(candidateId) {
   const p = pathsFor(candidateId);
   return (
     readJson(p.imagesManifest) || {
@@ -1515,7 +1687,7 @@ function altFromSrc(src) {
 /**
  * Rewrite accepted/draft content files so image srcs point at pulled filenames.
  */
-function applyImagesToContentFiles(candidateId, filledSlots) {
+export function applyImagesToContentFiles(candidateId, filledSlots) {
   const p = pathsFor(candidateId);
   const contentPath = existsSync(p.content) ? p.content : p.contentDraft;
   if (!contentPath || !existsSync(contentPath)) return { updated: 0 };
@@ -1844,6 +2016,7 @@ export async function fillSiteImages(candidateId, { replace = false } = {}) {
   const human = [];
   const filledSlots = [];
   const sourceCounts = {};
+  const skipProviders = new Set();
 
   const detailForNiche = getCandidateDetail(candidateId);
   const configForNiche =
@@ -1935,6 +2108,7 @@ export async function fillSiteImages(candidateId, { replace = false } = {}) {
     // Rich profiles (many boost phrases): Pull walks page 1 then deepens to page 2
     // on top queries when the first pass is soft-fill or empty.
     const richProfile = Array.isArray(profile?.boost) && profile.boost.length >= 4;
+    const allowSoftFill = slotAllowsSoftFill(slot, rankOpts);
     let searched = await searchStockForSlot({
       providers,
       queries,
@@ -1944,6 +2118,8 @@ export async function fillSiteImages(candidateId, { replace = false } = {}) {
       perPage,
       pages: [1],
       sleepMs: 200,
+      allowSoftFill,
+      skipProviders,
     });
     if (
       richProfile &&
@@ -1959,6 +2135,8 @@ export async function fillSiteImages(candidateId, { replace = false } = {}) {
         perPage: Math.max(perPage, 30),
         pages: [2],
         sleepMs: 200,
+        allowSoftFill,
+        skipProviders,
       });
       const deepOk = Boolean(deep.chosen && deep.download?.buffer?.length);
       const deepScore = Number(deep.relevanceScore) || 0;
@@ -2179,21 +2357,22 @@ export function getImagesManifest(candidateId) {
   };
 }
 
-function wiredFmForSlot(slot) {
+export function wiredFmForSlot(slot) {
   const id = slot.sectionId;
+  const n = Number(slot.index) || 1;
   if (id === 'hero') return 'homepage heroImage';
   if (id === 'intro') return 'homepage featureImage';
-  if (id === 'process' || id === 'offerProcess') return `homepage process[${slot.index}].image`;
+  if (id === 'process' || id === 'offerProcess') return `homepage process[${n}].image`;
   if (id === 'materials') return 'homepage materialsImages';
   if (id === 'svcMaterials') return 'service materialsImages';
   if (id === 'svcProcess') return 'service processImages';
   if (id === 'svcHero') return 'service heroImage/cardImage';
-  if (id === 'services') return `homepage serviceCardImages[${slot.index}]`;
+  if (id === 'services') return `homepage serviceCardImages[${n}]`;
   if (id === 'gallery' || id === 'beforeAfter' || id === 'svcBeforeAfter') return 'homepage gallery';
   return null;
 }
 
-function displayLabelForSlot(slot) {
+export function displayLabelForSlot(slot) {
   const id = slot.sectionId;
   const title = stripMaterialBold(slot.processTitle || slot.label || '');
   if (id === 'process' || id === 'offerProcess' || id === 'svcProcess') {
@@ -2208,7 +2387,7 @@ function displayLabelForSlot(slot) {
 }
 
 /** Homepage-ish order for Review Images / Structure (hero first). */
-const DEFAULT_IMAGE_SECTION_ORDER = [
+export const IMAGE_SECTION_DEFAULT_ORDER = [
   'hero',
   'intro',
   'services',
@@ -2234,7 +2413,7 @@ const DEFAULT_IMAGE_SECTION_ORDER = [
 ];
 
 /** Collapse related photo sectionIds into one Review Images group. */
-function sectionGroupKey(sectionId) {
+export function sectionGroupKey(sectionId) {
   const id = String(sectionId || '');
   if (id === 'svcHero' || id === 'services') return 'services';
   if (id === 'beforeAfter' || id === 'svcBeforeAfter' || id === 'gallery') return 'gallery';
@@ -2262,7 +2441,7 @@ function resolveImageSectionOrder(candidateId) {
     if (id && !expanded.includes(id)) expanded.push(id);
   };
   push('hero');
-  const mid = homeRaw || DEFAULT_IMAGE_SECTION_ORDER.filter((k) => k !== 'hero');
+  const mid = homeRaw || IMAGE_SECTION_DEFAULT_ORDER.filter((k) => k !== 'hero');
   for (const k of mid) {
     if (!k || k === 'hero') continue;
     if (k === 'services') {
@@ -2282,13 +2461,13 @@ function resolveImageSectionOrder(candidateId) {
       push(k);
     }
   }
-  for (const id of DEFAULT_IMAGE_SECTION_ORDER) push(id);
+  for (const id of IMAGE_SECTION_DEFAULT_ORDER) push(id);
   // Service-page-only extras
   push('svcProcess');
   return expanded;
 }
 
-function sectionLabelForGroup(groupKey, registry) {
+export function sectionLabelForGroup(groupKey, registry) {
   const sections = registry?.sections || [];
   const byId = (id) => sections.find((s) => s.id === id);
   if (groupKey === 'services') {
@@ -2365,6 +2544,12 @@ export function listImageSlotStatus(candidateId) {
       photoId: entry?.photoId || null,
       wiredFm: wiredFmForSlot(slot),
       missing: !onDisk,
+      variants: (entry?.variants || []).map((v) => ({
+        ...v,
+        previewUrl: v.filename
+          ? `/api/candidates/${encodeURIComponent(p.id)}/images/file/${encodeURIComponent(v.filename)}?v=${encodeURIComponent(v.filename)}`
+          : null,
+      })),
       _order: orderIndex(slot.sectionId) * 1000 + (Number(slot.index) || 0),
     };
   });
@@ -2379,7 +2564,56 @@ export function listImageSlotStatus(candidateId) {
   };
 }
 
-function saveSlotIntoManifest(candidateId, entry, { replaceFilename = null } = {}) {
+const MANUAL_GRADE_TIPS = {
+  poor: 'Poor match (set by you)',
+  ok: 'OK match (set by you)',
+  good: 'Good match (set by you)',
+};
+
+/** Operator override of Poor / OK / Good on a filled Review images slot. */
+export function setImageSlotMatchGrade(candidateId, slotKey, matchGrade) {
+  const grade = String(matchGrade || '').toLowerCase();
+  if (grade !== 'poor' && grade !== 'ok' && grade !== 'good') {
+    const err = new Error('matchGrade must be poor, ok, or good');
+    err.status = 400;
+    throw err;
+  }
+  const slots = listImageSlots(candidateId);
+  const slot = slots.find((s) => s.key === slotKey);
+  if (!slot) {
+    const err = new Error(`Unknown image slot: ${slotKey}`);
+    err.status = 404;
+    throw err;
+  }
+  const p = pathsFor(candidateId);
+  const manifest = loadManifest(candidateId);
+  const prior = manifest.slots?.[slot.key];
+  const filename = prior?.filename || null;
+  const onDisk = Boolean(filename && existsSync(path.join(p.siteImages, filename)));
+  if (!onDisk) {
+    const err = new Error('No photo in this slot to grade');
+    err.status = 400;
+    throw err;
+  }
+  let source = prior?.source || null;
+  if (!source && prior?.provider) source = 'stock';
+  if (source === 'upload') {
+    const err = new Error('Upload slots keep the upload marker; they are not Poor / OK / Good');
+    err.status = 400;
+    throw err;
+  }
+  const entry = {
+    ...prior,
+    key: slot.key,
+    matchGrade: grade,
+    matchTip: MANUAL_GRADE_TIPS[grade],
+    matchGradeManual: true,
+  };
+  saveSlotIntoManifest(candidateId, entry);
+  return { ...listImageSlotStatus(candidateId), slotKey: slot.key, matchGrade: grade };
+}
+
+export function saveSlotIntoManifest(candidateId, entry, { replaceFilename = null } = {}) {
   const p = pathsFor(candidateId);
   const manifest = loadManifest(candidateId);
   const slots = { ...(manifest.slots || {}) };
@@ -2420,6 +2654,43 @@ function saveSlotIntoManifest(candidateId, entry, { replaceFilename = null } = {
   };
   writeJson(p.imagesManifest, next);
   return next;
+}
+
+const SLOT_VARIANT_CAP = 8;
+
+function unlinkQuiet(abs) {
+  try {
+    if (existsSync(abs)) unlinkSync(abs);
+  } catch {
+    /* ignore */
+  }
+}
+
+function trimSlotVariants(dir, variants, cap = SLOT_VARIANT_CAP) {
+  const kept = (variants || []).slice(0, cap);
+  for (const v of (variants || []).slice(cap)) {
+    if (v.filename) unlinkQuiet(path.join(dir, path.basename(String(v.filename))));
+    if (v.beforeFilename) unlinkQuiet(path.join(dir, path.basename(String(v.beforeFilename))));
+    if (v.afterFilename) unlinkQuiet(path.join(dir, path.basename(String(v.afterFilename))));
+  }
+  return kept;
+}
+
+function archiveLiveSlotToVariants(dir, prior) {
+  const variants = [...(prior?.variants || [])];
+  if (prior?.filename && existsSync(path.join(dir, path.basename(String(prior.filename))))) {
+    variants.unshift({
+      id: `var-${Date.now().toString(36)}`,
+      filename: prior.filename,
+      source: prior.source || 'stock',
+      provider: prior.provider || null,
+      photoId: prior.photoId || null,
+      attribution: prior.attribution || null,
+      matchGrade: prior.matchGrade || null,
+      generatedAt: new Date().toISOString(),
+    });
+  }
+  return trimSlotVariants(dir, variants);
 }
 
 /**
@@ -2477,7 +2748,7 @@ export async function repullImageSlot(candidateId, slotKey) {
     ...buildQueryVariants(slot, niche, services),
     primaryNichePhrase(niche, profile),
   ].filter(Boolean);
-  const uniqueQueries = [...new Set(queries)];
+  const uniqueQueries = [...new Set(queries)].slice(0, MAX_QUERY_VARIANTS);
   const searched = await searchStockForSlot({
     providers,
     queries: uniqueQueries,
@@ -2488,6 +2759,8 @@ export async function repullImageSlot(candidateId, slotKey) {
     pages: [1, 2],
     priorPhotoId: prior?.photoId || null,
     sleepMs: 150,
+    allowSoftFill: slotAllowsSoftFill(slot, rankOpts),
+    skipProviders: new Set(),
   });
   const errors = searched.errors;
   const chosen = searched.chosen;
@@ -2529,6 +2802,7 @@ export async function repullImageSlot(candidateId, slotKey) {
     filename = `${slot.sectionId}-${slot.index}-${slug}-${idTail}-${Date.now().toString(36).slice(-4)}.jpg`;
   }
   mkdirSync(p.siteImages, { recursive: true });
+  const variants = archiveLiveSlotToVariants(p.siteImages, prior);
   writeFileSync(path.join(p.siteImages, filename), download.buffer);
 
   const queryStored = stripMaterialBold(chosenQuery);
@@ -2561,6 +2835,7 @@ export async function repullImageSlot(candidateId, slotKey) {
     materialTitle: slot.materialTitle || null,
     processTitle: slot.processTitle || null,
     label: slot.label || null,
+    variants,
   };
 
   const nextManifest = saveSlotIntoManifest(candidateId, entry);

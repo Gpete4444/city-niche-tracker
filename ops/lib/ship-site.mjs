@@ -310,9 +310,29 @@ export async function connectWorkersBuilds(opts) {
 }
 
 /**
+ * Labels for ship steps that will actually run given skip flags.
+ */
+export function listShipProgressSteps(opts = {}) {
+  const steps = [];
+  if (!opts.skipGithub) steps.push('GitHub create + push…');
+  if (!opts.skipBuild) steps.push('npm install + build…');
+  if (!opts.skipDeploy) steps.push('Wrangler deploy…');
+  if (!opts.skipBuildsConnect && !opts.skipGithub && cloudflareConfigured()) {
+    steps.push('Workers Builds…');
+  }
+  return steps;
+}
+
+/**
  * Full ship: commit+push GitHub, build, wrangler deploy, optional Builds connect.
  * @param {string} candidateId
- * @param {{ skipGithub?: boolean, skipBuild?: boolean, skipDeploy?: boolean, skipBuildsConnect?: boolean }} [opts]
+ * @param {{
+ *   skipGithub?: boolean,
+ *   skipBuild?: boolean,
+ *   skipDeploy?: boolean,
+ *   skipBuildsConnect?: boolean,
+ *   onProgress?: (p: { done: number, total: number, detail: string }) => void,
+ * }} [opts]
  */
 export async function shipAssembledSite(candidateId, opts = {}) {
   const detail = getCandidateDetail(candidateId);
@@ -327,12 +347,21 @@ export async function shipAssembledSite(candidateId, opts = {}) {
   const slug = detail.meta?.assembledSiteSlug || path.basename(assembledRoot);
   const human = [];
   const steps = {};
+  const onProgress = typeof opts.onProgress === 'function' ? opts.onProgress : null;
+  const planned = listShipProgressSteps(opts);
+  const total = planned.length;
+  let done = 0;
+  const tick = (detail) => {
+    done += 1;
+    onProgress?.({ done, total, detail });
+  };
 
   // 1) GitHub
   if (opts.skipGithub) {
     steps.github = { skipped: true };
     human.push('Skipped GitHub push.');
   } else {
+    tick('GitHub create + push…');
     try {
       steps.github = pushAssembledSiteToGithub(assembledRoot, {
         repoName: slug,
@@ -353,6 +382,7 @@ export async function shipAssembledSite(candidateId, opts = {}) {
   if (opts.skipBuild) {
     steps.build = { skipped: true };
   } else {
+    tick('npm install + build…');
     try {
       steps.build = await buildAssembledSiteAsync(assembledRoot);
       human.push('Built assembled site (npm install && npm run build).');
@@ -371,6 +401,7 @@ export async function shipAssembledSite(candidateId, opts = {}) {
     steps.deploy = { skipped: true };
     human.push('Skipped Wrangler deploy.');
   } else {
+    tick('Wrangler deploy…');
     try {
       steps.deploy = deployAssembledWithWrangler(assembledRoot);
       human.push(`Deployed Worker "${slug}" with Wrangler.`);
@@ -383,6 +414,7 @@ export async function shipAssembledSite(candidateId, opts = {}) {
 
   // 4) Builds connect (best-effort)
   if (!opts.skipBuildsConnect && steps.github?.ok && cloudflareConfigured()) {
+    tick('Workers Builds…');
     steps.builds = await connectWorkersBuilds({
       workerName: slug,
       repoName: steps.github.repoName,

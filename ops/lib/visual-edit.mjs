@@ -679,6 +679,7 @@ export async function publishVisualEdit(candidateId, { ignoreSeoWarnings = false
   const speechLint = lintContentSpeech(files, {
     primaryCity: config.primaryCity,
     niche: config.niche,
+    businessName: config.businessName,
   });
   const outline = readJson(pathsFor(candidateId).contentOutlinePackage);
   const seoLint = lintContentSeo(files, {

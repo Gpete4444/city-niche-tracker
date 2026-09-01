@@ -14,7 +14,7 @@ import {
   normalizeDomain,
   runCloudflareLaunch,
 } from './cloudflare-launch.mjs';
-import { shipAssembledSite } from './ship-site.mjs';
+import { shipAssembledSite, listShipProgressSteps } from './ship-site.mjs';
 import { upsertSiteAfterLaunch } from './sites.mjs';
 import {
   publicLeadsEmail,
@@ -191,8 +191,27 @@ export function patchLaunchSiteConfig(candidateId, patch = {}) {
  *   setupEmail?: boolean,
  *   markCloudflareProjectDone?: boolean,
  *   allowIncompleteLaunch?: boolean,
+ *   onProgress?: (p: { done: number, total: number, detail: string }) => void,
  * }} [opts]
  */
+export function listLaunchProgressSteps(opts = {}) {
+  const steps = ['Writing keys / site-config…'];
+  if (opts.ship !== false) {
+    steps.push(
+      ...listShipProgressSteps({
+        skipGithub: opts.skipGithub === true,
+        skipBuild: opts.skipBuild === true,
+        skipDeploy: opts.skipDeploy === true || !cloudflareConfigured(),
+        skipBuildsConnect: opts.skipBuildsConnect === true,
+      }),
+    );
+  }
+  if (opts.runCloudflare !== false && cloudflareConfigured()) {
+    steps.push('Cloudflare domain / Email Routing…');
+  }
+  return steps;
+}
+
 export async function launchSite(candidateId, opts = {}) {
   const detail = getCandidateDetail(candidateId);
   const assembledRoot = resolveAssembledRoot(detail);
@@ -215,6 +234,16 @@ export async function launchSite(candidateId, opts = {}) {
   const destinationEmail =
     String(opts.destinationEmail || defaultNotifyEmail() || '').trim() || '';
 
+  const onProgress = typeof opts.onProgress === 'function' ? opts.onProgress : null;
+  const planned = listLaunchProgressSteps(opts);
+  const total = planned.length;
+  let done = 0;
+  const tick = (detail) => {
+    done += 1;
+    onProgress?.({ done, total, detail });
+  };
+
+  tick('Writing keys / site-config…');
   const patched = patchLaunchSiteConfig(candidateId, {
     domain,
     phone: opts.phone,
@@ -261,6 +290,7 @@ export async function launchSite(candidateId, opts = {}) {
         skipBuild: opts.skipBuild === true,
         skipDeploy: opts.skipDeploy === true || !cloudflareConfigured(),
         skipBuildsConnect: opts.skipBuildsConnect === true,
+        onProgress: ({ detail }) => tick(detail),
       });
       human.push(...(ship.human || []));
     } catch (error) {
@@ -281,6 +311,7 @@ export async function launchSite(candidateId, opts = {}) {
       );
     } else {
       try {
+        tick('Cloudflare domain / Email Routing…');
         const workerName =
           detail.meta?.assembledSiteSlug ||
           path.basename(assembledRoot) ||

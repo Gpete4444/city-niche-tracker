@@ -2,6 +2,7 @@
  * ChatGPT browser before/after prompts + import into gallery slots.
  */
 import {
+  copyFileSync,
   existsSync,
   mkdirSync,
   writeFileSync,
@@ -111,6 +112,204 @@ export function listConfiguredServiceTargets(candidateId) {
   return out;
 }
 
+export function listBaPromptSlots(candidateId) {
+  const p = pathsFor(candidateId);
+  let structure = null;
+  if (existsSync(p.contentStructure)) {
+    try {
+      structure = JSON.parse(readFileSync(p.contentStructure, 'utf8'));
+    } catch {
+      structure = null;
+    }
+  }
+  const sections = Array.isArray(structure?.sections) ? structure.sections : [];
+  const photos = structure?.photos && typeof structure.photos === 'object' ? structure.photos : {};
+  const pages = Array.isArray(structure?.pages) ? structure.pages : [];
+  const homeOn = sections.includes('beforeAfter') || Boolean(photos.beforeAfter?.enabled);
+  const servicesPageOn = !pages.length || pages.includes('services');
+  const svcOn =
+    servicesPageOn && (sections.includes('svcBeforeAfter') || Boolean(photos.svcBeforeAfter?.enabled));
+  const out = [];
+  if (homeOn) {
+    out.push({
+      key: 'home:1',
+      kind: 'home',
+      label: 'Homepage gallery before/after',
+      serviceName: null,
+      slug: null,
+    });
+  }
+  if (svcOn) {
+    for (const t of listConfiguredServiceTargets(candidateId)) {
+      out.push({
+        key: `svc:${t.slug}`,
+        kind: 'service',
+        label: `Service page before/after — ${t.serviceName}`,
+        serviceName: t.serviceName,
+        slug: t.slug,
+      });
+    }
+  }
+  return out;
+}
+
+function fallbackBaScene({ serviceSlug = '', serviceName = '', pairIndex = 1, viewpoint = 'inside' } = {}) {
+  const slug = String(serviceSlug || '').toLowerCase();
+  const name = String(serviceName || '').toLowerCase();
+  const hay = `${slug} ${name}`;
+  const outside = viewpoint === 'outside';
+  if (/egress|window.?well|basement.?window/.test(hay)) {
+    return {
+      room: outside ? 'home exterior foundation wall with window well' : 'basement interior at a basement window',
+      defect: 'undersized or unfinished basement window and well',
+      result: 'finished code-sized egress window and well',
+    };
+  }
+  if (/texture/.test(hay)) {
+    return {
+      room: outside ? 'home exterior stucco wall' : 'dining room with orange-peel drywall',
+      defect: 'a mismatched drywall texture patch that does not blend',
+      result: 'even knockdown or orange-peel texture matching the surrounding wall',
+    };
+  }
+  if (/patch/.test(hay)) {
+    return {
+      room: outside ? 'home exterior siding near a patched wall' : 'bedroom with a ceiling drywall patch',
+      defect: 'an unfinished drywall patch with visible tape and mud',
+      result: 'a smooth blended patch ready for paint',
+    };
+  }
+  if (/repair/.test(hay)) {
+    return {
+      room: outside ? 'home exterior near a damaged wall corner' : 'hallway with a jagged hole in drywall',
+      defect: 'a punched or water-damaged hole in the drywall',
+      result: 'a repaired, taped, and sanded drywall surface',
+    };
+  }
+  if (!slug) {
+    return {
+      room: outside ? 'home exterior at the main living-room window wall' : 'living room with an unfinished drywall seam',
+      defect:
+        Number(pairIndex) > 1
+          ? 'an unmudded drywall joint on a long wall'
+          : 'an unfinished drywall seam on a featured wall',
+      result: 'smooth finished drywall ready for paint',
+    };
+  }
+  return {
+    room: outside ? 'home exterior at the service feature' : 'a distinct residential room for this service',
+    defect: `an incomplete ${serviceName || 'service'} element`,
+    result: `the finished ${serviceName || 'service'} result`,
+  };
+}
+
+const BA_BEFORE_LEAD =
+  'DOCUMENTARY CONTRACTOR PHOTO, not CGI, not a real-estate listing, not a catalog product shot. Phone or job-site camera, straight-on or slight angle, available indoor light — no golden-hour glow, no cinematic bokeh, no blown-out windows. Ordinary lived-in American house; furniture may be present but not showroom-staged; no gibberish book spines, no fake laptop slabs. If the defect is a hole in gypsum drywall: thin paper-faced board, irregular torn paper facing, visible wood studs and a real wall cavity (not a circular crater, not thick masonry or clay, not concrete rubble). Damage is modest (doorknob or fist scale), with light scattered dust — not a neat rubble pile and not centered hero-damage. No people, no faces, no hands, no crew. No text, logos, or watermarks.';
+
+const BA_AFTER_LEAD =
+  'EDIT THIS EXACT PHOTO. Same crop, camera height, lens, white balance, furniture, floor, doors, and window exposure. Do not relight. Do not recompose. Do not change anything except the service defect. Replace that defect with a finished, believable repair of the SAME surface (joint compound, sand, paint match for drywall; equivalent finished result for other trades) — not a white blob, not a new wall, not a remodel. No people. No text, logos, or watermarks.';
+
+export function baDocumentaryLeadIn({ stage } = {}) {
+  return stage === 'after' ? BA_AFTER_LEAD : BA_BEFORE_LEAD;
+}
+
+function readImagesPlanDoc(candidateId) {
+  const file = pathsFor(candidateId).imagesPlan;
+  if (!existsSync(file)) return null;
+  try {
+    const doc = JSON.parse(readFileSync(file, 'utf8'));
+    return doc && typeof doc === 'object' ? doc : null;
+  } catch {
+    return null;
+  }
+}
+
+function lookupBaPlanPrompts(candidateId, { serviceSlug = '', pairIndex = 1, viewpoint } = {}) {
+  const vp = normalizeBaViewpoint(viewpoint);
+  const slug = serviceSlug ? slugifyService(serviceSlug) : '';
+  const key = slug ? `svc:${slug}` : `home:${Math.max(1, Number(pairIndex) || 1)}`;
+  const plan = readImagesPlanDoc(candidateId);
+  const entry = plan?.beforeAfter && typeof plan.beforeAfter === 'object' ? plan.beforeAfter[key] : null;
+  const side = entry?.[vp] || null;
+  const claudeBefore = String(side?.before || '').trim();
+  const claudeAfter = String(side?.after || '').trim();
+  if (claudeBefore && claudeAfter) {
+    return {
+      key,
+      viewpoint: vp,
+      source: 'claude',
+      room: String(entry?.room || '').trim() || null,
+      before: claudeBefore,
+      after: claudeAfter,
+      afterRaw: claudeAfter,
+    };
+  }
+  const built = buildBeforeAfterPrompts(candidateId, { serviceSlug: slug, viewpoint: vp });
+  return {
+    key,
+    viewpoint: vp,
+    source: 'template',
+    room: built.room,
+    before: built.before,
+    after: built.after,
+    afterRaw: built.after,
+  };
+}
+
+/**
+ * Unwrapped Claude Image-queries (or ChatGPT template). Same text ChatGPT-in-the-browser used.
+ */
+export function resolveBaChatgptPrompts(candidateId, opts = {}) {
+  return lookupBaPlanPrompts(candidateId, opts);
+}
+
+export function baPromptsForCard(candidateId, { serviceSlug = '', pairIndex = 1 } = {}) {
+  const sides = {};
+  for (const viewpoint of ['inside', 'outside']) {
+    const r = resolveBaChatgptPrompts(candidateId, { serviceSlug, pairIndex, viewpoint });
+    sides[viewpoint] = {
+      before: r.before,
+      after: r.after,
+      source: r.source,
+      room: r.room,
+    };
+  }
+  return sides;
+}
+
+export function imagesPlanMeetsBaRequirements(candidateId, plan = null) {
+  const needed = listBaPromptSlots(candidateId);
+  if (!needed.length) return true;
+  const doc = plan || readImagesPlanDoc(candidateId);
+  const ba = doc?.beforeAfter && typeof doc.beforeAfter === 'object' ? doc.beforeAfter : {};
+  return needed.every((slot) => {
+    const e = ba[slot.key];
+    return Boolean(
+      String(e?.inside?.before || '').trim() &&
+        String(e?.inside?.after || '').trim() &&
+        String(e?.outside?.before || '').trim() &&
+        String(e?.outside?.after || '').trim(),
+    );
+  });
+}
+
+export function saveLastBaPrompts(
+  candidateId,
+  { serviceSlug = '', pairIndex = 1, viewpoint, before, after, source } = {},
+) {
+  const key = baVariantKey({ serviceSlug, pairIndex });
+  const doc = loadBaVariantsDoc(candidateId);
+  doc._lastSent = { ...(doc._lastSent && typeof doc._lastSent === 'object' ? doc._lastSent : {}) };
+  doc._lastSent[key] = {
+    before: String(before || ''),
+    after: String(after || ''),
+    viewpoint: normalizeBaViewpoint(viewpoint),
+    source: source || 'claude',
+    at: new Date().toISOString(),
+  };
+  saveBaVariantsDoc(candidateId, doc);
+}
+
 function resolveServiceTarget(candidateId, serviceSlug) {
   const slug = slugifyService(serviceSlug);
   if (!slug) {
@@ -142,7 +341,13 @@ export function buildBeforeAfterPrompts(candidateId, opts = {}) {
       ? config.services.slice(0, 3)
       : [];
   const viewpoint = normalizeBaViewpoint(opts.viewpoint);
-  const room = roomHint(niche, services, viewpoint);
+  const scene = fallbackBaScene({
+    serviceSlug: serviceTarget?.slug || '',
+    serviceName: focusName,
+    pairIndex: Number(opts.pairIndex) || 1,
+    viewpoint,
+  });
+  const room = scene.room || roomHint(niche, services, viewpoint);
   const serviceLine = serviceTarget
     ? `Focus specifically on ${serviceTarget.serviceName} (not other services).`
     : services.length
@@ -161,23 +366,23 @@ export function buildBeforeAfterPrompts(candidateId, opts = {}) {
   ].join(' ');
 
   const before = [
-    `Create a single photorealistic BEFORE photo for a local ${niche} business website.`,
+    `Create a single documentary BEFORE photo for a local ${niche} business website.`,
     cameraLine,
     serviceLine,
-    `Show a clear need for ${focusName} only (e.g. undersized/non-compliant window, damaged well, or the specific defect) while the rest of the scene stays ordinary and believable.`,
+    `Show a clear need for ${focusName} only (${scene.defect}) while the rest of the scene stays ordinary and believable.`,
+    'If the defect is broken gypsum drywall, show thin paper-faced board, an irregular tear (not a circular crater), and a real wall cavity with wood studs — not masonry, clay, or a neat rubble pile.',
     surgicalRules,
-    'Straight-on documentary photo, natural light, no people, no faces, no text, no logos, no watermarks, no UI.',
+    'Straight-on documentary photo, available indoor light — not golden hour, not cinematic bokeh, not a blown-out window. No people, no faces, no hands, no crew, no customers, no silhouettes. Lived-in ordinary house, not a catalog set. No text, no logos, no watermarks, no UI.',
     'Aspect ratio 4:3. Realistic residential architecture — not a showroom, not CGI-looking.',
   ].join(' ');
 
   const after = [
-    `Create a single photorealistic AFTER photo matching the same camera angle, framing, and scene layout as the BEFORE.`,
     cameraLine,
     serviceLine,
-    `Change ONLY the ${focusName} result (e.g. code-sized egress window and well if visible). Everything else — walls, floor, ceiling, trim elsewhere, furniture, lighting mood of the room — must stay the same.`,
+    `Change ONLY the ${focusName} result (${scene.result}). Everything else — walls, floor, ceiling, trim elsewhere, furniture, lighting mood of the room — must stay the same.`,
     surgicalRules,
-    'Forbidden: full basement finish, new carpet/paint package, furniture restyle, decluttering makeover, or any remodel beyond the service element.',
-    'Photoreal, natural light, no people, no faces, no text, no logos, no watermarks.',
+    'Forbidden: white blob where the defect was, a new wall, full remodel, new carpet/paint package, furniture restyle, or decluttering makeover.',
+    'Photoreal, available indoor light. No people, no faces, no hands, no crew, no customers. No text, no logos, no watermarks.',
     'Aspect ratio 4:3. Looks like a real completed job photo for a contractor website.',
   ].join(' ');
 
@@ -189,7 +394,7 @@ export function buildBeforeAfterPrompts(candidateId, opts = {}) {
     `1) BEFORE: problem is only the ${focusName} element; room may be tidy or finished.`,
     `2) AFTER: same camera and room; only the ${focusName} work changes — no full remodel.`,
     surgicalRules,
-    'Photoreal, 4:3, no people, no text/logos/watermarks. Generate the BEFORE first, then the AFTER matching that angle.',
+    'Photoreal, 4:3. No people, no faces, no hands, no crew. No text/logos/watermarks. Generate the BEFORE first, then the AFTER matching that angle.',
   ].join(' ');
 
   return {
@@ -662,6 +867,7 @@ function importServiceBeforeAfterPair(candidateId, body = {}) {
   const target = resolveServiceTarget(candidateId, body.serviceSlug);
   const { beforeDecoded, afterDecoded, beforeOrigName, afterOrigName } = decodeImportPair(body);
   mkdirSync(p.siteImages, { recursive: true });
+  archiveLiveBaPairToTray(candidateId, { serviceSlug: target.slug, pairIndex: 1 });
   deleteSvcBaFilesForSlug(
     [
       p.siteImages,
@@ -769,7 +975,13 @@ export function importBeforeAfterPair(candidateId, body = {}) {
   }
   healInvertedGalleryBaPairs(p.siteImages, existingBa);
 
-  const pairIndex = nextPairIndex(p.siteImages);
+  const requested = Number(body.pairIndex);
+  const pairIndex =
+    Number.isFinite(requested) && requested > 0 ? requested : nextPairIndex(p.siteImages);
+  if (Number.isFinite(requested) && requested > 0) {
+    archiveLiveBaPairToTray(candidateId, { pairIndex: requested });
+    unlinkMatching(p.siteImages, new RegExp(`^gallery-ba-${requested}-(before|after)\\.`, 'i'));
+  }
   const beforeName = `gallery-ba-${pairIndex}-before.${beforeDecoded.ext}`;
   const afterName = `gallery-ba-${pairIndex}-after.${afterDecoded.ext}`;
   writeFileSync(path.join(p.siteImages, beforeName), beforeDecoded.buffer);
@@ -849,6 +1061,171 @@ export function importBeforeAfterPair(candidateId, body = {}) {
   };
 }
 
+function unlinkMatching(dir, re) {
+  if (!existsSync(dir)) return;
+  for (const name of readdirSync(dir)) {
+    if (!re.test(name)) continue;
+    try {
+      unlinkSync(path.join(dir, name));
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+/**
+ * Write a generated JPEG before/after pair onto canonical live filenames.
+ * Callers must copy any existing live pair into the variant tray first.
+ */
+export function writeGeneratedBaPair(
+  candidateId,
+  { serviceSlug = '', pairIndex = 1, beforeBuffer, afterBuffer, sourceLabel = 'Flux 2 Pro' } = {},
+) {
+  if (!beforeBuffer?.length || !afterBuffer?.length) {
+    throw Object.assign(new Error('beforeBuffer and afterBuffer required'), { status: 400 });
+  }
+  const p = pathsFor(candidateId);
+  mkdirSync(p.siteImages, { recursive: true });
+  const config = loadConfig(candidateId);
+  const niche = String(config.niche || 'remodel').trim();
+  const city = String(config.primaryCity || '').trim();
+  const labelBit = sourceLabel || 'Flux 2 Pro';
+
+  if (serviceSlug) {
+    const target = resolveServiceTarget(candidateId, serviceSlug);
+    unlinkMatching(p.siteImages, new RegExp(`^svc-ba-${target.slug}-\\d+-(before|after)\\.`, 'i'));
+    const beforeName = `svc-ba-${target.slug}-1-before.jpg`;
+    const afterName = `svc-ba-${target.slug}-1-after.jpg`;
+    writeFileSync(path.join(p.siteImages, beforeName), beforeBuffer);
+    writeFileSync(path.join(p.siteImages, afterName), afterBuffer);
+    const label = `${target.serviceName}${city ? ` in ${city}` : ''}`;
+    const newEntries = [
+      {
+        filename: beforeName,
+        src: `/images/${beforeName}`,
+        alt: `Before — ${label} (${labelBit})`.slice(0, 160),
+      },
+      {
+        filename: afterName,
+        src: `/images/${afterName}`,
+        alt: `After — ${label} (${labelBit})`.slice(0, 160),
+      },
+    ];
+    let patched = 0;
+    for (const key of ['content', 'contentDraft']) {
+      const file = p[key];
+      if (!existsSync(file)) continue;
+      try {
+        const doc = JSON.parse(readFileSync(file, 'utf8'));
+        if (!doc?.files) continue;
+        const svcKey = findServiceFileKey(doc.files, target.slug);
+        if (!svcKey) continue;
+        doc.files[svcKey] = patchBeforeAfterImagesOnMarkdown(doc.files[svcKey], newEntries);
+        writeJson(file, doc);
+        patched += 1;
+      } catch {
+        /* ignore */
+      }
+    }
+    const liveSvc = path.join(ROOT, 'src', 'content', 'services', `${target.slug}.md`);
+    if (existsSync(liveSvc)) {
+      const md = readFileSync(liveSvc, 'utf8');
+      writeFileSync(liveSvc, patchBeforeAfterImagesOnMarkdown(md, newEntries), 'utf8');
+      patched += 1;
+    }
+    syncSiteImagesToPublic(candidateId);
+    saveMeta(candidateId, { lastServiceBeforeAfterImportAt: new Date().toISOString() });
+    return {
+      ok: true,
+      scope: 'service',
+      serviceSlug: target.slug,
+      serviceName: target.serviceName,
+      pairIndex: 1,
+      files: newEntries,
+      patched,
+      candidate: getCandidateDetail(candidateId),
+    };
+  }
+
+  const idx = Math.max(1, Number(pairIndex) || 1);
+  unlinkMatching(p.siteImages, new RegExp(`^gallery-ba-${idx}-(before|after)\\.`, 'i'));
+  const beforeName = `gallery-ba-${idx}-before.jpg`;
+  const afterName = `gallery-ba-${idx}-after.jpg`;
+  writeFileSync(path.join(p.siteImages, beforeName), beforeBuffer);
+  writeFileSync(path.join(p.siteImages, afterName), afterBuffer);
+  const place = `${niche}${city ? ` in ${city}` : ''}`;
+  const newEntries = [
+    {
+      filename: beforeName,
+      src: `/images/${beforeName}`,
+      alt: `Before — ${place} (${labelBit})`.slice(0, 160),
+    },
+    {
+      filename: afterName,
+      src: `/images/${afterName}`,
+      alt: `After — ${place} (${labelBit})`.slice(0, 160),
+    },
+  ];
+  const allBa = [];
+  for (const name of readdirSync(p.siteImages)) {
+    const m = name.match(/^gallery-ba-(\d+)-(before|after)\.(\w+)$/i);
+    if (!m) continue;
+    const role = m[2].toLowerCase();
+    const preset = newEntries.find((e) => e.filename === name);
+    allBa.push({
+      filename: name,
+      src: `/images/${name}`,
+      alt: preset?.alt || `${role === 'before' ? 'Before' : 'After'} — ${niche}`,
+    });
+  }
+  let patched = 0;
+  for (const key of ['content', 'contentDraft']) {
+    const file = p[key];
+    if (!existsSync(file)) continue;
+    try {
+      const doc = JSON.parse(readFileSync(file, 'utf8'));
+      if (!doc?.files) continue;
+      const indexKey = Object.keys(doc.files).find((k) => /pages\/index\.md$/i.test(k));
+      if (!indexKey) continue;
+      doc.files[indexKey] = writeGalleryBaOnly(doc.files[indexKey], galleryBaOnlyEntries(allBa));
+      writeJson(file, doc);
+      patched += 1;
+    } catch {
+      /* ignore */
+    }
+  }
+  const liveIndex = path.join(ROOT, 'src', 'content', 'pages', 'index.md');
+  if (existsSync(liveIndex)) {
+    const md = readFileSync(liveIndex, 'utf8');
+    writeFileSync(liveIndex, writeGalleryBaOnly(md, galleryBaOnlyEntries(allBa)), 'utf8');
+    patched += 1;
+  }
+  syncSiteImagesToPublic(candidateId);
+  saveMeta(candidateId, { lastBeforeAfterImportAt: new Date().toISOString() });
+  return {
+    ok: true,
+    scope: 'home',
+    pairIndex: idx,
+    files: newEntries,
+    patched,
+    candidate: getCandidateDetail(candidateId),
+  };
+}
+
+function homePairsFromDisk(candidateId) {
+  const byIndex = new Map();
+  for (const e of collectGalleryBaFromDisk(candidateId)) {
+    const m = String(e.filename || '').match(/^gallery-ba-(\d+)-(before|after)\./i);
+    if (!m) continue;
+    const idx = Number(m[1]) || 1;
+    const role = m[2].toLowerCase();
+    const row = byIndex.get(idx) || { pairIndex: idx, before: null, after: null };
+    row[role] = e;
+    byIndex.set(idx, row);
+  }
+  return [...byIndex.values()].sort((a, b) => a.pairIndex - b.pairIndex);
+}
+
 /**
  * Preview status for Website Review Images (home + per-service pairs on disk).
  */
@@ -867,28 +1244,161 @@ export function listBeforeAfterStatus(candidateId) {
   const svcBaEnabled = Boolean(structure?.sections?.includes('svcBeforeAfter'));
   const pages = structure?.pages || [];
   const servicesPageOn = !pages.length || pages.includes('services');
-  const homeEntries = collectGalleryBaFromDisk(candidateId);
-  const homeBefore = homeEntries.find((e) => /before\./i.test(e.filename));
-  const homeAfter = homeEntries.find((e) => /after\./i.test(e.filename));
+  const homePairs = homePairsFromDisk(candidateId);
+  const homePrimary = homePairs[0] || { pairIndex: 1, before: null, after: null };
+  const variantsDoc = readBaVariantsDoc(candidateId);
+  const stampPreview = (filename) =>
+    filename
+      ? `/api/candidates/${encodeURIComponent(p.id)}/images/file/${encodeURIComponent(filename)}?v=${encodeURIComponent(filename)}-${Date.now()}`
+      : null;
+  const plan = readImagesPlanDoc(candidateId);
+  const attachVariants = (key, row) => {
+    const variants = (variantsDoc[key] || []).map((v) => ({
+      ...v,
+      beforeUrl: stampPreview(v.beforeFilename),
+      afterUrl: stampPreview(v.afterFilename),
+    }));
+    const slug = row.slug || '';
+    const pairIndex = row.pairIndex || 1;
+    return {
+      ...row,
+      matchKey: key,
+      beforeUrl: stampPreview(row.before?.filename),
+      afterUrl: stampPreview(row.after?.filename),
+      complete: Boolean(row.before?.filename && row.after?.filename),
+      variants,
+      lastPrompts: variantsDoc._lastSent?.[key] || null,
+      promptPlan: plan?.beforeAfter?.[key] || null,
+      promptsForGenerate: baPromptsForCard(candidateId, { serviceSlug: slug, pairIndex }),
+    };
+  };
   const services = listConfiguredServiceTargets(candidateId).map((t) => {
     const entries = svcBaPairFromDisk(p.siteImages, t.slug, niche, t.serviceName);
-    return {
+    const before = entries.find((e) => /before\./i.test(e.filename)) || null;
+    const after = entries.find((e) => /after\./i.test(e.filename)) || null;
+    return attachVariants(`svc:${t.slug}`, {
       slug: t.slug,
       serviceName: t.serviceName,
-      before: entries.find((e) => /before\./i.test(e.filename)) || null,
-      after: entries.find((e) => /after\./i.test(e.filename)) || null,
-      complete: entries.length >= 2,
-    };
+      pairIndex: 1,
+      before,
+      after,
+    });
   });
+  const homeCards = homePairs.length
+    ? homePairs.map((row) => attachVariants(`home:${row.pairIndex}`, row))
+    : [attachVariants('home:1', homePrimary)];
   return {
     ok: true,
     home: {
-      before: homeBefore || null,
-      after: homeAfter || null,
-      complete: Boolean(homeBefore && homeAfter),
-      pairs: homeEntries,
+      before: homePrimary.before || null,
+      after: homePrimary.after || null,
+      complete: Boolean(homePrimary.before && homePrimary.after),
+      pairs: homePrimary.before || homePrimary.after ? collectGalleryBaFromDisk(candidateId) : [],
     },
+    homePairs: homeCards,
     svcBeforeAfterEnabled: svcBaEnabled && servicesPageOn,
     services,
+    flux: null,
   };
 }
+
+function readBaVariantsDoc(candidateId) {
+  const file = pathsFor(candidateId).baVariants;
+  if (!existsSync(file)) return {};
+  try {
+    const doc = JSON.parse(readFileSync(file, 'utf8'));
+    return doc && typeof doc === 'object' ? doc : {};
+  } catch {
+    return {};
+  }
+}
+
+export function loadBaVariantsDoc(candidateId) {
+  return readBaVariantsDoc(candidateId);
+}
+
+export function saveBaVariantsDoc(candidateId, doc) {
+  const file = pathsFor(candidateId).baVariants;
+  mkdirSync(path.dirname(file), { recursive: true });
+  writeFileSync(file, `${JSON.stringify(doc, null, 2)}\n`, 'utf8');
+}
+
+const BA_VARIANT_CAP = 8;
+
+function unlinkQuietBa(abs) {
+  try {
+    if (existsSync(abs)) unlinkSync(abs);
+  } catch {
+    /* ignore */
+  }
+}
+
+function trimBaVariantList(dir, variants, cap = BA_VARIANT_CAP) {
+  const kept = (variants || []).slice(0, cap);
+  for (const v of (variants || []).slice(cap)) {
+    if (v.filename) unlinkQuietBa(path.join(dir, path.basename(String(v.filename))));
+    if (v.beforeFilename) unlinkQuietBa(path.join(dir, path.basename(String(v.beforeFilename))));
+    if (v.afterFilename) unlinkQuietBa(path.join(dir, path.basename(String(v.afterFilename))));
+  }
+  return kept;
+}
+
+export function baVariantKey({ serviceSlug, pairIndex } = {}) {
+  if (serviceSlug) return `svc:${serviceSlug}`;
+  return `home:${Math.max(1, Number(pairIndex) || 1)}`;
+}
+
+export function findLiveBaFiles(candidateId, { serviceSlug, pairIndex } = {}) {
+  const p = pathsFor(candidateId);
+  if (!existsSync(p.siteImages)) return { before: null, after: null };
+  const names = readdirSync(p.siteImages);
+  if (serviceSlug) {
+    const reB = new RegExp(`^svc-ba-${serviceSlug}-\\d+-before\\.`, 'i');
+    const reA = new RegExp(`^svc-ba-${serviceSlug}-\\d+-after\\.`, 'i');
+    return {
+      before: names.find((n) => reB.test(n)) || null,
+      after: names.find((n) => reA.test(n)) || null,
+    };
+  }
+  const idx = Math.max(1, Number(pairIndex) || 1);
+  return {
+    before: names.find((n) => new RegExp(`^gallery-ba-${idx}-before\\.`, 'i').test(n)) || null,
+    after: names.find((n) => new RegExp(`^gallery-ba-${idx}-after\\.`, 'i').test(n)) || null,
+  };
+}
+
+/** Copy the live pair into the variant tray. Call before overwriting live files. */
+export function archiveLiveBaPairToTray(candidateId, { serviceSlug = '', pairIndex = 1 } = {}) {
+  const p = pathsFor(candidateId);
+  const live = findLiveBaFiles(candidateId, { serviceSlug, pairIndex });
+  if (!live.before && !live.after) return;
+  const stamp = Date.now().toString(36);
+  const prefix = serviceSlug
+    ? `svc-ba-${serviceSlug}`
+    : `gallery-ba-${Math.max(1, Number(pairIndex) || 1)}`;
+  const beforeDest = live.before
+    ? `${prefix}-var-${stamp}-before${path.extname(live.before) || '.jpg'}`
+    : null;
+  const afterDest = live.after
+    ? `${prefix}-var-${stamp}-after${path.extname(live.after) || '.jpg'}`
+    : null;
+  if (beforeDest) {
+    copyFileSync(path.join(p.siteImages, live.before), path.join(p.siteImages, beforeDest));
+  }
+  if (afterDest) {
+    copyFileSync(path.join(p.siteImages, live.after), path.join(p.siteImages, afterDest));
+  }
+  const key = baVariantKey({ serviceSlug, pairIndex });
+  const doc = loadBaVariantsDoc(candidateId);
+  const list = [...(doc[key] || [])];
+  list.unshift({
+    id: `var-${stamp}`,
+    beforeFilename: beforeDest,
+    afterFilename: afterDest,
+    source: 'prior',
+    generatedAt: new Date().toISOString(),
+  });
+  doc[key] = trimBaVariantList(p.siteImages, list);
+  saveBaVariantsDoc(candidateId, doc);
+}
+

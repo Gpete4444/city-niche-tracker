@@ -876,6 +876,10 @@ export function parseHomeAddressLine(raw, { city = '', state = '' } = {}) {
   };
 }
 
+function addressQueryWithoutSuite(addr = {}) {
+  return [addr.street, addr.city, addr.state, addr.zip].filter(Boolean).join(', ');
+}
+
 function mapsUrl(addr, { lat = null, lng = null } = {}) {
   const hasCoords =
     lat != null &&
@@ -884,12 +888,11 @@ function mapsUrl(addr, { lat = null, lng = null } = {}) {
     lng !== '' &&
     Number.isFinite(Number(lat)) &&
     Number.isFinite(Number(lng));
-  // Prefer coords. Never include suite — STE-* stubs make Google match unrelated businesses.
-  const q = hasCoords
-    ? encodeURIComponent(`${Number(lat)},${Number(lng)}`)
-    : encodeURIComponent(
-        [addr.street, addr.city, addr.state, addr.zip].filter(Boolean).join(', '),
-      );
+  // Prefer coords pin. Never include suite — STE-* stubs make Google match unrelated businesses.
+  if (hasCoords) {
+    return `https://www.google.com/maps/?q=${Number(lat)},${Number(lng)}`;
+  }
+  const q = encodeURIComponent(addressQueryWithoutSuite(addr));
   return `https://www.google.com/maps/search/?api=1&query=${q}`;
 }
 
@@ -901,13 +904,12 @@ function streetViewUrl(addr, { lat = null, lng = null } = {}) {
     lng !== '' &&
     Number.isFinite(Number(lat)) &&
     Number.isFinite(Number(lng));
-  // Prefer maps?q=…&layer=c — map_action=pano&viewpoint often opens a black pano.
-  const q = hasCoords
-    ? encodeURIComponent(`${Number(lat)},${Number(lng)}`)
-    : encodeURIComponent(
-        [addr.street, addr.city, addr.state, addr.zip].filter(Boolean).join(', '),
-      );
-  return `https://www.google.com/maps?q=${q}&layer=c`;
+  // Official pano URL — layer=c only shows coverage overlay, not Street View.
+  if (hasCoords) {
+    return `https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${Number(lat)},${Number(lng)}`;
+  }
+  const q = encodeURIComponent(addressQueryWithoutSuite(addr));
+  return `https://www.google.com/maps/search/?api=1&query=${q}`;
 }
 
 function emptyPackage(candidateId, city, state) {

@@ -849,12 +849,8 @@ export async function buildFullWritePrompt(candidateId) {
     (s.pages || []).includes('locations'),
   );
 
-  let cityContext = getCachedCityContext(candidateId);
-  try {
-    cityContext = await buildCityContextPackage(candidateId);
-  } catch {
-    // soft fail
-  }
+  // Copy path: cache only — do not live-fetch Wikipedia (outline compose warms cache).
+  const cityContext = getCachedCityContext(candidateId);
   const cityCompact = compactCityContextForPrompt(cityContext);
 
   let eightPrefix = '';
@@ -871,6 +867,7 @@ export async function buildFullWritePrompt(candidateId) {
 Write FULL page content that follows the confirmed OUTLINE. Prioritize helpful, specific value Google rewards: methods, cost drivers and ranges (not fake quotes), timelines, materials, DIY vs pro, when to call a pro, and local proof from site-config socialProof.
 Pass 3: vary sentence length across sections; prefer commas over em dashes; honor the Confirmed content brief.
 **Burstiness:** mix short punchy lines with longer ones — location and service pages must not share one uniform long-sentence cadence.
+**Paragraphs:** 1–3 short sentences each (about, locations, and service bodies too). Rover flags blocks over ~80 words.
 **Bookends:** for every FILE, make the first two and last two body sentences conversational and opinionated (contractor on the phone). Closing bookend should nudge call / free estimate when the page type expects it.
 **NAP:** use site-config phone, email, and businessName literally. Never invent numbers or leave placeholders like +1XXXXXXXXXX / leads@example.com.
 

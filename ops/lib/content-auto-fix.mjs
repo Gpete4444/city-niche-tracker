@@ -102,6 +102,17 @@ export function autoFixContentDraft(files, opts = {}) {
       });
     }
 
+    const longSplit = splitLongProseParagraphs(body);
+    if (longSplit.changed) {
+      body = longSplit.body;
+      changes.push({
+        file: rel,
+        rule: 'long_paragraph',
+        kind: 'speech',
+        detail: `Split ${longSplit.count} long paragraph(s) into shorter blocks`,
+      });
+    }
+
     if (/(^|\/)pages\/index\.md$/i.test(rel)) {
       const faqStrip = stripOffNicheHomepageFaqs(body, {
         niche: config.niche,
@@ -580,6 +591,95 @@ function slugify(name) {
     .replace(/&/g, ' and ')
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-|-$/g, '');
+}
+
+function isStructuredLabelDashLine(line) {
+  return /^\s*(?:[-*+]\s+)?\*\*.+?\*\*\s+[—–\u2013\u2014]\s+/.test(String(line || ''));
+}
+
+function wordCount(s) {
+  return String(s || '')
+    .split(/\s+/)
+    .filter(Boolean).length;
+}
+
+function breakLongSentence(s) {
+  const t = String(s || '').trim();
+  if (wordCount(t) <= 80) return [t];
+  const mid = Math.floor(t.length / 2);
+  const cuts = [];
+  for (const re of [/;\s+/g, /,\s+(?:and|but|which|so)\s+/gi]) {
+    re.lastIndex = 0;
+    let m;
+    while ((m = re.exec(t))) cuts.push(m.index + (re.source.includes(';') ? m[0].length : m[0].length));
+  }
+  if (!cuts.length) return [t];
+  const at = cuts.sort((a, b) => Math.abs(a - mid) - Math.abs(b - mid))[0];
+  let left = t.slice(0, at).trim().replace(/[,;]+$/, '');
+  let right = t.slice(at).trim();
+  if (!left || !right) return [t];
+  if (!/[.!?]$/.test(left)) left = `${left}.`;
+  right = right.charAt(0).toUpperCase() + right.slice(1);
+  return [left, right];
+}
+
+function splitIntoSentences(text) {
+  const t = String(text || '').trim();
+  if (!t) return [];
+  const parts = t.match(/[^.!?]+(?:[.!?]+["”')\]]*)?(?:\s+|$)|[^.!?]+$/g);
+  const sentences = (parts || [t]).map((s) => s.trim()).filter(Boolean);
+  return sentences.flatMap((s) => (wordCount(s) > 80 ? breakLongSentence(s) : [s]));
+}
+
+function chunkSentences(sentences, maxWords = 80, maxSentences = 3) {
+  const out = [];
+  let buf = [];
+  let words = 0;
+  const flush = () => {
+    if (!buf.length) return;
+    out.push(buf.join(' '));
+    buf = [];
+    words = 0;
+  };
+  for (const s of sentences) {
+    const w = wordCount(s);
+    if (buf.length && (buf.length >= maxSentences || words + w > maxWords)) flush();
+    buf.push(s);
+    words += w;
+    if (w > maxWords) flush();
+  }
+  flush();
+  return out;
+}
+
+function isSkippableProsePara(para) {
+  const t = String(para || '').trim();
+  if (!t) return true;
+  if (/^#{1,6}\s/.test(t)) return true;
+  if (/^[-*+>]\s/.test(t)) return true;
+  if (t.split('\n').every((line) => isStructuredLabelDashLine(line) || !line.trim())) return true;
+  return false;
+}
+
+/** Split prose paragraphs over 80 words into 1–3 sentence blocks (speech long_paragraph). */
+function splitLongProseParagraphs(src) {
+  const { fm, body } = splitFrontmatter(src);
+  const paras = body.split(/\n{2,}/);
+  let count = 0;
+  const next = paras.map((para) => {
+    if (isSkippableProsePara(para) || wordCount(para) <= 80) return para;
+    const chunks = chunkSentences(splitIntoSentences(para));
+    if (chunks.length < 2) return para;
+    count += 1;
+    return chunks.join('\n\n');
+  });
+  if (!count) return { body: src, changed: false, count: 0 };
+  const nextBody = `${next.join('\n\n').replace(/\n{3,}/g, '\n\n').trim()}\n`;
+  return {
+    body: fm != null ? `---\n${fm}\n---\n${nextBody.replace(/^\n+/, '')}` : nextBody,
+    changed: true,
+    count,
+  };
 }
 
 function splitFrontmatter(src) {

@@ -811,6 +811,7 @@ function runDraftContentLints(candidateId, files, config) {
   const speechLint = lintContentSpeech(files, {
     primaryCity: config.primaryCity,
     niche: config.niche,
+    businessName: config.businessName,
   });
   const faqsEnabled =
     (outline.sectionIds || []).includes('faqs') ||
@@ -880,6 +881,7 @@ export function pasteAgentContentDraft(candidateId, raw, { mode = 'homepage_firs
       fileList: Object.keys(files).sort(),
       socialProofMerge,
       writeBatches: priorDraft?._ops?.writeBatches || {},
+      lastEditorPromptAt: priorDraft?._ops?.lastEditorPromptAt || null,
       lastFinalCheckAt: priorDraft?._ops?.lastFinalCheckAt || null,
       lastFinalCheckOk: priorDraft?._ops?.lastFinalCheckOk,
       lastFinalCheckSummary: priorDraft?._ops?.lastFinalCheckSummary,
@@ -949,6 +951,7 @@ export function importContentDraftFromDisk(candidateId, { mode } = {}) {
   });
   const contract = runTemplateContract(files, config, { mode: resolvedMode, pageIds });
   const p = pathsFor(candidateId);
+  const priorDraft = readJson(p.contentDraft);
   writeJson(p.contentDraft, {
     files,
     _ops: {
@@ -963,6 +966,10 @@ export function importContentDraftFromDisk(candidateId, { mode } = {}) {
       autoFix,
       lastSpeechCheckAt: new Date().toISOString(),
       fileList: Object.keys(files).sort(),
+      lastEditorPromptAt: priorDraft?._ops?.lastEditorPromptAt || null,
+      lastFinalCheckAt: priorDraft?._ops?.lastFinalCheckAt || null,
+      lastFinalCheckOk: priorDraft?._ops?.lastFinalCheckOk,
+      lastFinalCheckSummary: priorDraft?._ops?.lastFinalCheckSummary,
       note: 'Imported from live src/content into candidate draft — not yet Accepted',
     },
   });

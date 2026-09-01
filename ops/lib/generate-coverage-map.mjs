@@ -3,10 +3,52 @@
  */
 import { existsSync, mkdirSync, writeFileSync, readFileSync, copyFileSync } from 'node:fs';
 import path from 'node:path';
-import { pathsFor, getCandidateDetail, saveMeta } from './candidates.mjs';
+import { pathsFor, getCandidateDetail, loadMeta, saveMeta } from './candidates.mjs';
 import { syncSiteImagesToPublic } from './fill-site-images.mjs';
 
 const ROOT = process.cwd();
+
+/** In-memory per-candidate progress for Website poll + Accept SSE. */
+const coverageMapProgressById = new Map();
+
+export function setCoverageMapProgress(candidateId, patch = {}) {
+  const id = String(candidateId || '');
+  if (!id) return;
+  const prev = coverageMapProgressById.get(id) || {};
+  coverageMapProgressById.set(id, {
+    ...prev,
+    ...patch,
+    updatedAt: Date.now(),
+  });
+}
+
+export function getCoverageMapProgress(candidateId) {
+  const snap = coverageMapProgressById.get(String(candidateId || ''));
+  if (!snap) return { ok: true, active: false };
+  return {
+    ok: true,
+    active: snap.status === 'running',
+    ...snap,
+  };
+}
+
+export function clearCoverageMapProgress(candidateId) {
+  coverageMapProgressById.delete(String(candidateId || ''));
+}
+
+function coverageAreasFromConfig(config) {
+  return (
+    config?.coverageAreas?.length
+      ? config.coverageAreas
+      : [
+          { name: config?.primaryCity, state: config?.state },
+          ...(config?.targetSuburbs || []).map((name) => ({
+            name: typeof name === 'string' ? name : name?.name || name?.city,
+            state: config?.state,
+          })),
+        ]
+  ).filter((a) => a?.name && a?.state);
+}
 
 function readJson(filePath) {
   if (!existsSync(filePath)) return null;
@@ -89,7 +131,6 @@ function polygonsFromGeometry(geometry) {
   return geometry.type === 'Polygon' ? [geometry.coordinates] : geometry.coordinates;
 }
 
-const CLUSTER_PX = 110;
 const LABEL_PAD = 8;
 const LEADER_THRESHOLD = 18;
 const CHIP_H = 32;
@@ -268,13 +309,19 @@ function spreadSlotsOnSides(slots, bounds) {
   }
 }
 
+/** @param {unknown} value */
+export function normalizeCoverageMapLabelPlacement(value) {
+  return String(value || '').trim().toLowerCase() === 'center' ? 'center' : 'callout';
+}
+
 /**
- * Dense-cluster margin callouts + compact chips; sparse cities may sit on pin.
+ * Place SEO city chips: centered on the pin, or margin callouts with leader lines.
  * @param {Array<{ area: object, anchor: [number, number] }>} items
  * @param {{ minX: number, maxX: number, minY: number, maxY: number }} bounds
+ * @param {'center' | 'callout'} [placement]
  * @returns {Map<string, { anchor: [number, number], label: [number, number], useLeader: boolean, chipW: number, chipH: number, chipText: string }>}
  */
-function placeSeoLabels(items, bounds) {
+function placeSeoLabels(items, bounds, placement = 'callout') {
   const nodes = items.map((item) => {
     const name = String(item.area.name || '').trim();
     const state = String(item.area.state || '').trim();
@@ -284,22 +331,8 @@ function placeSeoLabels(items, bounds) {
       anchor: item.anchor,
       key: `${item.area.name}|${item.area.state}`,
       chip,
-      dense: false,
     };
   });
-
-  for (let i = 0; i < nodes.length; i += 1) {
-    for (let j = i + 1; j < nodes.length; j += 1) {
-      const d = Math.hypot(
-        nodes[i].anchor[0] - nodes[j].anchor[0],
-        nodes[i].anchor[1] - nodes[j].anchor[1],
-      );
-      if (d < CLUSTER_PX) {
-        nodes[i].dense = true;
-        nodes[j].dense = true;
-      }
-    }
-  }
 
   const placedRects = [];
   const result = new Map();
@@ -313,8 +346,7 @@ function placeSeoLabels(items, bounds) {
     result.set(node.key, {
       anchor: [...node.anchor],
       label: [cx, cy],
-      useLeader:
-        useLeader || Math.hypot(cx - node.anchor[0], cy - node.anchor[1]) >= LEADER_THRESHOLD,
+      useLeader: Boolean(useLeader),
       chipW: node.chip.w,
       chipH: node.chip.h,
       chipText: node.chip.text,
@@ -383,31 +415,25 @@ function placeSeoLabels(items, bounds) {
     }
   };
 
-  placeMarginFan(nodes.filter((n) => n.dense));
-
-  for (const n of nodes.filter((n) => !n.dense)) {
-    const [ax, ay] = n.anchor;
-    const atPin = labelRectAt(ax, ay, n.chip.w, n.chip.h);
-    if (!collides(atPin)) {
+  if (placement === 'center') {
+    for (const n of nodes) {
+      const [ax, ay] = n.anchor;
       commitSlot(n, ax, ay, false);
-    } else {
-      placeMarginFan([n]);
     }
+    return result;
   }
 
+  placeMarginFan(nodes);
   return result;
 }
 
-export async function generateCoverageMapSvg(config, outputPath, { onProgress } = {}) {
-  const areas = config.coverageAreas?.length
-    ? config.coverageAreas
-    : [
-        { name: config.primaryCity, state: config.state },
-        ...(config.targetSuburbs || []).map((name) => ({
-          name: typeof name === 'string' ? name : name?.name || name?.city,
-          state: config.state,
-        })),
-      ].filter((a) => a?.name && a?.state);
+export async function generateCoverageMapSvg(
+  config,
+  outputPath,
+  { onProgress, labelPlacement } = {},
+) {
+  const placement = normalizeCoverageMapLabelPlacement(labelPlacement);
+  const areas = coverageAreasFromConfig(config);
 
   if (!areas.length) {
     throw Object.assign(new Error('No coverage areas / suburbs configured'), { status: 400 });
@@ -547,7 +573,7 @@ export async function generateCoverageMapSvg(config, outputPath, { onProgress } 
     if (!labelNames.has(String(area.name || '').trim().toLowerCase())) continue;
     labeledItems.push({ area, anchor: areaCenter(area.geometry) });
   }
-  const labelLayout = placeSeoLabels(labeledItems, labelBounds);
+  const labelLayout = placeSeoLabels(labeledItems, labelBounds, placement);
 
   const areaShapes = boundaries
     .map((area, index) => {
@@ -656,6 +682,7 @@ export async function generateCoverageMapSvg(config, outputPath, { onProgress } 
     warning,
     outputPath,
     primaryCity: config.primaryCity || '',
+    labelPlacement: placement,
   };
 }
 
@@ -697,9 +724,12 @@ function patchIndexCoverageMap(candidateId, src, alt) {
 /**
  * Generate coverage map for a candidate into site-images + public + content FM.
  * @param {string} candidateId
- * @param {{ onProgress?: (p: object) => void }} [opts]
+ * @param {{ onProgress?: (p: object) => void, labelPlacement?: string }} [opts]
  */
-export async function generateCoverageMapForCandidate(candidateId, { onProgress } = {}) {
+export async function generateCoverageMapForCandidate(
+  candidateId,
+  { onProgress, labelPlacement } = {},
+) {
   const p = pathsFor(candidateId);
   const config =
     readJson(p.siteConfig) ||
@@ -709,30 +739,72 @@ export async function generateCoverageMapForCandidate(candidateId, { onProgress 
     throw Object.assign(new Error('No site-config for coverage map'), { status: 400 });
   }
 
+  const meta = loadMeta(candidateId);
+  const placement = normalizeCoverageMapLabelPlacement(
+    labelPlacement ?? meta.coverageMapLabelPlacement,
+  );
+  const areaCount = coverageAreasFromConfig(config).length;
+  const emit = (p = {}) => {
+    setCoverageMapProgress(candidateId, {
+      status: 'running',
+      current: Number(p.current) || 0,
+      total: Number(p.total) || areaCount,
+      label: p.label || '',
+      detail: p.detail || '',
+      phase: p.phase || '',
+    });
+    onProgress?.(p);
+  };
+
+  setCoverageMapProgress(candidateId, {
+    status: 'running',
+    current: 0,
+    total: areaCount,
+    label: 'Starting…',
+    detail: areaCount ? `Looking up 0/${areaCount} cities…` : 'Building coverage map…',
+    phase: 'coverage-map',
+  });
+
   mkdirSync(p.siteImages, { recursive: true });
   const abs = path.join(p.siteImages, 'coverage-map.svg');
-  const result = await generateCoverageMapSvg(config, abs, { onProgress });
-  onProgress?.({
-    phase: 'coverage-map-finalize',
-    current: result.requested || result.areas,
-    total: result.requested || result.areas,
-    label: 'Finalizing',
-    detail: 'Copying coverage map into site…',
-  });
-  copyFileSync(abs, path.join(ROOT, 'public', 'images', 'coverage-map.svg'));
-  syncSiteImagesToPublic(candidateId);
+  try {
+    const result = await generateCoverageMapSvg(config, abs, {
+      onProgress: emit,
+      labelPlacement: placement,
+    });
+    emit({
+      phase: 'coverage-map-finalize',
+      current: result.requested || result.areas || areaCount,
+      total: result.requested || result.areas || areaCount,
+      label: 'Finalizing',
+      detail: 'Copying coverage map into site…',
+    });
+    copyFileSync(abs, path.join(ROOT, 'public', 'images', 'coverage-map.svg'));
+    syncSiteImagesToPublic(candidateId);
 
-  const src = '/images/coverage-map.svg';
-  const alt = `Coverage map for ${config.primaryCity || 'service'} area`;
-  const patched = patchIndexCoverageMap(candidateId, src, alt);
+    const src = '/images/coverage-map.svg';
+    const alt = `Coverage map for ${config.primaryCity || 'service'} area`;
+    const patched = patchIndexCoverageMap(candidateId, src, alt);
 
-  saveMeta(candidateId, { lastCoverageMapAt: new Date().toISOString() });
-  return {
-    ok: true,
-    ...result,
-    src,
-    patched,
-    path: path.relative(ROOT, abs).replace(/\\/g, '/'),
-    candidate: getCandidateDetail(candidateId),
-  };
+    saveMeta(candidateId, {
+      lastCoverageMapAt: new Date().toISOString(),
+      coverageMapLabelPlacement: placement,
+    });
+    setCoverageMapProgress(candidateId, { status: 'done' });
+    return {
+      ok: true,
+      ...result,
+      src,
+      patched,
+      path: path.relative(ROOT, abs).replace(/\\/g, '/'),
+      candidate: getCandidateDetail(candidateId),
+    };
+  } catch (error) {
+    setCoverageMapProgress(candidateId, {
+      status: 'error',
+      label: error?.message || 'Coverage map failed',
+      detail: error?.message || 'Coverage map failed',
+    });
+    throw error;
+  }
 }

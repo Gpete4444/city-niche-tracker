@@ -5,7 +5,7 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { RESEARCH_DIR } from './candidates.mjs';
-import { listSites } from './sites.mjs';
+import { listLaunchedSites } from './sites.mjs';
 
 export const SITE_METRICS_DIR = path.join(RESEARCH_DIR, 'site-metrics');
 export const MAX_RANK_KEYWORDS = 5;
@@ -328,9 +328,9 @@ export function listAllMetricsFiles() {
     .map((f) => f.replace(/\.json$/, ''));
 }
 
-/** Live-ish portfolio statuses that should sync metrics. */
+/** Launched portfolio rows that should sync GSC / rank metrics. */
 export function metricsEligibleSites() {
-  return listSites().filter((s) =>
+  return listLaunchedSites().filter((s) =>
     ['live', 'listed', 'rented', 'building'].includes(String(s.status || '')),
   );
 }

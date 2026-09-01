@@ -6,7 +6,7 @@ Rank-and-rent call tracking is **Twilio-only**: one static local DID per site wh
 
 **Pipeline:** provision in **Website Builder** (after Site-Config Accept) or **Launched Sites**. Call review is the top-nav **Phone** tab. See [PIPELINE-STAGES.md](PIPELINE-STAGES.md).
 
-**Not in Launch.** Prefer **Site-Config → Provision ranking number** after Accept; **Launched Sites** has Provision, **Update site phone number**, **Set forward to renter**, and **View calls →**.
+**Not in Launch.** Prefer **Site-Config → Provision ranking number** after Accept. That buys the DID and stores it on the portfolio row so **Phone** can show calls — it does **not** add the site to the **Launched** table. Only **Run launch** (which sets `lastLaunchAt`) lists the site under Launched. **Launched** has Provision, **Update site phone number**, **Set forward to renter**, and **View calls →**.
 
 Canonical Function source: [`ops/twilio-functions/`](../ops/twilio-functions/).
 

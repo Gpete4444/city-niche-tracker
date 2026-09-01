@@ -11,14 +11,14 @@ A plain-language map of what you do in Rover, with **time estimates** for each s
 | **Evaluation**| Numbered checklist inside Research (SERP/Volume → Prospects) |
 | **Track**     | Numbered checklist inside Website (Site-Config → Content → Launch) |
 | **Step**      | A numbered item inside a Discovery flow, Evaluation, or Track |
-| **Screen**    | A top-bar destination (includes satellites Phone · Map)      |
+| **Screen**    | A top-bar destination (includes satellites Phone · Map · Photo) |
 | **Panel**     | A work area on a candidate’s detail side                     |
 
 Visual overview: [ROVER-FLOW.md](ROVER-FLOW.md) (work-flow chart + naming hierarchy).
 
 
 ```text
-1 Discovery → 2 Research → 3 Website → 4 Launched · Phone · Map
+1 Discovery → 2 Research → 3 Website → 4 Launched · Phone · Map · Photo
 ```
 
 Most markets die early on purpose. Only **pursue** rows become **Website Candidates** and get a full site build.
@@ -71,12 +71,15 @@ Assumptions: you know the product, reuse defaults / Preset C, trust Claude after
 | 5 · Full write batched (Home / Services / Locations)     | ~40–90 sec   | ~12–22 min              | ~18 min         |
 | 6 · Humanize (editor pack + Speech/SEO)                  | ~20–40 sec   | ~3–8 min                | ~6 min          |
 | 7 · Final check (copy → Load OK / FILE fixes)            | ~10–20 sec   | ~2–4 min                | ~3 min          |
-| 8 · Accept content (+ auto logo / photos / map)          | ~5–10 sec    | ~1–3 min                | ~2 min          |
+| 8 · Image queries                                        | ~20–40 sec   | —                       | ~30 sec         |
+| 9 · Load photo group (optional; Skip if using queries)   | ~5–10 sec    | —                       | ~10 sec         |
+| 10 · Accept content (+ photo group or stock pull / logo / map) | ~5–10 sec | ~1–3 min             | ~2 min          |
 | **Content subtotal**                                     | **~3 min**   | **~30 min**             | **~43 min**     |
 | **Website · Launch Track**                            |              |                         |                 |
-| 1 · Review images (glance; skip polish)                  | ~20–40 sec   | —                       | ~30 sec         |
-| 2 · Prepare preview (Stage + Assemble)                   | ~5–10 sec    | ~2–4 min                | ~3 min          |
-| 2 · QA preview (spot-check key URLs)                     | ~1–2 min     | —                       | ~2 min          |
+| 1 · Logo & Map (glance; skip if Accept already wrote them) | ~10–20 sec | —                       | ~15 sec         |
+| 2 · Review images (glance; skip polish)                  | ~20–40 sec   | —                       | ~30 sec         |
+| 3 · Prepare preview (Stage + Assemble)                   | ~5–10 sec    | ~2–4 min                | ~3 min          |
+| 3 · QA preview (spot-check key URLs)                     | ~1–2 min     | —                       | ~2 min          |
 | Buy domain + point NS at Cloudflare                      | ~3–5 min     | —                       | ~5 min          |
 | Create Web3Forms form + paste key                        | ~30–60 sec   | —                       | ~1 min          |
 | 3 · Run launch (paste keys + Auto ship)                  | ~30–60 sec   | ~3–5 min                | ~5 min          |
@@ -121,6 +124,7 @@ Almost every in-app **button / paste / Accept** step is **~5–30 seconds** of y
 | Item                                     | Why                                           |
 | ---------------------------------------- | --------------------------------------------- |
 | **Map**                                  | Helper only (~30 sec when used)               |
+| **Photo**                                | Optional group organizer; never blocks Accept |
 | **Prospects**                            | Optional; does not block build                |
 | **Visual editor / ChatGPT before–after** | Optional polish (add ~10–30 min if you do it) |
 | **DNS propagation**                      | Passive wait after NS change                  |
@@ -201,6 +205,17 @@ Geography assist for picking cities. Not a required pipeline stage.
 
 ---
 
+### Screen: Photo
+
+Optional group organizer (not a Stage). Skipping Photo does not block Content, Accept, stock Pull, Image queries, or Launch.
+
+- **Named groups** are snapshots you save from Website → Review images (or Duplicate on Photo).
+- **Niche master** (`{Niche} master`) is pinned and cannot be renamed or deleted. It **merges on Prepare preview** (after Review images polish) — even if you never open Photo. Accept on later sites in the same niche **uses the master** unless you **Load** a named group or **Skip** Content step 9 (fresh stock Pull; Image queries required).
+- Load matches by **role** (same service/slot), not a Structure copy. Shared names fill; new names stay empty; leftover photos are unused. Preview names empties (“No photo for Popcorn ceiling”).
+- Groups stay local under `research/_photo-groups/` (gitignored).
+
+---
+
 
 
 ## Stages: Website + Launched (+ satellites)
@@ -213,8 +228,8 @@ Geography assist for picking cities. Not a required pipeline stage.
 | Panel               | Steps                                                                             |
 | ------------------- | --------------------------------------------------------------------------------- |
 | **1 · Site-Config** | Colors → Address → Details → Paste draft → Accept services → Service Area → Phone |
-| **2 · Content**     | Structure → Site research → Brief → Outline → batched Full write → Humanize → Final check → Accept |
-| **3 · Launch**     | Review images → Prepare preview → Launch                                          |
+| **2 · Content**     | Structure → Site research → Brief → Outline → batched Full write → Humanize → Final check → Image queries → Load photo group (optional) → Accept |
+| **3 · Launch**     | Logo & Map (regenerate logo/map if Accept skipped) → Review images (save/load photo groups; niche master first in the dropdown) → Prepare preview (upserts niche master) → Launch |
 
 
 **Site-Config · Address (step 2)**
@@ -230,6 +245,8 @@ Geography assist for picking cities. Not a required pipeline stage.
 **Before Run launch (outside Rover):** buy/point domain NS · Web3Forms key · Gmail routing destination.
 
 **Already live?** Prepare preview → **Push updates**.
+
+**Photo groups:** After Review images looks right, **Save photo group** stores that niche’s stock photos, uploads, and ChatGPT before/after pairs (save only from Review images). **Prepare preview** also upserts those photos into **{Niche} master** (union of roles, up to 8 alternates per role). On a later candidate in the same niche, Accept **uses the master** unless you **Load** a named group or **Skip** Content step 9 (fresh stock Pull; Image queries required). **Load** (Website → Review images or Content step 9) copies matching slots only — extra sections from the saved site are unused. Logo and coverage map still generate per site on Accept; operator regenerate lives on Website → **Logo & Map**. The Photo screen organizes groups; it does not apply them to a live candidate.
 
 ### Screen: Launched
 
