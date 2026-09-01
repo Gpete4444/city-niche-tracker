@@ -11,6 +11,7 @@ import {
   parseTimelineStages,
   proseIntroAndBullets,
   splitCompareColumns,
+  stripBold,
 } from '../../lib/section-parse';
 import { simpleProseToHtml } from '../../lib/content-body';
 import { defaultSectionCtaPrompt } from '../../lib/section-ctas';
@@ -64,7 +65,9 @@ const optionRowsAll =
   isMaterials ||
   (isCost && !costRows.length) ||
   variant === 'whenToCall' ||
-  variant === 'scope'
+  variant === 'scope' ||
+  variant === 'other' ||
+  variant === 'generic'
     ? parseOptionRows(bullets)
     : [];
 // Materials: all option rows; zip photos for first N only
@@ -327,7 +330,7 @@ const resolvedCta = showMiniCta
                             <span class="font-bold text-accent" aria-hidden="true">
                               ✓
                             </span>
-                            <span>{compare.left[i]}</span>
+                            <span>{stripBold(compare.left[i])}</span>
                           </span>
                         ) : (
                           <span class="text-line">—</span>
@@ -339,7 +342,7 @@ const resolvedCta = showMiniCta
                             <span class="font-bold text-accent" aria-hidden="true">
                               ✓
                             </span>
-                            <span>{compare.right[i]}</span>
+                            <span>{stripBold(compare.right[i])}</span>
                           </span>
                         ) : (
                           <span class="text-line">—</span>
@@ -399,7 +402,7 @@ const resolvedCta = showMiniCta
                     >
                       ✓
                     </span>
-                    <span>{item}</span>
+                    <span>{stripBold(item)}</span>
                   </li>
                 ))}
               </ul>
@@ -443,7 +446,7 @@ const resolvedCta = showMiniCta
                     <span class="mt-0.5 font-bold text-accent" aria-hidden="true">
                       ✓
                     </span>
-                    <span>{item}</span>
+                    <span>{stripBold(item)}</span>
                   </li>
                 ))}
               </ul>

@@ -404,6 +404,11 @@ body {
   letter-spacing: 0.02em;
   white-space: nowrap;
 }
+.jobs-cluster {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
 .jobs-wrap {
   position: relative;
   display: inline-flex;
@@ -496,6 +501,17 @@ body {
   font-size: 0.72rem;
   color: var(--muted, #666);
   grid-column: 1 / -1;
+}
+.jobs-row-track {
+  grid-column: 1 / -1;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--line);
+  overflow: hidden;
+}
+.jobs-row-track .job-progress-bar {
+  height: 100%;
+  min-width: 0;
 }
 .jobs-row-status {
   font-size: 0.68rem;
@@ -753,6 +769,80 @@ body {
 
 .settings-wrap {
   position: relative;
+}
+.api-cost-wrap {
+  position: relative;
+}
+.api-cost-menu {
+  min-width: 24rem;
+}
+.api-cost-head {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--ink);
+  padding: 0.05rem 0 0.35rem;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 0.25rem;
+}
+.api-cost-list {
+  margin: 0;
+}
+.api-cost-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+}
+.api-cost-table th {
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: var(--muted);
+  text-align: right;
+  padding: 0.1rem 0.4rem 0.35rem 0;
+}
+.api-cost-table th:first-child,
+.api-cost-table td:first-child {
+  text-align: left;
+  padding-left: 0;
+}
+.api-cost-table th:last-child,
+.api-cost-table td:last-child {
+  padding-right: 0;
+}
+.api-cost-table td {
+  padding: 0.28rem 0.4rem 0.28rem 0;
+  vertical-align: baseline;
+}
+.api-cost-name {
+  color: var(--ink);
+  white-space: nowrap;
+}
+.api-cost-num {
+  text-align: right;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.api-cost-merged {
+  text-align: center;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.api-cost-num.muted,
+.api-cost-merged.muted {
+  color: var(--muted);
+  font-weight: 600;
+}
+.api-cost-num.ok,
+.api-cost-merged.ok {
+  color: var(--ink);
+}
+.api-cost-num.warn,
+.api-cost-merged.warn {
+  color: var(--mixed);
+}
+.api-cost-num.err,
+.api-cost-merged.err {
+  color: var(--bad);
 }
 .settings-btn {
   display: inline-flex;

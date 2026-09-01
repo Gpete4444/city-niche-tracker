@@ -134,6 +134,34 @@ function polygonsFromGeometry(geometry) {
 const LABEL_PAD = 8;
 const LEADER_THRESHOLD = 18;
 const CHIP_H = 32;
+const MAX_CHIP_W = 200;
+const CALLOUT_STROKE = 4;
+/** Chip-center ring sits this far outside the polygon union (callout). */
+const CALLOUT_OUT_X = MAX_CHIP_W / 2 + LABEL_PAD + CALLOUT_STROKE;
+const CALLOUT_OUT_Y = CHIP_H / 2 + LABEL_PAD + CALLOUT_STROKE;
+/** Extra geo inset so chips in the gutter never sit on city strokes. */
+const CALLOUT_GEO_INSET_X = CALLOUT_OUT_X + 8;
+const CALLOUT_GEO_INSET_Y = CHIP_H + LABEL_PAD + CALLOUT_STROKE;
+
+function shoelaceProjected(ring, project) {
+  const n = ring?.length || 0;
+  if (n < 3) return 0;
+  let a = 0;
+  for (let i = 0; i < n; i += 1) {
+    const [x1, y1] = project(ring[i]);
+    const [x2, y2] = project(ring[(i + 1) % n]);
+    a += x1 * y2 - x2 * y1;
+  }
+  return Math.abs(a) / 2;
+}
+
+function geometryProjectedArea(geometry, project) {
+  let area = 0;
+  for (const polygon of polygonsFromGeometry(geometry)) {
+    if (polygon[0]) area += shoelaceProjected(polygon[0], project);
+  }
+  return area;
+}
 
 function estimateChip(name, state) {
   const st = String(state || '')
@@ -494,6 +522,9 @@ export async function generateCoverageMapSvg(
   const padding = 58;
   const titleSpace = 74;
   const attributionSpace = 30;
+  const callout = placement === 'callout';
+  const insetX = callout ? CALLOUT_GEO_INSET_X : padding;
+  const insetY = callout ? CALLOUT_GEO_INSET_Y : 0;
   const points = boundaries.flatMap(({ geometry }) =>
     polygonsFromGeometry(geometry).flatMap((polygon) => polygon.flat()),
   );
@@ -506,13 +537,17 @@ export async function generateCoverageMapSvg(
   const maxX = Math.max(...xs);
   const minY = Math.min(...ys);
   const maxY = Math.max(...ys);
-  const drawingWidth = width - padding * 2;
-  const drawingHeight = height - titleSpace - attributionSpace - padding;
+  const drawingWidth = width - insetX * 2;
+  const drawingHeight = callout
+    ? height - titleSpace - attributionSpace - insetY * 2
+    : height - titleSpace - attributionSpace - padding;
   const scale = Math.min(drawingWidth / (maxX - minX), drawingHeight / (maxY - minY));
   const usedWidth = (maxX - minX) * scale;
   const usedHeight = (maxY - minY) * scale;
   const offsetX = (width - usedWidth) / 2;
-  const offsetY = titleSpace + (drawingHeight - usedHeight) / 2;
+  const offsetY = callout
+    ? titleSpace + insetY + (drawingHeight - usedHeight) / 2
+    : titleSpace + (drawingHeight - usedHeight) / 2;
 
   function project([longitude, latitude]) {
     return [
@@ -561,12 +596,32 @@ export async function generateCoverageMapSvg(
       .filter(Boolean),
   );
 
-  const labelBounds = {
-    minX: padding * 0.55,
-    maxX: width - padding * 0.55,
+  const geoPts = points.map(project);
+  const geoBounds = {
+    minX: Math.min(...geoPts.map(([x]) => x)),
+    maxX: Math.max(...geoPts.map(([x]) => x)),
+    minY: Math.min(...geoPts.map(([, y]) => y)),
+    maxY: Math.max(...geoPts.map(([, y]) => y)),
+  };
+  const canvasBounds = {
+    minX: 8,
+    maxX: width - 8,
     minY: titleSpace + 6,
     maxY: height - attributionSpace - 8,
   };
+  const labelBounds = callout
+    ? {
+        minX: Math.max(canvasBounds.minX, geoBounds.minX - CALLOUT_OUT_X),
+        maxX: Math.min(canvasBounds.maxX, geoBounds.maxX + CALLOUT_OUT_X),
+        minY: Math.max(canvasBounds.minY, geoBounds.minY - CALLOUT_OUT_Y),
+        maxY: Math.min(canvasBounds.maxY, geoBounds.maxY + CALLOUT_OUT_Y),
+      }
+    : {
+        minX: padding * 0.55,
+        maxX: width - padding * 0.55,
+        minY: titleSpace + 6,
+        maxY: height - attributionSpace - 8,
+      };
 
   const labeledItems = [];
   for (const area of boundaries) {
@@ -575,10 +630,12 @@ export async function generateCoverageMapSvg(
   }
   const labelLayout = placeSeoLabels(labeledItems, labelBounds, placement);
 
-  const areaShapes = boundaries
+  const paintOrder = [...boundaries].sort(
+    (a, b) => geometryProjectedArea(b.geometry, project) - geometryProjectedArea(a.geometry, project),
+  );
+
+  const areaShapes = paintOrder
     .map((area, index) => {
-      const name = escapeXml(area.name);
-      const state = escapeXml(area.state);
       const slug = slugifyAreaName(area.name);
       const isLabeled = labelNames.has(String(area.name || '').trim().toLowerCase());
       const layout = labelLayout.get(`${area.name}|${area.state}`);
@@ -634,7 +691,7 @@ export async function generateCoverageMapSvg(
     .attribution { font: 400 10px Arial, sans-serif; fill: #65717d; }
     .state { font: 600 11px Arial, sans-serif; fill: #5a6570; }
     .cov-area { cursor: pointer; transition: opacity 0.15s ease; }
-    .cov-area-nolabel { cursor: default; }
+    .cov-area-nolabel { cursor: default; pointer-events: none; }
     .cov-area path { transition: fill-opacity 0.15s ease, stroke-width 0.15s ease; }
     .cov-chip {
       fill: #ffffff;

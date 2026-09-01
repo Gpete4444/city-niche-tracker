@@ -1950,6 +1950,16 @@ function writePullStatus(candidateId, status) {
   });
 }
 
+function emitPullProgress(candidateId, status, onProgress) {
+  writePullStatus(candidateId, status);
+  if (typeof onProgress !== 'function') return;
+  onProgress({
+    done: Number(status.current) || 0,
+    total: Number(status.total) || 0,
+    detail: status.label || '',
+  });
+}
+
 function clearPullStatus(candidateId) {
   const p = pathsFor(candidateId);
   if (existsSync(p.imagesPullStatus)) {
@@ -1966,9 +1976,9 @@ function clearPullStatus(candidateId) {
 
 /**
  * @param {string} candidateId
- * @param {{ replace?: boolean }} [opts]
+ * @param {{ replace?: boolean, onProgress?: (p: { done: number, total: number, detail: string }) => void }} [opts]
  */
-export async function fillSiteImages(candidateId, { replace = false } = {}) {
+export async function fillSiteImages(candidateId, { replace = false, onProgress } = {}) {
   const p = pathsFor(candidateId);
   const providers = configuredImageProviders();
   const providerStatus = imageProvidersStatus();
@@ -2037,25 +2047,25 @@ export async function fillSiteImages(candidateId, { replace = false } = {}) {
   const shouldPersistNicheProfile = Boolean(baseNicheProfile?.synthetic && nicheForProfile);
 
   mkdirSync(p.siteImages, { recursive: true });
-  writePullStatus(candidateId, {
+  emitPullProgress(candidateId, {
     status: 'running',
     current: 0,
     total: slots.length,
     label: 'Starting image pull…',
     replace: Boolean(replace),
-  });
+  }, onProgress);
 
   try {
   for (let si = 0; si < slots.length; si += 1) {
     const slot = slots[si];
-    writePullStatus(candidateId, {
+    emitPullProgress(candidateId, {
       status: 'running',
       current: si + 1,
       total: slots.length,
       label: `Pulling ${slot.key} (${si + 1}/${slots.length})…`,
       slotKey: slot.key,
       replace: Boolean(replace),
-    });
+    }, onProgress);
 
     const existing = manifest.slots?.[slot.key];
     const existingFile = existing?.filename
@@ -2306,7 +2316,7 @@ export async function fillSiteImages(candidateId, { replace = false } = {}) {
     imagesCount: okFiles.length,
   });
 
-  writePullStatus(candidateId, {
+  emitPullProgress(candidateId, {
     status: 'done',
     current: slots.length,
     total: slots.length,
@@ -2315,7 +2325,7 @@ export async function fillSiteImages(candidateId, { replace = false } = {}) {
     skipped,
     failed,
     nicheProfileSaved: nicheProfileSaved || undefined,
-  });
+  }, onProgress);
 
   return {
     ok: failed === 0 || okFiles.length > 0,
@@ -2335,12 +2345,12 @@ export async function fillSiteImages(candidateId, { replace = false } = {}) {
     candidate: getCandidateDetail(candidateId),
   };
   } catch (error) {
-    writePullStatus(candidateId, {
+    emitPullProgress(candidateId, {
       status: 'error',
       label: error?.message || 'Image pull failed',
       current: 0,
       total: slots.length,
-    });
+    }, onProgress);
     throw error;
   }
 }

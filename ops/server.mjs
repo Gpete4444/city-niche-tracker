@@ -207,6 +207,14 @@ import {
   updateJobProgress,
   setConcurrency,
 } from './lib/rover-heavy-jobs.mjs';
+import {
+  startLightJob,
+  waitForLightJob,
+  getLightJob,
+  listLightJobsSnapshot,
+  onLightJobsChange,
+  updateLightJobProgress,
+} from './lib/rover-light-jobs.mjs';
 import { assembleSiteInWorker, getAssembleChecklist, planAssembleReplace, finalizePreviousAssembledSite } from './lib/assemble-site.mjs';
 import { assertLaunchedEditAllowed } from './lib/launched-edit-guard.mjs';
 import { restoreLaunchedFromGithub } from './lib/restore-launched-from-github.mjs';
@@ -247,6 +255,7 @@ import {
   setForwardToRenter,
   updateForwardTarget,
 } from './lib/phone-tracking-twilio.mjs';
+import { getApiCostSnapshot } from './lib/api-cost.mjs';
 import {
   assertPhoneWebhookSecret,
   enqueueSummarizePhoneCall,
@@ -907,6 +916,15 @@ app.get('/api/dfs-balance', async (_req, res) => {
   }
 });
 
+app.get('/api/api-cost', async (req, res) => {
+  try {
+    const fresh = String(req.query?.fresh || '') === '1' || req.query?.fresh === 'true';
+    res.json(await getApiCostSnapshot({ fresh }));
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
 app.get('/api/candidates/:id/cost-preview', (req, res) => {
   try {
     const act = String(req.query.act || '');
@@ -1127,12 +1145,6 @@ app.get('/api/heavy-jobs', (_req, res) => {
   res.json(listJobsSnapshot());
 });
 
-app.get('/api/heavy-jobs/:jobId', (req, res) => {
-  const job = getHeavyJob(req.params.jobId);
-  if (!job) return res.status(404).json({ error: 'Job not found' });
-  res.json({ job });
-});
-
 app.post('/api/heavy-jobs/concurrency', (req, res) => {
   try {
     const n = req.body?.concurrency ?? req.body?.k;
@@ -1168,6 +1180,49 @@ app.get('/api/heavy-jobs/stream', (req, res) => {
     clearInterval(ping);
     off();
   });
+});
+
+app.get('/api/heavy-jobs/:jobId', (req, res) => {
+  const job = getHeavyJob(req.params.jobId);
+  if (!job) return res.status(404).json({ error: 'Job not found' });
+  res.json({ job });
+});
+
+app.get('/api/light-jobs', (_req, res) => {
+  res.json(listLightJobsSnapshot());
+});
+
+app.get('/api/light-jobs/stream', (req, res) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  if (typeof res.flushHeaders === 'function') res.flushHeaders();
+  const send = (snap) => {
+    try {
+      res.write(`data: ${JSON.stringify(snap)}\n\n`);
+    } catch {
+      /* closed */
+    }
+  };
+  send(listLightJobsSnapshot());
+  const off = onLightJobsChange(send);
+  const ping = setInterval(() => {
+    try {
+      res.write(`: ping\n\n`);
+    } catch {
+      /* closed */
+    }
+  }, 15000);
+  req.on('close', () => {
+    clearInterval(ping);
+    off();
+  });
+});
+
+app.get('/api/light-jobs/:jobId', (req, res) => {
+  const job = getLightJob(req.params.jobId);
+  if (!job) return res.status(404).json({ error: 'Job not found' });
+  res.json({ job });
 });
 
 app.get('/api/jobs/:jobId', (req, res) => {
@@ -1514,108 +1569,141 @@ app.post('/api/candidates/:id/content/accept', async (req, res) => {
   try {
     const body = req.body || {};
     assertLaunchedEditAllowed(acceptId, body);
-    console.log(`[accept] ${acceptId} writing src/content…`);
-    const result = await acceptContent(acceptId, {
-      ignoreWarnings: Boolean(body.ignoreWarnings),
-      ignoreSeoWarnings: Boolean(body.ignoreSeoWarnings),
-    });
-    let images = null;
-    if (structureHasPhotosEnabled(acceptId)) {
-      const attached = getAttachedPhotoGroup(acceptId);
-      const skipDoc = getCandidateDetail(acceptId).photoGroupAttached;
-      const applyGroup = async (groupId, label) => {
-        console.log(`[accept] ${acceptId} applying photo group “${label}”…`);
-        try {
-          return applyPhotoGroup(acceptId, groupId);
-        } catch (imageErr) {
-          return {
-            ok: false,
-            warning: imageErr.message || String(imageErr),
-            human: [imageErr.message || String(imageErr)],
+    const ACCEPT_TOTAL = 4;
+    const { jobId } = startLightJob({
+      candidateId: acceptId,
+      phase: 'accept',
+      label: 'Accept',
+      progressTotal: ACCEPT_TOTAL,
+      run: async ({ jobId: jid }) => {
+        const tick = (done, detail) =>
+          updateLightJobProgress(jid, { detail, done, total: ACCEPT_TOTAL });
+
+        tick(1, 'Writing files to src/content…');
+        console.log(`[accept] ${acceptId} writing src/content…`);
+        const result = await acceptContent(acceptId, {
+          ignoreWarnings: Boolean(body.ignoreWarnings),
+          ignoreSeoWarnings: Boolean(body.ignoreSeoWarnings),
+        });
+        let images = null;
+        tick(2, 'Loading saved photos or pulling stock…');
+        if (structureHasPhotosEnabled(acceptId)) {
+          const attached = getAttachedPhotoGroup(acceptId);
+          const skipDoc = getCandidateDetail(acceptId).photoGroupAttached;
+          const applyGroup = async (groupId, label) => {
+            console.log(`[accept] ${acceptId} applying photo group “${label}”…`);
+            try {
+              return applyPhotoGroup(acceptId, groupId);
+            } catch (imageErr) {
+              return {
+                ok: false,
+                warning: imageErr.message || String(imageErr),
+                human: [imageErr.message || String(imageErr)],
+              };
+            }
           };
-        }
-      };
-      const pullStock = async () => {
-        console.log(`[accept] ${acceptId} pulling stock photos…`);
-        try {
-          return await fillSiteImages(acceptId, { replace: false });
-        } catch (imageErr) {
-          return {
-            ok: false,
-            warning: imageErr.message || String(imageErr),
-            human: [imageErr.message || String(imageErr)],
-            providerStatus: imageErr.providerStatus || null,
+          const pullStock = async () => {
+            console.log(`[accept] ${acceptId} pulling stock photos…`);
+            try {
+              return await fillSiteImages(acceptId, {
+                replace: false,
+                onProgress: (p) =>
+                  updateLightJobProgress(jid, {
+                    done: 2,
+                    total: ACCEPT_TOTAL,
+                    detail: p.detail || 'Pulling stock…',
+                  }),
+              });
+            } catch (imageErr) {
+              return {
+                ok: false,
+                warning: imageErr.message || String(imageErr),
+                human: [imageErr.message || String(imageErr)],
+                providerStatus: imageErr.providerStatus || null,
+              };
+            }
           };
-        }
-      };
-      if (attached?.groupId) {
-        images = await applyGroup(attached.groupId, attached.name || attached.groupId);
-      } else if (skipDoc?.skipped) {
-        images = await pullStock();
-      } else {
-        const detail = getCandidateDetail(acceptId);
-        const niche = detail.photoGroupNiche || detail.siteConfig?.niche || '';
-        const master = findNicheMaster(niche);
-        if (master?.id) {
-          images = await applyGroup(master.id, master.name || `${niche} master`);
+          if (attached?.groupId) {
+            images = await applyGroup(attached.groupId, attached.name || attached.groupId);
+          } else if (skipDoc?.skipped) {
+            images = await pullStock();
+          } else {
+            const detail = getCandidateDetail(acceptId);
+            const niche = detail.photoGroupNiche || detail.siteConfig?.niche || '';
+            const master = findNicheMaster(niche);
+            if (master?.id) {
+              images = await applyGroup(master.id, master.name || `${niche} master`);
+            } else {
+              images = await pullStock();
+            }
+          }
         } else {
-          images = await pullStock();
+          console.log(`[accept] ${acceptId} photos skipped (structure has none enabled)`);
         }
-      }
-    } else {
-      console.log(`[accept] ${acceptId} photos skipped (structure has none enabled)`);
-    }
-    let logo = null;
-    console.log(`[accept] ${acceptId} generating logo…`);
-    try {
-      logo = await generateSiteLogo(acceptId);
-    } catch (logoErr) {
-      logo = {
-        ok: false,
-        warning: logoErr.message || String(logoErr),
-      };
-    }
-    let coverageMap = null;
-    console.log(`[accept] ${acceptId} building coverage map…`);
-    try {
-      coverageMap = await generateCoverageMapForCandidate(acceptId);
-    } catch (mapErr) {
-      coverageMap = {
-        ok: false,
-        skipped: /no coverage areas|suburbs/i.test(String(mapErr.message || '')),
-        warning: mapErr.message || String(mapErr),
-      };
-    }
-    console.log(`[accept] ${acceptId} done`);
-    const assetNotes = [];
-    if (logo?.ok !== false && logo?.path) assetNotes.push(`Logo: ${logo.path}`);
-    else if (logo?.warning) assetNotes.push(`Logo skipped: ${logo.warning}`);
-    if (coverageMap?.ok && coverageMap?.path) {
-      const miss = Array.isArray(coverageMap.missingBoundaries)
-        ? coverageMap.missingBoundaries
-        : [];
-      assetNotes.push(
-        miss.length
-          ? `Coverage map: ${coverageMap.path} (${coverageMap.areas || '?'} outlined; Also serving / no outline: ${miss.join(', ')})`
-          : `Coverage map: ${coverageMap.path}`,
-      );
-    } else if (coverageMap?.skipped) {
-      assetNotes.push('Coverage map skipped (no Areas / suburbs yet)');
-    } else if (coverageMap?.warning) {
-      assetNotes.push(`Coverage map skipped: ${coverageMap.warning}`);
-    }
-    if (images && Array.isArray(images.human) && assetNotes.length) {
-      images = { ...images, human: [...images.human, ...assetNotes] };
-    } else if (!images && assetNotes.length) {
-      images = { ok: true, human: assetNotes };
-    }
-    res.json({
-      ...result,
-      images,
-      logo,
-      coverageMap,
-      candidate: getCandidateDetail(acceptId),
+        let logo = null;
+        tick(3, 'Generating logo…');
+        console.log(`[accept] ${acceptId} generating logo…`);
+        try {
+          logo = await generateSiteLogo(acceptId);
+        } catch (logoErr) {
+          logo = {
+            ok: false,
+            warning: logoErr.message || String(logoErr),
+          };
+        }
+        let coverageMap = null;
+        tick(4, 'Building coverage map…');
+        console.log(`[accept] ${acceptId} building coverage map…`);
+        try {
+          coverageMap = await generateCoverageMapForCandidate(acceptId, {
+            onProgress: (p) =>
+              updateLightJobProgress(jid, {
+                done: 4,
+                total: ACCEPT_TOTAL,
+                detail: p.detail || p.label || 'Building coverage map…',
+              }),
+          });
+        } catch (mapErr) {
+          coverageMap = {
+            ok: false,
+            skipped: /no coverage areas|suburbs/i.test(String(mapErr.message || '')),
+            warning: mapErr.message || String(mapErr),
+          };
+        }
+        console.log(`[accept] ${acceptId} done`);
+        const assetNotes = [];
+        if (logo?.ok !== false && logo?.path) assetNotes.push(`Logo: ${logo.path}`);
+        else if (logo?.warning) assetNotes.push(`Logo skipped: ${logo.warning}`);
+        if (coverageMap?.ok && coverageMap?.path) {
+          const miss = Array.isArray(coverageMap.missingBoundaries)
+            ? coverageMap.missingBoundaries
+            : [];
+          assetNotes.push(
+            miss.length
+              ? `Coverage map: ${coverageMap.path} (${coverageMap.areas || '?'} outlined; Also serving / no outline: ${miss.join(', ')})`
+              : `Coverage map: ${coverageMap.path}`,
+          );
+        } else if (coverageMap?.skipped) {
+          assetNotes.push('Coverage map skipped (no Areas / suburbs yet)');
+        } else if (coverageMap?.warning) {
+          assetNotes.push(`Coverage map skipped: ${coverageMap.warning}`);
+        }
+        if (images && Array.isArray(images.human) && assetNotes.length) {
+          images = { ...images, human: [...images.human, ...assetNotes] };
+        } else if (!images && assetNotes.length) {
+          images = { ok: true, human: assetNotes };
+        }
+        return {
+          ...result,
+          images,
+          logo,
+          coverageMap,
+          candidate: getCandidateDetail(acceptId),
+        };
+      },
     });
+    const payload = await waitForLightJob(jobId);
+    res.json({ ...payload, jobId });
   } catch (error) {
     if (error.check || error.seoLint) {
       return res.status(error.status || 400).json({
@@ -1931,8 +2019,24 @@ app.post('/api/candidates/:id/images/pull', async (req, res) => {
   try {
     assertLaunchedEditAllowed(req.params.id, req.body || {});
     const replace = Boolean(req.body?.replace || req.query?.replace);
-    const result = await fillSiteImages(req.params.id, { replace });
-    res.json(result);
+    const candidateId = req.params.id;
+    const { jobId } = startLightJob({
+      candidateId,
+      phase: 'images-pull',
+      label: replace ? 'Replace photos' : 'Pull photos',
+      run: async ({ jobId: jid }) =>
+        fillSiteImages(candidateId, {
+          replace,
+          onProgress: (p) =>
+            updateLightJobProgress(jid, {
+              detail: p.detail,
+              done: p.done,
+              total: p.total,
+            }),
+        }),
+    });
+    const result = await waitForLightJob(jobId);
+    res.json({ ...result, jobId });
   } catch (error) {
     sendError(res, error);
   }
@@ -2019,8 +2123,31 @@ app.post('/api/candidates/:id/images/slots/:slotKey/variants/use', (req, res) =>
 app.post('/api/candidates/:id/logo/generate', async (req, res) => {
   try {
     assertLaunchedEditAllowed(req.params.id, req.body || {});
-    const result = await generateSiteLogo(req.params.id, { mode: req.body?.mode });
-    res.json(result);
+    const candidateId = req.params.id;
+    const mode = req.body?.mode;
+    const { jobId } = startLightJob({
+      candidateId,
+      phase: 'logo',
+      label: 'Generate logo',
+      progressTotal: 3,
+      run: async ({ jobId: jid }) => {
+        updateLightJobProgress(jid, { detail: 'Starting…', done: 1, total: 3 });
+        updateLightJobProgress(jid, {
+          detail: mode === 'monogram' ? 'Building SVG monogram…' : 'GPT Image 2…',
+          done: 2,
+          total: 3,
+        });
+        const result = await generateSiteLogo(candidateId, { mode });
+        updateLightJobProgress(jid, {
+          detail: result.path || result.logo?.src || 'Logo ready',
+          done: 3,
+          total: 3,
+        });
+        return result;
+      },
+    });
+    const result = await waitForLightJob(jobId);
+    res.json({ ...result, jobId });
   } catch (error) {
     sendError(res, error);
   }
@@ -2029,10 +2156,24 @@ app.post('/api/candidates/:id/logo/generate', async (req, res) => {
 app.post('/api/candidates/:id/coverage-map/generate', async (req, res) => {
   try {
     assertLaunchedEditAllowed(req.params.id, req.body || {});
-    const result = await generateCoverageMapForCandidate(req.params.id, {
-      labelPlacement: req.body?.labelPlacement,
+    const candidateId = req.params.id;
+    const { jobId } = startLightJob({
+      candidateId,
+      phase: 'coverage-map',
+      label: 'Coverage map',
+      run: async ({ jobId: jid }) =>
+        generateCoverageMapForCandidate(candidateId, {
+          labelPlacement: req.body?.labelPlacement,
+          onProgress: (p) =>
+            updateLightJobProgress(jid, {
+              detail: p.detail || p.label || 'Generating coverage map…',
+              done: p.current,
+              total: p.total,
+            }),
+        }),
     });
-    res.json(result);
+    const result = await waitForLightJob(jobId);
+    res.json({ ...result, jobId });
   } catch (error) {
     sendError(res, error);
   }
@@ -2708,10 +2849,14 @@ app.post('/api/candidates/:id/assemble', async (req, res) => {
       phase: 'assemble',
       label: 'Assemble',
       run: async ({ jobId }) => {
+        const ASSEMBLE_TOTAL = 4;
+        const tick = (done, detail) =>
+          updateJobProgress(jobId, { detail, done, total: ASSEMBLE_TOTAL });
+
         const prior = getCandidateDetail(candidateId);
         const rel = prior.meta?.assembledSitePath;
+        tick(1, 'Stopping prior preview…');
         if (rel) {
-          updateJobDetail(jobId, 'Stopping prior preview…');
           const abs = path.isAbsolute(rel) ? rel : path.resolve(process.cwd(), rel);
           try {
             await stopAssembledPreview(abs, { forcePoolClear: false });
@@ -2725,10 +2870,7 @@ app.post('/api/candidates/:id/assemble', async (req, res) => {
           refresh,
           siteSlug,
         });
-        updateJobDetail(
-          jobId,
-          plan.sideBySide ? 'Assembling into new folder…' : 'Assembling…',
-        );
+        tick(2, plan.sideBySide ? 'Assembling into new folder…' : 'Assembling…');
         const result = await assembleSiteInWorker(candidateId, {
           force,
           refresh,
@@ -2745,6 +2887,7 @@ app.post('/api/candidates/:id/assemble', async (req, res) => {
             result.mode === 'full' ||
             contentNewerThanDist(result.absoluteSiteRoot, { ignoreAssembleMeta: true });
           if (!needsBuild) {
+            tick(3, 'Build skipped');
             build = {
               ok: true,
               built: true,
@@ -2754,19 +2897,21 @@ app.post('/api/candidates/:id/assemble', async (req, res) => {
               siteRoot: result.absoluteSiteRoot,
             };
           } else {
-            updateJobDetail(jobId, 'Building…');
+            tick(3, 'Building…');
             try {
               build = await buildAssembledSiteAsync(result.absoluteSiteRoot);
             } catch (error) {
               build = { ok: false, error: error.message, buildSkipped: false };
             }
           }
+        } else {
+          tick(3, 'Build skipped');
         }
 
         let ship = null;
         const canShip = Boolean(ghAuthStatus()) && cloudflareConfigured();
         if (wantShip && canShip && build?.ok && result.absoluteSiteRoot) {
-          updateJobDetail(jobId, 'Shipping…');
+          tick(4, 'Shipping…');
           try {
             ship = await shipAssembledSite(candidateId, {
               skipBuild: Boolean(build?.ok),
@@ -2779,10 +2924,13 @@ app.post('/api/candidates/:id/assemble', async (req, res) => {
             };
           }
         } else if (wantShip && !canShip) {
+          tick(4, 'Ship skipped');
           ship = {
             skipped: true,
             reason: 'Set gh auth login + CLOUDFLARE_* (and GITHUB_OWNER) to auto-ship after assemble',
           };
+        } else {
+          tick(4, 'Ship skipped');
         }
 
         return {
@@ -2823,8 +2971,11 @@ app.post('/api/candidates/:id/assembled/preview', async (req, res) => {
       candidateId,
       phase: 'preview',
       label: 'Preview',
-      run: async () => {
+      run: async ({ jobId }) => {
+        const PREVIEW_TOTAL = 2;
+        updateJobProgress(jobId, { detail: 'Starting preview…', done: 1, total: PREVIEW_TOTAL });
         const result = await ensureAssembledPreview(abs, { rebuild, forceRebind });
+        updateJobProgress(jobId, { detail: 'Ready', done: 2, total: PREVIEW_TOTAL });
         return {
           ...result,
           assembledSitePath: abs,
@@ -2861,7 +3012,11 @@ app.post('/api/candidates/:id/prepare-preview', async (req, res) => {
       phase: 'prepare',
       label: 'Prepare preview',
       run: async ({ jobId: jid }) => {
-        updateJobDetail(jid, 'Staging…');
+        const PREPARE_TOTAL = 5;
+        const tick = (done, detail) =>
+          updateJobProgress(jid, { detail, done, total: PREPARE_TOTAL });
+
+        tick(1, 'Staging…');
         const staged = await stageSiteInWorker(candidateId, {
           mode: 'full',
           refreshPackage: true,
@@ -2873,8 +3028,8 @@ app.post('/api/candidates/:id/prepare-preview', async (req, res) => {
         });
         const prior = getCandidateDetail(candidateId);
         const rel = prior.meta?.assembledSitePath;
+        tick(2, 'Stopping prior preview…');
         if (rel) {
-          updateJobDetail(jid, 'Stopping prior preview…');
           const absPrior = path.isAbsolute(rel) ? rel : path.resolve(process.cwd(), rel);
           try {
             await stopAssembledPreview(absPrior, { forcePoolClear: false });
@@ -2883,10 +3038,7 @@ app.post('/api/candidates/:id/prepare-preview', async (req, res) => {
           }
         }
 
-        updateJobDetail(
-          jid,
-          plan.sideBySide ? 'Assembling into new folder…' : 'Assembling…',
-        );
+        tick(3, plan.sideBySide ? 'Assembling into new folder…' : 'Assembling…');
         const result = await assembleSiteInWorker(candidateId, {
           force: false,
           refresh: true,
@@ -2913,6 +3065,7 @@ app.post('/api/candidates/:id/prepare-preview', async (req, res) => {
             result.mode === 'full' ||
             contentNewerThanDist(result.absoluteSiteRoot, { ignoreAssembleMeta: true });
           if (!needsBuild) {
+            tick(4, 'Build skipped');
             build = {
               ok: true,
               built: true,
@@ -2922,7 +3075,7 @@ app.post('/api/candidates/:id/prepare-preview', async (req, res) => {
               siteRoot: result.absoluteSiteRoot,
             };
           } else {
-            updateJobDetail(jid, 'Building…');
+            tick(4, 'Building…');
             try {
               build = await buildAssembledSiteAsync(result.absoluteSiteRoot);
             } catch (error) {
@@ -2933,7 +3086,7 @@ app.post('/api/candidates/:id/prepare-preview', async (req, res) => {
 
         let preview = null;
         if (result.absoluteSiteRoot && build?.ok !== false) {
-          updateJobDetail(jid, 'Starting preview…');
+          tick(5, 'Starting preview…');
           preview = await ensureAssembledPreview(result.absoluteSiteRoot, {
             rebuild: false,
             forceRebind: true,
@@ -3337,6 +3490,21 @@ app.post('/api/candidates/:id/phone/skip', (req, res) => {
   try {
     const meta = saveMeta(req.params.id, {
       phoneSkippedAt: new Date().toISOString(),
+    });
+    res.json({ meta, candidate: getCandidateDetail(req.params.id) });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+/**
+ * Website → Indexing: persist Mark done (survives reload / re-select). Never auto-cleared.
+ */
+app.post('/api/candidates/:id/indexing/done', (req, res) => {
+  try {
+    const meta = saveMeta(req.params.id, {
+      indexingDone: true,
+      lastIndexingAt: new Date().toISOString(),
     });
     res.json({ meta, candidate: getCandidateDetail(req.params.id) });
   } catch (error) {

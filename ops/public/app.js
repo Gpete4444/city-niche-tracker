@@ -438,16 +438,22 @@ const state = {
   websiteSoftDone: {},
   siteConfigSoftDone: {},
   /** Sticky Website → Prepare/preview progress (survives accordion collapse + re-render). */
-  assembleProgress: { visible: false, detail: '' },
+  assembleProgress: { visible: false, detail: '', done: null, total: null },
   /** Site-Config → Find addresses in-flight (survives re-render). */
   baSearchBusy: false,
   /** 'find' | 'refresh' while baSearchBusy */
   baSearchMode: 'find',
   /** Cached Apify prepaid usage from last Find or /api/apify/usage */
   apifyPlanUsage: null,
+  twilioBalance: null,
+  apiCostConfigured: null,
   /** Keep Prepare step open while Prepare preview is running. */
   preparePreviewHold: false,
   preparePreviewJobId: null,
+  /** Waiting tab opened by Prepare preview (about:blank loader). */
+  preparePreviewTab: null,
+  heavyJobsSnap: null,
+  lightJobsSnap: null,
   /** @type {Record<string, boolean>} candidateId → Twilio ranking number provisioned */
   sitePhoneProvisioned: {},
   phone: {
@@ -831,8 +837,8 @@ function setDeterminateProgress(barEl, { done, total } = {}) {
   barEl.style.width = `${pct}%`;
 }
 
-/** Always-visible header strip; in-step bars still update locally. */
-function setMasterProgress({ visible, label, detail, done, total } = {}) {
+/** Paint the header strip without consulting job snapshots. */
+function paintMasterProgress({ visible, label, detail, done, total, bar: showBar = true } = {}) {
   const box = document.getElementById('rover-master-progress');
   const labelEl = document.getElementById('rover-master-progress-label');
   const detailEl = document.getElementById('rover-master-progress-detail');
@@ -845,8 +851,61 @@ function setMasterProgress({ visible, label, detail, done, total } = {}) {
     setDeterminateProgress(bar, {});
     return;
   }
+  if (!showBar) {
+    if (bar) {
+      bar.classList.add('is-determinate');
+      bar.style.animation = 'none';
+      bar.style.width = '0%';
+    }
+    return;
+  }
   const known = Number(total) > 0 && done != null && Number.isFinite(Number(done));
   setDeterminateProgress(bar, known ? { done: Number(done), total: Number(total) } : {});
+}
+
+function activeJobsFromSnap(snap) {
+  return (Array.isArray(snap?.jobs) ? snap.jobs : []).filter(
+    (j) => j.status === 'queued' || j.status === 'running',
+  );
+}
+
+/** Header strip: one job = that bar; 2+ = summary, no single fill. */
+function refreshMasterFromJobs() {
+  const active = [
+    ...activeJobsFromSnap(state.heavyJobsSnap),
+    ...activeJobsFromSnap(state.lightJobsSnap),
+  ];
+  if (active.length >= 2) {
+    paintMasterProgress({
+      visible: true,
+      label: `${active.length} jobs running — open Heavy / Light`,
+      detail: '',
+      bar: false,
+    });
+    return true;
+  }
+  if (active.length === 1) {
+    const j = active[0];
+    const total = Number(j.progressTotal);
+    const done = Number(j.progressDone);
+    const known = Number.isFinite(total) && total > 0;
+    const frac = known ? ` ${Number.isFinite(done) ? done : 0}/${total}` : '';
+    paintMasterProgress({
+      visible: true,
+      label: j.label || j.phase || 'Job',
+      detail: `${j.detail || j.error || ''}${frac}`.trim(),
+      done: known && Number.isFinite(done) ? done : undefined,
+      total: known ? total : undefined,
+    });
+    return true;
+  }
+  return false;
+}
+
+/** Always-visible header strip; defers to Heavy/Light snapshots when jobs are active. */
+function setMasterProgress(opts = {}) {
+  if (refreshMasterFromJobs()) return;
+  paintMasterProgress(opts);
 }
 
 window.addEventListener('rover-progress', (ev) => {
@@ -1448,11 +1507,30 @@ function closeSettingsMenu() {
   hideOpsTooltip();
 }
 
+function closeApiCostMenu() {
+  const menu = document.getElementById('api-cost-menu');
+  const btn = document.getElementById('api-cost-btn');
+  if (menu) menu.classList.add('hidden');
+  if (btn) btn.setAttribute('aria-expanded', 'false');
+}
+
 function closeJobsPopover() {
   const pop = document.getElementById('jobs-popover');
   const btn = document.getElementById('jobs-btn');
   if (pop) pop.classList.add('hidden');
   if (btn) btn.setAttribute('aria-expanded', 'false');
+}
+
+function closeLightJobsPopover() {
+  const pop = document.getElementById('light-jobs-popover');
+  const btn = document.getElementById('light-jobs-btn');
+  if (pop) pop.classList.add('hidden');
+  if (btn) btn.setAttribute('aria-expanded', 'false');
+}
+
+function closeAllJobPopovers() {
+  closeJobsPopover();
+  closeLightJobsPopover();
 }
 
 function syncSettingsJobsK(concurrency) {
@@ -1462,6 +1540,85 @@ function syncSettingsJobsK(concurrency) {
   if (!Number.isFinite(n) || n < 1) return;
   const v = String(Math.max(1, Math.min(6, Math.round(n))));
   if (sel.value !== v) sel.value = v;
+}
+
+function jobProgressFrac(j) {
+  const total = Number(j?.progressTotal);
+  const done = Number(j?.progressDone);
+  if (!Number.isFinite(total) || total <= 0) return '';
+  return `${Number.isFinite(done) ? done : 0}/${total}`;
+}
+
+function jobRowBarHtml(j) {
+  const total = Number(j?.progressTotal);
+  const done = Number(j?.progressDone);
+  const known = Number.isFinite(total) && total > 0;
+  if (j?.status === 'error' && !known) {
+    return `<span class="jobs-row-track"><span class="job-progress-bar is-determinate" style="width:100%;animation:none;background:#b91c1c"></span></span>`;
+  }
+  if (!known) {
+    if (j?.status === 'running' || j?.status === 'queued') {
+      return `<span class="jobs-row-track"><span class="job-progress-bar"></span></span>`;
+    }
+    return '';
+  }
+  const pct = Math.max(0, Math.min(100, Math.round((100 * (Number.isFinite(done) ? done : 0)) / total)));
+  return `<span class="jobs-row-track"><span class="job-progress-bar is-determinate" style="width:${pct}%;animation:none"></span></span>`;
+}
+
+function renderJobRowHtml(j) {
+  const status = esc(j.status || '');
+  const phase = esc(j.label || j.phase || '');
+  const id = esc(j.candidateId || '');
+  const detail = j.detail || j.error || '';
+  const frac = jobProgressFrac(j);
+  const meta = `${phase}${detail ? ` · ${esc(detail)}` : ''}${frac ? ` ${esc(frac)}` : ''}`;
+  return `<button type="button" class="jobs-row" data-jobs-candidate="${id}">
+      <span class="jobs-row-id">${id}</span>
+      <span class="jobs-row-status ${status}">${status}</span>
+      <span class="jobs-row-meta">${meta}</span>
+      ${jobRowBarHtml(j)}
+    </button>`;
+}
+
+function fillJobsPopoverList(list, jobs, onClose) {
+  if (!list) return;
+  const rows = Array.isArray(jobs) ? jobs : [];
+  const activeJobs = rows.filter((j) => j.status === 'queued' || j.status === 'running');
+  const activeIds = new Set(activeJobs.map((j) => String(j.candidateId || '')));
+  const recentJobs = rows
+    .filter((j) => j.status === 'done' || j.status === 'error')
+    .filter((j) => !activeIds.has(String(j.candidateId || '')))
+    .slice(0, 5);
+  if (!activeJobs.length && !recentJobs.length) {
+    list.innerHTML = `<p class="muted small jobs-empty">No jobs running.</p>`;
+    return;
+  }
+  let html = '';
+  if (activeJobs.length) {
+    html += activeJobs.map(renderJobRowHtml).join('');
+  } else {
+    html += `<p class="muted small jobs-empty">No jobs running.</p>`;
+  }
+  if (recentJobs.length) {
+    html += `<p class="muted small jobs-recent-label">Recent</p>`;
+    html += recentJobs.map(renderJobRowHtml).join('');
+  }
+  list.innerHTML = html;
+  list.querySelectorAll('[data-jobs-candidate]').forEach((row) => {
+    row.addEventListener('click', () => {
+      const cid = row.getAttribute('data-jobs-candidate');
+      if (typeof onClose === 'function') onClose();
+      else closeAllJobPopovers();
+      if (cid && typeof selectCandidate === 'function') {
+        try {
+          selectCandidate(cid);
+        } catch {
+          /* ignore */
+        }
+      }
+    });
+  });
 }
 
 function renderHeavyJobs(snap) {
@@ -1480,68 +1637,115 @@ function renderHeavyJobs(snap) {
   if (meta) {
     meta.textContent = `K=${snap?.concurrency ?? '—'} · ${snap?.running ?? 0} running · ${snap?.queued ?? 0} queued`;
   }
-  const jobs = Array.isArray(snap?.jobs) ? snap.jobs : [];
-  const activeJobs = jobs.filter((j) => j.status === 'queued' || j.status === 'running');
-  const activeIds = new Set(activeJobs.map((j) => String(j.candidateId || '')));
-  const recentJobs = jobs
-    .filter((j) => j.status === 'done' || j.status === 'error')
-    .filter((j) => !activeIds.has(String(j.candidateId || '')))
-    .slice(0, 5);
-  const renderRow = (j) => {
-    const status = esc(j.status || '');
-    const phase = esc(j.label || j.phase || '');
-    const id = esc(j.candidateId || '');
-    const detail = j.detail || j.error || '';
-    return `<button type="button" class="jobs-row" data-jobs-candidate="${id}">
-        <span class="jobs-row-id">${id}</span>
-        <span class="jobs-row-status ${status}">${status}</span>
-        <span class="jobs-row-meta">${phase}${detail ? ` · ${esc(detail)}` : ''}</span>
-      </button>`;
-  };
-  if (!activeJobs.length && !recentJobs.length) {
-    list.innerHTML = `<p class="muted small jobs-empty">No jobs running.</p>`;
-    return;
-  }
-  let html = '';
-  if (activeJobs.length) {
-    html += activeJobs.map(renderRow).join('');
-  } else {
-    html += `<p class="muted small jobs-empty">No jobs running.</p>`;
-  }
-  if (recentJobs.length && activeJobs.length) {
-    html += `<p class="muted small jobs-recent-label">Recent</p>`;
-    html += recentJobs.map(renderRow).join('');
-  } else if (recentJobs.length && !activeJobs.length) {
-    html += `<p class="muted small jobs-recent-label">Recent</p>`;
-    html += recentJobs.map(renderRow).join('');
-  }
-  list.innerHTML = html;
-  list.querySelectorAll('[data-jobs-candidate]').forEach((row) => {
-    row.addEventListener('click', () => {
-      const cid = row.getAttribute('data-jobs-candidate');
-      closeJobsPopover();
-      if (cid && typeof selectCandidate === 'function') {
-        try {
-          selectCandidate(cid);
-        } catch {
-          /* ignore */
-        }
-      }
-    });
-  });
+  fillJobsPopoverList(list, snap?.jobs, closeAllJobPopovers);
 }
 
-function wireJobsUi() {
-  const btn = document.getElementById('jobs-btn');
-  const pop = document.getElementById('jobs-popover');
+function renderLightJobs(snap) {
+  const badge = document.getElementById('light-jobs-badge');
+  const meta = document.getElementById('light-jobs-popover-meta');
+  const list = document.getElementById('light-jobs-popover-list');
+  if (!badge || !list) return;
+  const active = Number(snap?.activeCount || 0);
+  if (active > 0) {
+    badge.textContent = String(active);
+    badge.classList.remove('hidden');
+  } else {
+    badge.classList.add('hidden');
+  }
+  if (meta) {
+    meta.textContent = `${snap?.running ?? 0} running`;
+  }
+  fillJobsPopoverList(list, snap?.jobs, closeAllJobPopovers);
+}
+
+function findActiveJob(snap, phase, candidateId) {
+  const id = String(candidateId || '');
+  const want = String(phase || '');
+  return (snap?.jobs || []).find(
+    (j) =>
+      String(j.candidateId || '') === id &&
+      String(j.phase || '') === want &&
+      (j.status === 'running' || j.status === 'queued'),
+  );
+}
+
+function syncLightInPageBars(snap) {
+  const cid = state.selectedId;
+  if (!cid) return;
+  const accept = findActiveJob(snap, 'accept', cid);
+  if (accept) {
+    const total = Number(accept.progressTotal) || 4;
+    const done = Number(accept.progressDone) || 0;
+    setAcceptProgress(true, {
+      label: `Accepting ${done} / ${total}`,
+      detail: accept.detail || 'Working…',
+      step: Math.max(0, done - 1),
+      total,
+    });
+  }
+  const logo = findActiveJob(snap, 'logo', cid);
+  const map = findActiveJob(snap, 'coverage-map', cid);
+  const logoMap = logo || map;
+  if (logoMap) {
+    setImagesProgress(true, {
+      label: logoMap.label || (logo ? 'Generating logo…' : 'Generating coverage map…'),
+      detail: logoMap.detail || 'Working…',
+      current: Number(logoMap.progressDone) || 0,
+      total: Number(logoMap.progressTotal) || 0,
+      box: 'ca-logo-map',
+    });
+  }
+  const pull = findActiveJob(snap, 'images-pull', cid);
+  if (pull) {
+    setImagesProgress(true, {
+      label: pull.label || 'Pulling photos…',
+      detail: pull.detail || 'Working…',
+      current: Number(pull.progressDone) || 0,
+      total: Number(pull.progressTotal) || 0,
+    });
+  }
+  const research = ['research', 'enrich', 'prospects']
+    .map((p) => findActiveJob(snap, p, cid))
+    .find(Boolean);
+  if (research) {
+    const progress = document.getElementById('job-progress');
+    const detailEl = document.getElementById('job-progress-detail');
+    const bar = progress?.querySelector('.job-progress-bar');
+    const labelEl = progress?.querySelector('.job-progress-label');
+    const total = Number(research.progressTotal);
+    const done = Number(research.progressDone);
+    if (progress) progress.classList.remove('hidden');
+    if (detailEl) detailEl.textContent = research.detail || 'Working…';
+    if (labelEl) {
+      labelEl.textContent =
+        Number.isFinite(total) && total > 0
+          ? `Running ${jobActLabel(research.phase)} ${Number.isFinite(done) ? done : 0} / ${total}`
+          : `Running ${jobActLabel(research.phase)}…`;
+    }
+    if (bar && Number.isFinite(total) && total > 0) {
+      setDeterminateProgress(bar, { done: Number.isFinite(done) ? done : 0, total });
+    }
+    state.jobStatusLine = research.detail || state.jobStatusLine;
+  }
+}
+
+function wireJobStream({
+  btnId,
+  popId,
+  streamUrl,
+  pollUrl,
+  channelName,
+  apply,
+  closeSibling,
+}) {
+  const btn = document.getElementById(btnId);
+  const pop = document.getElementById(popId);
   if (!btn || !pop) return;
 
-  /** @type {number} last applied snapshot seq (0 = none) */
   let lastAppliedSeq = 0;
-  /** @type {BroadcastChannel | null} */
   let bc = null;
   try {
-    bc = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('rover-heavy-jobs') : null;
+    bc = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel(channelName) : null;
   } catch {
     bc = null;
   }
@@ -1554,15 +1758,12 @@ function wireJobsUi() {
   const applySnap = (snap, { broadcast = true } = {}) => {
     if (!snap || typeof snap !== 'object') return;
     const seq = snapSeq(snap);
-    // Prefer monotonic seq. If seq is missing, always apply (never use Date.now as watermark).
     if (seq > 0) {
       if (seq < lastAppliedSeq) return;
       lastAppliedSeq = seq;
     }
     try {
-      renderHeavyJobs(snap);
-      syncPrepareProgressFromJobs(snap);
-      syncLaunchProgressFromJobs(snap);
+      apply(snap);
     } catch {
       /* ignore */
     }
@@ -1587,8 +1788,7 @@ function wireJobsUi() {
 
   const poll = async () => {
     try {
-      const snap = await api('/api/heavy-jobs');
-      applySnap(snap);
+      applySnap(await api(pollUrl));
     } catch {
       /* ignore */
     }
@@ -1598,9 +1798,8 @@ function wireJobsUi() {
     if (document.visibilityState === 'visible') poll();
   };
 
-  let es = null;
   try {
-    es = new EventSource('/api/heavy-jobs/stream');
+    const es = new EventSource(streamUrl);
     es.onmessage = (ev) => {
       try {
         applySnap(JSON.parse(ev.data));
@@ -1612,7 +1811,7 @@ function wireJobsUi() {
       poll();
     };
   } catch {
-    es = null;
+    /* EventSource unavailable */
   }
   setInterval(poll, 2000);
   poll();
@@ -1624,17 +1823,53 @@ function wireJobsUi() {
     const willOpen = pop.classList.contains('hidden');
     if (willOpen) {
       closeSettingsMenu();
+      closeApiCostMenu();
+      if (typeof closeSibling === 'function') closeSibling();
       pop.classList.remove('hidden');
       btn.setAttribute('aria-expanded', 'true');
       poll();
-    } else {
+    } else if (btnId === 'jobs-btn') {
       closeJobsPopover();
+    } else {
+      closeLightJobsPopover();
     }
   });
   pop.addEventListener('click', (event) => event.stopPropagation());
-  document.addEventListener('click', () => closeJobsPopover());
+}
+
+function wireJobsUi() {
+  wireJobStream({
+    btnId: 'jobs-btn',
+    popId: 'jobs-popover',
+    streamUrl: '/api/heavy-jobs/stream',
+    pollUrl: '/api/heavy-jobs',
+    channelName: 'rover-heavy-jobs',
+    closeSibling: closeLightJobsPopover,
+    apply: (snap) => {
+      state.heavyJobsSnap = snap;
+      renderHeavyJobs(snap);
+      syncPrepareProgressFromJobs(snap);
+      syncLaunchProgressFromJobs(snap);
+      refreshMasterFromJobs();
+    },
+  });
+  wireJobStream({
+    btnId: 'light-jobs-btn',
+    popId: 'light-jobs-popover',
+    streamUrl: '/api/light-jobs/stream',
+    pollUrl: '/api/light-jobs',
+    channelName: 'rover-light-jobs',
+    closeSibling: closeJobsPopover,
+    apply: (snap) => {
+      state.lightJobsSnap = snap;
+      renderLightJobs(snap);
+      syncLightInPageBars(snap);
+      refreshMasterFromJobs();
+    },
+  });
+  document.addEventListener('click', () => closeAllJobPopovers());
   document.addEventListener('keydown', (event) => {
-    if (event.key === 'Escape') closeJobsPopover();
+    if (event.key === 'Escape') closeAllJobPopovers();
   });
 }
 
@@ -1678,6 +1913,8 @@ function wireSettingsUi() {
     const open = menu.classList.contains('hidden');
     if (open) {
       hideOpsTooltip();
+      closeAllJobPopovers();
+      closeApiCostMenu();
       menu.classList.remove('hidden');
       btn.setAttribute('aria-expanded', 'true');
       void syncJobsKFromServer();
@@ -1859,23 +2096,7 @@ function dfsCostBreakdown(detail) {
 }
 
 function renderDfsBalance() {
-  const el = document.getElementById('dfs-balance');
-  if (!el) return;
-  const b = state.dfsBalance;
-  el.classList.remove('ok', 'warn', 'err', 'muted');
-  if (!b) {
-    el.classList.add('muted');
-    el.textContent = 'DFS …';
-    return;
-  }
-  if (!b.ok || b.balance == null) {
-    el.classList.add('err');
-    el.textContent = 'DFS balance —';
-    return;
-  }
-  const bal = Number(b.balance);
-  el.classList.add(bal < 1 ? 'warn' : 'ok');
-  el.textContent = `DFS ${formatMoney(bal)}`;
+  renderApiCostMenu();
 }
 
 function isFluxWalletError(error) {
@@ -1906,29 +2127,214 @@ function falBalanceChipTitle(b) {
   return 'This key is API scope. Create an Admin key at fal.ai/dashboard/keys, set FAL_ADMIN_KEY, then restart Rover.';
 }
 
+function remainingTone(balance, { loading = false, failed = false, unset = false } = {}) {
+  if (loading || unset) return 'muted';
+  if (failed) return 'err';
+  if (balance != null && Number(balance) < 1) return 'warn';
+  return 'ok';
+}
+
+function apiCostMoney(value) {
+  return Number.isFinite(Number(value)) ? formatMoney(value) : '—';
+}
+
+function apiCostWalletCell({ configured, loading, ok, balance, spent, failTitle }) {
+  const title = failTitle || '';
+  if (!configured) {
+    return {
+      kind: 'merged',
+      text: 'Not set',
+      tone: 'muted',
+      title: title || 'Add this key in .env, then restart Rover.',
+    };
+  }
+  if (loading) {
+    return { kind: 'merged', text: '…', tone: 'muted', title };
+  }
+  if (!ok) {
+    return {
+      kind: 'wallet',
+      spent: null,
+      balance: null,
+      tone: 'err',
+      title: title || 'Could not load remaining balance.',
+    };
+  }
+  return {
+    kind: 'wallet',
+    spent,
+    balance,
+    tone: remainingTone(balance),
+    title,
+  };
+}
+
+function apiCostPaygCell(configured, usedFor) {
+  if (!configured) {
+    return {
+      kind: 'merged',
+      text: 'Not set',
+      tone: 'muted',
+      title: `${usedFor} Add the API key in .env, then restart Rover.`,
+    };
+  }
+  return { kind: 'merged', text: 'Pay as you go', tone: 'ok', title: usedFor };
+}
+
+function apiCostRows() {
+  const cfg = state.apiCostConfigured || {};
+  const dfs = state.dfsBalance;
+  const fal = state.falBalance;
+  const apify = state.apifyPlanUsage;
+  const twilio = state.twilioBalance;
+  const dfsConfigured = cfg.dataforseo ?? Boolean(dfs);
+  const falConfigured = cfg.fal ?? Boolean(fal?.falKeySet);
+  const apifyConfigured = cfg.apify ?? Boolean(apify && apify.ok !== false);
+  const twilioConfigured = cfg.twilio ?? twilio?.configured === true;
+
+  const apifyTitleParts = [
+    'Address Find LoopNet / Crexi scrapes. Prepaid. All-time spend · remaining this cycle.',
+  ];
+  if (apify?.ok && apify.monthlyUsageUsd != null && apify.maxMonthlyUsageUsd != null) {
+    apifyTitleParts.push(
+      `Used ${formatMoney(apify.monthlyUsageUsd)} of ${formatMoney(apify.maxMonthlyUsageUsd)} this cycle.`,
+    );
+  }
+
+  const falTitle = fal?.ok && fal.balance != null
+    ? 'Photo / Review Flux generate. Prepaid fal.ai wallet. All-time spend · remaining credits.'
+    : falBalanceChipTitle(fal);
+
+  return [
+    {
+      name: 'DataForSEO',
+      ...apiCostWalletCell({
+        configured: dfsConfigured,
+        loading: !dfs && dfsConfigured,
+        ok: Boolean(dfs?.ok),
+        balance: dfs?.balance,
+        spent: dfs?.spentAllTime,
+        failTitle: dfs?.error
+          ? `Discovery, research, ranks. Prepaid wallet. ${dfs.error}`
+          : 'Discovery, research, ranks. All-time spend · remaining wallet.',
+      }),
+    },
+    {
+      name: 'Anthropic',
+      ...apiCostPaygCell(Boolean(cfg.anthropic), 'Copy, content, narrative. Prepaid credits billed per token.'),
+    },
+    {
+      name: 'OpenAI',
+      ...apiCostPaygCell(
+        Boolean(cfg.openai),
+        'Phone Whisper / summaries and GPT Image. Prepaid credits billed per use.',
+      ),
+    },
+    {
+      name: 'Google Maps',
+      ...apiCostPaygCell(
+        Boolean(cfg.googleMaps),
+        'Address Find Places / Geocoding. Pay as you go on Google Cloud.',
+      ),
+    },
+    {
+      name: 'Apify',
+      ...apiCostWalletCell({
+        configured: apifyConfigured || Boolean(cfg.apify),
+        loading: !apify && Boolean(cfg.apify),
+        ok: Boolean(apify?.ok),
+        balance: apify?.remainingUsd,
+        spent: apify?.spentAllTime,
+        failTitle: apify?.error ? `${apifyTitleParts[0]} ${apify.error}` : apifyTitleParts.join(' '),
+      }),
+    },
+    {
+      name: 'Flux (fal.ai)',
+      ...apiCostWalletCell({
+        configured: falConfigured,
+        loading: !fal && falConfigured,
+        ok: Boolean(fal?.ok),
+        balance: fal?.balance,
+        spent: fal?.spentAllTime,
+        failTitle: falTitle,
+      }),
+    },
+    {
+      name: 'Twilio',
+      ...apiCostWalletCell({
+        configured: twilioConfigured,
+        loading: !twilio && twilioConfigured,
+        ok: Boolean(twilio?.ok),
+        balance: twilio?.balance,
+        spent: twilio?.spentAllTime,
+        failTitle: twilio?.error
+          ? `Ranking numbers, calls, recordings. Prepaid account. ${twilio.error}`
+          : 'Ranking numbers, calls, recordings. All-time spend · remaining prepaid balance.',
+      }),
+    },
+  ];
+}
+
+function renderApiCostMenu() {
+  const list = document.getElementById('api-cost-list');
+  if (!list) return;
+  const body = apiCostRows()
+    .map((row) => {
+      const name = `<td class="api-cost-name">${esc(row.name)}</td>`;
+      if (row.kind === 'merged') {
+        return `<tr>
+          ${name}
+          <td class="api-cost-merged ${esc(row.tone)}" colspan="2" title="${esc(row.title)}">${esc(row.text)}</td>
+        </tr>`;
+      }
+      return `<tr>
+        ${name}
+        <td class="api-cost-num ${esc(row.tone)}" title="${esc(row.title)}">${esc(apiCostMoney(row.spent))}</td>
+        <td class="api-cost-num ${esc(row.tone)}" title="${esc(row.title)}">${esc(apiCostMoney(row.balance))}</td>
+      </tr>`;
+    })
+    .join('');
+  list.innerHTML = `<table class="api-cost-table">
+    <thead>
+      <tr>
+        <th scope="col"></th>
+        <th scope="col">Spent</th>
+        <th scope="col">Balance</th>
+      </tr>
+    </thead>
+    <tbody>${body}</tbody>
+  </table>`;
+}
+
+function applyApiCostSnapshot(data) {
+  if (!data || typeof data !== 'object') return;
+  if (data.configured) state.apiCostConfigured = data.configured;
+  if (data.dfs) state.dfsBalance = data.dfs;
+  if (data.fal) state.falBalance = data.fal;
+  if (data.apify) state.apifyPlanUsage = data.apify;
+  if (data.twilio) state.twilioBalance = data.twilio;
+}
+
 function renderFalBalance() {
-  const el = document.getElementById('fal-balance');
-  if (!el) return;
-  const b = state.falBalance;
-  el.classList.remove('ok', 'warn', 'err', 'muted');
-  if (!b) {
-    el.classList.add('muted');
-    el.textContent = 'Flux …';
-    el.removeAttribute('title');
-    return;
-  }
-  if (!b.ok || b.balance == null) {
-    el.classList.add('err');
-    el.textContent = 'Flux —';
-    el.title = falBalanceChipTitle(b);
-    renderFluxSpendLine();
-    return;
-  }
-  const bal = Number(b.balance);
-  el.classList.add(bal < 1 ? 'warn' : 'ok');
-  el.textContent = `Flux ${formatMoney(bal)}`;
-  el.title = 'fal.ai account remaining credits (API and Admin keys share this balance)';
   renderFluxSpendLine();
+  renderApiCostMenu();
+}
+
+async function loadApiCost({ fresh = false } = {}) {
+  try {
+    const q = fresh ? '?fresh=1' : '';
+    applyApiCostSnapshot(await api(`/api/api-cost${q}`));
+  } catch (error) {
+    if (!state.dfsBalance) {
+      state.dfsBalance = {
+        ok: false,
+        balance: null,
+        error: error.message,
+        fetchedAt: new Date().toISOString(),
+      };
+    }
+  }
+  renderFalBalance();
 }
 
 async function loadDfsBalance() {
@@ -1963,6 +2369,32 @@ async function loadFalBalance({ fresh = false, remind = false } = {}) {
   }
   renderFalBalance();
   if (remind) void maybeShowFalRetireReminder();
+}
+
+function wireApiCostUi() {
+  const btn = document.getElementById('api-cost-btn');
+  const menu = document.getElementById('api-cost-menu');
+  if (!btn || !menu) return;
+
+  btn.addEventListener('click', (event) => {
+    event.stopPropagation();
+    const willOpen = menu.classList.contains('hidden');
+    if (willOpen) {
+      closeSettingsMenu();
+      closeAllJobPopovers();
+      menu.classList.remove('hidden');
+      btn.setAttribute('aria-expanded', 'true');
+      renderApiCostMenu();
+      void loadApiCost({ fresh: true });
+    } else {
+      closeApiCostMenu();
+    }
+  });
+  menu.addEventListener('click', (event) => event.stopPropagation());
+  document.addEventListener('click', () => closeApiCostMenu());
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') closeApiCostMenu();
+  });
 }
 
 const FAL_RETIRE_SESSION_KEY = 'ops.falRetireReminded';
@@ -2004,8 +2436,7 @@ async function maybeShowFalRetireReminder() {
 function startBalancePolling() {
   if (state.balanceTimer) clearInterval(state.balanceTimer);
   state.balanceTimer = setInterval(() => {
-    loadDfsBalance().catch(() => {});
-    loadFalBalance().catch(() => {});
+    loadApiCost().catch(() => {});
   }, 60_000);
 }
 
@@ -3176,9 +3607,10 @@ async function selectCandidate(id) {
   state.contentSoftDone = {};
   state.websiteSoftDone = {};
   state.siteConfigSoftDone = {};
-  state.assembleProgress = { visible: false, detail: '' };
+  state.assembleProgress = { visible: false, detail: '', done: null, total: null };
   state.preparePreviewHold = false;
   state.preparePreviewJobId = null;
+  state.preparePreviewTab = null;
   if (state.selectedIds.size > 1) {
     renderList();
     renderMultiDetail();
@@ -10482,7 +10914,8 @@ function renderWebsite() {
     ? 'Centered vs Callout replaces map on regenerate.'
     : 'Usually auto after Accept when Areas exist — use if the map is still missing. Pick Centered or Callout, then generate.';
   const prepareDone = flags.staged && flags.assembled && !assembleStale;
-  const indexingStepDone = isSoftDone('websiteSoftDone', 'indexing');
+  const indexingStepDone =
+    Boolean(d?.meta?.indexingDone) || isSoftDone('websiteSoftDone', 'indexing');
   const stepFlags = {
     logoMapDone,
     imagesDone,
@@ -10715,7 +11148,11 @@ function renderWebsite() {
         </div>
         <div id="ca-assemble-progress" class="job-progress${assembleProgVisible ? '' : ' hidden'}" aria-live="polite" style="margin-top:0.75rem">
           <div class="job-progress-track"><div class="job-progress-bar"></div></div>
-          <p class="job-progress-label" id="ca-assemble-progress-label">Preparing preview…</p>
+          <p class="job-progress-label" id="ca-assemble-progress-label">${esc(
+            Number(assembleProg.total) > 0
+              ? prepareProgressLabel(assembleProg.done, assembleProg.total)
+              : 'Preparing preview…',
+          )}</p>
           <p class="job-progress-detail" id="ca-assemble-progress-detail">${esc(
             assembleProg.detail || (state.preparePreviewHold ? 'Starting…' : 'Working…'),
           )}</p>
@@ -10916,7 +11353,11 @@ function renderWebsite() {
               ? `<a class="btn" href="${esc(robotsUrl)}" target="_blank" rel="noopener" data-tip="Open live robots.txt">Open robots.txt</a>`
               : ''
           }
-          <button type="button" class="btn" id="ca-indexing-mark-done" data-tip="Mark this step done when you’ve submitted the sitemap">Mark done</button>
+          ${
+            indexingStepDone
+              ? `<button type="button" class="btn" id="ca-indexing-mark-done" disabled data-tip="Indexing already marked done for this site">Done</button>`
+              : `<button type="button" class="btn" id="ca-indexing-mark-done" data-tip="Mark this step done when you’ve submitted the sitemap">Mark done</button>`
+          }
         </div>
         ${
           sitemapUrl
@@ -11022,25 +11463,95 @@ function setLaunchProgress(visible, label, detail, { step = null, total = null }
   }
 }
 
-function setAssembleProgress(visible, detail) {
+function prepareProgressLabel(done, total) {
+  if (Number(total) > 0) return `Preparing preview ${Number(done) || 0} / ${Number(total)}`;
+  return 'Preparing preview…';
+}
+
+function prepareStepLine(detail, done, total) {
+  const name = String(detail || '').trim() || 'Working…';
+  if (Number(total) > 0) return `${name} ${Number(done) || 0}/${Number(total)}`;
+  return name;
+}
+
+function patchPreviewWaitingTab({ title, body, done, total, detail } = {}) {
+  const tab = state.preparePreviewTab;
+  if (!tab || tab.closed) return;
+  try {
+    const doc = tab.document;
+    if (!doc) return;
+    if (title) {
+      const tEl = doc.getElementById('rover-preview-title');
+      if (tEl) tEl.textContent = title;
+      doc.title = title;
+    }
+    if (body != null) {
+      const bEl = doc.getElementById('rover-preview-body');
+      if (bEl) bEl.innerHTML = body;
+    }
+    const bar = doc.getElementById('rover-preview-bar');
+    const stepEl = doc.getElementById('rover-preview-step');
+    const t = Number(total);
+    const d = Number(done);
+    if (bar && Number.isFinite(t) && t > 0) {
+      const pct = Math.max(0, Math.min(100, Math.round((100 * (Number.isFinite(d) ? d : 0)) / t)));
+      bar.style.width = `${pct}%`;
+    }
+    if (stepEl) stepEl.textContent = prepareStepLine(detail, done, total);
+  } catch {
+    /* closed / cross-origin */
+  }
+}
+
+function setAssembleProgress(visible, detail, { done = null, total = null } = {}) {
+  const prev = state.assembleProgress || {};
+  const nextDone = done != null && Number.isFinite(Number(done)) ? Number(done) : prev.done;
+  const nextTotal = total != null && Number.isFinite(Number(total)) ? Number(total) : prev.total;
+  const detailText = detail != null ? String(detail) : prev.detail || '';
   state.assembleProgress = {
     visible: Boolean(visible),
-    detail: detail != null ? String(detail) : state.assembleProgress?.detail || '',
+    detail: detailText,
+    done: visible ? nextDone : null,
+    total: visible ? nextTotal : null,
   };
+  const known = visible && Number(nextTotal) > 0;
+  const label = visible
+    ? known
+      ? prepareProgressLabel(nextDone, nextTotal)
+      : 'Preparing preview…'
+    : '';
   const box = document.getElementById('ca-assemble-progress');
   const detailEl = document.getElementById('ca-assemble-progress-detail');
   const labelEl = document.getElementById('ca-assemble-progress-label');
-  const label = 'Preparing preview…';
-  const detailText = detail != null ? String(detail) : state.assembleProgress?.detail || '';
+  const bar = box?.querySelector('.job-progress-bar');
   if (box) {
     box.classList.toggle('hidden', !visible);
     if (detailEl && detail != null) detailEl.textContent = String(detail);
     if (labelEl && visible) labelEl.textContent = label;
   }
-  setMasterProgress({
-    visible: Boolean(visible),
-    label: visible ? label : '',
-    detail: visible ? detailText : '',
+  if (!visible) {
+    setDeterminateProgress(bar, {});
+    setMasterProgress({ visible: false });
+    return;
+  }
+  if (known) {
+    setDeterminateProgress(bar, { done: nextDone, total: nextTotal });
+    setMasterProgress({
+      visible: true,
+      label,
+      detail: detailText,
+      done: nextDone,
+      total: nextTotal,
+    });
+  } else {
+    setDeterminateProgress(bar, {});
+    setMasterProgress({ visible: true, label, detail: detailText });
+  }
+  patchPreviewWaitingTab({
+    title: 'Preparing preview…',
+    done: nextDone,
+    total: nextTotal,
+    detail: detailText,
   });
 }
 
@@ -11082,65 +11593,32 @@ function syncPrepareProgressFromJobs(snap) {
   if (!job) return;
 
   if (job.status === 'queued') {
-    setAssembleProgress(true, 'Prepare preview: Queued…');
+    setAssembleProgress(true, 'Queued…', { done: 0, total: 5 });
     return;
   }
   if (job.status === 'running') {
-    setAssembleProgress(
-      true,
-      `Prepare preview: ${job.detail || 'Running…'}`,
-    );
+    const total = Number(job.progressTotal) > 0 ? Number(job.progressTotal) : 5;
+    const n = Number.isFinite(Number(job.progressDone)) ? Number(job.progressDone) : 0;
+    setAssembleProgress(true, job.detail || 'Running…', { done: n, total });
     return;
   }
   if (job.status === 'done') {
     // Click handler owns hold / button; only update progress copy here.
-    setAssembleProgress(true, 'Prepare finished — opening result…');
+    setAssembleProgress(true, 'Prepare finished — opening result…', { done: 5, total: 5 });
     return;
   }
   if (job.status === 'error') {
-    setAssembleProgress(
-      true,
-      `Prepare failed: ${job.error || job.detail || 'error'}`,
-    );
+    setAssembleProgress(true, `Prepare failed: ${job.error || job.detail || 'error'}`);
   }
 }
 
-const ACCEPT_PROGRESS_STEPS = [
-  'Writing files to src/content…',
-  'Loading saved photos or pulling stock…',
-  'Generating logo…',
-  'Finishing assets (photos, logo, coverage map)…',
-];
-
-function formatAcceptElapsed(ms) {
-  const sec = Math.max(0, Math.floor(Number(ms) / 1000));
-  if (sec < 60) return `${sec}s`;
-  const m = Math.floor(sec / 60);
-  const s = sec % 60;
-  return `${m}m ${s}s`;
-}
-
-function startAcceptProgressTicker() {
-  const startedAt = Date.now();
-  let stepIdx = 0;
-  const total = ACCEPT_PROGRESS_STEPS.length;
-  const tick = () => {
-    const elapsed = formatAcceptElapsed(Date.now() - startedAt);
-    const step = ACCEPT_PROGRESS_STEPS[stepIdx] || ACCEPT_PROGRESS_STEPS.at(-1);
-    const stillWorking =
-      stepIdx >= ACCEPT_PROGRESS_STEPS.length - 1
-        ? `Still working (${elapsed}) — photos and coverage map can take 1–3 min for large service areas. Watch the Rover terminal for [accept] / [coverage-map] lines.`
-        : `${step} (${elapsed})`;
-    setAcceptProgress(true, {
-      label: 'Accepting…',
-      detail: stillWorking,
-      step: stepIdx,
-      total,
-    });
-    stepIdx = Math.min(stepIdx + 1, ACCEPT_PROGRESS_STEPS.length - 1);
-  };
-  tick();
-  return setInterval(tick, 2000);
+function beginAcceptProgress(detail = 'Starting…') {
+  setAcceptProgress(true, {
+    label: 'Accepting 0 / 4',
+    detail,
+    step: 0,
+    total: 4,
+  });
 }
 
 function setAcceptProgress(visible, { label, detail, step = null, total = null } = {}) {
@@ -12067,16 +12545,33 @@ function wireContentTab(d) {
   // Prefetch while Rover is idle so Prepare preview first paint includes the wordmark.
   warmPreviewWordmark();
 
-  const writePreviewTabHtml = (tab, { title, body }) => {
+  const writePreviewTabHtml = (tab, { title, body, done = null, total = null, detail = '' } = {}) => {
     if (!tab || tab.closed) return;
     try {
       const doc = tab.document;
       const existingTitle = doc.getElementById('rover-preview-title');
       const existingBody = doc.getElementById('rover-preview-body');
+      const useProgress = done != null && Number(total) > 0;
+      const stepLine = useProgress ? prepareStepLine(detail || 'Queued…', done, total) : '';
+      const pct = useProgress
+        ? Math.max(0, Math.min(100, Math.round((100 * Number(done || 0)) / Number(total))))
+        : 0;
       if (existingTitle && existingBody) {
         doc.title = title;
         existingTitle.textContent = title;
         existingBody.innerHTML = body;
+        let bar = doc.getElementById('rover-preview-bar');
+        let stepEl = doc.getElementById('rover-preview-step');
+        if (useProgress && (!bar || !stepEl)) {
+          const progress = doc.createElement('div');
+          progress.className = 'preview-progress';
+          progress.innerHTML = `<div class="preview-progress-track"><div class="preview-progress-bar" id="rover-preview-bar"></div></div><p class="preview-progress-step" id="rover-preview-step"></p>`;
+          existingTitle.insertAdjacentElement('afterend', progress);
+          bar = doc.getElementById('rover-preview-bar');
+          stepEl = doc.getElementById('rover-preview-step');
+        }
+        if (useProgress && bar) bar.style.width = `${pct}%`;
+        if (useProgress && stepEl) stepEl.textContent = stepLine;
         return;
       }
 
@@ -12092,10 +12587,14 @@ function wireContentTab(d) {
             font:15px/1.45 system-ui,sans-serif;color:#e8e8e8;background:#000;
             padding:1.5rem;
           }
-          .wrap{display:flex;flex-direction:column;align-items:center;gap:1.25rem;max-width:28rem;text-align:center}
+          .wrap{display:flex;flex-direction:column;align-items:center;gap:1.25rem;max-width:28rem;text-align:center;width:min(28rem,100%)}
           h1{font-size:1.05rem;font-weight:600;margin:0;color:#fff}
           p{margin:0;color:rgba(255,255,255,0.72)}
           code{font-size:0.9em;color:rgba(255,255,255,0.88)}
+          .preview-progress{width:100%;display:flex;flex-direction:column;gap:.4rem;align-items:stretch}
+          .preview-progress-track{height:6px;border-radius:999px;background:rgba(255,255,255,.15);overflow:hidden}
+          .preview-progress-bar{height:100%;width:0;background:#2f6bff;border-radius:999px;transition:width .25s ease}
+          .preview-progress-step{margin:0;font-size:.8rem;font-weight:650;color:#fff}
           /* Critical hero loader — about:blank often cannot load /brand CSS */
           .rover-loader{
             --rover-loader-accent:#2f6bff;
@@ -12142,10 +12641,22 @@ function wireContentTab(d) {
             <img class="rover-loader-word" src="${wordSrc}" alt="" width="618" height="81" decoding="sync" />
           </div>
           <h1 id="rover-preview-title">${title}</h1>
+          ${
+            useProgress
+              ? `<div class="preview-progress">
+            <div class="preview-progress-track"><div class="preview-progress-bar" id="rover-preview-bar" style="width:${pct}%"></div></div>
+            <p class="preview-progress-step" id="rover-preview-step"></p>
+          </div>`
+              : ''
+          }
           <p id="rover-preview-body">${body}</p>
         </div>
         </body></html>`);
       tab.document.close();
+      if (useProgress) {
+        const stepEl = tab.document.getElementById('rover-preview-step');
+        if (stepEl) stepEl.textContent = stepLine;
+      }
     } catch {
       /* cross-origin or closed */
     }
@@ -12222,15 +12733,14 @@ function wireContentTab(d) {
     state.websiteOpenStep = 'prepare';
     state.websiteSoftCurrent = 'prepare';
     state.websiteFollowCurrent = 'prepare';
-    setAssembleProgress(true, 'Checking content…');
     // Re-render so the in-step bar appears and Prepare is disabled before gaps/modals.
     renderDetail();
+    setAssembleProgress(true, 'Checking content…', { done: 0, total: 5 });
     let previewTab = null;
-    let progressTimer = null;
     const abortPrepareUi = () => {
-      if (progressTimer) clearInterval(progressTimer);
       state.preparePreviewHold = false;
       state.preparePreviewJobId = null;
+      state.preparePreviewTab = null;
       setAssembleProgress(false);
       try {
         if (previewTab && !previewTab.closed) previewTab.close();
@@ -12283,14 +12793,12 @@ function wireContentTab(d) {
       writePreviewTabHtml(previewTab, {
         title: 'Preparing preview…',
         body: 'Rover is staging, assembling, and starting the site preview (port pool from :4322). This can take a couple of minutes — keep this tab open.',
+        done: 0,
+        total: 5,
+        detail: 'Queued…',
       });
-      setAssembleProgress(true, 'Prepare preview queued (stage → assemble → preview)…');
-      progressTimer = setInterval(() => {
-        setAssembleProgress(
-          true,
-          'Prepare preview running (stage → assemble → build → preview)… check Jobs for status',
-        );
-      }, 8000);
+      state.preparePreviewTab = previewTab;
+      setAssembleProgress(true, 'Queued…', { done: 0, total: 5 });
 
       let jobId = null;
       try {
@@ -12303,12 +12811,10 @@ function wireContentTab(d) {
         const joinId = enqueueErr?.status === 409 && enqueueErr?.job?.id ? enqueueErr.job.id : null;
         if (!joinId) throw enqueueErr;
         jobId = joinId;
-        setAssembleProgress(true, 'Prepare preview already running — joining…');
+        setAssembleProgress(true, 'Prepare preview already running — joining…', { done: 0, total: 5 });
       }
       state.preparePreviewJobId = jobId;
       const prepared = await waitForHeavyJobResult(jobId);
-      clearInterval(progressTimer);
-      progressTimer = null;
       const staged = prepared.staged || {};
       const serviceN = staged.serviceCount != null ? Number(staged.serviceCount) : null;
       const locationN = staged.locationCount != null ? Number(staged.locationCount) : null;
@@ -12324,7 +12830,7 @@ function wireContentTab(d) {
         prepared.build?.ms != null ? `${Math.round(Number(prepared.build.ms) / 1000)}s` : '';
       const preview = prepared.preview || null;
       if (preview?.ok && preview.url) {
-        setAssembleProgress(true, 'Preview ready — opening site…');
+        setAssembleProgress(true, 'Preview ready — opening site…', { done: 5, total: 5 });
         try {
           if (previewTab && !previewTab.closed) {
             previewTab.location.replace(preview.url);
@@ -12343,7 +12849,10 @@ function wireContentTab(d) {
       }
       state.preparePreviewHold = false;
       await refresh(prepared.candidate || state.detail, 'launch', 'website');
-      setAssembleProgress(true, preview?.ok ? 'Preview ready' : 'Preview failed');
+      setAssembleProgress(true, preview?.ok ? 'Preview ready' : 'Preview failed', {
+        done: 5,
+        total: 5,
+      });
       announceStepComplete('Prepare preview');
       const buildLine = prepared.build?.ok
         ? prepared.build?.buildSkipped
@@ -12385,7 +12894,6 @@ function wireContentTab(d) {
           }`,
       });
     } catch (error) {
-      if (progressTimer) clearInterval(progressTimer);
       writePreviewTabHtml(previewTab, {
         title: 'Prepare preview failed',
         body: esc(String(error?.message || error || 'Prepare preview failed.')),
@@ -12405,9 +12913,9 @@ function wireContentTab(d) {
         }`,
       });
     } finally {
-      if (progressTimer) clearInterval(progressTimer);
       state.preparePreviewHold = false;
       state.preparePreviewJobId = null;
+      state.preparePreviewTab = null;
       setAssembleProgress(false);
       if (state.selectedId === id && state.tab === 'website') renderDetail();
     }
@@ -12752,12 +13260,33 @@ function wireContentTab(d) {
     }
   });
 
-  document.getElementById('ca-indexing-mark-done')?.addEventListener('click', () => {
+  document.getElementById('ca-indexing-mark-done')?.addEventListener('click', async () => {
+    if (Boolean(state.detail?.meta?.indexingDone)) return;
+    const btn = document.getElementById('ca-indexing-mark-done');
+    if (btn) btn.disabled = true;
     state.websiteSoftDone = { ...(state.websiteSoftDone || {}), indexing: true };
     state.websiteFollowCurrent = null;
     state.websiteOpenStep = 'indexing';
-    showToast('Indexing marked done.');
-    renderDetail();
+    try {
+      const result = await api(`/api/candidates/${encodeURIComponent(id)}/indexing/done`, {
+        method: 'POST',
+        body: JSON.stringify({}),
+      });
+      state.detail = result.candidate || state.detail;
+      showToast('Indexing marked done.');
+      renderDetail();
+    } catch (error) {
+      const map = { ...(state.websiteSoftDone || {}) };
+      delete map.indexing;
+      state.websiteSoftDone = map;
+      if (btn) btn.disabled = false;
+      await showModal({
+        title: 'Could not save Indexing',
+        confirmLabel: 'OK',
+        hideCancel: true,
+        bodyHtml: `<p>${esc(error.message)}</p>`,
+      });
+    }
   });
 
   document.getElementById('ca-revert-launched')?.addEventListener('click', async () => {
@@ -13067,7 +13596,7 @@ function wireContentTab(d) {
       if (!ok) return;
       if (!(await confirmLaunchedSiteChange('Accept content'))) return;
       acceptBtn.disabled = true;
-      let acceptTimer = startAcceptProgressTicker();
+      beginAcceptProgress();
       try {
         let result;
         try {
@@ -13077,7 +13606,6 @@ function wireContentTab(d) {
           });
         } catch (error) {
           if (error.message?.includes('ignoreWarnings') || error.check?.warnings?.length) {
-            clearInterval(acceptTimer);
             setAcceptProgress(false);
             const force = await showModal({
               title: 'Content warnings',
@@ -13085,19 +13613,14 @@ function wireContentTab(d) {
               bodyHtml: `<p>${esc(error.message)}</p>`,
             });
             if (!force) throw error;
-            acceptTimer = startAcceptProgressTicker();
-            try {
-              result = await api(`/api/candidates/${encodeURIComponent(id)}/content/accept`, {
-                method: 'POST',
-                body: JSON.stringify(
-                  withLaunchedConfirmBody({ ignoreWarnings: true, ignoreSeoWarnings: ignoreSeo }),
-                ),
-              });
-            } finally {
-              clearInterval(acceptTimer);
-            }
+            beginAcceptProgress();
+            result = await api(`/api/candidates/${encodeURIComponent(id)}/content/accept`, {
+              method: 'POST',
+              body: JSON.stringify(
+                withLaunchedConfirmBody({ ignoreWarnings: true, ignoreSeoWarnings: ignoreSeo }),
+              ),
+            });
           } else if (error.message?.includes('ignoreSeoWarnings') || error.seoLint) {
-            clearInterval(acceptTimer);
             setAcceptProgress(false);
             const force = await showModal({
               title: 'Critical SEO findings',
@@ -13105,20 +13628,15 @@ function wireContentTab(d) {
               bodyHtml: `<p>${esc(error.message)}</p><p class="muted">Or cancel and fix via the Editor step.</p>`,
             });
             if (!force) throw error;
-            acceptTimer = startAcceptProgressTicker();
-            try {
-              result = await api(`/api/candidates/${encodeURIComponent(id)}/content/accept`, {
-                method: 'POST',
-                body: JSON.stringify(withLaunchedConfirmBody({ ignoreSeoWarnings: true })),
-              });
-            } finally {
-              clearInterval(acceptTimer);
-            }
+            beginAcceptProgress();
+            result = await api(`/api/candidates/${encodeURIComponent(id)}/content/accept`, {
+              method: 'POST',
+              body: JSON.stringify(withLaunchedConfirmBody({ ignoreSeoWarnings: true })),
+            });
           } else {
             throw error;
           }
         }
-        clearInterval(acceptTimer);
         setAcceptProgress(false);
         announceStepComplete('Accept content');
         await refresh(result.candidate, 'prepare', 'website');
@@ -13201,7 +13719,6 @@ function wireContentTab(d) {
           <p><strong>Up next:</strong> <strong>Website</strong> → Logo &amp; Map → Review images → <strong>Prepare preview</strong> (full Stage + Assemble + open :4322).</p>`,
         });
       } catch (error) {
-        clearInterval(acceptTimer);
         setAcceptProgress(false);
         const gapsMissing = error.check?.missing || [];
         const gapsStubs = error.check?.stubs || [];
@@ -14940,6 +15457,12 @@ function renderDetail() {
 
   wireSiteConfigTab(d);
   wireContentTab(d);
+  if (state.assembleProgress?.visible) {
+    setAssembleProgress(true, state.assembleProgress.detail, {
+      done: state.assembleProgress.done,
+      total: state.assembleProgress.total,
+    });
+  }
 
   const saveBtn = document.getElementById('save-decision');
   if (saveBtn) {
@@ -20968,11 +21491,11 @@ async function pollBatchJob(batchJobId) {
 
 try {
   await loadHealth();
-  await loadDfsBalance();
-  await loadFalBalance();
+  await loadApiCost();
   startBalancePolling();
   await loadRubric();
   wireSettingsUi();
+  wireApiCostUi();
   wireJobsUi();
   wireUi();
   renderDiscoverySourceLegend();

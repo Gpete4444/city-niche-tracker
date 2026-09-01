@@ -3,9 +3,91 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { saveMeta, pathsFor } from './candidates.mjs';
+import {
+  openLightJob,
+  updateLightJobProgress,
+  finishLightJob,
+} from './rover-light-jobs.mjs';
 
 const ROOT = process.cwd();
 const jobs = new Map();
+
+const SCRIPT_LIGHT_LABEL = {
+  research: 'SERP / Volume',
+  enrich: 'Enrich',
+  prospects: 'Prospects',
+};
+
+const SCRIPT_LIGHT_PROGRESS = {
+  research: {
+    total: 4,
+    steps: [
+      { re: /Maps SERP|map pack/i, done: 1, detail: 'Map Pack…' },
+      { re: /organic|SERP via/i, done: 2, detail: 'Organic SERP…' },
+      { re: /volume|keyword/i, done: 3, detail: 'Volumes…' },
+      { re: /cost this run|wrote research/i, done: 4, detail: 'Finishing…' },
+    ],
+  },
+  enrich: {
+    total: 3,
+    steps: [
+      { re: /backlink|domain rank/i, done: 1, detail: 'Backlinks…' },
+      { re: /thin|page/i, done: 2, detail: 'Thinness…' },
+      { re: /cost this run|enrich/i, done: 3, detail: 'Finishing…' },
+    ],
+  },
+  prospects: {
+    total: 3,
+    steps: [
+      { re: /prospect|renter|search/i, done: 1, detail: 'Finding renters…' },
+      { re: /score|rank/i, done: 2, detail: 'Scoring…' },
+      { re: /cost this run|wrote/i, done: 3, detail: 'Finishing…' },
+    ],
+  },
+};
+
+function attachScriptLightJob(job) {
+  const spec = SCRIPT_LIGHT_PROGRESS[job.label];
+  if (!spec) return;
+  const { jobId } = openLightJob({
+    candidateId: job.candidateId,
+    phase: job.label,
+    label: SCRIPT_LIGHT_LABEL[job.label] || job.label,
+    progressTotal: spec.total,
+  });
+  job.lightJobId = jobId;
+  updateLightJobProgress(jobId, { detail: 'Starting…', done: 0, total: spec.total });
+}
+
+function advanceScriptLightJob(job, chunkText) {
+  const spec = SCRIPT_LIGHT_PROGRESS[job.label];
+  const lightId = job.lightJobId;
+  if (!spec || !lightId) return;
+  const text = String(chunkText || '');
+  let done = Number(job._lightDone) || 0;
+  for (const step of spec.steps) {
+    if (step.done <= done) continue;
+    if (step.re.test(text)) {
+      done = step.done;
+      job._lightDone = done;
+      updateLightJobProgress(lightId, { detail: step.detail, done, total: spec.total });
+    }
+  }
+}
+
+function closeScriptLightJob(job) {
+  const lightId = job.lightJobId;
+  if (!lightId) return;
+  if (job.status === 'ok') {
+    const spec = SCRIPT_LIGHT_PROGRESS[job.label];
+    if (spec) {
+      updateLightJobProgress(lightId, { detail: 'Done', done: spec.total, total: spec.total });
+    }
+    finishLightJob(lightId, { result: { jobId: job.id, status: job.status } });
+    return;
+  }
+  finishLightJob(lightId, { error: new Error(job.error || 'Job failed') });
+}
 
 export function getJob(jobId) {
   return jobs.get(jobId) ?? null;
@@ -105,6 +187,7 @@ export function startJob({
   };
   jobs.set(jobId, job);
   saveMeta(candidateId, { lastJobId: jobId });
+  attachScriptLightJob(job);
 
   const child = spawn(process.execPath, [scriptPath, ...args], {
     cwd: ROOT,
@@ -114,14 +197,21 @@ export function startJob({
 
   job.pid = child.pid;
 
-  child.stdout.on('data', (chunk) => appendLog(job, chunk, 'stdout'));
-  child.stderr.on('data', (chunk) => appendLog(job, chunk, 'stderr'));
+  child.stdout.on('data', (chunk) => {
+    appendLog(job, chunk, 'stdout');
+    advanceScriptLightJob(job, chunk);
+  });
+  child.stderr.on('data', (chunk) => {
+    appendLog(job, chunk, 'stderr');
+    advanceScriptLightJob(job, chunk);
+  });
 
   child.on('error', (error) => {
     job.status = 'error';
     job.error = error.message;
     job.finishedAt = new Date().toISOString();
     appendLog(job, `${error.message}\n`, 'stderr');
+    closeScriptLightJob(job);
   });
 
   child.on('close', async (code) => {
@@ -130,6 +220,7 @@ export function startJob({
     if (code !== 0) {
       job.status = 'error';
       job.error = `Exit code ${code}`;
+      closeScriptLightJob(job);
       return;
     }
     try {
@@ -143,6 +234,7 @@ export function startJob({
       job.error = error.message;
       appendLog(job, `onSuccess: ${error.message}\n`, 'stderr');
     }
+    closeScriptLightJob(job);
   });
 
   return job;

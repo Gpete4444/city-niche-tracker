@@ -26,7 +26,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/styles.css?v=20260831themeSwap" />
+  <link rel="stylesheet" href="/styles.css?v=20260901heavyLightJobs" />
   <link rel="stylesheet" href="/brand/rover-loader.css" />
 </head>
 <body>
@@ -53,7 +53,7 @@
         <img class="top-brand-logo top-brand-logo--light" src="/brand/rover-logo-light.png" alt="" width="800" height="168" decoding="async" />
         <img class="top-brand-logo top-brand-logo--dark" src="/brand/rover-logo-dark.png" alt="" width="800" height="168" decoding="async" />
       </span>
-      <span class="top-version muted small" title="Rover product version">v1.6</span>
+      <span class="top-version muted small" title="Rover product version">v1.7</span>
     </div>
     <nav class="top-nav" aria-label="Primary">
       <div class="nav-pipeline" aria-label="Pipeline stages">
@@ -74,29 +74,75 @@
       <button type="button" class="nav-btn" data-view="phone" aria-label="Phone"><svg class="nav-icon" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><path fill="currentColor" d="M4.1 1.6c.3-.3.8-.4 1.2-.2l2 1c.4.2.6.6.6 1.1l-.2 2.1c0 .3-.2.6-.5.8L6 7.4a8.5 8.5 0 0 0 2.6 2.6l1-.1c.3-.1.6 0 .8.3l1.6 1.6c.3.3.4.8.2 1.2l-1 2c-.2.4-.6.6-1.1.6C5.8 15.6.4 10.2.4 5.1c0-.5.2-.9.6-1.1l3.1-2.4z"/></svg><span class="nav-label">Phone</span></button>
     </nav>
     <div class="top-right">
-      <div id="dfs-balance" class="balance-chip muted">DFS …</div>
-      <div id="fal-balance" class="balance-chip muted">Flux …</div>
-      <div class="jobs-wrap">
+      <div class="jobs-cluster">
+        <div class="jobs-wrap">
+          <button
+            type="button"
+            id="jobs-btn"
+            class="jobs-btn"
+            aria-haspopup="true"
+            aria-expanded="false"
+            aria-controls="jobs-popover"
+            title="Assemble / preview / launch jobs"
+          >
+            <span class="jobs-btn-label">Heavy</span>
+            <span id="jobs-badge" class="jobs-badge hidden" aria-live="polite">0</span>
+          </button>
+          <div id="jobs-popover" class="jobs-popover hidden" role="dialog" aria-label="Heavy jobs">
+            <div class="jobs-popover-head">
+              <strong>Heavy Jobs</strong>
+              <span id="jobs-popover-meta" class="muted small"></span>
+            </div>
+            <div id="jobs-popover-list" class="jobs-popover-list">
+              <p class="muted small jobs-empty">No jobs running.</p>
+            </div>
+          </div>
+        </div>
+        <div class="jobs-wrap">
+          <button
+            type="button"
+            id="light-jobs-btn"
+            class="jobs-btn"
+            aria-haspopup="true"
+            aria-expanded="false"
+            aria-controls="light-jobs-popover"
+            title="Accept / logo / photos / SERP jobs"
+          >
+            <span class="jobs-btn-label">Light</span>
+            <span id="light-jobs-badge" class="jobs-badge hidden" aria-live="polite">0</span>
+          </button>
+          <div id="light-jobs-popover" class="jobs-popover hidden" role="dialog" aria-label="Light jobs">
+            <div class="jobs-popover-head">
+              <strong>Light Jobs</strong>
+              <span id="light-jobs-popover-meta" class="muted small"></span>
+            </div>
+            <div id="light-jobs-popover-list" class="jobs-popover-list">
+              <p class="muted small jobs-empty">No jobs running.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="api-cost-wrap">
         <button
           type="button"
-          id="jobs-btn"
-          class="jobs-btn"
+          id="api-cost-btn"
+          class="settings-btn"
           aria-haspopup="true"
           aria-expanded="false"
-          aria-controls="jobs-popover"
-          title="Assemble / preview / launch jobs"
+          aria-controls="api-cost-menu"
+          title="API Cost"
+          aria-label="API Cost"
         >
-          <span class="jobs-btn-label">Jobs</span>
-          <span id="jobs-badge" class="jobs-badge hidden" aria-live="polite">0</span>
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="10" />
+            <path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8" />
+            <path d="M12 18V6" />
+          </svg>
+          <span class="sr-only">API Cost</span>
         </button>
-        <div id="jobs-popover" class="jobs-popover hidden" role="dialog" aria-label="Heavy jobs">
-          <div class="jobs-popover-head">
-            <strong>Jobs</strong>
-            <span id="jobs-popover-meta" class="muted small"></span>
-          </div>
-          <div id="jobs-popover-list" class="jobs-popover-list">
-            <p class="muted small jobs-empty">No jobs running.</p>
-          </div>
+        <div id="api-cost-menu" class="settings-menu api-cost-menu hidden" role="menu" aria-label="API Cost">
+          <div class="api-cost-head">API Cost</div>
+          <div id="api-cost-list" class="api-cost-list"></div>
         </div>
       </div>
       <div class="settings-wrap">
@@ -1110,6 +1156,6 @@
   </div>
   <img id="img-peek" class="img-peek hidden" alt="" hidden />
 
-  <script src="/app.js?v=20260831revertCollapse" type="module"></script>
+  <script src="/app.js?v=20260901heavyLightJobs" type="module"></script>
 </body>
 </html>

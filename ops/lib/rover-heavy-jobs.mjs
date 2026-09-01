@@ -1,6 +1,6 @@
 /**
  * Global heavy-job registry + concurrency queue for assemble / preview / ship / launch.
- * Source of truth for the top-bar Jobs popover (all Rover tabs).
+ * Source of truth for the top-bar Heavy Jobs popover (all Rover tabs).
  */
 
 import { randomUUID } from 'node:crypto';

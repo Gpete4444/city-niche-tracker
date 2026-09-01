@@ -405,26 +405,29 @@ const coverageMapHtml = loadInlineCoverageMapHtml(
                   </li>
                 ))}
               </ul>
-              {
-                alsoServing.length > 0 && (
-                  <div class="mt-5">
-                    <p class="text-xs font-semibold uppercase tracking-wide text-white/55">Also serving</p>
-                    <p class="mt-2 text-sm leading-relaxed text-white/70">
-                      {alsoServing.map((a, i) => (
-                        <>
-                          {i > 0 && <span class="text-white/35"> · </span>}
-                          <a
-                            class="underline decoration-white/30 underline-offset-2 hover:text-white"
-                            href="/contact"
-                          >
-                            {a.city}
-                          </a>
-                        </>
-                      ))}
-                    </p>
-                  </div>
-                )
-              }
+              <div class="mt-5">
+                <p class="text-xs font-semibold uppercase tracking-wide text-white/55">Also serving</p>
+                <p class="mt-2 text-sm leading-relaxed text-white/70">
+                  {alsoServing.map((a, i) => (
+                    <>
+                      {i > 0 && <span class="text-white/35"> · </span>}
+                      <a
+                        class="underline decoration-white/30 underline-offset-2 hover:text-white"
+                        href="/contact"
+                      >
+                        {a.city}
+                      </a>
+                    </>
+                  ))}
+                  {alsoServing.length > 0 && <span class="text-white/35"> · </span>}
+                  <a
+                    class="underline decoration-white/30 underline-offset-2 hover:text-white"
+                    href="/contact"
+                  >
+                    and others
+                  </a>
+                </p>
+              </div>
               <div class="mt-4 space-y-2">
                 <p class="text-sm text-white/85">{areasCta}</p>
                 <div class="flex flex-col gap-2 sm:flex-row sm:flex-wrap">

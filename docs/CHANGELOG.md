@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+## Version 1.7 (`1.7.0`)
+
+Jobs lists, preview progress, coverage map callouts, and pipeline persist:
+
+- **Service process headings:** Classify “Our {service} Process”, “Our … Approach”, and “How we …” as `process` (numbered step cards). Generic service lists parse `**Title** — detail` instead of showing raw markdown.
+- **Indexing Mark done:** Persists on candidate meta (`indexingDone` / `lastIndexingAt`). Reload, re-select, and Push updates do not uncheck it.
+- **Coverage map:** Callout chips sit in a gutter outside city outlines; smaller cities paint on top and stay clickable; Also serving always ends with “and others.”
+- **Prepare preview bar:** Determinate 5-step bar (Staging → preview) on the waiting tab and Website Prepare step, same n/total pattern as Launch.
+- **Heavy / Light Jobs:** Header has **Heavy** (assemble / preview / prepare / launch / ship) and **Light** (Accept, logo, coverage map, pull photos, SERP / Enrich / Prospects). Each row has its own step bar (`detail n/total`). Two or more in-flight jobs show a header summary instead of overwriting one strip.
+
 ## Version 1.6 (`1.6.0`)
 
 Photo library, Flux/OpenAI generate, launch step progress, and Review image trays:
