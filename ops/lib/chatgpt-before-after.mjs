@@ -1323,7 +1323,7 @@ export function saveBaVariantsDoc(candidateId, doc) {
   writeFileSync(file, `${JSON.stringify(doc, null, 2)}\n`, 'utf8');
 }
 
-const BA_VARIANT_CAP = 8;
+export const BA_VARIANT_CAP = 8;
 
 function unlinkQuietBa(abs) {
   try {
@@ -1333,7 +1333,7 @@ function unlinkQuietBa(abs) {
   }
 }
 
-function trimBaVariantList(dir, variants, cap = BA_VARIANT_CAP) {
+export function trimBaVariantList(dir, variants, cap = BA_VARIANT_CAP) {
   const kept = (variants || []).slice(0, cap);
   for (const v of (variants || []).slice(cap)) {
     if (v.filename) unlinkQuietBa(path.join(dir, path.basename(String(v.filename))));
@@ -1400,5 +1400,32 @@ export function archiveLiveBaPairToTray(candidateId, { serviceSlug = '', pairInd
   });
   doc[key] = trimBaVariantList(p.siteImages, list);
   saveBaVariantsDoc(candidateId, doc);
+}
+
+/** Replace one BA tray key with already-copied files (does not change live). */
+export function setBaTrayEntries(candidateId, { serviceSlug = '', pairIndex = 1, entries = [] } = {}) {
+  const p = pathsFor(candidateId);
+  const key = baVariantKey({ serviceSlug, pairIndex });
+  const doc = loadBaVariantsDoc(candidateId);
+  const list = [];
+  const seen = new Set();
+  for (const e of entries || []) {
+    const b = e?.beforeFilename ? path.basename(String(e.beforeFilename)) : '';
+    const a = e?.afterFilename ? path.basename(String(e.afterFilename)) : '';
+    const sig = `${b}|${a}`;
+    if (!b && !a) continue;
+    if (seen.has(sig)) continue;
+    seen.add(sig);
+    list.push({
+      id: e.id || `var-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
+      beforeFilename: b || null,
+      afterFilename: a || null,
+      source: e.source || 'photo-group',
+      generatedAt: e.generatedAt || new Date().toISOString(),
+    });
+  }
+  doc[key] = trimBaVariantList(p.siteImages, list);
+  saveBaVariantsDoc(candidateId, doc);
+  return doc[key];
 }
 

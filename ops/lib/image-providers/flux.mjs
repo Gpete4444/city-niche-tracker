@@ -44,6 +44,7 @@ export function fluxStatus() {
 }
 
 const FAL_BILLING_URL = 'https://api.fal.ai/v1/account/billing?expand=credits';
+const FAL_USAGE_URL = 'https://api.fal.ai/v1/models/usage';
 const FAL_BALANCE_TTL_MS = 60_000;
 let falBalanceCache = { at: 0, payload: null };
 
@@ -95,6 +96,34 @@ async function fetchFalBilling() {
     throw new Error(msg);
   }
   throw new Error('fal.ai billing returned no credit balance');
+}
+
+function sumFalSummaryCost(json) {
+  const rows = Array.isArray(json?.summary) ? json.summary : [];
+  let total = 0;
+  let any = false;
+  for (const row of rows) {
+    const n = Number(row?.cost_total ?? row?.cost);
+    if (!Number.isFinite(n)) continue;
+    total += n;
+    any = true;
+  }
+  return any ? total : null;
+}
+
+/** All-time spend from 2018-01-01 UTC. Failures return null so remaining still shows. */
+async function fetchFalAllTimeSpend() {
+  const key = falAdminKey();
+  if (!key) return null;
+  const url = `${FAL_USAGE_URL}?expand=summary&start=${encodeURIComponent('2018-01-01')}&timezone=UTC`;
+  const res = await fetch(url, {
+    headers: { Authorization: `Key ${key}`, accept: 'application/json' },
+    signal: AbortSignal.timeout(15000),
+  });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) return null;
+  const summed = sumFalSummaryCost(json);
+  return summed == null ? 0 : summed;
 }
 
 let falLockedDepleted = false;
@@ -153,6 +182,7 @@ export async function getFalBalance({ fresh = false } = {}) {
     return {
       ok: false,
       balance: null,
+      spentAllTime: null,
       ...falBalanceMeta(null),
       error: 'Set FAL_ADMIN_KEY in .env (fal dashboard → API keys → Admin), then restart Rover.',
       fetchedAt,
@@ -163,12 +193,16 @@ export async function getFalBalance({ fresh = false } = {}) {
     return { ...falBalanceCache.payload, ...falBalanceMeta(falBalanceCache.payload.balance) };
   }
   try {
-    const data = await fetchFalBilling();
+    const [billing, spentAllTime] = await Promise.all([
+      fetchFalBilling(),
+      fetchFalAllTimeSpend().catch(() => null),
+    ]);
     const payload = {
       ok: true,
-      balance: data.balance,
-      currency: data.currency,
-      ...falBalanceMeta(data.balance),
+      balance: billing.balance,
+      spentAllTime,
+      currency: billing.currency,
+      ...falBalanceMeta(billing.balance),
       error: null,
       fetchedAt,
     };
@@ -178,6 +212,7 @@ export async function getFalBalance({ fresh = false } = {}) {
     const payload = {
       ok: false,
       balance: null,
+      spentAllTime: null,
       ...falBalanceMeta(null),
       error: error.message || String(error),
       fetchedAt,

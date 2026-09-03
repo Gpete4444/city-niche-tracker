@@ -356,14 +356,14 @@
       "pages": [
         "services"
       ],
-      "level": "H2",
+      "level": "none",
       "defaultHeading": "Professional {serviceName} in {city}",
       "required": false,
       "defaultOn": true,
       "photoCapable": false,
       "astroKey": null,
       "kind": "intro",
-      "writeInstructions": "Max ~2 concise paragraphs defining this service. Service entity first; allow ONE natural {city} mention; city secondary. Unique materials/codes/stats. When the company acts, use full {businessName}. No street/landmark stuffing."
+      "writeInstructions": "Unmarked intro: max ~2 concise paragraphs before the first ##. Do NOT emit a ## heading for svcIntro (the default heading is a content hint, not an H2). Service entity first; allow ONE natural {city} mention; city secondary. Unique materials/codes/stats. When the company acts, use full {businessName}. No street/landmark stuffing."
     },
     {
       "id": "svcWhatsIncluded",
@@ -706,12 +706,13 @@
       "id": "C",
       "label": "C",
       "name": "Value SEO heavy",
-      "tip": "Ranking-focused: cost/timeline/materials/codes/DIY/FAQs + reviews + before/after — use for page-1 builds",
+      "tip": "All pages and sections including Location pages and Include photos — Deep offer process stays off",
       "pages": [
         "home",
         "about",
         "contact",
-        "services"
+        "services",
+        "locations"
       ],
       "sections": [
         "hero",
@@ -745,7 +746,12 @@
         "svcBeforeAfter",
         "svcCta",
         "aboutStory",
-        "contactInfo"
+        "contactInfo",
+        "locIntro",
+        "locLocalNotes",
+        "locProof",
+        "locFaqs",
+        "locCta"
       ],
       "photos": {
         "hero": true,

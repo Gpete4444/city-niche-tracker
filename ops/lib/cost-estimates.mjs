@@ -11,13 +11,13 @@ import {
 } from './candidates.mjs';
 
 function defaultModel() {
-  return process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-20250514';
+  return String(process.env.ANTHROPIC_MODEL || '').trim() || 'claude-sonnet-5';
 }
 
 /** Approximate Sonnet list pricing (USD per million tokens). */
 export const CLAUDE_RATES = {
-  // Default for claude-sonnet-4* and similar
-  default: { inputPerMTok: 3, outputPerMTok: 15, label: 'Claude Sonnet (list price est.)' },
+  // Claude Sonnet 5 list: $2 input / $10 output per MTok
+  default: { inputPerMTok: 2, outputPerMTok: 10, label: 'Claude Sonnet 5 (list price est.)' },
 };
 
 export function ratesForModel(model = defaultModel()) {
@@ -80,7 +80,7 @@ function overwriteFlags(detail, act) {
 /**
  * Build a cost preview for a paid stage action.
  * @param {string} candidateId
- * @param {string} act research|enrich|prospects|narrative|outreach
+ * @param {string} act research|enrich|prospects|narrative|outreach|domain-pick|site-config|write-site
  */
 export function getCostPreview(candidateId, act) {
   const detail = getCandidateDetail(candidateId);
@@ -240,6 +240,121 @@ export function getCostPreview(candidateId, act) {
       willOverwrite: false,
       overwriteNote: null,
       confirmLabel: `Run (est. ${formatUsd(priced.costUsd)})`,
+    };
+  }
+
+  if (act === 'domain-pick' || act === 'suggest-domains' || act === 'domainPick') {
+    const lastCost = last.domainPick ?? null;
+    const md = readPromptFile('prompts/claude-domain-pick.md');
+    const inputTokens = estimateTokensFromText(md);
+    const outputTokens = 800;
+    const priced = estimateClaudeCostUsd({
+      inputTokens,
+      outputTokens,
+      model: defaultModel(),
+    });
+    return {
+      act: 'domain-pick',
+      provider: 'anthropic',
+      title: lastCost != null ? 'Re-run domain suggestions?' : 'Suggest domains with Claude?',
+      whatItDoes:
+        'Sends the Exact Domain Match prompt to Claude and fills the suggestion list. You still pick a host, buy it, and Continue. Availability is Claude’s guess only.',
+      estimateLabel:
+        lastCost != null
+          ? `Last run: ${formatUsd(lastCost)}`
+          : `~${formatUsd(priced.costUsd)} (${inputTokens.toLocaleString()} in + ~${outputTokens.toLocaleString()} out tokens)`,
+      estimateUsdLow: lastCost ?? priced.costUsd,
+      estimateUsdHigh: lastCost ?? priced.costUsd,
+      estimateDetail:
+        lastCost != null
+          ? 'Using your last domain-suggest cost for this candidate as the estimate.'
+          : priced.costNote,
+      model: defaultModel(),
+      inputTokensEst: inputTokens,
+      outputTokensEst: outputTokens,
+      willOverwrite: lastCost != null,
+      overwriteNote: lastCost != null
+        ? 'Running again replaces the suggestion list and clears any selected or custom host.'
+        : null,
+      confirmLabel:
+        lastCost != null
+          ? `Suggest domains (est. ${formatUsd(lastCost)})`
+          : `Suggest domains (est. ${formatUsd(priced.costUsd)})`,
+      freeFallback: 'Prefer Copy & paste? Switch the header toggle.',
+    };
+  }
+
+  if (act === 'site-config' || act === 'generate-site-config' || act === 'siteConfig') {
+    const lastCost = last.siteConfig ?? null;
+    const md = readPromptFile('prompts/claude-site-config.md');
+    const packBlob = JSON.stringify(detail.approved || {});
+    const inputTokens = estimateTokensFromText(`${md}${packBlob}`);
+    const outputTokens = 2500;
+    const priced = estimateClaudeCostUsd({
+      inputTokens,
+      outputTokens,
+      model: defaultModel(),
+    });
+    const hasDraft = Boolean(detail.siteConfigDraft || detail.stageFlags?.hasSiteConfig);
+    return {
+      act: 'site-config',
+      provider: 'anthropic',
+      title: lastCost != null || hasDraft ? 'Re-run Fill site-config?' : 'Fill site-config with Claude?',
+      whatItDoes:
+        'Sends the Business details NAP plus approved narrative package to Claude and loads a site-config draft. You still Review services and Accept. Does not write the live config.',
+      estimateLabel:
+        lastCost != null
+          ? `Last run: ${formatUsd(lastCost)}`
+          : `~${formatUsd(priced.costUsd)} (${inputTokens.toLocaleString()} in + ~${outputTokens.toLocaleString()} out tokens)`,
+      estimateUsdLow: lastCost ?? priced.costUsd,
+      estimateUsdHigh: lastCost ?? priced.costUsd,
+      estimateDetail:
+        lastCost != null
+          ? 'Using your last Fill site-config cost for this candidate as the estimate.'
+          : priced.costNote,
+      model: defaultModel(),
+      inputTokensEst: inputTokens,
+      outputTokensEst: outputTokens,
+      willOverwrite: Boolean(detail.siteConfigDraft),
+      overwriteNote: detail.siteConfigDraft
+        ? 'Running again replaces the current site-config draft. Accept is still in Review services.'
+        : null,
+      confirmLabel:
+        lastCost != null
+          ? `Fill site-config (est. ${formatUsd(lastCost)})`
+          : `Fill site-config (est. ${formatUsd(priced.costUsd)})`,
+      freeFallback: 'Prefer Copy & paste? Switch the header toggle.',
+    };
+  }
+
+  if (act === 'write-site' || act === 'writeSite') {
+    const lastCost = last.writeSite ?? null;
+    const photosOn = Boolean(
+      Object.values(detail.contentStructure?.photos || {}).some((p) => p && p.enabled),
+    );
+    const low = lastCost ?? 1.8;
+    const high = lastCost ?? (photosOn ? 4.0 : 3.2);
+    return {
+      act: 'write-site',
+      provider: 'anthropic',
+      title: 'Write site with Claude?',
+      whatItDoes:
+        'Runs Site research, Brief, Outline, Full write, Speech/SEO polish, and Image queries (when photos are on) via the Anthropic API. Skips steps that are already loaded. You can Stop; finished files are kept.',
+      estimateLabel:
+        lastCost != null ? `Last run: ${formatUsd(lastCost)}` : formatRange(low, high),
+      estimateUsdLow: low,
+      estimateUsdHigh: high,
+      estimateDetail:
+        lastCost != null
+          ? 'Using your last Write site cost for this candidate as the estimate.'
+          : `Typical ${photosOn ? 'large' : 'medium'} site. Actual depends on pages already written and Claude tokens.`,
+      willOverwrite: Boolean(
+        detail.stageFlags?.hasContentDraft || detail.stageFlags?.hasContentBrief,
+      ),
+      overwriteNote: null,
+      confirmLabel:
+        lastCost != null ? `Write site (est. ${formatUsd(lastCost)})` : `Write site (est. ${formatRange(low, high)})`,
+      freeFallback: 'Prefer Copy & paste? Switch the header toggle.',
     };
   }
 

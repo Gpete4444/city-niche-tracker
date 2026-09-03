@@ -1,8 +1,10 @@
 # Rover
 
-**Version 1.1** (`1.1.0`)
+**Version 1.8** (`1.8.0`)
 
 Clone-per-site Astro template and local Rover dashboard for local lead-gen websites. Swap `site-config.json` + Markdown content, ship a new repo, attach Cloudflare Workers.
+
+**Guides:** [User guide](docs/USER-GUIDE.md) (operators) · [Dev guide](docs/DEV-GUIDE.md) (engineers) · [User flow / times](docs/USER-FLOW.md)
 
 **Stack:** Astro + Tailwind CSS v4 + Cloudflare Workers (static assets) + Web3Forms + optional Turnstile.  
 **Repo:** [github.com/7D7D/Rover](https://github.com/7D7D/Rover)

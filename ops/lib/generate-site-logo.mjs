@@ -3,15 +3,20 @@
  */
 import { existsSync, mkdirSync, writeFileSync, readFileSync, copyFileSync, unlinkSync } from 'node:fs';
 import path from 'node:path';
-import { addLastCost, pathsFor, getCandidateDetail, saveMeta } from './candidates.mjs';
+import { addLastCost, pathsFor, getCandidateDetail, saveMeta, loadMeta } from './candidates.mjs';
 import { syncSiteImagesToPublic } from './fill-site-images.mjs';
 import {
   OPENAI_IMAGE_COST,
   openaiImageKeySet,
   generateOpenaiImage,
 } from './image-providers/openai-image.mjs';
+import { buildOpenaiLogoPrompt } from './logo-prompt.mjs';
+
+export { buildOpenaiLogoPrompt };
 
 const ROOT = process.cwd();
+const LOGO_VARIANT_CAP = 4;
+const LIVE_LOGO_NAMES = ['logo.svg', 'logo.png'];
 
 function readJson(filePath) {
   if (!existsSync(filePath)) return null;
@@ -90,16 +95,54 @@ function unlinkQuiet(abs) {
   }
 }
 
-function buildOpenaiLogoPrompt({ mode, businessName, niche, primary, accent }) {
-  const colors = `Use brand colors ${primary} (primary) and ${accent} (accent).`;
-  const base =
-    `Flat 2D vector-style logo for a ${niche} company. ${colors} ` +
-    `Centered square composition. Transparent background. Clean, simple, professional. ` +
-    `Not photorealistic, not 3D, not a mockup, no drop shadows on a surface, no watermarks, no UI.`;
-  if (mode === 'mark') {
-    return `${base} Icon/mark only. No text, no letters, no wordmark. Suggest the trade visually for “${businessName}”.`;
+function liveLogoFilename(dir) {
+  if (existsSync(path.join(dir, 'logo.png'))) return 'logo.png';
+  if (existsSync(path.join(dir, 'logo.svg'))) return 'logo.svg';
+  return null;
+}
+
+function trimLogoVariants(dir, variants, cap = LOGO_VARIANT_CAP) {
+  const kept = (variants || []).slice(0, cap);
+  const dropped = (variants || []).slice(cap);
+  for (const v of dropped) {
+    const name = path.basename(String(v?.filename || ''));
+    if (name) unlinkQuiet(path.join(dir, name));
   }
-  return `${base} Simple icon plus the exact business name “${businessName}” in clean sans-serif lettering. No slogan, no extra words.`;
+  return kept;
+}
+
+function variantStamp() {
+  return `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+}
+
+function isLogoVariantFilename(name) {
+  return /^logo-var-[a-z0-9]+\.(svg|png)$/i.test(String(name || ''));
+}
+
+/**
+ * Copy the live logo into the tray (max 4). Returns the updated variants list.
+ */
+function archiveLiveLogoToTray(candidateId) {
+  const p = pathsFor(candidateId);
+  const live = liveLogoFilename(p.siteImages);
+  if (!live) {
+    const meta = loadMeta(candidateId);
+    return Array.isArray(meta.logoVariants) ? meta.logoVariants : [];
+  }
+  mkdirSync(p.siteImages, { recursive: true });
+  const destName = `logo-var-${variantStamp()}${path.extname(live)}`;
+  copyFileSync(path.join(p.siteImages, live), path.join(p.siteImages, destName));
+  const meta = loadMeta(candidateId);
+  const next = trimLogoVariants(p.siteImages, [
+    {
+      filename: destName,
+      mode: meta.logoGenerateMode || null,
+      at: new Date().toISOString(),
+    },
+    ...(Array.isArray(meta.logoVariants) ? meta.logoVariants : []),
+  ]);
+  saveMeta(candidateId, { logoVariants: next });
+  return next;
 }
 
 function stampLogoConfig(p, logo) {
@@ -120,13 +163,13 @@ function writeLiveLogoFile(candidateId, filename, contents, { encoding } = {}) {
   const abs = path.join(p.siteImages, filename);
   if (encoding) writeFileSync(abs, contents, encoding);
   else writeFileSync(abs, contents);
-  for (const other of ['logo.svg', 'logo.png']) {
+  for (const other of LIVE_LOGO_NAMES) {
     if (other !== filename) unlinkQuiet(path.join(p.siteImages, other));
   }
   const publicDir = path.join(ROOT, 'public', 'images');
   mkdirSync(publicDir, { recursive: true });
   copyFileSync(abs, path.join(publicDir, filename));
-  for (const other of ['logo.svg', 'logo.png']) {
+  for (const other of LIVE_LOGO_NAMES) {
     if (other !== filename) unlinkQuiet(path.join(publicDir, other));
   }
   syncSiteImagesToPublic(candidateId);
@@ -135,9 +178,10 @@ function writeLiveLogoFile(candidateId, filename, contents, { encoding } = {}) {
 
 /**
  * Generate header logo into site-images + public/images and stamp site-config.logo.
- * mode: monogram (SVG, default) | mark | markText (OpenAI PNG).
+ * mode: monogram (SVG) | mark | markText (OpenAI PNG).
+ * prompt: optional GPT Image prompt for mark / markText.
  */
-export async function generateSiteLogo(candidateId, { mode } = {}) {
+export async function generateSiteLogo(candidateId, { mode, prompt } = {}) {
   const resolved = normalizeLogoGenerateMode(mode);
   const p = pathsFor(candidateId);
   const config = loadCandidateConfig(candidateId);
@@ -146,10 +190,28 @@ export async function generateSiteLogo(candidateId, { mode } = {}) {
   const primary = brand.primary || '#1C2B3A';
   const accent = brand.accent || '#E8A317';
   const niche = String(config.niche || 'home service').trim() || 'home service';
+  const customPrompt = String(prompt || '').trim();
+  const usedPrompt =
+    customPrompt ||
+    buildOpenaiLogoPrompt({
+      mode: resolved,
+      businessName,
+      niche,
+      primary,
+      accent,
+    });
+
+  if (resolved !== 'monogram' && !openaiImageKeySet()) {
+    throw Object.assign(
+      new Error('Set OPENAI_API_KEY in .env (same key as Phone), then restart Rover.'),
+      { status: 400, code: 'openai-unconfigured' },
+    );
+  }
 
   let abs;
   let filename;
   if (resolved === 'monogram') {
+    archiveLiveLogoToTray(candidateId);
     filename = 'logo.svg';
     abs = writeLiveLogoFile(
       candidateId,
@@ -158,25 +220,14 @@ export async function generateSiteLogo(candidateId, { mode } = {}) {
       { encoding: 'utf8' },
     );
   } else {
-    if (!openaiImageKeySet()) {
-      throw Object.assign(
-        new Error('Set OPENAI_API_KEY in .env (same key as Phone), then restart Rover.'),
-        { status: 400, code: 'openai-unconfigured' },
-      );
-    }
     const { buffer } = await generateOpenaiImage({
-      prompt: buildOpenaiLogoPrompt({
-        mode: resolved,
-        businessName,
-        niche,
-        primary,
-        accent,
-      }),
+      prompt: usedPrompt,
       size: '1024x1024',
       background: 'transparent',
       outputFormat: 'png',
       compress: false,
     });
+    archiveLiveLogoToTray(candidateId);
     filename = 'logo.png';
     abs = writeLiveLogoFile(candidateId, filename, buffer);
     addLastCost(candidateId, 'openai', OPENAI_IMAGE_COST.generate);
@@ -187,16 +238,82 @@ export async function generateSiteLogo(candidateId, { mode } = {}) {
     alt: `${businessName} logo`,
   };
   stampLogoConfig(p, logo);
-  saveMeta(candidateId, {
+  const metaPatch = {
     lastLogoAt: new Date().toISOString(),
     logoGenerateMode: resolved,
-  });
+  };
+  if (resolved !== 'monogram') metaPatch.logoPrompt = usedPrompt;
+  saveMeta(candidateId, metaPatch);
 
   return {
     ok: true,
     logo,
     mode: resolved,
     path: path.relative(ROOT, abs).replace(/\\/g, '/'),
+    candidate: getCandidateDetail(candidateId),
+  };
+}
+
+/**
+ * Promote a tray logo to live. Archives the current live file first.
+ */
+export function useLogoVariant(candidateId, filename) {
+  const want = path.basename(String(filename || ''));
+  if (!isLogoVariantFilename(want)) {
+    throw Object.assign(new Error('filename required'), { status: 400 });
+  }
+  const p = pathsFor(candidateId);
+  const meta = loadMeta(candidateId);
+  const variants = [...(Array.isArray(meta.logoVariants) ? meta.logoVariants : [])];
+  const idx = variants.findIndex((v) => path.basename(String(v.filename || '')) === want);
+  if (idx < 0) throw Object.assign(new Error('Logo variant not found'), { status: 404 });
+  const picked = variants[idx];
+  const pickedAbs = path.join(p.siteImages, want);
+  if (!existsSync(pickedAbs)) {
+    throw Object.assign(new Error('Logo variant file missing on disk'), { status: 404 });
+  }
+
+  const liveName = liveLogoFilename(p.siteImages);
+  let nextVariants = variants.filter((_, i) => i !== idx);
+  if (liveName) {
+    const destName = `logo-var-${variantStamp()}${path.extname(liveName)}`;
+    copyFileSync(path.join(p.siteImages, liveName), path.join(p.siteImages, destName));
+    nextVariants.unshift({
+      filename: destName,
+      mode: meta.logoGenerateMode || null,
+      at: new Date().toISOString(),
+    });
+  }
+
+  const liveDest = path.extname(want).toLowerCase() === '.svg' ? 'logo.svg' : 'logo.png';
+  copyFileSync(pickedAbs, path.join(p.siteImages, liveDest));
+  unlinkQuiet(pickedAbs);
+  for (const other of LIVE_LOGO_NAMES) {
+    if (other !== liveDest) unlinkQuiet(path.join(p.siteImages, other));
+  }
+  const publicDir = path.join(ROOT, 'public', 'images');
+  mkdirSync(publicDir, { recursive: true });
+  copyFileSync(path.join(p.siteImages, liveDest), path.join(publicDir, liveDest));
+  for (const other of LIVE_LOGO_NAMES) {
+    if (other !== liveDest) unlinkQuiet(path.join(publicDir, other));
+  }
+  syncSiteImagesToPublic(candidateId);
+
+  const config = loadCandidateConfig(candidateId);
+  const businessName = config.businessName || 'Business';
+  stampLogoConfig(p, {
+    src: `/images/${liveDest}`,
+    alt: `${businessName} logo`,
+  });
+  nextVariants = trimLogoVariants(p.siteImages, nextVariants);
+  saveMeta(candidateId, {
+    lastLogoAt: new Date().toISOString(),
+    logoGenerateMode: picked.mode || meta.logoGenerateMode || null,
+    logoVariants: nextVariants,
+  });
+  return {
+    ok: true,
+    logo: { src: `/images/${liveDest}`, alt: `${businessName} logo` },
     candidate: getCandidateDetail(candidateId),
   };
 }

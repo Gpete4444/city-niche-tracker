@@ -1,6 +1,6 @@
 # Pipeline stages (operator funnel)
 
-**User-facing walkthrough (discovery → launch):** [USER-FLOW.md](USER-FLOW.md)
+**User-facing walkthrough (discovery → launch):** [USER-GUIDE.md](USER-GUIDE.md) · times: [USER-FLOW.md](USER-FLOW.md)
 
 Rover’s **Stages** (top-bar pipeline) are separate from Research **Evaluations** (SERP/Volume → Prospects) and Website **Tracks** (Site-Config → Content → Launch).
 

@@ -5,7 +5,7 @@ Shareable overview of the full project: how a market becomes a live lead-gen sit
 **What this is:** **Rover** finds local niches worth ranking for, then ships a static lead-gen website per market (rank-and-rent style). You rent the site (or its leads) to a local operator. One **master template** plus the local **Rover dashboard** drive the pipeline; each live site is its **own GitHub repo** hosted on **Cloudflare Workers**. Forms go through **Web3Forms**; `leads@` mail uses **Cloudflare Email Routing**.
 
 **Operator funnel (Discovery → Research → Website Builder → Launched Sites):** see [PIPELINE-STAGES.md](PIPELINE-STAGES.md).  
-**Plain-language user walkthrough:** [USER-FLOW.md](USER-FLOW.md).
+**Operator manual (screens and buttons):** [USER-GUIDE.md](USER-GUIDE.md). Time estimates: [USER-FLOW.md](USER-FLOW.md).
 
 **Repo:** [github.com/7D7D/Rover](https://github.com/7D7D/Rover)
 

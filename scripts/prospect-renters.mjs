@@ -329,7 +329,6 @@ async function main() {
     `Prospects: ${report.prospectCount} (high ${report.summary.highPriority} / mid ${report.summary.mediumPriority} / low ${report.summary.lowPriority})`,
   );
   console.error(`Estimated DataForSEO cost: $${totalCost.toFixed(4)}`);
-  process.stdout.write(json);
 }
 
 main().catch((error) => {

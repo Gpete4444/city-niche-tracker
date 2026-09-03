@@ -3,11 +3,13 @@ import {
   buildCopyPrompt,
   extractPromptTemplate,
   getCandidateDetail,
+  loadMeta,
   readPromptFile,
   saveMeta,
   saveNarrativeDraft,
 } from './candidates.mjs';
 import { estimateClaudeCostUsd } from './cost-estimates.mjs';
+import { recordRoverApiSpend } from './rover-api-spend.mjs';
 
 const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
 
@@ -21,18 +23,27 @@ export function requireAnthropicKey() {
   return key;
 }
 
+const EFFORT_LEVELS = new Set(['low', 'medium', 'high', 'xhigh', 'max']);
+
 export function defaultModel() {
-  return process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-20250514';
+  return String(process.env.ANTHROPIC_MODEL || '').trim() || 'claude-sonnet-5';
 }
 
-function stripCodeFences(text) {
-  const trimmed = text.trim();
-  const m = trimmed.match(/^```(?:json)?\s*([\s\S]*?)```$/);
-  return m ? m[1].trim() : trimmed;
+export function defaultEffort() {
+  const raw = String(process.env.ANTHROPIC_EFFORT || '').trim().toLowerCase();
+  return EFFORT_LEVELS.has(raw) ? raw : 'medium';
 }
 
-function parseJsonLoose(text) {
-  const cleaned = stripCodeFences(text);
+function isSonnet5(model) {
+  return String(model || '').startsWith('claude-sonnet-5');
+}
+
+function extractJsonFence(text) {
+  const m = String(text || '').match(/```(?:json)?\s*([\s\S]*?)```/i);
+  return m ? m[1].trim() : null;
+}
+
+function tryParseJsonObject(cleaned) {
   try {
     return { ok: true, value: JSON.parse(cleaned) };
   } catch {
@@ -45,8 +56,22 @@ function parseJsonLoose(text) {
         /* fall through */
       }
     }
-    return { ok: false, value: null, raw: cleaned };
+    return { ok: false };
   }
+}
+
+function parseJsonLoose(text) {
+  const raw = String(text || '');
+  const fenced = extractJsonFence(raw);
+  const trimmed = raw.trim();
+  const candidates = [];
+  if (fenced) candidates.push(fenced);
+  if (trimmed && trimmed !== fenced) candidates.push(trimmed);
+  for (const cleaned of candidates) {
+    const parsed = tryParseJsonObject(cleaned);
+    if (parsed.ok) return { ok: true, value: parsed.value };
+  }
+  return { ok: false, value: null, raw: fenced || trimmed };
 }
 
 export { parseJsonLoose };
@@ -111,20 +136,112 @@ function attachClaudeCost(usage, model, costKey) {
   const inputTokens = Number(usage?.input_tokens) || 0;
   const outputTokens = Number(usage?.output_tokens) || 0;
   const priced = estimateClaudeCostUsd({ inputTokens, outputTokens, model });
-  if (costKey && priced.costUsd != null) {
+  let costUsd = priced.costUsd;
+  if (costKey?.accumulate && costUsd != null) {
+    const prev = Number(loadMeta(costKey.candidateId)?.lastCosts?.[costKey.label]) || 0;
+    costUsd = Number((prev + costUsd).toFixed(4));
+  }
+  if (costKey && costUsd != null) {
     saveMeta(costKey.candidateId, {
-      lastCosts: { [costKey.label]: priced.costUsd },
+      lastCosts: { [costKey.label]: costUsd },
       ...(costKey.label === 'narrative'
         ? { lastNarrativeAt: new Date().toISOString() }
         : {}),
     });
+    recordRoverApiSpend('anthropic', priced.costUsd);
   }
   return {
     usage,
-    costUsd: priced.costUsd,
+    costUsd,
+    callCostUsd: priced.costUsd,
     costNote: priced.costNote,
     costSource: 'anthropic-estimate',
   };
+}
+
+/**
+ * Shared Anthropic Messages call. AbortError becomes Stopped.
+ * @param {{
+ *   user: string,
+ *   system?: string,
+ *   cacheSystem?: boolean,
+ *   maxTokens?: number,
+ *   temperature?: number,
+ *   signal?: AbortSignal,
+ *   costKey?: { candidateId: string, label: string, accumulate?: boolean },
+ * }} opts
+ */
+export async function claudeMessages(opts = {}) {
+  const user = String(opts.user || '');
+  if (!user.trim()) {
+    throw Object.assign(new Error('claudeMessages needs a user prompt'), { status: 400 });
+  }
+  if (opts.signal?.aborted) {
+    throw Object.assign(new Error('Stopped'), { status: 499, cancelled: true });
+  }
+  const key = requireAnthropicKey();
+  const model = defaultModel();
+  const headers = {
+    'content-type': 'application/json',
+    'x-api-key': key,
+    'anthropic-version': '2023-06-01',
+  };
+  const workspaceId = String(process.env.ANTHROPIC_WORKSPACE_ID || '').trim();
+  if (workspaceId) {
+    headers['anthropic-workspace-id'] = workspaceId;
+  }
+  if (opts.cacheSystem && opts.system) {
+    headers['anthropic-beta'] = 'prompt-caching-2024-07-31';
+  }
+  const body = {
+    model,
+    max_tokens: Number(opts.maxTokens) > 0 ? Number(opts.maxTokens) : 8192,
+    messages: [{ role: 'user', content: user }],
+    output_config: { effort: defaultEffort() },
+  };
+  if (!isSonnet5(model)) {
+    body.temperature = opts.temperature == null ? 0.4 : Number(opts.temperature);
+  }
+  if (opts.system) {
+    const sys = String(opts.system);
+    body.system = opts.cacheSystem
+      ? [{ type: 'text', text: sys, cache_control: { type: 'ephemeral' } }]
+      : sys;
+  }
+  let response;
+  try {
+    response = await fetch(ANTHROPIC_URL, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(body),
+      signal: opts.signal,
+    });
+  } catch (error) {
+    if (error?.name === 'AbortError' || opts.signal?.aborted) {
+      throw Object.assign(new Error('Stopped'), { status: 499, cancelled: true });
+    }
+    throw error;
+  }
+  const json = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const raw = json?.error?.message || JSON.stringify(json).slice(0, 400);
+    const msg = String(raw || '');
+    if (/anthropic-workspace-id is required/i.test(msg)) {
+      throw new Error(
+        'This Anthropic key needs a workspace. Set ANTHROPIC_WORKSPACE_ID in .env to the wrkspc_… id from Console → Settings → Workspaces, then restart Rover.',
+      );
+    }
+    throw new Error(`Anthropic HTTP ${response.status}: ${raw}`);
+  }
+  const text = (json.content ?? [])
+    .filter((block) => block.type === 'text')
+    .map((block) => block.text)
+    .join('\n');
+  const parsed = parseJsonLoose(text);
+  const stopReason = json.stop_reason || json.stopReason || null;
+  const truncated = stopReason === 'max_tokens';
+  const cost = attachClaudeCost(json.usage ?? null, model, opts.costKey);
+  return { text, json, parsed, model, stopReason, truncated, ...cost };
 }
 
 /**
@@ -137,7 +254,6 @@ export async function generateNarrativeDraft(candidateId) {
     throw new Error('No research JSON — run Stage 1 (and ideally Stage 2 enrich) first');
   }
 
-  const key = requireAnthropicKey();
   const model = defaultModel();
   const md = readPromptFile('prompts/claude-candidate-research.md');
   const template = extractPromptTemplate(md);
@@ -155,36 +271,13 @@ export async function generateNarrativeDraft(candidateId) {
     )
     .replace('{{DISCOVERY_NARRATIVE_SEED}}', seedBlock);
 
-  const response = await fetch(ANTHROPIC_URL, {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      'x-api-key': key,
-      'anthropic-version': '2023-06-01',
-    },
-    body: JSON.stringify({
-      model,
-      max_tokens: 8192,
-      temperature: 0.3,
-      messages: [{ role: 'user', content: userContent }],
-    }),
+  const { text, parsed, usage, costUsd, costNote, costSource } = await claudeMessages({
+    user: userContent,
+    maxTokens: 8192,
+    temperature: 0.3,
+    costKey: { candidateId, label: 'narrative' },
   });
-
-  const json = await response.json();
-  if (!response.ok) {
-    throw new Error(
-      `Anthropic HTTP ${response.status}: ${json?.error?.message || JSON.stringify(json).slice(0, 400)}`,
-    );
-  }
-
-  const text = (json.content ?? [])
-    .filter((block) => block.type === 'text')
-    .map((block) => block.text)
-    .join('\n');
-
-  const parsed = parseJsonLoose(text);
-  const usage = json.usage ?? null;
-  const cost = attachClaudeCost(usage, model, { candidateId, label: 'narrative' });
+  const cost = { usage, costUsd, costNote, costSource };
 
   if (!parsed.ok) {
     const draft = {
@@ -229,7 +322,6 @@ export async function generateProspectsOutreachDraft(candidateId) {
     throw new Error('No prospects JSON — run Stage 4 prospect-renters first');
   }
 
-  const key = requireAnthropicKey();
   const model = defaultModel();
   const md = readPromptFile('prompts/claude-prospect-renters.md');
   const template = extractPromptTemplate(md);
@@ -238,39 +330,19 @@ export async function generateProspectsOutreachDraft(candidateId) {
     JSON.stringify(detail.prospects, null, 2),
   );
 
-  const response = await fetch(ANTHROPIC_URL, {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      'x-api-key': key,
-      'anthropic-version': '2023-06-01',
-    },
-    body: JSON.stringify({
-      model,
-      max_tokens: 4096,
-      temperature: 0.4,
-      messages: [{ role: 'user', content: userContent }],
-    }),
+  const { text, parsed, usage, costUsd, costNote, costSource } = await claudeMessages({
+    user: userContent,
+    maxTokens: 4096,
+    temperature: 0.4,
+    costKey: { candidateId, label: 'outreach' },
   });
-
-  const json = await response.json();
-  if (!response.ok) {
-    throw new Error(
-      `Anthropic HTTP ${response.status}: ${json?.error?.message || JSON.stringify(json).slice(0, 400)}`,
-    );
-  }
-
-  const text = (json.content ?? [])
-    .filter((block) => block.type === 'text')
-    .map((block) => block.text)
-    .join('\n');
-
-  const parsed = parseJsonLoose(text);
-  const cost = attachClaudeCost(json.usage ?? null, model, { candidateId, label: 'outreach' });
   return {
     ok: parsed.ok,
     model,
     draft: parsed.ok ? parsed.value : { parseError: true, rawText: text },
-    ...cost,
+    usage,
+    costUsd,
+    costNote,
+    costSource,
   };
 }

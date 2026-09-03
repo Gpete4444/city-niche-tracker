@@ -31,7 +31,7 @@ Hard rules:
    - Structured educational sections (cost/materials/timeline/codes/diyVsPro/whenToCall): short natural human openers + bullets (diyVsPro: ### DIY / ### Hire a pro). Do NOT city-stuff every lead (“Typical stages for {city}…”, “These {city} ballparks…”). City stays in H1/H2, areas, and at most one light cue in the page intro. For **cost** / service cost: 3–5 bullets shaped `**Tier** — $low–$high — what’s included` so the site can render a ranges table (ballparks, not fixed quotes). For **timeline**: `**Stage title** — duration` only — no “or next-day” / “usually” / “varies by city/county” on the same bullet; optional second clause only for real step description. Place primary keywords in title/h1; FAQs should follow brief/outline faqSeeds when present.
 4b. Dual-source contract:
    - Homepage: why / process / FAQ H3s → whyChooseUs[], process[], faqs[] frontmatter; remaining educational H2s → homepage body `##`.
-   - Service pages: no process/faqs FM arrays — body `##` for each enabled svc* band; same cost/codes/DIY/timeline shapes as home.
+   - Service pages: no process/faqs FM arrays — unmarked intro (no `##` for svcIntro), then body `##` for each other enabled svc* band; same cost/codes/DIY/timeline shapes as home. Codes: `### Usually needs a permit` then `### Usually no permit`.
    - Service **process** H2: each step = its own list line `- **Title** — short description` (~8–14 words). Never jam all steps into one paragraph.
 5. Map brief structure into homepage frontmatter + body:
    - H1 → frontmatter h1 (+ title/description)

@@ -1,7 +1,8 @@
 /**
  * Named niche photo groups: save filled Review images (stock, uploads, ChatGPT
  * before/after) and load them onto a later candidate. Match by role, not by
- * copying Structure. Unused saved files stay in the group only.
+ * copying Structure. Ranked groups fill live slots first; leftover matching
+ * photos go into that slot’s tray.
  */
 
 import {
@@ -19,6 +20,8 @@ import { RESEARCH_DIR, getCandidateDetail, pathsFor } from './candidates.mjs';
 import {
   listConfiguredServiceTargets,
   rehydrateGalleryBaFrontmatter,
+  baVariantKey,
+  setBaTrayEntries,
 } from './chatgpt-before-after.mjs';
 import { loadAcceptedSiteConfig } from './content-markdown.mjs';
 import { getContentStructure } from './content-structure.mjs';
@@ -26,6 +29,7 @@ import {
   applyImagesToContentFiles,
   listImageSlots,
   syncSiteImagesToPublic,
+  pushImageSlotTrayEntry,
 } from './fill-site-images.mjs';
 
 const ROOT = process.cwd();
@@ -209,8 +213,31 @@ export function readPhotoGroupFile(groupId, filename) {
 
 export function getAttachedPhotoGroup(candidateId) {
   const doc = readJson(pathsFor(candidateId).photoGroup);
-  if (!doc?.groupId) return null;
-  return doc;
+  if (!doc || doc.skipped) return null;
+  const groupIds = normalizePhotoGroupIds(doc);
+  if (!groupIds.length) return null;
+  return { ...doc, groupIds, groupId: groupIds[0] };
+}
+
+/** Up to 3 unique group ids from `{ groupIds }` or legacy `{ groupId }`. */
+export function normalizePhotoGroupIds(input) {
+  const body = input && typeof input === 'object' && !Array.isArray(input) ? input : {};
+  const raw = Array.isArray(body.groupIds)
+    ? body.groupIds
+    : Array.isArray(input)
+      ? input
+      : [];
+  const alias = body.groupId ? [body.groupId] : typeof input === 'string' ? [input] : [];
+  const list = (raw.length ? raw : alias).map((id) => String(id || '').trim()).filter(Boolean);
+  const seen = new Set();
+  const out = [];
+  for (const id of list) {
+    if (seen.has(id)) continue;
+    seen.add(id);
+    out.push(id);
+    if (out.length >= 3) break;
+  }
+  return out;
 }
 
 export function clearAttachedPhotoGroup(candidateId) {
@@ -498,97 +525,224 @@ export function savePhotoGroup(candidateId, name, { replaceExisting = false } = 
   };
 }
 
-function planMatches(candidateId, group) {
-  const targetSlots = listImageSlots(candidateId);
-  const byKey = new Map();
-  for (const slot of targetSlots) {
-    const k = matchKeyForSlot(slot);
-    if (k && !byKey.has(k)) byKey.set(k, slot);
-  }
-
-  const applied = [];
-  const unused = [];
-  for (const saved of group.slots || []) {
-    const k = matchKeyForSlot(saved);
-    const target = k ? byKey.get(k) : null;
-    if (target) {
-      applied.push({ saved, target });
-      byKey.delete(k);
-    } else {
-      unused.push({
-        key: saved.key,
-        sectionId: saved.sectionId,
-        serviceName: saved.serviceName || saved.label || null,
-        label: saved.materialTitle || saved.processTitle || saved.label || saved.key,
-      });
-    }
-  }
-  const targetEmpty = [...byKey.values()].map((s) => ({
-    key: s.key,
-    sectionId: s.sectionId,
-    label: s.materialTitle || s.processTitle || s.serviceName || s.label || s.key,
-  }));
-
-  const baApplied = [];
-  const baUnused = [];
-  const wantHomeBa = homeBaEnabled(candidateId);
-  const homePairs = [...(group.beforeAfter?.home || [])].sort(
-    (a, b) => (a.pairIndex || 0) - (b.pairIndex || 0),
-  );
-  if (wantHomeBa) {
-    homePairs.forEach((pair, i) => {
-      baApplied.push({ kind: 'home', pairIndex: i + 1, savedIndex: pair.pairIndex, pair });
-    });
-  } else {
-    for (const pair of homePairs) {
-      baUnused.push({ kind: 'home', pairIndex: pair.pairIndex });
-    }
-  }
-
-  const wantSvcBa = svcBaEnabled(candidateId);
-  const bTargets = listConfiguredServiceTargets(candidateId);
-  for (const pair of group.beforeAfter?.services || []) {
-    const name = normService(pair.serviceName || pair.serviceSlug);
-    const hit = wantSvcBa
-      ? bTargets.find(
-          (t) => t.slug === pair.serviceSlug || normService(t.serviceName) === name,
-        )
-      : null;
-    if (hit) baApplied.push({ kind: 'service', serviceSlug: hit.slug, serviceName: hit.serviceName, pair });
-    else baUnused.push({
-      kind: 'service',
-      serviceName: pair.serviceName || pair.serviceSlug,
-    });
-  }
-
-  return { targetSlots, applied, unused, targetEmpty, baApplied, baUnused };
+function unusedSlotMeta(saved, group) {
+  return {
+    key: saved.key,
+    sectionId: saved.sectionId,
+    serviceName: saved.serviceName || saved.label || null,
+    label: saved.materialTitle || saved.processTitle || saved.label || saved.key,
+    groupId: group?.id || null,
+    groupName: group?.name || null,
+  };
 }
 
-export function previewPhotoGroup(candidateId, groupId) {
-  const group = getPhotoGroup(groupId);
-  if (!nichesEqual(group.niche, nicheOf(candidateId))) {
-    throw Object.assign(
-      new Error(`This group is for “${group.niche}”, not this candidate’s niche.`),
-      { status: 400 },
-    );
+function slotFileRows(saved) {
+  const rows = [];
+  if (saved?.filename) rows.push({ ...saved, fromVariant: false });
+  for (const v of saved?.variants || []) {
+    if (!v?.filename) continue;
+    rows.push({
+      ...saved,
+      filename: v.filename,
+      photoId: v.photoId || null,
+      source: v.source || saved.source,
+      provider: v.provider || saved.provider,
+      attribution: v.attribution || saved.attribution,
+      matchGrade: v.matchGrade || saved.matchGrade,
+      fromVariant: true,
+    });
   }
-  const plan = planMatches(candidateId, group);
+  return rows;
+}
+
+function planMatchesMulti(candidateId, groups) {
+  const targetSlots = listImageSlots(candidateId);
+  const slotByKey = new Map();
+  for (const slot of targetSlots) {
+    const k = matchKeyForSlot(slot);
+    if (k && !slotByKey.has(k)) slotByKey.set(k, slot);
+  }
+
+  const filledKeys = new Set();
+  const applied = [];
+  const tray = [];
+  const unused = [];
+
+  groups.forEach((group, gi) => {
+    const rank = gi + 1;
+    for (const saved of group.slots || []) {
+      const k = matchKeyForSlot(saved);
+      const target = k ? slotByKey.get(k) : null;
+      const rows = slotFileRows(saved);
+      if (!target) {
+        unused.push(unusedSlotMeta(saved, group));
+        continue;
+      }
+      for (const row of rows) {
+        if (!filledKeys.has(k) && !row.fromVariant) {
+          filledKeys.add(k);
+          applied.push({ saved: row, target, group, rank, matchKey: k });
+        } else {
+          tray.push({ saved: row, target, group, rank, matchKey: k });
+        }
+      }
+    }
+  });
+
+  const targetEmpty = [...slotByKey.entries()]
+    .filter(([k]) => !filledKeys.has(k))
+    .map(([, s]) => ({
+      key: s.key,
+      sectionId: s.sectionId,
+      label: s.materialTitle || s.processTitle || s.serviceName || s.label || s.key,
+    }));
+
+  const baApplied = [];
+  const baTray = [];
+  const baUnused = [];
+  const wantHomeBa = homeBaEnabled(candidateId);
+  const wantSvcBa = svcBaEnabled(candidateId);
+  const homeFilled = new Set();
+  const svcFilled = new Set();
+  const bTargets = listConfiguredServiceTargets(candidateId);
+
+  groups.forEach((group, gi) => {
+    const rank = gi + 1;
+    const homePairs = [...(group.beforeAfter?.home || [])].sort(
+      (a, b) => (a.pairIndex || 0) - (b.pairIndex || 0),
+    );
+    if (!wantHomeBa) {
+      for (const pair of homePairs) {
+        baUnused.push({ kind: 'home', pairIndex: pair.pairIndex, groupId: group.id });
+      }
+    } else {
+      for (const pair of homePairs) {
+        const preferred = Math.max(1, Number(pair.pairIndex) || 0);
+        if (preferred && homeFilled.has(preferred)) {
+          baTray.push({ kind: 'home', pairIndex: preferred, pair, group, rank });
+        } else if (preferred) {
+          homeFilled.add(preferred);
+          baApplied.push({
+            kind: 'home',
+            pairIndex: preferred,
+            savedIndex: pair.pairIndex,
+            pair,
+            group,
+            rank,
+          });
+        } else {
+          let idx = 1;
+          while (homeFilled.has(idx)) idx += 1;
+          homeFilled.add(idx);
+          baApplied.push({
+            kind: 'home',
+            pairIndex: idx,
+            savedIndex: pair.pairIndex,
+            pair,
+            group,
+            rank,
+          });
+        }
+      }
+    }
+
+    for (const pair of group.beforeAfter?.services || []) {
+      const name = normService(pair.serviceName || pair.serviceSlug);
+      const hit = wantSvcBa
+        ? bTargets.find(
+            (t) => t.slug === pair.serviceSlug || normService(t.serviceName) === name,
+          )
+        : null;
+      if (!hit) {
+        baUnused.push({
+          kind: 'service',
+          serviceName: pair.serviceName || pair.serviceSlug,
+          groupId: group.id,
+        });
+        continue;
+      }
+      if (svcFilled.has(hit.slug)) {
+        baTray.push({
+          kind: 'service',
+          serviceSlug: hit.slug,
+          serviceName: hit.serviceName,
+          pair,
+          group,
+          rank,
+        });
+      } else {
+        svcFilled.add(hit.slug);
+        baApplied.push({
+          kind: 'service',
+          serviceSlug: hit.slug,
+          serviceName: hit.serviceName,
+          pair,
+          group,
+          rank,
+        });
+      }
+    }
+  });
+
+  return {
+    targetSlots,
+    applied,
+    tray,
+    unused,
+    targetEmpty,
+    baApplied,
+    baTray,
+    baUnused,
+    groups: groups.map((g, i) => ({
+      id: g.id,
+      name: g.name,
+      niche: g.niche,
+      rank: i + 1,
+      slotCount: g.slotCount,
+      baPairCount: g.baPairCount,
+    })),
+  };
+}
+
+function loadGroupsOrThrow(groupIds) {
+  const ids = normalizePhotoGroupIds({ groupIds });
+  if (!ids.length) {
+    throw Object.assign(new Error('Pick at least one photo group'), { status: 400 });
+  }
+  return ids.map((id) => getPhotoGroup(id));
+}
+
+export function previewPhotoGroup(candidateId, groupIdOrBody) {
+  const ids = normalizePhotoGroupIds(
+    typeof groupIdOrBody === 'string' ? { groupId: groupIdOrBody } : groupIdOrBody || {},
+  );
+  const groups = loadGroupsOrThrow(ids);
+  const plan = planMatchesMulti(candidateId, groups);
+  const first = groups[0];
   return {
     ok: true,
+    groups: plan.groups,
     group: {
-      id: group.id,
-      name: group.name,
-      niche: group.niche,
-      slotCount: group.slotCount,
-      baPairCount: group.baPairCount,
+      id: first.id,
+      name: first.name,
+      niche: first.niche,
+      slotCount: first.slotCount,
+      baPairCount: first.baPairCount,
     },
     applied: plan.applied.length,
     unused: plan.unused.length,
     targetEmpty: plan.targetEmpty.length,
     baApplied: plan.baApplied.length,
     baUnused: plan.baUnused.length,
+    tray: plan.tray.length,
+    baTray: plan.baTray.length,
     unusedSamples: plan.unused.slice(0, 8),
     emptySamples: plan.targetEmpty.slice(0, 8),
+    traySamples: plan.tray.slice(0, 8).map((row) => ({
+      key: row.target?.key,
+      label: row.target?.label || row.saved?.label,
+      groupName: row.group?.name,
+    })),
   };
 }
 
@@ -604,24 +758,55 @@ function deleteMatching(dir, re) {
   }
 }
 
-function copyGroupFile(groupDir, filename, destDir, destName) {
+function copyGroupFile(groupDir, filename, destDir, destName, { unique = false } = {}) {
   const from = path.join(groupDir, filename);
   if (!existsSync(from)) return null;
   mkdirSync(destDir, { recursive: true });
-  const toName = destName || filename;
+  let toName = destName || filename;
+  if (unique) {
+    const ext = path.extname(toName);
+    const stem = path.basename(toName, ext);
+    let n = 0;
+    while (existsSync(path.join(destDir, toName))) {
+      n += 1;
+      toName = `${stem}-${n}${ext}`;
+    }
+  }
   copyFileSync(from, path.join(destDir, toName));
   return toName;
 }
 
-export function applyPhotoGroup(candidateId, groupId) {
-  const group = getPhotoGroup(groupId);
-  if (!nichesEqual(group.niche, nicheOf(candidateId))) {
-    throw Object.assign(
-      new Error(`This group is for “${group.niche}”, not this candidate’s niche.`),
-      { status: 400 },
-    );
-  }
-  const plan = planMatches(candidateId, group);
+function liveSlotEntry(target, saved, destName) {
+  return {
+    key: target.key,
+    sectionId: target.sectionId,
+    index: target.index,
+    filename: destName,
+    src: `/images/${destName}`,
+    alt: saved.alt || target.label || 'Service photo',
+    provider: saved.provider || null,
+    source: saved.source || 'stock',
+    photoId: saved.photoId || null,
+    photographer: saved.photographer || null,
+    pageUrl: saved.pageUrl || null,
+    query: saved.query || null,
+    score: saved.score ?? null,
+    matchGrade: saved.matchGrade || 'ok',
+    matchTip:
+      saved.matchGrade === 'good' ? 'From saved photo group' : 'Loaded from saved photo group',
+    attribution: saved.attribution || null,
+    serviceName: target.serviceName || saved.serviceName || null,
+    serviceSlug: target.serviceSlug || saved.serviceSlug || null,
+    materialTitle: target.materialTitle || saved.materialTitle || null,
+    processTitle: target.processTitle || saved.processTitle || null,
+    label: target.label || saved.label || null,
+    variants: [],
+  };
+}
+
+export function applyPhotoGroups(candidateId, groupIds) {
+  const groups = loadGroupsOrThrow(groupIds);
+  const plan = planMatchesMulti(candidateId, groups);
   const p = pathsFor(candidateId);
   mkdirSync(p.siteImages, { recursive: true });
 
@@ -638,32 +823,10 @@ export function applyPhotoGroup(candidateId, groupId) {
   });
   for (const f of keepOtherFiles) filesMap.set(f.filename, f);
 
-  for (const { saved, target } of plan.applied) {
+  for (const { saved, target, group } of plan.applied) {
     const destName = copyGroupFile(group.dir, saved.filename, p.siteImages, saved.filename);
     if (!destName) continue;
-    const entry = {
-      key: target.key,
-      sectionId: target.sectionId,
-      index: target.index,
-      filename: destName,
-      src: `/images/${destName}`,
-      alt: saved.alt || target.label || 'Service photo',
-      provider: saved.provider || null,
-      source: saved.source || 'stock',
-      photoId: saved.photoId || null,
-      photographer: saved.photographer || null,
-      pageUrl: saved.pageUrl || null,
-      query: saved.query || null,
-      score: saved.score ?? null,
-      matchGrade: saved.matchGrade || 'ok',
-      matchTip: saved.matchGrade === 'good' ? 'From saved photo group' : 'Loaded from saved photo group',
-      attribution: saved.attribution || null,
-      serviceName: target.serviceName || saved.serviceName || null,
-      serviceSlug: target.serviceSlug || saved.serviceSlug || null,
-      materialTitle: target.materialTitle || saved.materialTitle || null,
-      processTitle: target.processTitle || saved.processTitle || null,
-      label: target.label || saved.label || null,
-    };
+    const entry = liveSlotEntry(target, saved, destName);
     slots[target.key] = entry;
     if (entry.photoId) usedIds.add(entry.photoId);
     filesMap.set(destName, {
@@ -680,38 +843,123 @@ export function applyPhotoGroup(candidateId, groupId) {
     });
   }
 
+  for (const { saved, target, group, rank } of plan.tray) {
+    const live = slots[target.key];
+    if (!live) continue;
+    if (saved.photoId && live.photoId && saved.photoId === live.photoId) continue;
+    const destName = copyGroupFile(
+      group.dir,
+      saved.filename,
+      p.siteImages,
+      `pg${rank}-${path.basename(String(saved.filename))}`,
+      { unique: true },
+    );
+    if (!destName) continue;
+    live.variants = pushImageSlotTrayEntry(p.siteImages, live.variants, {
+      filename: destName,
+      source: saved.source || 'photo-group',
+      provider: saved.provider || null,
+      photoId: saved.photoId || null,
+      attribution: saved.attribution || null,
+      matchGrade: saved.matchGrade || null,
+    });
+  }
+
   const publicImages = path.join(ROOT, 'public', 'images');
   const stagingImages = existsSync(p.siteStaging)
     ? path.join(p.siteStaging, 'public', 'images')
     : null;
 
+  const baTrayByKey = new Map();
+  const noteBaTray = (key, entry) => {
+    const list = baTrayByKey.get(key) || [];
+    list.push(entry);
+    baTrayByKey.set(key, list);
+  };
+
   if (homeBaEnabled(candidateId) && plan.baApplied.some((x) => x.kind === 'home')) {
     for (const dir of [p.siteImages, publicImages, stagingImages]) {
-      deleteMatching(dir, HOME_BA_RE);
+      deleteMatching(dir, /^gallery-ba-/i);
     }
-    const homePairs = plan.baApplied.filter((x) => x.kind === 'home');
-    homePairs.forEach((row, i) => {
-      const n = i + 1;
+    for (const row of plan.baApplied.filter((x) => x.kind === 'home')) {
+      const n = row.pairIndex;
       const beforeName = `gallery-ba-${n}-before.${row.pair.before.ext || 'jpg'}`;
       const afterName = `gallery-ba-${n}-after.${row.pair.after.ext || 'jpg'}`;
-      copyGroupFile(group.dir, row.pair.before.filename, p.siteImages, beforeName);
-      copyGroupFile(group.dir, row.pair.after.filename, p.siteImages, afterName);
-    });
+      copyGroupFile(row.group.dir, row.pair.before.filename, p.siteImages, beforeName);
+      copyGroupFile(row.group.dir, row.pair.after.filename, p.siteImages, afterName);
+    }
   }
 
   if (svcBaEnabled(candidateId)) {
     for (const row of plan.baApplied.filter((x) => x.kind === 'service')) {
-      const re = new RegExp(`^svc-ba-${row.serviceSlug}-\\d+-(before|after)\\.`, 'i');
+      const re = new RegExp(`^svc-ba-${row.serviceSlug}-`, 'i');
       for (const dir of [p.siteImages, publicImages, stagingImages]) {
         deleteMatching(dir, re);
       }
       const beforeName = `svc-ba-${row.serviceSlug}-1-before.${row.pair.before.ext || 'jpg'}`;
       const afterName = `svc-ba-${row.serviceSlug}-1-after.${row.pair.after.ext || 'jpg'}`;
-      copyGroupFile(group.dir, row.pair.before.filename, p.siteImages, beforeName);
-      copyGroupFile(group.dir, row.pair.after.filename, p.siteImages, afterName);
+      copyGroupFile(row.group.dir, row.pair.before.filename, p.siteImages, beforeName);
+      copyGroupFile(row.group.dir, row.pair.after.filename, p.siteImages, afterName);
     }
   }
 
+  for (const row of plan.baTray) {
+    const prefix =
+      row.kind === 'service'
+        ? `svc-ba-${row.serviceSlug}`
+        : `gallery-ba-${row.pairIndex}`;
+    const beforeName = copyGroupFile(
+      row.group.dir,
+      row.pair.before.filename,
+      p.siteImages,
+      `${prefix}-pg${row.rank}-before.${row.pair.before.ext || 'jpg'}`,
+      { unique: true },
+    );
+    const afterName = copyGroupFile(
+      row.group.dir,
+      row.pair.after.filename,
+      p.siteImages,
+      `${prefix}-pg${row.rank}-after.${row.pair.after.ext || 'jpg'}`,
+      { unique: true },
+    );
+    const key =
+      row.kind === 'service'
+        ? baVariantKey({ serviceSlug: row.serviceSlug })
+        : baVariantKey({ pairIndex: row.pairIndex });
+    noteBaTray(key, {
+      beforeFilename: beforeName,
+      afterFilename: afterName,
+      source: 'photo-group',
+      serviceSlug: row.kind === 'service' ? row.serviceSlug : '',
+      pairIndex: row.pairIndex || 1,
+    });
+  }
+
+  const baKeysWritten = new Set();
+  for (const [key, entries] of baTrayByKey) {
+    const sample = entries[0] || {};
+    setBaTrayEntries(candidateId, {
+      serviceSlug: sample.serviceSlug || '',
+      pairIndex: sample.pairIndex || 1,
+      entries,
+    });
+    baKeysWritten.add(key);
+  }
+  for (const row of plan.baApplied) {
+    const key =
+      row.kind === 'service'
+        ? baVariantKey({ serviceSlug: row.serviceSlug })
+        : baVariantKey({ pairIndex: row.pairIndex });
+    if (!baKeysWritten.has(key)) {
+      setBaTrayEntries(candidateId, {
+        serviceSlug: row.kind === 'service' ? row.serviceSlug : '',
+        pairIndex: row.pairIndex || 1,
+        entries: [],
+      });
+    }
+  }
+
+  const first = groups[0];
   const nextManifest = {
     ...manifest,
     version: 1,
@@ -720,8 +968,9 @@ export function applyPhotoGroup(candidateId, groupId) {
     files: [...filesMap.values()],
     slots,
     pulledAt: new Date().toISOString(),
-    photoGroupId: group.id,
-    photoGroupName: group.name,
+    photoGroupId: first.id,
+    photoGroupIds: groups.map((g) => g.id),
+    photoGroupName: groups.map((g) => g.name).join(' → '),
   };
   writeJson(p.imagesManifest, nextManifest);
 
@@ -734,6 +983,7 @@ export function applyPhotoGroup(candidateId, groupId) {
     ba = { ok: false };
   }
 
+  const names = groups.map((g) => g.name).join(' → ');
   return {
     ok: true,
     applied: plan.applied.length,
@@ -741,42 +991,59 @@ export function applyPhotoGroup(candidateId, groupId) {
     targetEmpty: plan.targetEmpty.length,
     baApplied: plan.baApplied.length,
     baUnused: plan.baUnused.length,
+    tray: plan.tray.length,
+    baTray: plan.baTray.length,
     unused: plan.unused,
     synced,
     contentUpdate,
     ba,
     manifest: nextManifest,
-    group: { id: group.id, name: group.name, niche: group.niche },
+    group: { id: first.id, name: first.name, niche: first.niche },
+    groups: plan.groups,
     candidate: getCandidateDetail(candidateId),
     human: [
-      `Photo group “${group.name}”: ${plan.applied.length} stock slots loaded` +
+      `Photo groups ${names}: ${plan.applied.length} stock slots loaded` +
         (plan.baApplied.length ? `, ${plan.baApplied.length} before/after pairs` : '') +
+        (plan.tray.length + plan.baTray.length
+          ? `, ${plan.tray.length + plan.baTray.length} added to trays`
+          : '') +
         (plan.unused.length ? `, ${plan.unused.length} unused (section not on this site)` : '') +
         '.',
     ],
   };
 }
 
-export function attachPhotoGroup(candidateId, groupId) {
-  const group = getPhotoGroup(groupId);
-  if (!nichesEqual(group.niche, nicheOf(candidateId))) {
-    throw Object.assign(
-      new Error(`This group is for “${group.niche}”, not this candidate’s niche.`),
-      { status: 400 },
-    );
-  }
-  const preview = previewPhotoGroup(candidateId, groupId);
+export function applyPhotoGroup(candidateId, groupId) {
+  return applyPhotoGroups(candidateId, [groupId]);
+}
+
+export function attachPhotoGroup(candidateId, groupIdOrBody) {
+  const ids = normalizePhotoGroupIds(
+    typeof groupIdOrBody === 'string' ? { groupId: groupIdOrBody } : groupIdOrBody || {},
+  );
+  const groups = loadGroupsOrThrow(ids);
+  const preview = previewPhotoGroup(candidateId, { groupIds: ids });
   const attachedAt = new Date().toISOString();
+  const first = groups[0];
   writeJson(pathsFor(candidateId).photoGroup, {
-    groupId: group.id,
-    name: group.name,
-    niche: group.niche,
+    groupId: first.id,
+    groupIds: ids,
+    name: first.name,
+    names: groups.map((g) => g.name),
+    groups: preview.groups,
+    niche: first.niche,
     attachedAt,
     preview,
   });
   return {
     ok: true,
-    attached: { groupId: group.id, name: group.name, attachedAt },
+    attached: {
+      groupId: first.id,
+      groupIds: ids,
+      name: first.name,
+      names: groups.map((g) => g.name),
+      attachedAt,
+    },
     preview,
     candidate: getCandidateDetail(candidateId),
   };

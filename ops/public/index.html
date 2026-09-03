@@ -22,11 +22,20 @@
       else if (!/^[1-8]$/.test(t)) t = '1';
       document.documentElement.setAttribute('data-theme', t);
     } catch (_) {}
+    try {
+      var claudeMode = localStorage.getItem('ops.claudeUiMode');
+      document.documentElement.setAttribute(
+        'data-claude-mode',
+        claudeMode === 'api' ? 'api' : 'paste',
+      );
+    } catch (_) {
+      document.documentElement.setAttribute('data-claude-mode', 'paste');
+    }
   </script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/styles.css?v=20260901heavyLightJobs" />
+  <link rel="stylesheet" href="/styles.css?v=20260902herointro" />
   <link rel="stylesheet" href="/brand/rover-loader.css" />
 </head>
 <body>
@@ -53,7 +62,15 @@
         <img class="top-brand-logo top-brand-logo--light" src="/brand/rover-logo-light.png" alt="" width="800" height="168" decoding="async" />
         <img class="top-brand-logo top-brand-logo--dark" src="/brand/rover-logo-dark.png" alt="" width="800" height="168" decoding="async" />
       </span>
-      <span class="top-version muted small" title="Rover product version">v1.7</span>
+      <span class="top-version muted small" title="Rover product version">v1.8</span>
+      <div class="claude-mode-segment" role="group" aria-label="Claude pipeline mode">
+        <button type="button" class="claude-mode-seg active" data-claude-mode="paste" id="claude-mode-paste" aria-label="Copy and paste">
+          Copy &amp; paste
+        </button>
+        <button type="button" class="claude-mode-seg" data-claude-mode="api" id="claude-mode-api" aria-label="Anthropic API">
+          Anthropic API
+        </button>
+      </div>
     </div>
     <nav class="top-nav" aria-label="Primary">
       <div class="nav-pipeline" aria-label="Pipeline stages">
@@ -118,6 +135,36 @@
             </div>
             <div id="light-jobs-popover-list" class="jobs-popover-list">
               <p class="muted small jobs-empty">No jobs running.</p>
+            </div>
+          </div>
+        </div>
+        <div class="jobs-wrap help-wrap">
+          <button
+            type="button"
+            id="help-btn"
+            class="jobs-btn"
+            aria-haspopup="true"
+            aria-expanded="false"
+            aria-controls="help-panel"
+            title="User guide"
+          >
+            <span class="jobs-btn-label">Help</span>
+          </button>
+          <div id="help-panel" class="help-panel hidden" role="dialog" aria-label="User guide">
+            <div class="help-panel-head">
+              <strong>Help</strong>
+              <input
+                type="search"
+                id="help-search"
+                class="help-search"
+                placeholder="Search…"
+                autocomplete="off"
+                aria-label="Search user guide"
+              />
+            </div>
+            <div class="help-panel-body">
+              <nav id="help-toc" class="help-toc" aria-label="Guide sections"></nav>
+              <div id="help-article" class="help-article"></div>
             </div>
           </div>
         </div>
@@ -381,11 +428,9 @@
           </div>
           <div class="tabs-row tabs-row-build" data-pipeline-tabs="website-builder">
             <span class="tabs-row-label">Tracks</span>
-            <div class="tab-group tab-group-handoff">
-              <button type="button" data-tab="site-config" data-stage="handoff" class="tab tab-stage-handoff">1 · Site-Config</button>
-              <button type="button" data-tab="content" data-stage="handoff" class="tab tab-stage-handoff">2 · Content</button>
-              <button type="button" data-tab="website" data-stage="handoff" class="tab tab-stage-handoff">3 · Launch</button>
-            </div>
+            <button type="button" data-tab="site-config" data-stage="1" class="tab tab-stage-1">1 · Site-Config</button>
+            <button type="button" data-tab="content" data-stage="2" class="tab tab-stage-2">2 · Content</button>
+            <button type="button" data-tab="website" data-stage="3" class="tab tab-stage-narr">3 · Launch</button>
           </div>
         </div>
         </div>
@@ -393,9 +438,52 @@
         <div id="tab-panels"></div>
       </div>
     </section>
+    <div id="sa-map-loading" class="sa-map-loading hidden" role="status" aria-live="polite" aria-hidden="true" aria-busy="false">
+      <div class="rover-loading-card">
+        <div class="rover-loader rover-loader--dark" role="img" aria-label="Loading">
+          <svg class="rover-loader-mark" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" focusable="false" aria-hidden="true">
+            <circle class="rover-loader-dot" cx="32" cy="32" r="7.5" />
+            <g class="rover-loader-ring rover-loader-ring--inner">
+              <circle cx="32" cy="32" r="15" transform="rotate(-45 32 32)" />
+            </g>
+            <g class="rover-loader-ring rover-loader-ring--outer">
+              <circle cx="32" cy="32" r="24" transform="rotate(-11 32 32)" />
+            </g>
+          </svg>
+          <img class="rover-loader-word" src="/brand/rover-wordmark-dark.png" alt="" width="618" height="81" decoding="async" />
+        </div>
+        <p class="rover-loading-text">Loading…</p>
+      </div>
+    </div>
   </main>
 
   <main class="layout discovery-layout" id="view-discovery">
+    <div id="discovery-generate-pack-overlay" class="content-claude-job-overlay hidden" hidden aria-hidden="true">
+      <div class="rover-loading-card">
+        <div class="rover-loader rover-loader--dark" role="img" aria-label="Generating pack">
+          <svg class="rover-loader-mark" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" focusable="false" aria-hidden="true">
+            <circle class="rover-loader-dot" cx="32" cy="32" r="7.5" />
+            <g class="rover-loader-ring rover-loader-ring--inner">
+              <circle cx="32" cy="32" r="15" transform="rotate(-45 32 32)" />
+            </g>
+            <g class="rover-loader-ring rover-loader-ring--outer">
+              <circle cx="32" cy="32" r="24" transform="rotate(-11 32 32)" />
+            </g>
+          </svg>
+          <img class="rover-loader-word" src="/brand/rover-wordmark-dark.png" alt="" width="618" height="81" decoding="async" />
+        </div>
+        <p class="rover-loading-text" id="gp-overlay-title">Generate pack</p>
+        <ol class="ws-overlay-phases" id="gp-overlay-phases">
+          <li data-gp-phase="Calling Claude">Calling Claude</li>
+          <li data-gp-phase="Importing CSV">Importing CSV</li>
+        </ol>
+        <div class="job-progress" style="width:min(22rem,90%)">
+          <div class="job-progress-track"><div class="job-progress-bar" id="gp-overlay-bar"></div></div>
+        </div>
+        <p class="muted small" id="gp-overlay-detail">Starting…</p>
+        <button type="button" class="btn" id="gp-overlay-stop">Stop</button>
+      </div>
+    </div>
     <section class="panel discovery-filters">
       <details
         class="sidebar-section discovery-flow-step"
@@ -1156,6 +1244,6 @@
   </div>
   <img id="img-peek" class="img-peek hidden" alt="" hidden />
 
-  <script src="/app.js?v=20260901heavyLightJobs" type="module"></script>
+  <script src="/app.js?v=20260902siteconfiggen" type="module"></script>
 </body>
 </html>

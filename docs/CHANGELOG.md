@@ -2,6 +2,48 @@
 
 ## Unreleased
 
+## Version 1.8 (`1.8.0`)
+
+Anthropic API pipeline, Write site JSON budget, and Census coverage maps:
+
+- **Anthropic API:** Copy & paste vs API mode; `ANTHROPIC_WORKSPACE_ID` on Messages; default model `claude-sonnet-5` at medium effort; omit temperature for Sonnet 5; cost rates $2 / $10 per MTok.
+- **Site-Config (API):** Suggest domains (one button); **Fill site-config** for steps 4–5; paste mode unchanged.
+- **Write site:** Brief `pages[]` uses 32768 `max_tokens`; other Write steps 16384; truncated JSON surfaces a retry error (field research already saved).
+- **Coverage map:** Census place polygons first; Nominatim fallback skips parks/counties and axis-aligned bounding boxes; drop polygons >12× median area.
+- **GBP:** Category checklist prompt removed.
+- **Save photo group:** No launched-site confirm — save copies into the photo library only (Load / Attach still ask).
+- **Map fills:** Leaflet MultiPolygons (Fuquay-Varina and other annexation islands) explode into separate polygons so the main body fills instead of outline-only fragments. One label per city.
+- **Launch:** Step 4 includes Business name (written into site-config on Run launch). Step 5 Indexing has Copy URL for the live homepage.
+- **Photo groups:** Load up to three ranked groups on Content step 9 and Review images. The 1st fills matching slots; the 2nd and 3rd fill leftovers; leftover matching photos (and before/after pairs) go into that slot’s tray (cap 8). Load needs at least one group. Skip on step 9 is unchanged.
+- **Logo:** Accept generates Mark + text (falls back to Monogram if OpenAI is not configured). Logo prompt is a collapsed editor on Logo & Map. Previous logos sit in a tray of 4.
+- **Coverage map:** Previous maps sit in a tray of 2.
+- **Content Load:** Invalid homepage YAML fails Load with the file named (tabs and list indent are healed first). Service intro H2s that match the unmarked-intro pattern are stripped; reversed permit `###` columns are swapped so needs-permit is first.
+- **svcIntro:** Registry/outline treat service intro as unmarked body, not an H2.
+- **Full write:** Missing files starts collapsed; click the summary to expand.
+- **Full write:** Open Claude.ai sits next to Copy Home, Copy Services, and Copy Locations batches.
+- **API Cost PAYG:** Anthropic, OpenAI, and Google Maps show Rover-recorded Spent and **PAYG** for Balance (not a spanning Pay as you go label).
+- **Launched table:** Header is **State** (was ST). **Map** after State opens the Map tab zoomed to that city, same as the candidate table.
+- **Table Live + W:** Opening a candidate (or finishing Launch) copies launch meta onto that table row so Live, Type, and W match the pane without a hard refresh.
+- **Shift+click:** Range select always includes the box you click (file-explorer style). A follow-up native `change` no longer unchecks that endpoint — Review, Photo, candidate table, and Discovery (grid order, including Before & after).
+- **OpenAI generate:** Photos still run 5 at a time. Before & after pairs run 2 at a time (each pair is two API images). Rate-limit waits 15s / 30s / 60s so a full batch can finish. Failed slots list in a modal. Same price per image.
+- **Selected images row:** Count, Unselect all, then Stock / Flux / OpenAI filters (with selected counts) sit left of a rule. Generate, Re-pull, Flux, and OpenAI sit right. Photo tool uses the same grouping without Re-pull or source filters.
+- **Detail shelf:** Expand sits on the right of **2 · Review images**. That header plus the Review images toolbar stay frozen while slots scroll. Expand (chevrons-left) slides the sidebar over the table; Collapse (chevrons-right) or leaving the step returns the split.
+- **Slot loaders:** OpenAI generate shows as generating (not queued). Re-pull, Flux, OpenAI, and Pull use a full-thumb dimmed overlay so the Rover loader is visible on empty slots.
+- **Live slot loading:** Re-pull, Flux/OpenAI, and Pull paint each Review (and Photo) slot as soon as that image exists. The card loader stays until the thumb is in the DOM — not until the whole batch finishes.
+- **Review images Select / Re-pull:** Poor, Ok, Good, Uploaded, and Empty each have Select (toggle that grade). Re-pull sits on the selected-images row before Flux and applies to checked photo slots.
+- **Photo group dropdown:** Content step 9 and Website Review images list every saved group and master, A–Z (not filtered to this candidate’s niche). Load/attach works across niches.
+- **Content next step:** After Humanize, current/open/strip stay on Final check (then Image queries → Load photo group → Accept). Load FILE no longer jumps to Accept while 7–9 are still open.
+- **Structure C:** Preset C checks every page and section except Deep offer process, including Location pages and every Include photos box.
+- **Service area pop filter:** Min pop / Max pop inputs sit on the radius row (same pattern as the Map tab). Empty max means no cap. Primary city stays selectable.
+- **Service area loading:** Opening the Site-Config Service Area step shows the Rover loading card over the map and sidebar until cities are on the map and clickable. Accept/save still uses the existing progress bar.
+- **Service area sidebar:** Map-open layout keeps the detail panel as a flex column so the tab body scrolls instead of clipping.
+- **R / W headers:** Evaluation and Website Track columns are labeled **R** and **W** in Space Grotesk (same type as the header stage names). Hover tips unchanged.
+- **Track tabs:** Site-Config, Content, and Launch are separate pills, colored like Evaluations 1–3 (and the table Track icons).
+- **Website Track column:** Numbered circle after Evaluation for Site-Config / Content / Launch (same 1–3 colors). Empty until track 1; launched rows show 3.
+- **Candidate table LIVE + Type:** Green live badge after the checkbox on launched rows only. **Type** after API $ is Discovery / Research / Website / Launched.
+- **Prospects job close:** Light ticks on `Maps SERP` (not stuck at Starting). Script no longer dumps the full JSON to stdout. If the child exits non-zero after writing `{id}-prospects.json`, Rover still sets `lastProspectsAt`.
+- **User + Dev guides:** [USER-GUIDE.md](USER-GUIDE.md) is the operator manual (what you see and click). [DEV-GUIDE.md](DEV-GUIDE.md) maps every pipeline component to files. Header **Help** opens a searchable User guide panel.
+
 ## Version 1.7 (`1.7.0`)
 
 Jobs lists, preview progress, coverage map callouts, and pipeline persist:

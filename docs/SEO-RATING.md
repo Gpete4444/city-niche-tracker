@@ -35,7 +35,7 @@ Up from **B−** after ranking-wins work (live PAA / organic titles into Outline
 - Critical SEO findings block Accept unless **Accept with SEO warnings** is checked
 - Editor + speech check treated as a real step before Accept
 - Required-link checklist for internal linking
-- **Eight-pass Soft path (2026-08):** Field research Claude JSON → Brief confirm → batched Full write → Humanize pack → Final check; shared guardrails; entity-matching Structure callout; advisory GBP category checklist on Launch/Phone
+- **Eight-pass Soft path (2026-08):** Field research Claude JSON → Brief confirm → batched Full write → Humanize pack → Final check; shared guardrails; entity-matching Structure callout
 
 ### Ceiling / next levers
 
@@ -56,7 +56,6 @@ Off-site levers (GBP, reviews, citations) usually move rankings faster than more
 - Soft steps: Structure → Field research → Brief → Outline → batched Full write → Humanize → Final check → Accept (no Skip)
 - Prompts: `content-guardrails.md`, `content-field-research.md`, `content-brief.md`, `content-final-check.md`; editor pack Passes 4–7
 - Accept gates: field research loaded, brief confirmed, `lastFinalCheckAt`, speech clear
-- Advisory GBP category checklist on Website → Launch / Site-Config → Phone
 
 ### Local-depth forever (2026-08) — pipeline lever (grade pending re-score)
 

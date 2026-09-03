@@ -1648,6 +1648,36 @@ export function loadManifest(candidateId) {
   );
 }
 
+function persistIncrementalManifest(candidateId, { entry, usedIds, sourceCounts, replace }) {
+  if (!entry?.key || !entry.filename) return;
+  const p = pathsFor(candidateId);
+  const prev = loadManifest(candidateId);
+  const slots = { ...(prev.slots || {}), [entry.key]: entry };
+  const files = Object.values(slots)
+    .filter((s) => s?.filename)
+    .map((s) => ({
+      filename: s.filename,
+      src: s.src,
+      sectionId: s.sectionId,
+      provider: s.provider,
+      photoId: s.photoId,
+      photographer: s.photographer,
+      pageUrl: s.pageUrl,
+      attribution: s.attribution,
+      serviceName: s.serviceName || null,
+    }));
+  writeJson(p.imagesManifest, {
+    version: 1,
+    candidateId: p.id,
+    usedIds: [...usedIds],
+    files,
+    slots,
+    sources: { ...sourceCounts },
+    pulledAt: new Date().toISOString(),
+    replace: Boolean(replace),
+  });
+}
+
 function copyDirFiles(fromDir, toDir) {
   if (!existsSync(fromDir)) return 0;
   mkdirSync(toDir, { recursive: true });
@@ -2084,6 +2114,12 @@ export async function fillSiteImages(candidateId, { replace = false, onProgress 
         processTitle: slot.processTitle || existing.processTitle || null,
         label: slot.label || existing.label || null,
       });
+      persistIncrementalManifest(candidateId, {
+        entry: filledSlots[filledSlots.length - 1],
+        usedIds,
+        sourceCounts,
+        replace,
+      });
       continue;
     }
 
@@ -2251,6 +2287,12 @@ export async function fillSiteImages(candidateId, { replace = false, onProgress 
       label: slot.label || null,
     };
     filledSlots.push(entry);
+    persistIncrementalManifest(candidateId, {
+      entry,
+      usedIds,
+      sourceCounts,
+      replace,
+    });
     await sleep(250);
   }
 
@@ -2554,12 +2596,16 @@ export function listImageSlotStatus(candidateId) {
       photoId: entry?.photoId || null,
       wiredFm: wiredFmForSlot(slot),
       missing: !onDisk,
-      variants: (entry?.variants || []).map((v) => ({
-        ...v,
-        previewUrl: v.filename
-          ? `/api/candidates/${encodeURIComponent(p.id)}/images/file/${encodeURIComponent(v.filename)}?v=${encodeURIComponent(v.filename)}`
-          : null,
-      })),
+      variants: (entry?.variants || []).map((v) => {
+        const file = v.filename ? path.basename(String(v.filename)) : '';
+        const varOnDisk = Boolean(file && existsSync(path.join(p.siteImages, file)));
+        return {
+          ...v,
+          previewUrl: varOnDisk
+            ? `/api/candidates/${encodeURIComponent(p.id)}/images/file/${encodeURIComponent(file)}?v=${encodeURIComponent(v.filename)}`
+            : null,
+        };
+      }),
       _order: orderIndex(slot.sectionId) * 1000 + (Number(slot.index) || 0),
     };
   });
@@ -2666,7 +2712,7 @@ export function saveSlotIntoManifest(candidateId, entry, { replaceFilename = nul
   return next;
 }
 
-const SLOT_VARIANT_CAP = 8;
+export const SLOT_VARIANT_CAP = 8;
 
 function unlinkQuiet(abs) {
   try {
@@ -2676,7 +2722,7 @@ function unlinkQuiet(abs) {
   }
 }
 
-function trimSlotVariants(dir, variants, cap = SLOT_VARIANT_CAP) {
+export function trimSlotVariants(dir, variants, cap = SLOT_VARIANT_CAP) {
   const kept = (variants || []).slice(0, cap);
   for (const v of (variants || []).slice(cap)) {
     if (v.filename) unlinkQuiet(path.join(dir, path.basename(String(v.filename))));
@@ -2684,6 +2730,27 @@ function trimSlotVariants(dir, variants, cap = SLOT_VARIANT_CAP) {
     if (v.afterFilename) unlinkQuiet(path.join(dir, path.basename(String(v.afterFilename))));
   }
   return kept;
+}
+
+/** Append a tray item without changing the live slot. Dedupes photoId/filename, then caps. */
+export function pushImageSlotTrayEntry(dir, variants, entry, cap = SLOT_VARIANT_CAP) {
+  const list = Array.isArray(variants) ? [...variants] : [];
+  const filename = entry?.filename ? path.basename(String(entry.filename)) : '';
+  const photoId = entry?.photoId || null;
+  if (!filename) return list;
+  if (photoId && list.some((v) => v.photoId && v.photoId === photoId)) return list;
+  if (list.some((v) => v.filename === filename)) return list;
+  list.unshift({
+    id: entry.id || `var-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
+    filename,
+    source: entry.source || 'photo-group',
+    provider: entry.provider || null,
+    photoId,
+    attribution: entry.attribution || null,
+    matchGrade: entry.matchGrade || null,
+    generatedAt: entry.generatedAt || new Date().toISOString(),
+  });
+  return trimSlotVariants(dir, list, cap);
 }
 
 function archiveLiveSlotToVariants(dir, prior) {

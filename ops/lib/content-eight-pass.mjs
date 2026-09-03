@@ -1,6 +1,6 @@
 /**
  * Eight-pass Content Soft path helpers: guardrails, field research, brief synthesis,
- * batched full-write, final check, GBP category checklist.
+ * batched full-write, final check.
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
@@ -607,33 +607,6 @@ export function stampFinalCheck(candidateId, { ok = true, summary = '' } = {}) {
   };
   writeJson(draftPath, draft);
   return { ok: true, candidate: getCandidateDetail(candidateId) };
-}
-
-export function buildGbpCategoryPrompt(candidateId) {
-  const config = loadAcceptedSiteConfig(candidateId)?.config;
-  if (!config) {
-    throw Object.assign(new Error('Accept Site config first'), { status: 400 });
-  }
-  const template = readAgentTemplate('gbp-category-checklist.md');
-  const prompt = fillPlaceholders(template, {
-    NICHE: config.niche || '',
-    PRIMARY_CITY: config.primaryCity || '',
-    STATE: config.state || '',
-    SERVICES_JSON: JSON.stringify(config.services || [], null, 2),
-    BUSINESS_NAME: config.businessName || '',
-  });
-  return { prompt, config };
-}
-
-export function saveGbpCategoryChecklist(candidateId, raw) {
-  const parsed = parsePasteObject(raw);
-  if (!parsed?.primaryCategory) {
-    throw Object.assign(new Error('GBP checklist needs primaryCategory'), { status: 400 });
-  }
-  const filePath = path.join(RESEARCH_DIR, `${pathsFor(candidateId).id}-gbp-categories.json`);
-  const record = { ...parsed, savedAt: new Date().toISOString() };
-  writeJson(filePath, record);
-  return { ok: true, gbpCategories: record, candidate: getCandidateDetail(candidateId) };
 }
 
 function fewShotImageProfiles() {

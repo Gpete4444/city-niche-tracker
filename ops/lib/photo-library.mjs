@@ -15,6 +15,7 @@ import {
 } from 'node:fs';
 import path from 'node:path';
 import { addLastCost, pathsFor, RESEARCH_DIR } from './candidates.mjs';
+import { recordRoverApiSpend } from './rover-api-spend.mjs';
 import { loadAcceptedSiteConfig } from './content-markdown.mjs';
 import { loadSectionRegistry } from './content-structure.mjs';
 import { configuredImageProviders } from './image-providers/registry.mjs';
@@ -261,6 +262,88 @@ function previewUrl(groupId, filename) {
   return `/api/photo-groups/${encodeURIComponent(groupId)}/file/${encodeURIComponent(filename)}?v=${encodeURIComponent(filename)}`;
 }
 
+function groupFileAbs(group, filename) {
+  if (!filename) return null;
+  return path.join(group.dir, path.basename(String(filename)));
+}
+
+function groupFileExists(group, filename) {
+  const abs = groupFileAbs(group, filename);
+  return Boolean(abs && existsSync(abs));
+}
+
+function slotVariantsOnDisk(group, variants) {
+  return (Array.isArray(variants) ? variants : []).filter((v) => groupFileExists(group, v.filename));
+}
+
+function baVariantsOnDisk(group, variants) {
+  return (Array.isArray(variants) ? variants : []).filter(
+    (v) => groupFileExists(group, v.beforeFilename) || groupFileExists(group, v.afterFilename),
+  );
+}
+
+/** Drop tray records whose files were never copied into the group folder. */
+function pruneMissingGroupVariants(group) {
+  let dropped = 0;
+  for (const s of group.slots || []) {
+    const list = Array.isArray(s.variants) ? s.variants : [];
+    const kept = slotVariantsOnDisk(group, list);
+    dropped += list.length - kept.length;
+    if (kept.length !== list.length) s.variants = kept;
+  }
+  const pruneBa = (pairs) => {
+    for (const p of pairs || []) {
+      const list = Array.isArray(p.variants) ? p.variants : [];
+      const kept = baVariantsOnDisk(group, list);
+      dropped += list.length - kept.length;
+      if (kept.length !== list.length) p.variants = kept;
+    }
+  };
+  pruneBa(group.beforeAfter?.home);
+  pruneBa(group.beforeAfter?.services);
+  return dropped;
+}
+
+function copyOnDiskVariants(srcDir, destDir, variants, { ba = false } = {}) {
+  const out = [];
+  for (const v of variants || []) {
+    if (ba) {
+      const next = { ...v };
+      let kept = false;
+      if (v.beforeFilename) {
+        const from = path.join(srcDir, path.basename(String(v.beforeFilename)));
+        if (existsSync(from)) {
+          const destName = uniqueDest(destDir, v.beforeFilename);
+          copyFileSync(from, path.join(destDir, destName));
+          next.beforeFilename = destName;
+          kept = true;
+        } else {
+          delete next.beforeFilename;
+        }
+      }
+      if (v.afterFilename) {
+        const from = path.join(srcDir, path.basename(String(v.afterFilename)));
+        if (existsSync(from)) {
+          const destName = uniqueDest(destDir, v.afterFilename);
+          copyFileSync(from, path.join(destDir, destName));
+          next.afterFilename = destName;
+          kept = true;
+        } else {
+          delete next.afterFilename;
+        }
+      }
+      if (kept) out.push(next);
+    } else if (v.filename) {
+      const from = path.join(srcDir, path.basename(String(v.filename)));
+      if (!existsSync(from)) continue;
+      const destName = uniqueDest(destDir, v.filename);
+      copyFileSync(from, path.join(destDir, destName));
+      out.push({ ...v, filename: destName });
+    }
+  }
+  return out;
+}
+
 function decorateBaPair(group, pair, extras = {}) {
   const row = { ...pair, ...extras };
   const cid = candidateIdForGroup(group);
@@ -297,10 +380,14 @@ function decorateBaPair(group, pair, extras = {}) {
     afterUrl: row.after?.filename ? previewUrl(group.id, row.after.filename) : null,
     lastPrompts: row.lastPrompts || null,
     promptsForGenerate,
-    variants: (row.variants || []).map((v) => ({
+    variants: baVariantsOnDisk(group, row.variants).map((v) => ({
       ...v,
-      beforeUrl: v.beforeFilename ? previewUrl(group.id, v.beforeFilename) : null,
-      afterUrl: v.afterFilename ? previewUrl(group.id, v.afterFilename) : null,
+      beforeUrl: groupFileExists(group, v.beforeFilename)
+        ? previewUrl(group.id, v.beforeFilename)
+        : null,
+      afterUrl: groupFileExists(group, v.afterFilename)
+        ? previewUrl(group.id, v.afterFilename)
+        : null,
     })),
   };
 }
@@ -395,9 +482,9 @@ function slotCard(group, slot, registry) {
     missing: !onDisk,
     previewUrl: onDisk ? previewUrl(group.id, slot.filename) : null,
     source,
-    variants: (slot.variants || []).map((v) => ({
+    variants: slotVariantsOnDisk(group, slot.variants).map((v) => ({
       ...v,
-      previewUrl: v.filename ? previewUrl(group.id, v.filename) : null,
+      previewUrl: previewUrl(group.id, v.filename),
     })),
   };
 }
@@ -431,7 +518,9 @@ export function getPhotoGroupView(groupId) {
   const group = getPhotoGroup(groupId);
   const registry = loadSectionRegistry();
   const idx = structureIndexForGroup(group);
-  if (pruneOrphanServicePageSlots(group, idx)) persistPhotoGroupRecord(group);
+  const prunedOrphans = pruneOrphanServicePageSlots(group, idx);
+  const prunedVars = pruneMissingGroupVariants(group);
+  if (prunedOrphans || prunedVars) persistPhotoGroupRecord(group);
   const hydrated = collapseServiceRoles(
     hydrateGroupSlots(group, idx).filter((s) => !isUnnamedServicePageSlot(s)),
     idx.preferSvcHero,
@@ -891,7 +980,11 @@ export function duplicatePhotoGroup(groupId, name) {
     if (!existsSync(from)) continue;
     const destName = uniqueDest(destDir, s.filename);
     copyFileSync(from, path.join(destDir, destName));
-    slots.push({ ...s, filename: destName });
+    slots.push({
+      ...s,
+      filename: destName,
+      variants: copyOnDiskVariants(src.dir, destDir, s.variants),
+    });
   }
   const beforeAfter = { home: [], services: [] };
   for (const p of src.beforeAfter?.home || []) {
@@ -903,6 +996,7 @@ export function duplicatePhotoGroup(groupId, name) {
       pairIndex: p.pairIndex,
       before: { filename: b, ext: p.before.ext },
       after: { filename: a, ext: p.after.ext },
+      variants: copyOnDiskVariants(src.dir, destDir, p.variants, { ba: true }),
     });
   }
   for (const p of src.beforeAfter?.services || []) {
@@ -914,6 +1008,7 @@ export function duplicatePhotoGroup(groupId, name) {
       ...p,
       before: { filename: b, ext: p.before.ext },
       after: { filename: a, ext: p.after.ext },
+      variants: copyOnDiskVariants(src.dir, destDir, p.variants, { ba: true }),
     });
   }
   return {
@@ -1048,6 +1143,7 @@ export function upsertNicheMaster(candidateId) {
     master.slots.push({
       ...incoming,
       filename: destName,
+      variants: [],
       savedAt: new Date().toISOString(),
       sourceCandidateId: candidateId,
     });
@@ -1274,6 +1370,7 @@ export async function generatePhotoGroupSlotOpenai(groupId, { matchKey, viewpoin
     putSlotOnGroup(dest, matchKey, incoming);
     persistPhotoGroupRecord(dest);
     if (cid) addLastCost(cid, 'openai', OPENAI_IMAGE_COST.generate);
+    else recordRoverApiSpend('openai', OPENAI_IMAGE_COST.generate);
     return { ok: true, view: getPhotoGroupView(groupId) };
   } finally {
     clearFluxJobProgress();
@@ -1443,6 +1540,7 @@ export async function generatePhotoGroupBaPairOpenai(groupId, { matchKey, viewpo
       source: 'openai',
     });
     if (cid) addLastCost(cid, 'openai', OPENAI_IMAGE_COST.pair);
+    else recordRoverApiSpend('openai', OPENAI_IMAGE_COST.pair);
     return result;
   } finally {
     clearFluxJobProgress();

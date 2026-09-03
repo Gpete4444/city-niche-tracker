@@ -18,6 +18,8 @@ import {
   summarizeMapPackReviews,
 } from '../../scripts/lib/serp-signals.mjs';
 import { lookupPopulation } from './census.mjs';
+import { recordRoverApiSpend } from './rover-api-spend.mjs';
+import { logoPromptDefaultsForConfig } from './logo-prompt.mjs';
 
 const ROOT = process.cwd();
 export const RESEARCH_DIR = path.join(ROOT, 'research');
@@ -119,6 +121,24 @@ export function saveMeta(id, patch = {}) {
   return next;
 }
 
+/** Drop launch/ship bookkeeping so a test (or mis-pointed) candidate is Website again. Keeps content and staging. */
+export function clearLaunchedBookkeeping(id, extra = {}) {
+  return saveMeta(id, {
+    lastLaunchAt: null,
+    lastShipAt: null,
+    lastLaunchAttemptAt: null,
+    githubRepo: null,
+    githubRepoUrl: null,
+    cfProject: null,
+    launchDomain: null,
+    cloudflarePagesDone: false,
+    dnsDone: false,
+    emailRoutingDone: false,
+    formsDone: false,
+    ...extra,
+  });
+}
+
 /** Add to a lastCosts key (Flux is cumulative; other keys are usually last-run). */
 export function addLastCost(id, key, deltaUsd) {
   const name = String(key || '').trim();
@@ -127,6 +147,7 @@ export function addLastCost(id, key, deltaUsd) {
   const current = loadMeta(id);
   const prev = Number(current.lastCosts?.[name]) || 0;
   const next = Number((prev + delta).toFixed(6));
+  if (name === 'openai' && delta > 0) recordRoverApiSpend('openai', delta);
   return saveMeta(id, { lastCosts: { [name]: next } });
 }
 
@@ -138,6 +159,8 @@ export function deriveStage(id) {
   const hasNarrative = existsSync(p.narrative);
   const hasDraft = existsSync(p.narrativeDraft);
   const hasProspects = existsSync(p.prospects);
+  const hasSiteConfig = existsSync(p.siteConfig);
+  const hasContent = existsSync(p.content);
 
   // Pipeline progress only — decision lives on meta separately
   let stage = 'new';
@@ -155,6 +178,8 @@ export function deriveStage(id) {
     hasNarrativeDraft: hasDraft,
     hasNarrative,
     hasProspects,
+    hasSiteConfig,
+    hasContent,
     enrichmentRecommended: Boolean(research?.scoring?.enrichmentRecommended),
   };
 }
@@ -555,6 +580,12 @@ function ensureVolumesByCityPopulations(research) {
   };
 }
 
+function photoGroupDisplayName(g) {
+  if (!g) return '';
+  if (g.kind === 'master') return String(g.name || `${g.niche || 'Niche'} master`);
+  return String(g.name || g.id || '');
+}
+
 export function getCandidateDetail(id) {
   const p = pathsFor(id);
   if (
@@ -596,20 +627,21 @@ export function getCandidateDetail(id) {
     siteConfigAccepted?.niche || siteConfigDraft?.niche || config?.niche || '',
   ).trim();
   const photoGroupsIndex = readJson(path.join(RESEARCH_DIR, '_photo-groups', 'index.json'));
-  const photoGroups = (photoGroupsIndex?.groups || [])
-    .filter(
+  const photoGroupsAll = photoGroupsIndex?.groups || [];
+  const photoGroups = photoGroupsAll.slice().sort((a, b) =>
+    photoGroupDisplayName(a).localeCompare(photoGroupDisplayName(b), undefined, {
+      sensitivity: 'base',
+    }),
+  );
+  const nicheKey = photoGroupNiche.toLowerCase();
+  const photoNicheMaster =
+    photoGroupsAll.find(
       (g) =>
+        g.kind === 'master' &&
         String(g.niche || '')
           .trim()
-          .toLowerCase() === photoGroupNiche.toLowerCase(),
-    )
-    .slice()
-    .sort((a, b) => {
-      const am = a.kind === 'master' ? 0 : 1;
-      const bm = b.kind === 'master' ? 0 : 1;
-      return am - bm;
-    });
-  const photoNicheMaster = photoGroups.find((g) => g.kind === 'master') || null;
+          .toLowerCase() === nicheKey,
+    ) || null;
   const prospects = readJson(p.prospects);
   const businessAddress = readJson(p.businessAddress);
   const stageInfo = deriveStage(id);
@@ -682,6 +714,9 @@ export function getCandidateDetail(id) {
     photoGroups,
     prospects,
     businessAddress,
+    logoPromptDefaults: logoPromptDefaultsForConfig(siteConfigAccepted || siteConfigDraft || {}),
+    logoVariants: Array.isArray(meta.logoVariants) ? meta.logoVariants : [],
+    coverageMapVariants: Array.isArray(meta.coverageMapVariants) ? meta.coverageMapVariants : [],
     summary: summarizeResearch(research),
     archived: Boolean(meta.archivedAt),
     archivedAt: meta.archivedAt ?? null,

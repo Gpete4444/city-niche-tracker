@@ -6,6 +6,8 @@
  * Map host = table panel slot; controls host = form / step body.
  */
 
+import { explodePlaceFeatures, isLargestPart } from './map-polygons.js?v=20260902mapFill';
+
 let Lref = null;
 
 async function ensureLeaflet() {
@@ -286,15 +288,27 @@ async function mountGeoSelectMap(opts) {
     ? `<p class="muted small">${esc(helpText)}</p>`
     : '';
 
+  const popFields = showPages
+    ? `<label class="sa-pop-field">Min pop <input id="${uid}-min-pop" type="number" min="0" step="1000" value="${esc(
+        String(minPopFilter),
+      )}" /></label>
+      <label class="sa-pop-field">Max pop <input id="${uid}-max-pop" type="number" min="0" step="1000" value="${
+        maxPopFilter != null ? esc(String(maxPopFilter)) : ''
+      }" placeholder="none" /></label>`
+    : '';
+
   mapHost.innerHTML = `<div id="${uid}-map" class="sa-map-canvas" role="application" aria-label="${
     isDiscovery ? 'Discovery cities map' : 'Service area map'
   }"></div>`;
   controlsHost.innerHTML = `
     <div class="sa-controls">
-      <label class="sa-radius-label">
-        Radius <strong id="${uid}-radius-val">${esc(String(radius))}</strong> mi
-        <input id="${uid}-radius" type="range" min="5" max="60" step="1" value="${esc(String(radius))}" />
-      </label>
+      <div class="sa-radius-label">
+        <label class="sa-radius-field">
+          Radius <strong id="${uid}-radius-val">${esc(String(radius))}</strong> mi
+          <input id="${uid}-radius" type="range" min="5" max="60" step="1" value="${esc(String(radius))}" />
+        </label>
+        ${popFields}
+      </div>
       <span class="muted small" id="${uid}-status">Loading map…</span>
       ${suggestedPagesBlock}
       <h4 class="sa-list-title">Selected cities <span id="${uid}-count" class="muted"></span></h4>
@@ -315,6 +329,8 @@ async function mountGeoSelectMap(opts) {
   const saveProgressDetail = controlsHost.querySelector(`#${uid}-save-progress-detail`);
   const slider = controlsHost.querySelector(`#${uid}-radius`);
   const radiusVal = controlsHost.querySelector(`#${uid}-radius-val`);
+  const minPopEl = controlsHost.querySelector(`#${uid}-min-pop`);
+  const maxPopEl = controlsHost.querySelector(`#${uid}-max-pop`);
   const acceptBtn = controlsHost.querySelector(`#${uid}-accept`);
   const mapEl = mapHost.querySelector(`#${uid}-map`);
 
@@ -478,11 +494,58 @@ async function mountGeoSelectMap(opts) {
   }
 
   function scheduleInvalidateSize() {
-    requestAnimationFrame(() => {
+    return new Promise((resolve) => {
+      if (!map) {
+        resolve();
+        return;
+      }
       requestAnimationFrame(() => {
-        map?.invalidateSize();
-        setTimeout(() => map?.invalidateSize(), 120);
+        requestAnimationFrame(() => {
+          map?.invalidateSize();
+          setTimeout(() => {
+            map?.invalidateSize();
+            resolve();
+          }, 120);
+        });
       });
+    });
+  }
+
+  function mapElHasSize() {
+    return Boolean(mapEl && mapEl.clientWidth > 0 && mapEl.clientHeight > 0);
+  }
+
+  function waitForMapElSize(timeoutMs = 2000) {
+    if (destroyed || mapElHasSize()) return Promise.resolve();
+    return new Promise((resolve) => {
+      const start = Date.now();
+      let ro = null;
+      function done() {
+        if (ro) {
+          try {
+            ro.disconnect();
+          } catch {
+            /* ignore */
+          }
+          ro = null;
+        }
+        resolve();
+      }
+      function tick() {
+        if (destroyed || mapElHasSize() || Date.now() - start >= timeoutMs) {
+          done();
+          return;
+        }
+        requestAnimationFrame(tick);
+      }
+      if (typeof ResizeObserver !== 'undefined' && mapEl) {
+        ro = new ResizeObserver(() => {
+          if (mapElHasSize()) done();
+        });
+        ro.observe(mapEl);
+        if (mapHost && mapHost !== mapEl) ro.observe(mapHost);
+      }
+      requestAnimationFrame(tick);
     });
   }
 
@@ -718,14 +781,15 @@ async function mountGeoSelectMap(opts) {
     const pages = pageKeys();
     placesLayer.eachLayer((layer) => {
       const p = layer.feature?.properties || {};
+      if (layer.getTooltip()) layer.unbindTooltip();
+      if (!isLargestPart(layer.feature)) return;
+
       const key = placeKey(p.name, p.state);
       const primary = Boolean(primaryKey()) && key === primaryKey();
       const selectable = popInSelectRange(p.population, { isPrimary: primary });
       const html = labelHtml(esc, p.name, p.population, {
         hasPage: showPages && pages.has(key),
       });
-
-      if (layer.getTooltip()) layer.unbindTooltip();
 
       // All places get permanent labels; Discovery out-of-range uses quieter class.
       const dim = isDiscovery && !selectable;
@@ -745,20 +809,20 @@ async function mountGeoSelectMap(opts) {
     const inR = inRadiusKeys.has(key);
     const selectable = popInSelectRange(p.population, { isPrimary: primary });
     if (primary) {
-      return { color: '#0f766e', weight: 2.5, fillColor: '#14b8a6', fillOpacity: 0.55 };
+      return { color: '#0f766e', weight: 2.5, fillColor: '#14b8a6', fillOpacity: 0.55, fillRule: 'nonzero' };
     }
     if (!selectable) {
       // Visible for planning, weaker than in-range blue
-      return { color: '#94a3b8', weight: 1.2, fillColor: '#cbd5e1', fillOpacity: 0.18 };
+      return { color: '#94a3b8', weight: 1.2, fillColor: '#cbd5e1', fillOpacity: 0.18, fillRule: 'nonzero' };
     }
     if (on) {
-      return { color: '#1d4ed8', weight: 2.25, fillColor: '#3b82f6', fillOpacity: 0.48 };
+      return { color: '#1d4ed8', weight: 2.25, fillColor: '#3b82f6', fillOpacity: 0.48, fillRule: 'nonzero' };
     }
     if (inR) {
-      return { color: '#475569', weight: 1.6, fillColor: '#94a3b8', fillOpacity: 0.32 };
+      return { color: '#475569', weight: 1.6, fillColor: '#94a3b8', fillOpacity: 0.32, fillRule: 'nonzero' };
     }
     // In-range, not yet selected — clearly visible on open
-    return { color: '#2563eb', weight: 1.6, fillColor: '#93c5fd', fillOpacity: 0.28 };
+    return { color: '#2563eb', weight: 1.6, fillColor: '#93c5fd', fillOpacity: 0.28, fillRule: 'nonzero' };
   }
 
   function styleLayers() {
@@ -887,10 +951,10 @@ async function mountGeoSelectMap(opts) {
         fillOpacity: 0.07,
         interactive: false,
       }).addTo(map);
-      if (fit || !didFit) {
+      if ((fit || !didFit) && map) {
         map.fitBounds(circleLayer.getBounds().pad(0.2));
         didFit = true;
-        scheduleInvalidateSize();
+        await scheduleInvalidateSize();
       }
     }
 
@@ -925,28 +989,46 @@ async function mountGeoSelectMap(opts) {
     }
 
     if (!map) {
-      map = L.map(mapEl, { scrollWheelZoom: true }).setView([40, -111], 8);
+      await waitForMapElSize();
+      if (destroyed || !mapEl) return;
+      let center = [39.83, -98.58];
+      try {
+        const preview = L.geoJSON(geo);
+        const bounds = preview.getBounds();
+        if (bounds?.isValid()) center = [bounds.getCenter().lat, bounds.getCenter().lng];
+      } catch {
+        /* CONUS fallback */
+      }
+      map = L.map(mapEl, { scrollWheelZoom: true }).setView(center, 8);
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         attribution: '&copy; OpenStreetMap',
         maxZoom: 18,
       }).addTo(map);
-      map.on('zoomend', () => scheduleInvalidateSize());
-      onWindowResize = () => scheduleInvalidateSize();
+      map.on('zoomend', () => {
+        void scheduleInvalidateSize();
+      });
+      onWindowResize = () => {
+        void scheduleInvalidateSize();
+      };
       window.addEventListener('resize', onWindowResize);
       if (typeof ResizeObserver !== 'undefined' && mapEl) {
-        resizeObserver = new ResizeObserver(() => scheduleInvalidateSize());
+        resizeObserver = new ResizeObserver(() => {
+          void scheduleInvalidateSize();
+        });
         resizeObserver.observe(mapEl);
         if (mapHost && mapHost !== mapEl) resizeObserver.observe(mapHost);
       }
-      scheduleInvalidateSize();
+      await scheduleInvalidateSize();
     }
+
+    if (!map) return;
 
     if (placesLayer) {
       map.removeLayer(placesLayer);
       placesLayer = null;
     }
 
-    placesLayer = L.geoJSON(geo, {
+    placesLayer = L.geoJSON(explodePlaceFeatures(geo), {
       style: (feature) => styleForProps(feature?.properties || {}),
       onEachFeature: (feature, layer) => {
         const p = feature.properties || {};
@@ -956,14 +1038,12 @@ async function mountGeoSelectMap(opts) {
       },
     }).addTo(map);
 
-    refreshLabels();
-
     if (primaryCity) {
       await refreshRadiusMembership({ fit: true });
     } else {
       try {
         const b = placesLayer.getBounds();
-        if (b?.isValid()) map.fitBounds(b.pad(0.08));
+        if (b?.isValid() && map) map.fitBounds(b.pad(0.08));
         didFit = true;
       } catch {
         /* ignore */
@@ -976,7 +1056,39 @@ async function mountGeoSelectMap(opts) {
           : statusLine(),
       );
     }
-    scheduleInvalidateSize();
+    await scheduleInvalidateSize();
+  }
+
+  function applyPopRange({ minPop, maxPop } = {}) {
+    if (Number.isFinite(Number(minPop))) minPopFilter = Number(minPop);
+    if (maxPop === null) maxPopFilter = null;
+    else if (Number.isFinite(Number(maxPop))) maxPopFilter = Number(maxPop);
+    pruneSelectedByPopRange();
+    if (!primaryCity) {
+      styleLayers();
+      renderList();
+      refreshLabels();
+      setStatus(
+        isDiscovery
+          ? 'Click an in-range city (Min–Max pop) to set the radius center'
+          : 'Click a city to set the radius center',
+        isDiscovery ? 'err' : '',
+      );
+      emitSelection();
+      return Promise.resolve();
+    }
+    return refreshRadiusMembership({ fit: false });
+  }
+
+  function readPopInputs() {
+    const minRaw = String(minPopEl?.value ?? '').trim();
+    const maxRaw = String(maxPopEl?.value ?? '').trim();
+    const minPop = minRaw === '' ? 0 : Number(minRaw);
+    const maxPop = maxRaw === '' ? null : Number(maxRaw);
+    return {
+      minPop: Number.isFinite(minPop) ? minPop : 0,
+      maxPop: maxPop != null && Number.isFinite(maxPop) ? maxPop : null,
+    };
   }
 
   slider?.addEventListener('input', () => {
@@ -991,6 +1103,15 @@ async function mountGeoSelectMap(opts) {
       refreshRadiusMembership({ fit: false }).catch((e) => setStatus(e.message || String(e), 'err'));
     }, 280);
   });
+
+  function onPopInput() {
+    clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(() => {
+      applyPopRange(readPopInputs()).catch((e) => setStatus(e.message || String(e), 'err'));
+    }, 280);
+  }
+  minPopEl?.addEventListener('input', onPopInput);
+  maxPopEl?.addEventListener('input', onPopInput);
 
   acceptBtn?.addEventListener('click', async () => {
     if (!onAccept) return;
@@ -1037,28 +1158,11 @@ async function mountGeoSelectMap(opts) {
       controlsHost.innerHTML = '';
     },
     invalidateSize() {
-      scheduleInvalidateSize();
+      return scheduleInvalidateSize();
     },
-    /** Live-update Discovery pack Min/Max pop while map is open. */
-    setPopRange({ minPop, maxPop } = {}) {
-      if (Number.isFinite(Number(minPop))) minPopFilter = Number(minPop);
-      if (maxPop === null) maxPopFilter = null;
-      else if (Number.isFinite(Number(maxPop))) maxPopFilter = Number(maxPop);
-      pruneSelectedByPopRange();
-      if (!primaryCity) {
-        styleLayers();
-        renderList();
-        refreshLabels();
-        setStatus(
-          isDiscovery
-            ? 'Click an in-range city (Min–Max pop) to set the radius center'
-            : 'Click a city to set the radius center',
-          isDiscovery ? 'err' : '',
-        );
-        emitSelection();
-        return Promise.resolve();
-      }
-      return refreshRadiusMembership({ fit: false });
+    /** Live-update Min/Max pop while map is open. */
+    setPopRange(opts) {
+      return applyPopRange(opts);
     },
   };
 }

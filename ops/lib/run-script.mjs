@@ -39,9 +39,9 @@ const SCRIPT_LIGHT_PROGRESS = {
   prospects: {
     total: 3,
     steps: [
-      { re: /prospect|renter|search/i, done: 1, detail: 'Finding renters…' },
-      { re: /score|rank/i, done: 2, detail: 'Scoring…' },
-      { re: /cost this run|wrote/i, done: 3, detail: 'Finishing…' },
+      { re: /Maps SERP/i, done: 1, detail: 'Finding renters…' },
+      { re: /Paid ads|score|rank/i, done: 2, detail: 'Scoring…' },
+      { re: /Wrote /i, done: 3, detail: 'Finishing…' },
     ],
   },
 };
@@ -157,6 +157,19 @@ function recordJobCost(job) {
   }
 }
 
+function prospectsOutputComplete(job) {
+  if (job.label !== 'prospects') return false;
+  const prospects = readJsonSafe(pathsFor(job.candidateId).prospects);
+  if (!prospects) return false;
+  if (!Number.isFinite(Number(prospects.prospectCount))) return false;
+  const generatedAt = Date.parse(prospects.generatedAt);
+  const started = Date.parse(job.startedAt);
+  if (Number.isFinite(generatedAt) && Number.isFinite(started) && generatedAt + 2000 < started) {
+    return false;
+  }
+  return true;
+}
+
 /**
  * Spawn a node script relative to repo root. Returns job record immediately.
  */
@@ -217,7 +230,8 @@ export function startJob({
   child.on('close', async (code) => {
     job.exitCode = code;
     job.finishedAt = new Date().toISOString();
-    if (code !== 0) {
+    const outputOk = code === 0 || prospectsOutputComplete(job);
+    if (!outputOk) {
       job.status = 'error';
       job.error = `Exit code ${code}`;
       closeScriptLightJob(job);
@@ -229,6 +243,13 @@ export function startJob({
         await onSuccess(job);
       }
       job.status = 'ok';
+      if (code !== 0) {
+        appendLog(
+          job,
+          `Exit ${code} but prospects file is complete — marked ok.\n`,
+          'stderr',
+        );
+      }
     } catch (error) {
       job.status = 'error';
       job.error = error.message;

@@ -27,6 +27,7 @@ import {
 } from '../../scripts/lib/site-fonts.mjs';
 import { mergeLocationPages, toCoverageAreas } from './geo-neighbors.mjs';
 import { getBusinessAddressPackage } from './address-screen.mjs';
+import { claudeMessages } from './claude.mjs';
 
 const ROOT = process.cwd();
 const SITE_CONFIG_PATH = path.join(ROOT, 'src', 'config', 'site-config.json');
@@ -674,6 +675,121 @@ export function buildDomainPickPrompt(candidateId, nap = {}) {
       primaryCity: pack.primaryCity ?? pack.city ?? null,
       state: pack.state ?? null,
     },
+  };
+}
+
+function normalizeDomainHostname(raw) {
+  let s = String(raw || '').trim().toLowerCase();
+  if (!s) return '';
+  s = s.replace(/^https?:\/\//i, '');
+  s = s.replace(/^www\./i, '');
+  s = s.split('/')[0].split('?')[0].split('#')[0].trim();
+  s = s.replace(/\.$/, '');
+  if (!/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/i.test(s)) {
+    return s.includes('.') ? s : '';
+  }
+  return s;
+}
+
+/** Parse Claude domain-pick JSON (or a hostname list) into up to 10 suggestion rows. */
+export function parseDomainSuggestions(text) {
+  const raw = String(text || '').trim();
+  if (!raw) return [];
+  const out = [];
+  const pushRow = (domain, available, note) => {
+    const host = normalizeDomainHostname(domain);
+    if (!host || out.some((r) => r.domain === host)) return;
+    let avail = null;
+    if (available === true || available === 'true' || available === 'yes') avail = true;
+    else if (available === false || available === 'false' || available === 'no') avail = false;
+    out.push({
+      domain: host,
+      available: avail,
+      note: String(note || '').trim() || null,
+    });
+  };
+  try {
+    const start = raw.indexOf('{');
+    const end = raw.lastIndexOf('}');
+    if (start >= 0 && end > start) {
+      const obj = JSON.parse(raw.slice(start, end + 1));
+      const list = Array.isArray(obj?.domains) ? obj.domains : Array.isArray(obj) ? obj : null;
+      if (list) {
+        for (const row of list) {
+          if (typeof row === 'string') pushRow(row, null, null);
+          else if (row && typeof row === 'object') {
+            pushRow(row.domain || row.host || row.url, row.available, row.note || row.reason);
+          }
+          if (out.length >= 10) break;
+        }
+      }
+    }
+  } catch {
+    /* fall through to line parse */
+  }
+  if (!out.length) {
+    for (const line of raw.split(/\r?\n/)) {
+      const cleaned = line
+        .replace(/^\s*[-*•]\s*/, '')
+        .replace(/^\s*\d+[.)]\s*/, '')
+        .trim();
+      if (!cleaned) continue;
+      const hostMatch = cleaned.match(
+        /(?:https?:\/\/)?(?:www\.)?([a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+)/i,
+      );
+      if (!hostMatch) continue;
+      pushRow(hostMatch[1], null, cleaned.replace(hostMatch[0], '').replace(/^[\s—\-|:]+/, '').trim());
+      if (out.length >= 10) break;
+    }
+  }
+  return out.slice(0, 10);
+}
+
+export async function suggestDomainsWithClaude(candidateId, nap = {}) {
+  const { prompt, package: pack } = buildDomainPickPrompt(candidateId, nap);
+  const { text, costUsd, costNote, usage, model } = await claudeMessages({
+    user: prompt,
+    maxTokens: 2048,
+    temperature: 0.3,
+    costKey: { candidateId, label: 'domainPick' },
+  });
+  const suggestions = parseDomainSuggestions(text);
+  if (!suggestions.length) {
+    throw Object.assign(
+      new Error('Claude returned no domain hosts — try Suggest domains again.'),
+      { status: 400 },
+    );
+  }
+  return {
+    ok: true,
+    suggestions,
+    costUsd,
+    costNote,
+    usage,
+    model,
+    package: pack,
+  };
+}
+
+export async function generateSiteConfigWithClaude(candidateId, nap = {}) {
+  const { prompt } = buildSiteConfigPrompt(candidateId, nap);
+  const { text, costUsd, costNote, usage, model } = await claudeMessages({
+    user: prompt,
+    maxTokens: 8192,
+    temperature: 0.3,
+    costKey: { candidateId, label: 'siteConfig' },
+  });
+  const pasted = pasteSiteConfigDraft(candidateId, text, nap);
+  return {
+    ok: true,
+    draft: pasted.draft,
+    placeholders: pasted.placeholders,
+    suburbCheck: pasted.suburbCheck,
+    costUsd,
+    costNote,
+    usage,
+    model,
+    candidate: pasted.candidate,
   };
 }
 

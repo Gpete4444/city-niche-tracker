@@ -1,12 +1,64 @@
 /**
- * Coverage map SVG from site-config coverage areas / suburbs (Nominatim boundaries).
+ * Coverage map SVG from site-config coverage areas / suburbs.
+ * Census TIGER place polygons first (same as the Service area picker); Nominatim fallback.
  */
-import { existsSync, mkdirSync, writeFileSync, readFileSync, copyFileSync } from 'node:fs';
+import { existsSync, mkdirSync, writeFileSync, readFileSync, copyFileSync, unlinkSync } from 'node:fs';
 import path from 'node:path';
 import { pathsFor, getCandidateDetail, loadMeta, saveMeta } from './candidates.mjs';
 import { syncSiteImagesToPublic } from './fill-site-images.mjs';
+import { findPlaceFeatureLocal } from './geo-neighbors.mjs';
 
 const ROOT = process.cwd();
+const MAP_VARIANT_CAP = 2;
+
+function unlinkQuiet(abs) {
+  try {
+    if (existsSync(abs)) unlinkSync(abs);
+  } catch {
+    /* ignore */
+  }
+}
+
+function mapVariantStamp() {
+  return `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+}
+
+function isMapVariantFilename(name) {
+  return /^coverage-map-var-[a-z0-9]+\.svg$/i.test(String(name || ''));
+}
+
+function trimMapVariants(dir, variants, cap = MAP_VARIANT_CAP) {
+  const kept = (variants || []).slice(0, cap);
+  const dropped = (variants || []).slice(cap);
+  for (const v of dropped) {
+    const name = path.basename(String(v?.filename || ''));
+    if (name) unlinkQuiet(path.join(dir, name));
+  }
+  return kept;
+}
+
+function archiveLiveCoverageMapToTray(candidateId) {
+  const p = pathsFor(candidateId);
+  const live = path.join(p.siteImages, 'coverage-map.svg');
+  if (!existsSync(live)) {
+    const meta = loadMeta(candidateId);
+    return Array.isArray(meta.coverageMapVariants) ? meta.coverageMapVariants : [];
+  }
+  mkdirSync(p.siteImages, { recursive: true });
+  const destName = `coverage-map-var-${mapVariantStamp()}.svg`;
+  copyFileSync(live, path.join(p.siteImages, destName));
+  const meta = loadMeta(candidateId);
+  const next = trimMapVariants(p.siteImages, [
+    {
+      filename: destName,
+      at: new Date().toISOString(),
+      labelPlacement: meta.coverageMapLabelPlacement || null,
+    },
+    ...(Array.isArray(meta.coverageMapVariants) ? meta.coverageMapVariants : []),
+  ]);
+  saveMeta(candidateId, { coverageMapVariants: next });
+  return next;
+}
 
 /** In-memory per-candidate progress for Website poll + Accept SSE. */
 const coverageMapProgressById = new Map();
@@ -79,7 +131,103 @@ function slugifyAreaName(name) {
     .replace(/^-|-$/g, '');
 }
 
-async function fetchBoundary(area, userAgent) {
+function polygonsFromGeometry(geometry) {
+  if (!geometry) return [];
+  return geometry.type === 'Polygon' ? [geometry.coordinates] : geometry.coordinates;
+}
+
+function uniqueCoordSet(values, digits = 5) {
+  const set = new Set();
+  for (const v of values) {
+    const n = Number(v);
+    if (Number.isFinite(n)) set.add(n.toFixed(digits));
+  }
+  return set;
+}
+
+/** Nominatim often returns a 4-corner bounding box instead of a municipal outline. */
+function isAxisAlignedBBox(geometry) {
+  const ring = polygonsFromGeometry(geometry)?.[0]?.[0];
+  if (!Array.isArray(ring) || ring.length < 4) return false;
+  const pts = ring.filter((p) => Array.isArray(p) && p.length >= 2);
+  const lngs = uniqueCoordSet(pts.map((p) => p[0]));
+  const lats = uniqueCoordSet(pts.map((p) => p[1]));
+  return lngs.size === 2 && lats.size === 2 && pts.length <= 6;
+}
+
+function usablePolygonGeometry(geometry) {
+  if (!geometry || !['Polygon', 'MultiPolygon'].includes(geometry.type)) return false;
+  if (isAxisAlignedBBox(geometry)) return false;
+  return polygonsFromGeometry(geometry).some((poly) => Array.isArray(poly?.[0]) && poly[0].length >= 4);
+}
+
+const NOMINATIM_SKIP_TYPES = new Set([
+  'park',
+  'nature_reserve',
+  'protected_area',
+  'national_park',
+  'county',
+  'state',
+  'country',
+  'continent',
+]);
+const NOMINATIM_PREFER_TYPES = new Set([
+  'city',
+  'town',
+  'village',
+  'suburb',
+  'hamlet',
+  'municipality',
+  'administrative',
+  'locality',
+  'neighbourhood',
+  'cdp',
+]);
+
+function nominatimType(feature) {
+  const props = feature?.properties || {};
+  return String(props.type || props.addresstype || props.place_rank || '').toLowerCase();
+}
+
+function nominatimClass(feature) {
+  return String(feature?.properties?.class || feature?.properties?.category || '').toLowerCase();
+}
+
+function isSkippedNominatimFeature(feature) {
+  const t = nominatimType(feature);
+  const c = nominatimClass(feature);
+  if (NOMINATIM_SKIP_TYPES.has(t)) return true;
+  if (c === 'leisure' || c === 'natural' || c === 'landuse') return true;
+  return false;
+}
+
+function isPreferredNominatimFeature(feature) {
+  if (isSkippedNominatimFeature(feature)) return false;
+  const t = nominatimType(feature);
+  const c = nominatimClass(feature);
+  if (NOMINATIM_PREFER_TYPES.has(t)) return true;
+  if (c === 'place' || c === 'boundary') return true;
+  return false;
+}
+
+function pickNominatimFeature(features = []) {
+  const usable = features.filter(
+    (f) => usablePolygonGeometry(f?.geometry) && !isSkippedNominatimFeature(f),
+  );
+  return usable.find(isPreferredNominatimFeature) || usable[0] || null;
+}
+
+function censusBoundary(area) {
+  try {
+    const feature = findPlaceFeatureLocal(area.name, area.state);
+    if (!usablePolygonGeometry(feature?.geometry)) return null;
+    return { ...area, geometry: feature.geometry, source: 'census' };
+  } catch {
+    return null;
+  }
+}
+
+async function fetchNominatimBoundary(area, userAgent) {
   const name = String(area.name || '').trim();
   const state = String(area.state || '').trim();
   const aliases = [name];
@@ -95,7 +243,8 @@ async function fetchBoundary(area, userAgent) {
       format: 'geojson',
       polygon_geojson: '1',
       addressdetails: '1',
-      limit: '1',
+      countrycodes: 'us',
+      limit: '5',
     });
     try {
       const response = await fetch(url, {
@@ -110,25 +259,58 @@ async function fetchBoundary(area, userAgent) {
         continue;
       }
       const data = await response.json();
-      const feature = data.features?.[0];
-      if (!feature?.geometry || !['Polygon', 'MultiPolygon'].includes(feature.geometry.type)) {
+      const feature = pickNominatimFeature(data.features || []);
+      if (!feature?.geometry) {
         lastErr = new Error(`No municipal boundary found for ${qName}, ${state}`);
         continue;
       }
-      return { ...area, name: qName === name ? name : qName, geometry: feature.geometry };
+      return {
+        ...area,
+        name: qName === name ? name : qName,
+        geometry: feature.geometry,
+        source: 'nominatim',
+      };
     } catch (e) {
       if (e?.name === 'TimeoutError' || e?.name === 'AbortError') {
         lastErr = new Error(`Boundary lookup timed out for ${qName}, ${state}`);
       } else {
         lastErr = e;
       }
+    } finally {
+      await sleep(1100);
     }
   }
   throw lastErr || new Error(`No municipal boundary found for ${name}, ${state}`);
 }
 
-function polygonsFromGeometry(geometry) {
-  return geometry.type === 'Polygon' ? [geometry.coordinates] : geometry.coordinates;
+async function fetchBoundary(area, userAgent) {
+  const fromCensus = censusBoundary(area);
+  if (fromCensus) return fromCensus;
+  return fetchNominatimBoundary(area, userAgent);
+}
+
+function geographicArea(geometry) {
+  return geometryProjectedArea(geometry, ([lng, lat]) => [lng, lat]);
+}
+
+function dropAreaOutliers(boundaries) {
+  if (!Array.isArray(boundaries) || boundaries.length < 2) return boundaries;
+  const areas = boundaries.map((b) => geographicArea(b.geometry));
+  const sorted = areas.filter((a) => a > 0).sort((a, b) => a - b);
+  if (!sorted.length) return boundaries;
+  const median = sorted[Math.floor(sorted.length / 2)];
+  if (!(median > 0)) return boundaries;
+  const kept = [];
+  for (let i = 0; i < boundaries.length; i += 1) {
+    if (areas[i] > 12 * median) {
+      console.warn(
+        `[coverage-map] dropped outlier ${boundaries[i].name}, ${boundaries[i].state} (${(areas[i] / median).toFixed(1)}× median area)`,
+      );
+      continue;
+    }
+    kept.push(boundaries[i]);
+  }
+  return kept.length ? kept : boundaries;
 }
 
 const LABEL_PAD = 8;
@@ -476,10 +658,10 @@ export async function generateCoverageMapSvg(
   };
 
   const userAgent = `${config.domain || 'rover.local'} coverage-map generator`;
-  const boundaries = [];
+  let boundaries = [];
   const missingBoundaries = [];
   const total = areas.length;
-  console.log(`[coverage-map] looking up ${total} area(s) via Nominatim…`);
+  console.log(`[coverage-map] looking up ${total} area(s) (Census, Nominatim fallback)…`);
   for (let i = 0; i < areas.length; i++) {
     const area = areas[i];
     const label = `${String(area.name || '').trim()}, ${String(area.state || '').trim()}`;
@@ -493,15 +675,16 @@ export async function generateCoverageMapSvg(
     });
     console.log(`[coverage-map] ${current}/${total} ${label || area.name || 'unknown'}…`);
     try {
-      boundaries.push(await fetchBoundary(area, userAgent));
+      const bound = await fetchBoundary(area, userAgent);
+      boundaries.push(bound);
     } catch (e) {
       missingBoundaries.push(label.replace(/,\s*$/, '') || String(area.name || 'unknown'));
       console.warn(
         `[coverage-map] ${current}/${total} skipped: ${e?.message || e}`,
       );
     }
-    await sleep(1100);
   }
+  boundaries = dropAreaOutliers(boundaries);
   console.log(
     `[coverage-map] done — ${boundaries.length}/${total} outlined` +
       (missingBoundaries.length ? `; missing: ${missingBoundaries.join('; ')}` : ''),
@@ -825,6 +1008,7 @@ export async function generateCoverageMapForCandidate(
   mkdirSync(p.siteImages, { recursive: true });
   const abs = path.join(p.siteImages, 'coverage-map.svg');
   try {
+    archiveLiveCoverageMapToTray(candidateId);
     const result = await generateCoverageMapSvg(config, abs, {
       onProgress: emit,
       labelPlacement: placement,
@@ -864,4 +1048,68 @@ export async function generateCoverageMapForCandidate(
     });
     throw error;
   }
+}
+
+/**
+ * Promote a tray coverage map to live. Archives the current live file first.
+ */
+export function useCoverageMapVariant(candidateId, filename) {
+  const want = path.basename(String(filename || ''));
+  if (!isMapVariantFilename(want)) {
+    throw Object.assign(new Error('filename required'), { status: 400 });
+  }
+  const p = pathsFor(candidateId);
+  const config =
+    readJson(p.siteConfig) ||
+    readJson(p.siteConfigDraft) ||
+    readJson(path.join(ROOT, 'src', 'config', 'site-config.json'));
+  if (!config) {
+    throw Object.assign(new Error('No site-config for coverage map'), { status: 400 });
+  }
+  const meta = loadMeta(candidateId);
+  const variants = [...(Array.isArray(meta.coverageMapVariants) ? meta.coverageMapVariants : [])];
+  const idx = variants.findIndex((v) => path.basename(String(v.filename || '')) === want);
+  if (idx < 0) throw Object.assign(new Error('Coverage map variant not found'), { status: 404 });
+  const picked = variants[idx];
+  const pickedAbs = path.join(p.siteImages, want);
+  if (!existsSync(pickedAbs)) {
+    throw Object.assign(new Error('Coverage map variant file missing on disk'), { status: 404 });
+  }
+
+  const live = path.join(p.siteImages, 'coverage-map.svg');
+  let nextVariants = variants.filter((_, i) => i !== idx);
+  if (existsSync(live)) {
+    const destName = `coverage-map-var-${mapVariantStamp()}.svg`;
+    copyFileSync(live, path.join(p.siteImages, destName));
+    nextVariants.unshift({
+      filename: destName,
+      at: new Date().toISOString(),
+      labelPlacement: meta.coverageMapLabelPlacement || null,
+    });
+  }
+
+  mkdirSync(p.siteImages, { recursive: true });
+  copyFileSync(pickedAbs, live);
+  unlinkQuiet(pickedAbs);
+  const publicDir = path.join(ROOT, 'public', 'images');
+  mkdirSync(publicDir, { recursive: true });
+  copyFileSync(live, path.join(publicDir, 'coverage-map.svg'));
+  syncSiteImagesToPublic(candidateId);
+
+  const src = '/images/coverage-map.svg';
+  const alt = `Coverage map for ${config.primaryCity || 'service'} area`;
+  const patched = patchIndexCoverageMap(candidateId, src, alt);
+  nextVariants = trimMapVariants(p.siteImages, nextVariants);
+  saveMeta(candidateId, {
+    lastCoverageMapAt: new Date().toISOString(),
+    coverageMapLabelPlacement: picked.labelPlacement || meta.coverageMapLabelPlacement || null,
+    coverageMapVariants: nextVariants,
+  });
+  return {
+    ok: true,
+    src,
+    patched,
+    path: path.relative(ROOT, live).replace(/\\/g, '/'),
+    candidate: getCandidateDetail(candidateId),
+  };
 }

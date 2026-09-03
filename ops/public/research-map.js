@@ -2,6 +2,8 @@
  * Operator research Map tab (Leaflet).
  */
 
+import { explodePlaceFeatures, isLargestPart } from './map-polygons.js?v=20260902mapFill';
+
 const US_BOUNDS = [
   [24.5, -125],
   [49.5, -66],
@@ -106,6 +108,7 @@ function featureStyle(kind, { selected = false, inRange = true } = {}) {
       weight: selected ? 2.5 : 1.4,
       fillColor: selected ? '#f87171' : '#fecaca',
       fillOpacity: selected ? 0.45 : 0.22,
+      fillRule: 'nonzero',
     };
   }
   if (kind === 'counties') {
@@ -114,6 +117,7 @@ function featureStyle(kind, { selected = false, inRange = true } = {}) {
       weight: selected ? 2.5 : 1.2,
       fillColor: selected ? '#f472b6' : '#fbcfe8',
       fillOpacity: selected ? 0.4 : 0.2,
+      fillRule: 'nonzero',
     };
   }
   return {
@@ -121,6 +125,7 @@ function featureStyle(kind, { selected = false, inRange = true } = {}) {
     weight: selected ? 2.5 : 1.4,
     fillColor: selected ? '#60a5fa' : '#93c5fd',
     fillOpacity: selected ? 0.5 : 0.32,
+    fillRule: 'nonzero',
   };
 }
 
@@ -145,7 +150,7 @@ function bindHoverTooltip(layer, feature) {
 function bindFeature(layer, kind, feature) {
   const p = feature.properties || {};
   layer._rmKind = kind;
-  bindHoverTooltip(layer, feature);
+  if (isLargestPart(feature)) bindHoverTooltip(layer, feature);
   layer.on('click', () => {
     const stateInput = el('rm-state');
     const cityInput = el('rm-city');
@@ -197,6 +202,7 @@ function labelAnchorLatLng(layer, feature) {
 function setPermanentTooltip(layer, feature, on) {
   if (layer.getTooltip()) layer.unbindTooltip();
   if (on) {
+    if (!isLargestPart(feature)) return;
     const p = feature.properties || {};
     const inRange = p.inRange !== false;
     layer.bindTooltip(labelHtml(p.name, p.population, inRange), {
@@ -212,7 +218,7 @@ function setPermanentTooltip(layer, feature, on) {
     if (tip && anchor) tip.setLatLng(anchor);
     permanentLabelLayers.add(layer);
   } else {
-    bindHoverTooltip(layer, feature);
+    if (isLargestPart(feature)) bindHoverTooltip(layer, feature);
     permanentLabelLayers.delete(layer);
   }
 }
@@ -249,7 +255,7 @@ function updatePermanentLabels() {
   for (const geo of [placesLayer, countiesLayer]) {
     for (const layer of collectPathLayers(geo)) {
       const f = layer.feature;
-      if (!f) continue;
+      if (!f || !isLargestPart(f)) continue;
       try {
         const b = typeof layer.getBounds === 'function' ? layer.getBounds() : null;
         if (b && b.isValid() && !bounds.intersects(b)) continue;
@@ -297,6 +303,25 @@ function fitHighlightBounds() {
   map.fitBounds(b.pad(0.35));
 }
 
+function collectPlaceParts(feature, kind) {
+  const p = feature?.properties || {};
+  const src = kind === 'counties' ? countiesLayer : placesLayer;
+  const parts = [];
+  if (src) {
+    src.eachLayer((layer) => {
+      const fp = layer.feature?.properties || {};
+      const same = p.geoid
+        ? String(fp.geoid || '') === String(p.geoid)
+        : fp.name === p.name && fp.state === p.state;
+      if (same && layer.feature) parts.push(layer.feature);
+    });
+  }
+  if (parts.length > 1) {
+    return { type: 'FeatureCollection', features: parts };
+  }
+  return explodePlaceFeatures(feature);
+}
+
 function highlightFeature(feature, kind = 'places') {
   if (!map || !Lref || !feature) return;
   if (highlightLayer) {
@@ -308,8 +333,8 @@ function highlightFeature(feature, kind = 'places') {
   }
   const inRange = popInRange(feature.properties?.population);
   if (feature.properties) feature.properties.inRange = inRange;
-  // Single-feature highlight stays on default SVG renderer.
-  highlightLayer = Lref.geoJSON(feature, {
+  // Exploded parts on SVG — Leaflet MultiPolygon evenodd cancels island fill.
+  highlightLayer = Lref.geoJSON(collectPlaceParts(feature, kind), {
     style: () => featureStyle(kind, { selected: true, inRange }),
     onEachFeature: (_f, layer) => {
       layer._rmKind = kind;
@@ -338,6 +363,7 @@ function countInOut(geoLayer) {
   geoLayer.eachLayer((layer) => {
     const f = layer.feature;
     if (!f) return;
+    if (!isLargestPart(f)) return;
     if (f.properties?.inRange !== false) inn += 1;
     else out += 1;
   });
@@ -372,7 +398,7 @@ function restyleLoadedLayers() {
       const wasPermanent = permanentLabelLayers.has(layer);
       if (layer.getTooltip()) layer.unbindTooltip();
       if (wasPermanent) setPermanentTooltip(layer, f, true);
-      else bindHoverTooltip(layer, f);
+      else if (isLargestPart(f)) bindHoverTooltip(layer, f);
     });
   };
   restyleGeo(placesLayer, 'places');
@@ -412,7 +438,7 @@ async function reloadLayers({ fit = false } = {}) {
       let countiesMeta = null;
 
       if (ui.countiesOn) {
-        const counties = await fetchLayer('counties');
+        const counties = explodePlaceFeatures(await fetchLayer('counties'));
         countiesMeta = counties.meta;
         countiesLayer = Lref.geoJSON(counties, {
           style: (feature) =>
@@ -423,7 +449,7 @@ async function reloadLayers({ fit = false } = {}) {
       }
 
       if (ui.citiesOn) {
-        const places = await fetchLayer('places');
+        const places = explodePlaceFeatures(await fetchLayer('places'));
         placesMeta = places.meta;
         placesLayer = Lref.geoJSON(places, {
           style: (feature) =>

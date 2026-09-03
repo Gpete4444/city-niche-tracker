@@ -47,6 +47,53 @@ function twilioClient() {
   return twilio(env('TWILIO_ACCOUNT_SID'), env('TWILIO_AUTH_TOKEN'));
 }
 
+/** Prepaid remaining + all-time spend. Needs SID + token only (not forward / webhook). */
+export async function fetchTwilioBalance() {
+  const sid = env('TWILIO_ACCOUNT_SID');
+  const token = env('TWILIO_AUTH_TOKEN');
+  const fetchedAt = new Date().toISOString();
+  if (!sid || !token) {
+    return {
+      ok: false,
+      configured: false,
+      balance: null,
+      spentAllTime: null,
+      currency: null,
+      error: 'Twilio credentials missing',
+      fetchedAt,
+    };
+  }
+  const client = twilio(sid, token);
+  const [balR, spendR] = await Promise.allSettled([
+    client.balance.fetch(),
+    client.usage.records.allTime.list({ category: 'totalprice', limit: 1 }),
+  ]);
+  const row = balR.status === 'fulfilled' ? balR.value : null;
+  const n = Number(row?.balance);
+  const spendRow = spendR.status === 'fulfilled' ? spendR.value?.[0] : null;
+  const spent = Number(spendRow?.price);
+  if (balR.status !== 'fulfilled') {
+    return {
+      ok: false,
+      configured: true,
+      balance: null,
+      spentAllTime: Number.isFinite(spent) ? spent : null,
+      currency: null,
+      error: balR.reason?.message || String(balR.reason),
+      fetchedAt,
+    };
+  }
+  return {
+    ok: true,
+    configured: true,
+    balance: Number.isFinite(n) ? n : null,
+    spentAllTime: Number.isFinite(spent) ? spent : null,
+    currency: row?.currency || 'USD',
+    error: null,
+    fetchedAt,
+  };
+}
+
 /** Normalize to display phone for site-config CTAs. */
 export function formatTrackingPhone(e164) {
   const digits = String(e164 || '').replace(/\D/g, '');

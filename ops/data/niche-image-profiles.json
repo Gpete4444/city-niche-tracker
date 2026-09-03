@@ -381,6 +381,49 @@
         "materials": "joint compound bucket drywall tape",
         "other": "residential drywall repair interior"
       }
+    },
+    {
+      "id": "drywall-installation",
+      "match": "Drywall\\s+Installation",
+      "boost": [
+        "drywall installation wall",
+        "drywall repair patch",
+        "drywall taping seams",
+        "joint compound drywall wall",
+        "drywall texture matching",
+        "gypsum board wall stack",
+        "drywall sanding smooth",
+        "drywall finishing coat",
+        "basement drywall installation"
+      ],
+      "tokens": [
+        "drywall",
+        "gypsum",
+        "sheetrock",
+        "wallboard",
+        "taping",
+        "mudding",
+        "corner bead",
+        "skim coat",
+        "joint compound",
+        "hopper gun",
+        "patching",
+        "mold",
+        "safe",
+        "emergency",
+        "finishing",
+        "basement"
+      ],
+      "requireNicheHit": true,
+      "kindHints": {
+        "hero": "finished drywall wall smooth interior painted",
+        "intro": "drywall installer taping seams interior wall",
+        "process": "taping and mudding drywall seams wall",
+        "materials": "drywall joint compound and tape close up",
+        "other": "drywall wall texture interior home"
+      },
+      "autoSeeded": false,
+      "llmEnrichedAt": "2026-09-01T22:53:58.226Z"
     }
   ]
 }

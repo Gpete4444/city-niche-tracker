@@ -25,13 +25,13 @@ import {
   ensureResearchMapReady,
   invalidateResearchMapSize,
   openResearchMap,
-} from './research-map.js?v=20260825mapSelection';
+} from './research-map.js?v=20260902mapFill';
 import {
   mountServiceAreaMap,
   mountDiscoveryCitiesMap,
   setServiceAreaTableMode,
   setDiscoveryTableMapMode,
-} from './service-area-map.js?v=20260831masterBar';
+} from './service-area-map.js?v=20260902mapFill';
 import {
   enableResizableTablesIn,
   enableTableColumnResize,
@@ -39,6 +39,26 @@ import {
 
 /** @type {{ destroy: () => void, invalidateSize?: () => void } | null} */
 let serviceAreaMount = null;
+let serviceAreaLoadGen = 0;
+/** @type {string | null} */
+let serviceAreaMountedId = null;
+
+function setServiceAreaLoading(visible) {
+  const el = document.getElementById('sa-map-loading');
+  if (!el) return;
+  el.classList.toggle('hidden', !visible);
+  el.setAttribute('aria-hidden', visible ? 'false' : 'true');
+  el.setAttribute('aria-busy', visible ? 'true' : 'false');
+}
+
+function serviceAreaLiveFor(candidateId) {
+  return Boolean(
+    candidateId &&
+      serviceAreaMountedId === candidateId &&
+      state.tab === 'site-config' &&
+      state.siteConfigOpenStep === 'service-area',
+  );
+}
 /** @type {{ destroy: () => void, invalidateSize?: () => void } | null} */
 let discoveryCitiesMount = null;
 
@@ -64,8 +84,63 @@ function syncHeaderSelectAll(el, { selectedCount, totalCount }) {
   el.indeterminate = selected > 0 && selected < total;
 }
 
+/** Follow-up native `change` after Shift+click range; `change` has no shiftKey. */
+let shiftRangePending = null;
+
+function sameShiftRangeKey(a, b) {
+  if (a == null || b == null) return false;
+  return a === b || String(a) === String(b);
+}
+
+function resolveCheckboxFromEvent(event) {
+  const t = event?.target;
+  if (!t) return null;
+  if (t.type === 'checkbox') return t;
+  if (typeof t.closest !== 'function') return null;
+  const input = t.closest('input[type="checkbox"]');
+  if (input) return input;
+  const label = t.closest('label');
+  if (!label) return null;
+  if (label.htmlFor) {
+    const byId = document.getElementById(label.htmlFor);
+    if (byId?.type === 'checkbox') return byId;
+  }
+  return label.querySelector('input[type="checkbox"]');
+}
+
+function resolveSlotCheckInput(eventTarget, root) {
+  if (!eventTarget || typeof eventTarget.closest !== 'function') return null;
+  const input = eventTarget.closest('.slot-check-input');
+  if (input && (!root || root.contains(input))) return input;
+  const label = eventTarget.closest('.slot-check');
+  if (!label || (root && !root.contains(label))) return null;
+  const inner = label.querySelector('.slot-check-input');
+  if (inner && (!root || root.contains(inner))) return inner;
+  return null;
+}
+
+function consumeShiftRangeChange(input, key) {
+  const pending = shiftRangePending;
+  if (!pending) return false;
+  const inputMatch = Boolean(input && pending.input && input === pending.input);
+  const keyMatch = sameShiftRangeKey(pending.key, key);
+  if (!inputMatch && !keyMatch) return false;
+  shiftRangePending = null;
+  if (input) input.checked = pending.want;
+  return true;
+}
+
+function blockShiftRangePointerDown(event, anchorKey) {
+  if (!event.shiftKey || anchorKey == null) return false;
+  const input = resolveCheckboxFromEvent(event);
+  if (!input) return false;
+  event.preventDefault();
+  return true;
+}
+
 /**
- * Shift+click contiguous range select for ordered row checkboxes (Gmail-style).
+ * Shift+click contiguous range select (file-explorer style).
+ * Selects every visible key from the anchor through the clicked key, including the click.
  * Returns true if a range was applied (caller should skip normal toggle / set UI).
  */
 function applyShiftRangeCheckboxClick(event, {
@@ -73,11 +148,10 @@ function applyShiftRangeCheckboxClick(event, {
   clickedKey,
   anchorKey,
   setAnchor,
-  isSelected,
   setSelected,
 }) {
   const keys = Array.isArray(visibleKeys) ? visibleKeys : [];
-  const clickIdx = keys.findIndex((k) => k === clickedKey);
+  const clickIdx = keys.findIndex((k) => sameShiftRangeKey(k, clickedKey));
   if (clickIdx < 0) {
     setAnchor?.(clickedKey);
     return false;
@@ -88,7 +162,7 @@ function applyShiftRangeCheckboxClick(event, {
     return false;
   }
 
-  const anchorIdx = keys.findIndex((k) => k === anchorKey);
+  const anchorIdx = keys.findIndex((k) => sameShiftRangeKey(k, anchorKey));
   if (anchorIdx < 0) {
     setAnchor?.(clickedKey);
     return false;
@@ -96,10 +170,23 @@ function applyShiftRangeCheckboxClick(event, {
 
   event.preventDefault();
   event.stopPropagation();
-  const want = !isSelected(clickedKey);
+  const want = true;
   const lo = Math.min(anchorIdx, clickIdx);
   const hi = Math.max(anchorIdx, clickIdx);
   for (let i = lo; i <= hi; i += 1) setSelected(keys[i], want);
+  const input = resolveCheckboxFromEvent(event);
+  shiftRangePending = { input, key: clickedKey, want };
+  window.setTimeout(() => {
+    if (shiftRangePending && shiftRangePending.key === clickedKey && shiftRangePending.input === input) {
+      shiftRangePending = null;
+    }
+  }, 0);
+  if (input) {
+    input.checked = want;
+    queueMicrotask(() => {
+      input.checked = want;
+    });
+  }
   return true;
 }
 
@@ -447,6 +534,7 @@ const state = {
   apifyPlanUsage: null,
   twilioBalance: null,
   apiCostConfigured: null,
+  apiCostPayg: null,
   /** Keep Prepare step open while Prepare preview is running. */
   preparePreviewHold: false,
   preparePreviewJobId: null,
@@ -479,10 +567,19 @@ const state = {
     selectedChecks: {},
   },
   imageMatchFilter: 'all',
+  /** Review images source filter: all | stock | flux | openai */
+  imageSourceFilter: 'all',
+  /** Full Review-images slot list (not just the active filter). */
+  reviewImageSlots: [],
   flux: null,
   reviewBa: null,
   imageSlotChecks: {},
-  imageSlotBusy: null,
+  /** Last plain-clicked Review images slot check id for Shift+click range select */
+  imageSlotCheckAnchor: null,
+  /** Last plain-clicked Photo tool slot check id for Shift+click range select */
+  photoLibCheckAnchor: null,
+  /** Review / Photo-lib cards currently showing the generate overlay. */
+  imageSlotBusyKeys: {},
   multiQueue: false,
   lastBatchJob: null,
   tab: 'overview',
@@ -563,6 +660,9 @@ async function api(path, options = {}) {
     if (data.job) err.job = data.job;
     if (data.seoLint) err.seoLint = data.seoLint;
     if (data.speechLint) err.speechLint = data.speechLint;
+    if (data.jobId) err.jobId = data.jobId;
+    if (data.candidateId) err.candidateId = data.candidateId;
+    if (data.batchId) err.batchId = data.batchId;
     if (data.twilioSid) err.twilioSid = data.twilioSid;
     if (data.e164) err.e164 = data.e164;
     if (data.existingId) err.existingId = data.existingId;
@@ -935,11 +1035,12 @@ function formatFluxEta(ms) {
   return min === 1 ? '~1 min left' : `~${min} min left`;
 }
 
-function fluxUiStatus(raw) {
+function fluxUiStatus(raw, snap) {
   const u = String(raw || '').toUpperCase();
-  if (['IN_PROGRESS', 'PROCESSING'].includes(u)) return 'generating';
-  if (['COMPLETED', 'OK', 'READY'].includes(u)) return 'finishing';
   if (['FAILED', 'ERROR', 'CANCELLED'].includes(u)) return u.toLowerCase();
+  if (['COMPLETED', 'OK', 'READY'].includes(u)) return 'finishing';
+  if (['IN_PROGRESS', 'PROCESSING', 'SUBMITTING'].includes(u)) return 'generating';
+  if (snap?.active && String(snap.model || '').toLowerCase() === 'openai') return 'generating';
   return 'queued';
 }
 
@@ -960,7 +1061,7 @@ function watchFluxProgress({
     } catch {
       snap = { active: false };
     }
-    const status = fluxUiStatus(snap.status);
+    const status = fluxUiStatus(snap.status, snap);
     const step = snap.step || (kind === 'pair' ? 'before' : 'generate');
     const elapsed = Date.now() - (Number(snap.startedAt) || watchStarted);
     const waiting = Math.max(0, Number(total) - Number(index));
@@ -1045,13 +1146,15 @@ function slotGenerateOverlayHtml() {
 
 function slotGenerateOverlayHost(card) {
   if (!card) return null;
-  return card.querySelector('.ba-pair-thumbs') || card.querySelector('.slot-thumb');
+  return card.querySelector('.ba-pair-thumbs') || card.querySelector('.slot-thumb') || card;
 }
 
 function setSlotGenerateOverlay(card, on) {
   const host = slotGenerateOverlayHost(card);
   if (!host) return;
-  const overlay = host.querySelector(':scope > .slot-generate-overlay');
+  const overlay =
+    host.querySelector(':scope > .slot-generate-overlay') ||
+    (host !== card ? card.querySelector(':scope > .slot-generate-overlay') : null);
   if (on) {
     if (!overlay) host.insertAdjacentHTML('beforeend', slotGenerateOverlayHtml());
   } else if (overlay) {
@@ -1059,22 +1162,28 @@ function setSlotGenerateOverlay(card, on) {
   }
 }
 
-function beginSlotBusy(key, cardEl) {
+function slotBusyKeyList() {
+  return Object.keys(state.imageSlotBusyKeys || {}).filter(Boolean);
+}
+
+function beginSlotBusy(key, cardEl, { scroll = true } = {}) {
   const next = String(key || '').trim();
-  const prev = state.imageSlotBusy;
-  if (prev && prev !== next) {
-    const prevCard = findGeneratingSlotCard(prev);
-    if (prevCard) setSlotGenerateOverlay(prevCard, false);
-  }
-  state.imageSlotBusy = next || null;
   if (!next) return;
+  state.imageSlotBusyKeys = { ...(state.imageSlotBusyKeys || {}), [next]: true };
   const card =
     (cardEl && typeof cardEl.closest === 'function' ? cardEl.closest('.image-slot-card') : null) ||
     findGeneratingSlotCard(next);
   if (!card) return;
   setSlotGenerateOverlay(card, true);
-  if (typeof card.scrollIntoView === 'function') {
+  if (scroll && typeof card.scrollIntoView === 'function') {
     card.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  }
+}
+
+function restoreSlotBusyOverlays() {
+  for (const key of slotBusyKeyList()) {
+    const card = findGeneratingSlotCard(key);
+    if (card) setSlotGenerateOverlay(card, true);
   }
 }
 
@@ -1105,16 +1214,19 @@ function waitSlotThumbLoaded(card, timeoutMs = 8000) {
   );
 }
 
-async function settleSlotBusy() {
-  const key = state.imageSlotBusy;
-  if (!key) return;
-  const card = findGeneratingSlotCard(key);
-  if (card) {
-    setSlotGenerateOverlay(card, true);
-    await waitSlotThumbLoaded(card);
-    setSlotGenerateOverlay(card, false);
+async function settleSlotBusy(key) {
+  const keys = key != null && String(key).trim() ? [String(key).trim()] : slotBusyKeyList();
+  for (const k of keys) {
+    const card = findGeneratingSlotCard(k);
+    if (card) {
+      setSlotGenerateOverlay(card, true);
+      await waitSlotThumbLoaded(card);
+      setSlotGenerateOverlay(card, false);
+    }
+    const next = { ...(state.imageSlotBusyKeys || {}) };
+    delete next[k];
+    state.imageSlotBusyKeys = next;
   }
-  state.imageSlotBusy = null;
 }
 
 async function withFluxProgress(opts, fn) {
@@ -1304,7 +1416,7 @@ function incompleteDraftExplainHtml({
     : '';
   const controls = showContinueControls ? continueWriteControlsHtml({ sm: compact }) : '';
   const missBlock = miss.length
-    ? `<details class="narrative-raw" style="margin-top:0.5rem" ${compact ? 'open' : ''}>
+    ? `<details class="narrative-raw" style="margin-top:0.5rem">
         <summary>Missing files (${esc(String(miss.length))})</summary>
         ${missingDraftFilesListHtml(miss, { limit: compact ? 8 : 0 })}
       </details>`
@@ -1531,6 +1643,107 @@ function closeLightJobsPopover() {
 function closeAllJobPopovers() {
   closeJobsPopover();
   closeLightJobsPopover();
+  closeHelpPanel();
+}
+
+function closeHelpPanel() {
+  const pop = document.getElementById('help-panel');
+  const btn = document.getElementById('help-btn');
+  if (pop) pop.classList.add('hidden');
+  if (btn) btn.setAttribute('aria-expanded', 'false');
+}
+
+function wireHelpUi() {
+  const btn = document.getElementById('help-btn');
+  const pop = document.getElementById('help-panel');
+  const search = document.getElementById('help-search');
+  const toc = document.getElementById('help-toc');
+  const article = document.getElementById('help-article');
+  if (!btn || !pop || !toc || !article) return;
+
+  /** @type {{ title: string, sections: Array<{ id: string, title: string, level: number, html: string, text: string }> } | null} */
+  let guide = null;
+  let loaded = false;
+
+  const renderGuide = (query = '') => {
+    const q = String(query || '').trim().toLowerCase();
+    const sections = Array.isArray(guide?.sections) ? guide.sections : [];
+    const shown = q
+      ? sections.filter((s) => String(s.text || '').toLowerCase().includes(q))
+      : sections;
+    if (!shown.length) {
+      toc.innerHTML = '';
+      article.innerHTML = `<p class="muted small help-empty">${
+        q ? 'No matching sections.' : 'Help is empty.'
+      }</p>`;
+      return;
+    }
+    toc.innerHTML = shown
+      .map(
+        (s) =>
+          `<button type="button" class="help-toc-item level-${Number(s.level) || 2}" data-help-id="${esc(
+            s.id,
+          )}">${esc(s.title)}</button>`,
+      )
+      .join('');
+    article.innerHTML = shown
+      .map((s) => {
+        const tag = Number(s.level) === 3 ? 'h3' : 'h2';
+        return `<section class="help-section" id="help-sec-${esc(s.id)}"><${tag}>${esc(
+          s.title,
+        )}</${tag}>${s.html || ''}</section>`;
+      })
+      .join('');
+    toc.querySelectorAll('[data-help-id]').forEach((el) => {
+      el.addEventListener('click', () => {
+        const id = el.getAttribute('data-help-id');
+        const target = document.getElementById(`help-sec-${id}`);
+        toc.querySelectorAll('.help-toc-item').forEach((item) => {
+          item.classList.toggle('is-active', item === el);
+        });
+        if (target) target.scrollIntoView({ block: 'start' });
+      });
+    });
+  };
+
+  const ensureLoaded = async () => {
+    if (loaded && guide) {
+      renderGuide(search?.value || '');
+      return;
+    }
+    try {
+      guide = await api('/api/help/user-guide');
+      loaded = true;
+      renderGuide(search?.value || '');
+    } catch (error) {
+      article.innerHTML = `<p class="muted small help-empty">${esc(error.message || 'Could not load Help.')}</p>`;
+    }
+  };
+
+  btn.addEventListener('click', (event) => {
+    event.stopPropagation();
+    const willOpen = pop.classList.contains('hidden');
+    if (willOpen) {
+      closeSettingsMenu();
+      closeApiCostMenu();
+      closeJobsPopover();
+      closeLightJobsPopover();
+      pop.classList.remove('hidden');
+      btn.setAttribute('aria-expanded', 'true');
+      void ensureLoaded();
+      search?.focus();
+    } else {
+      closeHelpPanel();
+    }
+  });
+  pop.addEventListener('click', (event) => event.stopPropagation());
+  search?.addEventListener('input', () => renderGuide(search.value));
+  search?.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') {
+      event.stopPropagation();
+      closeHelpPanel();
+    }
+  });
 }
 
 function syncSettingsJobsK(concurrency) {
@@ -1569,11 +1782,13 @@ function jobRowBarHtml(j) {
 function renderJobRowHtml(j) {
   const status = esc(j.status || '');
   const phase = esc(j.label || j.phase || '');
-  const id = esc(j.candidateId || '');
+  const id = esc(j.batchId || j.candidateId || '');
   const detail = j.detail || j.error || '';
   const frac = jobProgressFrac(j);
   const meta = `${phase}${detail ? ` · ${esc(detail)}` : ''}${frac ? ` ${esc(frac)}` : ''}`;
-  return `<button type="button" class="jobs-row" data-jobs-candidate="${id}">
+  return `<button type="button" class="jobs-row" data-jobs-candidate="${id}" data-jobs-phase="${esc(
+    j.phase || '',
+  )}" data-jobs-batch="${esc(j.batchId || '')}">
       <span class="jobs-row-id">${id}</span>
       <span class="jobs-row-status ${status}">${status}</span>
       <span class="jobs-row-meta">${meta}</span>
@@ -1608,8 +1823,18 @@ function fillJobsPopoverList(list, jobs, onClose) {
   list.querySelectorAll('[data-jobs-candidate]').forEach((row) => {
     row.addEventListener('click', () => {
       const cid = row.getAttribute('data-jobs-candidate');
+      const phase = row.getAttribute('data-jobs-phase');
+      const batchId = row.getAttribute('data-jobs-batch');
       if (typeof onClose === 'function') onClose();
       else closeAllJobPopovers();
+      if (phase === 'generate-pack' || (batchId && String(cid || '').startsWith('discovery:'))) {
+        const bid = batchId || String(cid || '').replace(/^discovery:/, '');
+        setView('discovery');
+        if (bid && typeof selectDiscoveryBatch === 'function') {
+          selectDiscoveryBatch(bid).catch(() => {});
+        }
+        return;
+      }
       if (cid && typeof selectCandidate === 'function') {
         try {
           selectCandidate(cid);
@@ -1670,6 +1895,7 @@ function findActiveJob(snap, phase, candidateId) {
 }
 
 function syncLightInPageBars(snap) {
+  syncGeneratePackOverlay(snap);
   const cid = state.selectedId;
   if (!cid) return;
   const accept = findActiveJob(snap, 'accept', cid);
@@ -1704,6 +1930,7 @@ function syncLightInPageBars(snap) {
       total: Number(pull.progressTotal) || 0,
     });
   }
+  syncWriteSiteOverlay(snap);
   const research = ['research', 'enrich', 'prospects']
     .map((p) => findActiveJob(snap, p, cid))
     .find(Boolean);
@@ -1824,6 +2051,7 @@ function wireJobStream({
     if (willOpen) {
       closeSettingsMenu();
       closeApiCostMenu();
+      closeHelpPanel();
       if (typeof closeSibling === 'function') closeSibling();
       pop.classList.remove('hidden');
       btn.setAttribute('aria-expanded', 'true');
@@ -1865,6 +2093,7 @@ function wireJobsUi() {
       renderLightJobs(snap);
       syncLightInPageBars(snap);
       refreshMasterFromJobs();
+      syncClaudeModeToggle();
     },
   });
   document.addEventListener('click', () => closeAllJobPopovers());
@@ -1963,6 +2192,8 @@ const API_SPEND_LABELS = {
   prospects: 'Prospects',
   narrative: 'Narrative (est.)',
   outreach: 'Outreach (est.)',
+  writeSite: 'Write site (est.)',
+  generatePack: 'Generate pack (est.)',
   addressSearch: 'Address Find (est.)',
   flux: 'Flux',
 };
@@ -1974,6 +2205,8 @@ const API_SPEND_ORDER = [
   'narrative',
   'prospects',
   'outreach',
+  'writeSite',
+  'generatePack',
   'addressSearch',
   'flux',
 ];
@@ -2116,7 +2349,16 @@ async function showFluxGenerateFailures(failures) {
     });
     return true;
   }
-  return false;
+  const items = failures
+    .map((line) => `<li>${esc(line)}</li>`)
+    .join('');
+  await showModal({
+    title: 'Generate finished with errors',
+    confirmLabel: 'OK',
+    hideCancel: true,
+    bodyHtml: `<p>${failures.length} job${failures.length === 1 ? '' : 's'} failed. Cards that succeeded were kept.</p><ul>${items}</ul>`,
+  });
+  return true;
 }
 
 function falBalanceChipTitle(b) {
@@ -2169,7 +2411,7 @@ function apiCostWalletCell({ configured, loading, ok, balance, spent, failTitle 
   };
 }
 
-function apiCostPaygCell(configured, usedFor) {
+function apiCostPaygCell(configured, usedFor, spent) {
   if (!configured) {
     return {
       kind: 'merged',
@@ -2178,11 +2420,17 @@ function apiCostPaygCell(configured, usedFor) {
       title: `${usedFor} Add the API key in .env, then restart Rover.`,
     };
   }
-  return { kind: 'merged', text: 'Pay as you go', tone: 'ok', title: usedFor };
+  return {
+    kind: 'payg',
+    spent: Number.isFinite(Number(spent)) ? Number(spent) : 0,
+    tone: 'ok',
+    title: `${usedFor} Spent is Rover-recorded (list price / estimate), not the vendor invoice.`,
+  };
 }
 
 function apiCostRows() {
   const cfg = state.apiCostConfigured || {};
+  const payg = state.apiCostPayg || {};
   const dfs = state.dfsBalance;
   const fal = state.falBalance;
   const apify = state.apifyPlanUsage;
@@ -2221,13 +2469,18 @@ function apiCostRows() {
     },
     {
       name: 'Anthropic',
-      ...apiCostPaygCell(Boolean(cfg.anthropic), 'Copy, content, narrative. Prepaid credits billed per token.'),
+      ...apiCostPaygCell(
+        Boolean(cfg.anthropic),
+        'Copy, content, narrative. Prepaid credits billed per token.',
+        payg.anthropic,
+      ),
     },
     {
       name: 'OpenAI',
       ...apiCostPaygCell(
         Boolean(cfg.openai),
         'Phone Whisper / summaries and GPT Image. Prepaid credits billed per use.',
+        payg.openai,
       ),
     },
     {
@@ -2235,6 +2488,7 @@ function apiCostRows() {
       ...apiCostPaygCell(
         Boolean(cfg.googleMaps),
         'Address Find Places / Geocoding. Pay as you go on Google Cloud.',
+        payg.googleMaps,
       ),
     },
     {
@@ -2287,6 +2541,13 @@ function renderApiCostMenu() {
           <td class="api-cost-merged ${esc(row.tone)}" colspan="2" title="${esc(row.title)}">${esc(row.text)}</td>
         </tr>`;
       }
+      if (row.kind === 'payg') {
+        return `<tr>
+          ${name}
+          <td class="api-cost-num ${esc(row.tone)}" title="${esc(row.title)}">${esc(apiCostMoney(row.spent))}</td>
+          <td class="api-cost-num ${esc(row.tone)}" title="${esc(row.title)}">PAYG</td>
+        </tr>`;
+      }
       return `<tr>
         ${name}
         <td class="api-cost-num ${esc(row.tone)}" title="${esc(row.title)}">${esc(apiCostMoney(row.spent))}</td>
@@ -2309,6 +2570,7 @@ function renderApiCostMenu() {
 function applyApiCostSnapshot(data) {
   if (!data || typeof data !== 'object') return;
   if (data.configured) state.apiCostConfigured = data.configured;
+  if (data.payg) state.apiCostPayg = data.payg;
   if (data.dfs) state.dfsBalance = data.dfs;
   if (data.fal) state.falBalance = data.fal;
   if (data.apify) state.apifyPlanUsage = data.apify;
@@ -2493,6 +2755,16 @@ async function confirmPaidAction(act) {
             <li>Model: <code>${esc(preview.model || state.health?.model || '')}</code></li>
             <li>Uses paid API tokens</li>
             ${act === 'narrative' ? '<li>Valid JSON is <strong>accepted automatically</strong> (approved package written)</li>' : ''}
+            ${
+              act === 'write-site' || act === 'writeSite'
+                ? '<li>About 12–22 minutes. Stop keeps files already written; retry resumes.</li>'
+                : ''
+            }
+            ${
+              act === 'generate-pack' || act === 'generatePack'
+                ? '<li>Usually a few minutes. Stop cancels; retry re-imports.</li>'
+                : ''
+            }
           </ul>`
         : '<p class="muted">Charged to your DataForSEO account when the job runs.</p>'
     }
@@ -2681,6 +2953,9 @@ function candidateSortValue(c, key) {
     );
   }
   if (key === '_stageProgress') return candidateHighestStageStep(c);
+  if (key === '_websiteTrack') return candidateHighestWebsiteTrack(c);
+  if (key === '_live') return isCandidateLaunched(c) ? 1 : 0;
+  if (key === '_rank') return PIPELINE_RANK_SORT[candidatePipelineRank(c)] ?? 0;
   if (key === 'city') return [c.primaryCity, c.state].filter(Boolean).join(', ');
   if (key === 'volume') return c.demandVolumeSum ?? c.clusterVolumeSum;
   if (key === 'jobCost') return c.jobCostText || '';
@@ -2726,9 +3001,23 @@ const CANDIDATE_TABLE_COLS = [
     cellClass: 'col-narrow',
   },
   {
-    key: '_stageProgress',
+    key: '_live',
     label: '',
+    tip: 'Launched',
+    cellClass: 'col-narrow col-center col-live',
+    sortable: true,
+  },
+  {
+    key: '_stageProgress',
+    label: 'R',
     tip: 'Highest completed evaluation: 1 SERP/Volume · 2 Enrich · 3 Narrative · 4 Prospects',
+    cellClass: 'col-stage-progress',
+    sortable: true,
+  },
+  {
+    key: '_websiteTrack',
+    label: 'W',
+    tip: 'Highest completed Website track: 1 Site-Config · 2 Content · 3 Launch',
     cellClass: 'col-stage-progress',
     sortable: true,
   },
@@ -2908,13 +3197,51 @@ const CANDIDATE_TABLE_COLS = [
     cellClass: 'col-short',
     source: 'ops',
   },
+  {
+    key: '_rank',
+    label: 'Type',
+    tip: 'Pipeline rank: Discovery → Research → Website (pursue) → Launched',
+    sortable: true,
+    cellClass: 'col-short',
+    source: 'ops',
+  },
 ];
+
+const PIPELINE_RANK_SORT = {
+  Discovery: 0,
+  Research: 1,
+  Website: 2,
+  Launched: 3,
+};
+
+function isCandidateLaunched(c) {
+  const m = c?.meta || {};
+  return Boolean(m.lastLaunchAt || m.lastShipAt);
+}
+
+/** Pipeline rank for the Type column (highest wins). */
+function candidatePipelineRank(c) {
+  if (isCandidateLaunched(c)) return 'Launched';
+  if (c?.decision === 'pursue') return 'Website';
+  if (c?.stageFlags?.hasResearch) return 'Research';
+  return 'Discovery';
+}
+
+function launchedBadgeHtml() {
+  return `<span class="cand-live-badge" data-tip="Launched" aria-label="Launched"><svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false"><circle cx="8" cy="11" r="1.35" fill="currentColor"/><path d="M5.15 8.35a4.1 4.1 0 0 1 5.7 0" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round"/><path d="M3.55 6.35a6.4 6.4 0 0 1 8.9 0" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round"/></svg></span>`;
+}
 
 const STAGE_STEP_TIPS = {
   1: '1 · SERP / Volume complete',
   2: '2 · Enrich complete',
   3: '3 · Narrative complete',
   4: '4 · Prospects complete',
+};
+
+const WEBSITE_TRACK_TIPS = {
+  1: '1 · Site-Config complete',
+  2: '2 · Content complete',
+  3: '3 · Launch complete',
 };
 
 /** Highest completed Research→Prospects stage (0 = none). */
@@ -2924,6 +3251,16 @@ function candidateHighestStageStep(c) {
   if (f.hasNarrative) return 3;
   if (f.hasEnrichment) return 2;
   if (f.hasResearch) return 1;
+  return 0;
+}
+
+/** Highest completed Website track (0 = none). */
+function candidateHighestWebsiteTrack(c) {
+  const m = c?.meta || {};
+  const f = c?.stageFlags || {};
+  if (m.lastLaunchAt || m.lastShipAt || m.cloudflarePagesDone || m.dnsDone) return 3;
+  if (f.hasContent) return 2;
+  if (f.hasSiteConfig) return 1;
   return 0;
 }
 
@@ -2957,11 +3294,11 @@ function undeletableIdsInSelection(ids = [...state.selectedIds]) {
   });
 }
 
-function stageStepIconHtml(step) {
+function stageStepIconHtml(step, tips = STAGE_STEP_TIPS) {
   const n = Number(step) || 0;
   if (n < 1 || n > 4) return '<span class="muted">—</span>';
   return `<span class="stage-step-icon stage-step-${n}" data-tip="${esc(
-    STAGE_STEP_TIPS[n],
+    tips[n] || '',
   )}">${n}</span>`;
 }
 
@@ -3063,6 +3400,58 @@ function candidateSelectionLocked() {
   );
 }
 
+const DETAIL_SHELF_KEY = 'ops.detailShelf';
+
+function readDetailShelf() {
+  try {
+    return localStorage.getItem(DETAIL_SHELF_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function persistDetailShelf(on) {
+  try {
+    localStorage.setItem(DETAIL_SHELF_KEY, on ? '1' : '0');
+  } catch {
+    /* ignore */
+  }
+}
+
+function detailShelfToggleInnerHtml(expanded) {
+  const icon = expanded
+    ? '<svg class="detail-shelf-toggle-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m6 17 5-5-5-5"/><path d="m13 17 5-5-5-5"/></svg>'
+    : '<svg class="detail-shelf-toggle-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m11 17-5-5 5-5"/><path d="m18 17-5-5 5-5"/></svg>';
+  return `${icon}<span>${expanded ? 'Collapse' : 'Expand'}</span>`;
+}
+
+function applyDetailShelf(on = readDetailShelf()) {
+  const allowed = state.tab === 'website' && state.websiteOpenStep === 'images';
+  const layout = document.getElementById('view-candidates');
+  layout?.classList.toggle('layout-detail-shelf', Boolean(on) && allowed);
+  const btn = document.getElementById('detail-shelf-toggle');
+  if (btn) {
+    btn.classList.toggle('hidden', !allowed);
+    const expanded = Boolean(on) && allowed;
+    btn.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+    btn.innerHTML = detailShelfToggleInnerHtml(expanded);
+    setElementTip(btn, expanded ? 'Collapse to sidebar width' : 'Expand sidebar over the table');
+  }
+}
+
+function toggleDetailShelf() {
+  if (!(state.tab === 'website' && state.websiteOpenStep === 'images')) return;
+  const next = !readDetailShelf();
+  persistDetailShelf(next);
+  applyDetailShelf(next);
+  if (candidateSelectionLocked()) {
+    requestAnimationFrame(() => {
+      serviceAreaMount?.invalidateSize?.();
+      requestAnimationFrame(() => serviceAreaMount?.invalidateSize?.());
+    });
+  }
+}
+
 function syncCandidatesDetailVisibility() {
   const empty = document.getElementById('empty-detail');
   const detail = document.getElementById('detail');
@@ -3071,6 +3460,7 @@ function syncCandidatesDetailVisibility() {
   const collapsed =
     !saMapOpen && state.selectedIds.size === 0 && !state.selectedId;
   layout?.classList.toggle('layout-detail-collapsed', collapsed);
+  applyDetailShelf();
 
   if (!empty || !detail) return;
   if (state.selectedIds.size > 1) {
@@ -3232,10 +3622,17 @@ function renderList() {
     if (c.key === '_select') {
       return `<th data-tip="${esc(c.tip || '')}"><input type="checkbox" id="candidate-select-all" data-tip="Select filtered" /></th>`;
     }
-    if (c.key === '_stageProgress') {
+    if (c.key === '_live') {
       const mark = sort.key === c.key ? (sort.dir === 1 ? ' ▲' : ' ▼') : '';
       const cls = [c.sortable ? 'sortable' : '', c.cellClass || ''].filter(Boolean).join(' ');
       return `<th class="${cls}" data-sort="${esc(c.key)}" data-tip="${esc(c.tip || '')}">${mark}</th>`;
+    }
+    if (c.key === '_stageProgress' || c.key === '_websiteTrack') {
+      const mark = sort.key === c.key ? (sort.dir === 1 ? ' ▲' : ' ▼') : '';
+      const cls = [c.sortable ? 'sortable' : '', c.cellClass || ''].filter(Boolean).join(' ');
+      return `<th class="${cls}" data-sort="${esc(c.key)}" data-tip="${esc(c.tip || '')}"><span class="th-label th-rover-mark">${esc(
+        c.label,
+      )}</span>${mark}</th>`;
     }
     const mark = sort.key === c.key ? (sort.dir === 1 ? ' ▲' : ' ▼') : '';
     const cls = [c.sortable ? 'sortable' : '', c.cellClass || ''].filter(Boolean).join(' ');
@@ -3275,8 +3672,17 @@ function renderList() {
             c.id,
           )}" ${checked} /></td>`;
         }
+        if (col.key === '_live') {
+          return `<td${tdClass}>${isCandidateLaunched(c) ? launchedBadgeHtml() : ''}</td>`;
+        }
         if (col.key === '_stageProgress') {
           return `<td${tdClass}>${stageStepIconHtml(candidateHighestStageStep(c))}</td>`;
+        }
+        if (col.key === '_websiteTrack') {
+          return `<td${tdClass}>${stageStepIconHtml(
+            candidateHighestWebsiteTrack(c),
+            WEBSITE_TRACK_TIPS,
+          )}</td>`;
         }
         if (col.key === 'niche') {
           return `<td${tdClass} data-tip="${esc(c.id)}"><span class="cell-text">${esc(
@@ -3460,6 +3866,9 @@ function renderList() {
             spend.total == null ? '—' : esc(formatMoney(spend.total));
           return `<td${tdClass} data-tip="${esc(tip)}">${label}</td>`;
         }
+        if (col.key === '_rank') {
+          return `<td${tdClass}>${esc(candidatePipelineRank(c))}</td>`;
+        }
         return `<td${tdClass}>—</td>`;
       });
       return `<tr class="${active}" data-id="${esc(c.id)}">${cells.join('')}</tr>`;
@@ -3497,7 +3906,7 @@ function renderList() {
     th.addEventListener('click', () => {
       const key = th.dataset.sort;
       if (state.candidateSort.key === key) state.candidateSort.dir *= -1;
-      else state.candidateSort = { key, dir: key === 'proposedScore' ? -1 : 1 };
+      else state.candidateSort = { key, dir: key === 'proposedScore' || key === '_live' || key === '_rank' || key === '_websiteTrack' ? -1 : 1 };
       renderList();
     });
   });
@@ -3531,6 +3940,32 @@ function renderList() {
     });
   });
   tbody.querySelectorAll('.cand-check').forEach((cb) => {
+    const applyCandShiftRange = (e) => {
+      const id = cb.dataset.id;
+      return applyShiftRangeCheckboxClick(e, {
+        visibleKeys: list.map((c) => c.id),
+        clickedKey: id,
+        anchorKey: state.candidateCheckAnchor,
+        setAnchor: (key) => {
+          state.candidateCheckAnchor = key;
+        },
+        setSelected: (key, on) => {
+          if (on) state.selectedIds.add(key);
+          else state.selectedIds.delete(key);
+        },
+      });
+    };
+    cb.addEventListener('pointerdown', (e) => {
+      e.stopPropagation();
+      if (candidateSelectionLocked()) {
+        e.preventDefault();
+        cb.checked = state.selectedIds.has(cb.dataset.id);
+        return;
+      }
+      if (!e.shiftKey || state.candidateCheckAnchor == null) return;
+      blockShiftRangePointerDown(e, state.candidateCheckAnchor);
+      if (applyCandShiftRange(e)) afterCandidateCheckboxSelection(list);
+    });
     cb.addEventListener('click', (e) => {
       e.stopPropagation();
       if (candidateSelectionLocked()) {
@@ -3538,22 +3973,7 @@ function renderList() {
         cb.checked = state.selectedIds.has(cb.dataset.id);
         return;
       }
-      const id = cb.dataset.id;
-      const visibleKeys = list.map((c) => c.id);
-      const ranged = applyShiftRangeCheckboxClick(e, {
-        visibleKeys,
-        clickedKey: id,
-        anchorKey: state.candidateCheckAnchor,
-        setAnchor: (key) => {
-          state.candidateCheckAnchor = key;
-        },
-        isSelected: (key) => state.selectedIds.has(key),
-        setSelected: (key, on) => {
-          if (on) state.selectedIds.add(key);
-          else state.selectedIds.delete(key);
-        },
-      });
-      if (ranged) afterCandidateCheckboxSelection(list);
+      if (applyCandShiftRange(e)) afterCandidateCheckboxSelection(list);
     });
     cb.addEventListener('change', (e) => {
       e.stopPropagation();
@@ -3562,6 +3982,10 @@ function renderList() {
         return;
       }
       const id = cb.dataset.id;
+      if (consumeShiftRangeChange(cb, id)) {
+        cb.checked = state.selectedIds.has(id);
+        return;
+      }
       state.candidateCheckAnchor = id;
       if (cb.checked) state.selectedIds.add(id);
       else state.selectedIds.delete(id);
@@ -3587,7 +4011,7 @@ function renderList() {
   updateCandidateSelectionCount();
   renderActions();
   enableTableColumnResize(document.getElementById('candidate-table'), {
-    freezeCols: 5,
+    freezeCols: 7,
   });
 }
 
@@ -3783,6 +4207,212 @@ function setAdsMode(mode) {
     /* ignore */
   }
   return next;
+}
+
+const CLAUDE_UI_MODE_KEY = 'ops.claudeUiMode';
+const CLAUDE_UI_RESTORE_KEY = 'ops.claudeUiRestore';
+const CLAUDE_UI_VIEWS = new Set([
+  'discovery',
+  'research',
+  'website-builder',
+  'launched-sites',
+  'phone',
+  'map',
+  'photo',
+]);
+
+function getClaudeUiMode() {
+  try {
+    return localStorage.getItem(CLAUDE_UI_MODE_KEY) === 'api' ? 'api' : 'paste';
+  } catch {
+    return 'paste';
+  }
+}
+
+function setClaudeUiMode(mode) {
+  const next = mode === 'api' ? 'api' : 'paste';
+  try {
+    localStorage.setItem(CLAUDE_UI_MODE_KEY, next);
+  } catch {
+    /* ignore */
+  }
+  return next;
+}
+
+function anthropicConfigured() {
+  const items = state.health?.connections?.items;
+  if (Array.isArray(items)) {
+    const row = items.find((i) => String(i.name || '') === 'Anthropic');
+    if (row) return Boolean(row.ok);
+  }
+  return Boolean(state.apiCostConfigured?.anthropic);
+}
+
+function effectiveClaudeUiMode() {
+  const stored = getClaudeUiMode();
+  if (stored === 'api' && !anthropicConfigured()) return 'paste';
+  return stored;
+}
+
+function applyClaudeUiModeAttr(mode = effectiveClaudeUiMode()) {
+  document.documentElement.setAttribute('data-claude-mode', mode === 'api' ? 'api' : 'paste');
+}
+
+function writeSiteJobRunning() {
+  const jobs = state.lightJobsSnap?.jobs || [];
+  return jobs.some(
+    (j) => j.phase === 'write-site' && (j.status === 'running' || j.status === 'queued'),
+  );
+}
+
+function generatePackJobRunning() {
+  const jobs = state.lightJobsSnap?.jobs || [];
+  return jobs.some(
+    (j) => j.phase === 'generate-pack' && (j.status === 'running' || j.status === 'queued'),
+  );
+}
+
+function claudeApiJobRunning() {
+  return writeSiteJobRunning() || generatePackJobRunning() || Boolean(state.claudeBusy);
+}
+
+function showAppBootLoading(text = 'Loading…') {
+  const boot = document.getElementById('app-boot-loading');
+  if (!boot) return;
+  const label = boot.querySelector('.rover-loading-text');
+  if (label) label.textContent = String(text || 'Loading…');
+  boot.classList.remove('hidden');
+  boot.setAttribute('aria-hidden', 'false');
+  boot.setAttribute('aria-busy', 'true');
+}
+
+function peekClaudeUiRestore() {
+  try {
+    const raw = sessionStorage.getItem(CLAUDE_UI_RESTORE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function takeClaudeUiRestore() {
+  const parsed = peekClaudeUiRestore();
+  try {
+    sessionStorage.removeItem(CLAUDE_UI_RESTORE_KEY);
+  } catch {
+    /* ignore */
+  }
+  return parsed;
+}
+
+function stashClaudeUiRestore() {
+  const payload = {
+    view: state.view,
+    tab: state.tab,
+    selectedId: state.selectedId || null,
+    selectedIds: [...state.selectedIds],
+  };
+  try {
+    sessionStorage.setItem(CLAUDE_UI_RESTORE_KEY, JSON.stringify(payload));
+  } catch {
+    /* ignore */
+  }
+}
+
+function syncClaudeModeToggle() {
+  const stored = getClaudeUiMode();
+  const anthropicOk = anthropicConfigured();
+  const effective = anthropicOk ? stored : 'paste';
+  applyClaudeUiModeAttr(effective);
+  const pasteBtn = document.getElementById('claude-mode-paste');
+  const apiBtn = document.getElementById('claude-mode-api');
+  const locked = claudeApiJobRunning();
+  if (pasteBtn) {
+    pasteBtn.classList.toggle('active', effective === 'paste');
+    pasteBtn.disabled = locked;
+    if (locked) {
+      setElementTip(pasteBtn, 'Wait until the Claude API job finishes.');
+    } else {
+      pasteBtn.removeAttribute('data-tip');
+      pasteBtn.setAttribute('aria-label', 'Copy and paste');
+    }
+  }
+  if (apiBtn) {
+    apiBtn.classList.toggle('active', effective === 'api');
+    apiBtn.disabled = locked || !anthropicOk;
+    if (!anthropicOk) {
+      setElementTip(
+        apiBtn,
+        'Add ANTHROPIC_API_KEY to .env and restart Rover to use Anthropic API mode.',
+      );
+    } else if (locked) {
+      setElementTip(apiBtn, 'Wait until the Claude API job finishes.');
+    } else {
+      setElementTip(apiBtn, 'Use Claude through the Anthropic API instead of Copy and paste.');
+    }
+  }
+  syncDiscoveryClaudeModeUi();
+}
+
+function switchClaudeUiMode(next) {
+  const want = next === 'api' ? 'api' : 'paste';
+  if (want === 'api' && !anthropicConfigured()) return;
+  if (claudeApiJobRunning()) return;
+  if (want === effectiveClaudeUiMode()) {
+    setClaudeUiMode(want);
+    syncClaudeModeToggle();
+    return;
+  }
+  setClaudeUiMode(want);
+  applyClaudeUiModeAttr(want);
+  stashClaudeUiRestore();
+  showAppBootLoading();
+  location.reload();
+}
+
+async function applyClaudeUiRestore() {
+  const stash = takeClaudeUiRestore();
+  if (!stash) return;
+  if (stash.tab) state.tab = stash.tab;
+  const ids = Array.isArray(stash.selectedIds)
+    ? stash.selectedIds.map((id) => String(id || '').trim()).filter(Boolean)
+    : [];
+  const selectedId = String(stash.selectedId || ids[0] || '').trim();
+  if (!isCandidatesShellView(state.view)) return;
+  try {
+    if (ids.length > 1) {
+      state.selectedIds = new Set(ids);
+      state.selectedId = selectedId || ids[0];
+      renderList();
+      renderMultiDetail();
+      renderActions();
+      return;
+    }
+    if (selectedId) {
+      await selectCandidate(selectedId);
+    }
+  } catch {
+    /* candidate may have been deleted */
+  }
+}
+
+function wireClaudeModeUi() {
+  document.getElementById('claude-mode-paste')?.addEventListener('click', () => {
+    switchClaudeUiMode('paste');
+  });
+  document.getElementById('claude-mode-api')?.addEventListener('click', () => {
+    switchClaudeUiMode('api');
+  });
+  window.addEventListener('storage', (event) => {
+    if (event.key !== CLAUDE_UI_MODE_KEY) return;
+    if (event.newValue === event.oldValue) return;
+    if (claudeApiJobRunning()) return;
+    showAppBootLoading();
+    location.reload();
+  });
+  syncClaudeModeToggle();
 }
 
 function readBaViewpointMap() {
@@ -3999,6 +4629,10 @@ function jobActLabel(act) {
       narrative: 'Narrative',
       prospects: 'Prospects',
       outreach: 'Outreach',
+      'write-site': 'Write site',
+      writeSite: 'Write site',
+      'generate-pack': 'Generate pack',
+      generatePack: 'Generate pack',
     }[act] || act || 'job'
   );
 }
@@ -4035,6 +4669,7 @@ function clearJobBusy() {
   state.activeAct = null;
   state.jobStatusLine = '';
   state.claudeBusy = false;
+  syncClaudeModeToggle();
 }
 
 async function confirmBatchPaidAction(act, ids) {
@@ -4203,7 +4838,9 @@ function renderActions() {
     : 'Evaluation 2 — page fetch, Domain Rank, thinness / displaceability';
   const narrTip = !narrGateOk
     ? 'Complete Evaluation 2 (Enrich) first'
-    : 'Copy Claude.ai prompt, then paste the JSON result on the Narrative tab (default — no API cost)';
+    : effectiveClaudeUiMode() === 'api'
+      ? 'Run Narrative via the Anthropic API (confirm cost first)'
+      : 'Copy Claude.ai prompt, then paste the JSON result on the Narrative tab (default — no API cost)';
   const prospectsTip = !prospectsGateOk
     ? 'Complete Evaluation 3 (Narrative) first'
     : 'Find local businesses via Maps SERP (optional)';
@@ -4276,10 +4913,18 @@ function renderActions() {
                 : ''
         }</span></span>
         <div class="action-group-btns">
-          <button type="button" class="btn btn-sm primary" data-act="copy-prompt" ${
-            narrDisabled ? 'disabled' : ''
-          } data-tip="${esc(narrTip)}">Copy prompt</button>
-          ${openClaudeAiBtnHtml({ disabled: narrDisabled, sm: true })}
+          ${
+            effectiveClaudeUiMode() === 'api'
+              ? `<button type="button" class="btn btn-sm primary" data-act="narrative" ${
+                  narrDisabled ? 'disabled' : ''
+                } data-tip="${esc(narrTip)}">${
+                  runningAct === 'narrative' ? 'Running…' : narrDraft || narrAccepted ? 'Re-run Narrative' : 'Run Narrative'
+                }</button>`
+              : `<button type="button" class="btn btn-sm primary" data-act="copy-prompt" ${
+                  narrDisabled ? 'disabled' : ''
+                } data-tip="${esc(narrTip)}">Copy prompt</button>
+          ${openClaudeAiBtnHtml({ disabled: narrDisabled, sm: true })}`
+          }
         </div>
       </div>
       <span class="stage-rail-sep" aria-hidden="true"></span>
@@ -4436,6 +5081,8 @@ async function handleAction(act, btn) {
         state.activeAct = 'narrative';
         state.jobStatusLine = 'Calling Claude…';
         renderActions();
+        syncClaudeModeToggle();
+        if (state.tab === 'narrative') renderDetail();
         try {
           const result = await api(`/api/candidates/${encodeURIComponent(ids[0])}/narrative`, {
             method: 'POST',
@@ -4605,12 +5252,15 @@ async function handleAction(act, btn) {
       state.claudeBusy = true;
       state.activeAct = 'outreach';
       renderActions();
+      syncClaudeModeToggle();
+      if (state.tab === 'prospects') renderDetail();
       try {
         const result = await api(`/api/candidates/${encodeURIComponent(id)}/prospects-outreach`, {
           method: 'POST',
           body: '{}',
         });
-        state.detail = await api(`/api/candidates/${encodeURIComponent(id)}`);
+        const candidate = await api(`/api/candidates/${encodeURIComponent(id)}`);
+        state.detail = { ...candidate, _outreachDraft: result.draft };
         state.tab = 'prospects';
         renderDetail();
         await showActualCostModal({
@@ -5407,6 +6057,7 @@ function narrativeReviewHtml(doc, { pending = false } = {}) {
 }
 
 function narrativePasteBoxHtml({ replace = false, hideHeading = false } = {}) {
+  if (effectiveClaudeUiMode() === 'api') return '';
   return `
     <div class="narrative-paste">
       ${hideHeading ? '' : `<h3>${replace ? 'Replace draft from paste' : 'Paste Claude.ai JSON'}</h3>`}
@@ -5423,26 +6074,43 @@ function renderNarrative() {
   const draft = state.detail.narrativeDraft;
   const accepted = state.detail.narrative;
   const busy = state.claudeBusy && state.activeAct === 'narrative';
+  const apiMode = effectiveClaudeUiMode() === 'api';
   const parts = [];
   parts.push(
     panelHowToHtml({
       label: 'Narrative',
-      info: 'Copy prompt → Claude.ai → paste JSON → Load as draft (auto-accepts when valid). Optional Anthropic API is on the stage rail only when a key is set — never required.',
+      info: apiMode
+        ? 'Run Narrative from Evaluation 3. Valid JSON is accepted automatically. If the draft needs fixes, Accept or Reject here.'
+        : 'Copy prompt → Claude.ai → paste JSON → Load as draft (auto-accepts when valid). Optional Anthropic API is on the stage rail only when a key is set — never required.',
     }),
   );
   if (busy) {
-    parts.push(`<div class="callout warn">Calling Claude… results will appear here when ready.</div>`);
+    parts.push(`<div id="ca-narrative-progress" class="job-progress" aria-live="polite">
+      <div class="job-progress-track"><div class="job-progress-bar"></div></div>
+      <p class="job-progress-label">Run Narrative</p>
+      <p class="job-progress-detail">Calling Claude…</p>
+    </div>`);
   }
   if (draft) {
     parts.push(narrativeReviewHtml(draft, { pending: true }));
     parts.push(narrativePasteBoxHtml({ replace: true }));
   } else if (accepted) {
-    parts.push(`
+    if (apiMode) {
+      parts.push(
+        `<p class="muted">Replace from Evaluation 3 → Re-run Narrative.</p>`,
+      );
+    } else {
+      parts.push(`
       <details class="narrative-replace">
         <summary>Replace draft from paste</summary>
         ${narrativePasteBoxHtml({ replace: true, hideHeading: true })}
       </details>
     `);
+    }
+  } else if (apiMode) {
+    parts.push(
+      `<p class="muted">No narrative yet — select this candidate and <strong>Run Narrative</strong> on Evaluation 3.</p>`,
+    );
   } else {
     parts.push(narrativePasteBoxHtml({ replace: false }));
   }
@@ -6652,6 +7320,7 @@ function renderSiteConfig() {
   const draft = d?.siteConfigDraft;
   const accepted = d?.siteConfig;
   const ready = Boolean(f.hasNarrative && f.hasApproved && decision === 'pursue');
+  const apiMode = effectiveClaudeUiMode() === 'api';
   const brandForLook = {
     ...(draft || accepted)?.brand,
     paletteId:
@@ -6716,16 +7385,17 @@ function renderSiteConfig() {
   const serviceAreaDone =
     stepDone.serviceArea || isSoftDone('siteConfigSoftDone', 'service-area');
   const phoneDone = stepDone.phone;
-  // Forward-only: 1 look → 2 address → 3 domain → 4 details → 5 paste → 6 services → 7 service-area → 8 phone
+  const detailsGateDone = apiMode ? Boolean(draft || accepted) : detailsDone;
+  // Forward-only: paste mode 4 details → 5 paste → 6 services; API 4 details (until draft) → 5 services
   const durableCurrent = !lookDone
     ? 'look'
     : !addressDone
       ? 'address'
       : !domainDone
         ? 'domain'
-        : !detailsDone
+        : !detailsGateDone
           ? 'details'
-          : !pasteDone
+          : !apiMode && !pasteDone
             ? 'paste'
             : !servicesDone
               ? 'services'
@@ -6734,7 +7404,13 @@ function renderSiteConfig() {
                 : !phoneDone
                   ? 'phone'
                   : null;
-  const currentId = resolvePanelCurrent('siteConfigSoftCurrent', durableCurrent);
+  const scStepOrder = apiMode
+    ? SITE_CONFIG_STEP_ORDER.filter((id) => id !== 'paste')
+    : SITE_CONFIG_STEP_ORDER;
+  const currentId = resolvePanelCurrent('siteConfigSoftCurrent', durableCurrent, scStepOrder);
+  if (apiMode && state.siteConfigOpenStep === 'paste') {
+    state.siteConfigOpenStep = pasteDone ? 'services' : 'details';
+  }
   if (state.siteConfigFollowCurrent !== currentId) {
     state.siteConfigOpenStep = currentId;
     state.siteConfigFollowCurrent = currentId;
@@ -6745,7 +7421,9 @@ function renderSiteConfig() {
   parts.push(
     panelHowToHtml({
       label: 'Site config',
-      info: '1 Colors & fonts → 2 Address → 3 Domain → 4 Business details → 5 Paste & edit draft → 6 Review services & Accept → 7 Service area → 8 Provision phone → Content.',
+      info: apiMode
+        ? '1 Colors & fonts → 2 Address → 3 Domain → 4 Business details (Fill site-config) → 5 Review services & Accept → 6 Service area → 7 Provision phone → Content.'
+        : '1 Colors & fonts → 2 Address → 3 Domain → 4 Business details → 5 Paste & edit draft → 6 Review services & Accept → 7 Service area → 8 Provision phone → Content.',
     }),
   );
   if (isSelectedLaunched()) {
@@ -6792,10 +7470,12 @@ function renderSiteConfig() {
     }
   }
 
-  const lockedUntilAccept =
-    '<p class="muted small">Locked until you <strong>Accept</strong> site-config in Review services (step 6).</p>';
-  const lockedUntilDraft =
-    '<p class="muted small">Locked until you <strong>Load draft</strong> in Paste Claude’s reply (step 5).</p>';
+  const lockedUntilAccept = apiMode
+    ? '<p class="muted small">Locked until you <strong>Accept</strong> site-config in Review services (step 5).</p>'
+    : '<p class="muted small">Locked until you <strong>Accept</strong> site-config in Review services (step 6).</p>';
+  const lockedUntilDraft = apiMode
+    ? '<p class="muted small">Locked until you <strong>Fill site-config</strong> in Business details (step 4).</p>'
+    : '<p class="muted small">Locked until you <strong>Load draft</strong> in Paste Claude’s reply (step 5).</p>';
 
   parts.push(
     contentStepHtml({
@@ -6805,7 +7485,9 @@ function renderSiteConfig() {
       done: lookDone,
       open: openId === 'look',
       current: currentId === 'look' && !lookDone,
-      info: 'Pick a brand palette and a site-wide text font first. Apply saves the look, then continue to Address → Domain → Business details → Copy.',
+      info: apiMode
+        ? 'Pick a brand palette and a site-wide text font first. Apply saves the look, then continue to Address → Domain → Business details → Fill site-config.'
+        : 'Pick a brand palette and a site-wide text font first. Apply saves the look, then continue to Address → Domain → Business details → Copy.',
       bodyHtml: `
         <h4>Site colors</h4>
         <div class="site-config-palette">
@@ -6830,7 +7512,11 @@ function renderSiteConfig() {
         ${
           draft || accepted
             ? ''
-            : `<p class="muted small">No draft yet — Apply look remembers your choice and steers the Copy prompt; it writes into site-config when you Load draft.</p>`
+            : `<p class="muted small">No draft yet — Apply look remembers your choice and steers the ${
+                apiMode ? 'Fill site-config' : 'Copy'
+              } prompt; it writes into site-config when you ${
+                apiMode ? 'Fill site-config' : 'Load draft'
+              }.</p>`
         }`,
     }),
   );
@@ -7330,25 +8016,31 @@ function renderSiteConfig() {
           </li>`;
         })
         .join('')}</ul>`
-    : `<p class="muted small">Paste Claude’s reply and Load to see top Exact Match suggestions.</p>`;
+    : `<p class="muted small">${
+        apiMode
+          ? 'Run Suggest domains to see top Exact Match hosts.'
+          : 'Paste Claude’s reply and Load to see top Exact Match suggestions.'
+      }</p>`;
 
-  parts.push(
-    contentStepHtml({
-      id: 'domain',
-      num: 3,
-      title: 'Domain',
-      done: domainDone,
-      open: openId === 'domain',
-      current: currentId === 'domain' && !domainDone,
-      info: 'Copy the Exact Domain Match prompt, paste Claude’s top 10 (primary city first only), pick one (or enter a custom host), buy on Cloudflare if needed, then Continue to Business details.',
-      bodyHtml: `
-        <p class="disc-tool-blurb">Claude suggests Exact Domain Match hosts that start with the primary city and the niche’s strongest keywords (plus a few city-first suffixes like pros / elite). No other cities. Availability is Claude’s best guess only — confirm when you buy.</p>
-        <div class="narrative-actions">
+  const domainBusy = Boolean(state.claudeBusy && state.activeAct === 'domain-pick');
+  const domainGateOk = ready || f.hasApproved;
+  const domainSuggestLabel = domainBusy
+    ? 'Suggesting…'
+    : domainSuggestions.length
+      ? 'Re-run Suggest domains'
+      : 'Suggest domains';
+  const domainClaudeHtml = apiMode
+    ? `<div class="narrative-actions">
+          <button type="button" class="btn primary" id="sc-domain-suggest" data-tip="Fill Exact Match hosts via the Anthropic API (confirm cost first)" ${
+            domainGateOk && !domainBusy ? '' : 'disabled'
+          }${domainBusy ? ' aria-busy="true"' : ''}>${esc(domainSuggestLabel)}</button>
+        </div>`
+    : `<div class="narrative-actions">
           <button type="button" class="btn primary" id="sc-domain-copy-prompt" data-tip="Copy Exact Domain Match prompt for Claude.ai" ${
-            ready || f.hasApproved ? '' : 'disabled'
+            domainGateOk ? '' : 'disabled'
           }>Copy domain prompt</button>
           ${openClaudeAiBtnHtml({
-            disabled: !(ready || f.hasApproved),
+            disabled: !domainGateOk,
             id: 'sc-domain-open-claude',
             tip: 'Open Claude.ai (paste the copied domain prompt)',
           })}
@@ -7359,7 +8051,22 @@ function renderSiteConfig() {
           <div class="narrative-actions">
             <button type="button" class="btn primary" id="sc-domain-paste-load" data-tip="Parse pasted domains into the list below">Load</button>
           </div>
-        </div>
+        </div>`;
+
+  parts.push(
+    contentStepHtml({
+      id: 'domain',
+      num: 3,
+      title: 'Domain',
+      done: domainDone,
+      open: openId === 'domain',
+      current: currentId === 'domain' && !domainDone,
+      info: apiMode
+        ? 'Run Suggest domains for Exact Match hosts (primary city first only), pick one (or enter a custom host), buy on Cloudflare if needed, then Continue to Business details.'
+        : 'Copy the Exact Domain Match prompt, paste Claude’s top 10 (primary city first only), pick one (or enter a custom host), buy on Cloudflare if needed, then Continue to Business details.',
+      bodyHtml: `
+        <p class="disc-tool-blurb">Claude suggests Exact Domain Match hosts that start with the primary city and the niche’s strongest keywords (plus a few city-first suffixes like pros / elite). No other cities. Availability is Claude’s best guess only — confirm when you buy.</p>
+        ${domainClaudeHtml}
         <div class="sc-domain-pick" style="margin-top:0.65rem">
           <h4>Suggestions</h4>
           ${domainRowsHtml}
@@ -7380,114 +8087,37 @@ function renderSiteConfig() {
     }),
   );
 
-  parts.push(
-    contentStepHtml({
-      id: 'details',
-      num: 4,
-      title: 'Business details',
-      done: detailsDone,
-      open: openId === 'details',
-      current: currentId === 'details' && !detailsDone,
-      info: 'Domain comes from step 3 when set. Fill name, email, and radius. Phone is optional here — ranking number comes in step 8. Address comes from step 2 when set. Copy site-config prompt, then Paste.',
-      bodyHtml: `
-        <p class="disc-tool-blurb">Used when you copy the prompt and merged into the draft if Claude leaves blanks.</p>
-        <div class="site-config-nap">
-          <label>
-            <span class="label-with-tip-head">
-              <span>Domain</span>
-              <button type="button" class="tip-info" data-tip="Public hostname without https:// (e.g. yourdomain.com). Prefills from Domain step." aria-label="About Domain">i</button>
-            </span>
-            <input id="sc-domain" type="text" value="${esc(nap.domain || '')}" placeholder="yourdomain.com" />
-          </label>
-          <label>
-            <span class="label-with-tip-head">
-              <span>Business name</span>
-              <button type="button" class="tip-info" data-tip="Customer-facing brand name on the site." aria-label="About Business name">i</button>
-            </span>
-            <input id="sc-business" type="text" value="${esc(nap.businessName || '')}" placeholder="Brand LLC" />
-          </label>
-          <label>
-            <span class="label-with-tip-head">
-              <span>Phone</span>
-              <button type="button" class="tip-info" data-tip="Optional for the Claude prompt. Your ranking number is set in step 8 (Provision phone) and replaces this on the live site-config." aria-label="About Phone">i</button>
-            </span>
-            <input id="sc-phone" type="text" value="${esc(nap.phone || '')}" placeholder="Optional — provision in step 8" />
-          </label>
-          <label class="site-config-email">
-            <span class="label-with-tip-head">
-              <span>Email</span>
-              <button type="button" class="tip-info" data-tip="Public site leads address (usually leads@yourdomain.com) — shown in footer, contact, and schema. Not your personal Gmail." aria-label="About Email">i</button>
-            </span>
-            <input id="sc-email" type="email" value="${esc(nap.email || '')}" placeholder="leads@yourdomain.com" />
-          </label>
-          <label class="site-config-radius">
-            <span class="label-with-tip-head">
-              <span>Radius (mi)</span>
-              <button type="button" class="tip-info" data-tip="Default radius seed for Service area map." aria-label="About Radius">i</button>
-            </span>
-            <input id="sc-radius" type="text" value="${esc(nap.radiusMiles || '40')}" />
-          </label>
-          <label class="site-config-span2">
-            <span class="label-with-tip-head">
-              <span>Street</span>
-              <button type="button" class="tip-info" data-tip="From Address step — edit only if needed. Leave blank to omit LocalBusiness street." aria-label="About Street">i</button>
-            </span>
-            <input id="sc-street" type="text" value="${esc(preStreet)}" placeholder="From Address step or blank" />
-          </label>
-          <label>
-            <span>City</span>
-            <input id="sc-addr-city" type="text" value="${esc(preCity)}" />
-          </label>
-          <label>
-            <span>State</span>
-            <input id="sc-addr-state" type="text" value="${esc(preState)}" maxlength="2" />
-          </label>
-          <label>
-            <span>ZIP</span>
-            <input id="sc-zip" type="text" value="${esc(preZip)}" placeholder="00000" />
-          </label>
-        </div>
-        <div class="narrative-actions" style="justify-content:flex-end">
+  const scBusy = Boolean(state.claudeBusy && state.activeAct === 'site-config');
+  const scGenerateLabel = scBusy ? 'Filling…' : draft ? 'Re-run' : 'Fill site-config';
+  const detailsClaudeHtml = apiMode
+    ? `<div class="narrative-actions" style="justify-content:flex-end">
+          <button type="button" class="btn primary" id="sc-site-config-generate" data-tip="Fill site-config draft via the Anthropic API (confirm cost first). Accept stays in Review services." ${
+            (ready || f.hasApproved) && !scBusy ? '' : 'disabled'
+          }${scBusy ? ' aria-busy="true"' : ''}>${esc(scGenerateLabel)}</button>
+        </div>`
+    : `<div class="narrative-actions" style="justify-content:flex-end">
           <button type="button" class="btn primary" id="sc-copy-prompt" data-tip="Copy Claude.ai site-config prompt (stays on this step)" ${ready || f.hasApproved ? '' : 'disabled'}>Copy site-config prompt</button>
           ${openClaudeAiBtnHtml({
             disabled: !(ready || f.hasApproved),
             id: 'sc-open-claude',
             tip: 'Open Claude.ai and continue to Paste Claude’s reply',
           })}
-        </div>`,
-    }),
-  );
+        </div>`;
 
-  const pasteParts = [];
-  pasteParts.push(`
-    <div class="narrative-paste">
-      <h4>${draft ? 'Replace from Claude' : 'Paste Claude’s reply'}</h4>
-      <p class="muted">Paste Claude’s full reply below, then <strong>Load draft</strong>. Edit fields here, then continue to <strong>Review services</strong> to Accept. Extra commentary after the JSON is fine.</p>
-      <textarea id="site-config-paste" class="narrative-paste-input" rows="2" placeholder="Paste Claude’s site-config reply here…" data-tip="Paste Claude site-config reply"></textarea>
-      <div class="narrative-actions">
-        <button type="button" class="btn primary" id="site-config-paste-load-btn" data-tip="Load paste as draft — then edit fields and Accept in Review services" ${
-          f.hasApproved ? '' : 'disabled'
-        }>Load draft</button>
-      </div>
-      <p class="disc-tool-blurb"><strong>Load draft</strong> does not write the live config yet — Accept is in the next step.</p>
-    </div>
-  `);
-
+  const draftEditParts = [];
   if (draft?._ops?.suburbCheck?.warnings?.length) {
-    pasteParts.push(
+    draftEditParts.push(
       `<div class="callout warn">Suburb warnings: ${esc(draft._ops.suburbCheck.warnings.join('; '))}</div>`,
     );
   }
-
   const ph = draft?._ops?.placeholders || [];
   if (draft && ph.length) {
-    pasteParts.push(
+    draftEditParts.push(
       `<div class="callout warn">Still need filling: <code>${esc(ph.join(', '))}</code> — edit the matching fields below before Accept (or Accept anyway for an early build).</div>`,
     );
   } else if (draft) {
-    pasteParts.push(statusLineHtml('Draft looks complete — save if you edit, then Accept in Review services.'));
+    draftEditParts.push(statusLineHtml('Draft looks complete — save if you edit, then Accept in Review services.'));
   }
-
   if (draft) {
     const suburbsText = Array.isArray(draft.targetSuburbs) ? draft.targetSuburbs.join('; ') : '';
     const servicesText = Array.isArray(draft.services) ? draft.services.join('; ') : '';
@@ -7497,7 +8127,8 @@ function renderSiteConfig() {
     const svcN = Array.isArray(draft.services) ? draft.services.length : 0;
     const lim = Number(draft.homepageServicesLimit ?? 8);
     const showCards = svcN ? Math.min(svcN, Number.isFinite(lim) ? lim : 8) : 0;
-    pasteParts.push(`
+    const phoneStep = apiMode ? '7' : '8';
+    draftEditParts.push(`
       <div class="narrative-actions" style="margin-top:1rem">
         <h4 style="margin:0">Edit draft</h4>
       </div>
@@ -7508,9 +8139,9 @@ function renderSiteConfig() {
         <label>
           <span class="label-with-tip-head">
             <span>Phone</span>
-            <button type="button" class="tip-info" data-tip="Optional Claude seed. Ranking number is set in step 8 and replaces this on the live site-config." aria-label="About draft Phone">i</button>
+            <button type="button" class="tip-info" data-tip="Optional Claude seed. Ranking number is set in step ${phoneStep} and replaces this on the live site-config." aria-label="About draft Phone">i</button>
           </span>
-          <input id="sc-edit-phone" type="text" value="${esc(draft.phone || '')}" placeholder="Optional — provision in step 8" />
+          <input id="sc-edit-phone" type="text" value="${esc(draft.phone || '')}" placeholder="Optional — provision in step ${phoneStep}" />
         </label>
         <label>Email <input id="sc-edit-email" type="email" value="${esc(draft.email || '')}" /></label>
         <label class="site-config-span2">Tagline <input id="sc-edit-tagline" type="text" value="${esc(draft.tagline || '')}" /></label>
@@ -7547,16 +8178,116 @@ function renderSiteConfig() {
 
   parts.push(
     contentStepHtml({
-      id: 'paste',
-      num: 5,
-      title: 'Paste Claude’s reply',
-      done: pasteDone,
-      open: openId === 'paste',
-      current: currentId === 'paste' && !pasteDone,
-      info: 'Paste Claude’s site-config reply, Load draft, and edit all fields here. Accept is in the next step (Review services).',
-      bodyHtml: pasteParts.join(''),
+      id: 'details',
+      num: 4,
+      title: 'Business details',
+      done: apiMode ? Boolean(draft || accepted) : detailsDone,
+      open: openId === 'details',
+      current: currentId === 'details' && !(apiMode ? Boolean(draft || accepted) : detailsDone),
+      info: apiMode
+        ? 'Domain comes from step 3 when set. Fill name, email, and radius. Phone is optional here — ranking number comes in step 7. Address comes from step 2 when set. Fill site-config loads a draft; Accept is in Review services.'
+        : 'Domain comes from step 3 when set. Fill name, email, and radius. Phone is optional here — ranking number comes in step 8. Address comes from step 2 when set. Copy site-config prompt, then Paste.',
+      bodyHtml: `
+        <p class="disc-tool-blurb">${
+          apiMode
+            ? 'Seeds the Fill site-config prompt and fills blanks if Claude leaves them. Does not Accept.'
+            : 'Used when you copy the prompt and merged into the draft if Claude leaves blanks.'
+        }</p>
+        <div class="site-config-nap">
+          <label>
+            <span class="label-with-tip-head">
+              <span>Domain</span>
+              <button type="button" class="tip-info" data-tip="Public hostname without https:// (e.g. yourdomain.com). Prefills from Domain step." aria-label="About Domain">i</button>
+            </span>
+            <input id="sc-domain" type="text" value="${esc(nap.domain || '')}" placeholder="yourdomain.com" />
+          </label>
+          <label>
+            <span class="label-with-tip-head">
+              <span>Business name</span>
+              <button type="button" class="tip-info" data-tip="Customer-facing brand name on the site." aria-label="About Business name">i</button>
+            </span>
+            <input id="sc-business" type="text" value="${esc(nap.businessName || '')}" placeholder="Brand LLC" />
+          </label>
+          <label>
+            <span class="label-with-tip-head">
+              <span>Phone</span>
+              <button type="button" class="tip-info" data-tip="Optional for the Claude prompt. Your ranking number is set in step ${
+                apiMode ? '7' : '8'
+              } (Provision phone) and replaces this on the live site-config." aria-label="About Phone">i</button>
+            </span>
+            <input id="sc-phone" type="text" value="${esc(nap.phone || '')}" placeholder="Optional — provision in step ${
+              apiMode ? '7' : '8'
+            }" />
+          </label>
+          <label class="site-config-email">
+            <span class="label-with-tip-head">
+              <span>Email</span>
+              <button type="button" class="tip-info" data-tip="Public site leads address (usually leads@yourdomain.com) — shown in footer, contact, and schema. Not your personal Gmail." aria-label="About Email">i</button>
+            </span>
+            <input id="sc-email" type="email" value="${esc(nap.email || '')}" placeholder="leads@yourdomain.com" />
+          </label>
+          <label class="site-config-radius">
+            <span class="label-with-tip-head">
+              <span>Radius (mi)</span>
+              <button type="button" class="tip-info" data-tip="Default radius seed for Service area map." aria-label="About Radius">i</button>
+            </span>
+            <input id="sc-radius" type="text" value="${esc(nap.radiusMiles || '40')}" />
+          </label>
+          <label class="site-config-span2">
+            <span class="label-with-tip-head">
+              <span>Street</span>
+              <button type="button" class="tip-info" data-tip="From Address step — edit only if needed. Leave blank to omit LocalBusiness street." aria-label="About Street">i</button>
+            </span>
+            <input id="sc-street" type="text" value="${esc(preStreet)}" placeholder="From Address step or blank" />
+          </label>
+          <label>
+            <span>City</span>
+            <input id="sc-addr-city" type="text" value="${esc(preCity)}" />
+          </label>
+          <label>
+            <span>State</span>
+            <input id="sc-addr-state" type="text" value="${esc(preState)}" maxlength="2" />
+          </label>
+          <label>
+            <span>ZIP</span>
+            <input id="sc-zip" type="text" value="${esc(preZip)}" placeholder="00000" />
+          </label>
+        </div>
+        ${detailsClaudeHtml}
+        ${apiMode ? draftEditParts.join('') : ''}`,
     }),
   );
+
+  const pasteParts = [];
+  pasteParts.push(`
+    <div class="narrative-paste">
+      <h4>${draft ? 'Replace from Claude' : 'Paste Claude’s reply'}</h4>
+      <p class="muted">Paste Claude’s full reply below, then <strong>Load draft</strong>. Edit fields here, then continue to <strong>Review services</strong> to Accept. Extra commentary after the JSON is fine.</p>
+      <textarea id="site-config-paste" class="narrative-paste-input" rows="2" placeholder="Paste Claude’s site-config reply here…" data-tip="Paste Claude site-config reply"></textarea>
+      <div class="narrative-actions">
+        <button type="button" class="btn primary" id="site-config-paste-load-btn" data-tip="Load paste as draft — then edit fields and Accept in Review services" ${
+          f.hasApproved ? '' : 'disabled'
+        }>Load draft</button>
+      </div>
+      <p class="disc-tool-blurb"><strong>Load draft</strong> does not write the live config yet — Accept is in the next step.</p>
+    </div>
+  `);
+  pasteParts.push(...draftEditParts);
+
+  if (!apiMode) {
+    parts.push(
+      contentStepHtml({
+        id: 'paste',
+        num: 5,
+        title: 'Paste Claude’s reply',
+        done: pasteDone,
+        open: openId === 'paste',
+        current: currentId === 'paste' && !pasteDone,
+        info: 'Paste Claude’s site-config reply, Load draft, and edit all fields here. Accept is in the next step (Review services).',
+        bodyHtml: pasteParts.join(''),
+      }),
+    );
+  }
 
   const servicesBodyHtml = accepted
     ? siteConfigServicesChoiceHtml({
@@ -7577,7 +8308,7 @@ function renderSiteConfig() {
   parts.push(
     contentStepHtml({
       id: 'services',
-      num: 6,
+      num: apiMode ? 5 : 6,
       title: 'Review services',
       done: servicesDone,
       open: openId === 'services',
@@ -7592,7 +8323,7 @@ function renderSiteConfig() {
   parts.push(
     contentStepHtml({
       id: 'service-area',
-      num: 7,
+      num: apiMode ? 6 : 7,
       title: 'Service area',
       done: serviceAreaDone,
       open: openId === 'service-area',
@@ -7622,7 +8353,7 @@ function renderSiteConfig() {
   parts.push(
     contentStepHtml({
       id: 'phone',
-      num: 8,
+      num: apiMode ? 7 : 8,
       title: 'Provision phone number',
       done: phoneDone,
       open: openId === 'phone',
@@ -7633,16 +8364,6 @@ function renderSiteConfig() {
         ? `
           <p class="disc-tool-blurb">Provision a local ranking number, then continue Content → Website Prepare / Launch.</p>
           ${phoneTrackingHint}
-          <details class="narrative-raw" style="margin-top:0.65rem">
-            <summary>GBP category checklist <span class="muted">(advisory)</span></summary>
-            <p class="disc-tool-blurb">Copy GBP category prompt → Claude → Load. Same checklist as Website → Launch. Does not block phone provision.</p>
-            <div class="narrative-actions" style="flex-wrap:wrap;gap:0.35rem;margin:0.5rem 0">
-              <button type="button" class="btn" id="sc-copy-gbp-categories">Copy GBP category prompt</button>
-              ${openClaudeAiBtnHtml({ sm: true })}
-              <button type="button" class="btn" id="sc-load-gbp-categories">Load checklist JSON</button>
-            </div>
-            <textarea id="sc-gbp-categories-paste" class="narrative-paste-input" rows="2" placeholder='{ "primaryCategory": "…", "additionalCategories": [] }'></textarea>
-          </details>
           <div class="narrative-actions" style="align-items:center;gap:0.5rem;flex-wrap:wrap;margin-top:0.5rem">
             <label class="muted small" style="display:inline-flex;align-items:center;gap:0.35rem">
               Area code (optional)
@@ -7697,12 +8418,16 @@ function contentStepHtml({
   current = false,
   locked = false,
   plain = false,
+  freeze = false,
+  freezeHtml = '',
+  headActionsHtml = '',
 }) {
   const infoBtn = info
     ? `<button type="button" class="tip-info" data-tip="${esc(info)}" aria-label="About ${esc(
         title,
       )}">i</button>`
     : '';
+  const actions = headActionsHtml || '';
   if (plain) {
     return `<section class="content-step website-utility-panel${open ? ' open' : ''}${
       locked ? ' locked' : ''
@@ -7712,20 +8437,26 @@ function contentStepHtml({
           <span class="content-step-label">${esc(title)}</span>
         </button>
         ${infoBtn}
+        ${actions}
       </div>
       <div class="content-step-body">${bodyHtml}</div>
     </section>`;
   }
-  return `<section class="content-step${done ? ' done' : ''}${open ? ' open' : ''}${
-    current ? ' current' : ''
-  }${locked ? ' locked' : ''}" data-content-step="${esc(id)}">
-    <div class="content-step-head-wrap">
+  const head = `<div class="content-step-head-wrap">
       <button type="button" class="content-step-head" data-content-toggle="${esc(id)}">
         <span class="disc-step-mark" aria-hidden="true"></span>
         <span class="content-step-label">${esc(String(num))} · ${esc(title)}</span>
       </button>
       ${infoBtn}
-    </div>
+      ${actions}
+    </div>`;
+  const top = freeze
+    ? `<div class="content-step-freeze">${head}${freezeHtml || ''}</div>`
+    : head;
+  return `<section class="content-step${done ? ' done' : ''}${open ? ' open' : ''}${
+    current ? ' current' : ''
+  }${locked ? ' locked' : ''}" data-content-step="${esc(id)}">
+    ${top}
     <div class="content-step-body">${bodyHtml}</div>
   </section>`;
 }
@@ -7752,6 +8483,23 @@ const CONTENT_STEP_ORDER = [
   'photoGroup',
   'accept',
 ];
+const CONTENT_INNER_STEPS = new Set([
+  'fieldResearch',
+  'brief',
+  'outline',
+  'write',
+  'editor',
+  'finalCheck',
+  'imageQueries',
+]);
+function contentStepOrder({ photosOn = true, apiMode = false } = {}) {
+  if (apiMode) {
+    return photosOn
+      ? ['structure', 'writeSite', 'photoGroup', 'accept']
+      : ['structure', 'writeSite', 'accept'];
+  }
+  return CONTENT_STEP_ORDER;
+}
 const WEBSITE_STEP_ORDER = ['logoMap', 'images', 'prepare', 'launch', 'indexing'];
 
 /** Force open + pulse to stepId (Copy / handoff) without waiting for durable done. */
@@ -7770,7 +8518,14 @@ function advancePanelStep(panel, stepId) {
     state.contentOpenStep = stepId;
     state.contentSoftCurrent = stepId;
     state.contentFollowCurrent = stepId;
-    markSoftDonePrior('contentSoftDone', CONTENT_STEP_ORDER, stepId);
+    markSoftDonePrior(
+      'contentSoftDone',
+      contentStepOrder({
+        photosOn: contentPhotosEnabled(state.detail || {}),
+        apiMode: effectiveClaudeUiMode() === 'api',
+      }),
+      stepId,
+    );
   }
 }
 
@@ -7790,13 +8545,24 @@ function isSoftDone(softDoneKey, stepId) {
   return Boolean(state[softDoneKey]?.[stepId]);
 }
 
-/** Prefer soft current until durable catches up or panel is complete. */
-function resolvePanelCurrent(softKey, durableCurrent) {
+/** Prefer soft current until durable catches up or panel is complete.
+ *  If `order` is given, never keep a soft current that skipped an earlier incomplete step. */
+function resolvePanelCurrent(softKey, durableCurrent, order) {
   const soft = state[softKey];
-  if (soft && (soft === durableCurrent || durableCurrent == null)) {
+  if (!soft) return durableCurrent;
+  if (soft === durableCurrent || durableCurrent == null) {
     state[softKey] = null;
+    return durableCurrent;
   }
-  return state[softKey] ?? durableCurrent;
+  if (Array.isArray(order) && order.length) {
+    const si = order.indexOf(soft);
+    const di = order.indexOf(durableCurrent);
+    if (si >= 0 && di >= 0 && di < si) {
+      state[softKey] = null;
+      return durableCurrent;
+    }
+  }
+  return soft;
 }
 
 /** Numbered action row: n · label + optional controls; done replaces n with ✓; loaded appends a check after the label. */
@@ -7818,41 +8584,128 @@ function contentActionRow({ n, label, hint, controlsHtml = '', done = false, loa
   </div>`;
 }
 
-function photoGroupSelectOptionsHtml(d) {
-  const groups = Array.isArray(d?.photoGroups) ? d.photoGroups : [];
-  const attached = d?.photoGroupAttached?.groupId || '';
-  const opts = ['<option value="">Select a saved photo group…</option>'];
+function photoGroupDisplayName(g) {
+  if (!g) return '';
+  if (g.kind === 'master') return String(g.name || `${g.niche || 'Niche'} master`);
+  return String(g.name || g.id || '');
+}
+
+function attachedPhotoGroupIds(d) {
+  const doc = d?.photoGroupAttached;
+  if (!doc || doc.skipped) return [];
+  if (Array.isArray(doc.groupIds) && doc.groupIds.length) {
+    const seen = new Set();
+    const out = [];
+    for (const id of doc.groupIds) {
+      const v = String(id || '').trim();
+      if (!v || seen.has(v)) continue;
+      seen.add(v);
+      out.push(v);
+      if (out.length >= 3) break;
+    }
+    return out;
+  }
+  if (doc.groupId) return [String(doc.groupId)];
+  return [];
+}
+
+function photoGroupSelectOptionsHtml(
+  d,
+  { selectedId = '', excludeIds = [], emptyLabel = 'Select a saved photo group…' } = {},
+) {
+  const groups = (Array.isArray(d?.photoGroups) ? d.photoGroups : [])
+    .slice()
+    .sort((a, b) =>
+      photoGroupDisplayName(a).localeCompare(photoGroupDisplayName(b), undefined, {
+        sensitivity: 'base',
+      }),
+    );
+  const skip = new Set((excludeIds || []).filter((id) => id && id !== selectedId));
+  const opts = [`<option value="">${esc(emptyLabel)}</option>`];
   for (const g of groups) {
+    if (skip.has(g.id)) continue;
     const n = Number(g.slotCount || 0);
     const ba = Number(g.baPairCount || 0);
     const extra = ba ? ` · ${ba} BA` : '';
-    const sel = g.id === attached ? ' selected' : '';
-    const label =
-      g.kind === 'master'
-        ? `${g.niche || g.name || 'Niche'} master`
-        : g.name;
+    const sel = g.id === selectedId ? ' selected' : '';
     opts.push(
-      `<option value="${esc(g.id)}"${sel}>${esc(label)} (${n} photos${extra})</option>`,
+      `<option value="${esc(g.id)}"${sel}>${esc(photoGroupDisplayName(g))} (${n} photos${extra})</option>`,
     );
   }
   return opts.join('');
 }
 
-function photoGroupToolbarHtml({ selectId, loadId, saveId, loadLabel, skipId }) {
+function photoGroupRankSelectsHtml(idPrefix) {
   const d = state.detail;
-  const select = `<select class="pg-select" id="${esc(selectId)}" data-tip="Niche master first, then named groups">
-        ${photoGroupSelectOptionsHtml(d)}
-      </select>`;
-  const loadBtn = `<button type="button" class="btn pg-load" id="${esc(loadId)}">${esc(loadLabel)}</button>`;
+  const attached = attachedPhotoGroupIds(d);
+  const labels = ['1st', '2nd', '3rd'];
+  const rows = labels.map((label, i) => {
+    const selectedId = attached[i] || '';
+    const excludeIds = attached.filter((_, j) => j < i);
+    const emptyLabel = i === 0 ? 'Select a saved photo group…' : 'None';
+    return `<label class="pg-rank-row"><span class="pg-rank-label">${label}</span>
+      <select class="pg-select" id="${esc(idPrefix)}-${i + 1}" data-pg-rank="${i + 1}" data-tip="Priority ${i + 1}. All saved groups, A–Z">
+        ${photoGroupSelectOptionsHtml(d, { selectedId, excludeIds, emptyLabel })}
+      </select></label>`;
+  });
+  return `<div class="pg-rank-stack" data-pg-prefix="${esc(idPrefix)}">${rows.join('')}</div>`;
+}
+
+function readPhotoGroupRankIds(idPrefix) {
+  const seen = new Set();
+  const ids = [];
+  for (let i = 1; i <= 3; i += 1) {
+    const v = document.getElementById(`${idPrefix}-${i}`)?.value || '';
+    if (!v || seen.has(v)) continue;
+    seen.add(v);
+    ids.push(v);
+  }
+  return ids;
+}
+
+function syncPhotoGroupRankSelects(idPrefix) {
+  const d = state.detail;
+  const chosen = [];
+  for (let i = 1; i <= 3; i += 1) {
+    const sel = document.getElementById(`${idPrefix}-${i}`);
+    if (!sel) continue;
+    const current = sel.value || '';
+    const emptyLabel = i === 1 ? 'Select a saved photo group…' : 'None';
+    sel.innerHTML = photoGroupSelectOptionsHtml(d, {
+      selectedId: current,
+      excludeIds: chosen,
+      emptyLabel,
+    });
+    if (current && [...sel.options].some((o) => o.value === current)) sel.value = current;
+    else sel.value = '';
+    if (sel.value) chosen.push(sel.value);
+  }
+  const loadId = idPrefix === 'cs-pg-select' ? 'cs-pg-load' : idPrefix === 'ca-pg-select' ? 'ca-pg-load' : '';
+  const loadBtn = loadId ? document.getElementById(loadId) : null;
+  if (loadBtn) loadBtn.disabled = chosen.length === 0;
+}
+
+function wirePhotoGroupRankSelects(idPrefix) {
+  for (let i = 1; i <= 3; i += 1) {
+    document.getElementById(`${idPrefix}-${i}`)?.addEventListener('change', () =>
+      syncPhotoGroupRankSelects(idPrefix),
+    );
+  }
+  syncPhotoGroupRankSelects(idPrefix);
+}
+
+function photoGroupToolbarHtml({ selectId, loadId, saveId, loadLabel, skipId }) {
+  const selects = photoGroupRankSelectsHtml(selectId);
+  const loadBtn = `<button type="button" class="btn pg-load" id="${esc(loadId)}" disabled>${esc(loadLabel)}</button>`;
   if (skipId) {
     return `<div class="photo-group-toolbar">
-      ${select}
+      ${selects}
       <button type="button" class="btn pg-skip" id="${esc(skipId)}">Skip</button>
       ${loadBtn}
     </div>`;
   }
   return `<div class="flex-wrap gap-2" style="display:flex;flex-wrap:wrap;gap:0.4rem;align-items:center">
-      ${select}
+      ${selects}
       ${loadBtn}
       ${
         saveId
@@ -7882,18 +8735,30 @@ function openClaudeAiBtnHtml({ disabled = false, sm = false, id = '', tip = '' }
 function photoGroupPreviewBodyHtml(preview, { attach = false } = {}) {
   const unused = Number(preview?.unused || 0);
   const empty = Number(preview?.targetEmpty || 0);
-  const name = preview?.group?.name || 'this group';
+  const tray = Number(preview?.tray || 0) + Number(preview?.baTray || 0);
+  const names = Array.isArray(preview?.groups) && preview.groups.length
+    ? preview.groups.map((g) => g.name || g.id).join(' → ')
+    : preview?.group?.name || 'this group';
+  const rankNote =
+    Array.isArray(preview?.groups) && preview.groups.length > 1
+      ? ' First group fills matching slots; later groups fill leftovers, then extras go to trays.'
+      : '';
   return `<p>${
     attach
       ? 'Accept will copy these files instead of pulling stock. Logo and coverage map still generate.'
-      : 'Replaces matching Review images on this site. Unused saved photos stay in the group.'
-  }</p>
-    <p>Group <strong>${esc(name)}</strong>${
+      : 'Replaces matching Review images on this site. Leftover matching photos go into each slot’s tray.'
+  }${rankNote}</p>
+    <p>Group <strong>${esc(names)}</strong>${
       preview?.group?.niche ? ` · ${esc(preview.group.niche)}` : ''
     }.</p>
     <ul class="narrative-list">
       <li>${esc(String(preview?.applied || 0))} stock slots will be filled</li>
       <li>${esc(String(preview?.baApplied || 0))} ChatGPT before/after pairs</li>
+      ${
+        tray
+          ? `<li>${esc(String(tray))} leftover matching photos added to trays</li>`
+          : ''
+      }
       ${
         unused
           ? `<li>${esc(String(unused))} saved photos unused (this Structure does not use those sections)</li>`
@@ -7934,11 +8799,10 @@ async function savePhotoGroupFromUi(candidateId, { refresh, nextStep, tab } = {}
     });
     return;
   }
-  if (!(await confirmLaunchedSiteChange('Save photo group'))) return;
   const post = (replaceExisting) =>
     api(`/api/candidates/${encodeURIComponent(candidateId)}/photo-groups`, {
       method: 'POST',
-      body: JSON.stringify(withLaunchedConfirmBody({ name, replaceExisting })),
+      body: JSON.stringify({ name, replaceExisting }),
     });
   try {
     let result;
@@ -7972,13 +8836,13 @@ async function loadPhotoGroupFromUi(
   selectId,
   { attach = false, refresh, nextStep, tab } = {},
 ) {
-  const groupId = document.getElementById(selectId)?.value || '';
-  if (!groupId) {
+  const groupIds = readPhotoGroupRankIds(selectId);
+  if (!groupIds.length) {
     await showModal({
       title: 'Pick a photo group',
       confirmLabel: 'OK',
       hideCancel: true,
-      bodyHtml: '<p>Select a saved photo group first.</p>',
+      bodyHtml: '<p>Select at least one saved photo group (1st) to load.</p>',
     });
     return;
   }
@@ -7987,7 +8851,7 @@ async function loadPhotoGroupFromUi(
       `/api/candidates/${encodeURIComponent(candidateId)}/photo-groups/preview`,
       {
         method: 'POST',
-        body: JSON.stringify({ groupId }),
+        body: JSON.stringify({ groupIds }),
       },
     );
     const ok = await showModal({
@@ -8007,16 +8871,20 @@ async function loadPhotoGroupFromUi(
       }`,
       {
         method: 'POST',
-        body: JSON.stringify(withLaunchedConfirmBody({ groupId })),
+        body: JSON.stringify(withLaunchedConfirmBody({ groupIds })),
       },
     );
     if (refresh) await refresh(result.candidate, nextStep, tab);
     if (!attach) {
       await refreshImageSlotsGrid(candidateId);
     }
+    const label =
+      result.attached?.names?.join(' → ') ||
+      preview.groups?.map((g) => g.name).join(' → ') ||
+      preview.group?.name;
     showToast(
       attach
-        ? `Photo group “${result.attached?.name || preview.group?.name}” ready for Accept.`
+        ? `Photo group “${label}” ready for Accept.`
         : result.human?.[0] || 'Photo group loaded.',
     );
   } catch (error) {
@@ -8228,7 +9096,7 @@ function speechCheckResultBodyHtml({ speechLint, seoLint, autoFix }) {
     }</p>`;
 }
 
-function firstIncompleteContentStep(flags) {
+function firstIncompleteContentStep(flags, { photosOn = true } = {}) {
   if (!flags.structure) return 'structure';
   if (!flags.fieldResearch) return 'fieldResearch';
   if (!flags.brief) return 'brief';
@@ -8236,12 +9104,46 @@ function firstIncompleteContentStep(flags) {
   if (!flags.write) return 'write';
   if (!flags.editor) return 'editor';
   if (!flags.finalCheck) return 'finalCheck';
-  if (!flags.photosReady) return 'imageQueries';
+  if (photosOn) {
+    if (!flags.imageQueries) return 'imageQueries';
+    if (!flags.photoGroup) return 'photoGroup';
+  }
   if (!flags.accepted) return 'accept';
   return 'accept';
 }
 
-function contentUpNextHtml(stepDone, ready, { secCount = 0, outlineConfirmed = false, outlineDrafted = false } = {}) {
+function contentPhotosEnabled(d) {
+  return Object.values(d?.contentStructure?.photos || {}).some((p) => p && p.enabled);
+}
+
+function contentImageQueriesLoaded(d) {
+  return Boolean(
+    d?.imagesPlan?.loadedAt ||
+      d?.contentDraft?._ops?.lastImagesPlanAt ||
+      d?.content?._ops?.lastImagesPlanAt,
+  );
+}
+
+function contentPhotoGroupSettled(d) {
+  const attached = Boolean(d?.photoGroupAttached?.groupId);
+  return attached || (Boolean(d?.photoGroupAttached?.skipped) && !attached);
+}
+
+/** Next Content step after Final check (Image queries → photo group → Accept). */
+function nextContentStepAfterFinal(d) {
+  if (contentPhotosEnabled(d)) {
+    if (!contentImageQueriesLoaded(d)) return 'imageQueries';
+    if (!contentPhotoGroupSettled(d)) return 'photoGroup';
+  }
+  return 'accept';
+}
+
+function nextContentStepAfterImages(d) {
+  if (contentPhotosEnabled(d) && !contentPhotoGroupSettled(d)) return 'photoGroup';
+  return 'accept';
+}
+
+function contentUpNextHtml(stepDone, ready, { secCount = 0, outlineConfirmed = false, outlineDrafted = false, photosOn = true, apiMode = false, writeSiteDone = false } = {}) {
   if (!ready) {
     return `<div class="callout warn">Accept <strong>Site config</strong> first (business NAP, services, suburbs).</div>`;
   }
@@ -8255,6 +9157,22 @@ function contentUpNextHtml(stepDone, ready, { secCount = 0, outlineConfirmed = f
 
   if (stepDone.accepted) {
     return statusLineHtml(structureLine);
+  }
+
+  if (apiMode) {
+    let apiNext = '';
+    if (!stepDone.structure) {
+      apiNext = 'Up next: <strong>Structure</strong> — pages + sections → Continue';
+    } else if (!writeSiteDone) {
+      apiNext = 'Up next: <strong>Write site with Claude</strong> — confirm cost, then wait on the overlay';
+    } else if (photosOn && !stepDone.photoGroup) {
+      apiNext =
+        'Up next: <strong>Load photo group</strong> — Load a saved group or Skip, then Accept';
+    } else {
+      apiNext =
+        'Up next: <strong>Accept content</strong> — then <strong>Website → Prepare preview</strong>';
+    }
+    return statusLineHtml(`${apiNext}${structureLine ? ` · ${structureLine}` : ''}`);
   }
 
   let upNext = '';
@@ -8278,9 +9196,12 @@ function contentUpNextHtml(stepDone, ready, { secCount = 0, outlineConfirmed = f
   } else if (!stepDone.finalCheck) {
     upNext =
       'Up next: <strong>Final check</strong> — Copy final-check prompt → Load OK / FILE fixes';
-  } else if (!stepDone.photosReady) {
+  } else if (photosOn && !stepDone.imageQueries) {
     upNext =
-      'Up next: <strong>Image queries</strong> or <strong>Load photo group</strong> — then Accept';
+      'Up next: <strong>Image queries</strong> — Copy prompt → paste JSON → Load';
+  } else if (photosOn && !stepDone.photoGroup) {
+    upNext =
+      'Up next: <strong>Load photo group</strong> — Load a saved group or Skip, then Accept';
   } else {
     upNext =
       'Up next: <strong>Accept content</strong> — then <strong>Website → Prepare preview</strong>';
@@ -8288,23 +9209,30 @@ function contentUpNextHtml(stepDone, ready, { secCount = 0, outlineConfirmed = f
   return statusLineHtml(`${upNext}${structureLine ? ` · ${structureLine}` : ''}`);
 }
 
-function contentPassStripHtml(stepDone, currentId, { photosOn = true } = {}) {
-  const labels = [
-    ['structure', 'Structure'],
-    ['fieldResearch', 'Site research'],
-    ['brief', 'Brief'],
-    ['outline', 'Outline'],
-    ['write', 'Write'],
-    ['editor', 'Humanize'],
-    ['finalCheck', 'Final'],
-    ...(photosOn
-      ? [
-          ['imageQueries', 'Images'],
-          ['photoGroup', 'Group'],
-        ]
-      : []),
-    ['accept', 'Accept'],
-  ];
+function contentPassStripHtml(stepDone, currentId, { photosOn = true, apiMode = false } = {}) {
+  const labels = apiMode
+    ? [
+        ['structure', 'Structure'],
+        ['writeSite', 'Write site'],
+        ...(photosOn ? [['photoGroup', 'Group']] : []),
+        ['accept', 'Accept'],
+      ]
+    : [
+        ['structure', 'Structure'],
+        ['fieldResearch', 'Site research'],
+        ['brief', 'Brief'],
+        ['outline', 'Outline'],
+        ['write', 'Write'],
+        ['editor', 'Humanize'],
+        ['finalCheck', 'Final'],
+        ...(photosOn
+          ? [
+              ['imageQueries', 'Images'],
+              ['photoGroup', 'Group'],
+            ]
+          : []),
+        ['accept', 'Accept'],
+      ];
   const chips = labels
     .map(([id, label]) => {
       const done = Boolean(stepDone[id]);
@@ -8314,6 +9242,414 @@ function contentPassStripHtml(stepDone, currentId, { photosOn = true } = {}) {
     })
     .join('<span class="content-pass-sep">→</span>');
   return `<div class="content-pass-strip" aria-label="Content pass progress">${chips}</div>`;
+}
+
+function writeSiteOverlayHtml(photosOn = true) {
+  const phases = photosOn
+    ? ['Research', 'Plan', 'Write', 'Polish', 'Image queries']
+    : ['Research', 'Plan', 'Write', 'Polish'];
+  const items = phases
+    .map((p) => `<li data-ws-phase="${esc(p)}">${esc(p)}</li>`)
+    .join('');
+  return `<div id="content-write-site-overlay" class="content-claude-job-overlay hidden" hidden aria-hidden="true">
+    <div class="rover-loading-card">
+      <div class="rover-loader rover-loader--dark" role="img" aria-label="Writing site">
+        <svg class="rover-loader-mark" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" focusable="false" aria-hidden="true">
+          <circle class="rover-loader-dot" cx="32" cy="32" r="7.5" />
+          <g class="rover-loader-ring rover-loader-ring--inner">
+            <circle cx="32" cy="32" r="15" transform="rotate(-45 32 32)" />
+          </g>
+          <g class="rover-loader-ring rover-loader-ring--outer">
+            <circle cx="32" cy="32" r="24" transform="rotate(-11 32 32)" />
+          </g>
+        </svg>
+        <img class="rover-loader-word" src="/brand/rover-wordmark-dark.png" alt="" width="618" height="81" decoding="async" />
+      </div>
+      <p class="rover-loading-text" id="ws-overlay-title">Write site with Claude</p>
+      <ol class="ws-overlay-phases" id="ws-overlay-phases">${items}</ol>
+      <div class="job-progress" style="width:min(22rem,90%)">
+        <div class="job-progress-track"><div class="job-progress-bar" id="ws-overlay-bar"></div></div>
+      </div>
+      <p class="muted small" id="ws-overlay-detail">Starting…</p>
+      <button type="button" class="btn" id="ws-overlay-stop">Stop</button>
+    </div>
+  </div>`;
+}
+
+function setWriteSiteOverlayVisible(visible) {
+  const overlay = document.getElementById('content-write-site-overlay');
+  if (!overlay) return;
+  overlay.classList.toggle('hidden', !visible);
+  overlay.hidden = !visible;
+  overlay.setAttribute('aria-hidden', visible ? 'false' : 'true');
+}
+
+function syncWriteSiteOverlay(snap) {
+  const cid = state.selectedId;
+  const job = findActiveJob(snap, 'write-site', cid);
+  const overlay = document.getElementById('content-write-site-overlay');
+  if (job) {
+    state._writeSiteTrack = { candidateId: job.candidateId, jobId: job.id };
+    if (overlay) overlay.dataset.jobId = job.id;
+    setWriteSiteOverlayVisible(Boolean(overlay));
+    const detail = String(job.detail || 'Working…');
+    const detailEl = document.getElementById('ws-overlay-detail');
+    if (detailEl) detailEl.textContent = detail;
+    const stopBtn = document.getElementById('ws-overlay-stop');
+    if (stopBtn) stopBtn.disabled = /stopping/i.test(detail);
+    const bar = document.getElementById('ws-overlay-bar');
+    const total = Number(job.progressTotal);
+    const done = Number(job.progressDone);
+    if (bar && Number.isFinite(total) && total > 0) {
+      setDeterminateProgress(bar, { done: Number.isFinite(done) ? done : 0, total });
+    }
+    const currentN = Number.isFinite(done) ? done : 0;
+    document.querySelectorAll('#ws-overlay-phases [data-ws-phase]').forEach((li, i) => {
+      const n = i + 1;
+      li.classList.toggle('is-current', currentN > 0 && n === currentN);
+      li.classList.toggle('is-done', currentN > 0 && n < currentN);
+    });
+    return;
+  }
+  setWriteSiteOverlayVisible(false);
+  const track = state._writeSiteTrack;
+  if (!track) return;
+  const finished = (snap?.jobs || []).find((j) => String(j.id) === String(track.jobId));
+  const stillElsewhere =
+    finished && (finished.status === 'running' || finished.status === 'queued');
+  if (stillElsewhere) return;
+  if (state._writeSiteHandledJobId === track.jobId) return;
+  state._writeSiteHandledJobId = track.jobId;
+  state._writeSiteTrack = null;
+  const targetId = track.candidateId;
+  void (async () => {
+    if (state.selectedId === targetId) {
+      try {
+        const candidate = await api(`/api/candidates/${encodeURIComponent(targetId)}`);
+        if (state.selectedId !== targetId) return;
+        state.detail = candidate;
+        if (state.tab === 'content') {
+          if (finished?.status === 'done') {
+            const photosOn = contentPhotosEnabled(candidate);
+            advancePanelStep('content', photosOn ? 'photoGroup' : 'accept');
+          }
+          renderDetail();
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+    if (finished?.status === 'done') {
+      showToast('Write site with Claude finished.');
+    } else if (finished?.status === 'error' || !finished) {
+      const msg = finished?.error || 'Write site stopped or failed.';
+      if (/stopped/i.test(msg)) {
+        showToast('Write site stopped — files written so far are kept.');
+      } else {
+        await showModal({
+          title: 'Write site failed',
+          confirmLabel: 'OK',
+          hideCancel: true,
+          bodyHtml: `<p>${esc(msg)}</p>${
+            finished?.speechLint
+              ? speechLintFindingsHtml(finished.speechLint)
+              : ''
+          }`,
+        });
+      }
+    }
+  })();
+}
+
+function snapWithOptimisticWriteSite(jobId, candidateId) {
+  const jobs = [...(state.lightJobsSnap?.jobs || [])];
+  if (!jobs.some((j) => String(j.id) === String(jobId))) {
+    jobs.unshift({
+      id: jobId,
+      candidateId,
+      phase: 'write-site',
+      label: 'Write site',
+      status: 'running',
+      detail: 'Starting…',
+      progressDone: 0,
+      progressTotal: 5,
+    });
+  }
+  return { ...(state.lightJobsSnap || {}), jobs };
+}
+
+async function startWriteSiteFromUi(id) {
+  if (!(await confirmPaidAction('write-site'))) return;
+  if (!(await confirmLaunchedSiteChange('Write site with Claude'))) return;
+  try {
+    const accepted = await api(`/api/candidates/${encodeURIComponent(id)}/content/write-site`, {
+      method: 'POST',
+      body: JSON.stringify(withLaunchedConfirmBody({})),
+    });
+    state._writeSiteHandledJobId = null;
+    state._writeSiteTrack = { candidateId: id, jobId: accepted.jobId };
+    syncWriteSiteOverlay(snapWithOptimisticWriteSite(accepted.jobId, id));
+    syncClaudeModeToggle();
+  } catch (error) {
+    if (error.code === 'WRITE_SITE_RUNNING' && error.jobId) {
+      state._writeSiteTrack = { candidateId: id, jobId: error.jobId };
+      syncWriteSiteOverlay(snapWithOptimisticWriteSite(error.jobId, id));
+      return;
+    }
+    if (error.code === 'WRITE_SITE_BUSY') {
+      await showModal({
+        title: 'Write site already running',
+        confirmLabel: 'OK',
+        hideCancel: true,
+        bodyHtml: `<p>Write site is already running for <code>${esc(
+          error.candidateId || 'another candidate',
+        )}</code>. One Write site at a time. Watch Light, or open that candidate’s Content tab to Stop.</p>`,
+      });
+      return;
+    }
+    await showModal({
+      title: 'Write site failed to start',
+      confirmLabel: 'OK',
+      hideCancel: true,
+      bodyHtml: `<p>${esc(error.message)}</p>`,
+    });
+  }
+}
+
+function discoveryPackLightId(batchId) {
+  return `discovery:${String(batchId || '').trim()}`;
+}
+
+function findActiveGeneratePackJob(snap, batchId) {
+  const bid = String(batchId || '');
+  const key = discoveryPackLightId(bid);
+  return (snap?.jobs || []).find(
+    (j) =>
+      String(j.phase || '') === 'generate-pack' &&
+      (j.status === 'running' || j.status === 'queued') &&
+      (String(j.batchId || '') === bid || String(j.candidateId || '') === key),
+  );
+}
+
+function setGeneratePackOverlayVisible(visible) {
+  const overlay = document.getElementById('discovery-generate-pack-overlay');
+  if (!overlay) return;
+  overlay.classList.toggle('hidden', !visible);
+  overlay.hidden = !visible;
+  overlay.setAttribute('aria-hidden', visible ? 'false' : 'true');
+}
+
+function syncGeneratePackOverlay(snap) {
+  const bid = state.discoveryBatchId;
+  const job = bid ? findActiveGeneratePackJob(snap, bid) : null;
+  const overlay = document.getElementById('discovery-generate-pack-overlay');
+  if (job) {
+    state._generatePackTrack = { batchId: job.batchId || bid, jobId: job.id };
+    if (overlay) overlay.dataset.jobId = job.id;
+    setGeneratePackOverlayVisible(Boolean(overlay) && state.view === 'discovery');
+    const detail = String(job.detail || 'Working…');
+    const detailEl = document.getElementById('gp-overlay-detail');
+    if (detailEl) detailEl.textContent = detail;
+    const stopBtn = document.getElementById('gp-overlay-stop');
+    if (stopBtn) stopBtn.disabled = /stopping/i.test(detail);
+    const bar = document.getElementById('gp-overlay-bar');
+    const total = Number(job.progressTotal);
+    const done = Number(job.progressDone);
+    if (bar && Number.isFinite(total) && total > 0) {
+      setDeterminateProgress(bar, { done: Number.isFinite(done) ? done : 0, total });
+    }
+    const currentN = Number.isFinite(done) ? done : 0;
+    document.querySelectorAll('#gp-overlay-phases [data-gp-phase]').forEach((li, i) => {
+      const n = i + 1;
+      li.classList.toggle('is-current', currentN > 0 && n === currentN);
+      li.classList.toggle('is-done', currentN > 0 && n < currentN);
+    });
+    return;
+  }
+  setGeneratePackOverlayVisible(false);
+  const track = state._generatePackTrack;
+  if (!track) return;
+  const finished = (snap?.jobs || []).find((j) => String(j.id) === String(track.jobId));
+  const stillElsewhere =
+    finished && (finished.status === 'running' || finished.status === 'queued');
+  if (stillElsewhere) return;
+  if (state._generatePackHandledJobId === track.jobId) return;
+  state._generatePackHandledJobId = track.jobId;
+  state._generatePackTrack = null;
+  const targetBatch = track.batchId;
+  void (async () => {
+    if (targetBatch && state.view === 'discovery') {
+      try {
+        await selectDiscoveryBatch(targetBatch);
+        showDiscoverySidebarStep('enrich');
+      } catch {
+        /* ignore */
+      }
+    }
+    if (finished?.status === 'done') {
+      showToast('Generate pack finished — glance/fix rows, then Light SERP.');
+    } else if (finished?.status === 'error' || !finished) {
+      const msg = finished?.error || 'Generate pack stopped or failed.';
+      if (/stopped/i.test(msg)) {
+        showToast('Generate pack stopped.');
+      } else {
+        await showModal({
+          title: 'Generate pack failed',
+          confirmLabel: 'OK',
+          hideCancel: true,
+          bodyHtml: `<p>${esc(msg)}</p>`,
+        });
+      }
+    }
+  })();
+}
+
+function snapWithOptimisticGeneratePack(jobId, batchId) {
+  const jobs = [...(state.lightJobsSnap?.jobs || [])];
+  if (!jobs.some((j) => String(j.id) === String(jobId))) {
+    jobs.unshift({
+      id: jobId,
+      candidateId: discoveryPackLightId(batchId),
+      batchId,
+      phase: 'generate-pack',
+      label: 'Generate pack',
+      status: 'running',
+      detail: 'Starting…',
+      progressDone: 0,
+      progressTotal: 2,
+    });
+  }
+  return { ...(state.lightJobsSnap || {}), jobs };
+}
+
+async function confirmGeneratePackCost(batchId) {
+  const preview = await api(
+    `/api/discovery/batches/${encodeURIComponent(batchId)}/cost-preview`,
+  );
+  if (preview.error) {
+    await showModal({
+      title: preview.title || 'Cannot run',
+      confirmLabel: 'OK',
+      hideCancel: true,
+      bodyHtml: `<p>${esc(preview.error)}</p>`,
+    });
+    return false;
+  }
+  return showModal({
+    title: preview.title,
+    confirmLabel: preview.confirmLabel || 'Generate pack',
+    bodyHtml: `
+      <p>${esc(preview.whatItDoes)}</p>
+      <p><strong>Estimated cost:</strong> ${esc(preview.estimateLabel)}</p>
+      <p class="muted">${esc(preview.estimateDetail || '')}</p>
+      <ul>
+        <li>Model: <code>${esc(preview.model || state.health?.model || '')}</code></li>
+        <li>Uses paid API tokens</li>
+        <li>Usually a few minutes. Stop cancels; retry re-imports.</li>
+      </ul>
+      ${
+        preview.overwriteNote
+          ? `<p class="callout"><strong>Already ran:</strong> ${esc(preview.overwriteNote)}</p>`
+          : ''
+      }
+      ${preview.freeFallback ? `<p class="muted">${esc(preview.freeFallback)}</p>` : ''}
+    `,
+  });
+}
+
+async function startGeneratePackFromUi(batchId) {
+  const id = String(batchId || state.discoveryBatchId || '').trim();
+  if (!id) {
+    await showModal({
+      title: 'No pack yet',
+      confirmLabel: 'OK',
+      hideCancel: true,
+      bodyHtml: '<p>Generate a Discovery pack first (step 1).</p>',
+    });
+    return;
+  }
+  if (!(await confirmGeneratePackCost(id))) return;
+  try {
+    const accepted = await api(`/api/discovery/batches/${encodeURIComponent(id)}/generate-pack`, {
+      method: 'POST',
+      body: '{}',
+    });
+    state._generatePackHandledJobId = null;
+    state._generatePackTrack = { batchId: id, jobId: accepted.jobId };
+    syncGeneratePackOverlay(snapWithOptimisticGeneratePack(accepted.jobId, id));
+    syncClaudeModeToggle();
+  } catch (error) {
+    if (error.code === 'GENERATE_PACK_RUNNING' && error.jobId) {
+      state._generatePackTrack = { batchId: id, jobId: error.jobId };
+      syncGeneratePackOverlay(snapWithOptimisticGeneratePack(error.jobId, id));
+      return;
+    }
+    if (error.code === 'GENERATE_PACK_BUSY') {
+      await showModal({
+        title: 'Generate pack already running',
+        confirmLabel: 'OK',
+        hideCancel: true,
+        bodyHtml: `<p>Generate pack is already running for <code>${esc(
+          error.batchId || error.candidateId || 'another batch',
+        )}</code>. One Generate pack at a time. Watch Light, or open that batch to Stop.</p>`,
+      });
+      return;
+    }
+    await showModal({
+      title: 'Generate pack failed to start',
+      confirmLabel: 'OK',
+      hideCancel: true,
+      bodyHtml: `<p>${esc(error.message)}</p>`,
+    });
+  }
+}
+
+function fillDiscoveryGeneratePackStep(batch) {
+  const box = document.getElementById('discovery-pack-result');
+  const empty = document.getElementById('discovery-pack-empty');
+  if (!box) return;
+  if (!batch?.id) {
+    empty?.classList.remove('hidden');
+    box.classList.add('hidden');
+    box.innerHTML = '';
+    return;
+  }
+  empty?.classList.add('hidden');
+  box.classList.remove('hidden');
+  const hasRows = Number(batch.rowCount) > 0 || (state.discoveryRows?.length || 0) > 0;
+  const busy = generatePackJobRunning();
+  const spent = batch.lastCosts?.generatePack;
+  box.innerHTML = `
+    ${
+      hasRows
+        ? `<div class="callout"><strong>Pack CSV imported</strong>${
+            spent != null ? ` · last run ${esc(formatMoney(spent))}` : ''
+          } — glance/fix in the table, then Light SERP.</div>`
+        : `<p class="disc-tool-blurb">Claude fills this pack via the Anthropic API. Rows appear in the table for glance/fix — then Light SERP.</p>`
+    }
+    <div class="narrative-actions" style="flex-wrap:wrap;gap:0.4rem">
+      <button type="button" class="btn primary" id="discovery-generate-pack" ${
+        busy ? 'disabled' : ''
+      }>${hasRows ? 'Re-run Generate pack' : 'Generate pack'}</button>
+    </div>
+  `;
+}
+
+function syncDiscoveryClaudeModeUi() {
+  const api = effectiveClaudeUiMode() === 'api';
+  const claudeLabel = document.querySelector('#discovery-claude-pack-section .discovery-flow-label');
+  const claudeTip = document.querySelector('#discovery-claude-pack-section .tip-info');
+  const enrichLabel = document.querySelector('#discovery-enrich-section .discovery-flow-label');
+  if (claudeLabel) claudeLabel.textContent = api ? '2 · Generate pack' : '2 · Send to Claude';
+  if (claudeTip) {
+    setElementTip(
+      claudeTip,
+      api
+        ? 'Claude fills the CSV via the Anthropic API. Glance/fix rows in the table, then Light SERP.'
+        : 'Download the CSV template, copy the Claude prompt, then paste both in Claude.ai.',
+    );
+  }
+  if (enrichLabel) enrichLabel.textContent = api ? '3 · Light SERP' : '4 · Light SERP';
 }
 
 function firstIncompleteWebsiteStep({ logoMapDone, imagesDone, prepareDone, launched, indexingDone }) {
@@ -8333,6 +9669,12 @@ function liveSiteHost(domain) {
     .replace(/^https?:\/\//, '')
     .replace(/\/$/, '')
     .replace(/^www\./, '');
+}
+
+function liveSiteUrl(domain) {
+  const host = liveSiteHost(domain);
+  if (!host || isLaunchDomainPlaceholder(host)) return '';
+  return `https://${host}`;
 }
 
 function liveSitemapUrl(domain) {
@@ -8629,6 +9971,7 @@ async function loadShipFreshness(candidateId, { showError = false } = {}) {
 function collectLaunchFormValues() {
   return {
     domain: document.getElementById('ca-launch-domain')?.value?.trim() || '',
+    businessName: document.getElementById('ca-launch-business')?.value?.trim() || '',
     phone: document.getElementById('ca-launch-phone')?.value?.trim() || '',
     email: document.getElementById('ca-launch-email')?.value?.trim() || '',
     destinationEmail: document.getElementById('ca-launch-dest')?.value?.trim() || '',
@@ -8962,13 +10305,43 @@ function renderContent() {
     delete nextSoft.accept;
     state.contentSoftDone = nextSoft;
   }
-  const durableCurrent =
-    draft && speechChecked && editorNeeds.speechN > 0
+  const apiMode = effectiveClaudeUiMode() === 'api';
+  const writeSiteDone =
+    Boolean(fieldOk) &&
+    Boolean(briefOk) &&
+    Boolean(outlineConfirmed) &&
+    Boolean(writeOk) &&
+    Boolean(stepDone.editor) &&
+    Boolean(stepDone.finalCheck) &&
+    Boolean(stepDone.imageQueries);
+  stepDone.writeSite = writeSiteDone;
+  const contentOrder = contentStepOrder({ photosOn, apiMode });
+  const durableCurrent = apiMode
+    ? !stepDone.structure
+      ? 'structure'
+      : !writeSiteDone
+        ? 'writeSite'
+        : photosOn && !stepDone.photoGroup
+          ? 'photoGroup'
+          : stepDone.accepted
+            ? null
+            : 'accept'
+    : draft && speechChecked && editorNeeds.speechN > 0
       ? 'editor'
       : stepDone.accepted
         ? null
-        : firstIncompleteContentStep(stepDone);
-  const currentId = resolvePanelCurrent('contentSoftCurrent', durableCurrent);
+        : firstIncompleteContentStep(stepDone, { photosOn });
+  const currentId = resolvePanelCurrent('contentSoftCurrent', durableCurrent, contentOrder);
+  if (apiMode && CONTENT_INNER_STEPS.has(state.contentOpenStep)) {
+    state.contentOpenStep = 'writeSite';
+    state.contentSoftCurrent = 'writeSite';
+    state.contentFollowCurrent = 'writeSite';
+  } else if (!apiMode && state.contentOpenStep === 'writeSite') {
+    const inner = firstIncompleteContentStep(stepDone, { photosOn });
+    state.contentOpenStep = inner;
+    state.contentSoftCurrent = inner;
+    state.contentFollowCurrent = inner;
+  }
   if (state.contentFollowCurrent !== currentId) {
     state.contentOpenStep = currentId;
     state.contentFollowCurrent = currentId;
@@ -8993,7 +10366,11 @@ function renderContent() {
   parts.push(
     panelHowToHtml({
       label: 'Content',
-      info: photosOn
+      info: apiMode
+        ? photosOn
+          ? 'API path: Structure → Write site with Claude → optional photo group → Accept. Copy & paste mode still has the ten-step path.'
+          : 'API path: Structure → Write site with Claude → Accept.'
+        : photosOn
         ? 'Content path (required): Structure → Site research → Brief → Outline → batched Full write → Humanize (Speech/SEO clear) → Final check → Image queries (required) → optional Load photo group → Accept. Claude.ai paste only (no Anthropic API). Then Website → Prepare preview.'
         : 'Eight-pass path (required): Structure → Site research → Brief → Outline → batched Full write → Humanize (Speech/SEO clear) → Final check → Accept. Claude.ai paste only (no Anthropic API). Then Website → Prepare preview.',
     }),
@@ -9009,9 +10386,12 @@ function renderContent() {
       secCount,
       outlineConfirmed,
       outlineDrafted: Boolean(outlinePkg),
+      photosOn,
+      apiMode,
+      writeSiteDone,
     }),
   );
-  parts.push(contentPassStripHtml(stepDone, currentId, { photosOn }));
+  parts.push(contentPassStripHtml(stepDone, currentId, { photosOn, apiMode }));
 
   parts.push(
     contentStepHtml({
@@ -9029,6 +10409,45 @@ function renderContent() {
     }),
   );
 
+  if (apiMode) {
+    const wsBusy = writeSiteJobRunning();
+    const spent = d?.meta?.lastCosts?.writeSite;
+    const leftoverN = editorNeeds.speechN || 0;
+    parts.push(
+      contentStepHtml({
+        id: 'writeSite',
+        num: 2,
+        title: 'Write site with Claude',
+        done: writeSiteDone,
+        open: openId === 'writeSite',
+        current: currentId === 'writeSite' && !writeSiteDone,
+        locked: !structureDone || !ready,
+        info: 'One job: Site research → Brief → Outline → Full write → Polish → Image queries when photos are on. Skips steps already loaded. Stop keeps files written so far.',
+        bodyHtml: `
+          ${
+            writeSiteDone
+              ? `<div class="callout"><strong>Write site complete</strong>${
+                  spent != null ? ` · last run ${esc(formatMoney(spent))}` : ''
+                }</div>`
+              : `<p class="disc-tool-blurb">Anthropic API writes the site from Structure. Confirm cost, then wait on the overlay (or watch Light).</p>`
+          }
+          ${
+            leftoverN
+              ? `<div class="callout warn"><strong>Speech leftovers (${esc(String(leftoverN))})</strong> — Retry Write site (resume) or switch to Copy &amp; paste Humanize.</div>
+                 ${speechLintFindingsHtml(draft?._ops?.speechLint)}
+                 ${seoLintFindingsHtml(draft?._ops?.seoLint)}`
+              : ''
+          }
+          <div class="narrative-actions" style="flex-wrap:wrap;gap:0.4rem">
+            <button type="button" class="btn primary" id="cs-write-site" ${
+              structureDone && ready && !wsBusy ? '' : 'disabled'
+            }>${writeSiteDone ? 'Re-run Write site' : leftoverN ? 'Retry Write site' : 'Write site with Claude'}</button>
+          </div>`,
+      }),
+    );
+  }
+
+  if (!apiMode) {
   const fieldQ = Array.isArray(fieldResearch?.homeownerQuestions)
     ? fieldResearch.homeownerQuestions.length
     : 0;
@@ -9205,7 +10624,8 @@ function renderContent() {
                 loaded: Boolean(writeBatches.services || writeBatches.all),
                 controlsHtml: `<button type="button" class="btn primary" id="cs-copy-write-services" ${
                   outlineConfirmed ? '' : 'disabled'
-                }>Copy Services batch</button>`,
+                }>Copy Services batch</button>
+                ${openClaudeAiBtnHtml({ disabled: !outlineConfirmed })}`,
               })
             : ''
         }
@@ -9217,7 +10637,8 @@ function renderContent() {
                 loaded: Boolean(writeBatches.locations || writeBatches.all),
                 controlsHtml: `<button type="button" class="btn primary" id="cs-copy-write-locations" ${
                   outlineConfirmed ? '' : 'disabled'
-                }>Copy Locations batch</button>`,
+                }>Copy Locations batch</button>
+                ${openClaudeAiBtnHtml({ disabled: !outlineConfirmed })}`,
               })
             : ''
         }
@@ -9367,7 +10788,9 @@ function renderContent() {
     }),
   );
 
-  if (photosOn) {
+  } // !apiMode inner paste steps
+
+  if (!apiMode && photosOn) {
     const imagePlanAt = String(
       d?.imagesPlan?.loadedAt ||
         draft?._ops?.lastImagesPlanAt ||
@@ -9416,21 +10839,28 @@ function renderContent() {
         })}`,
       }),
     );
+  }
+
+  if (photosOn) {
     parts.push(
       contentStepHtml({
         id: 'photoGroup',
-        num: 9,
+        num: apiMode ? 3 : 9,
         title: 'Load photo group',
         done: photoGroupDone,
         open: openId === 'photoGroup',
         current: currentId === 'photoGroup' && !photoGroupDone,
-        locked: !finalCheckDone,
-        info: 'Optional. Reuse photos you already approved on another site in this niche, or let Accept use the niche master after the first Prepare preview. Save named groups later from Website → Review images or Photo.',
+        locked: apiMode ? !writeSiteDone : !finalCheckDone,
+        info: 'Optional. Pick up to three ranked groups. The 1st fills matching slots; the 2nd and 3rd fill leftovers; extras go into trays. Or skip for stock / niche master. Save named groups later from Website → Review images or Photo.',
         bodyHtml: `
         ${
           photoGroupAttached
-            ? `<div class="callout"><strong>Photo group “${esc(
-                d.photoGroupAttached.name || d.photoGroupAttached.groupId,
+            ? `<div class="callout"><strong>Photo group${
+                (d.photoGroupAttached.names || d.photoGroupAttached.groups || []).length > 1
+                  ? 's'
+                  : ''
+              } “${esc(
+                (d.photoGroupAttached.names || d.photoGroupAttached.groups?.map((g) => g.name) || [d.photoGroupAttached.name || d.photoGroupAttached.groupId]).filter(Boolean).join(' → '),
               )}”</strong> selected — Accept will load those photos instead of pulling stock.${
                 d.photoGroupAttached.attachedAt
                   ? ` Attached ${esc(d.photoGroupAttached.attachedAt)}.`
@@ -9448,7 +10878,7 @@ function renderContent() {
         ${contentActionRow({
           n: 1,
           label: 'Load a saved photo group',
-          hint: 'Accept copies these files instead of pulling stock. Logo and coverage map still generate.',
+          hint: 'Rank up to three groups. Accept copies 1st, then fills leftovers from 2nd and 3rd. Matching extras go to trays. Logo and coverage map still generate.',
           done: photoGroupDone,
           controlsHtml: photoGroupToolbarHtml({
             selectId: 'cs-pg-select',
@@ -9473,19 +10903,23 @@ function renderContent() {
   parts.push(
     contentStepHtml({
       id: 'accept',
-      num: photosOn ? 10 : 8,
+      num: apiMode ? (photosOn ? 4 : 3) : photosOn ? 10 : 8,
       title: 'Accept content',
       done: acceptDone,
       open: openId === 'accept',
       current: currentId === 'accept' && !stepDone.accepted,
-      locked: !finalCheckDone || (photosOn && !photosReady),
+      locked: apiMode ? !writeSiteDone || (photosOn && !photosReady) : !finalCheckDone || (photosOn && !photosReady),
       info: 'Accept writes shared src/content/. When photos are on, Image queries must be loaded first. Accept then copies a named group or niche master (including before/after pairs) or pulls stock (Skip on step 9). Logo + coverage map still run. Fresh stock Pull leaves before/after empty until Website → Review images → OpenAI pair.',
       bodyHtml: `
         ${incompleteDraftCalloutHtml(d)}
         ${
           !acceptReady && draft
-            ? `<div class="callout warn">Accept locked until Site research, Brief, Write batches, Humanize (Speech/SEO clear), and Final check${
-                photosOn ? ' — plus Image queries (step 8)' : ''
+            ? `<div class="callout warn">Accept locked until ${
+                apiMode
+                  ? 'Write site with Claude finishes'
+                  : `Site research, Brief, Write batches, Humanize (Speech/SEO clear), and Final check${
+                      photosOn ? ' — plus Image queries (step 8)' : ''
+                    }`
               } — are done.</div>`
             : ''
         }
@@ -9543,7 +10977,7 @@ function renderContent() {
     }),
   );
 
-  return parts.join('');
+  return `<div class="content-panel-wrap">${writeSiteOverlayHtml(photosOn)}${parts.join('')}</div>`;
 }
 
 function imagesStatusLine(d, { withTime = true } = {}) {
@@ -9636,6 +11070,37 @@ function imagesSlotMatchesFilter(slot, filter) {
   return grade === f;
 }
 
+function imagesSourceFilterId(activeFilter) {
+  return ['all', 'stock', 'flux', 'openai'].includes(activeFilter) ? activeFilter : 'all';
+}
+
+function imagesSlotSourceKind(slot) {
+  if (!slot || slot.missing) return null;
+  const src = String(slot.source || '').toLowerCase();
+  if (src === 'flux' || src === 'openai' || src === 'stock') return src;
+  if (src === 'upload' || src === 'chatgpt') return src;
+  if (slot.provider) return 'stock';
+  return src || null;
+}
+
+function imagesSlotMatchesSource(slot, filter) {
+  const f = imagesSourceFilterId(filter);
+  if (f === 'all') return true;
+  return imagesSlotSourceKind(slot) === f;
+}
+
+function imagesMatchGradeSelectLabel(filterId) {
+  return (
+    {
+      poor: 'Poor',
+      ok: 'Ok',
+      good: 'Good',
+      upload: 'Uploaded',
+      empty: 'Empty',
+    }[imagesMatchFilterId(filterId)] || 'slots'
+  );
+}
+
 function imagesMatchTotalsHtml(totals, activeFilter = 'all') {
   const t = totals || {};
   const poor = Number(t.poor) || 0;
@@ -9653,13 +11118,16 @@ function imagesMatchTotalsHtml(totals, activeFilter = 'all') {
       tip,
     )}">${inner}</button>`;
   };
-  const bulkRepull = (grade, count) => {
-    const label = grade === 'poor' ? 'Poor' : 'Ok';
+  const gradeSelect = (filterId, label, count) => {
     const disabled = count < 1 ? ' disabled' : '';
-    return `<button type="button" class="btn btn-sm img-match-bulk-repull" data-bulk-repull="${esc(
-      grade,
-    )}" data-tip="${esc(`Re-pull all ${label} matches`)}"${disabled}>Re-pull</button>`;
+    return `<button type="button" class="btn btn-sm img-match-grade-select" data-grade-select="${esc(
+      filterId,
+    )}" data-tip="${esc(`Select all ${label} — click again to clear`)}"${disabled}>Select</button>`;
   };
+  const gradeGroup = (filterId, inner, tip, count) => `<span class="img-match-totals-group">
+      ${filterBtn(filterId, inner, tip)}
+      ${gradeSelect(filterId, imagesMatchGradeSelectLabel(filterId), count)}
+    </span>`;
   const untipped = { tipped: false };
   return `<div class="img-match-totals" role="toolbar" aria-label="Photo match filters">
     ${filterBtn(
@@ -9668,46 +11136,45 @@ function imagesMatchTotalsHtml(totals, activeFilter = 'all') {
       <span class="muted">All</span>`,
       `Show all ${total} photo slot${total === 1 ? '' : 's'}`,
     )}
-    <span class="img-match-totals-group">
-      ${filterBtn(
-        'poor',
-        `${imagesMatchDotHtml('poor', null, untipped)}
+    ${gradeGroup(
+      'poor',
+      `${imagesMatchDotHtml('poor', null, untipped)}
       <strong>${esc(String(poor))}</strong>
       <span class="muted">Poor</span>`,
-        `Show ${poor} Poor match${poor === 1 ? '' : 'es'} (filled slots only)`,
-      )}
-      ${bulkRepull('poor', poor)}
-    </span>
-    <span class="img-match-totals-group">
-      ${filterBtn(
-        'ok',
-        `${imagesMatchDotHtml('ok', null, untipped)}
+      `Show ${poor} Poor match${poor === 1 ? '' : 'es'} (filled slots only)`,
+      poor,
+    )}
+    ${gradeGroup(
+      'ok',
+      `${imagesMatchDotHtml('ok', null, untipped)}
       <strong>${esc(String(ok))}</strong>
       <span class="muted">Ok</span>`,
-        `Show ${ok} Ok match${ok === 1 ? '' : 'es'}`,
-      )}
-      ${bulkRepull('ok', ok)}
-    </span>
-    ${filterBtn(
+      `Show ${ok} Ok match${ok === 1 ? '' : 'es'}`,
+      ok,
+    )}
+    ${gradeGroup(
       'good',
       `${imagesMatchDotHtml('good', null, untipped)}
       <strong>${esc(String(good))}</strong>
       <span class="muted">Good</span>`,
       `Show ${good} Good match${good === 1 ? '' : 'es'}`,
+      good,
     )}
-    ${filterBtn(
+    ${gradeGroup(
       'upload',
       `${imagesMatchDotHtml('upload', null, untipped)}
       <strong>${esc(String(uploaded))}</strong>
       <span class="muted">Uploaded</span>`,
       `Show ${uploaded} operator upload${uploaded === 1 ? '' : 's'}`,
+      uploaded,
     )}
-    ${filterBtn(
+    ${gradeGroup(
       'empty',
       `${imagesMatchDotHtml('missing', null, untipped)}
       <strong>${esc(String(missing))}</strong>
       <span class="muted">Empty</span>`,
       `Show ${missing} Empty slot${missing === 1 ? '' : 's'}`,
+      missing,
     )}
   </div>`;
 }
@@ -9778,6 +11245,34 @@ function patchListLastCosts(candidate) {
   if (row) row.lastCosts = { ...(row.lastCosts || {}), ...costs };
 }
 
+/** Keep the table row's Live / Type / W in sync with the open detail (launch, Push, Revert). */
+function syncListRowFromDetail(candidate) {
+  if (!candidate?.id) return;
+  const list = state.candidates || [];
+  const i = list.findIndex((c) => c.id === candidate.id);
+  if (i < 0) return;
+  const prev = list[i];
+  const beforeLive = isCandidateLaunched(prev);
+  const beforeTrack = candidateHighestWebsiteTrack(prev);
+  const beforeRank = candidatePipelineRank(prev);
+  const next = {
+    ...prev,
+    meta: candidate.meta || prev.meta,
+    stageFlags: { ...(prev.stageFlags || {}), ...(candidate.stageFlags || {}) },
+    lastCosts: candidate.lastCosts || candidate.meta?.lastCosts || prev.lastCosts,
+    decision: candidate.meta?.decision ?? prev.decision,
+    updatedAt: candidate.meta?.updatedAt || prev.updatedAt,
+  };
+  list[i] = next;
+  if (
+    beforeLive !== isCandidateLaunched(next) ||
+    beforeTrack !== candidateHighestWebsiteTrack(next) ||
+    beforeRank !== candidatePipelineRank(next)
+  ) {
+    renderList();
+  }
+}
+
 function fluxCostLine(nSlots, nPairs) {
   const gen = 0.03;
   const pair = 0.09;
@@ -9817,7 +11312,11 @@ function chatgptOpenBtnHtml() {
 }
 
 function variantTrayHtml(variants, { ba = false } = {}) {
-  const list = Array.isArray(variants) ? variants.filter((v) => (ba ? v.id : v.filename)) : [];
+  const list = Array.isArray(variants)
+    ? variants.filter((v) =>
+        ba ? v.id && (v.beforeUrl || v.afterUrl) : v.filename && v.previewUrl,
+      )
+    : [];
   if (!list.length) return '';
   const cards = list
     .map((v) => {
@@ -9830,7 +11329,7 @@ function variantTrayHtml(variants, { ba = false } = {}) {
         </button>`;
       }
       return `<button type="button" class="slot-variant slot-variant-use" data-filename="${esc(v.filename)}" data-tip="Use this photo">
-        ${v.previewUrl ? `<img src="${esc(v.previewUrl)}" alt="" data-zoom-src="${esc(v.previewUrl)}" class="slot-zoom-tray" />` : ''}
+        <img src="${esc(v.previewUrl)}" alt="" data-zoom-src="${esc(v.previewUrl)}" class="slot-zoom-tray" />
       </button>`;
     })
     .join('');
@@ -9900,14 +11399,58 @@ function selectedGenerateCostLine(nSlots, nPairs, provider) {
   return fluxCostLine(nSlots, 0);
 }
 
-function fluxToolbarHtml({ nSlots, nPairs, flux, id }) {
+function countSelectedBySource(slots, checks) {
+  const out = { stock: 0, flux: 0, openai: 0 };
+  for (const s of slots || []) {
+    if (!checks?.[s.key]) continue;
+    const k = imagesSlotSourceKind(s);
+    if (k === 'stock' || k === 'flux' || k === 'openai') out[k] += 1;
+  }
+  return out;
+}
+
+function fluxToolbarHtml({ nSlots, nPairs, flux, id, repull = false, sourceCounts = null }) {
   const n = nSlots + nPairs;
   const fluxConfigured = fluxIsConfigured(flux);
   const openaiConfigured = fluxIsOpenaiConfigured(flux);
   const fluxExtra = nSlots < 1 ? ' disabled' : '';
   const openaiExtra = n < 1 ? ' disabled' : '';
+  const repullBtn = repull
+    ? `<button type="button" class="btn btn-sm review-selected-repull" data-tip="Re-pull stock for selected photo slots (not Before &amp; after)"${
+        nSlots < 1 ? ' disabled' : ''
+      }>Re-pull</button>`
+    : '';
+  const unselectBtn = `<button type="button" class="btn btn-sm flux-unselect-all" data-tip="Clear every selected photo and before/after"${
+    n < 1 ? ' disabled' : ''
+  }>Unselect all</button>`;
+  const source = imagesSourceFilterId(state.imageSourceFilter);
+  const counts = sourceCounts || { stock: 0, flux: 0, openai: 0 };
+  const sourceBtn = (filterId, label, tip) => {
+    const pressed = source === filterId;
+    return `<button type="button" class="btn btn-sm review-source-filter${
+      pressed ? ' is-active' : ''
+    }" data-source-filter="${esc(filterId)}" aria-pressed="${pressed ? 'true' : 'false'}" data-tip="${esc(
+      tip,
+    )}">${esc(label)}</button>`;
+  };
+  const sourceBtns = repull
+    ? `<span class="review-source-filters" role="group" aria-label="Filter by source">${sourceBtn(
+        'stock',
+        `Stock ${counts.stock}`,
+        'Show stock photos only — click again for all',
+      )}${sourceBtn('flux', `Flux ${counts.flux}`, 'Show Flux photos only — click again for all')}${sourceBtn(
+        'openai',
+        `OpenAI ${counts.openai}`,
+        'Show OpenAI photos only — click again for all',
+      )}</span>`
+    : '';
   return `<div class="flux-toolbar" id="${esc(id)}">
     <span class="review-selected-count">Selected images ${esc(String(n))}</span>
+    ${unselectBtn}
+    ${sourceBtns}
+    <span class="flux-toolbar-sep" role="separator" aria-hidden="true"></span>
+    <span class="flux-toolbar-generate-label">Generate</span>
+    ${repullBtn}
     ${fluxGenerateBtnHtml({ configured: fluxConfigured, bulk: true, extra: fluxExtra })}
     ${openaiGenerateBtnHtml({ bulk: true, extra: openaiExtra, flux })}
   </div>`;
@@ -10020,10 +11563,11 @@ function mapLabelPlacementSegmentHtml(selected) {
 }
 
 function logoGenerateModeFromValue(value) {
-  const m = String(value || 'monogram').toLowerCase().replace(/[^a-z]/g, '');
+  const m = String(value || '').toLowerCase().replace(/[^a-z]/g, '');
   if (m === 'mark' || m === 'icon') return 'mark';
-  if (m === 'marktext' || m === 'wordmark') return 'markText';
-  return 'monogram';
+  if (m === 'monogram') return 'monogram';
+  if (m === 'marktext' || m === 'wordmark' || m === 'markplus') return 'markText';
+  return 'markText';
 }
 
 function logoAssetFilename(d) {
@@ -10048,6 +11592,43 @@ function logoGenerateModeSegmentHtml(selected) {
   </div>`;
 }
 
+function logoPromptEditorHtml(d) {
+  const mode = logoGenerateModeFromValue(d?.meta?.logoGenerateMode);
+  const defaults = d?.logoPromptDefaults || {};
+  const saved = String(d?.meta?.logoPrompt || '').trim();
+  const initial =
+    saved ||
+    (mode === 'mark' ? defaults.mark : defaults.markText) ||
+    defaults.markText ||
+    '';
+  return `<details class="logo-prompt-details" id="ca-logo-prompt-wrap">
+    <summary>Logo prompt</summary>
+    <textarea id="ca-logo-prompt" rows="5" spellcheck="false">${esc(initial)}</textarea>
+    <p class="muted">Used for Mark and Mark + text. Monogram ignores this.</p>
+  </details>`;
+}
+
+function logoMapVariantTrayHtml(variants, { kind, candidateId, bust } = {}) {
+  const list = Array.isArray(variants) ? variants.filter((v) => v.filename) : [];
+  if (!list.length) return '';
+  const attr = kind === 'map' ? 'data-map-variant' : 'data-logo-variant';
+  const tip =
+    kind === 'map'
+      ? 'Use this coverage map. Tray keeps 2; oldest is removed.'
+      : 'Use this logo. Tray keeps 4; oldest is removed.';
+  const cards = list
+    .map((v) => {
+      const src = siteImageFileUrl(candidateId, v.filename, v.at || bust);
+      return `<button type="button" class="slot-variant logo-map-variant" ${attr}="${esc(
+        v.filename,
+      )}" data-tip="${esc(tip)}">${
+        src ? `<img src="${esc(src)}" alt="" />` : ''
+      }</button>`;
+    })
+    .join('');
+  return `<div class="slot-variant-tray logo-map-variant-tray">${cards}</div>`;
+}
+
 function selectedLogoGenerateMode() {
   return logoGenerateModeFromValue(
     document.querySelector('#ca-logo-style .ads-mode-seg.active')?.getAttribute('data-logo-style'),
@@ -10069,16 +11650,19 @@ function syncLogoGenerateButton() {
   btn.setAttribute('data-tip', tip);
 }
 
-function imagesSlotsShellHtml({ spendHtml = '', actionsHtml = '', progressHtml = '', statusHtml = '' } = {}) {
-  return `<div id="ca-image-slots">
-    <div class="review-images-chrome">
+function imagesReviewChromeHtml({ spendHtml = '', actionsHtml = '', progressHtml = '', statusHtml = '' } = {}) {
+  return `<div class="review-images-chrome">
       ${spendHtml}
       ${actionsHtml}
       ${progressHtml}
       ${statusHtml}
       <div id="ca-flux-toolbar"></div>
       <div id="ca-image-slots-totals"></div>
-    </div>
+    </div>`;
+}
+
+function imagesSlotsShellHtml() {
+  return `<div id="ca-image-slots">
     <div id="ca-image-slots-grid" class="ca-image-slots-sections"></div>
     <p id="ca-image-slots-filter-empty" class="muted" style="display:none;font-size:0.85rem;margin:0.35rem 0 0"></p>
     <p id="ca-image-slots-empty" class="muted" style="display:none;font-size:0.85rem;margin:0.35rem 0 0">No Structure photo slots enabled.</p>
@@ -10116,10 +11700,185 @@ function renderReviewFluxToolbar() {
   const el = document.getElementById('ca-flux-toolbar');
   if (!el) return;
   const { nSlots, nPairs } = countReviewChecks();
+  const sourceCounts = countSelectedBySource(state.reviewImageSlots, state.imageSlotChecks);
   el.outerHTML = fluxToolbarHtml({
     nSlots,
     nPairs,
     id: 'ca-flux-toolbar',
+    repull: true,
+    sourceCounts,
+  });
+}
+
+function reviewSlotsForGrade(filterId) {
+  const grade = imagesMatchFilterId(filterId);
+  if (grade === 'all') return [];
+  return (state.reviewImageSlots || []).filter((s) => imagesSlotMatchesFilter(s, grade));
+}
+
+function toggleSelectReviewGrade(filterId) {
+  const slots = reviewSlotsForGrade(filterId);
+  if (!slots.length) return;
+  const checks = { ...(state.imageSlotChecks || {}) };
+  const allOn = slots.every((s) => Boolean(checks[s.key]));
+  for (const s of slots) {
+    if (allOn) delete checks[s.key];
+    else checks[s.key] = true;
+  }
+  state.imageSlotChecks = checks;
+  const root = document.getElementById('ca-image-slots');
+  if (root) {
+    for (const s of slots) {
+      const input = root.querySelector(`.slot-check-input[data-check-id="${CSS.escape(s.key)}"]`);
+      if (input) input.checked = !allOn;
+    }
+  }
+  renderReviewFluxToolbar();
+}
+
+async function repullReviewSlots(candidateId, slotKeys) {
+  const keys = [...new Set((slotKeys || []).filter(Boolean))].filter(
+    (k) => !String(k).startsWith('ba:'),
+  );
+  if (!keys.length) {
+    showToast('No photo slots selected to re-pull.');
+    return;
+  }
+  if (
+    !(await confirmLaunchedSiteChange(
+      `Re-pull ${keys.length} photo slot${keys.length === 1 ? '' : 's'}`,
+    ))
+  ) {
+    return;
+  }
+  let lastCandidate = null;
+  try {
+    for (const slotKey of keys) beginSlotBusy(slotKey, null, { scroll: false });
+    for (let i = 0; i < keys.length; i += 1) {
+      const slotKey = keys[i];
+      beginSlotBusy(slotKey);
+      setImagesProgress(true, {
+        label: `Images loading ${i + 1}`,
+        detail: `Images loading ${i + 1}`,
+        current: i + 1,
+        total: keys.length,
+      });
+      const result = await api(
+        `/api/candidates/${encodeURIComponent(candidateId)}/images/slots/${encodeURIComponent(slotKey)}/repull`,
+        { method: 'POST', body: JSON.stringify(withLaunchedConfirmBody({})) },
+      );
+      lastCandidate = result.candidate || lastCandidate;
+      await commitReviewSlot(candidateId, { candidate: lastCandidate, slotKey });
+    }
+    showToast(`Re-pulled ${keys.length} slot${keys.length === 1 ? '' : 's'}.`);
+  } catch (error) {
+    await refreshImageSlotsGrid(candidateId);
+    await settleSlotBusy();
+    await showModal({
+      title: 'Re-pull failed',
+      confirmLabel: 'OK',
+      hideCancel: true,
+      bodyHtml: `<p>${esc(error.message)}</p><p class="muted">Slots already re-pulled were kept.</p>`,
+    });
+  } finally {
+    setImagesProgress(false);
+  }
+}
+
+const OPENAI_GENERATE_CONCURRENCY = 5;
+const OPENAI_BA_PAIR_WEIGHT = 2;
+
+function isOpenaiRateLimitError(error) {
+  if (Number(error?.status) === 429 || error?.code === 'openai-rate-limit') return true;
+  return /rate limit|too many requests|\b429\b/i.test(String(error?.message || error || ''));
+}
+
+function waitMs(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function withOpenaiRateLimitRetry(fn, { attempts = 4 } = {}) {
+  let delay = 15000;
+  for (let i = 0; i < attempts; i += 1) {
+    try {
+      return await fn();
+    } catch (error) {
+      if (!isOpenaiRateLimitError(error) || i === attempts - 1) throw error;
+      await waitMs(delay);
+      delay = Math.min(60_000, delay * 2);
+    }
+  }
+}
+
+async function runPool(items, limit, worker) {
+  const list = Array.isArray(items) ? items : [];
+  if (!list.length) return;
+  const n = Math.max(1, Math.min(Number(limit) || 1, list.length));
+  let next = 0;
+  async function take() {
+    while (next < list.length) {
+      const i = next;
+      next += 1;
+      await worker(list[i], i);
+    }
+  }
+  await Promise.all(Array.from({ length: n }, () => take()));
+}
+
+async function runWeightedPool(items, limit, weightOf, worker) {
+  const list = Array.isArray(items) ? items : [];
+  if (!list.length) return;
+  const max = Math.max(1, Number(limit) || 1);
+  let next = 0;
+  let activeWeight = 0;
+  let inflight = 0;
+  await new Promise((resolve, reject) => {
+    const kick = () => {
+      while (next < list.length) {
+        const item = list[next];
+        const w = Math.min(max, Math.max(1, Number(weightOf?.(item)) || 1));
+        if (inflight > 0 && activeWeight + w > max) break;
+        next += 1;
+        activeWeight += w;
+        inflight += 1;
+        Promise.resolve(worker(item, next - 1)).then(
+          () => {
+            activeWeight -= w;
+            inflight -= 1;
+            if (next >= list.length && inflight === 0) resolve();
+            else kick();
+          },
+          (err) => reject(err),
+        );
+      }
+      if (next >= list.length && inflight === 0) resolve();
+    };
+    kick();
+  });
+}
+
+function openaiGenerateWeight(job) {
+  return job?.kind === 'pair' ? OPENAI_BA_PAIR_WEIGHT : 1;
+}
+
+function createSerialQueue() {
+  let chain = Promise.resolve();
+  return (fn) => {
+    const run = chain.then(() => fn());
+    chain = run.then(
+      () => {},
+      () => {},
+    );
+    return run;
+  };
+}
+
+function paintOpenaiBatchProgress(done, total) {
+  setImagesProgress(true, {
+    label: `Images loading ${done}`,
+    detail: `Images loading ${done}`,
+    current: done,
+    total,
   });
 }
 
@@ -10157,61 +11916,42 @@ async function generateReviewSelected(candidateId, provider) {
   let walletStop = false;
   let index = 0;
   try {
-    for (const slotKey of slotKeys) {
-      index += 1;
-      const t0 = Date.now();
-      try {
-        await withFluxProgress(
-          {
-            label: 'Generating…',
-            detail: slotKey,
-            index,
-            total,
-            kind: 'photo',
-            samples,
-          },
-          async () => {
-            const result = await api(
-              `/api/candidates/${encodeURIComponent(candidateId)}/images/slots/${encodeURIComponent(slotKey)}/${slotPath}`,
-              {
-                method: 'POST',
-                body: JSON.stringify(
-                  withLaunchedConfirmBody({ viewpoint: getBaViewpoint(slotKey) }),
-                ),
-              },
-            );
-            if (result.candidate) lastCandidate = result.candidate;
-          },
-        );
-        samples.photo.push(Date.now() - t0);
-      } catch (error) {
-        failures.push(`${slotKey}: ${error.message}`);
-        if (isFluxWalletError(error)) {
-          walletStop = true;
-          break;
-        }
-      }
-    }
-    if (!walletStop) {
-      for (const baId of baKeys) {
-        index += 1;
-        const raw = baId.replace(/^ba:/, '');
-        const isSvc = raw.startsWith('svc:');
-        const slug = isSvc ? raw.slice(4) : '';
-        const pairIndex = isSvc ? 1 : Number(String(raw).split(':')[1]) || 1;
+    for (const slotKey of slotKeys) beginSlotBusy(slotKey, null, { scroll: false });
+    for (const baId of baKeys) beginSlotBusy(baId, null, { scroll: false });
+    if (provider === 'openai') {
+      const jobs = [
+        ...slotKeys.map((slotKey) => ({ kind: 'photo', id: slotKey })),
+        ...baKeys.map((baId) => ({ kind: 'pair', id: baId })),
+      ];
+      let done = 0;
+      paintOpenaiBatchProgress(0, total);
+      const enqueue = createSerialQueue();
+      await runWeightedPool(jobs, OPENAI_GENERATE_CONCURRENCY, openaiGenerateWeight, async (job) => {
         const t0 = Date.now();
         try {
-          await withFluxProgress(
-            {
-              label: 'Generating pair…',
-              detail: raw,
-              index,
-              total,
-              kind: 'pair',
-              samples,
-            },
-            async () => {
-              const result = await api(
+          if (job.kind === 'photo') {
+            const result = await withOpenaiRateLimitRetry(() =>
+              api(
+                `/api/candidates/${encodeURIComponent(candidateId)}/images/slots/${encodeURIComponent(job.id)}/${slotPath}`,
+                {
+                  method: 'POST',
+                  body: JSON.stringify(
+                    withLaunchedConfirmBody({ viewpoint: getBaViewpoint(job.id) }),
+                  ),
+                },
+              ),
+            );
+            samples.photo.push(Date.now() - t0);
+            await enqueue(() =>
+              commitReviewSlot(candidateId, { candidate: result.candidate, slotKey: job.id }),
+            );
+          } else {
+            const raw = job.id.replace(/^ba:/, '');
+            const isSvc = raw.startsWith('svc:');
+            const slug = isSvc ? raw.slice(4) : '';
+            const pairIndex = isSvc ? 1 : Number(String(raw).split(':')[1]) || 1;
+            const result = await withOpenaiRateLimitRetry(() =>
+              api(
                 `/api/candidates/${encodeURIComponent(candidateId)}/images/before-after-generate-openai`,
                 {
                   method: 'POST',
@@ -10223,18 +11963,109 @@ async function generateReviewSelected(candidateId, provider) {
                     }),
                   ),
                 },
+              ),
+            );
+            samples.pair.push(Date.now() - t0);
+            await enqueue(() =>
+              commitReviewSlot(candidateId, { candidate: result.candidate, slotKey: job.id }),
+            );
+          }
+        } catch (error) {
+          await enqueue(async () => {
+            await settleSlotBusy(job.id);
+            if (job.kind === 'pair') await settleSlotBusy(job.id.replace(/^ba:/, ''));
+          });
+          const label = job.kind === 'pair' ? job.id.replace(/^ba:/, '') : job.id;
+          failures.push(`${label}: ${error.message}`);
+        } finally {
+          done += 1;
+          paintOpenaiBatchProgress(done, total);
+        }
+      });
+    } else {
+      for (const slotKey of slotKeys) {
+        index += 1;
+        const t0 = Date.now();
+        try {
+          await withFluxProgress(
+            {
+              label: 'Generating…',
+              detail: slotKey,
+              index,
+              total,
+              kind: 'photo',
+              samples,
+            },
+            async () => {
+              const result = await api(
+                `/api/candidates/${encodeURIComponent(candidateId)}/images/slots/${encodeURIComponent(slotKey)}/${slotPath}`,
+                {
+                  method: 'POST',
+                  body: JSON.stringify(
+                    withLaunchedConfirmBody({ viewpoint: getBaViewpoint(slotKey) }),
+                  ),
+                },
               );
               if (result.candidate) lastCandidate = result.candidate;
             },
           );
-          samples.pair.push(Date.now() - t0);
+          samples.photo.push(Date.now() - t0);
+          await commitReviewSlot(candidateId, { candidate: lastCandidate, slotKey });
         } catch (error) {
-          failures.push(`${raw}: ${error.message}`);
-          if (isFluxWalletError(error)) break;
+          await settleSlotBusy(slotKey);
+          failures.push(`${slotKey}: ${error.message}`);
+          if (isFluxWalletError(error)) {
+            walletStop = true;
+            break;
+          }
+        }
+      }
+      if (!walletStop) {
+        for (const baId of baKeys) {
+          index += 1;
+          const raw = baId.replace(/^ba:/, '');
+          const isSvc = raw.startsWith('svc:');
+          const slug = isSvc ? raw.slice(4) : '';
+          const pairIndex = isSvc ? 1 : Number(String(raw).split(':')[1]) || 1;
+          const t0 = Date.now();
+          try {
+            await withFluxProgress(
+              {
+                label: 'Generating pair…',
+                detail: raw,
+                index,
+                total,
+                kind: 'pair',
+                samples,
+              },
+              async () => {
+                const result = await api(
+                  `/api/candidates/${encodeURIComponent(candidateId)}/images/before-after-generate-openai`,
+                  {
+                    method: 'POST',
+                    body: JSON.stringify(
+                      withLaunchedConfirmBody({
+                        viewpoint: getBaViewpoint(raw),
+                        serviceSlug: slug,
+                        pairIndex,
+                      }),
+                    ),
+                  },
+                );
+                if (result.candidate) lastCandidate = result.candidate;
+              },
+            );
+            samples.pair.push(Date.now() - t0);
+            await commitReviewSlot(candidateId, { candidate: lastCandidate, slotKey: baId });
+          } catch (error) {
+            await settleSlotBusy(baId);
+            await settleSlotBusy(raw);
+            failures.push(`${raw}: ${error.message}`);
+            if (isFluxWalletError(error)) break;
+          }
         }
       }
     }
-    await refreshImageSlotInPlace(candidateId, lastCandidate);
     if (failures.length) {
       if (!(await showFluxGenerateFailures(failures))) {
         showToast(`Generated with ${failures.length} error${failures.length === 1 ? '' : 's'}.`);
@@ -10244,9 +12075,44 @@ async function generateReviewSelected(candidateId, provider) {
       showToast(`Generated ${total} ${label} job${total === 1 ? '' : 's'}.`);
     }
   } finally {
+    await settleSlotBusy();
     setImagesProgress(false);
     refreshImageWallets({ fresh: true, remind: true });
   }
+}
+
+function imageSlotSectionKey(group) {
+  return String(group?.key || group?.sectionId || '');
+}
+
+function imageSlotSectionHtml(group, cardsHtml) {
+  const key = imageSlotSectionKey(group);
+  return `<section class="ca-image-slot-section" data-section-group="${esc(key)}">
+      <h4 class="ca-image-slot-section-title">${esc(group.label || key)}</h4>
+      <div class="ca-image-slot-section-grid">${cardsHtml}</div>
+    </section>`;
+}
+
+function isHeroIntroPair(a, b) {
+  const keys = new Set([imageSlotSectionKey(a), imageSlotSectionKey(b)]);
+  return keys.has('hero') && keys.has('intro');
+}
+
+function joinImageSlotSections(groups, renderSection) {
+  const parts = [];
+  for (let i = 0; i < groups.length; i += 1) {
+    const a = groups[i];
+    const b = groups[i + 1];
+    if (b && isHeroIntroPair(a, b)) {
+      parts.push(
+        `<div class="ca-image-slot-hero-intro">${renderSection(a)}${renderSection(b)}</div>`,
+      );
+      i += 1;
+    } else {
+      parts.push(renderSection(a));
+    }
+  }
+  return parts.join('');
 }
 
 function imagesSlotsGroupedHtml(slots) {
@@ -10265,14 +12131,9 @@ function imagesSlotsGroupedHtml(slots) {
     }
     byKey.get(gKey).slots.push(slot);
   }
-  return groups
-    .map(
-      (g) => `<section class="ca-image-slot-section" data-section-group="${esc(g.key)}">
-      <h4 class="ca-image-slot-section-title">${esc(g.label)}</h4>
-      <div class="ca-image-slot-section-grid">${g.slots.map(imagesSlotCardHtml).join('')}</div>
-    </section>`,
-    )
-    .join('');
+  return joinImageSlotSections(groups, (g) =>
+    imageSlotSectionHtml(g, g.slots.map(imagesSlotCardHtml).join('')),
+  );
 }
 
 async function refreshImageSlotsGrid(candidateId) {
@@ -10283,9 +12144,12 @@ async function refreshImageSlotsGrid(candidateId) {
   if (!grid) return;
   const filter = imagesMatchFilterId(state.imageMatchFilter);
   state.imageMatchFilter = filter;
+  const sourceFilter = imagesSourceFilterId(state.imageSourceFilter);
+  state.imageSourceFilter = sourceFilter;
   try {
     const data = await api(`/api/candidates/${encodeURIComponent(candidateId)}/images/slots`);
     const slots = data?.slots || [];
+    state.reviewImageSlots = slots;
     if (data.flux) state.flux = data.flux;
     let baHtml = '';
     try {
@@ -10294,7 +12158,9 @@ async function refreshImageSlotsGrid(candidateId) {
       );
       state.reviewBa = baStatus;
       if (baStatus?.flux) state.flux = baStatus.flux;
-      if (filter === 'all') baHtml = reviewBaCardsHtml(candidateId, baStatus);
+      if (filter === 'all' && (sourceFilter === 'all' || sourceFilter === 'openai')) {
+        baHtml = reviewBaCardsHtml(candidateId, baStatus);
+      }
     } catch {
       state.reviewBa = null;
     }
@@ -10307,13 +12173,17 @@ async function refreshImageSlotsGrid(candidateId) {
       }
       if (empty) empty.style.display = 'block';
       renderReviewFluxToolbar();
+      restoreSlotBusyOverlays();
       return;
     }
     if (empty) empty.style.display = 'none';
     if (totalsEl) totalsEl.innerHTML = imagesMatchTotalsHtml(data.matchTotals, filter);
-    const visible = slots.filter((s) => imagesSlotMatchesFilter(s, filter));
+    const visible = slots.filter(
+      (s) => imagesSlotMatchesFilter(s, filter) && imagesSlotMatchesSource(s, sourceFilter),
+    );
     grid.innerHTML = `${imagesSlotsGroupedHtml(visible)}${baHtml}`;
     renderReviewFluxToolbar();
+    restoreSlotBusyOverlays();
     if (filterEmpty) {
       if (!visible.length && !baHtml) {
         filterEmpty.style.display = 'block';
@@ -10325,7 +12195,17 @@ async function refreshImageSlotsGrid(candidateId) {
           upload: 'No operator uploads.',
           empty: 'No empty slots.',
         };
-        filterEmpty.textContent = labels[filter] || 'No matching slots.';
+        const sourceLabels = {
+          stock: 'No stock photos.',
+          flux: 'No Flux photos.',
+          openai: 'No OpenAI photos.',
+        };
+        filterEmpty.textContent =
+          sourceFilter !== 'all' && filter === 'all'
+            ? sourceLabels[sourceFilter] || 'No matching slots.'
+            : sourceFilter !== 'all'
+              ? 'No matching slots.'
+              : labels[filter] || 'No matching slots.';
       } else {
         filterEmpty.style.display = 'none';
         filterEmpty.textContent = '';
@@ -10342,7 +12222,7 @@ async function refreshImageSlotsGrid(candidateId) {
 }
 
 /** After slot Re-pull/Upload: keep Review images open; refresh grid + status only. */
-async function refreshImageSlotInPlace(candidateId, candidate) {
+async function commitReviewSlot(candidateId, { candidate, slotKey } = {}) {
   if (candidate) {
     state.detail = candidate;
     patchListLastCosts(candidate);
@@ -10354,20 +12234,78 @@ async function refreshImageSlotInPlace(candidateId, candidate) {
   paintImagesStatusEl(statusEl, state.detail);
   renderFluxSpendLine();
   await refreshImageSlotsGrid(candidateId);
+  if (slotKey) await settleSlotBusy(slotKey);
+}
+
+async function refreshImageSlotInPlace(candidateId, candidate) {
+  await commitReviewSlot(candidateId, { candidate });
   await settleSlotBusy();
   setImagesProgress(false);
 }
 
 function wireImageSlotActions(candidateId, _refreshFn) {
-  const root = document.getElementById('ca-image-slots');
+  const root =
+    document.querySelector('#tab-panels [data-content-step="images"]') ||
+    document.getElementById('ca-image-slots');
   if (!root || root.dataset.wired === '1') return;
   root.dataset.wired = '1';
 
+  const applyImageSlotShiftRange = (ev) => {
+    const input = resolveSlotCheckInput(ev.target, root);
+    if (!input) return false;
+    const id = input.getAttribute('data-check-id');
+    if (!id) return false;
+    const visibleKeys = [...root.querySelectorAll('.image-slot-card .slot-check-input')]
+      .map((el) => el.getAttribute('data-check-id'))
+      .filter(Boolean);
+    const checks = { ...(state.imageSlotChecks || {}) };
+    const ranged = applyShiftRangeCheckboxClick(ev, {
+      visibleKeys,
+      clickedKey: id,
+      anchorKey: state.imageSlotCheckAnchor,
+      setAnchor: (key) => {
+        state.imageSlotCheckAnchor = key;
+      },
+      setSelected: (key, on) => {
+        if (on) checks[key] = true;
+        else delete checks[key];
+      },
+    });
+    if (!ranged) return false;
+    state.imageSlotChecks = checks;
+    for (const el of root.querySelectorAll('.image-slot-card .slot-check-input')) {
+      const key = el.getAttribute('data-check-id');
+      el.checked = Boolean(checks[key]);
+    }
+    renderReviewFluxToolbar();
+    return true;
+  };
+
+  root.addEventListener(
+    'pointerdown',
+    (ev) => {
+      if (!ev.shiftKey || state.imageSlotCheckAnchor == null) return;
+      if (!resolveSlotCheckInput(ev.target, root)) return;
+      blockShiftRangePointerDown(ev, state.imageSlotCheckAnchor);
+      applyImageSlotShiftRange(ev);
+    },
+    true,
+  );
+
+  root.addEventListener('click', (ev) => {
+    applyImageSlotShiftRange(ev);
+  });
+
   root.addEventListener('change', async (ev) => {
-    const input = ev.target.closest('.slot-check-input');
+    const input = resolveSlotCheckInput(ev.target, root) || ev.target.closest?.('.slot-check-input');
     if (input && root.contains(input)) {
       const id = input.getAttribute('data-check-id');
       if (!id) return;
+      if (consumeShiftRangeChange(input, id)) {
+        input.checked = Boolean(state.imageSlotChecks?.[id]);
+        return;
+      }
+      state.imageSlotCheckAnchor = id;
       state.imageSlotChecks = { ...(state.imageSlotChecks || {}), [id]: input.checked };
       renderReviewFluxToolbar();
       return;
@@ -10445,54 +12383,39 @@ function wireImageSlotActions(candidateId, _refreshFn) {
       }
       return;
     }
-    const bulkBtn = ev.target.closest('.img-match-bulk-repull');
-    if (bulkBtn && root.contains(bulkBtn)) {
+    const selectBtn = ev.target.closest('[data-grade-select]');
+    if (selectBtn && root.contains(selectBtn)) {
       ev.preventDefault();
       ev.stopPropagation();
-      if (bulkBtn.disabled) return;
-      const grade = bulkBtn.getAttribute('data-bulk-repull');
-      if (grade !== 'poor' && grade !== 'ok') return;
-      const gradeLabel = grade === 'poor' ? 'Poor' : 'Ok';
-      if (!(await confirmLaunchedSiteChange(`Re-pull ${gradeLabel} photo slots`))) return;
-      bulkBtn.disabled = true;
+      if (selectBtn.disabled) return;
+      toggleSelectReviewGrade(selectBtn.getAttribute('data-grade-select'));
+      return;
+    }
+    const unselectAll = ev.target.closest('.flux-unselect-all');
+    if (unselectAll && root.contains(unselectAll)) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      if (unselectAll.disabled) return;
+      state.imageSlotChecks = {};
+      root.querySelectorAll('.slot-check-input').forEach((el) => {
+        el.checked = false;
+      });
+      renderReviewFluxToolbar();
+      return;
+    }
+    const selectedRepull = ev.target.closest('.review-selected-repull');
+    if (selectedRepull && root.contains(selectedRepull)) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      if (selectedRepull.disabled) return;
+      const checks = state.imageSlotChecks || {};
+      const slotKeys = Object.keys(checks).filter((k) => checks[k] && !k.startsWith('ba:'));
+      selectedRepull.disabled = true;
       try {
-        const data = await api(`/api/candidates/${encodeURIComponent(candidateId)}/images/slots`);
-        const targets = (data?.slots || []).filter((s) => imagesSlotMatchesFilter(s, grade));
-        if (!targets.length) {
-          showToast(`No ${gradeLabel} slots to re-pull.`);
-          return;
-        }
-        state.imageMatchFilter = grade;
-        let lastCandidate = null;
-        for (let i = 0; i < targets.length; i += 1) {
-          const slotKey = targets[i].key;
-          beginSlotBusy(slotKey);
-          setImagesProgress(true, {
-            label: `Images loading ${i + 1}`,
-            detail: `Images loading ${i + 1}`,
-            current: i + 1,
-            total: targets.length,
-          });
-          const result = await api(
-            `/api/candidates/${encodeURIComponent(candidateId)}/images/slots/${encodeURIComponent(slotKey)}/repull`,
-            { method: 'POST', body: JSON.stringify(withLaunchedConfirmBody({})) },
-          );
-          lastCandidate = result.candidate || lastCandidate;
-        }
-        await refreshImageSlotInPlace(candidateId, lastCandidate);
-        showToast(`Re-pulled ${targets.length} ${gradeLabel} slot${targets.length === 1 ? '' : 's'}.`);
-      } catch (error) {
-        setImagesProgress(false);
-        await refreshImageSlotsGrid(candidateId);
-        await settleSlotBusy();
-        await showModal({
-          title: 'Bulk Re-pull failed',
-          confirmLabel: 'OK',
-          hideCancel: true,
-          bodyHtml: `<p>${esc(error.message)}</p><p class="muted">Slots already re-pulled were kept.</p>`,
-        });
+        await repullReviewSlots(candidateId, slotKeys);
       } finally {
-        bulkBtn.disabled = false;
+        selectedRepull.disabled = false;
+        renderReviewFluxToolbar();
       }
       return;
     }
@@ -10501,6 +12424,14 @@ function wireImageSlotActions(candidateId, _refreshFn) {
       const next = imagesMatchFilterId(filterBtn.getAttribute('data-match-filter'));
       if (state.imageMatchFilter === next) return;
       state.imageMatchFilter = next;
+      await refreshImageSlotsGrid(candidateId);
+      return;
+    }
+    const sourceBtn = ev.target.closest('[data-source-filter]');
+    if (sourceBtn && root.contains(sourceBtn)) {
+      ev.preventDefault();
+      const next = imagesSourceFilterId(sourceBtn.getAttribute('data-source-filter'));
+      state.imageSourceFilter = state.imageSourceFilter === next ? 'all' : next;
       await refreshImageSlotsGrid(candidateId);
       return;
     }
@@ -10902,16 +12833,16 @@ function renderWebsite() {
   const logoBtnLabel = hasLogoAsset ? 'Regenerate logo' : 'Generate logo';
   const mapBtnLabel = hasCoverageMapAsset ? 'Regenerate coverage map' : 'Generate coverage map';
   const logoTip = hasLogoAsset
-    ? 'Accept usually already created this. Click to replace the existing header logo.'
-    : 'Accept normally creates a monogram. Use here if Accept skipped or failed, or to generate a 2D mark.';
+    ? 'Accept usually already created this. Click to replace the existing header logo. Previous logos go to the tray (keeps 4).'
+    : 'Accept normally creates Mark + text. Use here if Accept skipped or failed, or to pick another style.';
   const mapTip = hasCoverageMapAsset
-    ? 'Accept usually already created this. Click to replace the existing coverage-map.svg and homepage Areas map.'
+    ? 'Accept usually already created this. Click to replace the existing coverage-map.svg and homepage Areas map. Previous maps go to the tray (keeps 2).'
     : 'Accept normally creates this when Areas exist. Use here if Accept skipped or failed.';
   const logoHint = hasLogoAsset
-    ? 'Pick Mark, Mark + text, or Monogram, then generate.'
-    : 'Usually auto after Accept — use if logo is still missing. Pick a style, then generate.';
+    ? 'Pick Mark, Mark + text, or Monogram, then generate. Edit the logo prompt if you want a different mark.'
+    : 'Usually auto after Accept (Mark + text) — use if logo is still missing. Pick a style, then generate.';
   const mapHint = hasCoverageMapAsset
-    ? 'Centered vs Callout replaces map on regenerate.'
+    ? 'Centered vs Callout replaces map on regenerate. Tray keeps 2 previous maps.'
     : 'Usually auto after Accept when Areas exist — use if the map is still missing. Pick Centered or Callout, then generate.';
   const prepareDone = flags.staged && flags.assembled && !assembleStale;
   const indexingStepDone =
@@ -10924,7 +12855,7 @@ function renderWebsite() {
     indexingDone: indexingStepDone,
   };
   const durableCurrent = firstIncompleteWebsiteStep(stepFlags);
-  const currentId = resolvePanelCurrent('websiteSoftCurrent', durableCurrent);
+  const currentId = resolvePanelCurrent('websiteSoftCurrent', durableCurrent, WEBSITE_STEP_ORDER);
   if (state.preparePreviewHold) {
     state.websiteOpenStep = 'prepare';
     state.websiteSoftCurrent = 'prepare';
@@ -11035,7 +12966,7 @@ function renderWebsite() {
       done: logoMapStepDone,
       open: openId === 'logoMap',
       current: currentId === 'logoMap' && !logoMapStepDone,
-      info: 'Accept already generates the header logo (and a coverage map when Areas exist). Use these buttons if Accept skipped or to replace them. Coverage map is optional — Areas / Nominatim often skip it.',
+      info: 'Accept already generates a Mark + text header logo (and a coverage map when Areas exist). Use these buttons if Accept skipped or to replace them. Coverage map is optional — Areas / Nominatim often skip it.',
       bodyHtml: `
         <div id="ca-logo-map-previews">
         ${contentActionRow({
@@ -11043,7 +12974,10 @@ function renderWebsite() {
           label: logoBtnLabel,
           hint: logoHint,
           done: hasLogoAsset,
-          controlsHtml: `<div class="logo-map-row-preview">
+          controlsHtml: `<div class="logo-map-controls">
+            ${logoPromptEditorHtml(d)}
+            <div class="logo-map-row-preview">
+            <div class="logo-map-preview-stack">
             ${logoMapPreviewCardHtml({
               src: hasLogoAsset
                 ? siteImageFileUrl(d.id, logoAssetFilename(d), d.meta?.lastLogoAt || 'logo')
@@ -11053,10 +12987,17 @@ function renderWebsite() {
               emptyRole: 'No logo yet',
               kind: 'logo',
             })}
+            ${logoMapVariantTrayHtml(d.logoVariants, {
+              kind: 'logo',
+              candidateId: d.id,
+              bust: d.meta?.lastLogoAt || 'logo',
+            })}
+            </div>
             ${logoGenerateModeSegmentHtml(d.meta?.logoGenerateMode)}
             <button type="button" class="btn" id="ca-generate-logo" data-tip="${esc(
               logoTip,
             )}">${esc(logoBtnLabel)}</button>
+          </div>
           </div>`,
         })}
         ${contentActionRow({
@@ -11065,6 +13006,7 @@ function renderWebsite() {
           hint: mapHint,
           done: hasCoverageMapAsset,
           controlsHtml: `<div class="logo-map-row-preview">
+            <div class="logo-map-preview-stack">
             ${logoMapPreviewCardHtml({
               src: hasCoverageMapAsset
                 ? siteImageFileUrl(
@@ -11078,6 +13020,12 @@ function renderWebsite() {
               emptyRole: 'No map yet',
               kind: 'map',
             })}
+            ${logoMapVariantTrayHtml(d.coverageMapVariants, {
+              kind: 'map',
+              candidateId: d.id,
+              bust: d.meta?.lastCoverageMapAt || 'map',
+            })}
+            </div>
             ${mapLabelPlacementSegmentHtml(d.meta?.coverageMapLabelPlacement)}
             <button type="button" class="btn" id="ca-generate-map" data-tip="${esc(
               mapTip,
@@ -11101,24 +13049,28 @@ function renderWebsite() {
       done: imagesStepDone,
       open: openId === 'images',
       current: currentId === 'images' && !imagesStepDone,
-      info: 'Accept content already pulls stock photos. Use <strong>Pull photos</strong> to fill empty slots, or to replace the set when every slot is full. Per-slot Re-pull / Upload / Copy prompt (ChatGPT) for near-launch QA — process slots show step titles; What we do cards use named service slots. ChatGPT before/after is optional gallery polish. Logo and coverage map live under <strong>Logo &amp; Map</strong>.',
-      bodyHtml: `${imagesSlotsShellHtml({
-        actionsHtml: `<div class="photo-group-cluster">
+      freeze: openId === 'images',
+      headActionsHtml: `<button type="button" class="btn btn-sm detail-shelf-toggle hidden" id="detail-shelf-toggle" aria-expanded="false" data-tip="Expand sidebar over the table">${detailShelfToggleInnerHtml(false)}</button>`,
+      freezeHtml:
+        openId === 'images'
+          ? imagesReviewChromeHtml({
+              actionsHtml: `<div class="photo-group-cluster">
               <button type="button" class="btn pg-pull" id="ca-pull-images" data-tip="${esc(
                 pullPhotosTip,
               )}">${esc(pullPhotosBtnLabel)}</button>
               <button type="button" class="btn pg-save" id="ca-pg-save" data-tip="Save this site’s stock photos, uploads, and ChatGPT before/after pairs">Save photo group</button>
-              <select class="pg-select" id="ca-pg-select" data-tip="Niche master first, then named groups">
-                ${photoGroupSelectOptionsHtml(d)}
-              </select>
-              <button type="button" class="btn pg-load" id="ca-pg-load" data-tip="Replace this site’s Review images with the selected group">Load</button>
+              ${photoGroupRankSelectsHtml('ca-pg-select')}
+              <button type="button" class="btn pg-load" id="ca-pg-load" disabled data-tip="Replace this site’s Review images. 1st group fills matching slots; 2nd and 3rd fill leftovers; extras go to trays.">Load</button>
             </div>`,
-        progressHtml: `<div id="ca-images-progress" class="job-progress hidden" aria-live="polite">
+              progressHtml: `<div id="ca-images-progress" class="job-progress hidden" aria-live="polite">
           <div class="job-progress-track"><div class="job-progress-bar" id="ca-images-progress-bar"></div></div>
           <p class="job-progress-label" id="ca-images-progress-label">Working…</p>
           <p class="job-progress-detail" id="ca-images-progress-detail">Starting…</p>
         </div>`,
-      })}`,
+            })
+          : '',
+      info: 'Accept content already pulls stock photos. Use <strong>Pull photos</strong> to fill empty slots, or to replace the set when every slot is full. Per-slot Re-pull / Upload / Copy prompt (ChatGPT) for near-launch QA — process slots show step titles; What we do cards use named service slots. ChatGPT before/after is optional gallery polish. Logo and coverage map live under <strong>Logo &amp; Map</strong>.',
+      bodyHtml: imagesSlotsShellHtml(),
     }),
   );
 
@@ -11199,6 +13151,13 @@ function renderWebsite() {
               <button type="button" class="tip-info" data-tip="Public hostname for go-live. Point nameservers to Cloudflare first so the zone exists in this account before Run Cloudflare domain / email." aria-label="About Domain">i</button>
             </span>
             <input id="ca-launch-domain" type="text" value="${esc(cfg.domain || '')}" placeholder="yourdomain.com" />
+          </label>
+          <label>
+            <span class="label-with-tip-head">
+              <span>Business name</span>
+              <button type="button" class="tip-info" data-tip="Customer-facing brand name on the site." aria-label="About Business name">i</button>
+            </span>
+            <input id="ca-launch-business" type="text" value="${esc(cfg.businessName || '')}" placeholder="Brand LLC" />
           </label>
           <label>
             <span class="label-with-tip-head">
@@ -11288,17 +13247,6 @@ function renderWebsite() {
         </div>`
             : ''
         }
-        <details class="narrative-raw" style="margin-top:0.75rem">
-          <summary>GBP category checklist <span class="muted">(advisory)</span></summary>
-          <p class="disc-tool-blurb">After rent path: Copy GBP category prompt → Claude → Load checklist JSON. Advisory only — does not block Assemble / Launch.</p>
-          <div class="narrative-actions" style="flex-wrap:wrap;gap:0.35rem;margin:0.5rem 0">
-            <button type="button" class="btn" id="ca-copy-gbp-categories">Copy GBP category prompt</button>
-            ${openClaudeAiBtnHtml({ sm: true })}
-            <button type="button" class="btn" id="ca-load-gbp-categories">Load checklist JSON</button>
-          </div>
-          <textarea id="ca-gbp-categories-paste" class="narrative-paste-input" rows="2" placeholder='{ "primaryCategory": "…", "additionalCategories": [] }'></textarea>
-          <p class="muted small" id="ca-gbp-categories-status"></p>
-        </details>
         <p class="muted">${
           flags.alreadyLive
             ? 'Push updates = ship only (GitHub + build + Worker). Re-assemble via Prepare preview when template/content changed.'
@@ -11315,6 +13263,7 @@ function renderWebsite() {
 
   const sitemapUrl = liveSitemapUrl(cfg.domain);
   const robotsUrl = liveRobotsUrl(cfg.domain);
+  const siteUrl = liveSiteUrl(cfg.domain);
   const indexingLocked = !flags.launched;
   parts.push(
     contentStepHtml({
@@ -11339,7 +13288,10 @@ function renderWebsite() {
         </div>
         <p class="muted" style="margin:0.65rem 0 0.35rem">Also after launch: verify Gmail once if Email Routing is new; smoke-test the live form; use Launch’s <strong>Download NAP CSV</strong> for citations / GBP.</p>
         <div class="narrative-actions" style="justify-content:flex-start;flex-wrap:wrap;gap:0.5rem;margin-top:0.75rem">
-          <button type="button" class="btn primary" id="ca-copy-sitemap-url" data-tip="Copy https://{domain}/sitemap.xml" ${
+          <button type="button" class="btn primary" id="ca-copy-site-url" data-tip="Copy https://{domain}" ${
+            siteUrl ? '' : 'disabled'
+          }>Copy URL</button>
+          <button type="button" class="btn" id="ca-copy-sitemap-url" data-tip="Copy https://{domain}/sitemap.xml" ${
             sitemapUrl ? '' : 'disabled'
           }>Copy sitemap URL</button>
           <a class="btn" href="https://search.google.com/search-console" target="_blank" rel="noopener" data-tip="Open Google Search Console">Open Search Console</a>
@@ -11360,11 +13312,19 @@ function renderWebsite() {
           }
         </div>
         ${
-          sitemapUrl
-            ? `<p class="muted" style="margin-top:0.5rem;font-size:0.85rem"><code id="ca-sitemap-url-text">${esc(
-                sitemapUrl,
-              )}</code></p>`
-            : `<p class="muted" style="margin-top:0.5rem">Set a real domain on Launch / site-config to get the sitemap URL.</p>`
+          siteUrl || sitemapUrl
+            ? `<p class="muted" style="margin-top:0.5rem;font-size:0.85rem">${
+                siteUrl
+                  ? `<code id="ca-site-url-text">${esc(siteUrl)}</code>`
+                  : ''
+              }${
+                siteUrl && sitemapUrl ? '<br>' : ''
+              }${
+                sitemapUrl
+                  ? `<code id="ca-sitemap-url-text">${esc(sitemapUrl)}</code>`
+                  : ''
+              }</p>`
+            : `<p class="muted" style="margin-top:0.5rem">Set a real domain on Launch / site-config to get the site URL.</p>`
         }`,
     }),
   );
@@ -11719,6 +13679,31 @@ function wireContentTab(d) {
       renderDetail();
     });
   });
+
+  document.getElementById('cs-write-site')?.addEventListener('click', () => {
+    void startWriteSiteFromUi(id);
+  });
+  document.getElementById('ws-overlay-stop')?.addEventListener('click', async () => {
+    const overlay = document.getElementById('content-write-site-overlay');
+    const jobId = overlay?.dataset.jobId || state._writeSiteTrack?.jobId;
+    if (!jobId) return;
+    const btn = document.getElementById('ws-overlay-stop');
+    if (btn) btn.disabled = true;
+    const detailEl = document.getElementById('ws-overlay-detail');
+    if (detailEl) detailEl.textContent = 'Stopping…';
+    try {
+      await api(`/api/light-jobs/${encodeURIComponent(jobId)}/cancel`, { method: 'POST' });
+    } catch (error) {
+      if (btn) btn.disabled = false;
+      await showModal({
+        title: 'Could not stop',
+        confirmLabel: 'OK',
+        hideCancel: true,
+        bodyHtml: `<p>${esc(error.message)}</p>`,
+      });
+    }
+  });
+  if (state.tab === 'content') syncWriteSiteOverlay(state.lightJobsSnap);
 
   const collectStructureSelection = () => {
     const pages = [...document.querySelectorAll('input[name="structure-page"]')]
@@ -12139,9 +14124,14 @@ function wireContentTab(d) {
         method: 'POST',
         body: JSON.stringify(withLaunchedConfirmBody({ json: text })),
       });
-      await refresh(result.candidate, 'accept');
+      const next = nextContentStepAfterImages(result.candidate);
+      await refresh(result.candidate, next);
       const n = result.slotCount ? ` ${result.slotCount} slots` : '';
-      showToast(`Image queries loaded${n}. Accept next.`);
+      showToast(
+        next === 'photoGroup'
+          ? `Image queries loaded${n}. Load photo group next.`
+          : `Image queries loaded${n}. Accept next.`,
+      );
     } catch (error) {
       await showModal({
         title: 'Image queries failed',
@@ -12160,6 +14150,7 @@ function wireContentTab(d) {
       tab: 'content',
     }),
   );
+  wirePhotoGroupRankSelects('cs-pg-select');
   document.getElementById('cs-pg-skip')?.addEventListener('click', async () => {
     try {
       if (!(await confirmLaunchedSiteChange('Skip photo group'))) return;
@@ -12215,11 +14206,14 @@ function wireContentTab(d) {
         await refresh(result.candidate || state.detail, 'finalCheck');
         return;
       }
-      await refresh(result.candidate, photosOn && !photosReady ? 'imageQueries' : 'accept');
+      const next = nextContentStepAfterFinal(result.candidate);
+      await refresh(result.candidate, next);
       showToast(
-        photosOn && !photosReady
+        next === 'imageQueries'
           ? 'Final check recorded — Image queries next.'
-          : 'Final check recorded — Accept when all required passes are done.',
+          : next === 'photoGroup'
+            ? 'Final check recorded — Load photo group next.'
+            : 'Final check recorded — Accept when all required passes are done.',
       );
     } catch (error) {
       await showModal({
@@ -12365,7 +14359,7 @@ function wireContentTab(d) {
       }
       const candidate =
         speechData?.candidate || result.candidate || (await api(`/api/candidates/${encodeURIComponent(id)}`));
-      const nextStep = needsRewrite ? 'editor' : 'accept';
+      const nextStep = needsRewrite ? 'editor' : reAcceptNeeded ? 'accept' : 'finalCheck';
       await refresh(candidate, nextStep);
       const bits = [
         'Draft loaded',
@@ -12375,7 +14369,7 @@ function wireContentTab(d) {
           ? 'speech/SEO leftovers — rewrite or Accept with care'
           : reAcceptNeeded
             ? 'Speech/SEO Refinement clear — Accept again to publish'
-            : 'Speech/SEO Refinement clear',
+            : 'Speech/SEO Refinement clear — Final check next',
       ].filter(Boolean);
       showToast(bits.join(' · '), { tone: needsRewrite || msgs.length ? 'warn' : 'ok' });
     } catch (error) {
@@ -12399,10 +14393,11 @@ function wireContentTab(d) {
       if (pullBtn) pullBtn.disabled = busy;
     };
     let replace = false;
+    let pullSlots = [];
     try {
       const slotSnap = await api(`/api/candidates/${encodeURIComponent(id)}/images/slots`);
-      const slots = slotSnap?.slots || [];
-      if (!slots.length) {
+      pullSlots = slotSnap?.slots || [];
+      if (!pullSlots.length) {
         await showModal({
           title: 'No photo slots',
           confirmLabel: 'OK',
@@ -12412,7 +14407,7 @@ function wireContentTab(d) {
         });
         return;
       }
-      const missing = slots.filter((s) => s.missing).length;
+      const missing = pullSlots.filter((s) => s.missing).length;
       if (missing === 0) {
         const ok = await showModal({
           title: 'Replace existing stock photos?',
@@ -12443,8 +14438,15 @@ function wireContentTab(d) {
       label: replace ? 'Replacing images…' : 'Pulling photos…',
       detail: 'Starting…',
     });
+    const pullTargets = replace ? pullSlots : pullSlots.filter((s) => s.missing);
+    for (const s of pullTargets) beginSlotBusy(s.key, null, { scroll: false });
+    if (pullTargets[0]) beginSlotBusy(pullTargets[0].key);
     let pollTimer = null;
+    let pollInFlight = false;
+    let lastPullSlotKey = '';
     const pollProgress = async () => {
+      if (pollInFlight) return;
+      pollInFlight = true;
       try {
         const snap = await api(`/api/candidates/${encodeURIComponent(id)}/images`);
         const ps = snap?.pullStatus;
@@ -12455,9 +14457,19 @@ function wireContentTab(d) {
             current: ps.current,
             total: ps.total,
           });
+          if (ps.slotKey) {
+            beginSlotBusy(ps.slotKey, null, { scroll: ps.slotKey !== lastPullSlotKey });
+            lastPullSlotKey = ps.slotKey;
+          }
+        }
+        await refreshImageSlotsGrid(id);
+        for (const s of state.reviewImageSlots || []) {
+          if (s?.previewUrl && state.imageSlotBusyKeys?.[s.key]) await settleSlotBusy(s.key);
         }
       } catch {
         // ignore poll errors while pull runs
+      } finally {
+        pollInFlight = false;
       }
     };
     pollTimer = setInterval(pollProgress, 600);
@@ -12468,6 +14480,8 @@ function wireContentTab(d) {
       });
       clearInterval(pollTimer);
       pollTimer = null;
+      await pollProgress();
+      await settleSlotBusy();
       const filled = result.filled ?? 0;
       const total = result.total ?? 0;
       const sources = result.sources || {};
@@ -12499,6 +14513,7 @@ function wireContentTab(d) {
       });
     } catch (error) {
       if (pollTimer) clearInterval(pollTimer);
+      await settleSlotBusy();
       setImagesProgress(false);
       await showModal({
         title: 'Image pull failed',
@@ -12932,15 +14947,26 @@ function wireContentTab(d) {
       tab: 'website',
     }),
   );
+  wirePhotoGroupRankSelects('ca-pg-select');
   wireImageSlotActions(id, refresh);
   void refreshImageSlotsGrid(id);
   document.getElementById('ca-logo-style')?.addEventListener('click', (ev) => {
     const seg = ev.target.closest('[data-logo-style]');
     if (!seg) return;
     ev.preventDefault();
+    const prev = selectedLogoGenerateMode();
     document.querySelectorAll('#ca-logo-style [data-logo-style]').forEach((b) => {
       b.classList.toggle('active', b === seg);
     });
+    const next = logoGenerateModeFromValue(seg.getAttribute('data-logo-style'));
+    const ta = document.getElementById('ca-logo-prompt');
+    const defaults = state.detail?.logoPromptDefaults || {};
+    if (ta && (next === 'mark' || next === 'markText')) {
+      const prevDefault = String(defaults[prev] || '').trim();
+      if (!ta.value.trim() || ta.value.trim() === prevDefault) {
+        ta.value = defaults[next] || ta.value;
+      }
+    }
     syncLogoGenerateButton();
   });
   document.getElementById('ca-generate-logo')?.addEventListener('click', async () => {
@@ -12970,7 +14996,12 @@ function wireContentTab(d) {
     try {
       const result = await api(`/api/candidates/${encodeURIComponent(id)}/logo/generate`, {
         method: 'POST',
-        body: JSON.stringify(withLaunchedConfirmBody({ mode })),
+        body: JSON.stringify(
+          withLaunchedConfirmBody({
+            mode,
+            prompt: needsAi ? document.getElementById('ca-logo-prompt')?.value || '' : '',
+          }),
+        ),
       });
       setImagesProgress(true, {
         label: 'Logo ready',
@@ -13002,6 +15033,38 @@ function wireContentTab(d) {
     }
   });
   syncLogoGenerateButton();
+  document.getElementById('ca-logo-map-previews')?.addEventListener('click', async (ev) => {
+    const logoVar = ev.target.closest('[data-logo-variant]');
+    const mapVar = ev.target.closest('[data-map-variant]');
+    if (!logoVar && !mapVar) return;
+    ev.preventDefault();
+    const filename = (logoVar || mapVar).getAttribute(logoVar ? 'data-logo-variant' : 'data-map-variant');
+    if (!filename) return;
+    if (
+      !(await confirmLaunchedSiteChange(
+        logoVar ? 'Switch to this logo' : 'Switch to this coverage map',
+      ))
+    ) {
+      return;
+    }
+    const path = logoVar
+      ? `/api/candidates/${encodeURIComponent(id)}/logo/variants/use`
+      : `/api/candidates/${encodeURIComponent(id)}/coverage-map/variants/use`;
+    try {
+      const result = await api(path, {
+        method: 'POST',
+        body: JSON.stringify(withLaunchedConfirmBody({ filename })),
+      });
+      await refresh(result.candidate, 'logoMap', 'website');
+    } catch (error) {
+      await showModal({
+        title: logoVar ? 'Logo switch failed' : 'Map switch failed',
+        confirmLabel: 'OK',
+        hideCancel: true,
+        bodyHtml: `<p>${esc(error.message)}</p>`,
+      });
+    }
+  });
   document.getElementById('ca-map-label-placement')?.addEventListener('click', (ev) => {
     const seg = ev.target.closest('[data-map-label-placement]');
     if (!seg) return;
@@ -13240,6 +15303,26 @@ function wireContentTab(d) {
     downloadText(`${host || 'site'}-nap.csv`, csv, 'text/csv');
   });
 
+  document.getElementById('ca-copy-site-url')?.addEventListener('click', async () => {
+    const cfg = effectiveSiteConfigForLaunchClient(
+      state.detail?.siteConfig,
+      state.detail?.siteConfigDraft,
+    );
+    const url =
+      document.getElementById('ca-site-url-text')?.textContent?.trim() ||
+      liveSiteUrl(cfg.domain);
+    if (!url) {
+      showToast('Set a real domain first.', { tone: 'warn' });
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(url);
+      showToast('Site URL copied.');
+    } catch {
+      showToast('Could not copy — select the URL below.', { tone: 'warn' });
+    }
+  });
+
   document.getElementById('ca-copy-sitemap-url')?.addEventListener('click', async () => {
     const cfg = effectiveSiteConfigForLaunchClient(
       state.detail?.siteConfig,
@@ -13335,47 +15418,6 @@ function wireContentTab(d) {
       });
     } finally {
       if (btn) btn.disabled = false;
-    }
-  });
-
-  document
-    .getElementById('ca-copy-gbp-categories')
-    ?.addEventListener(
-      'click',
-      copyPrompt(
-        `/api/candidates/${encodeURIComponent(id)}/gbp-categories/prompt`,
-        'GBP category prompt',
-      ),
-    );
-  document.getElementById('ca-load-gbp-categories')?.addEventListener('click', async () => {
-    const text = document.getElementById('ca-gbp-categories-paste')?.value || '';
-    if (!text.trim()) {
-      await showModal({
-        title: 'Nothing to paste',
-        confirmLabel: 'OK',
-        bodyHtml: '<p>Paste the GBP category checklist JSON from Claude first.</p>',
-      });
-      return;
-    }
-    try {
-      const result = await api(`/api/candidates/${encodeURIComponent(id)}/gbp-categories`, {
-        method: 'POST',
-        body: JSON.stringify({ json: text }),
-      });
-      const statusEl = document.getElementById('ca-gbp-categories-status');
-      if (statusEl) {
-        statusEl.textContent = `Loaded · primary: ${
-          result.checklist?.primaryCategory || '—'
-        }`;
-      }
-      showToast('GBP category checklist saved (advisory).');
-      if (result.candidate) state.detail = result.candidate;
-    } catch (error) {
-      await showModal({
-        title: 'GBP checklist load failed',
-        confirmLabel: 'OK',
-        bodyHtml: `<p>${esc(error.message)}</p>`,
-      });
     }
   });
 
@@ -13773,10 +15815,22 @@ function renderProspects() {
         ${statCard('Running ads', `<span class="metric metric-neutral"><strong>${esc(p.summary?.runningAds)}</strong></span>`)}
         ${statCard('API cost', `<span class="metric metric-neutral"><strong>${esc(p.estimatedApiCostUsd)}</strong></span>`)}
         <div class="stat prospects-outreach-copy">
-          <button type="button" class="btn primary" id="prospects-copy-outreach-prompt" data-tip="Copy Claude.ai outreach prompt with this prospects JSON">
+          ${
+            effectiveClaudeUiMode() === 'api'
+              ? `<button type="button" class="btn primary" data-act="outreach" data-tip="Draft outreach copy via the Anthropic API (optional)" ${
+                  state.claudeBusy && state.activeAct === 'outreach' ? 'disabled' : ''
+                }>${
+                  state.claudeBusy && state.activeAct === 'outreach'
+                    ? 'Running…'
+                    : state.detail._outreachDraft
+                      ? 'Re-run Outreach'
+                      : 'Run Outreach'
+                }</button>`
+              : `<button type="button" class="btn primary" id="prospects-copy-outreach-prompt" data-tip="Copy Claude.ai outreach prompt with this prospects JSON">
             Copy outreach prompt
           </button>
-          ${openClaudeAiBtnHtml()}
+          ${openClaudeAiBtnHtml()}`
+          }
         </div>
       </div>
     `);
@@ -13818,6 +15872,15 @@ function renderProspects() {
   if (state.detail._outreachDraft) {
     parts.push('<h3>Outreach draft (Claude)</h3>');
     parts.push(`<div class="json-block">${esc(JSON.stringify(state.detail._outreachDraft, null, 2))}</div>`);
+  } else if (p && effectiveClaudeUiMode() === 'api') {
+    parts.push('<p class="muted">Optional: Run Outreach to draft copy from this prospects list. Does not block Website.</p>');
+  }
+  if (state.claudeBusy && state.activeAct === 'outreach') {
+    parts.unshift(`<div class="job-progress" aria-live="polite">
+      <div class="job-progress-track"><div class="job-progress-bar"></div></div>
+      <p class="job-progress-label">Run Outreach</p>
+      <p class="job-progress-detail">Calling Claude…</p>
+    </div>`);
   }
   return parts.join('');
 }
@@ -13878,7 +15941,9 @@ function wireSiteConfigTab(d) {
         showToast(
           hasConfig
             ? `Look applied · ${paletteId} · ${fontTheme}`
-            : `Look saved · ${paletteId} · ${fontTheme} — applied when you Load draft`,
+            : `Look saved · ${paletteId} · ${fontTheme} — applied when you ${
+                effectiveClaudeUiMode() === 'api' ? 'Fill site-config' : 'Load draft'
+              }`,
           { tone: 'ok' },
         );
       } catch (error) {
@@ -13906,6 +15971,63 @@ function wireSiteConfigTab(d) {
     const checked = [...document.querySelectorAll('.sc-domain-pick-opt:checked')];
     btn.disabled = !(custom || checked.length === 1);
   };
+
+  document.getElementById('sc-domain-suggest')?.addEventListener('click', async () => {
+    if (state.claudeBusy) return;
+    if (!(await confirmPaidAction('domain-pick'))) return;
+    state.claudeBusy = true;
+    state.activeAct = 'domain-pick';
+    state.jobStatusLine = 'Suggesting domains…';
+    syncClaudeModeToggle();
+    renderDetail();
+    try {
+      const nap = siteConfigNapFromLocal(d.id);
+      const result = await api(
+        `/api/candidates/${encodeURIComponent(d.id)}/site-config/suggest-domains`,
+        {
+          method: 'POST',
+          body: JSON.stringify({ businessName: nap.businessName || '' }),
+        },
+      );
+      writeDomainPickToNap({
+        domainPick: {
+          suggestions: result.suggestions || [],
+          selectedDomain: null,
+          customDomain: '',
+        },
+      });
+      state.tab = 'site-config';
+      state.siteConfigOpenStep = 'domain';
+      state.siteConfigSoftCurrent = 'domain';
+      renderDetail();
+      const n = (result.suggestions || []).length;
+      showToast(`Loaded ${n} domain suggestion${n === 1 ? '' : 's'}.`);
+      await showActualCostModal({
+        title: 'Domain suggestions',
+        costUsd: result.costUsd,
+        costNote: result.costNote,
+        provider: 'anthropic',
+      });
+    } catch (error) {
+      state.claudeBusy = false;
+      state.activeAct = null;
+      state.jobStatusLine = '';
+      syncClaudeModeToggle();
+      renderDetail();
+      await showModal({
+        title: 'Suggest domains failed',
+        confirmLabel: 'OK',
+        hideCancel: true,
+        bodyHtml: `<p>${esc(error.message)}</p>`,
+      });
+    } finally {
+      state.claudeBusy = false;
+      state.activeAct = null;
+      state.jobStatusLine = '';
+      syncClaudeModeToggle();
+      renderDetail();
+    }
+  });
 
   document.getElementById('sc-domain-copy-prompt')?.addEventListener('click', async () => {
     try {
@@ -14632,6 +16754,95 @@ function wireSiteConfigTab(d) {
     }, 0);
   });
 
+  document.getElementById('sc-site-config-generate')?.addEventListener('click', async () => {
+    if (state.claudeBusy) return;
+    if (!(await confirmPaidAction('site-config'))) return;
+    state.claudeBusy = true;
+    state.activeAct = 'site-config';
+    state.jobStatusLine = 'Filling site-config…';
+    syncClaudeModeToggle();
+    renderDetail();
+    try {
+      const nap = saveSiteConfigNapFromForm();
+      const result = await api(`/api/candidates/${encodeURIComponent(d.id)}/site-config/generate`, {
+        method: 'POST',
+        body: JSON.stringify({
+          domain: nap.domain || '',
+          businessName: nap.businessName || '',
+          phone: nap.phone || '',
+          email: nap.email || '',
+          radiusMiles: nap.radiusMiles || '40',
+          siteArchetype: nap.siteArchetype || 'multi_service',
+          paletteId: nap.paletteId || 'slate-gold',
+          fontTheme: nap.fontTheme || 'archivo-source',
+          addressStreet: nap.addressStreet || '',
+          addressCity: nap.addressCity || '',
+          addressState: nap.addressState || '',
+          addressZip: nap.addressZip || '',
+          allowNonPursue: false,
+        }),
+      });
+      state.detail = result.candidate || (await api(`/api/candidates/${encodeURIComponent(d.id)}`));
+      d.siteConfigDraft = result.draft || state.detail?.siteConfigDraft;
+      if (nap.paletteId || nap.fontTheme) {
+        try {
+          const look = await api(`/api/candidates/${encodeURIComponent(d.id)}/site-config/brand`, {
+            method: 'POST',
+            body: JSON.stringify({
+              paletteId: nap.paletteId || 'slate-gold',
+              fontTheme: nap.fontTheme || 'archivo-source',
+              allowNonPursue: false,
+            }),
+          });
+          state.detail = look.candidate || state.detail;
+          d.siteConfigDraft = look.draft || state.detail?.siteConfigDraft;
+        } catch {
+          /* draft loaded; look apply optional */
+        }
+      }
+      state.tab = 'site-config';
+      const notes = [];
+      if (result.placeholders?.length) {
+        notes.push(`Placeholders: ${result.placeholders.join(', ')}`);
+      }
+      if (result.suburbCheck?.warnings?.length) {
+        notes.push(result.suburbCheck.warnings.join('; '));
+      }
+      showToast(
+        notes.length
+          ? `Draft loaded — Accept in Review services. ${notes.join(' · ')}`
+          : 'Draft loaded — continue to Review services to Accept.',
+        { tone: notes.length ? 'warn' : 'ok' },
+      );
+      advancePanelStep('site-config', 'services');
+      renderDetail();
+      await showActualCostModal({
+        title: 'Fill site-config',
+        costUsd: result.costUsd,
+        costNote: result.costNote,
+        provider: 'anthropic',
+      });
+    } catch (error) {
+      state.claudeBusy = false;
+      state.activeAct = null;
+      state.jobStatusLine = '';
+      syncClaudeModeToggle();
+      renderDetail();
+      await showModal({
+        title: 'Fill site-config failed',
+        confirmLabel: 'OK',
+        hideCancel: true,
+        bodyHtml: `<p>${esc(error.message)}</p>`,
+      });
+    } finally {
+      state.claudeBusy = false;
+      state.activeAct = null;
+      state.jobStatusLine = '';
+      syncClaudeModeToggle();
+      renderDetail();
+    }
+  });
+
   const saveDraftBtn = document.getElementById('site-config-save-draft-btn');
   if (saveDraftBtn) {
     saveDraftBtn.addEventListener('click', async () => {
@@ -15093,45 +17304,6 @@ function wireSiteConfigTab(d) {
     }
   });
 
-  document.getElementById('sc-copy-gbp-categories')?.addEventListener('click', async () => {
-    try {
-      const data = await api(`/api/candidates/${encodeURIComponent(d.id)}/gbp-categories/prompt`);
-      await navigator.clipboard.writeText(data.prompt || '');
-      showToast('GBP category prompt copied to clipboard.');
-    } catch (error) {
-      await showModal({
-        title: 'Copy failed',
-        confirmLabel: 'OK',
-        bodyHtml: `<p>${esc(error.message)}</p>`,
-      });
-    }
-  });
-  document.getElementById('sc-load-gbp-categories')?.addEventListener('click', async () => {
-    const text = document.getElementById('sc-gbp-categories-paste')?.value || '';
-    if (!text.trim()) {
-      await showModal({
-        title: 'Nothing to paste',
-        confirmLabel: 'OK',
-        bodyHtml: '<p>Paste the GBP category checklist JSON from Claude first.</p>',
-      });
-      return;
-    }
-    try {
-      const result = await api(`/api/candidates/${encodeURIComponent(d.id)}/gbp-categories`, {
-        method: 'POST',
-        body: JSON.stringify({ json: text }),
-      });
-      showToast('GBP category checklist saved (advisory).');
-      if (result.candidate) state.detail = result.candidate;
-    } catch (error) {
-      await showModal({
-        title: 'GBP checklist load failed',
-        confirmLabel: 'OK',
-        bodyHtml: `<p>${esc(error.message)}</p>`,
-      });
-    }
-  });
-
   // Reflect existing portfolio phoneTracking if present
   void (async () => {
     const status = document.getElementById('sc-phone-tracking-status');
@@ -15172,10 +17344,14 @@ function wireSiteConfigTab(d) {
     }
     serviceAreaMount = null;
   }
+  serviceAreaMountedId = null;
   setServiceAreaTableMode(false);
 
   if (serviceAreaOpen && saHost && saMapCanvas) {
+    const gen = ++serviceAreaLoadGen;
+    serviceAreaMountedId = d.id;
     setServiceAreaTableMode(true);
+    setServiceAreaLoading(true);
     syncCandidatesDetailVisibility();
     const accepted = d.siteConfig;
     void mountServiceAreaMap({
@@ -15278,10 +17454,27 @@ function wireSiteConfigTab(d) {
         advancePanelStep('site-config', 'phone');
         renderDetail();
       },
-    }).then((m) => {
-      serviceAreaMount = m;
-      m?.invalidateSize?.();
-    });
+    })
+      .then(async (m) => {
+        if (gen !== serviceAreaLoadGen) {
+          try {
+            m?.destroy?.();
+          } catch {
+            /* ignore */
+          }
+          return;
+        }
+        serviceAreaMount = m;
+        serviceAreaMountedId = d.id;
+        await m?.invalidateSize?.();
+      })
+      .finally(() => {
+        if (gen === serviceAreaLoadGen) setServiceAreaLoading(false);
+      });
+  } else {
+    serviceAreaLoadGen += 1;
+    serviceAreaMountedId = null;
+    setServiceAreaLoading(false);
   }
 }
 
@@ -15294,6 +17487,7 @@ function renderDetail() {
     return;
   }
   state.multiQueue = false;
+  syncListRowFromDetail(d);
   syncCandidatesDetailVisibility();
   document.getElementById('empty-detail').classList.add('hidden');
   document.getElementById('detail').classList.remove('hidden');
@@ -15340,6 +17534,13 @@ function renderDetail() {
   renderActions();
   updateTabCompletion();
 
+  if (serviceAreaLiveFor(d.id)) {
+    setServiceAreaTableMode(true);
+    syncCandidatesDetailVisibility();
+    serviceAreaMount?.invalidateSize?.();
+    return;
+  }
+
   const panels = {
     overview: renderOverview,
     serp: renderSerp,
@@ -15358,7 +17559,7 @@ function renderDetail() {
   enableResizableTablesIn(tabPanels, {
     storagePrefix: `detail:${state.tab || 'overview'}`,
   });
-  tabPanels.querySelectorAll('[data-act="accept"], [data-act="reject"]').forEach((btn) => {
+  tabPanels.querySelectorAll('[data-act="accept"], [data-act="reject"], [data-act="outreach"]').forEach((btn) => {
     btn.addEventListener('click', () => handleAction(btn.dataset.act, btn));
   });
 
@@ -15457,6 +17658,7 @@ function renderDetail() {
 
   wireSiteConfigTab(d);
   wireContentTab(d);
+  applyDetailShelf();
   if (state.assembleProgress?.visible) {
     setAssembleProgress(true, state.assembleProgress.detail, {
       done: state.assembleProgress.done,
@@ -15494,6 +17696,7 @@ function renderDetail() {
       if (logEl) logEl.textContent = job.logText || '(no output yet)';
     });
   }
+  restoreSlotBusyOverlays();
 }
 
 function wireUi() {
@@ -15511,6 +17714,12 @@ function wireUi() {
   syncCandidatesDetailVisibility();
   syncSitesDetailVisibility();
   syncPhoneDetailVisibility();
+  document.getElementById('candidates-detail-panel')?.addEventListener('click', (event) => {
+    const btn = event.target.closest('#detail-shelf-toggle');
+    if (!btn) return;
+    event.preventDefault();
+    toggleDetailShelf();
+  });
   document.getElementById('btn-refresh').addEventListener('click', (event) => {
     event.preventDefault();
     event.stopPropagation();
@@ -15648,6 +17857,7 @@ function wireUi() {
     });
   });
 
+  wireClaudeModeUi();
   wireDiscoveryUi();
 }
 
@@ -15735,7 +17945,10 @@ function setView(view) {
         }
       });
   }
-  if (view !== 'discovery') {
+  if (view === 'discovery') {
+    syncDiscoveryClaudeModeUi();
+    syncGeneratePackOverlay(state.lightJobsSnap);
+  } else {
     closeDiscoveryCitiesMap();
   }
 }
@@ -15743,7 +17956,8 @@ function setView(view) {
 const SITE_TABLE_COLS = [
   { key: 'niche', label: 'Niche' },
   { key: 'city', label: 'City' },
-  { key: 'state', label: 'ST' },
+  { key: 'state', label: 'State' },
+  { key: 'researchMap', label: 'Map', sortable: false },
   { key: 'domain', label: 'Domain' },
   { key: 'status', label: 'Status' },
   { key: 'clicks28d', label: 'Clicks 28d' },
@@ -16362,6 +18576,9 @@ function renderSitesTable() {
   }
 
   thead.innerHTML = `<tr>${SITE_TABLE_COLS.map((col) => {
+    if (col.sortable === false) {
+      return `<th>${esc(col.label)}</th>`;
+    }
     const active = state.siteSort.key === col.key;
     const arrow = active ? (state.siteSort.dir > 0 ? ' ↑' : ' ↓') : '';
     return `<th class="sortable" data-sort="${esc(col.key)}">${esc(col.label)}${arrow}</th>`;
@@ -16378,10 +18595,21 @@ function renderSitesTable() {
               s.domain || s.liveUrl,
             )}</a>`
           : esc(s.domain || '—');
+        const city = s.city || '';
+        const st = s.state || '';
+        const mapCell =
+          !city || !st
+            ? `<td class="muted">—</td>`
+            : `<td><button type="button" class="btn btn-sm sites-open-map" data-city="${esc(
+                city,
+              )}" data-state="${esc(st)}" data-tip="Open Map zoomed to ${esc(city)}, ${esc(
+                st,
+              )}">Map</button></td>`;
         return `<tr class="${active}" data-id="${esc(s.id)}">
           <td>${esc(s.niche || '—')}</td>
           <td>${esc(s.city || '—')}</td>
           <td>${esc(s.state || '—')}</td>
+          ${mapCell}
           <td>${domainCell}</td>
           <td><span class="site-status site-status-${esc(s.status || '')}">${esc(s.status || '—')}</span></td>
           <td>${esc(formatSiteMetricNum(s.clicks28d))}</td>
@@ -16407,10 +18635,29 @@ function renderSitesTable() {
     });
   });
   tbody.querySelectorAll('tr[data-id]').forEach((tr) => {
-    tr.addEventListener('click', () => {
+    tr.addEventListener('click', (e) => {
+      if (e.target.closest('button.sites-open-map, a')) return;
       state.selectedSiteId = tr.dataset.id;
       renderSitesTable();
       renderSitesDetail();
+    });
+  });
+  tbody.querySelectorAll('button.sites-open-map').forEach((btn) => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const city = btn.dataset.city || '';
+      const st = btn.dataset.state || '';
+      setView('map');
+      try {
+        await openResearchMap({ city, state: st }, { api, esc, showModal });
+      } catch (error) {
+        await showModal({
+          title: 'Map failed',
+          confirmLabel: 'OK',
+          hideCancel: true,
+          bodyHtml: `<p>${esc(error.message)}</p>`,
+        });
+      }
     });
   });
   enableTableColumnResize(table);
@@ -17384,64 +19631,114 @@ async function generatePhotoSelected(provider) {
   let walletStop = false;
   try {
     let i = 0;
-    for (const id of slotIds) {
-      i += 1;
-      const t0 = Date.now();
-      try {
-        await withFluxProgress(
-          {
-            label: 'Generating…',
-            detail: id,
-            index: i,
-            total: n,
-            kind: 'photo',
-            samples,
-          },
-          () =>
-            api(`/api/photo-groups/${encodeURIComponent(lib.groupId)}/slots/${slotPath}`, {
-              method: 'POST',
-              body: JSON.stringify({ matchKey: id, viewpoint: getBaViewpoint(id) }),
-            }),
-        );
-        samples.photo.push(Date.now() - t0);
-      } catch (error) {
-        failures.push(`${id}: ${error.message}`);
-        if (isFluxWalletError(error)) {
-          walletStop = true;
-          break;
+    for (const id of slotIds) beginSlotBusy(id, null, { scroll: false });
+    for (const id of baIds) beginSlotBusy(id, null, { scroll: false });
+    if (provider === 'openai') {
+      const jobs = [
+        ...slotIds.map((id) => ({ kind: 'photo', id })),
+        ...baIds.map((id) => ({ kind: 'pair', id })),
+      ];
+      let done = 0;
+      paintOpenaiBatchProgress(0, n);
+      const enqueue = createSerialQueue();
+      await runWeightedPool(jobs, OPENAI_GENERATE_CONCURRENCY, openaiGenerateWeight, async (job) => {
+        const t0 = Date.now();
+        try {
+          if (job.kind === 'photo') {
+            await withOpenaiRateLimitRetry(() =>
+              api(`/api/photo-groups/${encodeURIComponent(lib.groupId)}/slots/${slotPath}`, {
+                method: 'POST',
+                body: JSON.stringify({ matchKey: job.id, viewpoint: getBaViewpoint(job.id) }),
+              }),
+            );
+            samples.photo.push(Date.now() - t0);
+          } else {
+            await withOpenaiRateLimitRetry(() =>
+              api(`/api/photo-groups/${encodeURIComponent(lib.groupId)}/before-after/generate-openai`, {
+                method: 'POST',
+                body: JSON.stringify({ matchKey: job.id, viewpoint: getBaViewpoint(job.id) }),
+              }),
+            );
+            samples.pair.push(Date.now() - t0);
+          }
+          await enqueue(async () => {
+            await loadPhotoGroupView();
+            renderPhotoView();
+            await settleSlotBusy(job.id);
+          });
+        } catch (error) {
+          await enqueue(() => settleSlotBusy(job.id));
+          failures.push(`${job.id}: ${error.message}`);
+        } finally {
+          done += 1;
+          paintOpenaiBatchProgress(done, n);
         }
-      }
-    }
-    if (!walletStop) {
-      for (const id of baIds) {
+      });
+    } else {
+      for (const id of slotIds) {
         i += 1;
         const t0 = Date.now();
         try {
           await withFluxProgress(
             {
-              label: 'Generating pair…',
+              label: 'Generating…',
               detail: id,
               index: i,
               total: n,
-              kind: 'pair',
+              kind: 'photo',
               samples,
             },
             () =>
-              api(`/api/photo-groups/${encodeURIComponent(lib.groupId)}/before-after/generate-openai`, {
+              api(`/api/photo-groups/${encodeURIComponent(lib.groupId)}/slots/${slotPath}`, {
                 method: 'POST',
                 body: JSON.stringify({ matchKey: id, viewpoint: getBaViewpoint(id) }),
               }),
           );
-          samples.pair.push(Date.now() - t0);
+          samples.photo.push(Date.now() - t0);
+          await loadPhotoGroupView();
+          renderPhotoView();
+          await settleSlotBusy(id);
         } catch (error) {
+          await settleSlotBusy(id);
           failures.push(`${id}: ${error.message}`);
-          if (isFluxWalletError(error)) break;
+          if (isFluxWalletError(error)) {
+            walletStop = true;
+            break;
+          }
+        }
+      }
+      if (!walletStop) {
+        for (const id of baIds) {
+          i += 1;
+          const t0 = Date.now();
+          try {
+            await withFluxProgress(
+              {
+                label: 'Generating pair…',
+                detail: id,
+                index: i,
+                total: n,
+                kind: 'pair',
+                samples,
+              },
+              () =>
+                api(`/api/photo-groups/${encodeURIComponent(lib.groupId)}/before-after/generate-openai`, {
+                  method: 'POST',
+                  body: JSON.stringify({ matchKey: id, viewpoint: getBaViewpoint(id) }),
+                }),
+            );
+            samples.pair.push(Date.now() - t0);
+            await loadPhotoGroupView();
+            renderPhotoView();
+            await settleSlotBusy(id);
+          } catch (error) {
+            await settleSlotBusy(id);
+            failures.push(`${id}: ${error.message}`);
+            if (isFluxWalletError(error)) break;
+          }
         }
       }
     }
-    await loadPhotoGroupView();
-    renderPhotoView();
-    await settleSlotBusy();
     if (failures.length) {
       if (!(await showFluxGenerateFailures(failures))) {
         showToast(`Generated with ${failures.length} error${failures.length === 1 ? '' : 's'}.`);
@@ -17452,7 +19749,7 @@ async function generatePhotoSelected(provider) {
     }
   } finally {
     await settleSlotBusy();
-    setMasterProgress({ visible: false });
+    setImagesProgress(false);
     refreshImageWallets({ fresh: true, remind: true });
   }
 }
@@ -17483,16 +19780,14 @@ function renderPhotoGroup() {
     return;
   }
   const selected = lib.selectedMatchKey;
-  const sections = (view.sections || [])
-    .map(
-      (g) => `<section class="ca-image-slot-section" data-section-group="${esc(g.sectionId)}">
-      <h4 class="ca-image-slot-section-title">${esc(g.label)}</h4>
-      <div class="ca-image-slot-section-grid">${(g.slots || [])
+  const sections = joinImageSlotSections(view.sections || [], (g) =>
+    imageSlotSectionHtml(
+      g,
+      (g.slots || [])
         .map((s) => photoLibSlotCardHtml(s, { selected: s.matchKey === selected }))
-        .join('')}</div>
-    </section>`,
-    )
-    .join('');
+        .join(''),
+    ),
+  );
   const baHome = [...(view.beforeAfter?.home || [])];
   if (!baHome.length) {
     baHome.push({
@@ -17511,6 +19806,7 @@ function renderPhotoGroup() {
       ].join('')}</div>
     </section>`;
   body.innerHTML = `<div class="ca-image-slots-sections">${sections}${baHtml}</div>`;
+  restoreSlotBusyOverlays();
 }
 
 function photoLibSelectedSlotTitle(lib) {
@@ -17877,12 +20173,60 @@ function wirePhotoUi() {
   if (!root || root.dataset.wired === '1') return;
   root.dataset.wired = '1';
 
+  const applyPhotoSlotShiftRange = (ev) => {
+    const slotCheck = resolveSlotCheckInput(ev.target, root);
+    if (!slotCheck) return false;
+    const id = slotCheck.getAttribute('data-check-id');
+    if (!id) return false;
+    const lib = photoLibCurrent();
+    const visibleKeys = [...root.querySelectorAll('.image-slot-card .slot-check-input')]
+      .map((el) => el.getAttribute('data-check-id'))
+      .filter(Boolean);
+    const checks = { ...(lib.selectedChecks || {}) };
+    const ranged = applyShiftRangeCheckboxClick(ev, {
+      visibleKeys,
+      clickedKey: id,
+      anchorKey: state.photoLibCheckAnchor,
+      setAnchor: (key) => {
+        state.photoLibCheckAnchor = key;
+      },
+      setSelected: (key, on) => {
+        if (on) checks[key] = true;
+        else delete checks[key];
+      },
+    });
+    if (!ranged) return false;
+    lib.selectedChecks = checks;
+    for (const el of root.querySelectorAll('.image-slot-card .slot-check-input')) {
+      const key = el.getAttribute('data-check-id');
+      el.checked = Boolean(checks[key]);
+    }
+    renderPhotoFluxToolbar();
+    return true;
+  };
+
+  root.addEventListener(
+    'pointerdown',
+    (ev) => {
+      if (!ev.shiftKey || state.photoLibCheckAnchor == null) return;
+      if (!resolveSlotCheckInput(ev.target, root)) return;
+      blockShiftRangePointerDown(ev, state.photoLibCheckAnchor);
+      applyPhotoSlotShiftRange(ev);
+    },
+    true,
+  );
+
   root.addEventListener('change', (ev) => {
-    const input = ev.target.closest('.slot-check-input');
+    const input = resolveSlotCheckInput(ev.target, root) || ev.target.closest?.('.slot-check-input');
     if (!input || !root.contains(input)) return;
     const id = input.getAttribute('data-check-id');
     if (!id) return;
     const lib = photoLibCurrent();
+    if (consumeShiftRangeChange(input, id)) {
+      input.checked = Boolean(lib.selectedChecks?.[id]);
+      return;
+    }
+    state.photoLibCheckAnchor = id;
     lib.selectedChecks = { ...(lib.selectedChecks || {}), [id]: input.checked };
     renderPhotoFluxToolbar();
   });
@@ -17899,7 +20243,24 @@ function wirePhotoUi() {
   });
 
   root.addEventListener('click', async (ev) => {
+    const slotCheck = resolveSlotCheckInput(ev.target, root);
+    if (slotCheck && root.contains(slotCheck)) {
+      applyPhotoSlotShiftRange(ev);
+      return;
+    }
     const lib = photoLibCurrent();
+    const unselectAll = ev.target.closest('.flux-unselect-all');
+    if (unselectAll && root.contains(unselectAll)) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      if (unselectAll.disabled) return;
+      lib.selectedChecks = {};
+      root.querySelectorAll('.slot-check-input').forEach((el) => {
+        el.checked = false;
+      });
+      renderPhotoFluxToolbar();
+      return;
+    }
     const vpBtn = ev.target.closest('[data-ba-viewpoint]');
     if (vpBtn && root.contains(vpBtn)) {
       const group = vpBtn.closest('[data-ba-viewpoint-step]');
@@ -20255,31 +22616,44 @@ function renderDiscoveryKnownTable() {
   });
 
   tbody.querySelectorAll('.disc-known-check').forEach((cb) => {
-    cb.addEventListener('click', (event) => {
+    const applyKnownShiftRange = (event) => {
       const key = cb.dataset.knownKey;
-      const visibleKeys = rows.map((r) => discoveryKnownRowKey(r));
       const ranged = applyShiftRangeCheckboxClick(event, {
-        visibleKeys,
+        visibleKeys: rows.map((r) => discoveryKnownRowKey(r)),
         clickedKey: key,
         anchorKey: state.discoveryKnownCheckAnchor,
         setAnchor: (k) => {
           state.discoveryKnownCheckAnchor = k;
         },
-        isSelected: (k) => state.discoveryKnownSelected.has(k),
         setSelected: (k, on) => {
           if (on) state.discoveryKnownSelected.add(k);
           else state.discoveryKnownSelected.delete(k);
         },
       });
-      if (ranged) {
-        tbody.querySelectorAll('.disc-known-check').forEach((box) => {
-          box.checked = state.discoveryKnownSelected.has(box.dataset.knownKey);
-        });
-        syncHeaderSelectAll(document.getElementById('discovery-known-select-all'), {
-          selectedCount: state.discoveryKnownSelected.size,
-          totalCount: rows.length,
-        });
-        if (removeBtn) removeBtn.disabled = state.discoveryKnownSelected.size === 0;
+      if (!ranged) return false;
+      tbody.querySelectorAll('.disc-known-check').forEach((box) => {
+        box.checked = state.discoveryKnownSelected.has(box.dataset.knownKey);
+      });
+      queueMicrotask(() => {
+        cb.checked = state.discoveryKnownSelected.has(key);
+      });
+      syncHeaderSelectAll(document.getElementById('discovery-known-select-all'), {
+        selectedCount: state.discoveryKnownSelected.size,
+        totalCount: rows.length,
+      });
+      if (removeBtn) removeBtn.disabled = state.discoveryKnownSelected.size === 0;
+      return true;
+    };
+    cb.addEventListener('pointerdown', (event) => {
+      if (!event.shiftKey || state.discoveryKnownCheckAnchor == null) return;
+      blockShiftRangePointerDown(event, state.discoveryKnownCheckAnchor);
+      applyKnownShiftRange(event);
+    });
+    cb.addEventListener('click', (event) => {
+      const key = cb.dataset.knownKey;
+      if (applyKnownShiftRange(event)) return;
+      if (consumeShiftRangeChange(cb, key)) {
+        cb.checked = state.discoveryKnownSelected.has(key);
         return;
       }
       state.discoveryKnownCheckAnchor = key;
@@ -20495,33 +22869,42 @@ function renderDiscoveryTable() {
       }
       syncDiscoveryFilterInputs();
     };
-    cb.addEventListener('click', (e) => {
+    const applyDiscShiftRange = (e) => {
       const idx = Number(cb.dataset.discIdx);
-      const visibleKeys = view.map(({ index }) => index);
       const ranged = applyShiftRangeCheckboxClick(e, {
-        visibleKeys,
+        visibleKeys: view.map(({ index }) => index),
         clickedKey: idx,
         anchorKey: state.discoveryCheckAnchor,
         setAnchor: (key) => {
           state.discoveryCheckAnchor = key;
         },
-        isSelected: (key) => state.discoverySelected.has(key),
         setSelected: (key, on) => {
           if (on) state.discoverySelected.add(key);
           else state.discoverySelected.delete(key);
         },
       });
-      if (ranged) {
-        // Reflect range on DOM checkboxes without full table re-render
-        tbody.querySelectorAll('.disc-row-check').forEach((box) => {
-          const i = Number(box.dataset.discIdx);
-          box.checked = state.discoverySelected.has(i);
-        });
-        syncDiscSelectionUi();
-      }
+      if (!ranged) return false;
+      tbody.querySelectorAll('.disc-row-check').forEach((box) => {
+        const i = Number(box.dataset.discIdx);
+        box.checked = state.discoverySelected.has(i);
+      });
+      syncDiscSelectionUi();
+      return true;
+    };
+    cb.addEventListener('pointerdown', (e) => {
+      if (!e.shiftKey || state.discoveryCheckAnchor == null) return;
+      blockShiftRangePointerDown(e, state.discoveryCheckAnchor);
+      applyDiscShiftRange(e);
     });
-    cb.addEventListener('change', () => {
+    cb.addEventListener('click', (e) => {
+      applyDiscShiftRange(e);
+    });
+    cb.addEventListener('change', (e) => {
       const idx = Number(cb.dataset.discIdx);
+      if (consumeShiftRangeChange(cb, idx)) {
+        cb.checked = state.discoverySelected.has(idx);
+        return;
+      }
       state.discoveryCheckAnchor = idx;
       if (cb.checked) state.discoverySelected.add(idx);
       else state.discoverySelected.delete(idx);
@@ -20607,6 +22990,10 @@ async function selectDiscoveryBatch(id) {
   }
   renderDiscoveryTable();
   updateDiscoveryStepChecks(data.batch, state.discoveryRows);
+  if (effectiveClaudeUiMode() === 'api') {
+    fillDiscoveryGeneratePackStep(data.batch);
+    syncGeneratePackOverlay(state.lightJobsSnap);
+  }
   await loadDiscoveryBatches();
 }
 
@@ -20647,6 +23034,7 @@ function updateDiscoveryStepChecks(batch, rows) {
 }
 
 function showDiscoverySidebarStep(step) {
+  if (effectiveClaudeUiMode() === 'api' && step === 'import') step = 'enrich';
   const sections = {
     pack: document.getElementById('discovery-new-pack-section'),
     claude: document.getElementById('discovery-claude-pack-section'),
@@ -20681,6 +23069,32 @@ function wireDiscoveryUi() {
   });
 
   showDiscoverySidebarStep('pack');
+  syncDiscoveryClaudeModeUi();
+  document.getElementById('discovery-claude-pack-section')?.addEventListener('click', (event) => {
+    if (event.target.closest('#discovery-generate-pack')) {
+      void startGeneratePackFromUi(state.discoveryBatchId);
+    }
+  });
+  document.getElementById('gp-overlay-stop')?.addEventListener('click', async () => {
+    const overlay = document.getElementById('discovery-generate-pack-overlay');
+    const jobId = overlay?.dataset.jobId || state._generatePackTrack?.jobId;
+    if (!jobId) return;
+    const btn = document.getElementById('gp-overlay-stop');
+    if (btn) btn.disabled = true;
+    const detailEl = document.getElementById('gp-overlay-detail');
+    if (detailEl) detailEl.textContent = 'Stopping…';
+    try {
+      await api(`/api/light-jobs/${encodeURIComponent(jobId)}/cancel`, { method: 'POST' });
+    } catch (error) {
+      if (btn) btn.disabled = false;
+      await showModal({
+        title: 'Could not stop',
+        confirmLabel: 'OK',
+        hideCancel: true,
+        bodyHtml: `<p>${esc(error.message)}</p>`,
+      });
+    }
+  });
   wireSitesUi();
   wirePhoneUi();
   wirePhotoUi();
@@ -20733,6 +23147,9 @@ function wireDiscoveryUi() {
       state.lastDiscoveryPack = pack;
       state.discoveryBatchId = pack.batch.id;
       state.discoveryClaudeSent = false;
+      if (effectiveClaudeUiMode() === 'api') {
+        fillDiscoveryGeneratePackStep(pack.batch);
+      } else {
       const box = document.getElementById('discovery-pack-result');
       const empty = document.getElementById('discovery-pack-empty');
       if (empty) empty.classList.add('hidden');
@@ -20758,6 +23175,7 @@ function wireDiscoveryUi() {
       box.querySelector('a[href="https://claude.ai"]')?.addEventListener('click', () => {
         markClaudeSent();
       });
+      }
       showDiscoverySidebarStep('claude');
       updateDiscoveryStepChecks(pack.batch, state.discoveryRows);
       await loadDiscoveryBatches();
@@ -21497,9 +23915,13 @@ try {
   wireSettingsUi();
   wireApiCostUi();
   wireJobsUi();
+  wireHelpUi();
   wireUi();
+  syncClaudeModeToggle();
   renderDiscoverySourceLegend();
-  setView('discovery');
+  const restorePeek = peekClaudeUiRestore();
+  const restoreView = CLAUDE_UI_VIEWS.has(restorePeek?.view) ? restorePeek.view : 'discovery';
+  setView(restoreView);
   try {
     await loadDiscoveryPresets();
     await loadDiscoveryBatches();
@@ -21507,6 +23929,7 @@ try {
     /* discovery optional until server restart */
   }
   await loadCandidates();
+  await applyClaudeUiRestore();
 } finally {
   const boot = document.getElementById('app-boot-loading');
   if (boot) {

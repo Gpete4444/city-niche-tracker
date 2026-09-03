@@ -17,6 +17,8 @@ export const OPENAI_IMAGE_COST = {
 const GEN_URL = 'https://api.openai.com/v1/images/generations';
 const EDIT_URL = 'https://api.openai.com/v1/images/edits';
 const REQUEST_MS = 180_000;
+const RATE_LIMIT_ATTEMPTS = 6;
+const RATE_LIMIT_WAIT_MS = [15_000, 30_000, 60_000, 60_000, 60_000];
 
 export function openaiImageKeySet() {
   return Boolean(String(process.env.OPENAI_API_KEY || '').trim());
@@ -41,7 +43,8 @@ function openaiError(status, json, rawText = '') {
     json?.message ||
     (rawText && String(rawText).slice(0, 240)) ||
     `OpenAI images failed (${status})`;
-  return Object.assign(new Error(msg), { status: status || 400, code: 'openai-image' });
+  const code = Number(status) === 429 ? 'openai-rate-limit' : 'openai-image';
+  return Object.assign(new Error(msg), { status: status || 400, code });
 }
 
 async function decodeImagePayload(json) {
@@ -60,6 +63,17 @@ async function decodeImagePayload(json) {
   });
 }
 
+function waitMs(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function retryAfterMs(res, attempt) {
+  const header = res?.headers?.get?.('retry-after');
+  const sec = Number(header);
+  if (Number.isFinite(sec) && sec >= 0) return Math.min(120_000, Math.max(1_000, sec * 1000));
+  return RATE_LIMIT_WAIT_MS[Math.min(attempt, RATE_LIMIT_WAIT_MS.length - 1)];
+}
+
 async function parseOpenaiResponse(res) {
   const rawText = await res.text();
   let json;
@@ -70,6 +84,28 @@ async function parseOpenaiResponse(res) {
   }
   if (!res.ok) throw openaiError(res.status, json, rawText);
   return json;
+}
+
+async function fetchOpenaiImageJson(url, init) {
+  let lastError = null;
+  for (let attempt = 0; attempt < RATE_LIMIT_ATTEMPTS; attempt += 1) {
+    const res = await fetch(url, {
+      ...init,
+      signal: AbortSignal.timeout(REQUEST_MS),
+    });
+    if (res.status !== 429) return parseOpenaiResponse(res);
+    const rawText = await res.text().catch(() => '');
+    let json = {};
+    try {
+      json = JSON.parse(rawText);
+    } catch {
+      json = {};
+    }
+    lastError = openaiError(429, json, rawText);
+    if (attempt === RATE_LIMIT_ATTEMPTS - 1) throw lastError;
+    await waitMs(retryAfterMs(res, attempt));
+  }
+  throw lastError || openaiError(429, {}, '');
 }
 
 function imageBlob(buffer) {
@@ -111,16 +147,14 @@ export async function generateOpenaiImage({
   };
   if (background) body.background = background;
   if (outputFormat) body.output_format = outputFormat;
-  const res = await fetch(GEN_URL, {
+  const json = await fetchOpenaiImageJson(GEN_URL, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${key}`,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify(body),
-    signal: AbortSignal.timeout(REQUEST_MS),
   });
-  const json = await parseOpenaiResponse(res);
   const raw = await decodeImagePayload(json);
   if (compress === false) return { buffer: raw, provider: 'openai' };
   return { buffer: await compressSiteJpeg(raw), provider: 'openai' };
@@ -142,13 +176,11 @@ export async function editOpenaiImage({ prompt, imageBuffer } = {}) {
   form.append('size', OPENAI_IMAGE_SIZE);
   form.append('n', '1');
   form.append('image', imageBlob(imageBuffer), 'before.jpg');
-  const res = await fetch(EDIT_URL, {
+  const json = await fetchOpenaiImageJson(EDIT_URL, {
     method: 'POST',
     headers: { Authorization: `Bearer ${key}` },
     body: form,
-    signal: AbortSignal.timeout(REQUEST_MS),
   });
-  const json = await parseOpenaiResponse(res);
   const raw = await decodeImagePayload(json);
   return { buffer: await compressSiteJpeg(raw), provider: 'openai' };
 }

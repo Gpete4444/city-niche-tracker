@@ -1,6 +1,6 @@
 # Rover — work flow & naming
 
-Plain-language charts for operators. Detailed time estimates live in [USER-FLOW.md](USER-FLOW.md).
+Plain-language charts for operators. Screens and buttons: [USER-GUIDE.md](USER-GUIDE.md). Time estimates: [USER-FLOW.md](USER-FLOW.md).
 
 ## Work flow
 

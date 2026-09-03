@@ -2,6 +2,9 @@
 
 A plain-language map of what you do in Rover, with **time estimates** for each step.
 
+**Operator manual (screens and buttons):** [USER-GUIDE.md](USER-GUIDE.md) — also in Rover via header **Help**.  
+**Engineers:** [DEV-GUIDE.md](DEV-GUIDE.md).
+
 **How this guide is organized**
 
 

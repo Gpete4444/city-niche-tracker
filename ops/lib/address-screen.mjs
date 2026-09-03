@@ -13,6 +13,7 @@ import {
 } from './candidates.mjs';
 import { normalizeStateAbbr } from './census.mjs';
 import { placesIntersectingRadius } from './geo-neighbors.mjs';
+import { recordRoverApiSpend } from './rover-api-spend.mjs';
 
 const ROOT = process.cwd();
 /** Default metro radius for address locality (same as site-config service area). */
@@ -3457,6 +3458,7 @@ export async function searchBusinessAddresses(candidateId, opts = {}) {
     cacheHit,
     sourceHits,
   });
+  recordRoverApiSpend('googleMaps', lastSearchCost.placesEstUsd);
 
   const emptyRun = runClean.length === 0;
   let status;

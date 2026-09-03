@@ -48,12 +48,15 @@ import {
   generateProspectsOutreachDraft,
   pasteNarrativeDraft,
   parseJsonLoose,
+  requireAnthropicKey,
 } from './lib/claude.mjs';
 import {
   acceptSiteConfig,
   acceptServiceArea,
   buildSiteConfigPrompt,
   buildDomainPickPrompt,
+  suggestDomainsWithClaude,
+  generateSiteConfigWithClaude,
   getSiteConfigDraft,
   pasteSiteConfigDraft,
   setCandidateArchetype,
@@ -99,12 +102,13 @@ import {
 } from './lib/flux-generate.mjs';
 import { fluxStatus, getFalBalance, getFluxJobProgress } from './lib/image-providers/flux.mjs';
 import {
-  applyPhotoGroup,
+  applyPhotoGroups,
   attachPhotoGroup,
   findNicheMaster,
   skipPhotoGroup,
   getAttachedPhotoGroup,
   listPhotoGroups,
+  normalizePhotoGroupIds,
   previewPhotoGroup,
   savePhotoGroup,
   readPhotoGroupFile,
@@ -130,8 +134,8 @@ import {
   usePhotoGroupBaVariant,
   getPhotoGroupBaPrompts,
 } from './lib/photo-library.mjs';
-import { generateSiteLogo } from './lib/generate-site-logo.mjs';
-import { generateCoverageMapForCandidate, getCoverageMapProgress } from './lib/generate-coverage-map.mjs';
+import { generateSiteLogo, useLogoVariant } from './lib/generate-site-logo.mjs';
+import { generateCoverageMapForCandidate, getCoverageMapProgress, useCoverageMapVariant } from './lib/generate-coverage-map.mjs';
 import {
   importBeforeAfterPair,
   listBeforeAfterStatus,
@@ -174,7 +178,6 @@ import {
   buildBatchedFullWritePrompt,
   buildFieldResearchPrompt,
   buildFinalCheckPrompt,
-  buildGbpCategoryPrompt,
   buildImageQueriesPrompt,
   buildSoftBriefPrompt,
   getContentFieldResearch,
@@ -182,11 +185,11 @@ import {
   markWriteBatchComplete,
   pasteAndConfirmSoftBrief,
   saveContentFieldResearch,
-  saveGbpCategoryChecklist,
   saveImagesPlan,
   stampFinalCheck,
   syncWriteBatchesFromDraft,
 } from './lib/content-eight-pass.mjs';
+import { assertWriteSiteReady, runWriteSiteJob } from './lib/content-write-site.mjs';
 import { buildBuildPackage, getBuildPackage } from './lib/build-package.mjs';
 import { stageSiteInWorker, getStagingSummary } from './lib/site-staging.mjs';
 import {
@@ -214,7 +217,15 @@ import {
   listLightJobsSnapshot,
   onLightJobsChange,
   updateLightJobProgress,
+  cancelLightJob,
+  findActiveLightJob,
+  discoveryPackJobCandidateId,
 } from './lib/rover-light-jobs.mjs';
+import {
+  getGeneratePackCostPreview,
+  runGeneratePackJob,
+} from './lib/discovery-generate-pack.mjs';
+import { getUserGuidePayload } from './lib/help-markdown.mjs';
 import { assembleSiteInWorker, getAssembleChecklist, planAssembleReplace, finalizePreviousAssembledSite } from './lib/assemble-site.mjs';
 import { assertLaunchedEditAllowed } from './lib/launched-edit-guard.mjs';
 import { restoreLaunchedFromGithub } from './lib/restore-launched-from-github.mjs';
@@ -347,6 +358,9 @@ function sendError(res, error) {
   if (error.check) payload.check = error.check;
   if (error.contract) payload.contract = error.contract;
   if (error.job) payload.job = error.job;
+  if (error.jobId) payload.jobId = error.jobId;
+  if (error.candidateId) payload.candidateId = error.candidateId;
+  if (error.batchId) payload.batchId = error.batchId;
   if (error.speechLint) payload.speechLint = error.speechLint;
   if (error.seoLint) payload.seoLint = error.seoLint;
   if (error.twilioSid) payload.twilioSid = error.twilioSid;
@@ -355,6 +369,14 @@ function sendError(res, error) {
   if (error.existingId) payload.existingId = error.existingId;
   res.status(status).json(payload);
 }
+
+app.get('/api/help/user-guide', (_req, res) => {
+  try {
+    res.json(getUserGuidePayload());
+  } catch (error) {
+    sendError(res, error);
+  }
+});
 
 app.get('/api/health', (_req, res) => {
   const envSet = (...keys) => keys.every((k) => Boolean(String(process.env[k] || '').trim()));
@@ -675,6 +697,54 @@ app.get('/api/discovery/batches', (_req, res) => {
 app.get('/api/discovery/batches/:id', (req, res) => {
   try {
     res.json(getBatch(req.params.id));
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.get('/api/discovery/batches/:id/cost-preview', (req, res) => {
+  try {
+    res.json(getGeneratePackCostPreview(req.params.id));
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/discovery/batches/:id/generate-pack', (req, res) => {
+  try {
+    const batchId = req.params.id;
+    requireAnthropicKey();
+    getBatch(batchId);
+
+    const key = discoveryPackJobCandidateId(batchId);
+    const same = findActiveLightJob('generate-pack', key);
+    if (same) {
+      return res.status(409).json({
+        error: 'Generate pack is already running for this batch',
+        code: 'GENERATE_PACK_RUNNING',
+        jobId: same.id,
+        batchId,
+      });
+    }
+    const other = findActiveLightJob('generate-pack');
+    if (other) {
+      return res.status(409).json({
+        error: `Generate pack is already running for ${other.batchId || other.candidateId}`,
+        code: 'GENERATE_PACK_BUSY',
+        jobId: other.id,
+        batchId: other.batchId || null,
+        candidateId: other.candidateId,
+      });
+    }
+
+    const { jobId } = startLightJob({
+      batchId,
+      phase: 'generate-pack',
+      label: 'Generate pack',
+      progressTotal: 2,
+      run: async ({ jobId: jid, signal }) => runGeneratePackJob(batchId, { jobId: jid, signal }),
+    });
+    res.status(202).json({ jobId, accepted: true, batchId });
   } catch (error) {
     sendError(res, error);
   }
@@ -1225,6 +1295,15 @@ app.get('/api/light-jobs/:jobId', (req, res) => {
   res.json({ job });
 });
 
+app.post('/api/light-jobs/:jobId/cancel', (req, res) => {
+  try {
+    const job = cancelLightJob(req.params.jobId);
+    res.json({ ok: true, job });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
 app.get('/api/jobs/:jobId', (req, res) => {
   const job = getJob(req.params.jobId);
   if (!job) return res.status(404).json({ error: 'Job not found' });
@@ -1341,6 +1420,44 @@ app.get('/api/candidates/:id/site-config/domain-prompt', (req, res) => {
       allowNonPursue: req.query.allowNonPursue === '1' || req.query.allowNonPursue === 'true',
     };
     res.json(buildDomainPickPrompt(req.params.id, nap));
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/candidates/:id/site-config/suggest-domains', async (req, res) => {
+  try {
+    const body = req.body || {};
+    const nap = {
+      businessName: body.businessName,
+      allowNonPursue: body.allowNonPursue === true || body.allowNonPursue === '1',
+    };
+    res.json(await suggestDomainsWithClaude(req.params.id, nap));
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/candidates/:id/site-config/generate', async (req, res) => {
+  try {
+    const body = req.body || {};
+    assertLaunchedEditAllowed(req.params.id, body);
+    const nap = {
+      domain: body.domain,
+      businessName: body.businessName,
+      phone: body.phone,
+      email: body.email,
+      radiusMiles: body.radiusMiles,
+      siteArchetype: body.siteArchetype,
+      paletteId: body.paletteId,
+      fontTheme: body.fontTheme,
+      addressStreet: body.addressStreet || body.street,
+      addressCity: body.addressCity,
+      addressState: body.addressState,
+      addressZip: body.addressZip || body.zip,
+      allowNonPursue: body.allowNonPursue === true || body.allowNonPursue === '1',
+    };
+    res.json(await generateSiteConfigWithClaude(req.params.id, nap));
   } catch (error) {
     sendError(res, error);
   }
@@ -1590,10 +1707,11 @@ app.post('/api/candidates/:id/content/accept', async (req, res) => {
         if (structureHasPhotosEnabled(acceptId)) {
           const attached = getAttachedPhotoGroup(acceptId);
           const skipDoc = getCandidateDetail(acceptId).photoGroupAttached;
-          const applyGroup = async (groupId, label) => {
+          const applyGroup = async (groupIds, label) => {
+            const ids = Array.isArray(groupIds) ? groupIds : [groupIds];
             console.log(`[accept] ${acceptId} applying photo group “${label}”…`);
             try {
-              return applyPhotoGroup(acceptId, groupId);
+              return applyPhotoGroups(acceptId, ids);
             } catch (imageErr) {
               return {
                 ok: false,
@@ -1623,8 +1741,11 @@ app.post('/api/candidates/:id/content/accept', async (req, res) => {
               };
             }
           };
-          if (attached?.groupId) {
-            images = await applyGroup(attached.groupId, attached.name || attached.groupId);
+          if (attached?.groupIds?.length) {
+            images = await applyGroup(
+              attached.groupIds,
+              (attached.names || attached.groups?.map((g) => g.name) || [attached.name || attached.groupId]).join(' → '),
+            );
           } else if (skipDoc?.skipped) {
             images = await pullStock();
           } else {
@@ -1644,12 +1765,23 @@ app.post('/api/candidates/:id/content/accept', async (req, res) => {
         tick(3, 'Generating logo…');
         console.log(`[accept] ${acceptId} generating logo…`);
         try {
-          logo = await generateSiteLogo(acceptId);
+          logo = await generateSiteLogo(acceptId, { mode: 'markText' });
         } catch (logoErr) {
-          logo = {
-            ok: false,
-            warning: logoErr.message || String(logoErr),
-          };
+          if (logoErr?.code === 'openai-unconfigured') {
+            try {
+              logo = await generateSiteLogo(acceptId, { mode: 'monogram' });
+            } catch (monoErr) {
+              logo = {
+                ok: false,
+                warning: monoErr.message || String(monoErr),
+              };
+            }
+          } else {
+            logo = {
+              ok: false,
+              warning: logoErr.message || String(logoErr),
+            };
+          }
         }
         let coverageMap = null;
         tick(4, 'Building coverage map…');
@@ -1726,7 +1858,6 @@ app.get('/api/photo-groups', (req, res) => {
 
 app.post('/api/candidates/:id/photo-groups', (req, res) => {
   try {
-    assertLaunchedEditAllowed(req.params.id, req.body || {});
     const name = String(req.body?.name || '').trim();
     const replaceExisting = Boolean(req.body?.replaceExisting);
     res.json(savePhotoGroup(req.params.id, name, { replaceExisting }));
@@ -1737,8 +1868,11 @@ app.post('/api/candidates/:id/photo-groups', (req, res) => {
 
 app.post('/api/candidates/:id/photo-groups/preview', (req, res) => {
   try {
-    const groupId = String(req.body?.groupId || req.query?.groupId || '').trim();
-    res.json(previewPhotoGroup(req.params.id, groupId));
+    const groupIds = normalizePhotoGroupIds({
+      ...(req.body || {}),
+      groupId: req.body?.groupId || req.query?.groupId,
+    });
+    res.json(previewPhotoGroup(req.params.id, { groupIds }));
   } catch (error) {
     sendError(res, error);
   }
@@ -1747,8 +1881,8 @@ app.post('/api/candidates/:id/photo-groups/preview', (req, res) => {
 app.post('/api/candidates/:id/photo-groups/load', (req, res) => {
   try {
     assertLaunchedEditAllowed(req.params.id, req.body || {});
-    const groupId = String(req.body?.groupId || '').trim();
-    res.json(applyPhotoGroup(req.params.id, groupId));
+    const groupIds = normalizePhotoGroupIds(req.body || {});
+    res.json(applyPhotoGroups(req.params.id, groupIds));
   } catch (error) {
     sendError(res, error);
   }
@@ -1757,8 +1891,7 @@ app.post('/api/candidates/:id/photo-groups/load', (req, res) => {
 app.post('/api/candidates/:id/photo-groups/attach', (req, res) => {
   try {
     assertLaunchedEditAllowed(req.params.id, req.body || {});
-    const groupId = String(req.body?.groupId || '').trim();
-    res.json(attachPhotoGroup(req.params.id, groupId));
+    res.json(attachPhotoGroup(req.params.id, req.body || {}));
   } catch (error) {
     sendError(res, error);
   }
@@ -2125,6 +2258,7 @@ app.post('/api/candidates/:id/logo/generate', async (req, res) => {
     assertLaunchedEditAllowed(req.params.id, req.body || {});
     const candidateId = req.params.id;
     const mode = req.body?.mode;
+    const prompt = req.body?.prompt;
     const { jobId } = startLightJob({
       candidateId,
       phase: 'logo',
@@ -2137,7 +2271,7 @@ app.post('/api/candidates/:id/logo/generate', async (req, res) => {
           done: 2,
           total: 3,
         });
-        const result = await generateSiteLogo(candidateId, { mode });
+        const result = await generateSiteLogo(candidateId, { mode, prompt });
         updateLightJobProgress(jid, {
           detail: result.path || result.logo?.src || 'Logo ready',
           done: 3,
@@ -2148,6 +2282,15 @@ app.post('/api/candidates/:id/logo/generate', async (req, res) => {
     });
     const result = await waitForLightJob(jobId);
     res.json({ ...result, jobId });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/candidates/:id/logo/variants/use', (req, res) => {
+  try {
+    assertLaunchedEditAllowed(req.params.id, req.body || {});
+    res.json(useLogoVariant(req.params.id, req.body?.filename));
   } catch (error) {
     sendError(res, error);
   }
@@ -2174,6 +2317,15 @@ app.post('/api/candidates/:id/coverage-map/generate', async (req, res) => {
     });
     const result = await waitForLightJob(jobId);
     res.json({ ...result, jobId });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/candidates/:id/coverage-map/variants/use', (req, res) => {
+  try {
+    assertLaunchedEditAllowed(req.params.id, req.body || {});
+    res.json(useCoverageMapVariant(req.params.id, req.body?.filename));
   } catch (error) {
     sendError(res, error);
   }
@@ -2578,18 +2730,45 @@ app.post('/api/candidates/:id/content/write-batches/:batch', (req, res) => {
   }
 });
 
-app.get('/api/candidates/:id/gbp-categories/prompt', (req, res) => {
+app.post('/api/candidates/:id/content/write-site', (req, res) => {
   try {
-    res.json(buildGbpCategoryPrompt(req.params.id));
-  } catch (error) {
-    sendError(res, error);
-  }
-});
+    const candidateId = req.params.id;
+    assertLaunchedEditAllowed(candidateId, req.body || {});
+    requireAnthropicKey();
+    assertWriteSiteReady(candidateId);
 
-app.post('/api/candidates/:id/gbp-categories', (req, res) => {
-  try {
-    const raw = req.body?.json ?? req.body?.text ?? req.body;
-    res.json(saveGbpCategoryChecklist(req.params.id, raw));
+    const same = findActiveLightJob('write-site', candidateId);
+    if (same) {
+      return res.status(409).json({
+        error: 'Write site is already running for this candidate',
+        code: 'WRITE_SITE_RUNNING',
+        jobId: same.id,
+        candidateId,
+      });
+    }
+    const other = findActiveLightJob('write-site');
+    if (other) {
+      return res.status(409).json({
+        error: `Write site is already running for ${other.candidateId}`,
+        code: 'WRITE_SITE_BUSY',
+        jobId: other.id,
+        candidateId: other.candidateId,
+      });
+    }
+
+    const photosOn = Boolean(
+      Object.values(getCandidateDetail(candidateId)?.contentStructure?.photos || {}).some(
+        (p) => p && p.enabled,
+      ),
+    );
+    const { jobId } = startLightJob({
+      candidateId,
+      phase: 'write-site',
+      label: 'Write site',
+      progressTotal: photosOn ? 5 : 4,
+      run: async ({ jobId: jid, signal }) => runWriteSiteJob(candidateId, { jobId: jid, signal }),
+    });
+    res.status(202).json({ jobId, accepted: true });
   } catch (error) {
     sendError(res, error);
   }

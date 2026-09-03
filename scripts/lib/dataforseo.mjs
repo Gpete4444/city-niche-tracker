@@ -169,13 +169,22 @@ export async function dataForSeoGet(pathname) {
   return json;
 }
 
+function finiteMoney(value) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
 /** Account balance from GET /v3/appendix/user_data (rate limit ~6/min). */
 export async function fetchUserBalance() {
   const json = await dataForSeoGet('/appendix/user_data');
   const money = json.tasks?.[0]?.result?.[0]?.money ?? null;
+  const balance = finiteMoney(money?.balance);
+  const total = finiteMoney(money?.total);
+  const spentRaw = balance != null && total != null ? total - balance : null;
   return {
-    balance: money?.balance != null ? Number(money.balance) : null,
-    total: money?.total != null ? Number(money.total) : null,
+    balance,
+    total,
+    spentAllTime: spentRaw != null ? Math.max(0, Number(spentRaw.toFixed(6))) : null,
     fetchedAt: new Date().toISOString(),
   };
 }

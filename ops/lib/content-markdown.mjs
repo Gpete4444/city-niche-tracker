@@ -2,6 +2,7 @@
  * Content markdown handoff from accepted site-config.
  */
 
+import { parse as parseYaml } from 'yaml';
 import {
   copyFileSync,
   existsSync,
@@ -345,6 +346,142 @@ function splitFrontmatter(markdown) {
   const m = String(markdown || '').match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/);
   if (!m) return { ok: false, error: 'Missing YAML frontmatter (--- ... ---)' };
   return { ok: true, frontmatter: m[1], body: m[2] || '' };
+}
+
+function rebuildMarkdownFromParts(fm, body) {
+  const bodyOut = String(body || '').startsWith('\n') ? body : `\n${body || ''}`;
+  const out = `---\n${String(fm).trimEnd()}\n---${bodyOut}`;
+  return out.endsWith('\n') ? out : `${out}\n`;
+}
+
+function tryParseYamlMapping(fm) {
+  try {
+    const data = parseYaml(String(fm || ''));
+    if (data == null || typeof data !== 'object' || Array.isArray(data)) {
+      return { ok: false, error: 'frontmatter must be a YAML mapping' };
+    }
+    return { ok: true, data };
+  } catch (e) {
+    const msg = String(e?.message || e)
+      .split('\n')[0]
+      .replace(/\s+/g, ' ')
+      .trim();
+    return { ok: false, error: msg || 'YAML parse error' };
+  }
+}
+
+/**
+ * Tabs → 2 spaces, then indent process/whyChooseUs/faqs (and similar) list items
+ * that Claude left at column 0. Returns healed markdown even if parse still fails.
+ */
+export function healYamlFrontmatter(markdown) {
+  const split = splitFrontmatter(markdown);
+  if (!split.ok) return { markdown, healed: false, parseOk: false, error: split.error };
+  const original = split.frontmatter;
+  let fm = String(original).replace(/\t/g, '  ');
+  const first = tryParseYamlMapping(fm);
+  if (first.ok) {
+    if (fm === original) return { markdown, healed: false, parseOk: true };
+    return { markdown: rebuildMarkdownFromParts(fm, split.body), healed: true, parseOk: true };
+  }
+  fm = healYamlListIndent(fm);
+  const second = tryParseYamlMapping(fm);
+  return {
+    markdown: fm === original ? markdown : rebuildMarkdownFromParts(fm, split.body),
+    healed: fm !== original,
+    parseOk: second.ok,
+    error: second.ok ? null : second.error,
+  };
+}
+
+function healYamlListIndent(fm) {
+  const lines = String(fm || '').split('\n');
+  const out = [];
+  let i = 0;
+  const listKeyRe =
+    /^(process|whyChooseUs|faqs|gallery|materialsImages|processImages|beforeAfterImages|serviceCardImages)\s*:\s*$/;
+  const childKeyRe = /^(title|description|question|answer|image|src|alt)\s*:/;
+  while (i < lines.length) {
+    const line = lines[i];
+    if (!listKeyRe.test(line)) {
+      out.push(line);
+      i += 1;
+      continue;
+    }
+    out.push(line);
+    i += 1;
+    while (i < lines.length) {
+      const l = lines[i];
+      if (!l.trim()) {
+        out.push(l);
+        i += 1;
+        continue;
+      }
+      if (/^[A-Za-z][\w]*\s*:/.test(l) && !/^[ \t]/.test(l) && !/^- /.test(l)) break;
+      if (/^- /.test(l)) {
+        out.push(`  ${l}`);
+        i += 1;
+        while (i < lines.length) {
+          const c = lines[i];
+          if (!c.trim()) {
+            out.push(c);
+            i += 1;
+            continue;
+          }
+          if (/^- /.test(c)) break;
+          if (childKeyRe.test(c)) {
+            out.push(`    ${c}`);
+            i += 1;
+            continue;
+          }
+          if (/^[A-Za-z][\w]*\s*:/.test(c) && !/^[ \t]/.test(c)) break;
+          if (/^  (?! )/.test(c) && childKeyRe.test(c.trim())) {
+            out.push(`    ${c.trim()}`);
+            i += 1;
+            continue;
+          }
+          out.push(c);
+          i += 1;
+        }
+        continue;
+      }
+      if (/^[ \t]+- /.test(l)) {
+        out.push(l);
+        i += 1;
+        const itemIndent = l.match(/^[ \t]*/)[0];
+        const childWant = `${itemIndent}  `;
+        while (i < lines.length) {
+          const c = lines[i];
+          if (!c.trim()) {
+            out.push(c);
+            i += 1;
+            continue;
+          }
+          if (/^[ \t]*- /.test(c)) break;
+          const cIndent = c.match(/^[ \t]*/)[0];
+          if (childKeyRe.test(c.trim()) && cIndent.length <= itemIndent.length) {
+            out.push(childWant + c.trim());
+            i += 1;
+            continue;
+          }
+          if (/^[A-Za-z][\w]*\s*:/.test(c) && !/^[ \t]/.test(c)) break;
+          out.push(c);
+          i += 1;
+        }
+        continue;
+      }
+      out.push(l);
+      i += 1;
+    }
+  }
+  return out.join('\n');
+}
+
+/** Load/Accept: do not stamp a draft whose frontmatter cannot parse. */
+export function assertValidYamlFrontmatter(check) {
+  const yamlErrs = (check?.errors || []).filter((e) => /invalid YAML frontmatter/i.test(String(e)));
+  if (!yamlErrs.length) return;
+  throw Object.assign(new Error(yamlErrs.join('\n')), { status: 400, check });
 }
 
 const IMAGE_FM_KEYS = ['heroImage', 'featureImage', 'cardImage', 'coverageMap'];
@@ -1609,6 +1746,7 @@ export function normalizeContentFilesMap(files, siteConfig = null) {
   const out = {};
   for (const [rel, markdown] of Object.entries(files || {})) {
     let md = sanitizeMarkdownImageFrontmatter(ensureYamlFrontmatter(markdown));
+    md = healYamlFrontmatter(md).markdown;
     if (niche && /locations\/.+\.md$/i.test(rel)) {
       const slug = String(rel).replace(/^.*\//, '').replace(/\.md$/i, '');
       md = healLocationNicheHeadings(md, {
@@ -1775,6 +1913,11 @@ export function validateContentBundle(files, siteConfig, { mode = 'full', pageId
       continue;
     }
     const { frontmatter: fm, body } = split;
+    const yaml = tryParseYamlMapping(fm);
+    if (!yaml.ok) {
+      errors.push(`${rel}: invalid YAML frontmatter (${yaml.error})`);
+      continue;
+    }
     for (const key of ['title', 'description', 'h1']) {
       if (!fmHasKey(fm, key)) errors.push(`${rel}: missing frontmatter key "${key}"`);
     }
@@ -1860,7 +2003,7 @@ export function pasteContentDraft(candidateId, raw) {
   const pageIds = resolveStructurePageIds(candidateId);
   const extracted = extractSocialProofSidecar(raw);
   const parsed = parseContentFileBlocks(extracted.textWithoutSidecar);
-  const files = pruneFilesToStructure(parsed, {
+  const files = pruneFilesToStructure(normalizeContentFilesMap(parsed, config), {
     pageIds,
     siteConfig: config,
     siteArchetype: config.siteArchetype,
@@ -1868,6 +2011,7 @@ export function pasteContentDraft(candidateId, raw) {
   const onlyPages = Object.keys(files).every((p) => p.startsWith('src/content/pages/'));
   const resolvedMode = onlyPages ? 'homepage_first' : 'full';
   const check = validateContentBundle(files, config, { mode: resolvedMode, pageIds });
+  assertValidYamlFrontmatter(check);
   const socialProofMerge = ensureRoverSocialProofSeed(candidateId, config);
   const p = pathsFor(candidateId);
   writeJson(p.contentDraft, {

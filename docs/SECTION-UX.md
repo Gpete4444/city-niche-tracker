@@ -56,8 +56,6 @@ Rank & Rent sites should mirror what a future GBP will claim:
 - **Locations** = geo proof for real primary + suburb cities from site-config — not landmark page factories.
 - Prefer supporting topics only when the Brief lists them; avoid weekly-blog sprawl.
 
-Website → Launch (and Site-Config → Phone) offer an advisory **GBP category checklist** Claude paste — does not block Assemble.
-
 ### Stock image Pull (fail-soft)
 
 - Pull / Re-pull **prefer** niche-relevant stock above the score floor; if nothing clears the floor, Rover still fills the slot with the **best unused** photo and grades it **Poor** (“Best available stock — review/replace”). Hard errors only when APIs return no unused photos or keys are missing.
@@ -76,7 +74,7 @@ Website → Launch (and Site-Config → Phone) offer an advisory **GBP category 
 - Proof lives in `socialProof` (trust strip + reviews) and About (`aboutStory`).
 - Do not invent license ID numbers, founding years, or testimonials in Claude copy.
 - When `socialProof` is empty, **Rover** seeds placeholders via `defaultPlaceholderSocialProof` / `buildGoogleStyleSocialProof` (site-config paste / content Load+Accept): exactly **3** Google-lookalike reviews (First + last initial, 2 bundled avatars + 1 initials circle, dates within ~1 week / ~2 weeks / ~1 month). Operator swaps with real GBP reviews before launch when available.
-- Preset **C (Value SEO heavy)** is the ranking-focused default (includes reviews + educational sections).
+- Preset **C (Value SEO heavy)** is the ranking-focused default (all pages/sections including Location pages and Include photos; Deep offer process stays off).
 - Editor must preserve socialProof while fixing speech/SEO issues.
 
 ## Social proof
@@ -109,7 +107,7 @@ Seed `socialProof` with rating, 2–3 stats, license line, and **exactly 3** Goo
 
 ## Service sections
 
-Reuse the same typed layouts for cost/materials/timeline/codes/diy/whenToCall. `svcIntro` follows 2-paragraph service-entity rules. Service process/FAQs/cost live in **markdown body** (no FM copy arrays). `svcProcess` uses the same numbered step cards as homepage (`processImages[]` via Pull, one photo per step). Process H2s that match “Our {service} Process”, “Our … Approach”, or “How we …” classify as `process` (not a generic checkmark dump). `svcMaterials` uses the same Process-style card grid as homepage (`materialsImages[]` via Pull, up to 6 full-bleed top photos — bordered raised cards). `svcBeforeAfter` = homepage-style photo gallery from Website → ChatGPT import (`svc-ba-{slug}-*` / `beforeAfterImages`); show only when that service has a complete before+after pair — omit the section if either image is missing (no caption-only fallback). `svcCta` = short ink band above LeadForm.
+Reuse the same typed layouts for cost/materials/timeline/codes/diy/whenToCall. `svcIntro` is **unmarked** body (2 paragraphs before the first `##` — not an H2). Service process/FAQs/cost live in **markdown body** (no FM copy arrays). `svcProcess` uses the same numbered step cards as homepage (`processImages[]` via Pull, one photo per step). Process H2s that match “Our {service} Process”, “Our … Approach”, or “How we …” classify as `process` (not a generic checkmark dump). `svcMaterials` uses the same Process-style card grid as homepage (`materialsImages[]` via Pull, up to 6 full-bleed top photos — bordered raised cards). `svcBeforeAfter` = homepage-style photo gallery from Website → ChatGPT import (`svc-ba-{slug}-*` / `beforeAfterImages`); show only when that service has a complete before+after pair — omit the section if either image is missing (no caption-only fallback). `svcCta` = short ink band above LeadForm.
 
 ## External LLM critique prompt
 

@@ -26,4 +26,5 @@ TASK
 4. Do not invent credentials, reviews, or addresses. Preserve frontmatter keys and image paths.
 
 Prefer surgical edits. Fix what fails the brief/outline/guardrails; leave good files alone.
+Do not flag or add an svcIntro H2 — service intro is unmarked prose before the first ##. Do not reverse permit columns that are already ### Usually needs a permit then ### Usually no permit.
 ```

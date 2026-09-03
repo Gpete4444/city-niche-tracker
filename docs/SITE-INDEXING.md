@@ -63,7 +63,7 @@ After **Run launch** (or **Push updates** when already live), open **Website →
    - Indexing → Sitemaps → submit `https://{domain}/sitemap.xml`.
    - URL Inspection → **Request indexing** on homepage + top 2–3 service pages.
 3. **External pointer** — Set GBP website (when you have it) and any planned citations to the live URL. In Rover **Website → Launch**, use **Citations** checklist + **Download NAP CSV** so directory forms match site-config.
-4. **Stop thrashing** — Wait. Monitor Page indexing; don’t resubmit the whole site every day. Mark Indexing **done** in Rover when finished.
+4. **Stop thrashing** — Wait. Monitor Page indexing; don’t resubmit the whole site every day. Mark Indexing **done** in Rover when finished. Rover saves that check on candidate meta (`indexingDone`); it survives reload and re-select, and Push updates does not clear it.
 
 **Citations and head-term speed:** On-page SEO (titles, FAQs, service/location graph) is necessary but not sufficient for competitive “niche + city” queries. GBP + consistent NAP citations are the usual off-page path — Rover does not invent backlinks at Assemble.
 

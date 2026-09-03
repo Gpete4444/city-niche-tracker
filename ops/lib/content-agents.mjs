@@ -19,6 +19,8 @@ import {
   parseContentFileBlocks,
   pruneFilesToStructure,
   validateContentBundle,
+  normalizeContentFilesMap,
+  assertValidYamlFrontmatter,
 } from './content-markdown.mjs';
 import {
   extractSocialProofSidecar,
@@ -291,12 +293,14 @@ function normalizeBriefSections(rawSections) {
     throw err;
   }
   return rawSections.map((row, idx) => {
-    const level = String(row.level || '').toUpperCase();
-    if (!['H1', 'H2', 'H3'].includes(level)) {
+    const rawLevel = String(row.level || '').trim();
+    const upper = rawLevel.toUpperCase();
+    if (!['H1', 'H2', 'H3', 'NONE', 'BODY', 'UNMARKED'].includes(upper)) {
       const err = new Error(`Invalid section level at index ${idx}: ${row.level}`);
       err.status = 400;
       throw err;
     }
+    const level = ['NONE', 'BODY', 'UNMARKED'].includes(upper) ? 'none' : upper;
     const heading = String(row.heading || '').trim();
     if (!heading) {
       const err = new Error(`Section heading required at index ${idx}`);
@@ -754,6 +758,7 @@ export function getContentSpeechLint(candidateId) {
         ? 'homepage_first'
         : 'full';
   const check = validateContentBundle(files, config, { mode, pageIds });
+  assertValidYamlFrontmatter(check);
   const contract = runTemplateContract(files, config, { mode, pageIds });
   const p = pathsFor(candidateId);
   const next = {
@@ -796,6 +801,7 @@ function autoFixAndLintDraft(candidateId, files, config) {
     rootDir: ROOT,
   });
   const { speechLint, seoLint } = runDraftContentLints(candidateId, fixed.files, config);
+  const normalized = normalizeContentFilesMap(fixed.files, config);
   const autoFix = {
     at: new Date().toISOString(),
     changeCount: fixed.changes.length,
@@ -803,7 +809,7 @@ function autoFixAndLintDraft(candidateId, files, config) {
     seoCount: fixed.seoCount ?? fixed.changes.filter((c) => c.kind === 'seo').length,
     changes: fixed.changes.slice(0, 40),
   };
-  return { files: fixed.files, speechLint, seoLint, autoFix };
+  return { files: normalized, speechLint, seoLint, autoFix };
 }
 
 function runDraftContentLints(candidateId, files, config) {
@@ -863,6 +869,7 @@ export function pasteAgentContentDraft(candidateId, raw, { mode = 'homepage_firs
     config,
   );
   const check = validateContentBundle(files, config, { mode, pageIds });
+  assertValidYamlFrontmatter(check);
   const contract = runTemplateContract(files, config, { mode, pageIds });
   const socialProofMerge = ensureRoverSocialProofSeed(candidateId, config);
   writeJson(p.contentDraft, {
@@ -949,6 +956,7 @@ export function importContentDraftFromDisk(candidateId, { mode } = {}) {
     mode: resolvedMode,
     pageIds,
   });
+  assertValidYamlFrontmatter(check);
   const contract = runTemplateContract(files, config, { mode: resolvedMode, pageIds });
   const p = pathsFor(candidateId);
   const priorDraft = readJson(p.contentDraft);

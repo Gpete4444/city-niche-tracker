@@ -44,6 +44,7 @@ function serializeLightJob(job, { includeResult = true } = {}) {
   const out = {
     id: job.id,
     candidateId: job.candidateId,
+    batchId: job.batchId || null,
     phase: job.phase,
     label: job.label,
     status: job.status,
@@ -56,6 +57,7 @@ function serializeLightJob(job, { includeResult = true } = {}) {
     progressTotal: job.progressTotal ?? null,
     check: job.check || null,
     seoLint: job.seoLint || null,
+    speechLint: job.speechLint || null,
     contract: job.contract || null,
   };
   if (includeResult) out.result = job.result;
@@ -96,25 +98,32 @@ function pruneFinished() {
   }
 }
 
+export function discoveryPackJobCandidateId(batchId) {
+  return `discovery:${String(batchId || '').trim()}`;
+}
+
 /**
  * Register a running light job (no queue). Used by script jobs that own their own process.
- * @param {{ candidateId: string, phase: string, label?: string, progressTotal?: number }} opts
+ * @param {{ candidateId?: string, batchId?: string, phase: string, label?: string, progressTotal?: number }} opts
  * @returns {{ jobId: string }}
  */
 export function openLightJob(opts) {
-  const candidateId = String(opts.candidateId || '').trim();
+  const batchId = String(opts.batchId || '').trim();
+  let candidateId = String(opts.candidateId || '').trim();
+  if (!candidateId && batchId) candidateId = discoveryPackJobCandidateId(batchId);
   if (!candidateId) {
-    throw Object.assign(new Error('candidateId required'), { status: 400 });
+    throw Object.assign(new Error('candidateId or batchId required'), { status: 400 });
   }
   const id = randomUUID();
   const total =
     opts.progressTotal != null && Number.isFinite(Number(opts.progressTotal))
       ? Number(opts.progressTotal)
       : null;
-  /** @type {RoverLightJob & { check?: unknown, seoLint?: unknown, contract?: unknown, _httpStatus?: number }} */
+  /** @type {RoverLightJob & { check?: unknown, seoLint?: unknown, contract?: unknown, _httpStatus?: number, batchId?: string }} */
   const job = {
     id,
     candidateId,
+    batchId: batchId || null,
     phase: String(opts.phase || 'job'),
     label: opts.label || opts.phase || 'job',
     status: 'running',
@@ -145,6 +154,7 @@ export function finishLightJob(jobId, { error, result } = {}) {
     job.error = err?.message ? String(err.message) : String(err);
     if (err?.check) job.check = err.check;
     if (err?.seoLint) job.seoLint = err.seoLint;
+    if (err?.speechLint) job.speechLint = err.speechLint;
     if (err?.contract) job.contract = err.contract;
     if (err?.status) job._httpStatus = err.status;
   } else {
@@ -160,22 +170,61 @@ export function finishLightJob(jobId, { error, result } = {}) {
 /**
  * Start light work immediately (no K pool).
  * @param {{
- *   candidateId: string,
+ *   candidateId?: string,
+ *   batchId?: string,
  *   phase: string,
  *   label?: string,
  *   progressTotal?: number,
- *   run: (ctx: { jobId: string }) => Promise<unknown>,
+ *   run: (ctx: { jobId: string, signal?: AbortSignal }) => Promise<unknown>,
  * }} opts
  * @returns {{ jobId: string }}
  */
 export function startLightJob(opts) {
   const { jobId } = openLightJob(opts);
+  const ac = new AbortController();
+  const job = jobs.get(jobId);
+  if (job) job.abort = ac;
   Promise.resolve()
     .then(() => new Promise((r) => setImmediate(r)))
-    .then(() => opts.run({ jobId }))
+    .then(() => opts.run({ jobId, signal: ac.signal }))
     .then((result) => finishLightJob(jobId, { result }))
     .catch((err) => finishLightJob(jobId, { error: err }));
   return { jobId };
+}
+
+/**
+ * Abort a running light job. The run() catch finishes it as error "Stopped".
+ * @param {string} jobId
+ */
+export function cancelLightJob(jobId) {
+  const id = String(jobId || '').trim();
+  const job = jobs.get(id);
+  if (!job) {
+    throw Object.assign(new Error('Job not found'), { status: 404 });
+  }
+  if (job.status !== 'running' && job.status !== 'queued') {
+    throw Object.assign(new Error('Job is not running'), { status: 409 });
+  }
+  job.detail = 'Stopping…';
+  emitChange();
+  try {
+    job.abort?.abort();
+  } catch {
+    /* ignore */
+  }
+  return serializeLightJob(job, { includeResult: false });
+}
+
+/** First running/queued job matching phase (optionally candidate). */
+export function findActiveLightJob(phase, candidateId = null) {
+  const want = String(phase || '');
+  const cid = candidateId != null ? String(candidateId) : null;
+  return [...jobs.values()].find((j) => {
+    if (String(j.phase || '') !== want) return false;
+    if (j.status !== 'running' && j.status !== 'queued') return false;
+    if (cid && String(j.candidateId || '') !== cid) return false;
+    return true;
+  });
 }
 
 /**

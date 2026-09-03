@@ -13,4 +13,6 @@ Keep this block short. Inject verbatim (or lightly filled) at the top of Field r
 - Prefer commas/periods over em dashes (—). Vary sentence length (long, short, fragment) — avoid robotic cadence.
 - Conversion: natural CTAs (call / free estimate) where the page type expects them — not banner spam mid-paragraph.
 - Follow the page type rules for this pass (home / service / location). Do not wander into unrelated niches.
+- Service intro (svcIntro) is unmarked prose before the first ## — never an H2. Do not flag or add an svcIntro heading.
+- Codes columns: ### Usually needs a permit, then ### Usually no permit (needs-permit first).
 ```

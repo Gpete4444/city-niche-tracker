@@ -113,6 +113,30 @@ export function autoFixContentDraft(files, opts = {}) {
       });
     }
 
+    if (/(^|\/)services\/.+\.md$/i.test(rel)) {
+      const introStrip = stripServiceIntroH2(body, outline);
+      if (introStrip.changed) {
+        body = introStrip.body;
+        changes.push({
+          file: rel,
+          rule: 'svcintro_h2',
+          kind: 'speech',
+          detail: `Stripped intro H2 “${introStrip.heading}” (unmarked intro)`,
+        });
+      }
+    }
+
+    const permitSwap = swapReversedPermitColumns(body);
+    if (permitSwap.changed) {
+      body = permitSwap.body;
+      changes.push({
+        file: rel,
+        rule: 'permit_columns',
+        kind: 'speech',
+        detail: 'Swapped permit columns so “Usually needs a permit” comes first',
+      });
+    }
+
     if (/(^|\/)pages\/index\.md$/i.test(rel)) {
       const faqStrip = stripOffNicheHomepageFaqs(body, {
         niche: config.niche,
@@ -691,6 +715,87 @@ function splitFrontmatter(src) {
     fm: t.slice(3, end).replace(/^\r?\n/, '').replace(/\r?\n$/, ''),
     body: t.slice(end + 4).replace(/^\r?\n/, ''),
   };
+}
+
+function joinFrontmatter(fm, body) {
+  if (fm == null) return body;
+  return `---\n${fm}\n---\n${String(body).replace(/^\n+/, '')}`;
+}
+
+function introHeadingFromOutline(outline) {
+  const s = (outline?.sections || []).find((x) => x.id === 'svcIntro');
+  return String(s?.heading || '').trim();
+}
+
+/** True when a service-page first ## is the unmarked intro, not a real section. */
+function isServiceIntroH2(heading, outlineHeading) {
+  const t = String(heading || '')
+    .replace(/\*+/g, '')
+    .trim();
+  if (!t) return false;
+  const n = t.toLowerCase();
+  if (/\bintro\b/.test(n)) return true;
+  if (/^professional\s+.+\s+in\s+.+/i.test(t)) return true;
+  if (outlineHeading && n === outlineHeading.toLowerCase()) return true;
+  return false;
+}
+
+/**
+ * Strip the first ## on services/*.md when it matches the intro heading pattern.
+ * Real sections (What’s included, process, cost, …) are left alone.
+ */
+function stripServiceIntroH2(src, outline) {
+  const { fm, body } = splitFrontmatter(src);
+  const first = /^##[ \t]+(.+?)[ \t]*\r?$/m.exec(body);
+  if (!first) return { body: src, changed: false, heading: '' };
+  const heading = first[1].trim();
+  if (!isServiceIntroH2(heading, introHeadingFromOutline(outline))) {
+    return { body: src, changed: false, heading };
+  }
+  const nextBody = (body.slice(0, first.index) + body.slice(first.index + first[0].length)).replace(
+    /^\r?\n/,
+    '',
+  );
+  return { body: joinFrontmatter(fm, nextBody), changed: true, heading };
+}
+
+const PERMIT_NEED_RE = /^###[ \t]+Usually needs a permit[ \t]*\r?$/im;
+const PERMIT_NO_RE = /^###[ \t]+Usually no permit[ \t]*\r?$/im;
+
+function extractH3Block(body, startIdx) {
+  const from = body.slice(startIdx);
+  const header = from.match(/^###[^\n]*(?:\r?\n|$)/);
+  if (!header) return null;
+  const after = from.slice(header[0].length);
+  const next = after.search(/^#{2,3}[ \t]+/m);
+  const endRel = next < 0 ? after.length : next;
+  const end = startIdx + header[0].length + endRel;
+  return { start: startIdx, end, text: body.slice(startIdx, end) };
+}
+
+/**
+ * Swap ### Usually no permit / ### Usually needs a permit when no-permit comes first.
+ * Correct order (needs-permit first) is left alone.
+ */
+function swapReversedPermitColumns(src) {
+  const { fm, body } = splitFrontmatter(src);
+  const needIdx = body.search(PERMIT_NEED_RE);
+  const noIdx = body.search(PERMIT_NO_RE);
+  if (needIdx < 0 || noIdx < 0 || noIdx > needIdx) {
+    return { body: src, changed: false };
+  }
+  const noBlock = extractH3Block(body, noIdx);
+  const needBlock = extractH3Block(body, needIdx);
+  if (!noBlock || !needBlock || noBlock.end > needBlock.start) {
+    return { body: src, changed: false };
+  }
+  const nextBody =
+    body.slice(0, noBlock.start) +
+    needBlock.text +
+    body.slice(noBlock.end, needBlock.start) +
+    noBlock.text +
+    body.slice(needBlock.end);
+  return { body: joinFrontmatter(fm, nextBody), changed: true };
 }
 
 /**

@@ -105,6 +105,14 @@ function namesRoughlyEqual(a, b) {
   return Boolean(norm(a) && norm(a) === norm(b));
 }
 
+/** svcIntro (and any section with level none/body) is unmarked prose, not an H2. */
+function isUnmarkedBodyIntro(s) {
+  if (!s) return false;
+  if (s.id === 'svcIntro') return true;
+  const level = String(s.level || '').toLowerCase();
+  return level === 'none' || level === 'body' || level === 'unmarked';
+}
+
 function headingForSection(def, vars) {
   let tpl = def.defaultHeading || def.label || def.id;
   // Avoid "Niche: Niche in City" when businessName matches niche
@@ -366,7 +374,7 @@ function composeSections(selection, registry, vars) {
 function outlineToBriefSections(outlineSections) {
   return outlineSections.map((s) => ({
     id: s.id,
-    level: s.level || 'H2',
+    level: isUnmarkedBodyIntro(s) ? 'none' : s.level || 'H2',
     heading: s.heading,
     instructions: s.instructions,
     kind: s.kind,
@@ -390,7 +398,11 @@ export function outlineToMarkdown(outline) {
   }
   lines.push('', '## Sections');
   for (const s of outline.sections || []) {
-    lines.push('', `### ${s.level || 'H2'}: ${s.heading || s.id}`);
+    if (isUnmarkedBodyIntro(s)) {
+      lines.push('', `### unmarked intro (no heading): ${s.heading || s.id}`);
+    } else {
+      lines.push('', `### ${s.level || 'H2'}: ${s.heading || s.id}`);
+    }
     lines.push(`- id: \`${s.id}\``);
     if (s.astroKey) lines.push(`- astroKey: \`${s.astroKey}\``);
     if (s.instructions) lines.push(`- instructions: ${s.instructions}`);
@@ -907,7 +919,7 @@ ${fileRules.markdown || '- Home: `### FILE: src/content/pages/index.md`\n- About
 ## Shared templates
 ${
   svcSections.length
-    ? `- **Service pages:** Apply the svc* outline sections (${svcSections.map((s) => s.id).join(', ')}) to EVERY service FILE. Substitute the real service name for \`{serviceName}\` in headings and body.`
+    ? `- **Service pages:** Apply the svc* outline sections (${svcSections.map((s) => s.id).join(', ')}) to EVERY service FILE. Substitute the real service name for \`{serviceName}\` in headings and body. **svcIntro is unmarked** — 2 paragraphs before the first \`##\`; do **not** emit \`##\` for svcIntro (outline heading is a content hint, not an H2).`
     : '- No service-page sections enabled.'
 }
 ${
@@ -919,7 +931,7 @@ ${
 ## Dual-source contract (home vs service)
 - **Homepage:** \`whyChooseUs[]\`, \`process[]\`, \`faqs[]\`, and \`gallery\` live in **frontmatter only**. Do NOT dump process steps, FAQ Q&As, or why-reasons into the homepage body.
 - **Homepage body:** intro (~2 paras) + \`##\` sections for enabled **educational** bands only (cost, materials, timeline, codes, diyVsPro, whenToCall).
-- **Service pages:** there are **no** \`process\` / \`faqs\` / \`whyChooseUs\` frontmatter arrays. After a short unmarked intro, every enabled service band is a body \`##\` (What's included, process, cost, materials, timeline, codes, DIY, whenToCall, FAQs, before/after, CTA).
+- **Service pages:** there are **no** \`process\` / \`faqs\` / \`whyChooseUs\` frontmatter arrays. After a short unmarked intro (no \`##\` for svcIntro), every **other** enabled service band is a body \`##\` (What's included, process, cost, materials, timeline, codes, DIY, whenToCall, FAQs, before/after, CTA).
 - Do **not** invent service-page \`process:\` or \`faqs:\` YAML arrays.
 
 ## Frontmatter expectations (homepage index.md)
@@ -951,8 +963,8 @@ heroImage:
 - \`processImages: [{ src, alt }]\` is Pull-owned when svcProcess photos are on — omit or preserve existing; do not invent image paths
 - **No** \`process:\` / \`faqs:\` / \`whyChooseUs:\` / \`gallery:\` frontmatter on service pages
 - Body:
-  1. Unmarked intro: max ~2 concise paragraphs (service-first; one natural city mention OK)
-  2. A \`##\` heading for **each enabled** service section (svcWhatsIncluded, svcProcess, svcCost, svcMaterials, svcTimeline, svcCodes, svcDiyVsPro, svcWhenToCall, svcFaqs, svcBeforeAfter, svcCta, etc.)
+  1. Unmarked intro: max ~2 concise paragraphs (service-first; one natural city mention OK). **Do not emit \`##\` for svcIntro.**
+  2. A \`##\` heading for **each enabled** service section **except svcIntro** (svcWhatsIncluded, svcProcess, svcCost, svcMaterials, svcTimeline, svcCodes, svcDiyVsPro, svcWhenToCall, svcFaqs, svcBeforeAfter, svcCta, etc.)
 - Process (when enabled): prefer **4, 6, or 8** steps; each step its own markdown list line \`- **Title** — short description\` (description ~8–14 words; timing cue OK). Never concatenate multiple steps into one paragraph. No body images — thumbs come from Pull \`processImages\` frontmatter (one per step, same compact cards as homepage)
 - What’s included / Scope (when enabled): **at least 3 real scope bullets specific to this serviceName** (methods, materials, verification — e.g. CIPP = candidacy camera + liner cure + post-CCTV; camera inspection = full pass + findings write-up). Do **not** use the same generic “labor/materials/cleanup” trio on every service. Optional add-ons and Customer prep may follow as extra bullets — never leave the section with only Optional / Customer prep lines
 - FAQs (when enabled): question line ending with \`?\`, then answer paragraph(s) before the next question
@@ -986,8 +998,8 @@ heroImage:
 - Do **not** add off-niche partner cross-sells or country/trivia digressions
 
 ## Rules
-1. Honor every enabled outline section for the matching page type; skip disabled ones.
-2. Use outline headings (you may lightly polish wording; replace placeholders).
+1. Honor every enabled outline section for the matching page type; skip disabled ones. svcIntro / level none = unmarked body, not an H2.
+2. Use outline headings (you may lightly polish wording; replace placeholders). Exception: do **not** emit svcIntro’s outline heading as \`##\`.
 3. Never invent image \`src\` paths. Omit image frontmatter until Pull / BA import / operator upload supplies files. Preserve existing Pull-owned image fields when present. Do **not** emit body \`![](...)\` placeholders.
 4. For cost/timeline headings with \`{serviceName}\`, prefer “What does **a** {serviceName} cost…” / “How long does **a** {serviceName} take…” (article “a” + singular-ish name).
 5. Use site-config socialProof for reviews/licenses/ratings — do not invent testimonials, license ID numbers, or founding years not in site-config.
@@ -1121,7 +1133,7 @@ ${pathLines}
 ## Shared templates
 ${
   svcNeeded && svcSections.length
-    ? `- **Service pages:** Apply the svc* outline sections (${svcSections.map((s) => s.id).join(', ')}) to EVERY service FILE in this list. Substitute the real service name for \`{serviceName}\`.`
+    ? `- **Service pages:** Apply the svc* outline sections (${svcSections.map((s) => s.id).join(', ')}) to EVERY service FILE in this list. Substitute the real service name for \`{serviceName}\`. **svcIntro is unmarked** (no \`##\`); other svc* bands are body \`##\`.`
     : svcNeeded
       ? '- **Service pages:** Use service frontmatter + body ## bands from the outline when present.'
       : '- No service FILEs in this continue job.'
@@ -1135,13 +1147,14 @@ ${
 }
 
 ## Dual-source contract (when writing service pages)
-- Service pages: **no** \`process\` / \`faqs\` / \`whyChooseUs\` frontmatter arrays. Short unmarked intro, then every enabled service band as body \`##\`.
+- Service pages: **no** \`process\` / \`faqs\` / \`whyChooseUs\` frontmatter arrays. Short unmarked intro (**no \`##\` for svcIntro**), then every **other** enabled service band as body \`##\`.
 - Do **not** invent service-page \`process:\` or \`faqs:\` YAML.
 
 ## Frontmatter / body expectations (services/*.md when listed)
 - title, description, h1, serviceName; \`description\` = ONE meta-length sentence (~140–160 chars)
 - Omit inventing image paths; preserve existing Pull-owned fields if you somehow see them (you will not — write full new FILEs)
-- Body: intro + ## for each enabled svc* section; Materials compact media rows (1–2 sentences per option bullet when enabled)
+- Body: unmarked intro (no svcIntro H2) + \`##\` for each other enabled svc* section; Materials compact media rows (1–2 sentences per option bullet when enabled)
+- Codes (when enabled): \`### Usually needs a permit\` then \`### Usually no permit\`
 
 ## Frontmatter / body expectations (locations/*.md when listed)
 - Filename slug = city kebab only; title, description, h1, city, state

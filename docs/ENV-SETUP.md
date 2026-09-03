@@ -2,7 +2,7 @@
 
 This guide walks you through every key Rover needs in your local `.env` file. You do not need to be a developer — follow the numbered clicks, paste values into `.env`, then check the gear in Rover.
 
-For the product walkthrough (what to click in Discovery → Launch), see [USER-FLOW.md](USER-FLOW.md). New operators: start from the [GitHub access gateway](GITHUB-ACCESS-GATEWAY.md) if you do not have repo access yet.
+For the product walkthrough (what to click in Discovery → Launch), see [USER-GUIDE.md](USER-GUIDE.md). Time estimates: [USER-FLOW.md](USER-FLOW.md). New operators: start from the [GitHub access gateway](GITHUB-ACCESS-GATEWAY.md) if you do not have repo access yet.
 
 Sections match **Settings → API/Other** (same order as the green ✓ / red ✕ list).
 
@@ -106,9 +106,14 @@ Claude drafts site narrative, outreach, and other copy in Rover (draft → Accep
 
 ```env
 ANTHROPIC_API_KEY=
+# ANTHROPIC_WORKSPACE_ID=wrkspc_…
+# ANTHROPIC_MODEL=claude-sonnet-5
+# ANTHROPIC_EFFORT=medium
 ```
 
-(Optional later: `ANTHROPIC_MODEL=…` — leave unset unless you know you need an override.)
+Default model is Claude Sonnet 5 at medium effort. Leave `ANTHROPIC_MODEL` / `ANTHROPIC_EFFORT` unset unless you need an override.
+
+Identity-linked keys (personal or service-account) that are not scoped to one workspace need `ANTHROPIC_WORKSPACE_ID`. Copy the `wrkspc_…` id from Console **Settings → Workspaces**. Workspace-scoped keys do not need this. Restart Rover after changing `.env`.
 
 ### Steps
 
@@ -118,16 +123,22 @@ ANTHROPIC_API_KEY=
 4. Click **Create Key** (or **Create API key**).
 5. Copy the key once (starts with `sk-ant-`). Store it somewhere safe; you may not see it again.
 6. Paste into `.env`, save, restart Rover.
+7. If Suggest domains / Narrative / Write site returns “workspace-id is required”, add `ANTHROPIC_WORKSPACE_ID=wrkspc_…` from **Settings → Workspaces** and restart Rover.
 
 ### Links
 
 - [Anthropic Console](https://console.anthropic.com/)
 - [API keys](https://console.anthropic.com/settings/keys)
+- [Workspaces](https://console.anthropic.com/settings/workspaces)
+- [Authentication (workspace header)](https://platform.claude.com/docs/en/manage-claude/authentication)
 
 ### Where to paste
 
 ```env
 ANTHROPIC_API_KEY=sk-ant-api03-…
+# ANTHROPIC_WORKSPACE_ID=wrkspc_…
+# ANTHROPIC_MODEL=claude-sonnet-5
+# ANTHROPIC_EFFORT=medium
 ```
 
 ### How Settings shows ✓
