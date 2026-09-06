@@ -161,7 +161,9 @@ function pump() {
         job.result = result ?? null;
         job.status = 'done';
         job.finishedAt = new Date().toISOString();
-        // Keep last detail (e.g. Building…) so Recent rows stay informative.
+        setTimeout(() => {
+          if (jobs.get(job.id) === job) job.result = null;
+        }, 60_000).unref?.();
       })
       .catch((err) => {
         job.status = 'error';

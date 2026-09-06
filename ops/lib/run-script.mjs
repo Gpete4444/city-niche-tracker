@@ -11,6 +11,9 @@ import {
 
 const ROOT = process.cwd();
 const jobs = new Map();
+const SCRIPT_JOB_KEEP = 20;
+const SCRIPT_LOG_CHARS = 80_000;
+const SCRIPT_LOG_LINES = 200;
 
 const SCRIPT_LIGHT_LABEL = {
   research: 'SERP / Volume',
@@ -125,10 +128,27 @@ export function assertScriptJobStartAllowed(candidateId, label) {
 function appendLog(job, chunk, stream) {
   const text = chunk.toString();
   job.logs.push({ t: Date.now(), stream, text });
-  if (job.logs.length > 2000) job.logs.splice(0, job.logs.length - 2000);
+  if (job.logs.length > SCRIPT_LOG_LINES) job.logs.splice(0, job.logs.length - SCRIPT_LOG_LINES);
   job.logText += text;
-  if (job.logText.length > 500_000) {
-    job.logText = job.logText.slice(-400_000);
+  if (job.logText.length > SCRIPT_LOG_CHARS) {
+    job.logText = job.logText.slice(-Math.floor(SCRIPT_LOG_CHARS * 0.75));
+  }
+}
+
+function trimFinishedScriptJob(job) {
+  if (!job) return;
+  job.logs = [];
+  if (job.logText && job.logText.length > SCRIPT_LOG_CHARS) {
+    job.logText = job.logText.slice(-Math.floor(SCRIPT_LOG_CHARS * 0.75));
+  }
+}
+
+function pruneScriptJobs() {
+  const finished = [...jobs.values()]
+    .filter((j) => j.status && j.status !== 'running')
+    .sort((a, b) => String(b.finishedAt || '').localeCompare(String(a.finishedAt || '')));
+  for (const job of finished.slice(SCRIPT_JOB_KEEP)) {
+    jobs.delete(job.id);
   }
 }
 
@@ -268,6 +288,8 @@ export function startJob({
     job.finishedAt = new Date().toISOString();
     appendLog(job, `${error.message}\n`, 'stderr');
     closeScriptLightJob(job);
+    trimFinishedScriptJob(job);
+    pruneScriptJobs();
   });
 
   child.on('close', async (code) => {
@@ -278,6 +300,8 @@ export function startJob({
       job.status = 'error';
       job.error = lastJobErrorLine(job, code);
       closeScriptLightJob(job);
+      trimFinishedScriptJob(job);
+      pruneScriptJobs();
       return;
     }
     try {
@@ -299,6 +323,8 @@ export function startJob({
       appendLog(job, `onSuccess: ${error.message}\n`, 'stderr');
     }
     closeScriptLightJob(job);
+    trimFinishedScriptJob(job);
+    pruneScriptJobs();
   });
 
   return job;
@@ -401,6 +427,8 @@ export function runNarrativeJob(candidateId) {
       job.finishedAt = new Date().toISOString();
       appendLog(job, `${error.message}\n`, 'stderr');
     }
+    trimFinishedScriptJob(job);
+    pruneScriptJobs();
   })();
 
   return job;

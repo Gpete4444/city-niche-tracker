@@ -2,7 +2,7 @@
  * Anthropic API Write site job: field research → brief → outline → batched write →
  * polish → image queries. Same artifacts as Copy/Load. Resume skips durable phases.
  */
-import { getCandidateDetail, loadMeta, saveMeta } from './candidates.mjs';
+import { getCandidateDetail, getCandidateShell, loadMeta, saveMeta } from './candidates.mjs';
 import { claudeMessages } from './claude.mjs';
 import {
   buildBatchedFullWritePrompt,
@@ -433,7 +433,7 @@ export async function runWriteSiteJob(candidateId, { jobId, signal } = {}) {
   tick('Done', total);
   return {
     ok: true,
-    candidate: getCandidateDetail(candidateId),
+    candidate: getCandidateShell(candidateId),
     spentUsd: loadMeta(candidateId)?.lastCosts?.writeSite ?? null,
   };
 }

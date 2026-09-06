@@ -19,7 +19,7 @@ import {
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { getCandidateDetail, pathsFor, saveMeta } from './candidates.mjs';
+import { getCandidateDetail, getCandidateShell, pathsFor, saveMeta } from './candidates.mjs';
 import { loadAcceptedSiteConfig, sanitizeMarkdownImageFrontmatter, healStagedMarkdown } from './content-markdown.mjs';
 import {
   ensureRoverSocialProofSeed,
@@ -1108,7 +1108,7 @@ export function assembleSite(
     syncedContent: synced,
     nodeModulesRestored,
     checklist: getAssembleChecklist(candidateId),
-    candidate: getCandidateDetail(candidateId),
+    candidate: getCandidateShell(candidateId),
     nextSteps: [
       `cd "${siteRoot}"`,
       'npm install && npm run build',

@@ -21,6 +21,7 @@ import { lookupPopulation } from './census.mjs';
 import { recordRoverApiSpend } from './rover-api-spend.mjs';
 import { logoPromptDefaultsForConfig } from './logo-prompt.mjs';
 import { normalizeCityStateCluster } from './city-state.mjs';
+import { loadTwilioProvisionIndex } from './site-phone-index.mjs';
 
 const ROOT = process.cwd();
 export const RESEARCH_DIR = path.join(ROOT, 'research');
@@ -84,9 +85,52 @@ function readJson(filePath, fallback = null) {
   }
 }
 
+const LIST_CACHE_TTL_MS = 10_000;
+let listCacheAt = 0;
+/** @type {object[] | null} */
+let listCacheRows = null;
+
+/** List rows keep a slim meta — not logoVariants / coverage maps / job blobs. */
+const LIST_META_KEYS = [
+  'decision',
+  'decisionNotes',
+  'archivedAt',
+  'updatedAt',
+  'source',
+  'lastCosts',
+  'lastLaunchAt',
+  'lastShipAt',
+  'lastLaunchAttemptAt',
+  'cloudflarePagesDone',
+  'dnsDone',
+  'emailRoutingDone',
+  'formsDone',
+  'lastServiceAreaAt',
+  'phoneSkippedAt',
+  'lastPhoneAt',
+  'indexingDone',
+  'lastAssembleAt',
+  'lastSiteStagingAt',
+];
+
+export function invalidateCandidateListCache() {
+  listCacheAt = 0;
+  listCacheRows = null;
+}
+
+function slimListMeta(meta) {
+  const src = meta && typeof meta === 'object' ? meta : {};
+  const out = {};
+  for (const k of LIST_META_KEYS) {
+    if (src[k] !== undefined) out[k] = src[k];
+  }
+  return out;
+}
+
 function writeJson(filePath, data) {
   ensureResearchDir();
   writeFileSync(filePath, `${JSON.stringify(data, null, 2)}\n`, 'utf8');
+  invalidateCandidateListCache();
 }
 
 export function defaultMeta(partial = {}) {
@@ -123,6 +167,20 @@ export function saveMeta(id, patch = {}) {
   return next;
 }
 
+/** Stamp lastPhoneAt / hasSitePhone from skip, persist, or portfolio Twilio (in-memory). */
+function attachPhoneDone(meta, stageFlags, id, index) {
+  const skipped = Boolean(meta?.phoneSkippedAt);
+  const stamped = Boolean(meta?.lastPhoneAt);
+  const fromIndex = index instanceof Map ? index.get(id) : null;
+  const hasSitePhone = Boolean(skipped || stamped || fromIndex);
+  const nextMeta = { ...(meta || {}) };
+  if (!stamped && fromIndex) nextMeta.lastPhoneAt = fromIndex;
+  return {
+    meta: nextMeta,
+    stageFlags: { ...(stageFlags || {}), hasSitePhone },
+  };
+}
+
 /** Drop launch/ship bookkeeping so a test (or mis-pointed) candidate is Website again. Keeps content and staging. */
 export function clearLaunchedBookkeeping(id, extra = {}) {
   return saveMeta(id, {
@@ -153,10 +211,12 @@ export function addLastCost(id, key, deltaUsd) {
   return saveMeta(id, { lastCosts: { [name]: next } });
 }
 
-export function deriveStage(id) {
+export function deriveStage(id, researchOverride = undefined) {
   const p = pathsFor(id);
-  const hasResearch = existsSync(p.research);
-  const research = hasResearch ? readJson(p.research) : null;
+  const hasResearch =
+    researchOverride !== undefined ? Boolean(researchOverride) : existsSync(p.research);
+  const research =
+    researchOverride !== undefined ? researchOverride : hasResearch ? readJson(p.research) : null;
   const hasEnrichment = Boolean(research?.enrichment);
   const hasNarrative = existsSync(p.narrative);
   const hasDraft = existsSync(p.narrativeDraft);
@@ -457,7 +517,7 @@ function prunePhantomSidecarMetas() {
   }
 }
 
-export function listCandidates() {
+function buildCandidateListRows() {
   ensureResearchDir();
   prunePhantomSidecarMetas();
   const files = readdirSync(RESEARCH_DIR);
@@ -470,6 +530,8 @@ export function listCandidates() {
     cleaned.add(id);
   }
 
+  const phoneIndex = loadTwilioProvisionIndex();
+
   return [...cleaned]
     .filter((id) => candidateHasCoreFiles(id))
     .sort()
@@ -481,7 +543,7 @@ export function listCandidates() {
       const prospects = readJson(p.prospects);
       const narrative = readJson(p.narrative);
       const discoverySeed = readJson(p.discoverySeed);
-      const stageInfo = deriveStage(id);
+      const stageInfo = deriveStage(id, research);
       let summary = summarizeResearch(research) || {
         niche: config?.niche ?? meta.niche ?? null,
         primaryCity: config?.primary?.split(',')[0]?.trim() ?? null,
@@ -551,23 +613,24 @@ export function listCandidates() {
         formatJobCostRange(narrative?.averageJobCostUsd) ||
         formatJobCostRange(research?.averageJobCostUsd) ||
         null;
+      const attached = attachPhoneDone(meta, stageInfo, id, phoneIndex);
       const row = {
         id,
         ...summary,
         ...prospectSummary,
         population: population != null ? Number(population) : null,
         jobCostText,
-        decisionNotes: meta.decisionNotes ?? null,
-        stage: stageInfo.stage,
-        stageFlags: stageInfo,
-        decision: meta.decision ?? summary.decision ?? null,
-        archived: Boolean(meta.archivedAt),
-        archivedAt: meta.archivedAt ?? null,
-        source: meta.source ?? null,
-        lastCosts: meta.lastCosts ?? null,
-        researchCostUsd: meta.lastCosts?.research ?? summary.estimatedApiCostUsd ?? null,
-        meta,
-        updatedAt: meta.updatedAt,
+        decisionNotes: attached.meta.decisionNotes ?? null,
+        stage: attached.stageFlags.stage,
+        stageFlags: attached.stageFlags,
+        decision: attached.meta.decision ?? summary.decision ?? null,
+        archived: Boolean(attached.meta.archivedAt),
+        archivedAt: attached.meta.archivedAt ?? null,
+        source: attached.meta.source ?? null,
+        lastCosts: attached.meta.lastCosts ?? null,
+        researchCostUsd: attached.meta.lastCosts?.research ?? summary.estimatedApiCostUsd ?? null,
+        meta: slimListMeta(attached.meta),
+        updatedAt: attached.meta.updatedAt,
       };
       const rec = recommendCandidate(row);
       return {
@@ -576,6 +639,17 @@ export function listCandidates() {
         recommended_reason: rec.recommended_reason,
       };
     });
+}
+
+export function listCandidates({ force = false } = {}) {
+  const now = Date.now();
+  if (!force && listCacheRows && now - listCacheAt < LIST_CACHE_TTL_MS) {
+    return listCacheRows;
+  }
+  const rows = buildCandidateListRows();
+  listCacheRows = rows;
+  listCacheAt = now;
+  return rows;
 }
 
 /**
@@ -624,7 +698,59 @@ function photoGroupDisplayName(g) {
   return String(g.name || g.id || '');
 }
 
-export function getCandidateDetail(id) {
+/** Rank dropdowns only need this niche (plus any already-attached ids). Other niches stay on GET /api/photo-groups. */
+export function filterPhotoGroupsForCandidate(groups, { niche, attached } = {}) {
+  const list = Array.isArray(groups) ? groups : [];
+  const nicheKey = String(niche || '')
+    .trim()
+    .toLowerCase();
+  const attachedIds = new Set();
+  if (attached && !attached.skipped) {
+    for (const id of attached.groupIds || []) {
+      const v = String(id || '').trim();
+      if (v) attachedIds.add(v);
+    }
+    const one = String(attached.groupId || '').trim();
+    if (one) attachedIds.add(one);
+  }
+  return list.filter((g) => {
+    if (!g) return false;
+    if (attachedIds.has(String(g.id || ''))) return true;
+    if (!nicheKey) return false;
+    return (
+      String(g.niche || '')
+        .trim()
+        .toLowerCase() === nicheKey
+    );
+  });
+}
+
+export const CANDIDATE_DETAIL_SLICES = ['content', 'images', 'address', 'prospects'];
+
+function parseDetailIncludes(include) {
+  if (include === 'all' || include === true) return 'all';
+  if (include == null || include === 'shell' || include === false) return new Set();
+  const arr = Array.isArray(include)
+    ? include
+    : String(include)
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
+  if (arr.includes('all')) return 'all';
+  return new Set(arr.filter((s) => s && s !== 'shell'));
+}
+
+function wantSlice(include, slice) {
+  return include === 'all' || include.has(slice);
+}
+
+/**
+ * Full detail when called with no opts (pipeline / workers).
+ * HTTP uses `{ include: [] }` (shell) or `include=content,images,…`.
+ */
+export function getCandidateDetail(id, opts = undefined) {
+  const include =
+    opts == null || opts.include === undefined ? 'all' : parseDetailIncludes(opts.include);
   const p = pathsFor(id);
   if (
     !existsSync(p.research) &&
@@ -649,42 +775,63 @@ export function getCandidateDetail(id) {
   const approved = readJson(p.approved);
   const siteConfigDraft = readJson(p.siteConfigDraft);
   const siteConfigAccepted = readJson(p.siteConfig);
-  const contentDraft = readJson(p.contentDraft);
-  const contentAccepted = readJson(p.content);
-  const contentResearch = readJson(p.contentResearch);
-  const contentOutline = readJson(p.contentOutline);
   const contentBrief = readJson(p.contentBrief);
   const contentFieldResearch = readJson(p.contentFieldResearch);
-  const contentStructure = readJson(p.contentStructure);
   const contentOutlinePackage = readJson(p.contentOutlinePackage);
-  const buildPackage = readJson(p.buildPackage);
-  const imagesManifest = readJson(p.imagesManifest);
   const imagesPlan = readJson(p.imagesPlan);
   const photoGroupAttached = readJson(p.photoGroup);
   const photoGroupNiche = String(
     siteConfigAccepted?.niche || siteConfigDraft?.niche || config?.niche || '',
   ).trim();
-  const photoGroupsIndex = readJson(path.join(RESEARCH_DIR, '_photo-groups', 'index.json'));
-  const photoGroupsAll = photoGroupsIndex?.groups || [];
-  const photoGroups = photoGroupsAll.slice().sort((a, b) =>
-    photoGroupDisplayName(a).localeCompare(photoGroupDisplayName(b), undefined, {
-      sensitivity: 'base',
-    }),
-  );
-  const nicheKey = photoGroupNiche.toLowerCase();
-  const photoNicheMaster =
-    photoGroupsAll.find(
-      (g) =>
-        g.kind === 'master' &&
-        String(g.niche || '')
-          .trim()
-          .toLowerCase() === nicheKey,
-    ) || null;
-  const prospects = readJson(p.prospects);
-  const businessAddress = readJson(p.businessAddress);
-  const stageInfo = deriveStage(id);
 
-  return {
+  const loadContent = wantSlice(include, 'content');
+  const loadImages = wantSlice(include, 'images');
+  const loadAddress = wantSlice(include, 'address');
+  const loadProspects = wantSlice(include, 'prospects');
+
+  const contentDraft = loadContent ? readJson(p.contentDraft) : null;
+  const contentAccepted = loadContent ? readJson(p.content) : null;
+  const contentResearch = loadContent ? readJson(p.contentResearch) : null;
+  const contentOutline = loadContent ? readJson(p.contentOutline) : null;
+  const contentStructure = loadContent ? readJson(p.contentStructure) : null;
+  const buildPackage = loadContent ? readJson(p.buildPackage) : null;
+  const imagesManifest = loadImages ? readJson(p.imagesManifest) : null;
+
+  let photoGroupsAll = [];
+  let photoGroups = [];
+  let photoNicheMaster = null;
+  if (loadImages) {
+    const photoGroupsIndex = readJson(path.join(RESEARCH_DIR, '_photo-groups', 'index.json'));
+    photoGroupsAll = photoGroupsIndex?.groups || [];
+    photoGroups = filterPhotoGroupsForCandidate(photoGroupsAll, {
+      niche: photoGroupNiche,
+      attached: photoGroupAttached,
+    })
+      .slice()
+      .sort((a, b) =>
+        photoGroupDisplayName(a).localeCompare(photoGroupDisplayName(b), undefined, {
+          sensitivity: 'base',
+        }),
+      );
+    const nicheKey = photoGroupNiche.toLowerCase();
+    photoNicheMaster =
+      photoGroupsAll.find(
+        (g) =>
+          g.kind === 'master' &&
+          String(g.niche || '')
+            .trim()
+            .toLowerCase() === nicheKey,
+      ) || null;
+  }
+
+  const prospects = loadProspects ? readJson(p.prospects) : null;
+  const businessAddress = loadAddress ? readJson(p.businessAddress) : null;
+  const stageInfo = deriveStage(id, research);
+
+  const hasContentDraftFile = existsSync(p.contentDraft);
+  const hasContentFile = existsSync(p.content);
+
+  const detail = {
     id: p.id,
     paths: Object.fromEntries(
       Object.entries(p).map(([k, v]) => [k, path.relative(ROOT, v).replace(/\\/g, '/')]),
@@ -693,38 +840,43 @@ export function getCandidateDetail(id) {
     stageFlags: {
       ...stageInfo,
       hasApproved: Boolean(approved),
-      hasSiteConfigDraft: Boolean(siteConfigDraft),
-      hasSiteConfig: Boolean(siteConfigAccepted),
-      hasContentDraft: Boolean(contentDraft),
-      hasContent: Boolean(contentAccepted),
-      hasContentResearch: Boolean(contentResearch),
-      hasContentOutline: Boolean(contentOutline),
+      hasSiteConfigDraft: Boolean(siteConfigDraft) || existsSync(p.siteConfigDraft),
+      hasSiteConfig: Boolean(siteConfigAccepted) || existsSync(p.siteConfig),
+      hasContentDraft: loadContent ? Boolean(contentDraft) : hasContentDraftFile,
+      hasContent: loadContent ? Boolean(contentAccepted) : hasContentFile,
+      hasContentResearch: loadContent ? Boolean(contentResearch) : existsSync(p.contentResearch),
+      hasContentOutline: loadContent ? Boolean(contentOutline) : existsSync(p.contentOutline),
       hasContentBrief: Boolean(contentBrief),
       hasContentBriefConfirmed: Boolean(contentBrief?.status === 'confirmed'),
       hasContentFieldResearch: Boolean(contentFieldResearch?.status === 'loaded'),
       hasContentFinalCheck: Boolean(
-        contentDraft?._ops?.lastFinalCheckAt || contentAccepted?._ops?.lastFinalCheckAt,
+        contentDraft?._ops?.lastFinalCheckAt ||
+          contentAccepted?._ops?.lastFinalCheckAt ||
+          (!loadContent && hasContentFile),
       ),
       hasContentImagesPlan: Boolean(
         imagesPlan?.loadedAt ||
           contentDraft?._ops?.lastImagesPlanAt ||
           contentAccepted?._ops?.lastImagesPlanAt ||
           photoGroupAttached?.groupId ||
-          (photoNicheMaster?.id && !photoGroupAttached?.skipped),
+          (photoNicheMaster?.id && !photoGroupAttached?.skipped) ||
+          existsSync(p.imagesPlan),
       ),
-      hasContentStructure: Boolean(contentStructure),
+      hasContentStructure: loadContent ? Boolean(contentStructure) : existsSync(p.contentStructure),
       hasContentOutlinePackage: Boolean(contentOutlinePackage),
       hasContentOutlineConfirmed: Boolean(contentOutlinePackage?.status === 'confirmed'),
-      hasBuildPackage: Boolean(buildPackage),
-      hasImages: Boolean(imagesManifest?.files?.length),
+      hasBuildPackage: loadContent ? Boolean(buildPackage) : existsSync(p.buildPackage),
+      hasImages: loadImages
+        ? Boolean(imagesManifest?.files?.length)
+        : existsSync(p.imagesManifest),
       hasLogo:
         Boolean(siteConfigAccepted?.logo) ||
         existsSync(path.join(p.siteImages, 'logo.svg')) ||
         existsSync(path.join(p.siteImages, 'logo.png')),
       hasCoverageMap: existsSync(path.join(p.siteImages, 'coverage-map.svg')),
-      hasBusinessAddress: Boolean(
-        businessAddress?.selection || businessAddress?.skipped || businessAddress?.status,
-      ),
+      hasBusinessAddress: loadAddress
+        ? Boolean(businessAddress?.selection || businessAddress?.skipped || businessAddress?.status)
+        : existsSync(p.businessAddress),
     },
     meta,
     config,
@@ -735,30 +887,57 @@ export function getCandidateDetail(id) {
     approved,
     siteConfigDraft,
     siteConfig: siteConfigAccepted,
-    contentDraft,
-    content: contentAccepted,
-    contentResearch,
-    contentOutline,
-    contentBrief,
-    contentFieldResearch,
-    contentStructure,
-    contentOutlinePackage,
-    buildPackage,
-    imagesManifest,
-    imagesPlan,
-    photoGroupAttached,
-    photoGroupNiche,
-    photoNicheMaster,
-    photoGroups,
-    prospects,
-    businessAddress,
     logoPromptDefaults: logoPromptDefaultsForConfig(siteConfigAccepted || siteConfigDraft || {}),
     logoVariants: Array.isArray(meta.logoVariants) ? meta.logoVariants : [],
     coverageMapVariants: Array.isArray(meta.coverageMapVariants) ? meta.coverageMapVariants : [],
     summary: summarizeResearch(research),
     archived: Boolean(meta.archivedAt),
     archivedAt: meta.archivedAt ?? null,
+    photoGroupNiche,
+    _slices: {
+      shell: true,
+      content: loadContent,
+      images: loadImages,
+      address: loadAddress,
+      prospects: loadProspects,
+    },
   };
+
+  if (loadContent) {
+    detail.contentDraft = contentDraft;
+    detail.content = contentAccepted;
+    detail.contentResearch = contentResearch;
+    detail.contentOutline = contentOutline;
+    detail.contentBrief = contentBrief;
+    detail.contentFieldResearch = contentFieldResearch;
+    detail.contentStructure = contentStructure;
+    detail.contentOutlinePackage = contentOutlinePackage;
+    detail.buildPackage = buildPackage;
+  }
+  if (loadImages) {
+    detail.imagesManifest = imagesManifest;
+    detail.imagesPlan = imagesPlan;
+    detail.photoGroupAttached = photoGroupAttached;
+    detail.photoNicheMaster = photoNicheMaster;
+    detail.photoGroups = photoGroups;
+  }
+  if (loadProspects) detail.prospects = prospects;
+  if (loadAddress) detail.businessAddress = businessAddress;
+
+  const phoneIndex = loadTwilioProvisionIndex();
+  const attached = attachPhoneDone(detail.meta, detail.stageFlags, detail.id, phoneIndex);
+  if (!detail.meta.lastPhoneAt && !detail.meta.phoneSkippedAt && attached.meta.lastPhoneAt) {
+    detail.meta = saveMeta(detail.id, { lastPhoneAt: attached.meta.lastPhoneAt });
+    detail.stageFlags = { ...attached.stageFlags, hasSitePhone: true };
+  } else {
+    detail.meta = attached.meta;
+    detail.stageFlags = attached.stageFlags;
+  }
+  return detail;
+}
+
+export function getCandidateShell(id) {
+  return getCandidateDetail(id, { include: [] });
 }
 
 export function createCandidate({
@@ -1281,6 +1460,7 @@ function wipeCandidateFiles(id) {
       /* continue */
     }
   }
+  invalidateCandidateListCache();
   return deletedFiles;
 }
 

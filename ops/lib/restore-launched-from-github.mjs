@@ -14,7 +14,7 @@ import {
 } from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { getCandidateDetail, loadMeta, pathsFor, saveMeta } from './candidates.mjs';
+import { getCandidateDetail, getCandidateShell, loadMeta, pathsFor, saveMeta } from './candidates.mjs';
 import {
   composeContentOutline,
   confirmContentOutline,
@@ -640,6 +640,6 @@ export async function restoreLaunchedFromGithub(candidateId, opts = {}) {
     outlineStatus: outline?.status || null,
     pageIds: outline?.pageIds || selection.pages,
     warnings,
-    candidate: getCandidateDetail(id),
+    candidate: getCandidateShell(id),
   };
 }

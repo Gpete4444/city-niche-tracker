@@ -18,8 +18,10 @@ import {
   unlinkSync,
   writeFileSync,
 } from 'node:fs';
+import { copyFile } from 'node:fs/promises';
 import path from 'node:path';
-import { RESEARCH_DIR, getCandidateDetail, pathsFor } from './candidates.mjs';
+import { yieldEventLoop } from './yield-event-loop.mjs';
+import { RESEARCH_DIR, getCandidateDetail, getCandidateShell, pathsFor } from './candidates.mjs';
 import {
   listConfiguredServiceTargets,
   rehydrateGalleryBaFrontmatter,
@@ -39,7 +41,7 @@ import {
   listImageSlots,
   promoteFirstTrayIntoEmptySlots,
   saveSlotIntoManifest,
-  syncSiteImagesToPublic,
+  syncSiteImagesToPublicAsync,
   pushImageSlotTrayEntry,
 } from './fill-site-images.mjs';
 import { baStatusPayload, useImageSlotVariant } from './openai-generate.mjs';
@@ -549,7 +551,7 @@ export function clearAttachedPhotoGroup(candidateId) {
       // ignore
     }
   }
-  return { ok: true, candidate: getCandidateDetail(candidateId) };
+  return { ok: true, candidate: getCandidateShell(candidateId) };
 }
 
 function loadManifest(candidateId) {
@@ -1010,7 +1012,7 @@ export function savePhotoGroup(candidateId, name, { replaceExisting = false } = 
   return {
     ok: true,
     group: meta,
-    candidate: getCandidateDetail(candidateId),
+    candidate: getCandidateShell(candidateId),
   };
 }
 
@@ -1376,6 +1378,36 @@ function copyGroupFile(groupDir, filename, destDir, destName, { unique = false }
   return toName;
 }
 
+const COPY_YIELD_EVERY = 8;
+
+async function copyGroupFileAsync(
+  groupDir,
+  filename,
+  destDir,
+  destName,
+  { unique = false, yieldCounter = null } = {},
+) {
+  const from = path.join(groupDir, filename);
+  if (!existsSync(from)) return null;
+  mkdirSync(destDir, { recursive: true });
+  let toName = destName || filename;
+  if (unique) {
+    const ext = path.extname(toName);
+    const stem = path.basename(toName, ext);
+    let n = 0;
+    while (existsSync(path.join(destDir, toName))) {
+      n += 1;
+      toName = `${stem}-${n}${ext}`;
+    }
+  }
+  await copyFile(from, path.join(destDir, toName));
+  if (yieldCounter) {
+    yieldCounter.n += 1;
+    if (yieldCounter.n % COPY_YIELD_EVERY === 0) await yieldEventLoop();
+  }
+  return toName;
+}
+
 function liveSlotEntry(target, saved, destName, { fromTray = false } = {}) {
   return {
     key: target.key,
@@ -1434,11 +1466,12 @@ function stubSlotEntry(target) {
   };
 }
 
-export function applyPhotoGroups(candidateId, groupIds) {
+export async function applyPhotoGroups(candidateId, groupIds) {
   const groups = loadGroupsOrThrow(groupIds);
   const plan = planMatchesMulti(candidateId, groups);
   const p = pathsFor(candidateId);
   mkdirSync(p.siteImages, { recursive: true });
+  const yieldCounter = { n: 0 };
 
   const manifest = loadManifest(candidateId);
   const slots = {};
@@ -1454,12 +1487,12 @@ export function applyPhotoGroups(candidateId, groupIds) {
   for (const f of keepOtherFiles) filesMap.set(f.filename, f);
 
   for (const { saved, target, group, fromTray, rank } of plan.applied) {
-    const destName = copyGroupFile(
+    const destName = await copyGroupFileAsync(
       group.dir,
       saved.filename,
       p.siteImages,
       fromTray ? `pg${rank || 1}-${path.basename(String(saved.filename))}` : saved.filename,
-      fromTray ? { unique: true } : {},
+      fromTray ? { unique: true, yieldCounter } : { yieldCounter },
     );
     if (!destName) continue;
     const entry = liveSlotEntry(target, saved, destName, { fromTray: Boolean(fromTray) });
@@ -1499,12 +1532,12 @@ export function applyPhotoGroups(candidateId, groupIds) {
     ) {
       continue;
     }
-    const destName = copyGroupFile(
+    const destName = await copyGroupFileAsync(
       group.dir,
       saved.filename,
       p.siteImages,
       `pg${rank}-${path.basename(String(saved.filename))}`,
-      { unique: true },
+      { unique: true, yieldCounter },
     );
     if (!destName) continue;
     live.variants = pushImageSlotTrayEntry(
@@ -1542,8 +1575,12 @@ export function applyPhotoGroups(candidateId, groupIds) {
       const n = row.pairIndex;
       const beforeName = `gallery-ba-${n}-before.${row.pair.before.ext || 'jpg'}`;
       const afterName = `gallery-ba-${n}-after.${row.pair.after.ext || 'jpg'}`;
-      copyGroupFile(row.group.dir, row.pair.before.filename, p.siteImages, beforeName);
-      copyGroupFile(row.group.dir, row.pair.after.filename, p.siteImages, afterName);
+      await copyGroupFileAsync(row.group.dir, row.pair.before.filename, p.siteImages, beforeName, {
+        yieldCounter,
+      });
+      await copyGroupFileAsync(row.group.dir, row.pair.after.filename, p.siteImages, afterName, {
+        yieldCounter,
+      });
       stampBaPairMeta(candidateId, baVariantKey({ pairIndex: n }), {
         source: 'photo-group',
         matchGrade: 'ok',
@@ -1561,8 +1598,12 @@ export function applyPhotoGroups(candidateId, groupIds) {
       }
       const beforeName = `svc-ba-${row.serviceSlug}-1-before.${row.pair.before.ext || 'jpg'}`;
       const afterName = `svc-ba-${row.serviceSlug}-1-after.${row.pair.after.ext || 'jpg'}`;
-      copyGroupFile(row.group.dir, row.pair.before.filename, p.siteImages, beforeName);
-      copyGroupFile(row.group.dir, row.pair.after.filename, p.siteImages, afterName);
+      await copyGroupFileAsync(row.group.dir, row.pair.before.filename, p.siteImages, beforeName, {
+        yieldCounter,
+      });
+      await copyGroupFileAsync(row.group.dir, row.pair.after.filename, p.siteImages, afterName, {
+        yieldCounter,
+      });
       stampBaPairMeta(candidateId, baVariantKey({ serviceSlug: row.serviceSlug }), {
         source: 'photo-group',
         matchGrade: 'ok',
@@ -1606,19 +1647,19 @@ export function applyPhotoGroups(candidateId, groupIds) {
     ) {
       continue;
     }
-    const beforeName = copyGroupFile(
+    const beforeName = await copyGroupFileAsync(
       row.group.dir,
       row.pair.before.filename,
       p.siteImages,
       `${prefix}-pg${row.rank}-before.${row.pair.before.ext || 'jpg'}`,
-      { unique: true },
+      { unique: true, yieldCounter },
     );
-    const afterName = copyGroupFile(
+    const afterName = await copyGroupFileAsync(
       row.group.dir,
       row.pair.after.filename,
       p.siteImages,
       `${prefix}-pg${row.rank}-after.${row.pair.after.ext || 'jpg'}`,
-      { unique: true },
+      { unique: true, yieldCounter },
     );
     noteBaTray(key, {
       beforeFilename: beforeName,
@@ -1671,7 +1712,7 @@ export function applyPhotoGroups(candidateId, groupIds) {
   const afterPromote = loadManifest(candidateId);
   persistAttachedPhotoGroups(candidateId, groups, { groups: plan.groups });
 
-  const synced = syncSiteImagesToPublic(candidateId);
+  const synced = await syncSiteImagesToPublicAsync(candidateId);
   const contentUpdate = applyImagesToContentFiles(
     candidateId,
     Object.values(afterPromote.slots || {}),
@@ -1701,7 +1742,7 @@ export function applyPhotoGroups(candidateId, groupIds) {
     manifest: afterPromote,
     group: { id: first.id, name: first.name, niche: first.niche },
     groups: plan.groups,
-    candidate: getCandidateDetail(candidateId),
+    candidate: getCandidateShell(candidateId),
     human: [
       `Photo groups ${names}: ${plan.applied.length} stock slots loaded` +
         (plan.baApplied.length ? `, ${plan.baApplied.length} before/after pairs` : '') +
@@ -1735,7 +1776,7 @@ export function attachPhotoGroup(candidateId, groupIdOrBody) {
     ok: true,
     attached,
     preview,
-    candidate: getCandidateDetail(candidateId),
+    candidate: getCandidateShell(candidateId),
   };
 }
 
@@ -1747,6 +1788,6 @@ export function skipPhotoGroup(candidateId) {
     ok: true,
     skipped: true,
     skippedAt,
-    candidate: getCandidateDetail(candidateId),
+    candidate: getCandidateShell(candidateId),
   };
 }

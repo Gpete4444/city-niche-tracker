@@ -12,7 +12,7 @@ import {
   renameSync,
 } from 'node:fs';
 import path from 'node:path';
-import { pathsFor, getCandidateDetail, saveMeta } from './candidates.mjs';
+import { pathsFor, getCandidateDetail, getCandidateShell, saveMeta } from './candidates.mjs';
 import { loadAcceptedSiteConfig } from './content-markdown.mjs';
 import { syncSiteImagesToPublic } from './fill-site-images.mjs';
 import {
@@ -1114,7 +1114,7 @@ function importServiceBeforeAfterPair(candidateId, body = {}) {
     files: newEntries,
     orderedByTime: true,
     patched,
-    candidate: getCandidateDetail(candidateId),
+    candidate: getCandidateShell(candidateId),
   };
 }
 
@@ -1251,7 +1251,7 @@ export function importBeforeAfterPair(candidateId, body = {}) {
     orderedByTime: true,
     deletedStock,
     patched,
-    candidate: getCandidateDetail(candidateId),
+    candidate: getCandidateShell(candidateId),
   };
 }
 
@@ -1346,7 +1346,7 @@ export function writeGeneratedBaPair(
       pairIndex: 1,
       files: newEntries,
       patched,
-      candidate: getCandidateDetail(candidateId),
+      candidate: getCandidateShell(candidateId),
     };
   }
 
@@ -1417,7 +1417,7 @@ export function writeGeneratedBaPair(
     pairIndex: idx,
     files: newEntries,
     patched,
-    candidate: getCandidateDetail(candidateId),
+    candidate: getCandidateShell(candidateId),
   };
 }
 

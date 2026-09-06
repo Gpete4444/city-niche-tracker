@@ -3,7 +3,7 @@
  */
 import { existsSync, mkdirSync, writeFileSync, readFileSync, copyFileSync, unlinkSync } from 'node:fs';
 import path from 'node:path';
-import { addLastCost, pathsFor, getCandidateDetail, saveMeta, loadMeta } from './candidates.mjs';
+import { addLastCost, pathsFor, getCandidateDetail, getCandidateShell, saveMeta, loadMeta } from './candidates.mjs';
 import { syncSiteImagesToPublic } from './fill-site-images.mjs';
 import {
   OPENAI_IMAGE_COST,
@@ -250,7 +250,7 @@ export async function generateSiteLogo(candidateId, { mode, prompt } = {}) {
     logo,
     mode: resolved,
     path: path.relative(ROOT, abs).replace(/\\/g, '/'),
-    candidate: getCandidateDetail(candidateId),
+    candidate: getCandidateShell(candidateId),
   };
 }
 
@@ -314,6 +314,6 @@ export function useLogoVariant(candidateId, filename) {
   return {
     ok: true,
     logo: { src: `/images/${liveDest}`, alt: `${businessName} logo` },
-    candidate: getCandidateDetail(candidateId),
+    candidate: getCandidateShell(candidateId),
   };
 }

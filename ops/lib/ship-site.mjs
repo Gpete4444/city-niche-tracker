@@ -6,7 +6,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import path from 'node:path';
-import { getCandidateDetail, saveMeta } from './candidates.mjs';
+import { getCandidateDetail, getCandidateShell, saveMeta } from './candidates.mjs';
 import {
   depsHashMarkerMatches,
   getAssembleChecklist,
@@ -444,7 +444,7 @@ export async function shipAssembledSite(candidateId, opts = {}) {
     steps,
     human,
     checklist: getAssembleChecklist(candidateId),
-    candidate: getCandidateDetail(candidateId),
+    candidate: getCandidateShell(candidateId),
     ghReady: ghAvailable() && ghAuthStatus(),
     githubOwner: resolveGithubOwner(),
   };

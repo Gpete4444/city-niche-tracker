@@ -6,39 +6,20 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { normalizePlaceName } from './census.mjs';
+import { loadPlacesLayer, placesGeojsonPath as sharedPlacesGeojsonPath } from './census-map-layers.mjs';
 
 const ROOT = process.cwd();
 const MAP_DIR = path.join(ROOT, 'data', 'census', 'map');
-const PLACES_PATH = path.join(MAP_DIR, 'places.geojson');
 const NEIGHBORS_PATH = path.join(MAP_DIR, 'place-neighbors.json');
 
 const EARTH_MI = 3958.7613;
 const TOUCH_EPS_DEG = 0.00035; // ~40m — shared-border / float gap
 
-/** @type {{ features: object[], byState: Map<string, object[]> } | null} */
-let placesCache = null;
 /** @type {Record<string, Array<{ name: string, state: string, population: number }>> | null} */
 let neighborsCache = null;
 
 function loadPlaces() {
-  if (placesCache) return placesCache;
-  if (!existsSync(PLACES_PATH)) {
-    const err = new Error('Map data missing. Run: npm run build-research-map');
-    err.status = 404;
-    err.code = 'map_data_missing';
-    throw err;
-  }
-  const raw = JSON.parse(readFileSync(PLACES_PATH, 'utf8'));
-  const features = Array.isArray(raw?.features) ? raw.features : [];
-  const byState = new Map();
-  for (const f of features) {
-    const st = String(f.properties?.state || '').toUpperCase();
-    if (!st) continue;
-    if (!byState.has(st)) byState.set(st, []);
-    byState.get(st).push(f);
-  }
-  placesCache = { features, byState };
-  return placesCache;
+  return loadPlacesLayer();
 }
 
 export function placeNeighborsPath() {
@@ -46,7 +27,7 @@ export function placeNeighborsPath() {
 }
 
 export function placesGeojsonPath() {
-  return PLACES_PATH;
+  return sharedPlacesGeojsonPath();
 }
 
 export function neighborKey(city, state) {
@@ -338,7 +319,7 @@ export function placesIntersectingRadius(primaryCity, state, radiusMiles, { minP
     throw err;
   }
   const [lng, lat] = center;
-  const miles = Math.max(1, Math.min(120, Number(radiusMiles) || 40));
+  const miles = Math.max(1, Math.min(100, Number(radiusMiles) || 15));
   const padLng = milesToDegLng(miles + 2, lat);
   const padLat = milesToDegLat(miles + 2);
   const bbox = [lng - padLng, lat - padLat, lng + padLng, lat + padLat];

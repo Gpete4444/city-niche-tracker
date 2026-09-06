@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 import {
   extractPromptTemplate,
   getCandidateDetail,
+  getCandidateShell,
   pathsFor,
   readPromptFile,
   RESEARCH_DIR,
@@ -220,7 +221,7 @@ export function saveContentFieldResearch(candidateId, raw, { operatorNotes = '' 
     _ops: { source: 'claude-field-research' },
   };
   writeJson(fieldResearchPath(candidateId), record);
-  return { ok: true, fieldResearch: record, candidate: getCandidateDetail(candidateId) };
+  return { ok: true, fieldResearch: record, candidate: getCandidateShell(candidateId) };
 }
 
 export async function buildSoftBriefPrompt(candidateId, { operatorNotes = '' } = {}) {
@@ -519,7 +520,7 @@ export function markWriteBatchComplete(candidateId, batch) {
   }
   draft._ops = { ...(draft._ops || {}), writeBatches: batches };
   writeJson(draftPath, draft);
-  return { ok: true, writeBatches: batches, candidate: getCandidateDetail(candidateId) };
+  return { ok: true, writeBatches: batches, candidate: getCandidateShell(candidateId) };
 }
 
 /** Infer completed write batches from files present on the draft. */
@@ -541,7 +542,7 @@ export function syncWriteBatchesFromDraft(candidateId) {
   }
   draft._ops = { ...(draft._ops || {}), writeBatches: batches };
   writeJson(draftPath, draft);
-  return { ok: true, writeBatches: batches, candidate: getCandidateDetail(candidateId) };
+  return { ok: true, writeBatches: batches, candidate: getCandidateShell(candidateId) };
 }
 
 export function getWriteBatchStatus(candidateId, detail = null) {
@@ -613,7 +614,7 @@ export function stampFinalCheck(candidateId, { ok = true, summary = '' } = {}) {
     lastFinalCheckSummary: String(summary || ''),
   };
   writeJson(draftPath, draft);
-  return { ok: true, candidate: getCandidateDetail(candidateId) };
+  return { ok: true, candidate: getCandidateShell(candidateId) };
 }
 
 function fewShotImageProfiles() {
@@ -845,6 +846,6 @@ export function saveImagesPlan(candidateId, raw, { merge = false } = {}) {
     slotCount: Object.keys(slots).length,
     baSlotCount: Object.keys(beforeAfter).length,
     profilePersist,
-    candidate: getCandidateDetail(candidateId),
+    candidate: getCandidateShell(candidateId),
   };
 }

@@ -7,6 +7,7 @@ import path from 'node:path';
 import { createHash } from 'node:crypto';
 import {
   getCandidateDetail,
+  getCandidateShell,
   pathsFor,
   saveMeta,
 } from './candidates.mjs';
@@ -116,7 +117,7 @@ export function buildBuildPackage(candidateId, { siteArchetype } = {}) {
     lastBuildPackageAt: new Date().toISOString(),
     siteArchetype: config.siteArchetype,
   });
-  return { package: pack, candidate: getCandidateDetail(candidateId) };
+  return { package: pack, candidate: getCandidateShell(candidateId) };
 }
 
 export function getBuildPackage(candidateId) {

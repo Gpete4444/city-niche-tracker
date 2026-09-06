@@ -17,7 +17,7 @@ Also provide:
 - Business name: {{BUSINESS_NAME}}
 - Phone (E.164): {{PHONE}}
 - Email: {{EMAIL}}
-- Service radius miles (optional): {{RADIUS_MILES}}
+- Service radius miles (optional, default 15): {{RADIUS_MILES}}
 - Street NAP (operator-approved — use exactly; never invent a different street or ZIP):
   - street: {{ADDRESS_STREET}}
   - city: {{ADDRESS_CITY}}
@@ -61,6 +61,7 @@ Rules:
 9. homepageServicesLimit: integer 1–12 — how many “What we do” cards on the homepage. Prefer **6 (3×2)** or **8 (4×2)** for ~2 scrolls; independent of services.length (e.g. 10 service pages, homepageServicesLimit 8).
 10. tagline = ONE sentence used as the homepage hero supporting line (under H1). Pattern: niche/primary offer + primaryCity + 2–3 concrete offer terms + free-estimate cue. Aim ~140–160 characters. Do NOT write soft/generic lines (“specialized … for surrounding communities”). Do NOT make it multiple sentences or a paragraph.
     Example: "Full kitchen and bathroom remodeling in Spanish Fork, UT — cabinetry, tile, walk-in showers. Free estimates."
+11. serviceRadiusMiles = the operator radius above, or **15** if they did not specify. Do not invent a wider default (not 40).
 
 JSON shape:
 {
@@ -72,7 +73,7 @@ JSON shape:
   "state": "XX",
   "targetSuburbs": ["string"],
   "coverageAreas": [{ "name": "string", "state": "XX" }],
-  "serviceRadiusMiles": 40,
+  "serviceRadiusMiles": 15,
   "phone": "+1XXXXXXXXXX",
   "email": "leads@example.com",
   "web3FormsAccessKey": "YOUR_WEB3FORMS_ACCESS_KEY",

@@ -7,6 +7,7 @@ import path from 'node:path';
 import {
   getApprovedPackage,
   getCandidateDetail,
+  getCandidateShell,
   pathsFor,
   saveMeta,
   RESEARCH_DIR,
@@ -1054,7 +1055,7 @@ export function selectBusinessAddress(candidateId, selection, { skipped = false 
     lastBusinessAddressAt: nowIso(),
     businessAddressStatus: next.status,
   });
-  return { package: next, candidate: getCandidateDetail(candidateId) };
+  return { package: next, candidate: getCandidateShell(candidateId) };
 }
 
 export function saveHomeBusinessAddress(candidateId, rawLine) {
@@ -2518,7 +2519,7 @@ export async function retierShortlistLocalities(candidateId) {
 
   return {
     package: next,
-    candidate: getCandidateDetail(candidateId),
+    candidate: getCandidateShell(candidateId),
     primaryCount,
     secondaryCount,
     droppedWrongStateCount: droppedWrongState.length,
@@ -3648,7 +3649,7 @@ export async function searchBusinessAddresses(candidateId, opts = {}) {
 
   return {
     package: next,
-    candidate: getCandidateDetail(candidateId),
+    candidate: getCandidateShell(candidateId),
     apifyPlanUsage,
     recover: listRecoverableAddresses(candidateId),
     sources: readiness,

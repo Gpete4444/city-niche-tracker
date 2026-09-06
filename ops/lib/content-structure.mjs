@@ -6,6 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   getCandidateDetail,
+  getCandidateShell,
   pathsFor,
   RESEARCH_DIR,
   saveMeta,
@@ -332,7 +333,7 @@ export function saveContentStructure(candidateId, selection = {}) {
   };
   writeJson(structurePath(candidateId), doc);
   saveMeta(candidateId, { lastContentStructureAt: doc.updatedAt });
-  return { structure: doc, candidate: getCandidateDetail(candidateId) };
+  return { structure: doc, candidate: getCandidateShell(candidateId) };
 }
 
 function composeSections(selection, registry, vars) {
@@ -617,7 +618,7 @@ export function composeContentOutline(candidateId, selectionPatch = null) {
     brief: readJson(pathsFor(candidateId).contentBrief),
     markdown: outlineToMarkdown(outline),
     warnings,
-    candidate: getCandidateDetail(candidateId),
+    candidate: getCandidateShell(candidateId),
   };
 }
 
@@ -763,7 +764,7 @@ export function pasteContentOutlinePackage(candidateId, raw) {
     outline: next,
     brief: readJson(pathsFor(candidateId).contentBrief),
     markdown: outlineToMarkdown(next),
-    candidate: getCandidateDetail(candidateId),
+    candidate: getCandidateShell(candidateId),
   };
 }
 
@@ -830,7 +831,7 @@ export async function confirmContentOutline(candidateId) {
     outline: confirmed,
     brief: readJson(briefPath),
     markdown: outlineToMarkdown(confirmed),
-    candidate: getCandidateDetail(candidateId),
+    candidate: getCandidateShell(candidateId),
   };
 }
 

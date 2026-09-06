@@ -2,6 +2,7 @@
  * Light-job registry for Accept / logo / coverage map / pull photos / SERP.
  * No K queue. Write site allows up to the Settings Write site Concurrent Limit
  * (same candidate still exclusive via assertWriteSiteStartAllowed).
+ * Accept is exclusive per candidate (assertAcceptStartAllowed).
  */
 
 import { randomUUID } from 'node:crypto';
@@ -170,6 +171,9 @@ export function finishLightJob(jobId, { error, result } = {}) {
     job.status = 'done';
     job.result = result ?? null;
     if (job.progressTotal != null) job.progressDone = job.progressTotal;
+    setTimeout(() => {
+      if (jobs.get(job.id) === job) job.result = null;
+    }, 60_000).unref?.();
   }
   job.finishedAt = new Date().toISOString();
   pruneFinished();
@@ -279,6 +283,20 @@ export function assertWriteSiteStartAllowed(candidateId) {
         limit,
       },
     );
+  }
+}
+
+/** Same candidate cannot run two Accept jobs. Other candidates may Accept in parallel. */
+export function assertAcceptStartAllowed(candidateId) {
+  const cid = String(candidateId || '').trim();
+  const same = findActiveLightJob('accept', cid);
+  if (same) {
+    throw Object.assign(new Error('Accept is already running for this candidate'), {
+      status: 409,
+      code: 'ACCEPT_RUNNING',
+      jobId: same.id,
+      candidateId: cid,
+    });
   }
 }
 

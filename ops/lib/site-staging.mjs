@@ -12,7 +12,7 @@ import {
 } from 'node:fs';
 import path from 'node:path';
 import { Worker } from 'node:worker_threads';
-import { getCandidateDetail, pathsFor, saveMeta } from './candidates.mjs';
+import { getCandidateDetail, getCandidateShell, pathsFor, saveMeta } from './candidates.mjs';
 import { loadAcceptedSiteConfig, sanitizeMarkdownImageFrontmatter, healStagedMarkdown, ensureLocationFilesInMap, pruneLocationFilesToConfigured, pruneFilesToStructure } from './content-markdown.mjs';
 import { buildBuildPackage } from './build-package.mjs';
 import { runTemplateContract } from './template-contract.mjs';
@@ -309,7 +309,7 @@ export function stageSiteContent(candidateId, { mode = 'full', refreshPackage = 
     contract,
     imageSync,
     galleryBa,
-    candidate: getCandidateDetail(candidateId),
+    candidate: getCandidateShell(candidateId),
   };
 }
 

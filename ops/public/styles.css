@@ -2396,7 +2396,8 @@ span.btn.open-claude-ai[aria-disabled='true'] {
 .candidates-stage-toolbar .action-group.stage-1,
 .candidates-stage-toolbar .action-group.stage-2,
 .candidates-stage-toolbar .action-group.stage-narr,
-.candidates-stage-toolbar .action-group.stage-4 {
+.candidates-stage-toolbar .action-group.stage-4,
+.candidates-stage-toolbar .action-group.stage-all {
   background: transparent;
 }
 .candidates-table-wrap {
@@ -2841,6 +2842,8 @@ table.table-cols-resized #candidate-table .col-batch .cell-text {
 .action-group.stage-narr .action-group-head { color: var(--stage-narr); }
 .action-group.stage-4 { border-left-color: var(--stage3); background: var(--stage3-bg); }
 .action-group.stage-4 .action-group-head { color: var(--stage3); }
+.action-group.stage-all { border-left-color: var(--accent, #0f766e); background: color-mix(in srgb, var(--accent, #0f766e) 8%, var(--bg-subtle, var(--panel))); }
+.action-group.stage-all .action-group-head { color: var(--accent, #0f766e); }
 
 .candidates-stage-toolbar .action-group.current {
   border-color: color-mix(in srgb, var(--accent) 70%, var(--line));
@@ -3436,56 +3439,37 @@ table.table-cols-resized #candidate-table .col-batch .cell-text {
   color: var(--ink);
   font-weight: 600;
 }
-.ops-toast {
-  position: fixed;
-  z-index: 5000;
-  left: 50%;
-  bottom: 1.25rem;
-  transform: translateX(-50%);
-  max-width: min(32rem, calc(100vw - 2rem));
-  padding: 0.65rem 1rem;
-  border-radius: 6px;
-  border: 1px solid var(--line);
-  background: var(--panel);
-  color: var(--ink);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
-  font-size: 0.9rem;
-  line-height: 1.35;
-}
-.ops-toast.hidden {
-  display: none !important;
-}
-.ops-toast.tone-ok {
-  border-left: 3px solid var(--ok, #2a7a4b);
-}
-.ops-toast.tone-warn {
-  border-left: 3px solid var(--warn);
-}
-.ops-toast.tone-err {
-  border-left: 3px solid var(--danger);
-}
-
-/* Top-center step-complete banner (async loading bars) */
+/* Top-center status banner (jobs + leftover status) */
 .ops-complete-banner {
   position: fixed;
   z-index: 5100;
   top: 0.85rem;
   left: 50%;
-  max-width: min(28rem, calc(100vw - 2rem));
-  padding: 0.7rem 1.15rem;
-  border-radius: 6px;
+  max-width: min(36rem, calc(100vw - 2rem));
+  padding: 0.95rem 1.55rem;
+  border-radius: 8px;
   border: 1px solid var(--line);
-  border-left: 3px solid var(--ok, #2a7a4b);
+  border-left: 5px solid var(--ok, #2a7a4b);
   background: var(--panel);
   color: var(--ink);
-  font-size: 0.95rem;
-  font-weight: 600;
-  line-height: 1.35;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.18);
+  font-size: 1.15rem;
+  font-weight: 650;
+  line-height: 1.4;
   text-align: center;
   pointer-events: none;
   transform: translate(-50%, -120%);
   opacity: 0;
   transition: transform 0.28s ease, opacity 0.28s ease;
+}
+.ops-complete-banner.tone-ok {
+  border-left-color: var(--ok, #2a7a4b);
+}
+.ops-complete-banner.tone-warn {
+  border-left-color: var(--warn);
+}
+.ops-complete-banner.tone-err {
+  border-left-color: var(--danger);
 }
 .ops-complete-banner.is-visible {
   transform: translate(-50%, 0);
@@ -3506,7 +3490,7 @@ table.table-cols-resized #candidate-table .col-batch .cell-text {
 /* Single floating tooltip (JS-positioned; not clipped by table overflow) */
 .ops-tooltip {
   position: fixed;
-  z-index: 6000; /* above VE (4000) and modal/toast (5000) */
+  z-index: 6000; /* above VE (4000) and banner/modal (5100) */
   width: max-content;
   max-width: min(24rem, 70vw);
   padding: 0.45rem 0.55rem;
@@ -3922,6 +3906,10 @@ table.table-cols-resized #candidate-table .col-batch .cell-text {
 }
 .candidates-stage-toolbar .stage-rail-sep {
   margin: 0 0.85rem;
+}
+.stage-rail-sep-wide,
+.candidates-stage-toolbar .stage-rail-sep-wide {
+  margin: 0 1.25rem;
 }
 .tab {
   border: none;
@@ -6460,6 +6448,27 @@ h4.ca-image-slot-section-title {
 }
 .sa-page-toggle.is-on { color: #1d4ed8; }
 .sa-page-toggle:disabled { opacity: 0.75; cursor: default; }
+.sa-page-toggle.is-busy {
+  position: relative;
+  color: transparent;
+  pointer-events: none;
+}
+.sa-page-toggle.is-busy::after {
+  content: '';
+  position: absolute;
+  inset: 50% auto auto 50%;
+  width: 0.85rem;
+  height: 0.85rem;
+  margin: -0.42rem 0 0 -0.42rem;
+  border: 2px solid var(--line);
+  border-top-color: #1d4ed8;
+  border-radius: 50%;
+  animation: ve-spin 0.8s linear infinite;
+}
+.sa-map-canvas.is-busy,
+.sa-map-canvas.is-busy.leaflet-container {
+  cursor: wait;
+}
 .sa-list-btn {
   width: 100%;
   display: flex;

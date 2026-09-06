@@ -18,6 +18,7 @@ import {
   ensureConfigFromResearch,
   pathsFor,
   getCandidateDetail,
+  deriveStage,
   RESEARCH_DIR,
 } from './candidates.mjs';
 import { assertEvalPrerequisite } from './candidate-protection.mjs';
@@ -32,6 +33,30 @@ const STARTERS = {
   prospects: runProspectsPrepared,
   narrative: runNarrativePrepared,
 };
+
+export const EVAL_ALL_ACT = 'evaluate-all';
+export const EVAL_ALL_STEPS = ['research', 'enrich', 'narrative', 'prospects'];
+
+export function missingEvalAllSteps(candidateId) {
+  const f = deriveStage(candidateId);
+  const missing = [];
+  if (!f.hasResearch) missing.push('research');
+  if (!f.hasEnrichment) missing.push('enrich');
+  if (!f.hasNarrative) missing.push('narrative');
+  if (!f.hasProspects) missing.push('prospects');
+  return missing;
+}
+
+export function nextEvalAllStep(candidateId) {
+  return missingEvalAllSteps(candidateId)[0] || null;
+}
+
+function addCost(a, b) {
+  const x = Number(a);
+  const y = Number(b);
+  const sum = (Number.isFinite(x) ? x : 0) + (Number.isFinite(y) ? y : 0);
+  return sum > 0 ? Number(sum.toFixed(6)) : null;
+}
 
 function runResearchPrepared(candidateId, opts = {}) {
   ensureConfigFromResearch(candidateId);
@@ -82,6 +107,7 @@ function persistBatch(batch) {
         status: c.status,
         error: c.error,
         costUsd: c.costUsd,
+        step: c.step || null,
       })),
     };
     writeFileSync(path.join(JOBS_DIR, `${batch.id}.json`), `${JSON.stringify(slim, null, 2)}\n`, 'utf8');
@@ -109,7 +135,113 @@ export function getBatchJob(batchJobId) {
   return batch;
 }
 
+function refreshEvalAllBatch(batch) {
+  for (const child of batch.children) {
+    if (child.status !== 'running' || !child.jobId) continue;
+    const job = getJob(child.jobId);
+    if (!job) continue;
+    if (job.status === 'error') {
+      child.status = 'error';
+      child.error = job.error;
+      child.costUsd = addCost(child.costUsd, job.costUsd);
+    }
+  }
+  batch.done = batch.children.filter((c) => c.status === 'ok').length;
+  batch.failed = batch.children.filter((c) => c.status === 'error').length;
+  batch.running = batch.children.filter((c) => c.status === 'running').length;
+  batch.pending = batch.children.filter((c) => c.status === 'queued').length;
+  if (batch.status === 'running' && batch.pending === 0 && batch.running === 0) {
+    batch.status = batch.failed && !batch.done ? 'error' : batch.failed ? 'partial' : 'ok';
+    batch.finishedAt = new Date().toISOString();
+  }
+  persistBatch(batch);
+  return batch;
+}
+
+function advanceEvalAllChild(batch, child, job) {
+  child.costUsd = addCost(child.costUsd, job?.costUsd);
+  const lastStep = child.step;
+  child.jobId = null;
+  if (job?.status === 'error') {
+    child.status = 'error';
+    child.error = job.error || child.error || `${lastStep || 'step'} failed`;
+    return;
+  }
+  const next = nextEvalAllStep(child.candidateId);
+  if (next && next === lastStep) {
+    child.status = 'error';
+    child.error =
+      lastStep === 'narrative'
+        ? 'Narrative draft needs review — Accept before Prospects'
+        : `${lastStep} finished but the stage is still incomplete`;
+    return;
+  }
+  if (!next) {
+    child.status = 'ok';
+    child.step = null;
+    return;
+  }
+  child.status = 'queued';
+  child.step = null;
+}
+
+function pumpEvalAll(batch) {
+  refreshEvalAllBatch(batch);
+  if (batch.status !== 'running') return;
+
+  for (const child of batch.children.filter((c) => c.status === 'queued')) {
+    if (nextEvalAllStep(child.candidateId)) continue;
+    child.status = 'ok';
+    child.step = null;
+    child.jobId = null;
+  }
+  refreshEvalAllBatch(batch);
+  if (batch.status !== 'running') return;
+
+  const running = batch.children.filter((c) => c.status === 'running').length;
+  const slots = Math.max(0, batch.concurrency - running);
+  const queued = batch.children.filter((c) => c.status === 'queued');
+  for (let i = 0; i < slots && i < queued.length; i += 1) {
+    const child = queued[i];
+    try {
+      const step = nextEvalAllStep(child.candidateId);
+      if (!step) {
+        child.status = 'ok';
+        child.step = null;
+        child.jobId = null;
+        continue;
+      }
+      const start = STARTERS[step];
+      if (!start) {
+        child.status = 'error';
+        child.error = `Unknown step: ${step}`;
+        continue;
+      }
+      const job = start(child.candidateId, {
+        adsMode: 'live',
+        forceSerp: false,
+        volumesOnly: false,
+      });
+      child.step = step;
+      child.jobId = job.id;
+      child.status = 'running';
+      const watch = setInterval(() => {
+        const j = getJob(child.jobId);
+        if (!j || j.status === 'running') return;
+        clearInterval(watch);
+        advanceEvalAllChild(batch, child, j);
+        pumpEvalAll(batch);
+      }, 400);
+    } catch (error) {
+      child.status = 'error';
+      child.error = error.message;
+    }
+  }
+  refreshEvalAllBatch(batch);
+}
+
 function refreshBatchJob(batch) {
+  if (batch.act === EVAL_ALL_ACT) return refreshEvalAllBatch(batch);
   let done = 0;
   let failed = 0;
   let running = 0;
@@ -146,6 +278,10 @@ function refreshBatchJob(batch) {
 }
 
 function pump(batch) {
+  if (batch.act === EVAL_ALL_ACT) {
+    pumpEvalAll(batch);
+    return;
+  }
   refreshBatchJob(batch);
   if (batch.status !== 'running') return;
   const start = STARTERS[batch.act];
@@ -187,7 +323,7 @@ function pump(batch) {
 
 /**
  * @param {{
- *   act: 'research'|'enrich'|'prospects'|'narrative',
+ *   act: 'research'|'enrich'|'prospects'|'narrative'|'evaluate-all',
  *   candidateIds: string[],
  *   adsMode?: 'live'|'standard',
  *   forceSerp?: boolean,
@@ -209,7 +345,9 @@ export function startBatchJobs({
     err.status = 400;
     throw err;
   }
-  if (!STARTERS[act]) {
+  const evalAll = act === EVAL_ALL_ACT || act === 'evaluateAll';
+  const resolvedAct = evalAll ? EVAL_ALL_ACT : act;
+  if (!evalAll && !STARTERS[resolvedAct]) {
     const err = new Error(`Unsupported batch act: ${act}`);
     err.status = 400;
     throw err;
@@ -228,17 +366,21 @@ export function startBatchJobs({
       },
     );
   }
-  const mode = String(adsMode || 'live').toLowerCase() === 'standard' ? 'standard' : 'live';
-  const volOnly = Boolean(volumesOnly);
-  const force = Boolean(forceSerp) && !volOnly;
+  const mode = evalAll
+    ? 'live'
+    : String(adsMode || 'live').toLowerCase() === 'standard'
+      ? 'standard'
+      : 'live';
+  const volOnly = evalAll ? false : Boolean(volumesOnly);
+  const force = evalAll ? false : Boolean(forceSerp) && !volOnly;
 
   const batchJobId = randomUUID();
   const batch = {
     id: batchJobId,
-    act,
-    adsMode: act === 'research' ? mode : undefined,
-    forceSerp: act === 'research' ? force : undefined,
-    volumesOnly: act === 'research' ? volOnly : undefined,
+    act: resolvedAct,
+    adsMode: evalAll || resolvedAct === 'research' ? mode : undefined,
+    forceSerp: evalAll || resolvedAct === 'research' ? force : undefined,
+    volumesOnly: evalAll || resolvedAct === 'research' ? volOnly : undefined,
     status: 'running',
     concurrency: conc,
     startedAt: new Date().toISOString(),
@@ -250,6 +392,7 @@ export function startBatchJobs({
       status: 'queued',
       error: null,
       costUsd: null,
+      step: null,
     })),
     done: 0,
     failed: 0,

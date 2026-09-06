@@ -2,33 +2,12 @@
  * Research map GeoJSON serving (operator Map tab).
  */
 
-import { existsSync, readFileSync, statSync } from 'node:fs';
-import path from 'node:path';
+import { existsSync } from 'node:fs';
 import { normalizePlaceName } from './census.mjs';
-
-const ROOT = process.cwd();
-const MAP_DIR = path.join(ROOT, 'data', 'census', 'map');
-
-/** @type {Map<string, { features: object[], loadedAt: number, bytes: number }>} */
-const cache = new Map();
-
-function layerPath(layer) {
-  const key = layer === 'counties' ? 'counties' : 'places';
-  return path.join(MAP_DIR, `${key}.geojson`);
-}
+import { layerGeojsonPath, loadMapLayer } from './census-map-layers.mjs';
 
 function loadLayer(layer) {
-  const key = layer === 'counties' ? 'counties' : 'places';
-  const file = layerPath(key);
-  if (!existsSync(file)) return null;
-  const st = statSync(file);
-  const prev = cache.get(key);
-  if (prev && prev.bytes === st.size) return prev;
-  const raw = JSON.parse(readFileSync(file, 'utf8'));
-  const features = Array.isArray(raw?.features) ? raw.features : [];
-  const entry = { features, loadedAt: Date.now(), bytes: st.size };
-  cache.set(key, entry);
-  return entry;
+  return loadMapLayer(layer);
 }
 
 /**
@@ -96,8 +75,8 @@ export function getMapGeojson(opts = {}) {
 }
 
 export function getMapStatus() {
-  const placesFile = layerPath('places');
-  const countiesFile = layerPath('counties');
+  const placesFile = layerGeojsonPath('places');
+  const countiesFile = layerGeojsonPath('counties');
   const placesOk = existsSync(placesFile);
   const countiesOk = existsSync(countiesFile);
   let placesCount = 0;

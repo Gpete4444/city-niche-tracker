@@ -1,8 +1,9 @@
 /**
  * Preview assembled sibling sites (astro preview on dist).
  *
- * Port pool (default base 4322, 6 slots): each siteRoot can keep its own preview
+ * Port pool (default base 4322, 2 slots): each siteRoot can keep its own preview
  * without killing others. When the pool is full, the oldest other binding is evicted.
+ * Idle bindings are stopped after ASSEMBLED_PREVIEW_IDLE_MS (default 15 min).
  */
 
 import { spawn, execFileSync } from 'node:child_process';
@@ -18,7 +19,11 @@ const PORT_BASE = Math.max(
 );
 const PORT_SLOTS = Math.max(
   1,
-  Math.min(8, Number(process.env.ASSEMBLED_PREVIEW_SLOTS || 6) || 6),
+  Math.min(8, Number(process.env.ASSEMBLED_PREVIEW_SLOTS || 2) || 2),
+);
+const IDLE_MS = Math.max(
+  60_000,
+  Number(process.env.ASSEMBLED_PREVIEW_IDLE_MS || 15 * 60 * 1000) || 15 * 60 * 1000,
 );
 
 /**
@@ -27,6 +32,20 @@ const PORT_SLOTS = Math.max(
 
 /** @type {Map<string, PreviewSlot>} siteRoot key → slot */
 const bindings = new Map();
+let idleTimer = null;
+
+function ensureIdleEvict() {
+  if (idleTimer) return;
+  idleTimer = setInterval(() => {
+    const now = Date.now();
+    for (const slot of [...bindings.values()]) {
+      if (now - (slot.touchedAt || 0) > IDLE_MS) {
+        stopAssembledPreview(slot.siteRoot).catch(() => {});
+      }
+    }
+  }, 60_000);
+  idleTimer.unref?.();
+}
 
 function normRoot(siteRoot) {
   return path.resolve(siteRoot).replace(/\\/g, '/').toLowerCase();
@@ -445,6 +464,7 @@ export async function ensureAssembledPreview(
   siteRoot,
   { rebuild = false, forceRebind = false, timeoutMs = 120000 } = {},
 ) {
+  ensureIdleEvict();
   const abs = path.resolve(siteRoot);
   const key = normRoot(abs);
 

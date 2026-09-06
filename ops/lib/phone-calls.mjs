@@ -3,7 +3,7 @@
  * Storage: research/phone-calls.jsonl (one JSON object per line).
  */
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
-import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import twilio from 'twilio';
 import { RESEARCH_DIR } from './candidates.mjs';
@@ -33,6 +33,48 @@ function requireOpenAiKey() {
 function ensureCallsFile() {
   mkdirSync(RESEARCH_DIR, { recursive: true });
   if (!existsSync(CALLS_FILE)) writeFileSync(CALLS_FILE, '', 'utf8');
+}
+
+let callsCache = { mtimeMs: 0, size: -1, rows: null };
+
+function invalidateCallsCache() {
+  callsCache = { mtimeMs: 0, size: -1, rows: null };
+}
+
+function readAllCalls() {
+  ensureCallsFile();
+  const st = statSync(CALLS_FILE);
+  if (
+    callsCache.rows &&
+    callsCache.mtimeMs === st.mtimeMs &&
+    callsCache.size === st.size
+  ) {
+    return callsCache.rows;
+  }
+  const text = readFileSync(CALLS_FILE, 'utf8');
+  if (!text.trim()) {
+    callsCache = { mtimeMs: st.mtimeMs, size: st.size, rows: [] };
+    return callsCache.rows;
+  }
+  const rows = [];
+  for (const line of text.split('\n')) {
+    const s = line.trim();
+    if (!s) continue;
+    try {
+      rows.push(JSON.parse(s));
+    } catch {
+      /* skip bad line */
+    }
+  }
+  callsCache = { mtimeMs: st.mtimeMs, size: st.size, rows };
+  return rows;
+}
+
+function rewriteAllCalls(rows) {
+  ensureCallsFile();
+  const body = rows.map((r) => JSON.stringify(r)).join('\n');
+  writeFileSync(CALLS_FILE, body ? `${body}\n` : '', 'utf8');
+  invalidateCallsCache();
 }
 
 function twilioClient() {
@@ -73,29 +115,6 @@ export function signPhoneRelayPayload(bodyObj) {
   if (!secret) return '';
   const raw = JSON.stringify(bodyObj);
   return createHmac('sha256', secret).update(raw).digest('hex');
-}
-
-function readAllCalls() {
-  ensureCallsFile();
-  const text = readFileSync(CALLS_FILE, 'utf8');
-  if (!text.trim()) return [];
-  const rows = [];
-  for (const line of text.split('\n')) {
-    const s = line.trim();
-    if (!s) continue;
-    try {
-      rows.push(JSON.parse(s));
-    } catch {
-      /* skip bad line */
-    }
-  }
-  return rows;
-}
-
-function rewriteAllCalls(rows) {
-  ensureCallsFile();
-  const body = rows.map((r) => JSON.stringify(r)).join('\n');
-  writeFileSync(CALLS_FILE, body ? `${body}\n` : '', 'utf8');
 }
 
 function upsertCall( partial ) {
@@ -388,7 +407,7 @@ function twilioRecordingMp3Url(recordingSid, recordingUrl = '') {
   return `https://api.twilio.com/2010-04-01/Accounts/${sid}/Recordings/${recSid}.mp3`;
 }
 
-async function downloadRecordingMp3({ recordingSid = '', recordingUrl = '' } = {}) {
+async function fetchRecordingResponse({ recordingSid = '', recordingUrl = '' } = {}) {
   const sid = env('TWILIO_ACCOUNT_SID');
   const token = env('TWILIO_AUTH_TOKEN');
   if (!sid || !token) {
@@ -405,6 +424,11 @@ async function downloadRecordingMp3({ recordingSid = '', recordingUrl = '' } = {
   if (!response.ok) {
     throw new Error(`Twilio recording download failed (${response.status})`);
   }
+  return response;
+}
+
+async function downloadRecordingMp3({ recordingSid = '', recordingUrl = '' } = {}) {
+  const response = await fetchRecordingResponse({ recordingSid, recordingUrl });
   const buf = Buffer.from(await response.arrayBuffer());
   if (!buf.length) {
     throw new Error('Twilio recording was empty');
@@ -543,11 +567,16 @@ export async function getRecordingStream(callSidOrId) {
     throw Object.assign(new Error('No recording'), { status: 404 });
   }
   try {
-    const buf = await downloadRecordingMp3({
+    const response = await fetchRecordingResponse({
       recordingSid: row.recordingSid,
       recordingUrl: row.recordingUrl,
     });
-    return { buf, contentType: 'audio/mpeg', row };
+    return {
+      webStream: response.body,
+      contentType: 'audio/mpeg',
+      contentLength: response.headers.get('content-length'),
+      row,
+    };
   } catch (error) {
     const status = /failed \(\d+\)/.test(error.message || '') ? 502 : error.status || 500;
     throw Object.assign(new Error(error.message || 'Twilio recording fetch failed'), { status });

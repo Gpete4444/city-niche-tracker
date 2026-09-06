@@ -11,9 +11,12 @@ import {
   unlinkSync,
   writeFileSync,
 } from 'node:fs';
+import { copyFile } from 'node:fs/promises';
 import path from 'node:path';
+import { yieldEventLoop } from './yield-event-loop.mjs';
 import {
   getCandidateDetail,
+  getCandidateShell,
   pathsFor,
   saveMeta,
 } from './candidates.mjs';
@@ -1692,6 +1695,8 @@ function persistIncrementalManifest(candidateId, { entry, usedIds, sourceCounts,
   });
 }
 
+const COPY_YIELD_EVERY = 8;
+
 function copyDirFiles(fromDir, toDir) {
   if (!existsSync(fromDir)) return 0;
   mkdirSync(toDir, { recursive: true });
@@ -1710,6 +1715,25 @@ function copyDirFiles(fromDir, toDir) {
   return n;
 }
 
+async function copyDirFilesAsync(fromDir, toDir) {
+  if (!existsSync(fromDir)) return 0;
+  mkdirSync(toDir, { recursive: true });
+  let n = 0;
+  for (const name of readdirSync(fromDir)) {
+    if (name.startsWith('.')) continue;
+    const from = path.join(fromDir, name);
+    const to = path.join(toDir, name);
+    try {
+      await copyFile(from, to);
+      n += 1;
+      if (n % COPY_YIELD_EVERY === 0) await yieldEventLoop();
+    } catch {
+      // skip
+    }
+  }
+  return n;
+}
+
 /** Copy durable site-images into template public/images and optional staging. */
 export function syncSiteImagesToPublic(candidateId) {
   const p = pathsFor(candidateId);
@@ -1719,6 +1743,22 @@ export function syncSiteImagesToPublic(candidateId) {
   };
   if (existsSync(p.siteStaging)) {
     copied.staging = copyDirFiles(p.siteImages, path.join(p.siteStaging, 'public', 'images'));
+  }
+  return copied;
+}
+
+/** Same as syncSiteImagesToPublic, but yields so other Rover tabs keep responding. */
+export async function syncSiteImagesToPublicAsync(candidateId) {
+  const p = pathsFor(candidateId);
+  const copied = {
+    template: await copyDirFilesAsync(p.siteImages, path.join(ROOT, 'public', 'images')),
+    staging: 0,
+  };
+  if (existsSync(p.siteStaging)) {
+    copied.staging = await copyDirFilesAsync(
+      p.siteImages,
+      path.join(p.siteStaging, 'public', 'images'),
+    );
   }
   return copied;
 }
@@ -2349,7 +2389,7 @@ export async function fillSiteImages(candidateId, { replace = false, onProgress 
   };
   writeJson(p.imagesManifest, nextManifest);
 
-  const synced = syncSiteImagesToPublic(candidateId);
+  const synced = await syncSiteImagesToPublicAsync(candidateId);
   const contentUpdate = applyImagesToContentFiles(candidateId, okFiles);
 
   const filled = okFiles.filter((s) => !s.skipped).length;
@@ -2414,7 +2454,7 @@ export async function fillSiteImages(candidateId, { replace = false, onProgress 
     manifest: nextManifest,
     human,
     nicheProfileSaved,
-    candidate: getCandidateDetail(candidateId),
+    candidate: getCandidateShell(candidateId),
   };
   } catch (error) {
     emitPullProgress(candidateId, {
@@ -3029,7 +3069,7 @@ export async function repullImageSlot(candidateId, slotKey) {
         ? `Re-pulled ${slot.key} via ${providerUsed} (best available, Poor — review/replace).`
         : `Re-pulled ${slot.key} via ${providerUsed} (score ${relevanceScore}).`,
     ],
-    candidate: getCandidateDetail(candidateId),
+    candidate: getCandidateShell(candidateId),
   };
 }
 
@@ -3147,7 +3187,7 @@ export function uploadImageSlot(candidateId, slotKey, body = {}) {
     contentUpdate,
     manifest: nextManifest,
     human: [`Uploaded ${filename} for ${slot.key}.`],
-    candidate: getCandidateDetail(candidateId),
+    candidate: getCandidateShell(candidateId),
   };
 }
 

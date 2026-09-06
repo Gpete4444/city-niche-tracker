@@ -7,6 +7,7 @@ import {
 } from '../ops/lib/rover-concurrency.mjs';
 import { startBatchJobs } from '../ops/lib/batch-jobs.mjs';
 import {
+  assertAcceptStartAllowed,
   assertWriteSiteStartAllowed,
   countActiveLightJobs,
   openLightJob,
@@ -89,6 +90,15 @@ try {
   });
   assertEqual(countActiveLightJobs('write-site'), 2, 'write site at 2');
   assertThrows(() => assertWriteSiteStartAllowed('ws-c'), 'WRITE_SITE_CAP', 'write site extra start');
+  resetLightJobsForTests();
+
+  openLightJob({
+    candidateId: 'accept-a',
+    phase: 'accept',
+    label: 'Accept',
+  });
+  assertAcceptStartAllowed('accept-b');
+  assertThrows(() => assertAcceptStartAllowed('accept-a'), 'ACCEPT_RUNNING', 'accept same candidate');
   resetLightJobsForTests();
 
   resetHeavyJobsForTests();

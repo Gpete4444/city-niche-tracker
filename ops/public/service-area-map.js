@@ -60,6 +60,11 @@ function normalizePlaceName(name) {
 /** Prefer ≤6 location pages total (primary + suburbs). Hard suburb fill max still 8 elsewhere. */
 const PREFER_MAX_PAGES = 6;
 const PREFER_MAX_SUBURBS = PREFER_MAX_PAGES - 1;
+const SLIDER_MIN = 5;
+const SLIDER_MAX = 100;
+const DEFAULT_RADIUS = 15;
+/** Labels/boundaries load this far from the candidate — not the whole state. */
+const LABEL_LOAD_RADIUS = 100;
 
 /** Flat 2D document glyph — easier to see than emoji on map labels. */
 const PAGE_ICON =
@@ -193,7 +198,7 @@ async function mountGeoSelectMap(opts) {
     esc,
     primaryCity: initialPrimary = '',
     state,
-    radiusMiles: initialRadius = 40,
+    radiusMiles: initialRadius = 15,
     minPop: initialMinPop,
     maxPop: initialMaxPop,
     initialSelected = [],
@@ -240,7 +245,10 @@ async function mountGeoSelectMap(opts) {
     });
   }
 
-  let radius = Math.max(5, Math.min(60, Number(initialRadius) || 40));
+  let radius = Math.max(
+    SLIDER_MIN,
+    Math.min(SLIDER_MAX, Number(initialRadius) || DEFAULT_RADIUS),
+  );
   /** @type {Set<string>} */
   let inRadiusKeys = new Set();
   /** @type {Map<string, number>} */
@@ -305,7 +313,7 @@ async function mountGeoSelectMap(opts) {
       <div class="sa-radius-label">
         <label class="sa-radius-field">
           Radius <strong id="${uid}-radius-val">${esc(String(radius))}</strong> mi
-          <input id="${uid}-radius" type="range" min="5" max="60" step="1" value="${esc(String(radius))}" />
+          <input id="${uid}-radius" type="range" min="${SLIDER_MIN}" max="${SLIDER_MAX}" step="1" value="${esc(String(radius))}" />
         </label>
         ${popFields}
       </div>
@@ -461,9 +469,16 @@ async function mountGeoSelectMap(opts) {
       }
       pageKeySet.add(key);
     }
-    renderList();
-    refreshLabels();
-    setStatus(statusLine());
+    const btn = listEl?.querySelector(`.sa-page-toggle[data-page-key="${CSS.escape(key)}"]`);
+    if (btn) {
+      btn.classList.add('is-busy');
+      btn.setAttribute('aria-busy', 'true');
+    }
+    requestAnimationFrame(() => {
+      refreshLabelForKey(key);
+      renderList();
+      setStatus(statusLine());
+    });
   }
 
   /** Service area: primary always allowed. Discovery: Min/Max apply to center too. */
@@ -661,7 +676,7 @@ async function mountGeoSelectMap(opts) {
         selected.delete(key);
         pageKeySet.delete(key);
         renderList();
-        refreshLabels();
+        refreshLabelForKey(key);
         styleLayers();
         setStatus(statusLine());
         emitSelection();
@@ -776,30 +791,45 @@ async function mountGeoSelectMap(opts) {
     }
   }
 
+  function bindPlaceLabel(layer, pages) {
+    const p = layer.feature?.properties || {};
+    if (layer.getTooltip()) layer.unbindTooltip();
+    if (!isLargestPart(layer.feature)) return;
+
+    const key = placeKey(p.name, p.state);
+    const primary = Boolean(primaryKey()) && key === primaryKey();
+    const selectable = popInSelectRange(p.population, { isPrimary: primary });
+    const html = labelHtml(esc, p.name, p.population, {
+      hasPage: showPages && pages.has(key),
+    });
+    const dim = isDiscovery && !selectable;
+    layer.bindTooltip(html, {
+      permanent: true,
+      direction: 'center',
+      className: dim ? 'sa-place-label sa-place-label-dim' : 'sa-place-label',
+      opacity: dim ? 0.85 : 0.95,
+    });
+  }
+
   function refreshLabels() {
     if (!placesLayer) return;
     const pages = pageKeys();
+    placesLayer.eachLayer((layer) => bindPlaceLabel(layer, pages));
+  }
+
+  function refreshLabelForKey(targetKey) {
+    if (!placesLayer || !targetKey) return;
+    const pages = pageKeys();
     placesLayer.eachLayer((layer) => {
       const p = layer.feature?.properties || {};
-      if (layer.getTooltip()) layer.unbindTooltip();
-      if (!isLargestPart(layer.feature)) return;
-
-      const key = placeKey(p.name, p.state);
-      const primary = Boolean(primaryKey()) && key === primaryKey();
-      const selectable = popInSelectRange(p.population, { isPrimary: primary });
-      const html = labelHtml(esc, p.name, p.population, {
-        hasPage: showPages && pages.has(key),
-      });
-
-      // All places get permanent labels; Discovery out-of-range uses quieter class.
-      const dim = isDiscovery && !selectable;
-      layer.bindTooltip(html, {
-        permanent: true,
-        direction: 'center',
-        className: dim ? 'sa-place-label sa-place-label-dim' : 'sa-place-label',
-        opacity: dim ? 0.85 : 0.95,
-      });
+      if (placeKey(p.name, p.state) !== targetKey) return;
+      bindPlaceLabel(layer, pages);
     });
+  }
+
+  function setRadiusBusy(on, message) {
+    mapEl?.classList.toggle('is-busy', Boolean(on));
+    if (on && message) setStatus(message);
   }
 
   function styleForProps(p) {
@@ -831,6 +861,39 @@ async function mountGeoSelectMap(opts) {
       const p = layer.feature?.properties || {};
       layer.setStyle(styleForProps(p));
     });
+  }
+
+  function existingPlaceKeys() {
+    const keys = new Set();
+    if (!placesLayer) return keys;
+    placesLayer.eachLayer((layer) => {
+      const p = layer.feature?.properties || {};
+      if (p.name) keys.add(placeKey(p.name, p.state));
+    });
+    return keys;
+  }
+
+  function onPlaceClick(feature) {
+    const p = feature?.properties || {};
+    togglePlace(p.name, p.state).catch((e) => setStatus(e.message || String(e), 'err'));
+  }
+
+  /** Add in-radius places from other states (coverage-preview already includes them). */
+  function mergeInRadiusFeatures(features) {
+    if (!placesLayer || !Array.isArray(features) || !features.length) return;
+    const have = existingPlaceKeys();
+    const toAdd = [];
+    for (const f of features) {
+      const p = f?.properties || {};
+      const key = placeKey(p.name, p.state);
+      if (!p.name || have.has(key)) continue;
+      have.add(key);
+      popByKey.set(key, Number(p.population) || 0);
+      toAdd.push(f);
+    }
+    if (!toAdd.length) return;
+    const exploded = explodePlaceFeatures({ type: 'FeatureCollection', features: toAdd });
+    placesLayer.addData(exploded);
   }
 
   /**
@@ -871,9 +934,12 @@ async function mountGeoSelectMap(opts) {
       });
       seededFromRadius = false;
       try {
+        setRadiusBusy(true, 'Updating cities…');
         await refreshRadiusMembership({ fit: true });
       } catch (e) {
         setStatus(e.message || String(e), 'err');
+      } finally {
+        setRadiusBusy(false);
       }
       emitSelection();
       return;
@@ -890,7 +956,6 @@ async function mountGeoSelectMap(opts) {
       selected.set(key, { name, state: String(st || state).toUpperCase() });
     }
     renderList();
-    refreshLabels();
     styleLayers();
     setStatus(statusLine());
     emitSelection();
@@ -911,75 +976,100 @@ async function mountGeoSelectMap(opts) {
       return;
     }
 
-    const qs = new URLSearchParams({
-      city: primaryCity,
-      state,
-      radiusMiles: String(radius),
-      minPop: String(minPopFilter),
-    });
-    if (maxPopFilter != null) qs.set('maxPop', String(maxPopFilter));
-    const data = await api(`/api/map/coverage-preview?${qs.toString()}`);
-    inRadiusKeys = new Set((data.places || []).map((p) => placeKey(p.name, p.state)));
-    primaryCenter = data.primary?.center || null;
+    setRadiusBusy(true, 'Updating cities…');
+    try {
+      const qs = new URLSearchParams({
+        city: primaryCity,
+        state,
+        radiusMiles: String(radius),
+        minPop: String(minPopFilter),
+      });
+      if (maxPopFilter != null) qs.set('maxPop', String(maxPopFilter));
+      const data = await api(`/api/map/coverage-preview?${qs.toString()}`);
+      if (destroyed) return;
+      inRadiusKeys = new Set((data.places || []).map((p) => placeKey(p.name, p.state)));
+      primaryCenter = data.primary?.center || null;
+      mergeInRadiusFeatures(data.features || []);
 
-    // Forever: add in-circle + drop outside (center sticky) on every refresh.
-    syncSelectionToRadius(data.places || []);
-    pruneSelectedByPopRange();
-    if (!primaryCity) {
+      // Forever: add in-circle + drop outside (center sticky) on every refresh.
+      syncSelectionToRadius(data.places || []);
+      pruneSelectedByPopRange();
+      if (!primaryCity) {
+        styleLayers();
+        renderList();
+        refreshLabels();
+        setStatus(
+          isDiscovery
+            ? 'Click an in-range city (Min–Max pop) to set the radius center'
+            : 'Click a city to set the radius center',
+          isDiscovery ? 'err' : '',
+        );
+        emitSelection();
+        return;
+      }
+
+      const L = await ensureLeaflet();
+      if (map && primaryCenter && Array.isArray(primaryCenter) && primaryCenter.length === 2) {
+        const [lng, lat] = primaryCenter;
+        if (circleLayer) map.removeLayer(circleLayer);
+        circleLayer = L.circle([lat, lng], {
+          radius: radius * 1609.34,
+          color: '#0f766e',
+          weight: 2,
+          fillColor: '#14b8a6',
+          fillOpacity: 0.07,
+          interactive: false,
+        }).addTo(map);
+        if ((fit || !didFit) && map) {
+          map.fitBounds(circleLayer.getBounds().pad(0.2));
+          didFit = true;
+          await scheduleInvalidateSize();
+        }
+      }
+
       styleLayers();
       renderList();
       refreshLabels();
-      setStatus(
-        isDiscovery
-          ? 'Click an in-range city (Min–Max pop) to set the radius center'
-          : 'Click a city to set the radius center',
-        isDiscovery ? 'err' : '',
-      );
+      setStatus(statusLine(), centerOutsidePopRange() ? 'err' : '');
       emitSelection();
-      return;
+    } finally {
+      if (!destroyed) setRadiusBusy(false);
     }
-
-    const L = await ensureLeaflet();
-    if (map && primaryCenter && Array.isArray(primaryCenter) && primaryCenter.length === 2) {
-      const [lng, lat] = primaryCenter;
-      if (circleLayer) map.removeLayer(circleLayer);
-      circleLayer = L.circle([lat, lng], {
-        radius: radius * 1609.34,
-        color: '#0f766e',
-        weight: 2,
-        fillColor: '#14b8a6',
-        fillOpacity: 0.07,
-        interactive: false,
-      }).addTo(map);
-      if ((fit || !didFit) && map) {
-        map.fitBounds(circleLayer.getBounds().pad(0.2));
-        didFit = true;
-        await scheduleInvalidateSize();
-      }
-    }
-
-    styleLayers();
-    renderList();
-    refreshLabels();
-    setStatus(statusLine(), centerOutsidePopRange() ? 'err' : '');
-    emitSelection();
   }
 
-  async function loadFullStateMap() {
-    if (destroyed) return;
-    setStatus('Loading places…');
-    const L = await ensureLeaflet();
-    const geo = await api(
-      `/api/map/geojson?layer=places&state=${encodeURIComponent(String(state).toUpperCase())}`,
-    );
+  async function ensureMap(L, centerLatLng) {
+    if (map) return;
+    await waitForMapElSize();
+    if (destroyed || !mapEl) return;
+    const center = centerLatLng || [39.83, -98.58];
+    map = L.map(mapEl, { scrollWheelZoom: true }).setView(center, 8);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; OpenStreetMap',
+      maxZoom: 18,
+    }).addTo(map);
+    map.on('zoomend', () => {
+      void scheduleInvalidateSize();
+    });
+    onWindowResize = () => {
+      void scheduleInvalidateSize();
+    };
+    window.addEventListener('resize', onWindowResize);
+    if (typeof ResizeObserver !== 'undefined' && mapEl) {
+      resizeObserver = new ResizeObserver(() => {
+        void scheduleInvalidateSize();
+      });
+      resizeObserver.observe(mapEl);
+      if (mapHost && mapHost !== mapEl) resizeObserver.observe(mapHost);
+    }
+    await scheduleInvalidateSize();
+  }
 
+  function applyPlacesGeo(L, geo) {
     popByKey = new Map();
     for (const f of geo.features || []) {
       const p = f.properties || {};
       popByKey.set(placeKey(p.name, p.state), Number(p.population) || 0);
     }
-
-    // Discovery: keep seeded center even if outside Min–Max (warn via status); prune other OOR picks.
     if (isDiscovery) {
       const pk = primaryCity ? placeKey(primaryCity, state) : '';
       for (const [key] of [...selected.entries()]) {
@@ -987,75 +1077,54 @@ async function mountGeoSelectMap(opts) {
         if (!popInSelectRange(popByKey.get(key))) selected.delete(key);
       }
     }
-
-    if (!map) {
-      await waitForMapElSize();
-      if (destroyed || !mapEl) return;
-      let center = [39.83, -98.58];
-      try {
-        const preview = L.geoJSON(geo);
-        const bounds = preview.getBounds();
-        if (bounds?.isValid()) center = [bounds.getCenter().lat, bounds.getCenter().lng];
-      } catch {
-        /* CONUS fallback */
-      }
-      map = L.map(mapEl, { scrollWheelZoom: true }).setView(center, 8);
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '&copy; OpenStreetMap',
-        maxZoom: 18,
-      }).addTo(map);
-      map.on('zoomend', () => {
-        void scheduleInvalidateSize();
-      });
-      onWindowResize = () => {
-        void scheduleInvalidateSize();
-      };
-      window.addEventListener('resize', onWindowResize);
-      if (typeof ResizeObserver !== 'undefined' && mapEl) {
-        resizeObserver = new ResizeObserver(() => {
-          void scheduleInvalidateSize();
-        });
-        resizeObserver.observe(mapEl);
-        if (mapHost && mapHost !== mapEl) resizeObserver.observe(mapHost);
-      }
-      await scheduleInvalidateSize();
-    }
-
     if (!map) return;
-
     if (placesLayer) {
       map.removeLayer(placesLayer);
       placesLayer = null;
     }
-
     placesLayer = L.geoJSON(explodePlaceFeatures(geo), {
       style: (feature) => styleForProps(feature?.properties || {}),
       onEachFeature: (feature, layer) => {
-        const p = feature.properties || {};
-        layer.on('click', () => {
-          togglePlace(p.name, p.state).catch((e) => setStatus(e.message || String(e), 'err'));
-        });
+        layer.on('click', () => onPlaceClick(feature));
       },
     }).addTo(map);
+  }
 
-    if (primaryCity) {
-      await refreshRadiusMembership({ fit: true });
-    } else {
-      try {
-        const b = placesLayer.getBounds();
-        if (b?.isValid() && map) map.fitBounds(b.pad(0.08));
-        didFit = true;
-      } catch {
-        /* ignore */
-      }
+  async function loadNearbyMap() {
+    if (destroyed) return;
+    setStatus('Loading places…');
+    const L = await ensureLeaflet();
+
+    if (!primaryCity) {
+      await ensureMap(L);
       renderList();
-      refreshLabels();
       setStatus(
         isDiscovery
-          ? 'Click an in-range city (Min–Max pop) to set the radius center'
-          : statusLine(),
+          ? 'Type a city first, then reopen the map.'
+          : 'Click a city to set the radius center',
       );
+      await scheduleInvalidateSize();
+      return;
     }
+
+    const qs = new URLSearchParams({
+      city: primaryCity,
+      state,
+      radiusMiles: String(LABEL_LOAD_RADIUS),
+      minPop: '0',
+    });
+    const data = await api(`/api/map/coverage-preview?${qs.toString()}`);
+    if (destroyed) return;
+    const geo = { type: 'FeatureCollection', features: data.features || [] };
+    if (data.primary?.center && Array.isArray(data.primary.center) && data.primary.center.length === 2) {
+      primaryCenter = data.primary.center;
+    }
+    const centerLatLng = primaryCenter
+      ? [primaryCenter[1], primaryCenter[0]]
+      : null;
+    await ensureMap(L, centerLatLng);
+    applyPlacesGeo(L, geo);
+    await refreshRadiusMembership({ fit: true });
     await scheduleInvalidateSize();
   }
 
@@ -1092,7 +1161,7 @@ async function mountGeoSelectMap(opts) {
   }
 
   slider?.addEventListener('input', () => {
-    radius = Number(slider.value) || 40;
+    radius = Number(slider.value) || DEFAULT_RADIUS;
     if (radiusVal) radiusVal.textContent = String(radius);
     if (!primaryCity) {
       setStatus('Click a city to set the radius center');
@@ -1129,7 +1198,7 @@ async function mountGeoSelectMap(opts) {
 
   try {
     await ensureLeaflet();
-    await loadFullStateMap();
+    await loadNearbyMap();
   } catch (e) {
     setStatus(e.message || String(e), 'err');
   }

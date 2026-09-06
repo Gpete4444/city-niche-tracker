@@ -31,7 +31,7 @@ import {
   mountDiscoveryCitiesMap,
   setServiceAreaTableMode,
   setDiscoveryTableMapMode,
-} from './service-area-map.js?v=20260902mapFill';
+} from './service-area-map.js?v=20260905sa100';
 import {
   enableResizableTablesIn,
   enableTableColumnResize,
@@ -693,6 +693,78 @@ async function api(path, options = {}) {
   return data;
 }
 
+function slicesForTab(tab) {
+  switch (tab) {
+    case 'prospects':
+      return ['prospects'];
+    case 'content':
+      return ['content', 'images'];
+    case 'website':
+      return ['content', 'images', 'address'];
+    case 'site-config':
+      return ['address'];
+    default:
+      return [];
+  }
+}
+
+function mergeCandidateDetail(prev, next) {
+  if (!next) return prev;
+  if (!prev || prev.id !== next.id) return { ...next };
+  return {
+    ...prev,
+    ...next,
+    _slices: { ...(prev._slices || {}), ...(next._slices || {}) },
+    stageFlags: { ...(prev.stageFlags || {}), ...(next.stageFlags || {}) },
+    meta: next.meta ? { ...(prev.meta || {}), ...next.meta } : prev.meta,
+  };
+}
+
+function candidateDetailUrl(id, slices = []) {
+  const list = [...new Set((slices || []).filter(Boolean))];
+  const q = list.length ? `?include=${encodeURIComponent(list.join(','))}` : '';
+  return `/api/candidates/${encodeURIComponent(id)}${q}`;
+}
+
+async function fetchCandidateDetail(id, slices = []) {
+  return api(candidateDetailUrl(id, slices));
+}
+
+async function ensureDetailSlices(id, slices) {
+  const want = [...new Set(slices || [])];
+  if (!id) return null;
+  const loaded = state.detail?.id === id ? state.detail._slices || {} : {};
+  const missing = want.filter((s) => !loaded[s]);
+  if (state.detail?.id === id && loaded.shell && !missing.length) return state.detail;
+  const next = await fetchCandidateDetail(id, missing.length ? missing : want);
+  if (state.selectedId && state.selectedId !== id) return state.detail;
+  state.detail = mergeCandidateDetail(state.detail?.id === id ? state.detail : null, next);
+  return state.detail;
+}
+
+async function loadSelectedCandidateDetail(id) {
+  if (!id) return null;
+  const next = await fetchCandidateDetail(id, slicesForTab(state.tab));
+  if (state.selectedId && state.selectedId !== id) return state.detail;
+  state.detail = mergeCandidateDetail(state.detail?.id === id ? state.detail : null, next);
+  return state.detail;
+}
+
+async function applyCandidatePayload(candidate, id = candidate?.id || state.selectedId) {
+  const cid = candidate?.id || id;
+  if (candidate && cid) {
+    const prev = state.detail?.id === cid ? state.detail : null;
+    state.detail = mergeCandidateDetail(prev, candidate);
+    if (state.detail?._slices) {
+      for (const s of slicesForTab(state.tab)) {
+        state.detail._slices[s] = false;
+      }
+    }
+  }
+  if (cid) await ensureDetailSlices(cid, slicesForTab(state.tab));
+  return state.detail;
+}
+
 /** Poll Jobs until a heavy job finishes; returns job.result or throws with check/contract. */
 async function waitForHeavyJobResult(jobId, { intervalMs = 400 } = {}) {
   const id = String(jobId || '').trim();
@@ -846,23 +918,13 @@ function showModal({
   });
 }
 
-/** Non-blocking status — prefer over dismiss-only OK modals on happy paths. */
-function showToast(message, { tone = 'ok', ms = 4200 } = {}) {
-  let el = document.getElementById('ops-toast');
-  if (!el) {
-    el = document.createElement('div');
-    el.id = 'ops-toast';
-    el.className = 'ops-toast';
-    el.setAttribute('role', 'status');
-    document.body.appendChild(el);
-  }
-  el.textContent = String(message || '').trim();
-  el.classList.remove('hidden', 'tone-ok', 'tone-warn', 'tone-err');
-  el.classList.add(`tone-${tone === 'warn' ? 'warn' : tone === 'err' ? 'err' : 'ok'}`);
-  clearTimeout(showToast._timer);
-  showToast._timer = setTimeout(() => {
-    el.classList.add('hidden');
-  }, ms);
+function bannerTone(tone) {
+  return tone === 'warn' ? 'warn' : tone === 'err' ? 'err' : 'ok';
+}
+
+/** Leftover status — top banner, no sound. */
+function showToast(message, { tone = 'ok', ms } = {}) {
+  showCompleteBanner(message, ms != null ? { tone, ms } : { tone });
 }
 
 function prefersReducedMotion() {
@@ -905,9 +967,9 @@ function playCompleteSound() {
   }
 }
 
-/** Top-center slide-in “{step} complete” banner. */
-function showCompleteBanner(stepLabel, { ms = 3500 } = {}) {
-  const label = String(stepLabel || 'Step').trim() || 'Step';
+/** Top-center slide-in banner. Message is shown as-is. */
+function showCompleteBanner(message, { ms = 6000, tone = 'ok' } = {}) {
+  const text = String(message || '').trim() || 'Done';
   let el = document.getElementById('ops-complete-banner');
   if (!el) {
     el = document.createElement('div');
@@ -917,10 +979,11 @@ function showCompleteBanner(stepLabel, { ms = 3500 } = {}) {
     el.setAttribute('aria-live', 'polite');
     document.body.appendChild(el);
   }
-  el.textContent = `${label} complete`;
+  el.textContent = text;
   const reduce = prefersReducedMotion();
   el.classList.toggle('no-motion', reduce);
-  el.classList.remove('hidden', 'is-visible');
+  el.classList.remove('hidden', 'is-visible', 'tone-ok', 'tone-warn', 'tone-err');
+  el.classList.add(`tone-${bannerTone(tone)}`);
   // Force reflow so re-showing retriggers the slide.
   void el.offsetWidth;
   requestAnimationFrame(() => {
@@ -936,10 +999,16 @@ function showCompleteBanner(stepLabel, { ms = 3500 } = {}) {
   }, ms);
 }
 
-/** Sound + top banner when an async loading bar finishes successfully. */
-function announceStepComplete(stepLabel) {
+/** Sound + top banner with an existing message (no “complete” suffix). */
+function announceBanner(message, opts) {
   playCompleteSound();
-  showCompleteBanner(stepLabel);
+  showCompleteBanner(message, opts);
+}
+
+/** Sound + “{step} complete” when a listed job/step finishes. */
+function announceStepComplete(stepLabel) {
+  const label = String(stepLabel || 'Step').trim() || 'Step';
+  announceBanner(`${label} complete`);
 }
 
 /** Fill a .job-progress-bar from done/total; clear for indeterminate. */
@@ -2664,12 +2733,24 @@ function notifyCandidatesChanged({ type = 'candidates', ids = null, batchId = nu
   }
 }
 
+function remoteRefreshNeedsDetailRender(data) {
+  const type = String(data?.type || '');
+  if (type !== 'accept') return true;
+  if (state.tab === 'content' && state.contentOpenStep === 'photoGroup') return true;
+  if (state.tab === 'website' && state.websiteOpenStep === 'images') return true;
+  return false;
+}
+
 async function applyRemoteCandidatesRefresh(data) {
   await loadCandidates();
   const ids = Array.isArray(data?.ids) ? data.ids.map(String) : null;
-  if (state.selectedId && (!ids || ids.includes(String(state.selectedId)))) {
+  if (
+    state.selectedId &&
+    (!ids || ids.includes(String(state.selectedId))) &&
+    remoteRefreshNeedsDetailRender(data)
+  ) {
     try {
-      state.detail = await api(`/api/candidates/${encodeURIComponent(state.selectedId)}`);
+      await loadSelectedCandidateDetail(state.selectedId);
       if (state.selectedIds.size > 1) renderMultiDetail();
       else if (state.detail) renderDetail();
     } catch {
@@ -3159,13 +3240,34 @@ function candidateHighestStageStep(c) {
   return 0;
 }
 
+function isWebsiteLaunched(c) {
+  const m = c?.meta || {};
+  return Boolean(m.lastLaunchAt || m.lastShipAt || m.cloudflarePagesDone || m.dnsDone);
+}
+
+/** Durable Site-Config / Content / Launch complete (no in-session soft-done). */
+function isWebsiteTrackComplete(c, track) {
+  const f = c?.stageFlags || {};
+  const m = c?.meta || {};
+  if (track === 1) {
+    if (!f.hasSiteConfig || !m.lastServiceAreaAt) return false;
+    return Boolean(
+      m.phoneSkippedAt ||
+        m.lastPhoneAt ||
+        f.hasSitePhone ||
+        (c?.id && state.sitePhoneProvisioned?.[c.id]),
+    );
+  }
+  if (track === 2) return Boolean(f.hasContent);
+  if (track === 3) return isWebsiteLaunched(c) && Boolean(m.indexingDone);
+  return false;
+}
+
 /** Highest completed Website track (0 = none). */
 function candidateHighestWebsiteTrack(c) {
-  const m = c?.meta || {};
-  const f = c?.stageFlags || {};
-  if (m.lastLaunchAt || m.lastShipAt || m.cloudflarePagesDone || m.dnsDone) return 3;
-  if (f.hasContent) return 2;
-  if (f.hasSiteConfig) return 1;
+  if (isWebsiteTrackComplete(c, 3)) return 3;
+  if (isWebsiteTrackComplete(c, 2)) return 2;
+  if (isWebsiteTrackComplete(c, 1)) return 1;
   return 0;
 }
 
@@ -3497,7 +3599,7 @@ async function persistCandidateDecision(id, decision, notes) {
       if (notes !== undefined) row.decisionNotes = notes || null;
     }
     if (state.detail?.id === id) {
-      state.detail = await api(`/api/candidates/${encodeURIComponent(id)}`);
+      await loadSelectedCandidateDetail(id);
     }
     const data = await api('/api/candidates');
     state.candidates = data.candidates || [];
@@ -3941,6 +4043,9 @@ async function selectCandidate(id) {
   state.preparePreviewHold = false;
   state.preparePreviewJobId = null;
   state.preparePreviewTab = null;
+  state.reviewImageSlots = [];
+  state.reviewBa = null;
+  state.reviewPhotoGroupMenuOpen = false;
   if (state.selectedIds.size > 1) {
     renderList();
     renderMultiDetail();
@@ -3954,7 +4059,7 @@ async function selectCandidate(id) {
   syncCandidatesDetailVisibility();
   document.getElementById('empty-detail').classList.add('hidden');
   document.getElementById('detail').classList.remove('hidden');
-  state.detail = await api(`/api/candidates/${encodeURIComponent(id)}`);
+  await loadSelectedCandidateDetail(id);
   renderDetail();
 }
 
@@ -4068,18 +4173,20 @@ function updateTabCompletion() {
       draft = Boolean(f.hasNarrativeDraft) && !f.hasNarrative;
     }
     if (key === 'site-config') {
-      done = Boolean(f.hasSiteConfig);
+      done = isWebsiteTrackComplete(state.detail, 1);
       draft = Boolean(f.hasSiteConfigDraft) && !f.hasSiteConfig;
     }
     if (key === 'content') {
-      done = Boolean(f.hasContent);
+      done = isWebsiteTrackComplete(state.detail, 2);
       draft =
         (Boolean(f.hasContentDraft) || Boolean(f.hasContentBrief)) && !f.hasContent;
     }
     if (key === 'website') {
       const meta = state.detail?.meta || {};
-      done = Boolean(meta.lastShipAt || meta.cloudflarePagesDone || meta.dnsDone);
-      draft = Boolean(meta.lastAssembleAt || meta.lastSiteStagingAt) && !done;
+      done = isWebsiteTrackComplete(state.detail, 3);
+      draft =
+        Boolean(meta.lastAssembleAt || meta.lastSiteStagingAt) &&
+        !isWebsiteLaunched(state.detail);
     }
     if (key === 'prospects') done = Boolean(f.hasProspects);
     tab.classList.toggle('tab-done', done);
@@ -4846,6 +4953,8 @@ function jobActLabel(act) {
       writeSite: 'Write site',
       'generate-pack': 'Generate pack',
       generatePack: 'Generate pack',
+      'evaluate-all': 'Run all',
+      evaluateAll: 'Run all',
     }[act] || act || 'job'
   );
 }
@@ -4922,21 +5031,25 @@ async function confirmBatchPaidAction(act, ids) {
         .join('')}</ul>`
     : '';
   const adsNote =
-    act === 'research'
-      ? `<p><strong>Ads volumes:</strong> ${
-          getAdsMode() === 'standard'
-            ? 'Standard queue (~$0.05–0.06/task, slower — good overnight)'
-            : 'Live (~$0.075–0.09/task, seconds)'
-        }.</p>${
-          getForceSerp()
-            ? '<p><strong>Force new SERP:</strong> on — refetches Map Pack/organic (~$0.002) before refreshing volumes.</p>'
-            : ''
-        }`
-      : '';
+    act === 'evaluate-all' || act === 'evaluateAll'
+      ? `<p><strong>Ads volumes:</strong> Live (~$0.075–0.09/task, seconds). Force new SERP is off.</p>
+        <p class="muted">Skips steps that already have data. Narrative uses the Anthropic API.</p>`
+      : act === 'research'
+        ? `<p><strong>Ads volumes:</strong> ${
+            getAdsMode() === 'standard'
+              ? 'Standard queue (~$0.05–0.06/task, slower — good overnight)'
+              : 'Live (~$0.075–0.09/task, seconds)'
+          }.</p>${
+            getForceSerp()
+              ? '<p><strong>Force new SERP:</strong> on — refetches Map Pack/organic (~$0.002) before refreshing volumes.</p>'
+              : ''
+          }`
+        : '';
   return showModal({
     title: preview.title,
     confirmLabel: preview.confirmLabel || `Run on ${preview.runnable}`,
     bodyHtml: `
+      ${preview.whatItDoes ? `<p>${esc(preview.whatItDoes)}</p>` : ''}
       <p>${esc(preview.estimateLabel || '')}</p>
       <p class="muted">${esc(preview.estimateDetail || '')}</p>
       ${adsNote}
@@ -5057,6 +5170,20 @@ function renderActions() {
   const prospectsTip = !prospectsGateOk
     ? 'Complete Evaluation 3 (Narrative) first'
     : 'Find local businesses via Maps SERP (optional)';
+  const allFourDone =
+    targetCount === 0
+      ? false
+      : targetCount > 1
+        ? agg.hasResearch === agg.count &&
+          agg.hasEnrichment === agg.count &&
+          agg.hasNarrative === agg.count &&
+          agg.hasProspects === agg.count &&
+          agg.count > 0
+        : Boolean(f.hasResearch && f.hasEnrichment && f.hasNarrative && f.hasProspects);
+  const showRunAll = effectiveClaudeUiMode() === 'api';
+  const runAllTip = allFourDone
+    ? 'Evaluations 1–4 are already complete'
+    : 'Fill missing Evaluations 1–4 in order. Ad volumes: Live, no Force new SERP.';
 
   el.innerHTML = `
     <div
@@ -5172,6 +5299,41 @@ function renderActions() {
           }</button>
         </div>
       </div>
+      ${
+        showRunAll
+          ? `<span class="stage-rail-sep stage-rail-sep-wide" aria-hidden="true"></span>
+      <div class="action-group stage-all${allFourDone ? ' action-done' : ''}${
+        runningAct === 'evaluate-all' ? ' action-running' : ''
+      }">
+        <span class="action-group-head"><span class="action-group-title">All</span><span class="action-group-num">1–4${
+          allFourDone
+            ? ` ${stageCheckMark()}`
+            : targetCount > 1
+              ? aggMark(
+                  Math.min(
+                    agg.hasResearch,
+                    agg.hasEnrichment,
+                    agg.hasNarrative,
+                    agg.hasProspects,
+                  ),
+                  agg.count,
+                )
+              : ''
+        }</span></span>
+        <div class="action-group-btns">
+          <button type="button" class="btn btn-sm primary" data-act="evaluate-all" data-tip="${esc(
+            runAllTip,
+          )}" ${stageBusyAttr('evaluate-all', targetCount > 0 && !allFourDone)}>${
+            runningAct === 'evaluate-all'
+              ? 'Running…'
+              : targetCount > 1
+                ? `Run all${batchLabel}`
+                : 'Run all'
+          }</button>
+        </div>
+      </div>`
+          : ''
+      }
     </div>
     <div id="job-progress" class="job-progress${busy ? '' : ' hidden'}" aria-live="polite">
       <div class="job-progress-track"><div class="job-progress-bar"></div></div>
@@ -5358,6 +5520,33 @@ async function handleAction(act, btn) {
   const id = ids.length === 1 ? ids[0] : state.selectedId;
   btn.disabled = true;
   try {
+    if (act === 'evaluate-all') {
+      if (effectiveClaudeUiMode() !== 'api') return;
+      if (state.activeJobId || state.activeBatchJobId || state.claudeBusy) return;
+      if (!ids.length) return;
+      if (!(await assertEvalConcurrencyAllows(ids))) return;
+      const ok = await confirmBatchPaidAction('evaluate-all', ids);
+      if (!ok) return;
+      const batch = await api('/api/jobs/batch', {
+        method: 'POST',
+        body: JSON.stringify({
+          act: 'evaluate-all',
+          candidateIds: ids,
+          adsMode: 'live',
+          forceSerp: false,
+        }),
+      });
+      state.activeBatchJobId = batch.id;
+      state.activeAct = 'evaluate-all';
+      state.lastBatchJob = batch;
+      state.jobStatusLine = 'Starting Run all…';
+      state.tab = 'logs';
+      renderActions();
+      if (state.selectedIds.size > 1) renderMultiDetail();
+      pollBatchJob(batch.id);
+      return;
+    }
+
     if (act === 'research' || act === 'enrich' || act === 'prospects' || act === 'narrative') {
       if (state.activeJobId || state.activeBatchJobId || state.claudeBusy) return;
       if (!ids.length) return;
@@ -5377,9 +5566,10 @@ async function handleAction(act, btn) {
             method: 'POST',
             body: '{}',
           });
-          state.detail = await api(`/api/candidates/${encodeURIComponent(ids[0])}`);
+          await loadSelectedCandidateDetail(ids[0]);
           state.tab = 'narrative';
           renderDetail();
+          announceStepComplete('Narrative');
           await showActualCostModal({
             title: result.parseError
               ? 'Narrative draft (parse error)'
@@ -5476,7 +5666,7 @@ async function handleAction(act, btn) {
         });
         await loadCandidates();
         if (state.selectedId) {
-          state.detail = await api(`/api/candidates/${encodeURIComponent(state.selectedId)}`);
+          await loadSelectedCandidateDetail(state.selectedId);
         }
         if (state.selectedIds.size > 1) renderMultiDetail();
         else renderDetail();
@@ -5500,7 +5690,7 @@ async function handleAction(act, btn) {
         const result = await handleBatchNarrativeAccept(ids);
         await loadCandidates();
         if (state.selectedId) {
-          state.detail = await api(`/api/candidates/${encodeURIComponent(state.selectedId)}`);
+          await loadSelectedCandidateDetail(state.selectedId);
         }
         if (state.selectedIds.size > 1) renderMultiDetail();
         else renderDetail();
@@ -5527,7 +5717,7 @@ async function handleAction(act, btn) {
           body: '{}',
         });
       }
-      state.detail = await api(`/api/candidates/${encodeURIComponent(singleId)}`);
+      await loadSelectedCandidateDetail(singleId);
       await loadCandidates();
       renderDetail();
       return;
@@ -5547,10 +5737,11 @@ async function handleAction(act, btn) {
           method: 'POST',
           body: '{}',
         });
-        const candidate = await api(`/api/candidates/${encodeURIComponent(id)}`);
-        state.detail = { ...candidate, _outreachDraft: result.draft };
+        await loadSelectedCandidateDetail(id);
+        if (state.detail) state.detail = { ...state.detail, _outreachDraft: result.draft };
         state.tab = 'prospects';
         renderDetail();
+        announceStepComplete('Outreach');
         await showActualCostModal({
           title: 'Outreach draft ready',
           costUsd: result.costUsd,
@@ -5595,7 +5786,7 @@ function startJobPoll(jobId, act) {
         state.pollTimer = null;
         const finishedAct = act;
         clearJobBusy();
-        state.detail = await api(`/api/candidates/${encodeURIComponent(state.selectedId)}`);
+        await loadSelectedCandidateDetail(state.selectedId);
         await loadCandidates();
         if (job.status === 'ok') {
           announceStepComplete(jobActLabel(finishedAct));
@@ -5603,6 +5794,7 @@ function startJobPoll(jobId, act) {
           else if (finishedAct === 'enrich') state.tab = 'enrichment';
           else if (finishedAct === 'prospects') state.tab = 'prospects';
         } else {
+          announceBanner(`${jobActLabel(finishedAct)} failed`, { tone: 'err' });
           state.tab = 'logs';
         }
         renderDetail();
@@ -6496,7 +6688,7 @@ function saveSiteConfigNapFromForm(candidateId) {
     businessName: document.getElementById('sc-business')?.value?.trim() || prev.businessName || '',
     phone: document.getElementById('sc-phone')?.value?.trim() || prev.phone || '',
     email: document.getElementById('sc-email')?.value?.trim() || prev.email || '',
-    radiusMiles: document.getElementById('sc-radius')?.value?.trim() || prev.radiusMiles || '40',
+    radiusMiles: document.getElementById('sc-radius')?.value?.trim() || prev.radiusMiles || '15',
     addressStreet:
       document.getElementById('sc-street')?.value?.trim() ||
       prev.addressStreet ||
@@ -7667,7 +7859,8 @@ function renderSiteConfig() {
       accepted &&
         (isSoftDone('siteConfigSoftDone', 'phone') ||
           state.sitePhoneProvisioned?.[d?.id] ||
-          Boolean(d?.meta?.phoneSkippedAt)),
+          Boolean(d?.meta?.phoneSkippedAt) ||
+          Boolean(d?.meta?.lastPhoneAt)),
     ),
   };
   const detailsDone = stepDone.details || isSoftDone('siteConfigSoftDone', 'details');
@@ -8521,7 +8714,7 @@ function renderSiteConfig() {
               <span>Radius (mi)</span>
               <button type="button" class="tip-info" data-tip="Default radius seed for Service area map." aria-label="About Radius">i</button>
             </span>
-            <input id="sc-radius" type="text" value="${esc(nap.radiusMiles || '40')}" />
+            <input id="sc-radius" type="text" value="${esc(nap.radiusMiles || '15')}" />
           </label>
           <label class="site-config-span2">
             <span class="label-with-tip-head">
@@ -8905,6 +9098,8 @@ function photoGroupRankOrdinal(n) {
   return `${n}${suffix}`;
 }
 
+const PHOTO_GROUP_RANK_MAX = 6;
+
 function photoGroupLibraryCount(d) {
   return Array.isArray(d?.photoGroups) ? d.photoGroups.length : 0;
 }
@@ -8967,8 +9162,9 @@ function photoGroupRankRowHtml(idPrefix, i, selectedId, excludeIds) {
 }
 
 function photoGroupRankRowsFromIds(idPrefix, ids) {
-  const chosen = compactPhotoGroupRankIds(ids);
-  const addEmpty = chosen.length === 0 || chosen.length < photoGroupLibraryCount(state.detail);
+  const chosen = compactPhotoGroupRankIds(ids).slice(0, PHOTO_GROUP_RANK_MAX);
+  const lib = photoGroupLibraryCount(state.detail);
+  const addEmpty = chosen.length < PHOTO_GROUP_RANK_MAX && (chosen.length === 0 || chosen.length < lib);
   const rows = [];
   for (let i = 0; i < chosen.length; i += 1) {
     rows.push(photoGroupRankRowHtml(idPrefix, i, chosen[i], chosen.slice(0, i)));
@@ -8996,12 +9192,53 @@ function setPhotoGroupRankLoadDisabled(idPrefix, empty) {
   if (loadBtn) loadBtn.disabled = empty;
 }
 
-function syncPhotoGroupRankSelects(idPrefix) {
+function renumberPhotoGroupRankRows(stack, idPrefix) {
+  [...stack.querySelectorAll('.pg-rank-row')].forEach((row, i) => {
+    const rank = i + 1;
+    const label = row.querySelector('.pg-rank-label');
+    if (label) label.textContent = photoGroupRankOrdinal(rank);
+    const sel = row.querySelector('select[data-pg-rank]');
+    if (sel) {
+      sel.id = `${idPrefix}-${rank}`;
+      sel.setAttribute('data-pg-rank', String(rank));
+    }
+  });
+}
+
+function ensurePhotoGroupTrailingEmpty(stack, idPrefix) {
+  const selects = [...stack.querySelectorAll('select[data-pg-rank]')];
+  const ids = compactPhotoGroupRankIds(selects.map((sel) => sel.value || ''));
+  const last = selects[selects.length - 1];
+  const lastEmpty = last && !String(last.value || '').trim();
+  const lib = photoGroupLibraryCount(state.detail);
+  const canAdd = ids.length < PHOTO_GROUP_RANK_MAX && ids.length < lib;
+  if (canAdd && !lastEmpty) {
+    stack.insertAdjacentHTML('beforeend', photoGroupRankRowHtml(idPrefix, selects.length, '', ids));
+  }
+  while (true) {
+    const sels = [...stack.querySelectorAll('select[data-pg-rank]')];
+    if (sels.length < 2) break;
+    const a = sels[sels.length - 1];
+    const b = sels[sels.length - 2];
+    if (!String(a.value || '').trim() && !String(b.value || '').trim()) {
+      a.closest('.pg-rank-row')?.remove();
+    } else break;
+  }
+}
+
+function patchPhotoGroupRankSelects(idPrefix, changedSelect) {
   const stack = photoGroupRankStackEl(idPrefix);
   if (!stack) return;
-  const ids = readPhotoGroupRankIds(idPrefix);
-  stack.innerHTML = photoGroupRankRowsFromIds(idPrefix, ids);
-  setPhotoGroupRankLoadDisabled(idPrefix, ids.length === 0);
+  if (changedSelect && !String(changedSelect.value || '').trim()) {
+    const selects = [...stack.querySelectorAll('select[data-pg-rank]')];
+    const isLast = changedSelect === selects[selects.length - 1];
+    if (!isLast) {
+      changedSelect.closest('.pg-rank-row')?.remove();
+      renumberPhotoGroupRankRows(stack, idPrefix);
+    }
+  }
+  ensurePhotoGroupTrailingEmpty(stack, idPrefix);
+  setPhotoGroupRankLoadDisabled(idPrefix, readPhotoGroupRankIds(idPrefix).length === 0);
 }
 
 function wirePhotoGroupRankSelects(idPrefix) {
@@ -9009,7 +9246,7 @@ function wirePhotoGroupRankSelects(idPrefix) {
   if (!stack) return;
   stack.addEventListener('change', (e) => {
     if (!e.target?.matches?.('select[data-pg-rank]')) return;
-    syncPhotoGroupRankSelects(idPrefix);
+    patchPhotoGroupRankSelects(idPrefix, e.target);
   });
   setPhotoGroupRankLoadDisabled(idPrefix, readPhotoGroupRankIds(idPrefix).length === 0);
 }
@@ -9214,7 +9451,7 @@ async function loadPhotoGroupFromUi(
       result.attached?.names?.join(' → ') ||
       preview.groups?.map((g) => g.name).join(' → ') ||
       preview.group?.name;
-    showToast(
+    announceBanner(
       attach
         ? `Photo group “${label}” ready for Accept.`
         : result.human?.[0] || 'Photo group loaded.',
@@ -9800,9 +10037,8 @@ function syncWriteSiteOverlay(snap) {
   void (async () => {
     if (state.selectedId === targetId) {
       try {
-        const candidate = await api(`/api/candidates/${encodeURIComponent(targetId)}`);
-        if (state.selectedId !== targetId) return;
-        state.detail = candidate;
+        await applyCandidatePayload(null, targetId);
+        const candidate = state.detail;
         if (state.tab === 'content') {
           if (finished?.status === 'done') {
             const photosOn = contentPhotosEnabled(candidate);
@@ -9815,12 +10051,13 @@ function syncWriteSiteOverlay(snap) {
       }
     }
     if (finished?.status === 'done') {
-      showToast('Write site with Claude finished.');
+      announceStepComplete('Write site');
     } else if (finished?.status === 'error' || !finished) {
       const msg = finished?.error || 'Write site stopped or failed.';
       if (/stopped/i.test(msg)) {
-        showToast('Write site stopped — files written so far are kept.');
+        announceBanner('Write site stopped — files written so far are kept.');
       } else {
+        announceBanner('Write site failed', { tone: 'err' });
         await showModal({
           title: 'Write site failed',
           confirmLabel: 'OK',
@@ -10018,12 +10255,13 @@ function syncGeneratePackOverlay(snap) {
       }
     }
     if (finished?.status === 'done') {
-      showToast('Generate pack finished — glance/fix rows, then Light SERP.');
+      announceStepComplete('Generate pack');
     } else if (finished?.status === 'error' || !finished) {
       const msg = finished?.error || 'Generate pack stopped or failed.';
       if (/stopped/i.test(msg)) {
-        showToast('Generate pack stopped.');
+        announceBanner('Generate pack stopped.');
       } else {
+        announceBanner('Generate pack failed', { tone: 'err' });
         await showModal({
           title: 'Generate pack failed',
           confirmLabel: 'OK',
@@ -11796,6 +12034,7 @@ function syncListRowFromDetail(candidate) {
     beforeRank !== candidatePipelineRank(next)
   ) {
     renderList();
+    notifyCandidatesChanged({ type: 'candidates', ids: [candidate.id] });
   }
 }
 
@@ -12921,10 +13160,12 @@ async function generateReviewSelected(candidateId) {
     ]);
     if (failures.length) {
       if (!(await showGenerateFailures(failures))) {
-        showToast(`Generated with ${failures.length} error${failures.length === 1 ? '' : 's'}.`);
+        announceBanner(`Generated with ${failures.length} error${failures.length === 1 ? '' : 's'}.`, {
+          tone: 'warn',
+        });
       }
     } else {
-      showToast(`Generated ${total} OpenAI job${total === 1 ? '' : 's'}.`);
+      announceBanner(`Generated ${total} OpenAI job${total === 1 ? '' : 's'}.`);
     }
   } finally {
     await settleSlotBusy();
@@ -13491,7 +13732,7 @@ function wireImageSlotActions(candidateId, _refreshFn) {
                 },
               ),
           );
-          showToast('Generated OpenAI before/after pair.');
+          announceBanner('Generated OpenAI before/after pair.');
           await refreshImageSlotInPlace(candidateId, {
             slotKey: matchKey.startsWith('ba:') ? matchKey : `ba:${matchKey}`,
             status: result.status,
@@ -13519,7 +13760,7 @@ function wireImageSlotActions(candidateId, _refreshFn) {
                 },
               ),
           );
-          showToast(`Generated ${slotKey}.`);
+          announceBanner(`Generated ${slotKey}.`);
           await refreshImageSlotInPlace(candidateId, { slotKey, status: result.status });
         }
       } catch (error) {
@@ -14761,7 +15002,7 @@ function wireContentTab(d) {
       if (nextStep) advancePanelStep('content', nextStep);
       state.tab = 'content';
     }
-    state.detail = candidate || (await api(`/api/candidates/${encodeURIComponent(id)}`));
+    await applyCandidatePayload(candidate, id);
     renderDetail();
   };
   const copyPrompt = (path, title, { advanceTo, panel = 'content' } = {}) => async () => {
@@ -14802,6 +15043,13 @@ function wireContentTab(d) {
         el.classList.toggle('open', el.dataset.contentStep === openId);
       });
       applyDetailShelf();
+      if (state.tab === 'website' && openId === 'images') {
+        const needsPaint =
+          !document.querySelector('#tab-panels .review-images-chrome') ||
+          !document.getElementById('ca-image-slots-grid');
+        if (needsPaint) renderDetail();
+        else void refreshImageSlotsGrid(id);
+      }
     });
   });
 
@@ -14994,7 +15242,7 @@ function wireContentTab(d) {
             withLaunchedConfirmBody({ presetId: btn.dataset.preset, applyPreset: true }),
           ),
         });
-        state.detail = result.candidate;
+        await applyCandidatePayload(result.candidate, id);
         state.contentOpenStep = 'structure';
         renderDetail();
       } catch (error) {
@@ -15021,9 +15269,9 @@ function wireContentTab(d) {
       });
       await refresh(result.candidate, 'fieldResearch');
       if (result.warnings?.length) {
-        showToast(result.warnings.join(' '), { tone: 'warn' });
+        announceBanner(result.warnings.join(' '), { tone: 'warn' });
       } else {
-        showToast('Outline composed — Site research next.');
+        announceBanner('Outline composed — Site research next.');
       }
     } catch (error) {
       await showModal({
@@ -15065,7 +15313,7 @@ function wireContentTab(d) {
         { method: 'POST', body: JSON.stringify(withLaunchedConfirmBody({})) },
       );
       await refresh(confirmed.candidate || result.candidate, 'write');
-      showToast('Outline loaded & confirmed — copy full-write prompt next.');
+      announceBanner('Outline loaded & confirmed — copy full-write prompt next.');
     } catch (error) {
       await showModal({
         title: 'Outline load failed',
@@ -15158,7 +15406,7 @@ function wireContentTab(d) {
         },
       );
       await refresh(result.candidate, 'brief');
-      showToast('Site research loaded — Content brief next.');
+      announceBanner('Site research loaded — Content brief next.');
     } catch (error) {
       await showModal({
         title: 'Site research load failed',
@@ -15206,7 +15454,7 @@ function wireContentTab(d) {
         },
       );
       await refresh(result.candidate, 'outline');
-      showToast('Brief confirmed — Outline next.');
+      announceBanner('Brief confirmed — Outline next.');
     } catch (error) {
       await showModal({
         title: 'Brief confirm failed',
@@ -15256,7 +15504,7 @@ function wireContentTab(d) {
       const next = nextContentStepAfterImages(result.candidate);
       await refresh(result.candidate, next);
       const n = result.slotCount ? ` ${result.slotCount} slots` : '';
-      showToast(
+      announceBanner(
         next === 'photoGroup'
           ? `Image queries loaded${n}. Load photo group next.`
           : `Image queries loaded${n}. Accept next.`,
@@ -15288,7 +15536,7 @@ function wireContentTab(d) {
         body: JSON.stringify(withLaunchedConfirmBody({})),
       });
       await refresh(result.candidate, 'accept');
-      showToast(
+      announceBanner(
         result.attached?.groupId
           ? 'Photo group already loaded — Accept next.'
           : 'Load photo group skipped — Accept next.',
@@ -15337,7 +15585,7 @@ function wireContentTab(d) {
       }
       const next = nextContentStepAfterFinal(result.candidate);
       await refresh(result.candidate, next);
-      showToast(
+      announceBanner(
         next === 'imageQueries'
           ? 'Final check recorded — Image queries next.'
           : next === 'photoGroup'
@@ -15378,7 +15626,7 @@ function wireContentTab(d) {
           bodyHtml: speechCheckResultBodyHtml(data),
         });
       } else {
-        showToast('Speech/SEO Refinement clear — Final check next.');
+        announceBanner('Speech/SEO Refinement clear — Final check next.');
       }
       await refresh(cand, needs.needed ? 'editor' : 'finalCheck');
     } catch (error) {
@@ -15487,7 +15735,9 @@ function wireContentTab(d) {
         needsRewrite = true;
       }
       const candidate =
-        speechData?.candidate || result.candidate || (await api(`/api/candidates/${encodeURIComponent(id)}`));
+        speechData?.candidate || result.candidate || null;
+      if (candidate) await applyCandidatePayload(candidate, id);
+      else await loadSelectedCandidateDetail(id);
       const nextStep = needsRewrite ? 'editor' : reAcceptNeeded ? 'accept' : 'finalCheck';
       await refresh(candidate, nextStep);
       const bits = [
@@ -15500,7 +15750,7 @@ function wireContentTab(d) {
             ? 'Speech/SEO Refinement clear — Accept again to publish'
             : 'Speech/SEO Refinement clear — Final check next',
       ].filter(Boolean);
-      showToast(bits.join(' · '), { tone: needsRewrite || msgs.length ? 'warn' : 'ok' });
+      announceBanner(bits.join(' · '), { tone: needsRewrite || msgs.length ? 'warn' : 'ok' });
     } catch (error) {
       await showModal({
         title: 'Paste failed',
@@ -16397,9 +16647,11 @@ function wireContentTab(d) {
         method: 'POST',
         body: JSON.stringify({}),
       });
-      state.detail = result.candidate || state.detail;
+      if (result.candidate) await applyCandidatePayload(result.candidate);
+      else await loadSelectedCandidateDetail(id);
       showToast('Indexing marked done.');
       renderDetail();
+      notifyCandidatesChanged({ type: 'candidates', ids: [id] });
     } catch (error) {
       const map = { ...(state.websiteSoftDone || {}) };
       delete map.indexing;
@@ -16735,6 +16987,7 @@ function wireContentTab(d) {
         hideAcceptOverlay();
         announceStepComplete('Accept content');
         await refresh(result.candidate, 'prepare', 'website');
+        notifyCandidatesChanged({ type: 'accept', ids: [id] });
         const map = result.coverageMap;
         const logo = result.logo;
         const mapMissing = map && (map.ok === false || map.skipped);
@@ -16984,7 +17237,7 @@ function wireSiteConfigTab(d) {
             method: 'POST',
             body: JSON.stringify({ paletteId, fontTheme, allowNonPursue: false }),
           });
-          state.detail = result.candidate || (await api(`/api/candidates/${encodeURIComponent(d.id)}`));
+          await applyCandidatePayload(result.candidate, d.id);
         }
         if (!state.siteConfigSoftDone) state.siteConfigSoftDone = {};
         state.siteConfigSoftDone.look = true;
@@ -17010,7 +17263,7 @@ function wireSiteConfigTab(d) {
     });
   }
   const afterAddressChoice = async (result) => {
-    if (result?.candidate) state.detail = result.candidate;
+    if (result?.candidate) await applyCandidatePayload(result.candidate);
     if (!state.siteConfigSoftDone) state.siteConfigSoftDone = {};
     state.siteConfigSoftDone.address = true;
     advancePanelStep('site-config', 'domain');
@@ -17298,7 +17551,7 @@ function wireSiteConfigTab(d) {
         method: 'POST',
         body: JSON.stringify(body),
       });
-      if (result?.candidate) state.detail = result.candidate;
+      if (result?.candidate) await applyCandidatePayload(result.candidate);
       if (result?.sources) state.baSources = result.sources;
       if (result?.apifyPlanUsage) state.apifyPlanUsage = result.apifyPlanUsage;
       else if (result?.package?.apifyPlanUsage) {
@@ -17352,8 +17605,8 @@ function wireSiteConfigTab(d) {
       });
     } catch (error) {
       try {
-        const refreshed = await api(`/api/candidates/${encodeURIComponent(d.id)}`);
-        if (refreshed) state.detail = refreshed;
+        const refreshed = await fetchCandidateDetail(d.id, ['address']);
+        if (refreshed) await applyCandidatePayload(refreshed, d.id);
       } catch {
         /* keep prior detail */
       }
@@ -17766,7 +18019,7 @@ function wireSiteConfigTab(d) {
           businessName: nap.businessName || '',
           phone: nap.phone || '',
           email: nap.email || '',
-          radiusMiles: nap.radiusMiles || '40',
+          radiusMiles: nap.radiusMiles || '15',
           siteArchetype: nap.siteArchetype || 'multi_service',
           paletteId: nap.paletteId || 'slate-gold',
           fontTheme: nap.fontTheme || 'archivo-source',
@@ -17816,7 +18069,7 @@ function wireSiteConfigTab(d) {
           businessName: nap.businessName || '',
           phone: nap.phone || '',
           email: nap.email || '',
-          radiusMiles: nap.radiusMiles || '40',
+          radiusMiles: nap.radiusMiles || '15',
           siteArchetype: nap.siteArchetype || 'multi_service',
           paletteId: nap.paletteId || 'slate-gold',
           fontTheme: nap.fontTheme || 'archivo-source',
@@ -17827,7 +18080,7 @@ function wireSiteConfigTab(d) {
           allowNonPursue: false,
         }),
       });
-      state.detail = result.candidate || (await api(`/api/candidates/${encodeURIComponent(d.id)}`));
+      await applyCandidatePayload(result.candidate, d.id);
       d.siteConfigDraft = result.draft || state.detail?.siteConfigDraft;
       if (nap.paletteId || nap.fontTheme) {
         try {
@@ -17919,7 +18172,7 @@ function wireSiteConfigTab(d) {
           method: 'POST',
           body: JSON.stringify({ patch, ...nap, allowNonPursue: false }),
         });
-        state.detail = result.candidate || (await api(`/api/candidates/${encodeURIComponent(d.id)}`));
+        await applyCandidatePayload(result.candidate, d.id);
         state.tab = 'site-config';
         renderDetail();
         const left = result.placeholders || [];
@@ -18138,7 +18391,7 @@ function wireSiteConfigTab(d) {
           throw error;
         }
       }
-      state.detail = result.candidate || (await api(`/api/candidates/${encodeURIComponent(d.id)}`));
+      await applyCandidatePayload(result.candidate, d.id);
       advancePanelStep('site-config', 'service-area');
       state.tab = 'site-config';
       renderDetail();
@@ -18192,7 +18445,7 @@ function wireSiteConfigTab(d) {
           method: 'POST',
           body: JSON.stringify({ json: text, ...nap, allowNonPursue: false }),
         });
-        state.detail = result.candidate || (await api(`/api/candidates/${encodeURIComponent(d.id)}`));
+        await applyCandidatePayload(result.candidate, d.id);
         d.siteConfigDraft = result.draft || state.detail?.siteConfigDraft;
         if (nap.paletteId || nap.fontTheme) {
           try {
@@ -18283,8 +18536,9 @@ function wireSiteConfigTab(d) {
       markSoftDonePrior('siteConfigSoftDone', SITE_CONFIG_STEP_ORDER, 'phone');
       if (!state.siteConfigSoftDone) state.siteConfigSoftDone = {};
       state.siteConfigSoftDone.phone = true;
-      state.detail = result.candidate || (await api(`/api/candidates/${encodeURIComponent(cid)}`));
+      await applyCandidatePayload(result.candidate, cid);
       renderDetail();
+      notifyCandidatesChanged({ type: 'candidates', ids: [cid] });
       await showModal({
         title: 'Number provisioned',
         confirmLabel: 'OK',
@@ -18322,8 +18576,9 @@ function wireSiteConfigTab(d) {
       if (!state.siteConfigSoftDone) state.siteConfigSoftDone = {};
       state.siteConfigSoftDone.phone = true;
       markSoftDonePrior('siteConfigSoftDone', SITE_CONFIG_STEP_ORDER, 'phone');
-      state.detail = result.candidate || (await api(`/api/candidates/${encodeURIComponent(cid)}`));
+      await applyCandidatePayload(result.candidate, cid);
       renderDetail();
+      notifyCandidatesChanged({ type: 'candidates', ids: [cid] });
     } catch (error) {
       if (btn) btn.disabled = false;
       await showModal({
@@ -18392,7 +18647,9 @@ function wireSiteConfigTab(d) {
       esc,
       primaryCity: accepted.primaryCity,
       state: accepted.state,
-      radiusMiles: accepted.serviceRadiusMiles || 40,
+      radiusMiles: d.meta?.lastServiceAreaAt
+        ? accepted.serviceRadiusMiles || 15
+        : 15,
       initialSelected: Array.isArray(accepted.coverageAreas)
         ? accepted.coverageAreas
         : (accepted.targetSuburbs || []).map((name) => ({ name, state: accepted.state })),
@@ -18470,7 +18727,7 @@ function wireSiteConfigTab(d) {
         if (!state.siteConfigSoftDone) state.siteConfigSoftDone = {};
         state.siteConfigSoftDone['service-area'] = true;
         markSoftDonePrior('siteConfigSoftDone', SITE_CONFIG_STEP_ORDER, 'service-area');
-        state.detail = result.candidate || (await api(`/api/candidates/${encodeURIComponent(d.id)}`));
+        await applyCandidatePayload(result.candidate, d.id);
         const mapNote = result.coverageMap?.error
           ? ` · map: ${result.coverageMap.error}`
           : result.coverageMap?.warning
@@ -18484,6 +18741,7 @@ function wireSiteConfigTab(d) {
         );
         advancePanelStep('site-config', 'phone');
         renderDetail();
+        notifyCandidatesChanged({ type: 'candidates', ids: [d.id] });
       },
     })
       .then(async (m) => {
@@ -18607,17 +18865,17 @@ function renderDetail() {
         if (state.narrativeAutoAcceptFailed instanceof Set) {
           state.narrativeAutoAcceptFailed.delete(d.id);
         }
-        state.detail = await api(`/api/candidates/${encodeURIComponent(d.id)}`);
+        await loadSelectedCandidateDetail(d.id);
         await loadCandidates();
         if (state.selectedId === d.id) renderDetail();
-        showToast('Narrative accepted');
+        announceStepComplete('Narrative');
       })
       .catch((error) => {
         if (!(state.narrativeAutoAcceptFailed instanceof Set)) {
           state.narrativeAutoAcceptFailed = new Set();
         }
         state.narrativeAutoAcceptFailed.add(d.id);
-        showToast(error.message || 'Narrative draft needs fixes');
+        showToast(error.message || 'Narrative draft needs fixes', { tone: 'warn' });
       })
       .finally(() => {
         state._narrativeAutoAccepting = false;
@@ -18642,7 +18900,7 @@ function renderDetail() {
           method: 'POST',
           body: JSON.stringify({ json: text }),
         });
-        state.detail = await api(`/api/candidates/${encodeURIComponent(d.id)}`);
+        await loadSelectedCandidateDetail(d.id);
         state.tab = 'narrative';
         await loadCandidates();
         renderDetail();
@@ -18650,9 +18908,9 @@ function renderDetail() {
           if (state.narrativeAutoAcceptFailed instanceof Set) {
             state.narrativeAutoAcceptFailed.delete(d.id);
           }
-          showToast('Narrative accepted');
+          announceStepComplete('Narrative');
         } else if (state.detail?.narrativeDraft) {
-          showToast('Draft saved — fix validation issues and Load again');
+          showToast('Draft saved — fix validation issues and Load again', { tone: 'warn' });
         }
       } catch (error) {
         await showModal({
@@ -18708,7 +18966,7 @@ function renderDetail() {
             notes: document.getElementById('decision-notes').value || null,
           }),
         });
-        state.detail = await api(`/api/candidates/${encodeURIComponent(d.id)}`);
+        await loadSelectedCandidateDetail(d.id);
         await loadCandidates();
         renderDetail();
         notifyCandidatesChanged({ type: 'candidates', ids: [d.id] });
@@ -18863,7 +19121,7 @@ function wireUi() {
       await loadCandidates();
       notifyCandidatesChanged({ type: 'candidates', ids });
       if (state.selectedId) {
-        state.detail = await api(`/api/candidates/${encodeURIComponent(state.selectedId)}`);
+        await loadSelectedCandidateDetail(state.selectedId);
         if (state.selectedIds.size > 1) renderMultiDetail();
         else renderDetail();
       }
@@ -18896,7 +19154,11 @@ function wireUi() {
   document.querySelectorAll('.tab').forEach((tab) => {
     tab.addEventListener('click', () => {
       state.tab = tab.dataset.tab;
-      renderDetail();
+      const id = state.selectedId;
+      void (async () => {
+        if (id) await ensureDetailSlices(id, slicesForTab(state.tab));
+        renderDetail();
+      })();
     });
   });
 
@@ -20727,10 +20989,12 @@ async function generatePhotoSelected() {
     ]);
     if (failures.length) {
       if (!(await showGenerateFailures(failures))) {
-        showToast(`Generated with ${failures.length} error${failures.length === 1 ? '' : 's'}.`);
+        announceBanner(`Generated with ${failures.length} error${failures.length === 1 ? '' : 's'}.`, {
+          tone: 'warn',
+        });
       }
     } else {
-      showToast(`Generated ${n} OpenAI job${n === 1 ? '' : 's'}.`);
+      announceBanner(`Generated ${n} OpenAI job${n === 1 ? '' : 's'}.`);
     }
   } finally {
     await settleSlotBusy();
@@ -21310,7 +21574,7 @@ function wirePhotoUi() {
                 }),
               }),
           );
-          showToast('Generated OpenAI before/after pair.');
+          announceBanner('Generated OpenAI before/after pair.');
         } else {
           await withFluxProgress(
             {
@@ -21330,7 +21594,7 @@ function wirePhotoUi() {
                 }),
               }),
           );
-          showToast('Generated photo.');
+          announceBanner('Generated photo.');
         }
         await loadPhotoGroupView();
         renderPhotoView();
@@ -22807,7 +23071,7 @@ async function applyCandidateArchive(archived) {
       state.detail = null;
       syncCandidatesDetailVisibility();
     } else if (state.selectedId) {
-      state.detail = await api(`/api/candidates/${encodeURIComponent(state.selectedId)}`);
+      await loadSelectedCandidateDetail(state.selectedId);
       if (state.selectedIds.size > 1) renderMultiDetail();
       else renderDetail();
     }
@@ -22917,7 +23181,7 @@ async function applyCandidatePermanentDelete() {
       /* optional */
     }
     if (state.selectedId && state.selectedIds.has(state.selectedId)) {
-      state.detail = await api(`/api/candidates/${encodeURIComponent(state.selectedId)}`);
+      await loadSelectedCandidateDetail(state.selectedId);
       if (state.selectedIds.size > 1) renderMultiDetail();
       else renderDetail();
     } else if (state.selectedIds.size > 1) {
@@ -24321,7 +24585,11 @@ function wireDiscoveryUi() {
         await selectDiscoveryBatch(job.batchId || state.discoveryBatchId);
         setDeterminateProgress(bar, {});
         if (progress) progress.classList.add('hidden');
-        announceStepComplete('Light SERP');
+        if (job.status === 'error') {
+          announceBanner('Light SERP failed', { tone: 'err' });
+        } else {
+          announceStepComplete('Light SERP');
+        }
         const p = job.probe || job;
         await showModal({
           title: 'Light SERP complete',
@@ -24805,9 +25073,16 @@ async function pollBatchJob(batchJobId) {
         .map((c) => `${c.candidateId}: ${c.error || 'error'}`)
         .join(' · ');
       if (detailEl) {
-        detailEl.textContent = `${batch.act}: ${done}/${total} finished · ${batch.running || 0} running · ${
-          batch.pending || 0
-        } queued${failBits ? ` · ${failBits}` : ''}`;
+        const stepBits = (batch.children || [])
+          .filter((c) => c.status === 'running' && c.step)
+          .slice(0, 2)
+          .map((c) => `${c.candidateId}: ${jobActLabel(c.step)}`)
+          .join(' · ');
+        detailEl.textContent = `${jobActLabel(batch.act)}: ${done}/${total} finished · ${
+          batch.running || 0
+        } running · ${batch.pending || 0} queued${stepBits ? ` · ${stepBits}` : ''}${
+          failBits ? ` · ${failBits}` : ''
+        }`;
       }
       state.jobStatusLine = detailEl?.textContent || '';
       if (state.selectedIds.size > 1) renderMultiDetail();
@@ -24821,11 +25096,13 @@ async function pollBatchJob(batchJobId) {
       if (progress) progress.classList.add('hidden');
       if (batch.status === 'ok' || batch.status === 'done') {
         announceStepComplete(`Batch ${jobActLabel(batch.act)}`);
+      } else {
+        announceBanner(`Batch ${jobActLabel(batch.act)} failed`, { tone: 'err' });
       }
       await loadCandidates();
       if (state.selectedIds.size > 1) renderMultiDetail();
       else if (state.selectedId) {
-        state.detail = await api(`/api/candidates/${encodeURIComponent(state.selectedId)}`);
+        await loadSelectedCandidateDetail(state.selectedId);
         renderDetail();
       }
       renderActions();

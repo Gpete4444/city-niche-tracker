@@ -2,7 +2,7 @@
  * Ensure Astro local preview (astro dev --background) for post-Stage website preview.
  */
 
-import { spawn } from 'node:child_process';
+import { spawn, execFileSync } from 'node:child_process';
 import { createConnection } from 'node:net';
 
 const ROOT = process.cwd();
@@ -126,4 +126,66 @@ export async function ensureAstroPreview({ timeoutMs = 60000 } = {}) {
     started,
     error: `Astro preview did not become ready on ${url} within ${timeoutMs}ms`,
   };
+}
+
+function pidsListeningOnPort(port) {
+  const pids = new Set();
+  if (process.platform === 'win32') {
+    try {
+      const out = execFileSync('netstat', ['-ano'], { encoding: 'utf8' });
+      const needle = `:${port}`;
+      for (const line of out.split(/\r?\n/)) {
+        if (!line.includes(needle) || !/LISTENING/i.test(line)) continue;
+        const parts = line.trim().split(/\s+/);
+        const pid = parts[parts.length - 1];
+        if (/^\d+$/.test(pid) && pid !== '0') pids.add(Number(pid));
+      }
+    } catch {
+      /* ignore */
+    }
+    return [...pids];
+  }
+  try {
+    const out = execFileSync('lsof', ['-ti', `tcp:${port}`], { encoding: 'utf8' });
+    for (const part of out.split(/\s+/)) {
+      if (/^\d+$/.test(part)) pids.add(Number(part));
+    }
+  } catch {
+    /* ignore */
+  }
+  return [...pids];
+}
+
+function killPidTree(pid) {
+  if (!pid) return;
+  try {
+    if (process.platform === 'win32') {
+      execFileSync('taskkill', ['/PID', String(pid), '/T', '/F'], {
+        stdio: 'ignore',
+        windowsHide: true,
+      });
+    } else {
+      try {
+        process.kill(-pid, 'SIGTERM');
+      } catch {
+        process.kill(pid, 'SIGTERM');
+      }
+    }
+  } catch {
+    /* already gone */
+  }
+}
+
+/** Stop leftover `astro dev --background` on the template preview port. */
+export async function stopAstroPreview() {
+  const self = process.pid;
+  for (const pid of pidsListeningOnPort(PREVIEW_PORT)) {
+    if (pid === self) continue;
+    killPidTree(pid);
+  }
+  for (let i = 0; i < 20; i += 1) {
+    if (!(await portOpen(PREVIEW_PORT))) return true;
+    await sleep(100);
+  }
+  return !(await portOpen(PREVIEW_PORT));
 }

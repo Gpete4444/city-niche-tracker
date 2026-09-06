@@ -10,6 +10,8 @@
 import express from 'express';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { Readable } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
 import { loadEnvFile, fetchUserBalance } from '../scripts/lib/dataforseo.mjs';
 import { migrateDecisionsToScoreModel } from './lib/migrate-decisions-score.mjs';
 import { listPalettes } from '../scripts/lib/site-palettes.mjs';
@@ -24,6 +26,7 @@ import {
   ensureConfigFromResearch,
   getApprovedPackage,
   getCandidateDetail,
+  getCandidateShell,
   listCandidates,
   rejectNarrative,
   rejectNarratives,
@@ -205,7 +208,7 @@ import {
   isAssembleStale,
   launchFidelitySummary,
 } from './lib/preview-fidelity.mjs';
-import { ensureAstroPreview, ASTRO_PREVIEW_URL } from './lib/astro-preview.mjs';
+import { ensureAstroPreview, stopAstroPreview, ASTRO_PREVIEW_URL } from './lib/astro-preview.mjs';
 import { ensureAssembledPreview, stopAssembledPreview, contentNewerThanDist } from './lib/assembled-preview.mjs';
 import {
   enqueueHeavyJob,
@@ -229,7 +232,9 @@ import {
   findActiveLightJob,
   discoveryPackJobCandidateId,
   assertWriteSiteStartAllowed,
+  assertAcceptStartAllowed,
 } from './lib/rover-light-jobs.mjs';
+import { yieldEventLoop } from './lib/yield-event-loop.mjs';
 import {
   getGeneratePackCostPreview,
   runGeneratePackJob,
@@ -518,7 +523,7 @@ app.get('/api/map/coverage-preview', (req, res) => {
   try {
     const city = String(req.query.city || '').trim();
     const state = String(req.query.state || '').trim();
-    const radiusMiles = Number(req.query.radiusMiles ?? 40);
+    const radiusMiles = Number(req.query.radiusMiles ?? 15);
     const minPop = req.query.minPop != null ? Number(req.query.minPop) : 5000;
     const maxPopRaw = req.query.maxPop != null ? Number(req.query.maxPop) : null;
     if (!city || !state) {
@@ -946,14 +951,15 @@ app.post('/api/jobs/batch', (req, res) => {
     const body = req.body || {};
     const act = body.act;
     const candidateIds = Array.isArray(body.candidateIds) ? body.candidateIds : [];
+    const evalAll = act === 'evaluate-all' || act === 'evaluateAll';
     res.json(
       startBatchJobs({
-        act,
+        act: evalAll ? 'evaluate-all' : act,
         candidateIds,
         requireWithinLimit: true,
-        adsMode: body.adsMode === 'standard' ? 'standard' : 'live',
-        forceSerp: Boolean(body.forceSerp),
-        volumesOnly: Boolean(body.volumesOnly),
+        adsMode: evalAll ? 'live' : body.adsMode === 'standard' ? 'standard' : 'live',
+        forceSerp: evalAll ? false : Boolean(body.forceSerp),
+        volumesOnly: evalAll ? false : Boolean(body.volumesOnly),
       }),
     );
   } catch (error) {
@@ -1129,7 +1135,9 @@ app.get('/api/candidates/stage-flags', (req, res) => {
 
 app.get('/api/candidates/:id', (req, res) => {
   try {
-    res.json(getCandidateDetail(req.params.id));
+    const raw = req.query.include;
+    const include = raw == null || raw === '' ? [] : raw;
+    res.json(getCandidateDetail(req.params.id, { include }));
   } catch (error) {
     sendError(res, error);
   }
@@ -1372,7 +1380,7 @@ app.post('/api/candidates/:id/narrative/accept', (req, res) => {
     res.json({
       narrative: result.narrative,
       approved: result.approved,
-      candidate: getCandidateDetail(req.params.id),
+      candidate: getCandidateShell(req.params.id),
     });
   } catch (error) {
     sendError(res, error);
@@ -1403,7 +1411,7 @@ app.post('/api/candidates/narrative/reject', (req, res) => {
 app.post('/api/candidates/:id/narrative/reject', (req, res) => {
   try {
     rejectNarrative(req.params.id);
-    res.json({ ok: true, candidate: getCandidateDetail(req.params.id) });
+    res.json({ ok: true, candidate: getCandidateShell(req.params.id) });
   } catch (error) {
     sendError(res, error);
   }
@@ -1496,7 +1504,7 @@ app.get('/api/candidates/:id/address', (req, res) => {
   try {
     res.json({
       package: getBusinessAddressPackage(req.params.id),
-      candidate: getCandidateDetail(req.params.id),
+      candidate: getCandidateShell(req.params.id),
       recover: listRecoverableAddresses(req.params.id),
       sources: getAddressSourceReadiness(),
     });
@@ -1714,6 +1722,7 @@ app.post('/api/candidates/:id/content/accept', async (req, res) => {
   try {
     const body = req.body || {};
     assertLaunchedEditAllowed(acceptId, body);
+    assertAcceptStartAllowed(acceptId);
     const ACCEPT_TOTAL = 4;
     const { jobId } = startLightJob({
       candidateId: acceptId,
@@ -1730,6 +1739,7 @@ app.post('/api/candidates/:id/content/accept', async (req, res) => {
           ignoreWarnings: Boolean(body.ignoreWarnings),
           ignoreSeoWarnings: Boolean(body.ignoreSeoWarnings),
         });
+        await yieldEventLoop();
         let images = null;
         tick(2, 'Loading saved photos or pulling stock…');
         if (structureHasPhotosEnabled(acceptId)) {
@@ -1789,6 +1799,7 @@ app.post('/api/candidates/:id/content/accept', async (req, res) => {
         } else {
           console.log(`[accept] ${acceptId} photos skipped (structure has none enabled)`);
         }
+        await yieldEventLoop();
         let logo = null;
         tick(3, 'Generating logo…');
         console.log(`[accept] ${acceptId} generating logo…`);
@@ -1811,6 +1822,7 @@ app.post('/api/candidates/:id/content/accept', async (req, res) => {
             };
           }
         }
+        await yieldEventLoop();
         let coverageMap = null;
         tick(4, 'Building coverage map…');
         console.log(`[accept] ${acceptId} building coverage map…`);
@@ -1858,7 +1870,7 @@ app.post('/api/candidates/:id/content/accept', async (req, res) => {
           images,
           logo,
           coverageMap,
-          candidate: getCandidateDetail(acceptId),
+          candidate: getCandidateShell(acceptId),
         };
       },
     });
@@ -1906,11 +1918,11 @@ app.post('/api/candidates/:id/photo-groups/preview', (req, res) => {
   }
 });
 
-app.post('/api/candidates/:id/photo-groups/load', (req, res) => {
+app.post('/api/candidates/:id/photo-groups/load', async (req, res) => {
   try {
     assertLaunchedEditAllowed(req.params.id, req.body || {});
     const groupIds = normalizePhotoGroupIds(req.body || {});
-    res.json(applyPhotoGroups(req.params.id, groupIds));
+    res.json(await applyPhotoGroups(req.params.id, groupIds));
   } catch (error) {
     sendError(res, error);
   }
@@ -2809,7 +2821,7 @@ app.post('/api/candidates/:id/content/final-check', (req, res) => {
       return res.json({
         ...pasted,
         finalCheck: true,
-        candidate: stamped.candidate || getCandidateDetail(req.params.id),
+        candidate: stamped.candidate || getCandidateShell(req.params.id),
       });
     }
 
@@ -3234,7 +3246,7 @@ app.post('/api/candidates/:id/assemble', async (req, res) => {
           ...result,
           build,
           ship,
-          candidate: getCandidateDetail(candidateId),
+          candidate: getCandidateShell(candidateId),
         };
       },
     });
@@ -3406,7 +3418,7 @@ app.post('/api/candidates/:id/prepare-preview', async (req, res) => {
           build,
           preview,
           ship: null,
-          candidate: getCandidateDetail(candidateId),
+          candidate: getCandidateShell(candidateId),
         };
       },
     });
@@ -3549,7 +3561,7 @@ app.post('/api/candidates/:id/launch', async (req, res) => {
         return {
           ...out,
           site,
-          candidate: getCandidateDetail(candidateId),
+          candidate: getCandidateShell(candidateId),
           cloudflareConfigured: cloudflareConfigured(),
         };
       },
@@ -3798,7 +3810,7 @@ app.post('/api/candidates/:id/phone/skip', (req, res) => {
     const meta = saveMeta(req.params.id, {
       phoneSkippedAt: new Date().toISOString(),
     });
-    res.json({ meta, candidate: getCandidateDetail(req.params.id) });
+    res.json({ meta, candidate: getCandidateShell(req.params.id) });
   } catch (error) {
     sendError(res, error);
   }
@@ -3813,7 +3825,7 @@ app.post('/api/candidates/:id/indexing/done', (req, res) => {
       indexingDone: true,
       lastIndexingAt: new Date().toISOString(),
     });
-    res.json({ meta, candidate: getCandidateDetail(req.params.id) });
+    res.json({ meta, candidate: getCandidateShell(req.params.id) });
   } catch (error) {
     sendError(res, error);
   }
@@ -3871,10 +3883,11 @@ app.post('/api/candidates/:id/phone/provision-twilio', async (req, res) => {
         },
       );
     }
+    saveMeta(req.params.id, { lastPhoneAt: new Date().toISOString() });
     res.json({
       site: updated,
       provisioned,
-      candidate: getCandidateDetail(req.params.id),
+      candidate: getCandidateShell(req.params.id),
     });
   } catch (error) {
     sendError(res, error);
@@ -4008,10 +4021,16 @@ app.get('/api/phone/calls/:id', (req, res) => {
 
 app.get('/api/phone/calls/:id/recording', async (req, res) => {
   try {
-    const { buf, contentType } = await getRecordingStream(req.params.id);
+    const { webStream, contentType, contentLength } = await getRecordingStream(req.params.id);
     res.setHeader('Content-Type', contentType);
     res.setHeader('Cache-Control', 'private, max-age=300');
-    res.send(buf);
+    if (contentLength) res.setHeader('Content-Length', contentLength);
+    if (!webStream) {
+      const err = new Error('Empty recording stream');
+      err.status = 502;
+      throw err;
+    }
+    await pipeline(Readable.fromWeb(webStream), res);
   } catch (error) {
     sendError(res, error);
   }
@@ -4114,7 +4133,7 @@ app.get('/api/candidates/:id/copy-outreach-prompt', (req, res) => {
 app.post('/api/candidates/:id/decision', (req, res) => {
   try {
     const meta = setDecision(req.params.id, req.body?.decision, req.body?.notes ?? null);
-    res.json({ meta, candidate: getCandidateDetail(req.params.id) });
+    res.json({ meta, candidate: getCandidateShell(req.params.id) });
   } catch (error) {
     sendError(res, error);
   }
@@ -4162,3 +4181,30 @@ const server = app.listen(PORT, HOST, () => {
 });
 server.requestTimeout = 30 * 60 * 1000;
 server.headersTimeout = 31 * 60 * 1000;
+
+let roverShuttingDown = false;
+async function shutdownRover() {
+  if (roverShuttingDown) return;
+  roverShuttingDown = true;
+  try {
+    await stopAstroPreview();
+  } catch {
+    /* ignore */
+  }
+  try {
+    await stopAssembledPreview();
+  } catch {
+    /* ignore */
+  }
+  await new Promise((resolve) => {
+    server.close(() => resolve());
+    setTimeout(resolve, 2500).unref?.();
+  });
+  process.exit(0);
+}
+process.on('SIGINT', () => {
+  shutdownRover();
+});
+process.on('SIGTERM', () => {
+  shutdownRover();
+});

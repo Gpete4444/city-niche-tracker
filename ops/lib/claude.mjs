@@ -3,6 +3,7 @@ import {
   buildCopyPrompt,
   extractPromptTemplate,
   getCandidateDetail,
+  getCandidateShell,
   loadMeta,
   readPromptFile,
   saveMeta,
@@ -183,7 +184,7 @@ export function pasteNarrativeDraft(candidateId, raw) {
     jobCostOverride: auto.jobCostOverride || false,
     narrative: auto.narrative || null,
     approved: auto.approved || null,
-    candidate: getCandidateDetail(candidateId),
+    candidate: getCandidateShell(candidateId),
   };
 }
 

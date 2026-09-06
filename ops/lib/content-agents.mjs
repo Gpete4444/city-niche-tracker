@@ -8,6 +8,7 @@ import {
   extractPromptTemplate,
   getApprovedPackage,
   getCandidateDetail,
+  getCandidateShell,
   pathsFor,
   readPromptFile,
   saveMeta,
@@ -373,7 +374,7 @@ export function buildContentBriefDraft(candidateId, { siteArchetype } = {}) {
     brief,
     config,
     archetype: arch,
-    candidate: getCandidateDetail(candidateId),
+    candidate: getCandidateShell(candidateId),
   };
 }
 
@@ -442,7 +443,7 @@ export function saveContentBrief(candidateId, body = {}) {
     lastContentBriefAt: now,
     siteArchetype: config.siteArchetype,
   });
-  return { ok: true, brief, candidate: getCandidateDetail(candidateId) };
+  return { ok: true, brief, candidate: getCandidateShell(candidateId) };
 }
 
 export function confirmContentBrief(candidateId, body = {}) {
@@ -494,7 +495,7 @@ export function confirmContentBrief(candidateId, body = {}) {
     lastContentBriefAt: now,
     lastContentBriefConfirmedAt: now,
   });
-  return { ok: true, brief, candidate: getCandidateDetail(candidateId) };
+  return { ok: true, brief, candidate: getCandidateShell(candidateId) };
 }
 
 export function buildOnesHotPrompt(candidateId, { siteArchetype, mode = 'homepage_first' } = {}) {
@@ -544,7 +545,7 @@ export function pasteContentResearch(candidateId, raw) {
     _ops: { savedAt: new Date().toISOString(), source: 'paste' },
   });
   saveMeta(candidateId, { lastContentResearchAt: new Date().toISOString() });
-  return { ok: true, research: readJson(p.contentResearch), candidate: getCandidateDetail(candidateId) };
+  return { ok: true, research: readJson(p.contentResearch), candidate: getCandidateShell(candidateId) };
 }
 
 export function buildOutlinePrompt(candidateId, { siteArchetype } = {}) {
@@ -579,7 +580,7 @@ export function pasteContentOutline(candidateId, raw) {
     lastContentOutlineAt: new Date().toISOString(),
     siteArchetype: config.siteArchetype,
   });
-  return { ok: true, outline: readJson(p.contentOutline), candidate: getCandidateDetail(candidateId) };
+  return { ok: true, outline: readJson(p.contentOutline), candidate: getCandidateShell(candidateId) };
 }
 
 export function seedDefaultOutline(candidateId, { siteArchetype } = {}) {
@@ -603,7 +604,7 @@ export function seedDefaultOutline(candidateId, { siteArchetype } = {}) {
     lastContentOutlineAt: new Date().toISOString(),
     siteArchetype: config.siteArchetype,
   });
-  return { ok: true, outline, candidate: getCandidateDetail(candidateId) };
+  return { ok: true, outline, candidate: getCandidateShell(candidateId) };
 }
 
 export function buildWriterPrompt(candidateId, { siteArchetype, mode = 'homepage_first' } = {}) {
@@ -780,7 +781,7 @@ export function getContentSpeechLint(candidateId) {
     speechLint,
     seoLint,
     autoFix,
-    candidate: getCandidateDetail(candidateId),
+    candidate: getCandidateShell(candidateId),
   };
 }
 
@@ -924,7 +925,7 @@ export function pasteAgentContentDraft(candidateId, raw, { mode = 'homepage_firs
     seoLint,
     autoFix,
     socialProofMerge,
-    candidate: getCandidateDetail(candidateId),
+    candidate: getCandidateShell(candidateId),
   };
 }
 
@@ -990,6 +991,6 @@ export function importContentDraftFromDisk(candidateId, { mode } = {}) {
     speechLint,
     seoLint,
     autoFix,
-    candidate: getCandidateDetail(candidateId),
+    candidate: getCandidateShell(candidateId),
   };
 }

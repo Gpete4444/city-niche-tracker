@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+## Version 2.0 (`2.0.0`)
+
+Leaner Rover process and dashboard payloads, plus Research **Run all** and a 15-mile service-area default:
+
+- **Shared Census map cache:** Map and service-area load `places.geojson` / `counties.geojson` once per process (`ops/lib/census-map-layers.mjs`) instead of each keeping a parsed copy.
+- **Candidate list:** `GET /api/candidates` uses a 10s write-invalidated cache and slim list `meta` (no logo/coverage variant blobs). Twilio provision dates come from a separate `sites.json` index so the list path does not cycle through full candidate loads.
+- **Lazy candidate detail:** Opening a candidate loads a shell; Content, Launch, Site-Config, and Prospects fetch only their slices. POST responses return a shell; the dashboard merges and refetches the open tab.
+- **Phone:** Call JSONL is cached by file mtime/size. Recording playback streams instead of buffering the full MP3.
+- **Preview hygiene:** Rover shutdown stops template `:4321` and assembled preview children. Idle assembled previews evict after 15 minutes. Default preview pool is 2 slots (`ASSEMBLED_PREVIEW_SLOTS`).
+- **Job memory:** Eval script logs are capped; finished Heavy/Light `result` objects drop after 60s. Finished script jobs keep the last 20.
+- **UI stay-alive:** Accept, photo-group Load, and image copy yield the event loop so SSE and clicks are not blocked for the whole copy burst. Accept is exclusive per candidate.
+- **Run all:** In Anthropic API mode, Research **Run all** fills missing Evaluations 1–4 in order (Live ads; no forced SERP). Stops if Narrative still needs Accept. Copy & paste hides the button.
+- **Photo groups:** Load lists groups for this candidate’s niche (plus already-attached ids), not the whole library.
+- **Service area:** Default radius is **15 miles** (was 40). Max selectable radius is 100. Map city toggles show a busy spinner while the polygon updates.
+- **Status banner:** Top-center complete/fail banner is larger and supports ok / warn / error tones.
+- **Env example:** Keys grouped by pipeline stage. Image source vars are uncommented placeholders.
+- **Regression:** `scripts/test-candidate-memory-pass.mjs` (list cache, slim meta, slices, shared GeoJSON). `scripts/test-photo-groups-detail-filter.mjs` (niche filter). Concurrency tests cover Accept-already-running.
+
 ## Version 1.9 (`1.9.0`)
 
 Loading chrome cleanup, Discovery API one-button, Concurrent Limit, Flux removal, and Review images:

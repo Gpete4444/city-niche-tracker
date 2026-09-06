@@ -21,7 +21,7 @@ The top bar is always there.
 
 ### Version {#chrome-version}
 
-**v1.9** (or current) sits next to the Rover wordmark. That is the product version, not a candidate.
+**v2.0** (or current) sits next to the Rover wordmark. That is the product version, not a candidate.
 
 ### Stages {#chrome-stages}
 
@@ -104,7 +104,9 @@ Sidebar editor for the **do-not-repropose** list (tracked orphans + Research at 
 
 Prove the market with paid search data and a written story. Set **pursue** only when you are ready to build. The list table shows a green **LIVE** badge after the checkbox for launched sites (blank otherwise), then Evaluation (1–4) and Website Track (1 Site-Config · 2 Content · 3 Launch), and **Type** after API $ (Discovery / Research / Website / Launched).
 
-**Concurrent Limit** (Settings, gear) is how many Evaluations may run at once (default 6, maximum 50). SERP / Enrich / Prospects use it in Copy & paste and API. API **Run Narrative** uses it too; paste Narrative is still Copy prompt for one candidate. If you select more rows than the Evaluations box, Rover explains the soft limit and does not start — raise **Evaluations** under Concurrent Limit or select fewer.
+**Concurrent Limit** (Settings, gear) is how many Evaluations may run at once (default 6, maximum 50). SERP / Enrich / Prospects use it in Copy & paste and API. API **Run Narrative** and **Run all** use it too; paste Narrative is still Copy prompt for one candidate. If you select more rows than the Evaluations box, Rover explains the soft limit and does not start — raise **Evaluations** under Concurrent Limit or select fewer.
+
+In **Anthropic API** mode, **Run all** (after Prospects) fills any missing Evaluations 1–4 in order. Ad volumes on that path are Live and do not force a new SERP. Copy & paste mode hides this button.
 
 ### Overview {#research-overview}
 

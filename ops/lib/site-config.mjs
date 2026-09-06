@@ -8,6 +8,7 @@ import {
   extractPromptTemplate,
   getApprovedPackage,
   getCandidateDetail,
+  getCandidateShell,
   pathsFor,
   readPromptFile,
   saveMeta,
@@ -886,7 +887,7 @@ export function buildSiteConfigPrompt(candidateId, nap = {}) {
     .replace('{{EMAIL}}', publicLeadsEmail(nap.email, nap.domain) || 'leads@example.com')
     .replace(
       '{{RADIUS_MILES}}',
-      nap.radiusMiles != null && nap.radiusMiles !== '' ? String(nap.radiusMiles) : '40',
+      nap.radiusMiles != null && nap.radiusMiles !== '' ? String(nap.radiusMiles) : '15',
     )
     .replace('{{ADDRESS_STREET}}', addrStreet || 'omit')
     .replace(
@@ -1069,9 +1070,12 @@ export function withSiteConfigPlaceholders(config, nap = {}, pack = null) {
 
   if (base.turnstileSiteKey == null) base.turnstileSiteKey = '';
 
-  if (isBlank(base.serviceRadiusMiles)) {
-    const n = Number(nap.radiusMiles);
-    base.serviceRadiusMiles = Number.isFinite(n) && n > 0 ? n : 40;
+  const napRadius = Number(nap.radiusMiles);
+  if (Number.isFinite(napRadius) && napRadius > 0) {
+    base.serviceRadiusMiles = napRadius;
+  } else if (isBlank(base.serviceRadiusMiles) || Number(base.serviceRadiusMiles) === 40) {
+    // Blank or leftover Claude example (40) → operator default 15.
+    base.serviceRadiusMiles = 15;
   }
 
   base.siteArchetype = normalizeArchetype(
@@ -1159,7 +1163,7 @@ export function pasteSiteConfigDraft(candidateId, raw, nap = {}) {
     draft,
     suburbCheck,
     placeholders,
-    candidate: getCandidateDetail(candidateId),
+    candidate: getCandidateShell(candidateId),
   };
 }
 
@@ -1272,7 +1276,7 @@ export function updateSiteConfigDraft(candidateId, patch = {}, nap = {}) {
     draft,
     suburbCheck,
     placeholders,
-    candidate: getCandidateDetail(candidateId),
+    candidate: getCandidateShell(candidateId),
   };
 }
 
@@ -1356,7 +1360,7 @@ export function acceptSiteConfig(
       businessName: clean.businessName,
       primaryCity: clean.primaryCity,
     }),
-    candidate: getCandidateDetail(candidateId),
+    candidate: getCandidateShell(candidateId),
   };
 }
 
@@ -1393,8 +1397,8 @@ export function acceptServiceArea(
   const miles = Number(radiusMiles);
   const serviceRadiusMiles =
     Number.isFinite(miles) && miles > 0
-      ? Math.min(120, Math.max(1, miles))
-      : Number(accepted.serviceRadiusMiles) || 40;
+      ? Math.min(100, Math.max(1, miles))
+      : Number(accepted.serviceRadiusMiles) || 15;
 
   const selected = Array.isArray(selectedCities) ? selectedCities : [];
   if (!selected.length) {
@@ -1486,7 +1490,7 @@ export function acceptServiceArea(
     coverageAreas,
     targetSuburbs,
     serviceRadiusMiles,
-    candidate: getCandidateDetail(candidateId),
+    candidate: getCandidateShell(candidateId),
   };
 }
 
@@ -1507,7 +1511,7 @@ export function setCandidateArchetype(candidateId, siteArchetype) {
     ok: true,
     siteArchetype: id,
     archetypes: listArchetypes(),
-    candidate: getCandidateDetail(candidateId),
+    candidate: getCandidateShell(candidateId),
   };
 }
 
@@ -1626,7 +1630,7 @@ export function applySiteConfigBrand(candidateId, paletteId, nap = {}) {
     fontTheme: brand.fontTheme || null,
     placeholders,
     suburbCheck,
-    candidate: getCandidateDetail(candidateId),
+    candidate: getCandidateShell(candidateId),
   };
 }
 

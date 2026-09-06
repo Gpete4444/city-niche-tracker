@@ -68,6 +68,92 @@ function countEnrichTargets(research) {
   return urls.size || (research.serp.uniqueOrganicDomains?.length ?? 0);
 }
 
+const EVAL_ALL_STEPS = ['research', 'enrich', 'narrative', 'prospects'];
+const EVAL_ALL_STEP_LABELS = {
+  research: 'SERP / Volume',
+  enrich: 'Enrich',
+  narrative: 'Narrative',
+  prospects: 'Prospects',
+};
+
+function missingEvalAllStepsFromDetail(detail) {
+  const f = detail?.stageFlags || {};
+  const missing = [];
+  if (!f.hasResearch) missing.push('research');
+  if (!f.hasEnrichment) missing.push('enrich');
+  if (!f.hasNarrative) missing.push('narrative');
+  if (!f.hasProspects) missing.push('prospects');
+  return missing;
+}
+
+function estimateEvalAllStep(candidateId, step) {
+  if (step === 'narrative') {
+    try {
+      const p = getCostPreview(candidateId, 'narrative');
+      if (!p.error) return p;
+    } catch {
+      /* use heuristic when research JSON is not on disk yet */
+    }
+    const priced = estimateClaudeCostUsd({
+      inputTokens: 4000,
+      outputTokens: 2500,
+      model: defaultModel(),
+    });
+    return {
+      act: 'narrative',
+      estimateUsdLow: priced.costUsd,
+      estimateUsdHigh: priced.costUsd,
+    };
+  }
+  return getCostPreview(candidateId, step);
+}
+
+function getEvaluateAllCostPreview(candidateId) {
+  const detail = getCandidateDetail(candidateId);
+  const missing = missingEvalAllStepsFromDetail(detail);
+  if (!missing.length) {
+    return {
+      act: 'evaluate-all',
+      provider: 'mixed',
+      title: 'Run all evaluations?',
+      whatItDoes: 'Evaluations 1–4 are already complete.',
+      error: 'Already complete — Evaluations 1–4 are done.',
+      confirmLabel: 'Cannot run',
+    };
+  }
+  let low = 0;
+  let high = 0;
+  for (const step of missing) {
+    const p = estimateEvalAllStep(candidateId, step);
+    low += Number(p.estimateUsdLow) || 0;
+    high += Number(p.estimateUsdHigh) || 0;
+  }
+  const skipped = EVAL_ALL_STEPS.filter((s) => !missing.includes(s)).map(
+    (s) => EVAL_ALL_STEP_LABELS[s],
+  );
+  const running = missing.map((s) => EVAL_ALL_STEP_LABELS[s]);
+  const same = Math.abs(low - high) < 0.0001;
+  return {
+    act: 'evaluate-all',
+    provider: 'mixed',
+    title: 'Run all missing evaluations?',
+    whatItDoes: `Fills missing evaluations in order (${running.join(
+      ' → ',
+    )}). Ad volumes use Live queue and do not force a new SERP. Narrative uses the Anthropic API.`,
+    estimateLabel: same ? `~${formatUsd(low)}` : formatRange(low, high),
+    estimateUsdLow: Number(low.toFixed(4)),
+    estimateUsdHigh: Number(high.toFixed(4)),
+    estimateDetail: skipped.length
+      ? `Skipping already done: ${skipped.join(', ')}.`
+      : 'All four steps will run.',
+    willOverwrite: false,
+    overwriteNote: null,
+    confirmLabel: `Run all (est. ${same ? formatUsd(low) : formatRange(low, high)})`,
+    missingSteps: missing,
+    skippedSteps: skipped,
+  };
+}
+
 function overwriteFlags(detail, act) {
   const f = detail.stageFlags || {};
   if (act === 'research') return Boolean(f.hasResearch);
@@ -80,9 +166,12 @@ function overwriteFlags(detail, act) {
 /**
  * Build a cost preview for a paid stage action.
  * @param {string} candidateId
- * @param {string} act research|enrich|prospects|narrative|outreach|domain-pick|site-config|write-site
+ * @param {string} act research|enrich|prospects|narrative|outreach|domain-pick|site-config|write-site|evaluate-all
  */
 export function getCostPreview(candidateId, act) {
+  if (act === 'evaluate-all' || act === 'evaluateAll') {
+    return getEvaluateAllCostPreview(candidateId);
+  }
   const detail = getCandidateDetail(candidateId);
   const meta = loadMeta(candidateId);
   const last = meta.lastCosts || {};
@@ -386,32 +475,54 @@ export function getBatchCostPreview(candidateIds = [], act) {
       errors.push({ id, error: error.message });
     }
   }
-  const provider = previews[0]?.provider || (act === 'narrative' ? 'anthropic' : 'dataforseo');
-  const actTitle =
-    act === 'research' ? 'Ad volumes' : act === 'enrich' ? 'enrich' : act;
+  const evalAll = act === 'evaluate-all' || act === 'evaluateAll';
+  const provider =
+    previews[0]?.provider ||
+    (evalAll ? 'mixed' : act === 'narrative' ? 'anthropic' : 'dataforseo');
+  const actTitle = evalAll
+    ? 'Run all'
+    : act === 'research'
+      ? 'Ad volumes'
+      : act === 'enrich'
+        ? 'enrich'
+        : act;
+  const same = Math.abs(low - high) < 0.0001;
   return {
-    act,
+    act: evalAll ? 'evaluate-all' : act,
     provider,
     count: ids.length,
     runnable: previews.length,
-    title: `Batch ${actTitle} on ${ids.length}?`,
+    title: evalAll
+      ? `Run all missing evaluations on ${ids.length}?`
+      : `Batch ${actTitle} on ${ids.length}?`,
     estimateUsdLow: Number(low.toFixed(4)),
     estimateUsdHigh: Number(high.toFixed(4)),
     estimateLabel:
-      Math.abs(low - high) < 0.0001
+      same
         ? `~${formatUsd(low)} for ${previews.length} candidates`
         : `${formatUsd(low)}–${formatUsd(high)} for ${previews.length} candidates`,
-    estimateDetail: `Sum of per-candidate estimates (${previews.length} runnable${
-      errors.length ? `, ${errors.length} skipped` : ''
-    }).`,
+    estimateDetail: evalAll
+      ? `Fill-gaps 1–4. Ad volumes: Live, no Force new SERP. Narrative uses the Anthropic API. Sum of remaining steps (${previews.length} runnable${
+          errors.length ? `, ${errors.length} skipped` : ''
+        }).`
+      : `Sum of per-candidate estimates (${previews.length} runnable${
+          errors.length ? `, ${errors.length} skipped` : ''
+        }).`,
+    whatItDoes: evalAll
+      ? 'Runs missing Evaluations in order (SERP / Volume → Enrich → Narrative → Prospects). Skips steps that already have data.'
+      : null,
     willOverwrite: overwriteCount > 0,
     overwriteNote:
       overwriteCount > 0
         ? `${overwriteCount} of ${previews.length} already have this stage data and would be overwritten.`
         : null,
-    confirmLabel: `Run on ${previews.length} (est. ${
-      Math.abs(low - high) < 0.0001 ? formatUsd(low) : `${formatUsd(low)}–${formatUsd(high)}`
-    })`,
+    confirmLabel: evalAll
+      ? `Run all on ${previews.length} (est. ${
+          same ? formatUsd(low) : `${formatUsd(low)}–${formatUsd(high)}`
+        })`
+      : `Run on ${previews.length} (est. ${
+          same ? formatUsd(low) : `${formatUsd(low)}–${formatUsd(high)}`
+        })`,
     errors,
     previews,
   };

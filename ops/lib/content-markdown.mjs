@@ -16,6 +16,7 @@ import path from 'node:path';
 import {
   extractPromptTemplate,
   getCandidateDetail,
+  getCandidateShell,
   pathsFor,
   readPromptFile,
   saveMeta,
@@ -2158,7 +2159,7 @@ export function pasteContentDraft(candidateId, raw) {
     draft: readJson(p.contentDraft),
     check,
     socialProofMerge,
-    candidate: getCandidateDetail(candidateId),
+    candidate: getCandidateShell(candidateId),
   };
 }
 
@@ -2814,6 +2815,6 @@ export async function acceptContent(
     mode,
     galleryBa,
     nextStep: accepted._ops.nextStep,
-    candidate: getCandidateDetail(candidateId),
+    candidate: getCandidateShell(candidateId),
   };
 }

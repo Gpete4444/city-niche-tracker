@@ -4,7 +4,7 @@
  */
 import { existsSync, mkdirSync, writeFileSync, readFileSync, copyFileSync, unlinkSync } from 'node:fs';
 import path from 'node:path';
-import { pathsFor, getCandidateDetail, loadMeta, saveMeta } from './candidates.mjs';
+import { pathsFor, getCandidateDetail, getCandidateShell, loadMeta, saveMeta } from './candidates.mjs';
 import { syncSiteImagesToPublic } from './fill-site-images.mjs';
 import { findPlaceFeatureLocal } from './geo-neighbors.mjs';
 
@@ -1051,7 +1051,7 @@ export async function generateCoverageMapForCandidate(
       src,
       patched,
       path: path.relative(ROOT, abs).replace(/\\/g, '/'),
-      candidate: getCandidateDetail(candidateId),
+      candidate: getCandidateShell(candidateId),
     };
   } catch (error) {
     setCoverageMapProgress(candidateId, {
@@ -1123,6 +1123,6 @@ export function useCoverageMapVariant(candidateId, filename) {
     src,
     patched,
     path: path.relative(ROOT, live).replace(/\\/g, '/'),
-    candidate: getCandidateDetail(candidateId),
+    candidate: getCandidateShell(candidateId),
   };
 }

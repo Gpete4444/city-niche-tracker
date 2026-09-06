@@ -278,12 +278,13 @@ Stock photos when Structure has **Include photos** (Pull images / auto on Conten
 ### Env variable names
 
 ```env
+# IMAGE_SOURCES=unsplash,pexels,pixabay
 UNSPLASH_ACCESS_KEY=
 PEXELS_API_KEY=
 PIXABAY_API_KEY=
 ```
 
-Optional: `IMAGE_SOURCES=unsplash,pexels,pixabay` to control order.
+Optional: uncomment `IMAGE_SOURCES` to control provider order.
 
 ### Steps (pick one or more)
 
