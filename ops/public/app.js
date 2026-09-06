@@ -508,6 +508,23 @@ const state = {
   candidateGroups: [],
   archivedCount: 0,
   candidateSort: { key: 'proposedScore', dir: -1 },
+  evalConcurrency: 6,
+  concurrency: {
+    lightSerp: 2,
+    evaluations: 6,
+    writeSite: 6,
+    openaiPhotos: 5,
+    openaiBeforeAfter: 2,
+    heavy: 2,
+  },
+  concurrencyMax: {
+    lightSerp: 50,
+    evaluations: 50,
+    writeSite: 50,
+    openaiPhotos: 50,
+    openaiBeforeAfter: 20,
+    heavy: 12,
+  },
   detail: null,
   contentOpenStep: null,
   websiteOpenStep: null,
@@ -563,12 +580,13 @@ const state = {
     selectedFilename: null,
     selectedRail: null,
     rolePhotos: [],
-    flux: null,
     selectedChecks: {},
   },
   imageMatchFilter: 'all',
-  /** Review images source filter: all | stock | flux | openai */
+  /** Review images source filter: all | stock | openai */
   imageSourceFilter: 'all',
+  /** Review images title search (case-insensitive substring). */
+  imageTitleFilter: '',
   /** Full Review-images slot list (not just the active filter). */
   reviewImageSlots: [],
   flux: null,
@@ -580,6 +598,8 @@ const state = {
   photoLibCheckAnchor: null,
   /** Review / Photo-lib cards currently showing the generate overlay. */
   imageSlotBusyKeys: {},
+  /** Review images Photo groups menu is open. */
+  reviewPhotoGroupMenuOpen: false,
   multiQueue: false,
   lastBatchJob: null,
   tab: 'overview',
@@ -591,7 +611,6 @@ const state = {
   pollTimer: null,
   health: null,
   dfsBalance: null,
-  falBalance: null,
   balanceTimer: null,
   discoveryPresets: null,
   discoveryBatches: [],
@@ -662,6 +681,9 @@ async function api(path, options = {}) {
     if (data.speechLint) err.speechLint = data.speechLint;
     if (data.jobId) err.jobId = data.jobId;
     if (data.candidateId) err.candidateId = data.candidateId;
+    if (data.running != null) err.running = data.running;
+    if (data.limit != null) err.limit = data.limit;
+    if (data.selected != null) err.selected = data.selected;
     if (data.batchId) err.batchId = data.batchId;
     if (data.twilioSid) err.twilioSid = data.twilioSid;
     if (data.e164) err.e164 = data.e164;
@@ -937,166 +959,53 @@ function setDeterminateProgress(barEl, { done, total } = {}) {
   barEl.style.width = `${pct}%`;
 }
 
-/** Paint the header strip without consulting job snapshots. */
-function paintMasterProgress({ visible, label, detail, done, total, bar: showBar = true } = {}) {
-  const box = document.getElementById('rover-master-progress');
-  const labelEl = document.getElementById('rover-master-progress-label');
-  const detailEl = document.getElementById('rover-master-progress-detail');
-  const bar = document.getElementById('rover-master-progress-bar');
-  if (!box) return;
-  box.classList.toggle('hidden', !visible);
-  if (labelEl && label != null) labelEl.textContent = label;
-  if (detailEl && detail != null) detailEl.textContent = detail;
-  if (!visible) {
-    setDeterminateProgress(bar, {});
-    return;
-  }
-  if (!showBar) {
-    if (bar) {
-      bar.classList.add('is-determinate');
-      bar.style.animation = 'none';
-      bar.style.width = '0%';
-    }
-    return;
-  }
-  const known = Number(total) > 0 && done != null && Number.isFinite(Number(done));
-  setDeterminateProgress(bar, known ? { done: Number(done), total: Number(total) } : {});
+/** Keep job overlays flush under the sticky header. */
+function syncJobOverlayTop() {
+  const top = document.querySelector('.top');
+  const y = top?.getBoundingClientRect().bottom || 56;
+  document.documentElement.style.setProperty('--rover-job-overlay-top', `${Math.round(y)}px`);
 }
+window.addEventListener('resize', syncJobOverlayTop);
 
-function activeJobsFromSnap(snap) {
-  return (Array.isArray(snap?.jobs) ? snap.jobs : []).filter(
-    (j) => j.status === 'queued' || j.status === 'running',
-  );
-}
+/** In-page bars last shown from a job snapshot — only those get auto-cleared. */
+const jobSyncedBarOn = {
+  accept: false,
+  pull: false,
+  logoMap: false,
+  launch: false,
+};
 
-/** Header strip: one job = that bar; 2+ = summary, no single fill. */
-function refreshMasterFromJobs() {
-  const active = [
-    ...activeJobsFromSnap(state.heavyJobsSnap),
-    ...activeJobsFromSnap(state.lightJobsSnap),
-  ];
-  if (active.length >= 2) {
-    paintMasterProgress({
-      visible: true,
-      label: `${active.length} jobs running — open Heavy / Light`,
-      detail: '',
-      bar: false,
-    });
-    return true;
-  }
-  if (active.length === 1) {
-    const j = active[0];
-    const total = Number(j.progressTotal);
-    const done = Number(j.progressDone);
-    const known = Number.isFinite(total) && total > 0;
-    const frac = known ? ` ${Number.isFinite(done) ? done : 0}/${total}` : '';
-    paintMasterProgress({
-      visible: true,
-      label: j.label || j.phase || 'Job',
-      detail: `${j.detail || j.error || ''}${frac}`.trim(),
-      done: known && Number.isFinite(done) ? done : undefined,
-      total: known ? total : undefined,
-    });
-    return true;
-  }
-  return false;
-}
-
-/** Always-visible header strip; defers to Heavy/Light snapshots when jobs are active. */
-function setMasterProgress(opts = {}) {
-  if (refreshMasterFromJobs()) return;
-  paintMasterProgress(opts);
-}
-
-window.addEventListener('rover-progress', (ev) => {
-  setMasterProgress(ev.detail || {});
-});
-
-const FLUX_TYPICAL_MS = { photo: 60_000, pair: 150_000 };
-
-function fluxTypicalMs(kind, samples) {
-  const list = samples?.[kind];
-  if (Array.isArray(list) && list.length) {
-    return list.reduce((a, b) => a + b, 0) / list.length;
-  }
-  return FLUX_TYPICAL_MS[kind] || FLUX_TYPICAL_MS.photo;
-}
-
-function formatFluxElapsed(ms) {
+function formatGenerateElapsed(ms) {
   const s = Math.max(0, Math.floor(Number(ms) / 1000) || 0);
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 }
 
-function formatFluxEta(ms) {
-  const n = Math.max(0, Number(ms) || 0);
-  if (n <= 0) return '';
-  const min = Math.round(n / 60000);
-  if (min < 1) return '<1 min left';
-  return min === 1 ? '~1 min left' : `~${min} min left`;
-}
-
-function fluxUiStatus(raw, snap) {
-  const u = String(raw || '').toUpperCase();
-  if (['FAILED', 'ERROR', 'CANCELLED'].includes(u)) return u.toLowerCase();
-  if (['COMPLETED', 'OK', 'READY'].includes(u)) return 'finishing';
-  if (['IN_PROGRESS', 'PROCESSING', 'SUBMITTING'].includes(u)) return 'generating';
-  if (snap?.active && String(snap.model || '').toLowerCase() === 'openai') return 'generating';
-  return 'queued';
-}
-
-function watchFluxProgress({
+function watchGenerateProgress({
   label,
   detail,
   index = 1,
   total = 1,
   kind = 'photo',
-  samples,
 } = {}) {
   const watchStarted = Date.now();
   let timer = null;
-  const paint = async () => {
-    let snap = { active: false };
-    try {
-      snap = await api('/api/images/flux-progress');
-    } catch {
-      snap = { active: false };
-    }
-    const status = fluxUiStatus(snap.status, snap);
-    const step = snap.step || (kind === 'pair' ? 'before' : 'generate');
-    const elapsed = Date.now() - (Number(snap.startedAt) || watchStarted);
-    const waiting = Math.max(0, Number(total) - Number(index));
-    const typical = fluxTypicalMs(kind, samples);
-    const stepTypical =
-      step === 'after' ? Math.max(FLUX_TYPICAL_MS.photo, typical - FLUX_TYPICAL_MS.photo) : fluxTypicalMs(kind === 'pair' ? 'photo' : kind, samples);
+  const paint = () => {
+    const elapsed = Date.now() - watchStarted;
     const bits = [];
     if (Number(total) > 1) bits.push(`${index} / ${total}`);
     if (detail) bits.push(detail);
-    if (kind === 'pair' && (step === 'before' || step === 'after')) {
-      bits.push(step === 'before' ? 'Before' : 'After');
-    }
-    bits.push(status);
-    bits.push(formatFluxElapsed(elapsed));
-    const pos = snap.queuePosition;
-    if (status === 'queued' && pos != null && Number.isFinite(Number(pos))) {
-      bits.push(`#${Number(pos)} in queue`);
-    }
+    bits.push('generating');
+    bits.push(formatGenerateElapsed(elapsed));
+    const waiting = Math.max(0, Number(total) - Number(index));
     if (waiting) bits.push(`${waiting} waiting`);
-    if (status !== 'queued') {
-      const etaMs = Math.max(0, stepTypical - elapsed) + waiting * typical;
-      const eta = formatFluxEta(etaMs);
-      if (eta) bits.push(eta);
-    }
-    const intra = kind === 'pair' && step === 'after' ? 0.5 : 0;
-    const completed = Math.max(0, Number(index) - 1) + intra;
-    const queuedOnly = Number(total) <= 1 && status === 'queued';
     const multi = Number(total) > 1;
     setImagesProgress(true, {
       label: multi
         ? `Images loading ${index}`
         : label || (kind === 'pair' ? 'Generating pair…' : 'Generating…'),
       detail: multi ? `Images loading ${index}` : bits.join(' · '),
-      current: queuedOnly ? undefined : completed,
-      total: queuedOnly ? undefined : Number(total),
+      current: Math.max(0, Number(index) - 1),
+      total: Number(total),
     });
   };
   paint();
@@ -1217,20 +1126,52 @@ function waitSlotThumbLoaded(card, timeoutMs = 8000) {
 async function settleSlotBusy(key) {
   const keys = key != null && String(key).trim() ? [String(key).trim()] : slotBusyKeyList();
   for (const k of keys) {
-    const card = findGeneratingSlotCard(k);
-    if (card) {
-      setSlotGenerateOverlay(card, true);
-      await waitSlotThumbLoaded(card);
-      setSlotGenerateOverlay(card, false);
+    try {
+      const card = findGeneratingSlotCard(k);
+      if (card) {
+        setSlotGenerateOverlay(card, true);
+        await waitSlotThumbLoaded(card);
+      }
+      const live = findGeneratingSlotCard(k);
+      if (live) setSlotGenerateOverlay(live, false);
+    } finally {
+      const next = { ...(state.imageSlotBusyKeys || {}) };
+      const raw = String(k).replace(/^ba:/, '');
+      delete next[k];
+      if (raw) delete next[raw];
+      if (raw && !String(k).startsWith('ba:')) delete next[`ba:${raw}`];
+      state.imageSlotBusyKeys = next;
     }
-    const next = { ...(state.imageSlotBusyKeys || {}) };
-    delete next[k];
-    state.imageSlotBusyKeys = next;
+  }
+}
+
+let reviewImagesWorkDepth = 0;
+
+function hideReviewImagesProgress() {
+  if (reviewImagesWorkDepth > 0) return;
+  setImagesProgress(false);
+}
+
+async function withReviewImagesWork({ label, detail, key, card } = {}, fn) {
+  reviewImagesWorkDepth += 1;
+  const workLabel = label || 'Images loading…';
+  setImagesProgress(true, {
+    label: workLabel,
+    detail: detail || workLabel,
+  });
+  const busyKey = String(key || '').trim();
+  if (busyKey) beginSlotBusy(busyKey, card, { scroll: Boolean(card) });
+  try {
+    return await fn();
+  } finally {
+    if (busyKey) await settleSlotBusy(busyKey);
+    reviewImagesWorkDepth = Math.max(0, reviewImagesWorkDepth - 1);
+    hideReviewImagesProgress();
   }
 }
 
 async function withFluxProgress(opts, fn) {
-  const watch = watchFluxProgress(opts);
+  const watch = watchGenerateProgress(opts);
   if (opts?.detail) beginSlotBusy(opts.detail, opts.card);
   try {
     return await fn();
@@ -1626,23 +1567,7 @@ function closeApiCostMenu() {
   if (btn) btn.setAttribute('aria-expanded', 'false');
 }
 
-function closeJobsPopover() {
-  const pop = document.getElementById('jobs-popover');
-  const btn = document.getElementById('jobs-btn');
-  if (pop) pop.classList.add('hidden');
-  if (btn) btn.setAttribute('aria-expanded', 'false');
-}
-
-function closeLightJobsPopover() {
-  const pop = document.getElementById('light-jobs-popover');
-  const btn = document.getElementById('light-jobs-btn');
-  if (pop) pop.classList.add('hidden');
-  if (btn) btn.setAttribute('aria-expanded', 'false');
-}
-
 function closeAllJobPopovers() {
-  closeJobsPopover();
-  closeLightJobsPopover();
   closeHelpPanel();
 }
 
@@ -1726,8 +1651,6 @@ function wireHelpUi() {
     if (willOpen) {
       closeSettingsMenu();
       closeApiCostMenu();
-      closeJobsPopover();
-      closeLightJobsPopover();
       pop.classList.remove('hidden');
       btn.setAttribute('aria-expanded', 'true');
       void ensureLoaded();
@@ -1746,141 +1669,31 @@ function wireHelpUi() {
   });
 }
 
-function syncSettingsJobsK(concurrency) {
-  const sel = document.getElementById('settings-jobs-k');
-  if (!sel) return;
-  const n = Number(concurrency);
-  if (!Number.isFinite(n) || n < 1) return;
-  const v = String(Math.max(1, Math.min(6, Math.round(n))));
-  if (sel.value !== v) sel.value = v;
+function applyConcurrencyPayload(data) {
+  const next = { ...state.concurrency };
+  const keys = ['lightSerp', 'evaluations', 'writeSite', 'openaiPhotos', 'openaiBeforeAfter', 'heavy'];
+  for (const key of keys) {
+    const n = Number(data?.[key]);
+    if (Number.isFinite(n) && n >= 1) next[key] = n;
+  }
+  state.concurrency = next;
+  state.evalConcurrency = next.evaluations;
+  if (data?.max && typeof data.max === 'object') {
+    state.concurrencyMax = { ...state.concurrencyMax, ...data.max };
+  }
 }
 
-function jobProgressFrac(j) {
-  const total = Number(j?.progressTotal);
-  const done = Number(j?.progressDone);
-  if (!Number.isFinite(total) || total <= 0) return '';
-  return `${Number.isFinite(done) ? done : 0}/${total}`;
-}
-
-function jobRowBarHtml(j) {
-  const total = Number(j?.progressTotal);
-  const done = Number(j?.progressDone);
-  const known = Number.isFinite(total) && total > 0;
-  if (j?.status === 'error' && !known) {
-    return `<span class="jobs-row-track"><span class="job-progress-bar is-determinate" style="width:100%;animation:none;background:#b91c1c"></span></span>`;
-  }
-  if (!known) {
-    if (j?.status === 'running' || j?.status === 'queued') {
-      return `<span class="jobs-row-track"><span class="job-progress-bar"></span></span>`;
-    }
-    return '';
-  }
-  const pct = Math.max(0, Math.min(100, Math.round((100 * (Number.isFinite(done) ? done : 0)) / total)));
-  return `<span class="jobs-row-track"><span class="job-progress-bar is-determinate" style="width:${pct}%;animation:none"></span></span>`;
-}
-
-function renderJobRowHtml(j) {
-  const status = esc(j.status || '');
-  const phase = esc(j.label || j.phase || '');
-  const id = esc(j.batchId || j.candidateId || '');
-  const detail = j.detail || j.error || '';
-  const frac = jobProgressFrac(j);
-  const meta = `${phase}${detail ? ` · ${esc(detail)}` : ''}${frac ? ` ${esc(frac)}` : ''}`;
-  return `<button type="button" class="jobs-row" data-jobs-candidate="${id}" data-jobs-phase="${esc(
-    j.phase || '',
-  )}" data-jobs-batch="${esc(j.batchId || '')}">
-      <span class="jobs-row-id">${id}</span>
-      <span class="jobs-row-status ${status}">${status}</span>
-      <span class="jobs-row-meta">${meta}</span>
-      ${jobRowBarHtml(j)}
-    </button>`;
-}
-
-function fillJobsPopoverList(list, jobs, onClose) {
-  if (!list) return;
-  const rows = Array.isArray(jobs) ? jobs : [];
-  const activeJobs = rows.filter((j) => j.status === 'queued' || j.status === 'running');
-  const activeIds = new Set(activeJobs.map((j) => String(j.candidateId || '')));
-  const recentJobs = rows
-    .filter((j) => j.status === 'done' || j.status === 'error')
-    .filter((j) => !activeIds.has(String(j.candidateId || '')))
-    .slice(0, 5);
-  if (!activeJobs.length && !recentJobs.length) {
-    list.innerHTML = `<p class="muted small jobs-empty">No jobs running.</p>`;
-    return;
-  }
-  let html = '';
-  if (activeJobs.length) {
-    html += activeJobs.map(renderJobRowHtml).join('');
-  } else {
-    html += `<p class="muted small jobs-empty">No jobs running.</p>`;
-  }
-  if (recentJobs.length) {
-    html += `<p class="muted small jobs-recent-label">Recent</p>`;
-    html += recentJobs.map(renderJobRowHtml).join('');
-  }
-  list.innerHTML = html;
-  list.querySelectorAll('[data-jobs-candidate]').forEach((row) => {
-    row.addEventListener('click', () => {
-      const cid = row.getAttribute('data-jobs-candidate');
-      const phase = row.getAttribute('data-jobs-phase');
-      const batchId = row.getAttribute('data-jobs-batch');
-      if (typeof onClose === 'function') onClose();
-      else closeAllJobPopovers();
-      if (phase === 'generate-pack' || (batchId && String(cid || '').startsWith('discovery:'))) {
-        const bid = batchId || String(cid || '').replace(/^discovery:/, '');
-        setView('discovery');
-        if (bid && typeof selectDiscoveryBatch === 'function') {
-          selectDiscoveryBatch(bid).catch(() => {});
-        }
-        return;
-      }
-      if (cid && typeof selectCandidate === 'function') {
-        try {
-          selectCandidate(cid);
-        } catch {
-          /* ignore */
-        }
-      }
-    });
+function syncSettingsConcurrencyInputs() {
+  document.querySelectorAll('[data-conc-key]').forEach((input) => {
+    const key = input.getAttribute('data-conc-key');
+    const n = Number(state.concurrency?.[key]);
+    if (!Number.isFinite(n)) return;
+    const max = Number(state.concurrencyMax?.[key]) || Number(input.max) || 50;
+    const v = String(Math.max(1, Math.min(max, Math.round(n))));
+    if (input.value !== v) input.value = v;
+    const tip = `Maximum ${max}`;
+    input.setAttribute('data-tip', tip);
   });
-}
-
-function renderHeavyJobs(snap) {
-  const badge = document.getElementById('jobs-badge');
-  const meta = document.getElementById('jobs-popover-meta');
-  const list = document.getElementById('jobs-popover-list');
-  if (!badge || !list) return;
-  syncSettingsJobsK(snap?.concurrency);
-  const active = Number(snap?.activeCount || 0);
-  if (active > 0) {
-    badge.textContent = String(active);
-    badge.classList.remove('hidden');
-  } else {
-    badge.classList.add('hidden');
-  }
-  if (meta) {
-    meta.textContent = `K=${snap?.concurrency ?? '—'} · ${snap?.running ?? 0} running · ${snap?.queued ?? 0} queued`;
-  }
-  fillJobsPopoverList(list, snap?.jobs, closeAllJobPopovers);
-}
-
-function renderLightJobs(snap) {
-  const badge = document.getElementById('light-jobs-badge');
-  const meta = document.getElementById('light-jobs-popover-meta');
-  const list = document.getElementById('light-jobs-popover-list');
-  if (!badge || !list) return;
-  const active = Number(snap?.activeCount || 0);
-  if (active > 0) {
-    badge.textContent = String(active);
-    badge.classList.remove('hidden');
-  } else {
-    badge.classList.add('hidden');
-  }
-  if (meta) {
-    meta.textContent = `${snap?.running ?? 0} running`;
-  }
-  fillJobsPopoverList(list, snap?.jobs, closeAllJobPopovers);
 }
 
 function findActiveJob(snap, phase, candidateId) {
@@ -1896,39 +1709,39 @@ function findActiveJob(snap, phase, candidateId) {
 
 function syncLightInPageBars(snap) {
   syncGeneratePackOverlay(snap);
+  syncAcceptOverlay(snap);
   const cid = state.selectedId;
   if (!cid) return;
-  const accept = findActiveJob(snap, 'accept', cid);
-  if (accept) {
-    const total = Number(accept.progressTotal) || 4;
-    const done = Number(accept.progressDone) || 0;
-    setAcceptProgress(true, {
-      label: `Accepting ${done} / ${total}`,
-      detail: accept.detail || 'Working…',
-      step: Math.max(0, done - 1),
-      total,
-    });
-  }
   const logo = findActiveJob(snap, 'logo', cid);
   const map = findActiveJob(snap, 'coverage-map', cid);
   const logoMap = logo || map;
   if (logoMap) {
+    jobSyncedBarOn.logoMap = true;
     setImagesProgress(true, {
       label: logoMap.label || (logo ? 'Generating logo…' : 'Generating coverage map…'),
       detail: logoMap.detail || 'Working…',
       current: Number(logoMap.progressDone) || 0,
       total: Number(logoMap.progressTotal) || 0,
       box: 'ca-logo-map',
+      fromJob: true,
     });
+  } else if (jobSyncedBarOn.logoMap) {
+    jobSyncedBarOn.logoMap = false;
+    setImagesProgress(false, { box: 'ca-logo-map' });
   }
   const pull = findActiveJob(snap, 'images-pull', cid);
   if (pull) {
+    jobSyncedBarOn.pull = true;
     setImagesProgress(true, {
       label: pull.label || 'Pulling photos…',
       detail: pull.detail || 'Working…',
       current: Number(pull.progressDone) || 0,
       total: Number(pull.progressTotal) || 0,
+      fromJob: true,
     });
+  } else if (jobSyncedBarOn.pull) {
+    jobSyncedBarOn.pull = false;
+    setImagesProgress(false);
   }
   syncWriteSiteOverlay(snap);
   const research = ['research', 'enrich', 'prospects']
@@ -1956,20 +1769,21 @@ function syncLightInPageBars(snap) {
   }
 }
 
+/** Only the leader tab holds EventSource + job polls (Chrome: 6 HTTP/1.1 per origin). */
+const jobSseStarters = [];
+const jobLeaderPollStarters = [];
+const JOB_SNAP_STALE_MS = 8000;
+let jobSseLeaderStarted = false;
+let isJobStreamLeader = false;
+
 function wireJobStream({
-  btnId,
-  popId,
   streamUrl,
   pollUrl,
   channelName,
   apply,
-  closeSibling,
 }) {
-  const btn = document.getElementById(btnId);
-  const pop = document.getElementById(popId);
-  if (!btn || !pop) return;
-
   let lastAppliedSeq = 0;
+  let lastSnapAt = 0;
   let bc = null;
   try {
     bc = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel(channelName) : null;
@@ -1984,6 +1798,7 @@ function wireJobStream({
 
   const applySnap = (snap, { broadcast = true } = {}) => {
     if (!snap || typeof snap !== 'object') return;
+    lastSnapAt = Date.now();
     const seq = snapSeq(snap);
     if (seq > 0) {
       if (seq < lastAppliedSeq) return;
@@ -2008,7 +1823,10 @@ function wireJobStream({
       const data = ev?.data;
       if (!data?.snap) return;
       const seq = Number(data.at) || snapSeq(data.snap);
-      if (seq > 0 && seq < lastAppliedSeq) return;
+      if (seq > 0 && seq < lastAppliedSeq) {
+        lastSnapAt = Date.now();
+        return;
+      }
       applySnap(data.snap, { broadcast: false });
     };
   }
@@ -2021,11 +1839,7 @@ function wireJobStream({
     }
   };
 
-  const pollIfVisible = () => {
-    if (document.visibilityState === 'visible') poll();
-  };
-
-  try {
+  jobSseStarters.push(() => {
     const es = new EventSource(streamUrl);
     es.onmessage = (ev) => {
       try {
@@ -2037,62 +1851,130 @@ function wireJobStream({
     es.onerror = () => {
       poll();
     };
-  } catch {
-    /* EventSource unavailable */
-  }
-  setInterval(poll, 2000);
-  poll();
-  document.addEventListener('visibilitychange', pollIfVisible);
-  window.addEventListener('focus', pollIfVisible);
-
-  btn.addEventListener('click', (event) => {
-    event.stopPropagation();
-    const willOpen = pop.classList.contains('hidden');
-    if (willOpen) {
-      closeSettingsMenu();
-      closeApiCostMenu();
-      closeHelpPanel();
-      if (typeof closeSibling === 'function') closeSibling();
-      pop.classList.remove('hidden');
-      btn.setAttribute('aria-expanded', 'true');
-      poll();
-    } else if (btnId === 'jobs-btn') {
-      closeJobsPopover();
-    } else {
-      closeLightJobsPopover();
-    }
+    return es;
   });
-  pop.addEventListener('click', (event) => event.stopPropagation());
+
+  jobLeaderPollStarters.push(() => {
+    const id = setInterval(poll, 2000);
+    return () => clearInterval(id);
+  });
+
+  poll();
+  if (!bc) {
+    setInterval(poll, 2000);
+  } else {
+    setInterval(() => {
+      if (isJobStreamLeader) return;
+      if (document.visibilityState !== 'visible') return;
+      if (lastSnapAt && Date.now() - lastSnapAt < JOB_SNAP_STALE_MS) return;
+      poll();
+    }, JOB_SNAP_STALE_MS);
+  }
+}
+
+function openJobEventSources() {
+  const sources = [];
+  for (const start of jobSseStarters) {
+    try {
+      const es = start();
+      if (es) sources.push(es);
+    } catch {
+      /* EventSource unavailable */
+    }
+  }
+  return () => {
+    for (const es of sources) {
+      try {
+        es.close();
+      } catch {
+        /* ignore */
+      }
+    }
+  };
+}
+
+function startJobLeaderPolling() {
+  const stops = [];
+  for (const start of jobLeaderPollStarters) {
+    try {
+      const stop = start();
+      if (typeof stop === 'function') stops.push(stop);
+    } catch {
+      /* ignore */
+    }
+  }
+  return () => {
+    for (const stop of stops) {
+      try {
+        stop();
+      } catch {
+        /* ignore */
+      }
+    }
+  };
+}
+
+function becomeJobStreamLeader() {
+  isJobStreamLeader = true;
+  const closeEs = openJobEventSources();
+  const stopPoll = startJobLeaderPolling();
+  return () => {
+    isJobStreamLeader = false;
+    try {
+      closeEs();
+    } catch {
+      /* ignore */
+    }
+    try {
+      stopPoll();
+    } catch {
+      /* ignore */
+    }
+  };
+}
+
+function startJobStreamLeader() {
+  if (jobSseLeaderStarted) return;
+  jobSseLeaderStarted = true;
+  const locks = typeof navigator !== 'undefined' ? navigator.locks : null;
+  if (!locks?.request) {
+    becomeJobStreamLeader();
+    return;
+  }
+  void locks.request('rover-job-streams', () => {
+    const releaseLeader = becomeJobStreamLeader();
+    return new Promise((resolve) => {
+      const release = () => {
+        releaseLeader();
+        resolve();
+      };
+      window.addEventListener('pagehide', release, { once: true });
+    });
+  });
 }
 
 function wireJobsUi() {
   wireJobStream({
-    btnId: 'jobs-btn',
-    popId: 'jobs-popover',
     streamUrl: '/api/heavy-jobs/stream',
     pollUrl: '/api/heavy-jobs',
     channelName: 'rover-heavy-jobs',
-    closeSibling: closeLightJobsPopover,
     apply: (snap) => {
       state.heavyJobsSnap = snap;
-      renderHeavyJobs(snap);
+      if (snap?.concurrency != null) {
+        applyConcurrencyPayload({ heavy: snap.concurrency });
+        syncSettingsConcurrencyInputs();
+      }
       syncPrepareProgressFromJobs(snap);
       syncLaunchProgressFromJobs(snap);
-      refreshMasterFromJobs();
     },
   });
   wireJobStream({
-    btnId: 'light-jobs-btn',
-    popId: 'light-jobs-popover',
     streamUrl: '/api/light-jobs/stream',
     pollUrl: '/api/light-jobs',
     channelName: 'rover-light-jobs',
-    closeSibling: closeJobsPopover,
     apply: (snap) => {
       state.lightJobsSnap = snap;
-      renderLightJobs(snap);
       syncLightInPageBars(snap);
-      refreshMasterFromJobs();
       syncClaudeModeToggle();
     },
   });
@@ -2109,32 +1991,49 @@ function wireSettingsUi() {
 
   applyTheme(getTheme());
 
-  const jobsK = document.getElementById('settings-jobs-k');
-  const syncJobsKFromServer = async () => {
+  const syncConcurrencyFromServer = async () => {
     try {
-      const snap = await api('/api/heavy-jobs');
-      syncSettingsJobsK(snap?.concurrency ?? 2);
+      const data = await api('/api/concurrency');
+      applyConcurrencyPayload(data);
+      syncSettingsConcurrencyInputs();
     } catch {
-      /* ignore */
+      syncSettingsConcurrencyInputs();
     }
   };
-  void syncJobsKFromServer();
-  jobsK?.addEventListener('change', async () => {
-    const n = Number(jobsK.value);
-    jobsK.disabled = true;
-    try {
-      const snap = await api('/api/heavy-jobs/concurrency', {
-        method: 'POST',
-        body: JSON.stringify({ concurrency: n }),
-      });
-      syncSettingsJobsK(snap?.concurrency ?? n);
-      showToast(`Jobs concurrency set to K=${snap?.concurrency ?? n}.`);
-    } catch (error) {
-      showToast(error?.message || 'Could not update Jobs K.', { tone: 'err' });
-      void syncJobsKFromServer();
-    } finally {
-      jobsK.disabled = false;
-    }
+  void syncConcurrencyFromServer();
+
+  document.querySelectorAll('[data-conc-key]').forEach((input) => {
+    const save = async () => {
+      const key = input.getAttribute('data-conc-key');
+      if (!key) return;
+      const max = Number(state.concurrencyMax?.[key]) || Number(input.max) || 50;
+      let n = Math.round(Number(input.value));
+      if (!Number.isFinite(n)) n = Number(state.concurrency?.[key]) || 1;
+      n = Math.max(1, Math.min(max, n));
+      input.disabled = true;
+      try {
+        const data = await api('/api/concurrency', {
+          method: 'POST',
+          body: JSON.stringify({ [key]: n }),
+        });
+        applyConcurrencyPayload(data);
+        syncSettingsConcurrencyInputs();
+      } catch (error) {
+        showToast(error?.message || 'Could not update Concurrent Limit.', { tone: 'err' });
+        void syncConcurrencyFromServer();
+      } finally {
+        input.disabled = false;
+      }
+    };
+    input.addEventListener('change', () => {
+      void save();
+    });
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        input.blur();
+      }
+    });
   });
 
   btn.addEventListener('click', (event) => {
@@ -2146,7 +2045,7 @@ function wireSettingsUi() {
       closeApiCostMenu();
       menu.classList.remove('hidden');
       btn.setAttribute('aria-expanded', 'true');
-      void syncJobsKFromServer();
+      void syncConcurrencyFromServer();
     } else {
       closeSettingsMenu();
     }
@@ -2195,7 +2094,6 @@ const API_SPEND_LABELS = {
   writeSite: 'Write site (est.)',
   generatePack: 'Generate pack (est.)',
   addressSearch: 'Address Find (est.)',
-  flux: 'Flux',
 };
 
 /** Pipeline order for API $ tip line items. */
@@ -2208,7 +2106,6 @@ const API_SPEND_ORDER = [
   'writeSite',
   'generatePack',
   'addressSearch',
-  'flux',
 ];
 
 function apiSpendLabelForKey(key) {
@@ -2332,23 +2229,8 @@ function renderDfsBalance() {
   renderApiCostMenu();
 }
 
-function isFluxWalletError(error) {
-  if (error?.code === 'flux-exhausted' || error?.code === 'flux-insufficient') return true;
-  return /exhausted|below this job|user locked/i.test(String(error?.message || error || ''));
-}
-
-async function showFluxGenerateFailures(failures) {
+async function showGenerateFailures(failures) {
   if (!failures.length) return false;
-  const wallet = failures.find((line) => isFluxWalletError(line));
-  if (wallet) {
-    await showModal({
-      title: 'Generate failed',
-      confirmLabel: 'OK',
-      hideCancel: true,
-      bodyHtml: `<p>${esc(wallet)}</p>`,
-    });
-    return true;
-  }
   const items = failures
     .map((line) => `<li>${esc(line)}</li>`)
     .join('');
@@ -2359,14 +2241,6 @@ async function showFluxGenerateFailures(failures) {
     bodyHtml: `<p>${failures.length} job${failures.length === 1 ? '' : 's'} failed. Cards that succeeded were kept.</p><ul>${items}</ul>`,
   });
   return true;
-}
-
-function falBalanceChipTitle(b) {
-  if (b?.error) return b.error;
-  if (b && b.adminKeySet === false) {
-    return 'Set FAL_ADMIN_KEY in .env (fal dashboard → API keys → Admin), then restart Rover.';
-  }
-  return 'This key is API scope. Create an Admin key at fal.ai/dashboard/keys, set FAL_ADMIN_KEY, then restart Rover.';
 }
 
 function remainingTone(balance, { loading = false, failed = false, unset = false } = {}) {
@@ -2432,11 +2306,9 @@ function apiCostRows() {
   const cfg = state.apiCostConfigured || {};
   const payg = state.apiCostPayg || {};
   const dfs = state.dfsBalance;
-  const fal = state.falBalance;
   const apify = state.apifyPlanUsage;
   const twilio = state.twilioBalance;
   const dfsConfigured = cfg.dataforseo ?? Boolean(dfs);
-  const falConfigured = cfg.fal ?? Boolean(fal?.falKeySet);
   const apifyConfigured = cfg.apify ?? Boolean(apify && apify.ok !== false);
   const twilioConfigured = cfg.twilio ?? twilio?.configured === true;
 
@@ -2448,10 +2320,6 @@ function apiCostRows() {
       `Used ${formatMoney(apify.monthlyUsageUsd)} of ${formatMoney(apify.maxMonthlyUsageUsd)} this cycle.`,
     );
   }
-
-  const falTitle = fal?.ok && fal.balance != null
-    ? 'Photo / Review Flux generate. Prepaid fal.ai wallet. All-time spend · remaining credits.'
-    : falBalanceChipTitle(fal);
 
   return [
     {
@@ -2467,14 +2335,34 @@ function apiCostRows() {
           : 'Discovery, research, ranks. All-time spend · remaining wallet.',
       }),
     },
-    {
-      name: 'Anthropic',
-      ...apiCostPaygCell(
-        Boolean(cfg.anthropic),
-        'Copy, content, narrative. Prepaid credits billed per token.',
-        payg.anthropic,
-      ),
-    },
+    (() => {
+      const ab = state.anthropicBalance;
+      if (ab?.ok) {
+        const vendorSpend = Number(ab.spentAllTime);
+        const hasVendorSpend = Number.isFinite(vendorSpend) && vendorSpend > 0;
+        return {
+          name: 'Anthropic',
+          ...apiCostWalletCell({
+            configured: true,
+            loading: false,
+            ok: true,
+            balance: ab.balance,
+            spent: hasVendorSpend ? vendorSpend : payg.anthropic,
+            failTitle: ab.balance != null
+              ? 'Prepaid credits · spend and balance from Anthropic Admin API.'
+              : 'Prepaid credits. Spent is Rover-recorded; balance unavailable via Admin API.',
+          }),
+        };
+      }
+      return {
+        name: 'Anthropic',
+        ...apiCostPaygCell(
+          Boolean(cfg.anthropic),
+          'Copy, content, narrative. Prepaid credits billed per token.',
+          payg.anthropic,
+        ),
+      };
+    })(),
     {
       name: 'OpenAI',
       ...apiCostPaygCell(
@@ -2500,17 +2388,6 @@ function apiCostRows() {
         balance: apify?.remainingUsd,
         spent: apify?.spentAllTime,
         failTitle: apify?.error ? `${apifyTitleParts[0]} ${apify.error}` : apifyTitleParts.join(' '),
-      }),
-    },
-    {
-      name: 'Flux (fal.ai)',
-      ...apiCostWalletCell({
-        configured: falConfigured,
-        loading: !fal && falConfigured,
-        ok: Boolean(fal?.ok),
-        balance: fal?.balance,
-        spent: fal?.spentAllTime,
-        failTitle: falTitle,
       }),
     },
     {
@@ -2572,13 +2449,13 @@ function applyApiCostSnapshot(data) {
   if (data.configured) state.apiCostConfigured = data.configured;
   if (data.payg) state.apiCostPayg = data.payg;
   if (data.dfs) state.dfsBalance = data.dfs;
-  if (data.fal) state.falBalance = data.fal;
   if (data.apify) state.apifyPlanUsage = data.apify;
   if (data.twilio) state.twilioBalance = data.twilio;
+  if (data.anthropic) state.anthropicBalance = data.anthropic;
 }
 
 function renderFalBalance() {
-  renderFluxSpendLine();
+  renderOpenaiSpendLine();
   renderApiCostMenu();
 }
 
@@ -2613,24 +2490,8 @@ async function loadDfsBalance() {
   renderDfsBalance();
 }
 
-function refreshImageWallets({ fresh = false, remind = false } = {}) {
-  loadFalBalance({ fresh, remind }).catch(() => {});
-}
-
-async function loadFalBalance({ fresh = false, remind = false } = {}) {
-  try {
-    const q = fresh ? '?fresh=1' : '';
-    state.falBalance = await api(`/api/images/flux-balance${q}`);
-  } catch (error) {
-    state.falBalance = {
-      ok: false,
-      balance: null,
-      error: error.message,
-      fetchedAt: new Date().toISOString(),
-    };
-  }
-  renderFalBalance();
-  if (remind) void maybeShowFalRetireReminder();
+function refreshImageWallets({ fresh = false } = {}) {
+  loadApiCost({ fresh }).catch(() => {});
 }
 
 function wireApiCostUi() {
@@ -2657,42 +2518,6 @@ function wireApiCostUi() {
   document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape') closeApiCostMenu();
   });
-}
-
-const FAL_RETIRE_SESSION_KEY = 'ops.falRetireReminded';
-let falRetireModalOpen = false;
-
-function falBalanceLooksDepleted(b) {
-  if (!b?.falKeySet) return false;
-  if (b.falDepleted) return true;
-  return b.ok && b.balance != null && Number(b.balance) + 1e-9 < 0.03;
-}
-
-async function maybeShowFalRetireReminder() {
-  if (falRetireModalOpen) return;
-  try {
-    if (sessionStorage.getItem(FAL_RETIRE_SESSION_KEY) === '1') return;
-  } catch {
-    /* private mode */
-  }
-  if (!falBalanceLooksDepleted(state.falBalance)) return;
-  falRetireModalOpen = true;
-  try {
-    await showModal({
-      title: 'fal remaining is used up',
-      confirmLabel: 'OK',
-      hideCancel: true,
-      bodyHtml: `<p>fal remaining is about $0. <strong>Flux generate will fail until you add fal credits.</strong></p>
-<p>Use <strong>OpenAI generate</strong> / <strong>OpenAI pair</strong> on a slot instead (same <code>OPENAI_API_KEY</code> as Phone).</p>`,
-    });
-    try {
-      sessionStorage.setItem(FAL_RETIRE_SESSION_KEY, '1');
-    } catch {
-      /* ignore */
-    }
-  } finally {
-    falRetireModalOpen = false;
-  }
 }
 
 function startBalancePolling() {
@@ -2802,6 +2627,86 @@ async function loadRubric() {
   } catch {
     /* metrics.js fallback bands */
   }
+}
+
+const CANDIDATES_BC_NAME = 'rover-candidates';
+const CANDIDATES_TAB_ID = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+let candidatesBc = null;
+let candidatesBcWired = false;
+let candidatesRemoteTimer = 0;
+let candidatesRemotePending = null;
+
+function getCandidatesBroadcast() {
+  if (candidatesBc) return candidatesBc;
+  try {
+    if (typeof BroadcastChannel !== 'undefined') {
+      candidatesBc = new BroadcastChannel(CANDIDATES_BC_NAME);
+    }
+  } catch {
+    candidatesBc = null;
+  }
+  return candidatesBc;
+}
+
+function notifyCandidatesChanged({ type = 'candidates', ids = null, batchId = null } = {}) {
+  const bc = getCandidatesBroadcast();
+  if (!bc) return;
+  try {
+    bc.postMessage({
+      from: CANDIDATES_TAB_ID,
+      type,
+      ids: ids ? [...ids] : null,
+      batchId: batchId || null,
+      at: Date.now(),
+    });
+  } catch {
+    /* ignore */
+  }
+}
+
+async function applyRemoteCandidatesRefresh(data) {
+  await loadCandidates();
+  const ids = Array.isArray(data?.ids) ? data.ids.map(String) : null;
+  if (state.selectedId && (!ids || ids.includes(String(state.selectedId)))) {
+    try {
+      state.detail = await api(`/api/candidates/${encodeURIComponent(state.selectedId)}`);
+      if (state.selectedIds.size > 1) renderMultiDetail();
+      else if (state.detail) renderDetail();
+    } catch {
+      /* ignore */
+    }
+  }
+  if (data?.type === 'discovery' && data.batchId && data.batchId === state.discoveryBatchId) {
+    try {
+      const batch = await api(`/api/discovery/batches/${encodeURIComponent(data.batchId)}`);
+      state.discoveryRows = batch.rows || [];
+      const n = state.discoveryRows.length;
+      for (const idx of [...(state.discoverySelected || [])]) {
+        if (!Number.isInteger(idx) || idx < 0 || idx >= n) state.discoverySelected.delete(idx);
+      }
+      renderDiscoveryTable();
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+function wireCandidatesBroadcast() {
+  if (candidatesBcWired) return;
+  candidatesBcWired = true;
+  const bc = getCandidatesBroadcast();
+  if (!bc) return;
+  bc.onmessage = (ev) => {
+    const data = ev?.data;
+    if (!data || data.from === CANDIDATES_TAB_ID) return;
+    candidatesRemotePending = data;
+    window.clearTimeout(candidatesRemoteTimer);
+    candidatesRemoteTimer = window.setTimeout(() => {
+      const next = candidatesRemotePending;
+      candidatesRemotePending = null;
+      void applyRemoteCandidatesRefresh(next);
+    }, 80);
+  };
 }
 
 async function loadCandidates() {
@@ -3602,6 +3507,7 @@ async function persistCandidateDecision(id, decision, notes) {
     if (state.selectedIds.size > 1) renderMultiDetail();
     else if (state.selectedId === id && state.detail) renderDetail();
     else renderActions();
+    notifyCandidatesChanged({ type: 'candidates', ids: [id] });
   } catch (error) {
     await showModal({
       title: 'Save failed',
@@ -4258,10 +4164,14 @@ function applyClaudeUiModeAttr(mode = effectiveClaudeUiMode()) {
   document.documentElement.setAttribute('data-claude-mode', mode === 'api' ? 'api' : 'paste');
 }
 
-function writeSiteJobRunning() {
+function writeSiteJobRunning(candidateId = null) {
   const jobs = state.lightJobsSnap?.jobs || [];
+  const cid = candidateId != null ? String(candidateId) : null;
   return jobs.some(
-    (j) => j.phase === 'write-site' && (j.status === 'running' || j.status === 'queued'),
+    (j) =>
+      j.phase === 'write-site' &&
+      (j.status === 'running' || j.status === 'queued') &&
+      (!cid || String(j.candidateId) === cid),
   );
 }
 
@@ -4284,6 +4194,15 @@ function showAppBootLoading(text = 'Loading…') {
   boot.classList.remove('hidden');
   boot.setAttribute('aria-hidden', 'false');
   boot.setAttribute('aria-busy', 'true');
+}
+
+function hideAppBootLoading() {
+  const boot = document.getElementById('app-boot-loading');
+  if (!boot) return;
+  boot.classList.add('hidden');
+  boot.setAttribute('aria-hidden', 'true');
+  boot.setAttribute('aria-busy', 'false');
+  syncJobOverlayTop();
 }
 
 function peekClaudeUiRestore() {
@@ -4459,24 +4378,22 @@ function pickBaDisplayPrompts(matchKey) {
   const key = String(matchKey || '').trim();
   const cache = state.baPromptCache?.[key] || {};
   const vp = getBaViewpoint(key);
-  const last = cache.lastPrompts;
-  if (last?.before && last?.after && (last.viewpoint || vp) === vp) {
-    return {
-      before: last.before,
-      after: last.after,
-      viewpoint: vp,
-      room: last.room || cache.promptsForGenerate?.[vp]?.room || null,
-      label: last.source === 'openai' ? 'Last sent to OpenAI' : 'Last sent',
-    };
-  }
   const gen = cache.promptsForGenerate?.[vp];
   if (gen?.before && gen?.after) {
     return {
       before: gen.before,
       after: gen.after,
+      originalBefore: gen.originalBefore || gen.before,
+      originalAfter: gen.originalAfter || gen.after,
       viewpoint: vp,
       room: gen.room || null,
-      label: gen.source === 'claude' ? 'From Image queries' : 'Template fallback',
+      setting: gen.setting || null,
+      label:
+        gen.source === 'override'
+          ? 'Edited'
+          : gen.source === 'claude'
+            ? 'From Image queries'
+            : 'Template',
     };
   }
   const plan = cache.promptPlan?.[vp];
@@ -4484,6 +4401,8 @@ function pickBaDisplayPrompts(matchKey) {
     return {
       before: plan.before,
       after: plan.after,
+      originalBefore: plan.before,
+      originalAfter: plan.after,
       viewpoint: vp,
       room: cache.promptPlan?.room || null,
       label: 'From Image queries',
@@ -4492,51 +4411,345 @@ function pickBaDisplayPrompts(matchKey) {
   return null;
 }
 
-function fillBaPromptsPanel(card) {
-  if (!card) return;
-  const key = card.getAttribute('data-match-key') || '';
-  const panel = card.querySelector('.ba-prompts');
-  if (!panel) return;
-  const picked = pickBaDisplayPrompts(key);
-  const meta = panel.querySelector('.ba-prompts-meta');
-  const before = panel.querySelector('.ba-prompts-before');
-  const after = panel.querySelector('.ba-prompts-after');
-  if (!picked) {
-    if (meta) {
-      meta.textContent =
-        'Load Image queries (step 8) for this slot’s prompts, then OpenAI pair.';
-    }
-    if (before) before.textContent = '';
-    if (after) after.textContent = '';
-    return;
-  }
-  if (meta) {
-    meta.textContent = `${picked.label} · ${picked.viewpoint}${
-      picked.room ? ` · ${picked.room}` : ''
-    }`;
-  }
-  if (before) before.textContent = picked.before || '';
-  if (after) after.textContent = picked.after || '';
+function promptDraftStore() {
+  state.openaiPromptDrafts = state.openaiPromptDrafts || {};
+  return state.openaiPromptDrafts;
 }
 
-function baShowPromptsHtml(pair, matchKey) {
-  cacheBaCardPrompts(matchKey, pair);
-  const picked = pickBaDisplayPrompts(matchKey);
-  const meta = picked
-    ? `${esc(picked.label)} · ${esc(picked.viewpoint)}${picked.room ? ` · ${esc(picked.room)}` : ''}`
-    : 'Load Image queries (step 8) for this slot’s prompts, then OpenAI pair.';
-  return `<details class="ba-prompts" style="margin-top:0.25rem">
-    <summary style="cursor:pointer;font-size:0.8rem">Show prompts</summary>
-    <p class="muted ba-prompts-meta" style="margin:0.35rem 0 0.25rem;font-size:0.75rem">${meta}</p>
-    <p style="margin:0.2rem 0 0.15rem;font-size:0.75rem"><strong>Before</strong></p>
-    <pre class="ba-prompts-before" style="white-space:pre-wrap;font-size:0.72rem;margin:0;max-height:8rem;overflow:auto">${esc(
-      picked?.before || '',
-    )}</pre>
-    <p style="margin:0.35rem 0 0.15rem;font-size:0.75rem"><strong>After</strong></p>
-    <pre class="ba-prompts-after" style="white-space:pre-wrap;font-size:0.72rem;margin:0;max-height:8rem;overflow:auto">${esc(
-      picked?.after || '',
-    )}</pre>
+function promptDraftId(scope, kind, key, vp) {
+  return `${scope}|${kind}|${key}|${vp}`;
+}
+
+function slotPromptScope(card) {
+  if (card?.closest('#view-photo')) {
+    const gid = photoLibCurrent()?.groupId;
+    return gid ? `pg:${gid}` : 'pg';
+  }
+  const id = state.detail?.id || state.selectedId || '';
+  return id ? `ca:${id}` : 'ca';
+}
+
+function slotPromptPanel(card) {
+  return card?.querySelector?.('.slot-prompt-panel') || null;
+}
+
+function readSlotPromptFields(panel) {
+  const kind = panel?.getAttribute('data-prompt-kind') || 'photo';
+  if (kind === 'ba') {
+    return {
+      kind: 'ba',
+      before: panel.querySelector('.slot-prompt-before')?.value || '',
+      after: panel.querySelector('.slot-prompt-after')?.value || '',
+    };
+  }
+  return {
+    kind: 'photo',
+    prompt: panel.querySelector('.slot-prompt-text')?.value || '',
+  };
+}
+
+function applySlotPromptFields(panel, fields = {}) {
+  if (!panel) return;
+  if (panel.getAttribute('data-prompt-kind') === 'ba') {
+    const before = panel.querySelector('.slot-prompt-before');
+    const after = panel.querySelector('.slot-prompt-after');
+    if (before) before.value = fields.before || '';
+    if (after) after.value = fields.after || '';
+    return;
+  }
+  const ta = panel.querySelector('.slot-prompt-text');
+  if (ta) ta.value = fields.prompt || '';
+}
+
+function stashSlotPromptDraft(card) {
+  const panel = slotPromptPanel(card);
+  if (!panel) return;
+  const key = panel.getAttribute('data-prompt-key') || '';
+  const kind = panel.getAttribute('data-prompt-kind') || 'photo';
+  const vp = panel.dataset.loadedViewpoint || getBaViewpoint(key);
+  const fields = readSlotPromptFields(panel);
+  const has = kind === 'ba' ? Boolean(fields.before || fields.after) : Boolean(fields.prompt);
+  if (!has) return;
+  promptDraftStore()[promptDraftId(slotPromptScope(card), kind, key, vp)] = fields;
+}
+
+function promptBodyFromCard(card, { pair = false } = {}) {
+  const panel = slotPromptPanel(card);
+  const key =
+    panel?.getAttribute('data-prompt-key') ||
+    card?.getAttribute('data-slot-key') ||
+    card?.getAttribute('data-match-key') ||
+    '';
+  const viewpoint = getBaViewpoint(key);
+  if (!panel) return { viewpoint };
+  const loaded = panel.dataset.loadedViewpoint;
+  if (loaded && loaded !== viewpoint) return { viewpoint };
+  const fields = readSlotPromptFields(panel);
+  if (pair || fields.kind === 'ba') {
+    const before = String(fields.before || '').trim();
+    const after = String(fields.after || '').trim();
+    return {
+      viewpoint,
+      ...(before ? { before } : {}),
+      ...(after ? { after } : {}),
+    };
+  }
+  const prompt = String(fields.prompt || '').trim();
+  return { viewpoint, ...(prompt ? { prompt } : {}) };
+}
+
+function slotPromptApiUrls(card) {
+  const panel = slotPromptPanel(card);
+  const key = panel?.getAttribute('data-prompt-key') || '';
+  const kind = panel?.getAttribute('data-prompt-kind') || 'photo';
+  const vp = getBaViewpoint(key);
+  const photo = Boolean(card?.closest('#view-photo'));
+  if (photo) {
+    const gid = photoLibCurrent()?.groupId;
+    if (!gid) return null;
+    if (kind === 'ba') {
+      const params = new URLSearchParams({ matchKey: key, viewpoint: vp });
+      return {
+        get: `/api/photo-groups/${encodeURIComponent(gid)}/before-after-prompts?${params}`,
+        save: `/api/photo-groups/${encodeURIComponent(gid)}/before-after/openai-prompt`,
+        saveBody: () => {
+          const fields = readSlotPromptFields(panel);
+          return {
+            matchKey: key,
+            viewpoint: vp,
+            before: fields.before,
+            after: fields.after,
+          };
+        },
+        restoreBody: { matchKey: key, viewpoint: vp, restore: true },
+      };
+    }
+    const params = new URLSearchParams({ viewpoint: vp });
+    return {
+      get: `/api/photo-groups/${encodeURIComponent(gid)}/slots/${encodeURIComponent(key)}/chatgpt-prompt?${params}`,
+      save: `/api/photo-groups/${encodeURIComponent(gid)}/slots/${encodeURIComponent(key)}/openai-prompt`,
+      saveBody: () => ({
+        viewpoint: vp,
+        prompt: readSlotPromptFields(panel).prompt,
+      }),
+      restoreBody: { viewpoint: vp, restore: true },
+    };
+  }
+  const candidateId = state.detail?.id || state.selectedId;
+  if (!candidateId) return null;
+  if (kind === 'ba') {
+    const { serviceSlug: slug, pairIndex } = baTargetFromGenerateEl(card);
+    const params = new URLSearchParams({
+      viewpoint: vp,
+      pairIndex: String(pairIndex || 1),
+    });
+    if (slug) params.set('service', slug);
+    return {
+      get: `/api/candidates/${encodeURIComponent(candidateId)}/images/before-after-prompts?${params}`,
+      save: `/api/candidates/${encodeURIComponent(candidateId)}/images/before-after/openai-prompt`,
+      saveBody: () => {
+        const fields = readSlotPromptFields(panel);
+        return {
+          viewpoint: vp,
+          serviceSlug: slug,
+          pairIndex,
+          before: fields.before,
+          after: fields.after,
+        };
+      },
+      restoreBody: { viewpoint: vp, serviceSlug: slug, pairIndex, restore: true },
+    };
+  }
+  const params = new URLSearchParams({ viewpoint: vp });
+  return {
+    get: `/api/candidates/${encodeURIComponent(candidateId)}/images/slots/${encodeURIComponent(key)}/chatgpt-prompt?${params}`,
+    save: `/api/candidates/${encodeURIComponent(candidateId)}/images/slots/${encodeURIComponent(key)}/openai-prompt`,
+    saveBody: () => ({
+      viewpoint: vp,
+      prompt: readSlotPromptFields(panel).prompt,
+    }),
+    restoreBody: { viewpoint: vp, restore: true },
+  };
+}
+
+function applyFetchedPrompt(panel, data, kind) {
+  if (kind === 'ba') {
+    applySlotPromptFields(panel, {
+      before: data.before || '',
+      after: data.after || '',
+    });
+    const meta = panel.querySelector('.ba-prompts-meta');
+    if (meta) {
+      const label = data.overridden ? 'Edited' : data.source === 'claude' ? 'From Image queries' : 'Template';
+      meta.textContent = `${label} · ${data.viewpoint || ''}${data.room ? ` · ${data.room}` : ''}`;
+    }
+    return;
+  }
+  applySlotPromptFields(panel, { prompt: data.prompt || '' });
+}
+
+async function fetchAndFillPromptPanel(card) {
+  const panel = slotPromptPanel(card);
+  if (!panel) return;
+  const urls = slotPromptApiUrls(card);
+  if (!urls) return;
+  const kind = panel.getAttribute('data-prompt-kind') || 'photo';
+  const key = panel.getAttribute('data-prompt-key') || '';
+  const vp = getBaViewpoint(key);
+  const data = await api(urls.get);
+  applyFetchedPrompt(panel, data, kind);
+  panel.dataset.loadedViewpoint = vp;
+}
+
+async function loadSlotPromptForViewpoint(card) {
+  const panel = slotPromptPanel(card);
+  if (!panel) return;
+  const key = panel.getAttribute('data-prompt-key') || '';
+  const kind = panel.getAttribute('data-prompt-kind') || 'photo';
+  const vp = getBaViewpoint(key);
+  const draft = promptDraftStore()[promptDraftId(slotPromptScope(card), kind, key, vp)];
+  if (draft) {
+    applySlotPromptFields(panel, draft);
+    panel.dataset.loadedViewpoint = vp;
+    return;
+  }
+  if (kind === 'ba') {
+    const picked = pickBaDisplayPrompts(key);
+    if (picked) {
+      applySlotPromptFields(panel, { before: picked.before, after: picked.after });
+      const meta = panel.querySelector('.ba-prompts-meta');
+      if (meta) {
+        meta.textContent = `${picked.label} · ${picked.viewpoint}${
+          picked.room ? ` · ${picked.room}` : ''
+        }`;
+      }
+      panel.dataset.loadedViewpoint = vp;
+    }
+  }
+  if (panel.open) {
+    try {
+      await fetchAndFillPromptPanel(card);
+    } catch {
+      /* keep cached/draft text */
+    }
+  } else {
+    panel.dataset.loadedViewpoint = vp;
+  }
+}
+
+async function persistSlotPromptPanel(card) {
+  const panel = slotPromptPanel(card);
+  if (!panel) return;
+  stashSlotPromptDraft(card);
+  const urls = slotPromptApiUrls(card);
+  if (!urls) return;
+  const fields = readSlotPromptFields(panel);
+  const empty =
+    fields.kind === 'ba' ? !(fields.before || '').trim() && !(fields.after || '').trim() : !(fields.prompt || '').trim();
+  if (empty) return;
+  try {
+    const data = await api(urls.save, {
+      method: 'POST',
+      body: JSON.stringify(urls.saveBody()),
+    });
+    applyFetchedPrompt(panel, data, fields.kind);
+  } catch (error) {
+    showToast(error.message || 'Could not save prompt');
+  }
+}
+
+async function restoreSlotPromptPanel(card) {
+  const panel = slotPromptPanel(card);
+  if (!panel) return;
+  const urls = slotPromptApiUrls(card);
+  if (!urls) return;
+  const key = panel.getAttribute('data-prompt-key') || '';
+  const kind = panel.getAttribute('data-prompt-kind') || 'photo';
+  const vp = getBaViewpoint(key);
+  delete promptDraftStore()[promptDraftId(slotPromptScope(card), kind, key, vp)];
+  const data = await api(urls.save, {
+    method: 'POST',
+    body: JSON.stringify(urls.restoreBody),
+  });
+  applyFetchedPrompt(panel, data, kind);
+  panel.dataset.loadedViewpoint = vp;
+}
+
+function fillBaPromptsPanel(card) {
+  void loadSlotPromptForViewpoint(card);
+}
+
+function slotPromptPanelHtml({ kind = 'photo', key, pair = null } = {}) {
+  const tip = 'Copy prompt and OpenAI generate both use this text.';
+  const vp = getBaViewpoint(key);
+  if (kind === 'ba') {
+    cacheBaCardPrompts(key, pair);
+    const picked = pickBaDisplayPrompts(key);
+    const meta = picked
+      ? `${esc(picked.label)} · ${esc(picked.viewpoint)}${picked.room ? ` · ${esc(picked.room)}` : ''}`
+      : 'Opens with the current Inside/Outside prompt.';
+    return `<details class="slot-prompt-panel ba-prompts" data-prompt-kind="ba" data-prompt-key="${esc(
+      key,
+    )}" data-loaded-viewpoint="${esc(vp)}">
+      <summary class="slot-prompt-summary">
+        <span>Prompt</span>
+        <button type="button" class="btn btn-sm slot-prompt-restore" data-tip="Restore the original prompt">Restore</button>
+      </summary>
+      <p class="muted slot-prompt-tip">${esc(tip)}</p>
+      <p class="muted ba-prompts-meta">${meta}</p>
+      <p class="slot-prompt-label"><strong>Before</strong></p>
+      <textarea class="slot-prompt-before ba-prompts-before" spellcheck="false">${esc(picked?.before || '')}</textarea>
+      <p class="slot-prompt-label"><strong>After</strong></p>
+      <textarea class="slot-prompt-after ba-prompts-after" spellcheck="false">${esc(picked?.after || '')}</textarea>
+    </details>`;
+  }
+  return `<details class="slot-prompt-panel" data-prompt-kind="photo" data-prompt-key="${esc(
+    key,
+  )}" data-loaded-viewpoint="${esc(vp)}">
+    <summary class="slot-prompt-summary">
+      <span>Prompt</span>
+      <button type="button" class="btn btn-sm slot-prompt-restore" data-tip="Restore the original prompt">Restore</button>
+    </summary>
+    <p class="muted slot-prompt-tip">${esc(tip)}</p>
+    <textarea class="slot-prompt-text" spellcheck="false" placeholder="Opens with the current Inside/Outside prompt."></textarea>
   </details>`;
+}
+
+function wireSlotPromptEvents(root) {
+  if (!root || root.dataset.promptWired === '1') return;
+  root.dataset.promptWired = '1';
+  root.addEventListener('mousedown', (ev) => {
+    if (ev.target.closest('.slot-prompt-restore')) ev.preventDefault();
+  });
+  root.addEventListener('click', async (ev) => {
+    const restore = ev.target.closest('.slot-prompt-restore');
+    if (!restore || !root.contains(restore)) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    const card = restore.closest('.image-slot-card');
+    try {
+      await restoreSlotPromptPanel(card);
+      showToast('Restored original prompt.');
+    } catch (error) {
+      showToast(error.message || 'Restore failed');
+    }
+  });
+  root.addEventListener(
+    'toggle',
+    (ev) => {
+      const panel = ev.target;
+      if (!(panel instanceof HTMLDetailsElement) || !panel.classList.contains('slot-prompt-panel')) return;
+      if (!panel.open) return;
+      void loadSlotPromptForViewpoint(panel.closest('.image-slot-card'));
+    },
+    true,
+  );
+  root.addEventListener('focusout', (ev) => {
+    const panel = ev.target.closest?.('.slot-prompt-panel');
+    if (!panel || !root.contains(panel)) return;
+    if (ev.relatedTarget && panel.contains(ev.relatedTarget)) return;
+    void persistSlotPromptPanel(panel.closest('.image-slot-card'));
+  });
 }
 
 function baViewpointSegmentHtml(stepKey = 'home') {
@@ -4915,10 +5128,17 @@ function renderActions() {
         <div class="action-group-btns">
           ${
             effectiveClaudeUiMode() === 'api'
-              ? `<button type="button" class="btn btn-sm primary" data-act="narrative" ${
-                  narrDisabled ? 'disabled' : ''
-                } data-tip="${esc(narrTip)}">${
-                  runningAct === 'narrative' ? 'Running…' : narrDraft || narrAccepted ? 'Re-run Narrative' : 'Run Narrative'
+              ? `<button type="button" class="btn btn-sm primary" data-act="narrative" ${stageBusyAttr(
+                  'narrative',
+                  narrGateOk,
+                )} data-tip="${esc(narrTip)}">${
+                  runningAct === 'narrative'
+                    ? 'Running…'
+                    : targetCount > 1
+                      ? `Run Narrative${batchLabel}`
+                      : narrDraft || narrAccepted
+                        ? 'Re-run Narrative'
+                        : 'Run Narrative'
                 }</button>`
               : `<button type="button" class="btn btn-sm primary" data-act="copy-prompt" ${
                   narrDisabled ? 'disabled' : ''
@@ -5059,6 +5279,74 @@ async function warnResearchOrphansEnrichment(ids, forceSerp) {
   });
 }
 
+const CONCURRENCY_UI = {
+  lightSerp: { title: 'Light SERP limit', label: 'Light SERP' },
+  evaluations: { title: 'Evaluation limit', label: 'Evaluations' },
+  writeSite: { title: 'Write site limit', label: 'Write site' },
+  openaiBeforeAfter: { title: 'OpenAI before/after limit', label: 'OpenAI before/after' },
+  heavy: { title: 'Heavy job limit', label: 'Heavy (Prepare / Launch)' },
+};
+
+function concurrencyHardMax(key) {
+  return Number(state.concurrencyMax?.[key]) || 50;
+}
+
+async function explainConcurrencyLimit({ key, selected, running, limit }) {
+  const meta = CONCURRENCY_UI[key] || CONCURRENCY_UI.evaluations;
+  const m = Number(limit);
+  const hardMax = concurrencyHardMax(key);
+  const n = selected != null ? Number(selected) : null;
+  const run = running != null ? Number(running) : null;
+  const lead =
+    n != null && Number.isFinite(n)
+      ? `You selected <strong>${esc(String(n))}</strong>. Concurrent Limit for <strong>${esc(
+          meta.label,
+        )}</strong> is <strong>${esc(String(m))}</strong>`
+      : `Already <strong>${esc(String(Number.isFinite(run) ? run : m))}</strong> running. Concurrent Limit for <strong>${esc(
+          meta.label,
+        )}</strong> is <strong>${esc(String(m))}</strong>`;
+  const orWhat =
+    n != null && Number.isFinite(n) ? 'Or select fewer.' : 'Or wait for one to finish.';
+  await showModal({
+    title: meta.title,
+    confirmLabel: 'OK',
+    hideCancel: true,
+    bodyHtml: `<p>${lead} — a soft limit so you do not spend too much money at once.</p>
+    <p>To run more at the same time, raise <strong>${esc(
+      meta.label,
+    )}</strong> under <strong>Concurrent Limit</strong> in Settings (maximum ${esc(
+      String(hardMax),
+    )}). ${orWhat}</p>`,
+  });
+}
+
+async function maybeExplainHeavyConcurrency(error) {
+  if (error?.code !== 'HEAVY_CONCURRENCY') return false;
+  await explainConcurrencyLimit({
+    key: 'heavy',
+    running: error.running,
+    limit: error.limit ?? state.concurrency?.heavy ?? 2,
+  });
+  return true;
+}
+
+async function explainEvalConcurrencyLimit(selected, limit) {
+  await explainConcurrencyLimit({
+    key: 'evaluations',
+    selected,
+    limit,
+  });
+}
+
+async function assertEvalConcurrencyAllows(ids) {
+  const selected = Array.isArray(ids) ? ids.length : 0;
+  if (selected <= 1) return true;
+  const limit = Number(state.concurrency?.evaluations) || Number(state.evalConcurrency) || 6;
+  if (selected <= limit) return true;
+  await explainEvalConcurrencyLimit(selected, limit);
+  return false;
+}
+
 async function handleAction(act, btn) {
   // Batch only when multi-selected; single path always uses the open detail
   const ids =
@@ -5073,6 +5361,7 @@ async function handleAction(act, btn) {
     if (act === 'research' || act === 'enrich' || act === 'prospects' || act === 'narrative') {
       if (state.activeJobId || state.activeBatchJobId || state.claudeBusy) return;
       if (!ids.length) return;
+      if (!(await assertEvalConcurrencyAllows(ids))) return;
 
       if (act === 'narrative' && ids.length === 1) {
         const ok = await confirmPaidAction('narrative');
@@ -5121,7 +5410,6 @@ async function handleAction(act, btn) {
           body: JSON.stringify({
             act,
             candidateIds: ids,
-            concurrency: act === 'narrative' ? 1 : 1,
             adsMode: act === 'research' ? getAdsMode() : undefined,
             ...researchOpts,
           }),
@@ -5276,11 +5564,18 @@ async function handleAction(act, btn) {
     }
   } catch (error) {
     clearJobBusy();
-    await showModal({
-      title: 'Action failed',
-      confirmLabel: 'OK',
-      bodyHtml: `<p>${esc(error.message)}</p>`,
-    });
+    if (error.code === 'EVAL_CONCURRENCY') {
+      await explainEvalConcurrencyLimit(
+        error.selected ?? ids.length,
+        error.limit ?? state.evalConcurrency,
+      );
+    } else {
+      await showModal({
+        title: 'Action failed',
+        confirmLabel: 'OK',
+        bodyHtml: `<p>${esc(error.message)}</p>`,
+      });
+    }
   } finally {
     btn.disabled = false;
     renderActions();
@@ -8105,11 +8400,6 @@ function renderSiteConfig() {
         </div>`;
 
   const draftEditParts = [];
-  if (draft?._ops?.suburbCheck?.warnings?.length) {
-    draftEditParts.push(
-      `<div class="callout warn">Suburb warnings: ${esc(draft._ops.suburbCheck.warnings.join('; '))}</div>`,
-    );
-  }
   const ph = draft?._ops?.placeholders || [];
   if (draft && ph.length) {
     draftEditParts.push(
@@ -8601,12 +8891,44 @@ function attachedPhotoGroupIds(d) {
       if (!v || seen.has(v)) continue;
       seen.add(v);
       out.push(v);
-      if (out.length >= 3) break;
     }
     return out;
   }
   if (doc.groupId) return [String(doc.groupId)];
   return [];
+}
+
+function photoGroupRankOrdinal(n) {
+  const v = n % 100;
+  const suffix =
+    v >= 11 && v <= 13 ? 'th' : v % 10 === 1 ? 'st' : v % 10 === 2 ? 'nd' : v % 10 === 3 ? 'rd' : 'th';
+  return `${n}${suffix}`;
+}
+
+function photoGroupLibraryCount(d) {
+  return Array.isArray(d?.photoGroups) ? d.photoGroups.length : 0;
+}
+
+function compactPhotoGroupRankIds(ids) {
+  const seen = new Set();
+  const out = [];
+  for (const id of ids || []) {
+    const v = String(id || '').trim();
+    if (!v || seen.has(v)) continue;
+    seen.add(v);
+    out.push(v);
+  }
+  return out;
+}
+
+function photoGroupRankLoadButtonId(idPrefix) {
+  if (idPrefix === 'cs-pg-select') return 'cs-pg-load';
+  if (idPrefix === 'ca-pg-select') return 'ca-pg-load';
+  return '';
+}
+
+function photoGroupRankStackEl(idPrefix) {
+  return document.querySelector(`.pg-rank-stack[data-pg-prefix="${idPrefix}"]`);
 }
 
 function photoGroupSelectOptionsHtml(
@@ -8635,63 +8957,61 @@ function photoGroupSelectOptionsHtml(
   return opts.join('');
 }
 
-function photoGroupRankSelectsHtml(idPrefix) {
-  const d = state.detail;
-  const attached = attachedPhotoGroupIds(d);
-  const labels = ['1st', '2nd', '3rd'];
-  const rows = labels.map((label, i) => {
-    const selectedId = attached[i] || '';
-    const excludeIds = attached.filter((_, j) => j < i);
-    const emptyLabel = i === 0 ? 'Select a saved photo group…' : 'None';
-    return `<label class="pg-rank-row"><span class="pg-rank-label">${label}</span>
-      <select class="pg-select" id="${esc(idPrefix)}-${i + 1}" data-pg-rank="${i + 1}" data-tip="Priority ${i + 1}. All saved groups, A–Z">
-        ${photoGroupSelectOptionsHtml(d, { selectedId, excludeIds, emptyLabel })}
+function photoGroupRankRowHtml(idPrefix, i, selectedId, excludeIds) {
+  const rank = i + 1;
+  const emptyLabel = i === 0 ? 'Select a saved photo group…' : 'None';
+  return `<label class="pg-rank-row"><span class="pg-rank-label">${esc(photoGroupRankOrdinal(rank))}</span>
+      <select class="pg-select" id="${esc(idPrefix)}-${rank}" data-pg-rank="${rank}" data-tip="Priority ${rank}. All saved groups, A–Z">
+        ${photoGroupSelectOptionsHtml(state.detail, { selectedId, excludeIds, emptyLabel })}
       </select></label>`;
-  });
-  return `<div class="pg-rank-stack" data-pg-prefix="${esc(idPrefix)}">${rows.join('')}</div>`;
+}
+
+function photoGroupRankRowsFromIds(idPrefix, ids) {
+  const chosen = compactPhotoGroupRankIds(ids);
+  const addEmpty = chosen.length === 0 || chosen.length < photoGroupLibraryCount(state.detail);
+  const rows = [];
+  for (let i = 0; i < chosen.length; i += 1) {
+    rows.push(photoGroupRankRowHtml(idPrefix, i, chosen[i], chosen.slice(0, i)));
+  }
+  if (addEmpty) rows.push(photoGroupRankRowHtml(idPrefix, chosen.length, '', chosen));
+  return rows.join('');
+}
+
+function photoGroupRankSelectsHtml(idPrefix) {
+  const attached = attachedPhotoGroupIds(state.detail);
+  return `<div class="pg-rank-stack" data-pg-prefix="${esc(idPrefix)}">${photoGroupRankRowsFromIds(idPrefix, attached)}</div>`;
 }
 
 function readPhotoGroupRankIds(idPrefix) {
-  const seen = new Set();
-  const ids = [];
-  for (let i = 1; i <= 3; i += 1) {
-    const v = document.getElementById(`${idPrefix}-${i}`)?.value || '';
-    if (!v || seen.has(v)) continue;
-    seen.add(v);
-    ids.push(v);
-  }
-  return ids;
+  const stack = photoGroupRankStackEl(idPrefix);
+  if (!stack) return [];
+  return compactPhotoGroupRankIds(
+    [...stack.querySelectorAll('select[data-pg-rank]')].map((sel) => sel.value || ''),
+  );
+}
+
+function setPhotoGroupRankLoadDisabled(idPrefix, empty) {
+  const loadId = photoGroupRankLoadButtonId(idPrefix);
+  const loadBtn = loadId ? document.getElementById(loadId) : null;
+  if (loadBtn) loadBtn.disabled = empty;
 }
 
 function syncPhotoGroupRankSelects(idPrefix) {
-  const d = state.detail;
-  const chosen = [];
-  for (let i = 1; i <= 3; i += 1) {
-    const sel = document.getElementById(`${idPrefix}-${i}`);
-    if (!sel) continue;
-    const current = sel.value || '';
-    const emptyLabel = i === 1 ? 'Select a saved photo group…' : 'None';
-    sel.innerHTML = photoGroupSelectOptionsHtml(d, {
-      selectedId: current,
-      excludeIds: chosen,
-      emptyLabel,
-    });
-    if (current && [...sel.options].some((o) => o.value === current)) sel.value = current;
-    else sel.value = '';
-    if (sel.value) chosen.push(sel.value);
-  }
-  const loadId = idPrefix === 'cs-pg-select' ? 'cs-pg-load' : idPrefix === 'ca-pg-select' ? 'ca-pg-load' : '';
-  const loadBtn = loadId ? document.getElementById(loadId) : null;
-  if (loadBtn) loadBtn.disabled = chosen.length === 0;
+  const stack = photoGroupRankStackEl(idPrefix);
+  if (!stack) return;
+  const ids = readPhotoGroupRankIds(idPrefix);
+  stack.innerHTML = photoGroupRankRowsFromIds(idPrefix, ids);
+  setPhotoGroupRankLoadDisabled(idPrefix, ids.length === 0);
 }
 
 function wirePhotoGroupRankSelects(idPrefix) {
-  for (let i = 1; i <= 3; i += 1) {
-    document.getElementById(`${idPrefix}-${i}`)?.addEventListener('change', () =>
-      syncPhotoGroupRankSelects(idPrefix),
-    );
-  }
-  syncPhotoGroupRankSelects(idPrefix);
+  const stack = photoGroupRankStackEl(idPrefix);
+  if (!stack) return;
+  stack.addEventListener('change', (e) => {
+    if (!e.target?.matches?.('select[data-pg-rank]')) return;
+    syncPhotoGroupRankSelects(idPrefix);
+  });
+  setPhotoGroupRankLoadDisabled(idPrefix, readPhotoGroupRankIds(idPrefix).length === 0);
 }
 
 function photoGroupToolbarHtml({ selectId, loadId, saveId, loadLabel, skipId }) {
@@ -8735,18 +9055,20 @@ function openClaudeAiBtnHtml({ disabled = false, sm = false, id = '', tip = '' }
 function photoGroupPreviewBodyHtml(preview, { attach = false } = {}) {
   const unused = Number(preview?.unused || 0);
   const empty = Number(preview?.targetEmpty || 0);
-  const tray = Number(preview?.tray || 0) + Number(preview?.baTray || 0);
+  const similar = Number(preview?.similarTray || 0);
+  const trayTotal = Number(preview?.tray || 0) + Number(preview?.baTray || 0);
+  const leftover = Math.max(0, trayTotal - similar);
   const names = Array.isArray(preview?.groups) && preview.groups.length
     ? preview.groups.map((g) => g.name || g.id).join(' → ')
     : preview?.group?.name || 'this group';
   const rankNote =
     Array.isArray(preview?.groups) && preview.groups.length > 1
-      ? ' First group fills matching slots; later groups fill leftovers, then extras go to trays.'
+      ? ' First group fills matching slots; later groups fill leftovers. Empty slots take the first tray still as live; extras stay on trays.'
       : '';
   return `<p>${
     attach
       ? 'Accept will copy these files instead of pulling stock. Logo and coverage map still generate.'
-      : 'Replaces matching Review images on this site. Leftover matching photos go into each slot’s tray.'
+      : 'Replaces matching Review images on this site. Empty slots take the first matching tray still as live. Leftover matching photos stay in each slot’s tray. Similar titles also go to trays (a before/after pair can appear on every similar service) — click Use to apply.'
   }${rankNote}</p>
     <p>Group <strong>${esc(names)}</strong>${
       preview?.group?.niche ? ` · ${esc(preview.group.niche)}` : ''
@@ -8755,13 +9077,18 @@ function photoGroupPreviewBodyHtml(preview, { attach = false } = {}) {
       <li>${esc(String(preview?.applied || 0))} stock slots will be filled</li>
       <li>${esc(String(preview?.baApplied || 0))} ChatGPT before/after pairs</li>
       ${
-        tray
-          ? `<li>${esc(String(tray))} leftover matching photos added to trays</li>`
+        leftover
+          ? `<li>${esc(String(leftover))} leftover matching photos added to trays</li>`
+          : ''
+      }
+      ${
+        similar
+          ? `<li>${esc(String(similar))} similar titles added to trays</li>`
           : ''
       }
       ${
         unused
-          ? `<li>${esc(String(unused))} saved photos unused (this Structure does not use those sections)</li>`
+          ? `<li>${esc(String(unused))} saved photos unused (no matching or similar slot)</li>`
           : ''
       }
       ${
@@ -8807,7 +9134,7 @@ async function savePhotoGroupFromUi(candidateId, { refresh, nextStep, tab } = {}
   try {
     let result;
     try {
-      result = await post(false);
+      result = await withReviewImagesWork({ label: 'Saving photo group…' }, () => post(false));
     } catch (error) {
       if (error.status !== 409) throw error;
       const replace = await showModal({
@@ -8817,7 +9144,7 @@ async function savePhotoGroupFromUi(candidateId, { refresh, nextStep, tab } = {}
         bodyHtml: `<p>${esc(error.message)}</p><p>Replace the saved files with this site’s current photos?</p>`,
       });
       if (!replace) return;
-      result = await post(true);
+      result = await withReviewImagesWork({ label: 'Saving photo group…' }, () => post(true));
     }
     if (refresh) await refresh(result.candidate, nextStep, tab);
     showToast(`Saved photo group “${result.group?.name || name}”.`);
@@ -8847,12 +9174,14 @@ async function loadPhotoGroupFromUi(
     return;
   }
   try {
-    const preview = await api(
-      `/api/candidates/${encodeURIComponent(candidateId)}/photo-groups/preview`,
-      {
-        method: 'POST',
-        body: JSON.stringify({ groupIds }),
-      },
+    const preview = await withReviewImagesWork({ label: 'Loading photo groups…' }, () =>
+      api(
+        `/api/candidates/${encodeURIComponent(candidateId)}/photo-groups/preview`,
+        {
+          method: 'POST',
+          body: JSON.stringify({ groupIds }),
+        },
+      ),
     );
     const ok = await showModal({
       title: attach ? 'Load photo group on Accept?' : 'Load photo group?',
@@ -8865,19 +9194,22 @@ async function loadPhotoGroupFromUi(
     ) {
       return;
     }
-    const result = await api(
-      `/api/candidates/${encodeURIComponent(candidateId)}/photo-groups/${
-        attach ? 'attach' : 'load'
-      }`,
-      {
-        method: 'POST',
-        body: JSON.stringify(withLaunchedConfirmBody({ groupIds })),
-      },
-    );
-    if (refresh) await refresh(result.candidate, nextStep, tab);
-    if (!attach) {
-      await refreshImageSlotsGrid(candidateId);
-    }
+    const result = await withReviewImagesWork({ label: 'Loading photo group…' }, async () => {
+      const loaded = await api(
+        `/api/candidates/${encodeURIComponent(candidateId)}/photo-groups/${
+          attach ? 'attach' : 'load'
+        }`,
+        {
+          method: 'POST',
+          body: JSON.stringify(withLaunchedConfirmBody({ groupIds })),
+        },
+      );
+      if (refresh) await refresh(loaded.candidate, nextStep, tab);
+      if (!attach) {
+        await refreshImageSlotsGrid(candidateId);
+      }
+      return loaded;
+    });
     const label =
       result.attached?.names?.join(' → ') ||
       preview.groups?.map((g) => g.name).join(' → ') ||
@@ -9244,16 +9576,27 @@ function contentPassStripHtml(stepDone, currentId, { photosOn = true, apiMode = 
   return `<div class="content-pass-strip" aria-label="Content pass progress">${chips}</div>`;
 }
 
-function writeSiteOverlayHtml(photosOn = true) {
-  const phases = photosOn
-    ? ['Research', 'Plan', 'Write', 'Polish', 'Image queries']
-    : ['Research', 'Plan', 'Write', 'Polish'];
-  const items = phases
-    .map((p) => `<li data-ws-phase="${esc(p)}">${esc(p)}</li>`)
+function roverJobOverlayHtml({
+  overlayId,
+  title,
+  titleId,
+  phases,
+  phaseAttr = 'data-ws-phase',
+  phasesId,
+  barId,
+  detailId,
+  stopId,
+  ariaLabel,
+} = {}) {
+  const items = (phases || [])
+    .map((p) => `<li ${phaseAttr}="${esc(p)}">${esc(p)}</li>`)
     .join('');
-  return `<div id="content-write-site-overlay" class="content-claude-job-overlay hidden" hidden aria-hidden="true">
+  const stop = stopId
+    ? `<button type="button" class="btn" id="${esc(stopId)}">Stop</button>`
+    : '';
+  return `<div id="${esc(overlayId)}" class="content-claude-job-overlay hidden" hidden aria-hidden="true">
     <div class="rover-loading-card">
-      <div class="rover-loader rover-loader--dark" role="img" aria-label="Writing site">
+      <div class="rover-loader rover-loader--dark" role="img" aria-label="${esc(ariaLabel || title || 'Working')}">
         <svg class="rover-loader-mark" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" focusable="false" aria-hidden="true">
           <circle class="rover-loader-dot" cx="32" cy="32" r="7.5" />
           <g class="rover-loader-ring rover-loader-ring--inner">
@@ -9265,23 +9608,166 @@ function writeSiteOverlayHtml(photosOn = true) {
         </svg>
         <img class="rover-loader-word" src="/brand/rover-wordmark-dark.png" alt="" width="618" height="81" decoding="async" />
       </div>
-      <p class="rover-loading-text" id="ws-overlay-title">Write site with Claude</p>
-      <ol class="ws-overlay-phases" id="ws-overlay-phases">${items}</ol>
+      <p class="rover-loading-text" id="${esc(titleId)}">${esc(title)}</p>
+      <ol class="ws-overlay-phases" id="${esc(phasesId)}">${items}</ol>
       <div class="job-progress" style="width:min(22rem,90%)">
-        <div class="job-progress-track"><div class="job-progress-bar" id="ws-overlay-bar"></div></div>
+        <div class="job-progress-track"><div class="job-progress-bar" id="${esc(barId)}"></div></div>
       </div>
-      <p class="muted small" id="ws-overlay-detail">Starting…</p>
-      <button type="button" class="btn" id="ws-overlay-stop">Stop</button>
+      <p class="muted small" id="${esc(detailId)}">Starting…</p>
+      ${stop}
     </div>
   </div>`;
 }
 
-function setWriteSiteOverlayVisible(visible) {
-  const overlay = document.getElementById('content-write-site-overlay');
+const WEBSITE_JOB_OVERLAY_IDS = [
+  'website-prepare-overlay',
+  'website-ship-overlay',
+  'website-launch-overlay',
+];
+
+function setRoverJobOverlayVisible(overlayId, visible) {
+  const overlay = document.getElementById(overlayId);
   if (!overlay) return;
   overlay.classList.toggle('hidden', !visible);
   overlay.hidden = !visible;
   overlay.setAttribute('aria-hidden', visible ? 'false' : 'true');
+  if (visible) syncJobOverlayTop();
+}
+
+function hideWebsiteJobOverlaysExcept(keepId) {
+  for (const id of WEBSITE_JOB_OVERLAY_IDS) {
+    if (id !== keepId) setRoverJobOverlayVisible(id, false);
+  }
+}
+
+function paintRoverJobOverlay({ overlayId, detailId, barId, phasesId, stopId, job } = {}) {
+  setRoverJobOverlayVisible(overlayId, true);
+  const overlay = document.getElementById(overlayId);
+  if (overlay && job?.id) overlay.dataset.jobId = job.id;
+  const detail = String(job?.detail || 'Working…');
+  const detailEl = document.getElementById(detailId);
+  if (detailEl) detailEl.textContent = detail;
+  const stopBtn = stopId ? document.getElementById(stopId) : null;
+  if (stopBtn) stopBtn.disabled = /stopping/i.test(detail);
+  const bar = document.getElementById(barId);
+  const total = Number(job?.progressTotal);
+  const done = Number(job?.progressDone);
+  if (bar && Number.isFinite(total) && total > 0) {
+    setDeterminateProgress(bar, { done: Number.isFinite(done) ? done : 0, total });
+  } else if (bar) {
+    setDeterminateProgress(bar, {});
+  }
+  const currentN = Number.isFinite(done) ? done : 0;
+  document.querySelectorAll(`#${phasesId} li`).forEach((li, i) => {
+    const n = i + 1;
+    li.classList.toggle('is-current', currentN > 0 && n === currentN);
+    li.classList.toggle('is-done', currentN > 0 && n < currentN);
+  });
+}
+
+function writeSiteOverlayHtml(photosOn = true) {
+  const phases = photosOn
+    ? ['Research', 'Plan', 'Write', 'Polish', 'Image queries']
+    : ['Research', 'Plan', 'Write', 'Polish'];
+  return roverJobOverlayHtml({
+    overlayId: 'content-write-site-overlay',
+    title: 'Write site with Claude',
+    titleId: 'ws-overlay-title',
+    phases,
+    phaseAttr: 'data-ws-phase',
+    phasesId: 'ws-overlay-phases',
+    barId: 'ws-overlay-bar',
+    detailId: 'ws-overlay-detail',
+    stopId: 'ws-overlay-stop',
+    ariaLabel: 'Writing site',
+  });
+}
+
+const ACCEPT_OVERLAY_PHASES = ['Write files', 'Photos', 'Logo', 'Coverage map'];
+
+function acceptOverlayHtml() {
+  return roverJobOverlayHtml({
+    overlayId: 'content-accept-overlay',
+    title: 'Accept content',
+    titleId: 'ac-overlay-title',
+    phases: ACCEPT_OVERLAY_PHASES,
+    phaseAttr: 'data-ac-phase',
+    phasesId: 'ac-overlay-phases',
+    barId: 'ac-overlay-bar',
+    detailId: 'ac-overlay-detail',
+    ariaLabel: 'Accepting content',
+  });
+}
+
+function shortenLaunchPhase(step) {
+  const s = String(step || '');
+  if (/keys|site-config/i.test(s)) return 'Keys';
+  if (/GitHub/i.test(s)) return 'GitHub';
+  if (/npm install|build/i.test(s)) return 'Build';
+  if (/Wrangler/i.test(s)) return 'Deploy';
+  if (/Workers Builds/i.test(s)) return 'Workers';
+  if (/Cloudflare/i.test(s)) return 'Cloudflare';
+  return s.replace(/…/g, '').trim() || 'Launch';
+}
+
+function launchOverlayPhaseLabels(body = {}) {
+  return launchProgressStepsFromForm(body).map(shortenLaunchPhase);
+}
+
+const PREPARE_OVERLAY_PHASES = ['Staging', 'Stop preview', 'Assemble', 'Build', 'Preview'];
+
+function launchOverlayHtml() {
+  const phases =
+    Array.isArray(state._launchOverlayPhases) && state._launchOverlayPhases.length
+      ? state._launchOverlayPhases
+      : ['Keys', 'GitHub', 'Build', 'Deploy', 'Workers', 'Cloudflare'];
+  return roverJobOverlayHtml({
+    overlayId: 'website-launch-overlay',
+    title: 'Run launch',
+    titleId: 'ln-overlay-title',
+    phases,
+    phaseAttr: 'data-ln-phase',
+    phasesId: 'ln-overlay-phases',
+    barId: 'ln-overlay-bar',
+    detailId: 'ln-overlay-detail',
+    ariaLabel: 'Launching site',
+  });
+}
+
+function prepareOverlayHtml() {
+  return roverJobOverlayHtml({
+    overlayId: 'website-prepare-overlay',
+    title: 'Prepare preview',
+    titleId: 'pr-overlay-title',
+    phases: PREPARE_OVERLAY_PHASES,
+    phaseAttr: 'data-pr-phase',
+    phasesId: 'pr-overlay-phases',
+    barId: 'pr-overlay-bar',
+    detailId: 'pr-overlay-detail',
+    ariaLabel: 'Preparing preview',
+  });
+}
+
+function shipOverlayHtml() {
+  const phases =
+    Array.isArray(state._shipOverlayPhases) && state._shipOverlayPhases.length
+      ? state._shipOverlayPhases
+      : ['GitHub', 'Build', 'Deploy', 'Workers'];
+  return roverJobOverlayHtml({
+    overlayId: 'website-ship-overlay',
+    title: 'Push updates',
+    titleId: 'sh-overlay-title',
+    phases,
+    phaseAttr: 'data-sh-phase',
+    phasesId: 'sh-overlay-phases',
+    barId: 'sh-overlay-bar',
+    detailId: 'sh-overlay-detail',
+    ariaLabel: 'Pushing updates',
+  });
+}
+
+function setWriteSiteOverlayVisible(visible) {
+  setRoverJobOverlayVisible('content-write-site-overlay', visible);
 }
 
 function syncWriteSiteOverlay(snap) {
@@ -9290,24 +9776,13 @@ function syncWriteSiteOverlay(snap) {
   const overlay = document.getElementById('content-write-site-overlay');
   if (job) {
     state._writeSiteTrack = { candidateId: job.candidateId, jobId: job.id };
-    if (overlay) overlay.dataset.jobId = job.id;
-    setWriteSiteOverlayVisible(Boolean(overlay));
-    const detail = String(job.detail || 'Working…');
-    const detailEl = document.getElementById('ws-overlay-detail');
-    if (detailEl) detailEl.textContent = detail;
-    const stopBtn = document.getElementById('ws-overlay-stop');
-    if (stopBtn) stopBtn.disabled = /stopping/i.test(detail);
-    const bar = document.getElementById('ws-overlay-bar');
-    const total = Number(job.progressTotal);
-    const done = Number(job.progressDone);
-    if (bar && Number.isFinite(total) && total > 0) {
-      setDeterminateProgress(bar, { done: Number.isFinite(done) ? done : 0, total });
-    }
-    const currentN = Number.isFinite(done) ? done : 0;
-    document.querySelectorAll('#ws-overlay-phases [data-ws-phase]').forEach((li, i) => {
-      const n = i + 1;
-      li.classList.toggle('is-current', currentN > 0 && n === currentN);
-      li.classList.toggle('is-done', currentN > 0 && n < currentN);
+    paintRoverJobOverlay({
+      overlayId: 'content-write-site-overlay',
+      detailId: 'ws-overlay-detail',
+      barId: 'ws-overlay-bar',
+      phasesId: 'ws-overlay-phases',
+      stopId: 'ws-overlay-stop',
+      job,
     });
     return;
   }
@@ -9396,14 +9871,22 @@ async function startWriteSiteFromUi(id) {
       syncWriteSiteOverlay(snapWithOptimisticWriteSite(error.jobId, id));
       return;
     }
-    if (error.code === 'WRITE_SITE_BUSY') {
+    if (error.code === 'WRITE_SITE_CAP' || error.code === 'WRITE_SITE_BUSY') {
+      if (error.code === 'WRITE_SITE_CAP') {
+        await explainConcurrencyLimit({
+          key: 'writeSite',
+          running: error.running,
+          limit: error.limit ?? state.concurrency?.writeSite ?? 6,
+        });
+        return;
+      }
       await showModal({
         title: 'Write site already running',
         confirmLabel: 'OK',
         hideCancel: true,
         bodyHtml: `<p>Write site is already running for <code>${esc(
           error.candidateId || 'another candidate',
-        )}</code>. One Write site at a time. Watch Light, or open that candidate’s Content tab to Stop.</p>`,
+        )}</code>. Watch Light, or open that candidate’s Content tab to Stop.</p>`,
       });
       return;
     }
@@ -9414,6 +9897,53 @@ async function startWriteSiteFromUi(id) {
       bodyHtml: `<p>${esc(error.message)}</p>`,
     });
   }
+}
+
+function snapWithOptimisticAccept(candidateId) {
+  const jobs = [...(state.lightJobsSnap?.jobs || [])];
+  if (!jobs.some((j) => j.phase === 'accept' && String(j.candidateId) === String(candidateId) && (j.status === 'running' || j.status === 'queued'))) {
+    jobs.unshift({
+      id: 'optimistic-accept',
+      candidateId,
+      phase: 'accept',
+      label: 'Accept',
+      status: 'running',
+      detail: 'Starting…',
+      progressDone: 0,
+      progressTotal: 4,
+    });
+  }
+  return { ...(state.lightJobsSnap || {}), jobs };
+}
+
+function syncAcceptOverlay(snap) {
+  const cid = state.selectedId;
+  const job = findActiveJob(snap, 'accept', cid);
+  if (job) {
+    paintRoverJobOverlay({
+      overlayId: 'content-accept-overlay',
+      detailId: 'ac-overlay-detail',
+      barId: 'ac-overlay-bar',
+      phasesId: 'ac-overlay-phases',
+      job,
+    });
+    return;
+  }
+  if (state._acceptHold) {
+    setRoverJobOverlayVisible('content-accept-overlay', true);
+    return;
+  }
+  setRoverJobOverlayVisible('content-accept-overlay', false);
+}
+
+function showAcceptOverlayStarting() {
+  state._acceptHold = true;
+  syncAcceptOverlay(snapWithOptimisticAccept(state.selectedId));
+}
+
+function hideAcceptOverlay() {
+  state._acceptHold = false;
+  setRoverJobOverlayVisible('content-accept-overlay', false);
 }
 
 function discoveryPackLightId(batchId) {
@@ -9437,6 +9967,7 @@ function setGeneratePackOverlayVisible(visible) {
   overlay.classList.toggle('hidden', !visible);
   overlay.hidden = !visible;
   overlay.setAttribute('aria-hidden', visible ? 'false' : 'true');
+  if (visible) syncJobOverlayTop();
 }
 
 function syncGeneratePackOverlay(snap) {
@@ -9604,52 +10135,42 @@ async function startGeneratePackFromUi(batchId) {
   }
 }
 
-function fillDiscoveryGeneratePackStep(batch) {
-  const box = document.getElementById('discovery-pack-result');
-  const empty = document.getElementById('discovery-pack-empty');
-  if (!box) return;
-  if (!batch?.id) {
-    empty?.classList.remove('hidden');
-    box.classList.add('hidden');
-    box.innerHTML = '';
-    return;
-  }
-  empty?.classList.add('hidden');
-  box.classList.remove('hidden');
-  const hasRows = Number(batch.rowCount) > 0 || (state.discoveryRows?.length || 0) > 0;
-  const busy = generatePackJobRunning();
-  const spent = batch.lastCosts?.generatePack;
-  box.innerHTML = `
-    ${
-      hasRows
-        ? `<div class="callout"><strong>Pack CSV imported</strong>${
-            spent != null ? ` · last run ${esc(formatMoney(spent))}` : ''
-          } — glance/fix in the table, then Light SERP.</div>`
-        : `<p class="disc-tool-blurb">Claude fills this pack via the Anthropic API. Rows appear in the table for glance/fix — then Light SERP.</p>`
-    }
-    <div class="narrative-actions" style="flex-wrap:wrap;gap:0.4rem">
-      <button type="button" class="btn primary" id="discovery-generate-pack" ${
-        busy ? 'disabled' : ''
-      }>${hasRows ? 'Re-run Generate pack' : 'Generate pack'}</button>
-    </div>
-  `;
+function syncDiscoveryApiRerunButton() {
+  const btn = document.getElementById('discovery-generate-pack');
+  if (!btn) return;
+  const api = effectiveClaudeUiMode() === 'api';
+  const id = String(state.discoveryBatchId || '').trim();
+  const show = api && Boolean(id);
+  btn.classList.toggle('hidden', !show);
+  if (!show) return;
+  const hasRows = (state.discoveryRows?.length || 0) > 0;
+  btn.textContent = hasRows ? 'Re-run Generate pack' : 'Generate pack';
+  btn.disabled = generatePackJobRunning();
 }
 
 function syncDiscoveryClaudeModeUi() {
   const api = effectiveClaudeUiMode() === 'api';
+  const packTip = document.querySelector('#discovery-new-pack-section .tip-info');
   const claudeLabel = document.querySelector('#discovery-claude-pack-section .discovery-flow-label');
   const claudeTip = document.querySelector('#discovery-claude-pack-section .tip-info');
   const enrichLabel = document.querySelector('#discovery-enrich-section .discovery-flow-label');
-  if (claudeLabel) claudeLabel.textContent = api ? '2 · Generate pack' : '2 · Send to Claude';
+  if (packTip) {
+    setElementTip(
+      packTip,
+      api
+        ? 'Set filters, then Generate. Creates the pack and runs Claude via the Anthropic API (confirm cost). Glance/fix rows, then Light SERP.'
+        : 'Set filters, then Generate. Claude gets a filtered compact High-Ticket niche list (not the full guide) and Claude-only CSV headers.',
+    );
+  }
+  if (claudeLabel) claudeLabel.textContent = '2 · Send to Claude';
   if (claudeTip) {
     setElementTip(
       claudeTip,
-      api
-        ? 'Claude fills the CSV via the Anthropic API. Glance/fix rows in the table, then Light SERP.'
-        : 'Download the CSV template, copy the Claude prompt, then paste both in Claude.ai.',
+      'Download the CSV template, copy the Claude prompt, then paste both in Claude.ai.',
     );
   }
-  if (enrichLabel) enrichLabel.textContent = api ? '3 · Light SERP' : '4 · Light SERP';
+  if (enrichLabel) enrichLabel.textContent = api ? '2 · Light SERP' : '4 · Light SERP';
+  syncDiscoveryApiRerunButton();
 }
 
 function firstIncompleteWebsiteStep({ logoMapDone, imagesDone, prepareDone, launched, indexingDone }) {
@@ -10410,7 +10931,7 @@ function renderContent() {
   );
 
   if (apiMode) {
-    const wsBusy = writeSiteJobRunning();
+    const wsBusy = writeSiteJobRunning(d?.id);
     const spent = d?.meta?.lastCosts?.writeSite;
     const leftoverN = editorNeeds.speechN || 0;
     parts.push(
@@ -10422,7 +10943,7 @@ function renderContent() {
         open: openId === 'writeSite',
         current: currentId === 'writeSite' && !writeSiteDone,
         locked: !structureDone || !ready,
-        info: 'One job: Site research → Brief → Outline → Full write → Polish → Image queries when photos are on. Skips steps already loaded. Stop keeps files written so far.',
+        info: 'One job per candidate: Site research → Brief → Outline → Full write → Polish → Image queries when photos are on. Up to six candidates can Write site at once. Skips steps already loaded. Stop keeps files written so far.',
         bodyHtml: `
           ${
             writeSiteDone
@@ -10851,7 +11372,7 @@ function renderContent() {
         open: openId === 'photoGroup',
         current: currentId === 'photoGroup' && !photoGroupDone,
         locked: apiMode ? !writeSiteDone : !finalCheckDone,
-        info: 'Optional. Pick up to three ranked groups. The 1st fills matching slots; the 2nd and 3rd fill leftovers; extras go into trays. Or skip for stock / niche master. Save named groups later from Website → Review images or Photo.',
+        info: 'Optional. Rank as many saved groups as you need. The 1st fills matching slots; later groups fill leftovers; extras go into trays. Empty slots take the first tray still as live. Or skip for stock / niche master. Save named groups later from Website → Review images or Photo.',
         bodyHtml: `
         ${
           photoGroupAttached
@@ -10878,7 +11399,7 @@ function renderContent() {
         ${contentActionRow({
           n: 1,
           label: 'Load a saved photo group',
-          hint: 'Rank up to three groups. Accept copies 1st, then fills leftovers from 2nd and 3rd. Matching extras go to trays. Logo and coverage map still generate.',
+          hint: 'Rank groups in order. Accept copies 1st, then fills leftovers from later groups. Empty slots take the first tray still as live; extras stay on trays. Logo and coverage map still generate.',
           done: photoGroupDone,
           controlsHtml: photoGroupToolbarHtml({
             selectId: 'cs-pg-select',
@@ -10936,11 +11457,6 @@ function renderContent() {
             acceptReady ? '' : 'disabled'
           }>Accept content</button>
         </div>
-        <div id="ca-accept-progress" class="job-progress hidden" aria-live="polite">
-          <div class="job-progress-track"><div class="job-progress-bar" id="ca-accept-progress-bar"></div></div>
-          <p class="job-progress-label" id="ca-accept-progress-label">Accepting…</p>
-          <p class="job-progress-detail" id="ca-accept-progress-detail">Starting…</p>
-        </div>
         ${check?.errors?.length ? `<div class="callout warn"><strong>Errors:</strong> ${esc(check.errors.join('; '))}</div>` : ''}
         ${
           check?.warnings?.length || contract?.warnings?.length
@@ -10977,7 +11493,7 @@ function renderContent() {
     }),
   );
 
-  return `<div class="content-panel-wrap">${writeSiteOverlayHtml(photosOn)}${parts.join('')}</div>`;
+  return `<div class="content-panel-wrap">${writeSiteOverlayHtml(photosOn)}${acceptOverlayHtml()}${parts.join('')}</div>`;
 }
 
 function imagesStatusLine(d, { withTime = true } = {}) {
@@ -10988,7 +11504,7 @@ function imagesStatusLine(d, { withTime = true } = {}) {
         Object.values(d.contentStructure.photos).some((p) => p?.enabled),
     );
     if (!photosOn) return 'No Structure photo slots enabled — pull will skip.';
-    return 'No images pulled yet. Accept content (auto stock + logo/map) or Pull photos.';
+    return 'No images pulled yet. Accept content (auto stock + logo/map).';
   }
   const sources = m.sources || {};
   const srcPart = Object.keys(sources).length
@@ -11070,17 +11586,50 @@ function imagesSlotMatchesFilter(slot, filter) {
   return grade === f;
 }
 
+function imagesTitleQuery(q) {
+  return String(q ?? '').trim().toLowerCase();
+}
+
+function imagesTextMatchesTitle(text, q) {
+  const n = imagesTitleQuery(q);
+  if (!n) return true;
+  return String(text || '').toLowerCase().includes(n);
+}
+
+function imagesSlotTitle(slot) {
+  return String(slot?.label || slot?.key || '');
+}
+
+function reviewBaTitle(pair) {
+  if (!pair) return '';
+  return pair.serviceName
+    ? `Before & after — ${pair.serviceName}`
+    : `Before & after — home ${pair.pairIndex || 1}`;
+}
+
+function imagesSlotMatchesTitle(slot, q) {
+  return imagesTextMatchesTitle(imagesSlotTitle(slot), q);
+}
+
 function imagesSourceFilterId(activeFilter) {
-  return ['all', 'stock', 'flux', 'openai'].includes(activeFilter) ? activeFilter : 'all';
+  return ['all', 'stock', 'openai'].includes(activeFilter) ? activeFilter : 'all';
 }
 
 function imagesSlotSourceKind(slot) {
   if (!slot || slot.missing) return null;
   const src = String(slot.source || '').toLowerCase();
-  if (src === 'flux' || src === 'openai' || src === 'stock') return src;
+  if (src === 'openai' || src === 'stock') return src;
   if (src === 'upload' || src === 'chatgpt') return src;
+  if (src === 'flux') return null;
   if (slot.provider) return 'stock';
   return src || null;
+}
+
+function imagesSlotSourceLabel(slot) {
+  if (!slot || slot.missing) return 'missing';
+  const src = String(slot.source || '').trim();
+  if (!src || src.toLowerCase() === 'flux') return '';
+  return src;
 }
 
 function imagesSlotMatchesSource(slot, filter) {
@@ -11179,37 +11728,20 @@ function imagesMatchTotalsHtml(totals, activeFilter = 'all') {
   </div>`;
 }
 
-function fluxIsConfigured(flux) {
-  return Boolean((flux || state.flux || state.photoLib?.flux)?.configured);
+function rememberOpenaiStatus(data) {
+  const src = data?.openai || data?.flux;
+  if (src && typeof src === 'object' && src.openaiKeySet != null) {
+    state.flux = { openaiKeySet: Boolean(src.openaiKeySet) };
+  }
 }
 
 function fluxIsOpenaiConfigured(flux) {
   return Boolean(
-    flux?.openaiKeySet || state.flux?.openaiKeySet || state.photoLib?.flux?.openaiKeySet,
+    flux?.openaiKeySet ||
+      state.flux?.openaiKeySet ||
+      state.photoLib?.flux?.openaiKeySet ||
+      state.apiCostConfigured?.openai,
   );
-}
-
-function fluxJobsReady(nSlots, nPairs, flux) {
-  if (nSlots < 1 && nPairs < 1) return false;
-  if (nSlots && !fluxIsConfigured(flux)) return false;
-  if (nPairs && !fluxIsOpenaiConfigured(flux)) return false;
-  return true;
-}
-
-function fluxJobsHint(nSlots, nPairs, flux, cost) {
-  if (nSlots < 1 && nPairs < 1) return 'Check slots, then generate';
-  if (nPairs && !fluxIsOpenaiConfigured(flux)) {
-    return 'Set OPENAI_API_KEY in .env (same key as Phone), then restart Rover.';
-  }
-  if (nSlots && !fluxIsConfigured(flux)) {
-    return 'Set FAL_KEY in .env (Settings → Flux 2 Pro), then restart Rover.';
-  }
-  return cost || 'Select slots to generate';
-}
-
-function candidateFluxSpend(c) {
-  const n = Number(c?.lastCosts?.flux ?? c?.meta?.lastCosts?.flux);
-  return Number.isFinite(n) && n > 0 ? n : 0;
 }
 
 function candidateOpenaiSpend(c) {
@@ -11217,24 +11749,18 @@ function candidateOpenaiSpend(c) {
   return Number.isFinite(n) && n > 0 ? n : 0;
 }
 
-function falRemainingLabel() {
-  const b = state.falBalance;
-  if (b?.ok && b.balance != null) return formatMoney(b.balance);
-  return '—';
+function openaiSpendText(detail) {
+  return `OpenAI spend ${formatMoney(candidateOpenaiSpend(detail))}`;
 }
 
-function fluxSpendText(detail) {
-  return `Flux spend ${formatMoney(candidateFluxSpend(detail))} · remaining ${falRemainingLabel()} · OpenAI spend ${formatMoney(candidateOpenaiSpend(detail))}`;
+function openaiSpendLineHtml(detail) {
+  return `<p id="ca-openai-spend" class="muted">${esc(openaiSpendText(detail))}</p>`;
 }
 
-function fluxSpendLineHtml(detail) {
-  return `<p id="ca-flux-spend" class="muted">${esc(fluxSpendText(detail))}</p>`;
-}
-
-function renderFluxSpendLine() {
-  const el = document.getElementById('ca-flux-spend');
+function renderOpenaiSpendLine() {
+  const el = document.getElementById('ca-openai-spend');
   if (!el) return;
-  el.textContent = fluxSpendText(state.detail);
+  el.textContent = openaiSpendText(state.detail);
 }
 
 function patchListLastCosts(candidate) {
@@ -11273,16 +11799,6 @@ function syncListRowFromDetail(candidate) {
   }
 }
 
-function fluxCostLine(nSlots, nPairs) {
-  const gen = 0.03;
-  const pair = 0.09;
-  const total = nSlots * gen + nPairs * pair;
-  const bits = [];
-  if (nSlots) bits.push(`${nSlots} photo${nSlots === 1 ? '' : 's'} ≈ $${(nSlots * gen).toFixed(2)}`);
-  if (nPairs) bits.push(`${nPairs} pair${nPairs === 1 ? '' : 's'} ≈ $${(nPairs * pair).toFixed(2)}`);
-  return bits.length ? `${bits.join(' · ')} (about $${total.toFixed(2)})` : '';
-}
-
 function slotCheckHtml({ id, checked, extraClass = '' }) {
   return `<label class="slot-check${extraClass ? ` ${extraClass}` : ''}"><input type="checkbox" class="slot-check-input" data-check-id="${esc(id)}"${checked ? ' checked' : ''} /></label>`;
 }
@@ -11295,9 +11811,6 @@ function slotThumbImg(src, { alt = '', role = '' } = {}) {
 }
 
 function slotAiMark(kind) {
-  if (kind === 'flux') {
-    return '<svg class="btn-ai-logo" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path fill="currentColor" d="M8 1.1 9.1 5.8 13.9 7 9.1 8.2 8 14.9 6.9 8.2 2.1 7 6.9 5.8 8 1.1z"/></svg>';
-  }
   if (kind === 'openai') {
     return '<svg class="btn-ai-logo" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path fill="currentColor" d="M8 1.4 12.8 4.2v5.6L8 12.6 3.2 9.8V4.2L8 1.4zm0 1.9L4.8 5v4l3.2 1.8L11.2 9V5L8 3.3zm0 2.1 2.1 1.2v2.4L8 10.2 5.9 9V6.6L8 5.4z"/></svg>';
   }
@@ -11311,17 +11824,24 @@ function chatgptOpenBtnHtml() {
   return `<a class="btn btn-sm btn-ai" href="https://chatgpt.com/" target="_blank" rel="noopener" data-tip="Open ChatGPT in a new tab">${slotAiMark('chatgpt')}<span>ChatGPT</span></a>`;
 }
 
-function variantTrayHtml(variants, { ba = false } = {}) {
+function photoGroupsAttachedOnDetail() {
+  const doc = state.detail?.photoGroupAttached;
+  if (!doc || doc.skipped) return false;
+  if (Array.isArray(doc.groupIds) && doc.groupIds.length) return true;
+  return Boolean(doc.groupId);
+}
+
+function variantTrayHtml(variants, { ba = false, seeMore = false, slotKey = '' } = {}) {
   const list = Array.isArray(variants)
     ? variants.filter((v) =>
-        ba ? v.id && (v.beforeUrl || v.afterUrl) : v.filename && v.previewUrl,
+        ba ? v.id && v.beforeUrl && v.afterUrl : v.filename && v.previewUrl,
       )
     : [];
-  if (!list.length) return '';
-  const cards = list
+  const shown = seeMore ? list.slice(0, 7) : list;
+  const cards = shown
     .map((v) => {
       if (ba) {
-        return `<button type="button" class="slot-variant ba slot-variant-use" data-pair-id="${esc(v.id)}" data-tip="Use this before/after pair">
+        return `<button type="button" class="slot-variant ba slot-variant-use" data-pair-id="${esc(v.id)}" data-before-filename="${esc(v.beforeFilename || '')}" data-tip="Use this before/after pair">
           <div class="slot-variant-pair">
             ${v.beforeUrl ? `<img src="${esc(v.beforeUrl)}" alt="" data-zoom-src="${esc(v.beforeUrl)}" class="slot-zoom-tray" />` : '<div></div>'}
             ${v.afterUrl ? `<img src="${esc(v.afterUrl)}" alt="" data-zoom-src="${esc(v.afterUrl)}" class="slot-zoom-tray" />` : '<div></div>'}
@@ -11333,18 +11853,325 @@ function variantTrayHtml(variants, { ba = false } = {}) {
       </button>`;
     })
     .join('');
-  return `<div class="slot-variant-tray">${cards}</div>`;
+  const moreBtn =
+    seeMore && slotKey
+      ? `<button type="button" class="slot-variant slot-see-more" data-slot-key="${esc(slotKey)}"${ba ? ' data-ba="1"' : ''} data-tip="${ba ? 'Browse before/after pairs to use in this slot' : 'Browse photos to use in this slot'}">See More</button>`
+      : '';
+  if (!cards && !moreBtn) return '';
+  return `<div class="slot-variant-tray">${cards}${moreBtn}</div>`;
 }
 
-function fluxGenerateBtnHtml({ configured = true, extra = '', bulk = false } = {}) {
-  const tip = configured
-    ? bulk
-      ? 'Flux: generate each selected photo slot on fal (not Before & after). Replaces live photos; previous go to the tray. Tray keeps 8; oldest is removed. Uses Inside/Outside.'
-      : 'Flux: generate one photo on fal. Replaces the live slot; previous photo goes to the tray. Tray keeps 8; oldest is removed. Uses Inside/Outside.'
-    : 'Set FAL_KEY in .env (Settings → Flux 2 Pro), then restart Rover.';
-  const disabled = configured ? '' : ' disabled';
-  const bulkClass = bulk ? ' slot-generate-selected-flux' : '';
-  return `<button type="button" class="btn btn-sm btn-ai slot-generate${bulkClass}" data-tip="${esc(tip)}"${disabled}${extra}>${slotAiMark('flux')}<span>Flux</span></button>`;
+async function openLoadedGroupSeeMore(candidateId, slotKey) {
+  let data;
+  try {
+    data = await withReviewImagesWork({ label: 'Loading photos…' }, () =>
+      api(`/api/candidates/${encodeURIComponent(candidateId)}/photo-groups/stills`),
+    );
+  } catch (error) {
+    await showModal({
+      title: 'See More failed',
+      confirmLabel: 'OK',
+      hideCancel: true,
+      bodyHtml: `<p>${esc(error.message)}</p>`,
+    });
+    return;
+  }
+  const photos = Array.isArray(data?.photos) ? data.photos : [];
+  if (!photos.length) {
+    await showModal({
+      title: 'See More',
+      confirmLabel: 'OK',
+      hideCancel: true,
+      bodyHtml: '<p>No photos in the loaded photo groups.</p>',
+    });
+    return;
+  }
+  const names = (data.names || []).filter(Boolean).join(' → ');
+  await showSeeMorePicker({
+    title: names ? `Loaded groups — ${names}` : 'Loaded photo groups',
+    photos,
+    onPick: async (groupId, filename) => {
+      await withReviewImagesWork(
+        {
+          label: 'Loading photo…',
+          key: slotKey,
+          card: document.querySelector(reviewCardAttrSel('data-slot-key', slotKey)),
+        },
+        async () => {
+          const used = await api(
+            `/api/candidates/${encodeURIComponent(candidateId)}/images/slots/${encodeURIComponent(slotKey)}/use-group-file`,
+            {
+              method: 'POST',
+              body: JSON.stringify(withLaunchedConfirmBody({ groupId, filename })),
+            },
+          );
+          await refreshImageSlotInPlace(candidateId, { slotKey, status: used.status });
+          showToast('Loaded photo from group.');
+        },
+      );
+    },
+  });
+}
+
+async function openLoadedGroupBaSeeMore(candidateId, slotKey) {
+  let data;
+  try {
+    data = await withReviewImagesWork({ label: 'Loading photos…' }, () =>
+      api(`/api/candidates/${encodeURIComponent(candidateId)}/photo-groups/ba-pairs`),
+    );
+  } catch (error) {
+    await showModal({
+      title: 'See More failed',
+      confirmLabel: 'OK',
+      hideCancel: true,
+      bodyHtml: `<p>${esc(error.message)}</p>`,
+    });
+    return;
+  }
+  const pairs = Array.isArray(data?.pairs) ? data.pairs : [];
+  if (!pairs.length) {
+    await showModal({
+      title: 'See More',
+      confirmLabel: 'OK',
+      hideCancel: true,
+      bodyHtml: '<p>No before/after pairs in the loaded photo groups.</p>',
+    });
+    return;
+  }
+  const names = (data.names || []).filter(Boolean).join(' → ');
+  const refreshKey = slotKey.startsWith('ba:') ? slotKey : `ba:${slotKey}`;
+  await showSeeMorePicker({
+    title: names ? `Loaded groups — ${names}` : 'Loaded photo groups',
+    photos: pairs,
+    ba: true,
+    onPick: async ({ groupId, beforeFilename, afterFilename }) => {
+      await withReviewImagesWork(
+        {
+          label: 'Loading pair…',
+          key: slotKey,
+          card: document.querySelector(reviewCardAttrSel('data-match-key', slotKey)),
+        },
+        async () => {
+          const used = await api(
+            `/api/candidates/${encodeURIComponent(candidateId)}/images/before-after/use-group-pair`,
+            {
+              method: 'POST',
+              body: JSON.stringify(
+                withLaunchedConfirmBody({ matchKey: slotKey, groupId, beforeFilename, afterFilename }),
+              ),
+            },
+          );
+          await refreshImageSlotInPlace(candidateId, { slotKey: refreshKey, status: used.status });
+          showToast('Loaded before/after pair from group.');
+        },
+      );
+    },
+  });
+}
+
+function photoLibGroupStills() {
+  const lib = photoLibCurrent();
+  const groupId = lib.groupId;
+  const groupName = lib.view?.group?.name || '';
+  const photos = [];
+  const seen = new Set();
+  const add = (filename, previewUrl, label) => {
+    if (!filename || !previewUrl || seen.has(`${groupId}\0${filename}`)) return;
+    seen.add(`${groupId}\0${filename}`);
+    photos.push({ groupId, groupName, filename, previewUrl, label });
+  };
+  for (const sec of lib.view?.sections || []) {
+    for (const s of sec.slots || []) {
+      add(s.filename, s.previewUrl, s.label || s.filename);
+      for (const v of s.variants || []) {
+        add(v.filename, v.previewUrl, s.label || v.filename);
+      }
+    }
+  }
+  return { photos, groupName, groupId };
+}
+
+async function openPhotoLibSeeMore(matchKey) {
+  const { photos, groupName, groupId } = photoLibGroupStills();
+  if (!groupId) return;
+  if (!photos.length) {
+    await showModal({
+      title: 'See More',
+      confirmLabel: 'OK',
+      hideCancel: true,
+      bodyHtml: '<p>No photos in this group.</p>',
+    });
+    return;
+  }
+  await showSeeMorePicker({
+    title: groupName ? `Group — ${groupName}` : 'Photo group',
+    photos,
+    onPick: async (fromGroupId, filename) => {
+      beginSlotBusy(matchKey, document.querySelector(`#photo-group-body ${reviewCardAttrSel('data-match-key', matchKey)}`));
+      await api(`/api/photo-groups/${encodeURIComponent(groupId)}/slots/use-file`, {
+        method: 'POST',
+        body: JSON.stringify({ matchKey, fromGroupId, filename }),
+      });
+      await loadPhotoGroupView();
+      renderPhotoView();
+      await settleSlotBusy(matchKey);
+      showToast('Loaded photo from group.');
+    },
+  });
+}
+
+function photoLibGroupBaPairs() {
+  const lib = photoLibCurrent();
+  const groupId = lib.groupId;
+  const groupName = lib.view?.group?.name || '';
+  const pairs = [];
+  const seen = new Set();
+  const add = (beforeFilename, afterFilename, beforeUrl, afterUrl, label) => {
+    if (!beforeFilename || !afterFilename || !beforeUrl || !afterUrl) return;
+    const id = `${groupId}\0${beforeFilename}\0${afterFilename}`;
+    if (seen.has(id)) return;
+    seen.add(id);
+    pairs.push({
+      groupId,
+      groupName,
+      beforeFilename,
+      afterFilename,
+      beforeUrl,
+      afterUrl,
+      label,
+    });
+  };
+  const labelFor = (p) => {
+    const role = p.serviceName ? p.serviceName : `Home ${p.pairIndex || 1}`;
+    return groupName ? `${role} · ${groupName}` : role;
+  };
+  for (const p of [...(lib.view?.beforeAfter?.home || []), ...(lib.view?.beforeAfter?.services || [])]) {
+    add(p.before?.filename, p.after?.filename, p.beforeUrl, p.afterUrl, labelFor(p));
+    for (const v of p.variants || []) {
+      add(v.beforeFilename, v.afterFilename, v.beforeUrl, v.afterUrl, labelFor(p));
+    }
+  }
+  return { pairs, groupName, groupId };
+}
+
+async function openPhotoLibBaSeeMore(matchKey) {
+  const { pairs, groupName, groupId } = photoLibGroupBaPairs();
+  if (!groupId) return;
+  if (!pairs.length) {
+    await showModal({
+      title: 'See More',
+      confirmLabel: 'OK',
+      hideCancel: true,
+      bodyHtml: '<p>No before/after pairs in this group.</p>',
+    });
+    return;
+  }
+  await showSeeMorePicker({
+    title: groupName ? `Group — ${groupName}` : 'Photo group',
+    photos: pairs,
+    ba: true,
+    onPick: async ({ groupId: fromGroupId, beforeFilename, afterFilename }) => {
+      beginSlotBusy(
+        matchKey,
+        document.querySelector(`#photo-group-body ${reviewCardAttrSel('data-match-key', matchKey)}`),
+      );
+      await api(`/api/photo-groups/${encodeURIComponent(groupId)}/before-after/use-pair`, {
+        method: 'POST',
+        body: JSON.stringify({ matchKey, fromGroupId, beforeFilename, afterFilename }),
+      });
+      await loadPhotoGroupView();
+      renderPhotoView();
+      await settleSlotBusy(matchKey);
+      showToast('Loaded before/after pair from group.');
+    },
+  });
+}
+
+async function showSeeMorePicker({ title, photos, ba = false, onPick }) {
+  const cards = photos
+    .map((p) => {
+      if (ba) {
+        return `<button type="button" class="see-more-card ba" data-group-id="${esc(p.groupId)}" data-before-filename="${esc(p.beforeFilename)}" data-after-filename="${esc(p.afterFilename)}">
+        <div class="slot-variant-pair">
+          <img class="slot-zoom-tray" src="${esc(p.beforeUrl)}" alt="" data-zoom-src="${esc(p.beforeUrl)}" />
+          <img class="slot-zoom-tray" src="${esc(p.afterUrl)}" alt="" data-zoom-src="${esc(p.afterUrl)}" />
+        </div>
+        <span class="see-more-card-meta">${esc(p.label || '')}</span>
+      </button>`;
+      }
+      return `<button type="button" class="see-more-card" data-group-id="${esc(p.groupId)}" data-filename="${esc(p.filename)}">
+        <img class="slot-zoom-tray" src="${esc(p.previewUrl)}" alt="${esc(p.label || '')}" data-zoom-src="${esc(p.previewUrl)}" />
+        <span class="see-more-card-meta">${esc(p.label || p.filename)}</span>
+      </button>`;
+    })
+    .join('');
+  const hint = ba
+    ? 'Click a pair to use it in this slot. Previous live pair goes to the tray.'
+    : 'Click a photo to use it in this slot. Previous live photo goes to the tray.';
+  let picked = null;
+  await showModal({
+    title,
+    confirmLabel: 'Close',
+    hideCancel: true,
+    bodyHtml: `<p class="muted">${hint}</p>
+      <input id="see-more-search" class="modal-type-confirm-input see-more-search" type="search" placeholder="Search titles…" autocomplete="off" spellcheck="false" />
+      <p class="muted small see-more-empty hidden">No matching titles</p>
+      <div class="see-more-grid">${cards}</div>`,
+    afterOpen: (bodyEl) => {
+      const searchEl = bodyEl.querySelector('#see-more-search');
+      const emptyEl = bodyEl.querySelector('.see-more-empty');
+      const cardEls = [...bodyEl.querySelectorAll('.see-more-card')];
+      const applyFilter = () => {
+        const q = String(searchEl?.value || '')
+          .trim()
+          .toLowerCase();
+        let visible = 0;
+        for (const btn of cardEls) {
+          const label = (btn.querySelector('.see-more-card-meta')?.textContent || '').toLowerCase();
+          const match = !q || label.includes(q);
+          btn.classList.toggle('hidden', !match);
+          if (match) visible += 1;
+        }
+        emptyEl?.classList.toggle('hidden', visible > 0);
+      };
+      searchEl?.addEventListener('input', applyFilter);
+      searchEl?.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') e.preventDefault();
+      });
+      setTimeout(() => searchEl?.focus(), 0);
+      cardEls.forEach((btn) => {
+        btn.addEventListener('click', () => {
+          if (picked) return;
+          const groupId = btn.getAttribute('data-group-id');
+          if (ba) {
+            const beforeFilename = btn.getAttribute('data-before-filename');
+            const afterFilename = btn.getAttribute('data-after-filename');
+            if (!groupId || !beforeFilename || !afterFilename) return;
+            picked = { groupId, beforeFilename, afterFilename };
+          } else {
+            const filename = btn.getAttribute('data-filename');
+            if (!groupId || !filename) return;
+            picked = { groupId, filename };
+          }
+          for (const card of cardEls) card.disabled = true;
+          document.getElementById('modal-confirm')?.click();
+        });
+      });
+    },
+  });
+  if (!picked) return;
+  try {
+    if (ba) await onPick(picked);
+    else await onPick(picked.groupId, picked.filename);
+  } catch (error) {
+    await settleSlotBusy();
+    await showModal({
+      title: ba ? 'Use pair failed' : 'Use photo failed',
+      confirmLabel: 'OK',
+      hideCancel: true,
+      bodyHtml: `<p>${esc(error.message)}</p>`,
+    });
+  }
 }
 
 function openaiGenerateBtnHtml({ pair = false, extra = '', bulk = false, flux } = {}) {
@@ -11365,7 +12192,6 @@ function openaiGenerateBtnHtml({ pair = false, extra = '', bulk = false, flux } 
 function slotSourceActionsHtml({
   kind = 'photo',
   viewpointKey,
-  fluxConfigured = true,
   generateExtra = '',
   copyHtml = '',
   filesHtml = '',
@@ -11373,7 +12199,7 @@ function slotSourceActionsHtml({
   const generate =
     kind === 'ba'
       ? openaiGenerateBtnHtml({ pair: true, extra: generateExtra })
-      : `${fluxGenerateBtnHtml({ configured: fluxConfigured, extra: generateExtra })}${openaiGenerateBtnHtml({ extra: generateExtra })}`;
+      : openaiGenerateBtnHtml({ extra: generateExtra });
   const files = String(filesHtml || '').trim()
     ? `<div class="slot-files-row">${filesHtml}</div>`
     : '';
@@ -11386,34 +12212,36 @@ function slotSourceActionsHtml({
   </div>`;
 }
 
-function selectedGenerateCostLine(nSlots, nPairs, provider) {
-  if (provider === 'openai') {
-    const gen = 0.04;
-    const pair = 0.09;
-    const total = nSlots * gen + nPairs * pair;
-    const bits = [];
-    if (nSlots) bits.push(`${nSlots} photo${nSlots === 1 ? '' : 's'} ≈ $${(nSlots * gen).toFixed(2)}`);
-    if (nPairs) bits.push(`${nPairs} pair${nPairs === 1 ? '' : 's'} ≈ $${(nPairs * pair).toFixed(2)}`);
-    return bits.length ? `${bits.join(' · ')} (about $${total.toFixed(2)})` : '';
-  }
-  return fluxCostLine(nSlots, 0);
+function selectedGenerateCostLine(nSlots, nPairs) {
+  const gen = 0.04;
+  const pair = 0.09;
+  const total = nSlots * gen + nPairs * pair;
+  const bits = [];
+  if (nSlots) bits.push(`${nSlots} photo${nSlots === 1 ? '' : 's'} ≈ $${(nSlots * gen).toFixed(2)}`);
+  if (nPairs) bits.push(`${nPairs} pair${nPairs === 1 ? '' : 's'} ≈ $${(nPairs * pair).toFixed(2)}`);
+  return bits.length ? `${bits.join(' · ')} (about $${total.toFixed(2)})` : '';
 }
 
 function countSelectedBySource(slots, checks) {
-  const out = { stock: 0, flux: 0, openai: 0 };
+  const out = { stock: 0, openai: 0 };
   for (const s of slots || []) {
     if (!checks?.[s.key]) continue;
     const k = imagesSlotSourceKind(s);
-    if (k === 'stock' || k === 'flux' || k === 'openai') out[k] += 1;
+    if (k === 'stock' || k === 'openai') out[k] += 1;
   }
   return out;
 }
 
-function fluxToolbarHtml({ nSlots, nPairs, flux, id, repull = false, sourceCounts = null }) {
+function fluxToolbarHtml({
+  nSlots,
+  nPairs,
+  flux,
+  id,
+  repull = false,
+  sourceCounts = null,
+  titleSearch = false,
+}) {
   const n = nSlots + nPairs;
-  const fluxConfigured = fluxIsConfigured(flux);
-  const openaiConfigured = fluxIsOpenaiConfigured(flux);
-  const fluxExtra = nSlots < 1 ? ' disabled' : '';
   const openaiExtra = n < 1 ? ' disabled' : '';
   const repullBtn = repull
     ? `<button type="button" class="btn btn-sm review-selected-repull" data-tip="Re-pull stock for selected photo slots (not Before &amp; after)"${
@@ -11424,7 +12252,7 @@ function fluxToolbarHtml({ nSlots, nPairs, flux, id, repull = false, sourceCount
     n < 1 ? ' disabled' : ''
   }>Unselect all</button>`;
   const source = imagesSourceFilterId(state.imageSourceFilter);
-  const counts = sourceCounts || { stock: 0, flux: 0, openai: 0 };
+  const counts = sourceCounts || { stock: 0, openai: 0 };
   const sourceBtn = (filterId, label, tip) => {
     const pressed = source === filterId;
     return `<button type="button" class="btn btn-sm review-source-filter${
@@ -11438,11 +12266,14 @@ function fluxToolbarHtml({ nSlots, nPairs, flux, id, repull = false, sourceCount
         'stock',
         `Stock ${counts.stock}`,
         'Show stock photos only — click again for all',
-      )}${sourceBtn('flux', `Flux ${counts.flux}`, 'Show Flux photos only — click again for all')}${sourceBtn(
+      )}${sourceBtn(
         'openai',
         `OpenAI ${counts.openai}`,
         'Show OpenAI photos only — click again for all',
       )}</span>`
+    : '';
+  const titleSearchHtml = titleSearch
+    ? `<input id="review-title-search" class="modal-type-confirm-input flux-toolbar-title-search" type="search" placeholder="Search titles…" autocomplete="off" spellcheck="false" value="${esc(state.imageTitleFilter || '')}" />`
     : '';
   return `<div class="flux-toolbar" id="${esc(id)}">
     <span class="review-selected-count">Selected images ${esc(String(n))}</span>
@@ -11451,13 +12282,12 @@ function fluxToolbarHtml({ nSlots, nPairs, flux, id, repull = false, sourceCount
     <span class="flux-toolbar-sep" role="separator" aria-hidden="true"></span>
     <span class="flux-toolbar-generate-label">Generate</span>
     ${repullBtn}
-    ${fluxGenerateBtnHtml({ configured: fluxConfigured, bulk: true, extra: fluxExtra })}
     ${openaiGenerateBtnHtml({ bulk: true, extra: openaiExtra, flux })}
+    ${titleSearchHtml}
   </div>`;
 }
 
 function imagesSlotCardHtml(slot) {
-  const configured = fluxIsConfigured();
   const checked = Boolean(state.imageSlotChecks?.[slot.key]);
   const thumb = slotThumbImg(slot.previewUrl, { role: 'Empty' });
   const grade = imagesSlotGrade(slot);
@@ -11473,9 +12303,10 @@ function imagesSlotCardHtml(slot) {
   const matchDot = grade
     ? imagesMatchDotHtml(grade, tip, { cycle: true, slotKey: slot.key })
     : '';
-  const badge = slot.source
-    ? `<span class="muted" style="font-size:0.75rem">${esc(slot.source)}</span>`
-    : `<span class="muted" style="font-size:0.75rem">missing</span>`;
+  const sourceLabel = imagesSlotSourceLabel(slot);
+  const badge = sourceLabel
+    ? `<span class="muted" style="font-size:0.75rem">${esc(sourceLabel)}</span>`
+    : '';
   return `<div class="image-slot-card" data-slot-key="${esc(slot.key)}" style="border:1px solid var(--border);border-radius:6px;overflow:hidden;background:var(--bg-subtle)">
     ${slotCheckHtml({ id: slot.key, checked })}
     <div class="slot-thumb" style="aspect-ratio:16/10;background:#0f172a0d;display:flex;align-items:center;justify-content:center">${thumb}</div>
@@ -11485,7 +12316,6 @@ function imagesSlotCardHtml(slot) {
       ${slotSourceActionsHtml({
         kind: 'photo',
         viewpointKey: slot.key,
-        fluxConfigured: configured,
         generateExtra: ` data-slot-key="${esc(slot.key)}"`,
         copyHtml: `<button type="button" class="btn btn-sm ca-slot-chatgpt-prompt" data-slot-key="${esc(slot.key)}" data-tip="Copy a ChatGPT image prompt for this slot (uses Inside/Outside), then generate and Upload">Copy prompt</button>`,
         filesHtml: `<button type="button" class="btn btn-sm ca-slot-repull" data-slot-key="${esc(slot.key)}" data-tip="Fetch a different stock photo for this slot">Re-pull</button>
@@ -11494,8 +12324,12 @@ function imagesSlotCardHtml(slot) {
           <input type="file" class="ca-slot-upload" data-slot-key="${esc(slot.key)}" accept="image/jpeg,image/png,image/webp,image/gif" hidden />
         </label>`,
       })}
+      ${slotPromptPanelHtml({ kind: 'photo', key: slot.key })}
     </div>
-    ${variantTrayHtml(slot.variants)}
+    ${variantTrayHtml(slot.variants, {
+      seeMore: photoGroupsAttachedOnDetail(),
+      slotKey: slot.key,
+    })}
   </div>`;
 }
 
@@ -11503,10 +12337,19 @@ function reviewBaCardHtml(candidateId, pair) {
   const key = pair.matchKey || (pair.slug ? `svc:${pair.slug}` : `home:${pair.pairIndex || 1}`);
   const checkId = `ba:${key}`;
   const checked = Boolean(state.imageSlotChecks?.[checkId]);
-  const label = pair.serviceName
-    ? `Before & after — ${pair.serviceName}`
-    : `Before & after — home ${pair.pairIndex || 1}`;
+  const label = reviewBaTitle(pair);
   const kind = pair.slug ? 'service' : 'home';
+  const slot = baPairAsReviewSlot(pair);
+  const grade = imagesSlotGrade(slot);
+  const tip =
+    grade === 'upload'
+      ? 'Operator upload'
+      : pair.matchTip || (slot.missing ? 'No photo in this slot' : '');
+  const matchDot = grade ? imagesMatchDotHtml(grade, tip, { cycle: true, slotKey: checkId }) : '';
+  const sourceLabel = imagesSlotSourceLabel(slot);
+  const badge = sourceLabel
+    ? `<span class="muted" style="font-size:0.75rem">${esc(sourceLabel)}</span>`
+    : '';
   return `<div class="image-slot-card photo-ba-card" data-ba="1" data-ba-kind="${esc(kind)}" data-match-key="${esc(key)}" data-pair-index="${esc(String(pair.pairIndex || 1))}" data-service-slug="${esc(pair.slug || '')}" style="border:1px solid var(--border);border-radius:6px;overflow:hidden;background:var(--bg-subtle)">
     ${slotCheckHtml({ id: checkId, checked })}
     <div class="ba-pair-thumbs">
@@ -11514,7 +12357,8 @@ function reviewBaCardHtml(candidateId, pair) {
       <figure>${slotThumbImg(pair.afterUrl, { alt: 'After' })}<figcaption class="muted">After</figcaption></figure>
     </div>
     <div style="padding:0.45rem 0.55rem;display:flex;flex-direction:column;gap:0.25rem">
-      <strong style="font-size:0.85rem">${esc(label)}</strong>
+      <strong style="font-size:0.85rem;display:flex;align-items:center;gap:0.35rem">${matchDot}${esc(label)}</strong>
+      ${badge}
       ${slotSourceActionsHtml({
         kind: 'ba',
         viewpointKey: key,
@@ -11526,9 +12370,13 @@ function reviewBaCardHtml(candidateId, pair) {
           <input type="file" class="ca-ba-card-import" data-service-slug="${esc(pair.slug || '')}" data-pair-index="${esc(String(pair.pairIndex || 1))}" accept="image/jpeg,image/png,image/webp" multiple hidden />
         </label>`,
       })}
-      ${baShowPromptsHtml(pair, key)}
+      ${slotPromptPanelHtml({ kind: 'ba', key, pair })}
     </div>
-    ${variantTrayHtml(pair.variants, { ba: true })}
+    ${variantTrayHtml(pair.variants, {
+      ba: true,
+      seeMore: photoGroupsAttachedOnDetail(),
+      slotKey: key,
+    })}
   </div>`;
 }
 
@@ -11669,14 +12517,23 @@ function imagesSlotsShellHtml() {
   </div>`;
 }
 
-function reviewBaCardsHtml(candidateId, baStatus) {
+function reviewBaCardsHtml(
+  candidateId,
+  baStatus,
+  { filter = 'all', sourceFilter = 'all', titleQ = '' } = {},
+) {
   if (!baStatus) return '';
-  const home = baStatus.homePairs || [];
-  const services = baStatus.svcBeforeAfterEnabled ? baStatus.services || [] : [];
-  const cards = [
-    ...home.map((p) => reviewBaCardHtml(candidateId, p)),
-    ...services.map((p) => reviewBaCardHtml(candidateId, p)),
-  ].join('');
+  const cards = listReviewBaPairs(baStatus)
+    .filter((p) => {
+      const slot = baPairAsReviewSlot(p);
+      return (
+        imagesSlotMatchesFilter(slot, filter) &&
+        imagesSlotMatchesSource(slot, sourceFilter) &&
+        imagesTextMatchesTitle(reviewBaTitle(p), titleQ)
+      );
+    })
+    .map((p) => reviewBaCardHtml(candidateId, p))
+    .join('');
   if (!cards) return '';
   return `<section class="ca-image-slot-section" data-section-group="beforeAfter">
       <h4 class="ca-image-slot-section-title">Before &amp; after</h4>
@@ -11700,20 +12557,95 @@ function renderReviewFluxToolbar() {
   const el = document.getElementById('ca-flux-toolbar');
   if (!el) return;
   const { nSlots, nPairs } = countReviewChecks();
-  const sourceCounts = countSelectedBySource(state.reviewImageSlots, state.imageSlotChecks);
+  const sourceCounts = countSelectedBySource(
+    [
+      ...(state.reviewImageSlots || []),
+      ...listReviewBaPairs(state.reviewBa).map(baPairAsReviewSlot),
+    ],
+    state.imageSlotChecks,
+  );
   el.outerHTML = fluxToolbarHtml({
     nSlots,
     nPairs,
     id: 'ca-flux-toolbar',
     repull: true,
     sourceCounts,
+    titleSearch: true,
   });
+}
+
+function listReviewBaPairs(baStatus) {
+  if (!baStatus) return [];
+  const home = baStatus.homePairs || [];
+  const services = baStatus.svcBeforeAfterEnabled ? baStatus.services || [] : [];
+  return [...home, ...services];
+}
+
+function pickReviewBaPairFromStatus(status, slotKey) {
+  const raw = String(slotKey || '').replace(/^ba:/, '');
+  if (raw.startsWith('svc:')) {
+    const slug = raw.slice(4);
+    return (status?.services || []).find((s) => s.slug === slug) || null;
+  }
+  const n = Math.max(1, Number(String(raw).split(':')[1]) || 1);
+  return (status?.homePairs || []).find((p) => (p.pairIndex || 1) === n) || status?.homePairs?.[0] || null;
+}
+
+function baPairAsReviewSlot(pair) {
+  const matchKey =
+    pair?.matchKey || (pair?.slug ? `svc:${pair.slug}` : `home:${pair.pairIndex || 1}`);
+  return {
+    key: `ba:${matchKey}`,
+    label: reviewBaTitle(pair),
+    missing: Boolean(pair?.missing) || !pair?.complete,
+    source: pair?.source || null,
+    matchGrade: pair?.matchGrade || null,
+    matchTip: pair?.matchTip || '',
+  };
+}
+
+function mergeMatchTotals(photoTotals, baPairs) {
+  const t = {
+    poor: Number(photoTotals?.poor) || 0,
+    ok: Number(photoTotals?.ok) || 0,
+    good: Number(photoTotals?.good) || 0,
+    uploaded: Number(photoTotals?.uploaded) || 0,
+    missing: Number(photoTotals?.missing) || 0,
+  };
+  for (const pair of baPairs || []) {
+    const grade = imagesSlotGrade(baPairAsReviewSlot(pair));
+    if (grade === 'missing') t.missing += 1;
+    else if (grade === 'upload') t.uploaded += 1;
+    else if (grade === 'good') t.good += 1;
+    else if (grade === 'ok') t.ok += 1;
+    else t.poor += 1;
+  }
+  return t;
+}
+
+function reviewPhotoMatchTotals(slots) {
+  const t = { poor: 0, ok: 0, good: 0, uploaded: 0, missing: 0 };
+  for (const slot of slots || []) {
+    if (slot?.missing) t.missing += 1;
+    else if (slot?.source === 'upload') t.uploaded += 1;
+    else if (slot?.matchGrade === 'good') t.good += 1;
+    else if (slot?.matchGrade === 'ok') t.ok += 1;
+    else t.poor += 1;
+  }
+  return t;
 }
 
 function reviewSlotsForGrade(filterId) {
   const grade = imagesMatchFilterId(filterId);
   if (grade === 'all') return [];
-  return (state.reviewImageSlots || []).filter((s) => imagesSlotMatchesFilter(s, grade));
+  const titleQ = state.imageTitleFilter || '';
+  const photos = (state.reviewImageSlots || []).filter(
+    (s) => imagesSlotMatchesFilter(s, grade) && imagesSlotMatchesTitle(s, titleQ),
+  );
+  const ba = listReviewBaPairs(state.reviewBa)
+    .map(baPairAsReviewSlot)
+    .filter((s) => imagesSlotMatchesFilter(s, grade) && imagesSlotMatchesTitle(s, titleQ));
+  return [...photos, ...ba];
 }
 
 function toggleSelectReviewGrade(filterId) {
@@ -11785,8 +12717,28 @@ async function repullReviewSlots(candidateId, slotKeys) {
   }
 }
 
-const OPENAI_GENERATE_CONCURRENCY = 5;
-const OPENAI_BA_PAIR_WEIGHT = 2;
+function openaiPhotoConcurrency() {
+  const n = Number(state.concurrency?.openaiPhotos);
+  return Number.isFinite(n) && n >= 1 ? n : 5;
+}
+
+function openaiBaConcurrency() {
+  const n = Number(state.concurrency?.openaiBeforeAfter);
+  return Number.isFinite(n) && n >= 1 ? n : 2;
+}
+
+async function gateOpenaiBeforeAfterKeys(baKeys) {
+  const keys = Array.isArray(baKeys) ? baKeys : [];
+  if (!keys.length) return keys;
+  const limit = openaiBaConcurrency();
+  if (keys.length <= limit) return keys;
+  await explainConcurrencyLimit({
+    key: 'openaiBeforeAfter',
+    selected: keys.length,
+    limit,
+  });
+  return [];
+}
 
 function isOpenaiRateLimitError(error) {
   if (Number(error?.status) === 429 || error?.code === 'openai-rate-limit') return true;
@@ -11857,10 +12809,6 @@ async function runWeightedPool(items, limit, weightOf, worker) {
   });
 }
 
-function openaiGenerateWeight(job) {
-  return job?.kind === 'pair' ? OPENAI_BA_PAIR_WEIGHT : 1;
-}
-
 function createSerialQueue() {
   let chain = Promise.resolve();
   return (fn) => {
@@ -11882,202 +12830,106 @@ function paintOpenaiBatchProgress(done, total) {
   });
 }
 
-async function generateReviewSelected(candidateId, provider) {
+async function generateReviewSelected(candidateId) {
   const checks = state.imageSlotChecks || {};
   const slotKeys = Object.keys(checks).filter((k) => checks[k] && !k.startsWith('ba:'));
-  const baKeys =
-    provider === 'openai'
-      ? Object.keys(checks).filter((k) => checks[k] && k.startsWith('ba:'))
-      : [];
+  let baKeys = Object.keys(checks).filter((k) => checks[k] && k.startsWith('ba:'));
+  baKeys = await gateOpenaiBeforeAfterKeys(baKeys);
   const nSlots = slotKeys.length;
   const nPairs = baKeys.length;
   const n = nSlots + nPairs;
   if (!n) return;
   if (n >= 8) {
     const ok = await showModal({
-      title: provider === 'openai' ? 'Generate OpenAI' : 'Generate Flux',
+      title: 'Generate OpenAI',
       confirmLabel: 'Generate',
-      bodyHtml: `<p>${esc(selectedGenerateCostLine(nSlots, nPairs, provider))}</p><p>Generate ${n} job${n === 1 ? '' : 's'}?</p>`,
+      bodyHtml: `<p>${esc(selectedGenerateCostLine(nSlots, nPairs))}</p><p>Generate ${n} job${n === 1 ? '' : 's'}?</p>`,
     });
     if (!ok) return;
   }
-  if (
-    !(await confirmLaunchedSiteChange(
-      provider === 'openai' ? 'Generate OpenAI photos' : 'Generate Flux photos',
-    ))
-  ) {
+  if (!(await confirmLaunchedSiteChange('Generate OpenAI photos'))) {
     return;
   }
-  const slotPath = provider === 'openai' ? 'generate-openai' : 'generate';
   const total = n;
   const failures = [];
-  const samples = { photo: [], pair: [] };
-  let lastCandidate = null;
-  let walletStop = false;
-  let index = 0;
   try {
     for (const slotKey of slotKeys) beginSlotBusy(slotKey, null, { scroll: false });
     for (const baId of baKeys) beginSlotBusy(baId, null, { scroll: false });
-    if (provider === 'openai') {
-      const jobs = [
-        ...slotKeys.map((slotKey) => ({ kind: 'photo', id: slotKey })),
-        ...baKeys.map((baId) => ({ kind: 'pair', id: baId })),
-      ];
-      let done = 0;
-      paintOpenaiBatchProgress(0, total);
-      const enqueue = createSerialQueue();
-      await runWeightedPool(jobs, OPENAI_GENERATE_CONCURRENCY, openaiGenerateWeight, async (job) => {
-        const t0 = Date.now();
-        try {
-          if (job.kind === 'photo') {
-            const result = await withOpenaiRateLimitRetry(() =>
-              api(
-                `/api/candidates/${encodeURIComponent(candidateId)}/images/slots/${encodeURIComponent(job.id)}/${slotPath}`,
-                {
-                  method: 'POST',
-                  body: JSON.stringify(
-                    withLaunchedConfirmBody({ viewpoint: getBaViewpoint(job.id) }),
-                  ),
-                },
-              ),
-            );
-            samples.photo.push(Date.now() - t0);
-            await enqueue(() =>
-              commitReviewSlot(candidateId, { candidate: result.candidate, slotKey: job.id }),
-            );
-          } else {
-            const raw = job.id.replace(/^ba:/, '');
-            const isSvc = raw.startsWith('svc:');
-            const slug = isSvc ? raw.slice(4) : '';
-            const pairIndex = isSvc ? 1 : Number(String(raw).split(':')[1]) || 1;
-            const result = await withOpenaiRateLimitRetry(() =>
-              api(
-                `/api/candidates/${encodeURIComponent(candidateId)}/images/before-after-generate-openai`,
-                {
-                  method: 'POST',
-                  body: JSON.stringify(
-                    withLaunchedConfirmBody({
-                      viewpoint: getBaViewpoint(raw),
-                      serviceSlug: slug,
-                      pairIndex,
-                    }),
-                  ),
-                },
-              ),
-            );
-            samples.pair.push(Date.now() - t0);
-            await enqueue(() =>
-              commitReviewSlot(candidateId, { candidate: result.candidate, slotKey: job.id }),
-            );
-          }
-        } catch (error) {
-          await enqueue(async () => {
-            await settleSlotBusy(job.id);
-            if (job.kind === 'pair') await settleSlotBusy(job.id.replace(/^ba:/, ''));
-          });
-          const label = job.kind === 'pair' ? job.id.replace(/^ba:/, '') : job.id;
-          failures.push(`${label}: ${error.message}`);
-        } finally {
-          done += 1;
-          paintOpenaiBatchProgress(done, total);
-        }
-      });
-    } else {
-      for (const slotKey of slotKeys) {
-        index += 1;
-        const t0 = Date.now();
-        try {
-          await withFluxProgress(
-            {
-              label: 'Generating…',
-              detail: slotKey,
-              index,
-              total,
-              kind: 'photo',
-              samples,
-            },
-            async () => {
-              const result = await api(
-                `/api/candidates/${encodeURIComponent(candidateId)}/images/slots/${encodeURIComponent(slotKey)}/${slotPath}`,
-                {
-                  method: 'POST',
-                  body: JSON.stringify(
-                    withLaunchedConfirmBody({ viewpoint: getBaViewpoint(slotKey) }),
-                  ),
-                },
-              );
-              if (result.candidate) lastCandidate = result.candidate;
-            },
+    const photoJobs = slotKeys.map((slotKey) => ({ kind: 'photo', id: slotKey }));
+    const pairJobs = baKeys.map((baId) => ({ kind: 'pair', id: baId }));
+    let done = 0;
+    paintOpenaiBatchProgress(0, total);
+    const enqueue = createSerialQueue();
+    const runOne = async (job) => {
+      try {
+        if (job.kind === 'photo') {
+          const card = document.querySelector(reviewCardAttrSel('data-slot-key', job.id));
+          const result = await withOpenaiRateLimitRetry(() =>
+            api(
+              `/api/candidates/${encodeURIComponent(candidateId)}/images/slots/${encodeURIComponent(job.id)}/generate-openai`,
+              {
+                method: 'POST',
+                body: JSON.stringify(
+                  withLaunchedConfirmBody(promptBodyFromCard(card)),
+                ),
+              },
+            ),
           );
-          samples.photo.push(Date.now() - t0);
-          await commitReviewSlot(candidateId, { candidate: lastCandidate, slotKey });
-        } catch (error) {
-          await settleSlotBusy(slotKey);
-          failures.push(`${slotKey}: ${error.message}`);
-          if (isFluxWalletError(error)) {
-            walletStop = true;
-            break;
-          }
-        }
-      }
-      if (!walletStop) {
-        for (const baId of baKeys) {
-          index += 1;
-          const raw = baId.replace(/^ba:/, '');
+          await enqueue(() =>
+            commitReviewSlot(candidateId, { status: result.status, slotKey: job.id }),
+          );
+        } else {
+          const raw = job.id.replace(/^ba:/, '');
           const isSvc = raw.startsWith('svc:');
           const slug = isSvc ? raw.slice(4) : '';
           const pairIndex = isSvc ? 1 : Number(String(raw).split(':')[1]) || 1;
-          const t0 = Date.now();
-          try {
-            await withFluxProgress(
+          const card = document.querySelector(reviewCardAttrSel('data-match-key', raw));
+          const result = await withOpenaiRateLimitRetry(() =>
+            api(
+              `/api/candidates/${encodeURIComponent(candidateId)}/images/before-after-generate-openai`,
               {
-                label: 'Generating pair…',
-                detail: raw,
-                index,
-                total,
-                kind: 'pair',
-                samples,
+                method: 'POST',
+                body: JSON.stringify(
+                  withLaunchedConfirmBody({
+                    ...promptBodyFromCard(card, { pair: true }),
+                    serviceSlug: slug,
+                    pairIndex,
+                  }),
+                ),
               },
-              async () => {
-                const result = await api(
-                  `/api/candidates/${encodeURIComponent(candidateId)}/images/before-after-generate-openai`,
-                  {
-                    method: 'POST',
-                    body: JSON.stringify(
-                      withLaunchedConfirmBody({
-                        viewpoint: getBaViewpoint(raw),
-                        serviceSlug: slug,
-                        pairIndex,
-                      }),
-                    ),
-                  },
-                );
-                if (result.candidate) lastCandidate = result.candidate;
-              },
-            );
-            samples.pair.push(Date.now() - t0);
-            await commitReviewSlot(candidateId, { candidate: lastCandidate, slotKey: baId });
-          } catch (error) {
-            await settleSlotBusy(baId);
-            await settleSlotBusy(raw);
-            failures.push(`${raw}: ${error.message}`);
-            if (isFluxWalletError(error)) break;
-          }
+            ),
+          );
+          await enqueue(() =>
+            commitReviewSlot(candidateId, { status: result.status, slotKey: job.id }),
+          );
         }
+      } catch (error) {
+        await enqueue(async () => {
+          await settleSlotBusy(job.id);
+          if (job.kind === 'pair') await settleSlotBusy(job.id.replace(/^ba:/, ''));
+        });
+        const label = job.kind === 'pair' ? job.id.replace(/^ba:/, '') : job.id;
+        failures.push(`${label}: ${error.message}`);
+      } finally {
+        done += 1;
+        paintOpenaiBatchProgress(done, total);
       }
-    }
+    };
+    await Promise.all([
+      runPool(photoJobs, openaiPhotoConcurrency(), runOne),
+      runPool(pairJobs, openaiBaConcurrency(), runOne),
+    ]);
     if (failures.length) {
-      if (!(await showFluxGenerateFailures(failures))) {
+      if (!(await showGenerateFailures(failures))) {
         showToast(`Generated with ${failures.length} error${failures.length === 1 ? '' : 's'}.`);
       }
     } else {
-      const label = provider === 'openai' ? 'OpenAI' : 'Flux';
-      showToast(`Generated ${total} ${label} job${total === 1 ? '' : 's'}.`);
+      showToast(`Generated ${total} OpenAI job${total === 1 ? '' : 's'}.`);
     }
   } finally {
     await settleSlotBusy();
     setImagesProgress(false);
-    refreshImageWallets({ fresh: true, remind: true });
+    refreshImageWallets({ fresh: true });
   }
 }
 
@@ -12136,7 +12988,61 @@ function imagesSlotsGroupedHtml(slots) {
   );
 }
 
-async function refreshImageSlotsGrid(candidateId) {
+function reviewCardAttrSel(name, value) {
+  const raw = String(value || '');
+  const escaped =
+    typeof CSS !== 'undefined' && typeof CSS.escape === 'function' ? CSS.escape(raw) : raw.replace(/"/g, '\\"');
+  return `.image-slot-card[${name}="${escaped}"]`;
+}
+
+function upsertReviewSlotState(slot) {
+  if (!slot?.key) return;
+  const list = Array.isArray(state.reviewImageSlots) ? [...state.reviewImageSlots] : [];
+  const i = list.findIndex((s) => s.key === slot.key);
+  if (i >= 0) list[i] = slot;
+  else list.push(slot);
+  state.reviewImageSlots = list;
+}
+
+function upsertReviewBaPair(pair) {
+  if (!pair) return;
+  const ba = { ...(state.reviewBa || {}) };
+  if (pair.slug) {
+    const services = [...(ba.services || [])];
+    const i = services.findIndex((s) => s.slug === pair.slug);
+    if (i >= 0) services[i] = pair;
+    else services.push(pair);
+    ba.services = services;
+  } else {
+    const homePairs = [...(ba.homePairs || [])];
+    const n = pair.pairIndex || 1;
+    const i = homePairs.findIndex((p) => (p.pairIndex || 1) === n);
+    if (i >= 0) homePairs[i] = pair;
+    else homePairs.push(pair);
+    ba.homePairs = homePairs;
+  }
+  state.reviewBa = ba;
+}
+
+function patchReviewImageCard(candidateId, { slotKey, slot, baPair } = {}) {
+  const grid = document.getElementById('ca-image-slots-grid');
+  if (!grid) return false;
+  const pair = baPair;
+  if (pair || String(slotKey || '').startsWith('ba:')) {
+    if (!pair) return false;
+    upsertReviewBaPair(pair);
+    paintReviewImageSlotsFromState(candidateId, { renderToolbar: true });
+    return true;
+  }
+  if (slot?.key) {
+    upsertReviewSlotState(slot);
+    paintReviewImageSlotsFromState(candidateId, { renderToolbar: true });
+    return true;
+  }
+  return false;
+}
+
+function paintReviewImageSlotsFromState(candidateId, { matchTotals = null, renderToolbar = true } = {}) {
   const grid = document.getElementById('ca-image-slots-grid');
   const empty = document.getElementById('ca-image-slots-empty');
   const filterEmpty = document.getElementById('ca-image-slots-filter-empty');
@@ -12146,83 +13052,107 @@ async function refreshImageSlotsGrid(candidateId) {
   state.imageMatchFilter = filter;
   const sourceFilter = imagesSourceFilterId(state.imageSourceFilter);
   state.imageSourceFilter = sourceFilter;
+  const titleQ = state.imageTitleFilter || '';
+  const slots = state.reviewImageSlots || [];
+  const baList = listReviewBaPairs(state.reviewBa);
+  const baHtml = state.reviewBa
+    ? reviewBaCardsHtml(candidateId, state.reviewBa, { filter, sourceFilter, titleQ })
+    : '';
+
+  if (!slots.length && !baList.length) {
+    grid.innerHTML = '';
+    if (totalsEl) totalsEl.innerHTML = '';
+    if (filterEmpty) {
+      filterEmpty.style.display = 'none';
+      filterEmpty.textContent = '';
+    }
+    if (empty) empty.style.display = 'block';
+    if (renderToolbar) renderReviewFluxToolbar();
+    restoreSlotBusyOverlays();
+    return;
+  }
+
+  if (empty) empty.style.display = 'none';
+  if (totalsEl) {
+    totalsEl.innerHTML = imagesMatchTotalsHtml(
+      mergeMatchTotals(reviewPhotoMatchTotals(slots), baList),
+      filter,
+    );
+  }
+  const visible = slots.filter(
+    (s) =>
+      imagesSlotMatchesFilter(s, filter) &&
+      imagesSlotMatchesSource(s, sourceFilter) &&
+      imagesSlotMatchesTitle(s, titleQ),
+  );
+  grid.innerHTML = `${imagesSlotsGroupedHtml(visible)}${baHtml}`;
+  if (renderToolbar) renderReviewFluxToolbar();
+  restoreSlotBusyOverlays();
+  if (filterEmpty) {
+    if (!visible.length && !baHtml) {
+      filterEmpty.style.display = 'block';
+      const labels = {
+        all: 'No photo slots.',
+        poor: 'No poor matches.',
+        ok: 'No ok matches.',
+        good: 'No good matches.',
+        upload: 'No operator uploads.',
+        empty: 'No empty slots.',
+      };
+      const sourceLabels = {
+        stock: 'No stock photos.',
+        openai: 'No OpenAI photos.',
+      };
+      filterEmpty.textContent = imagesTitleQuery(titleQ)
+        ? 'No matching titles.'
+        : sourceFilter !== 'all' && filter === 'all'
+          ? sourceLabels[sourceFilter] || 'No matching slots.'
+          : sourceFilter !== 'all'
+            ? 'No matching slots.'
+            : labels[filter] || 'No matching slots.';
+    } else {
+      filterEmpty.style.display = 'none';
+      filterEmpty.textContent = '';
+    }
+  }
+}
+
+async function refreshImageSlotsGrid(candidateId) {
+  const grid = document.getElementById('ca-image-slots-grid');
+  const empty = document.getElementById('ca-image-slots-empty');
+  const filterEmpty = document.getElementById('ca-image-slots-filter-empty');
+  const totalsEl = document.getElementById('ca-image-slots-totals');
+  if (!grid) return;
   try {
     const data = await api(`/api/candidates/${encodeURIComponent(candidateId)}/images/slots`);
-    const slots = data?.slots || [];
-    state.reviewImageSlots = slots;
-    if (data.flux) state.flux = data.flux;
-    let baHtml = '';
+    state.reviewImageSlots = data?.slots || [];
+    rememberOpenaiStatus(data);
     try {
       const baStatus = await api(
         `/api/candidates/${encodeURIComponent(candidateId)}/images/before-after-status`,
       );
       state.reviewBa = baStatus;
-      if (baStatus?.flux) state.flux = baStatus.flux;
-      if (filter === 'all' && (sourceFilter === 'all' || sourceFilter === 'openai')) {
-        baHtml = reviewBaCardsHtml(candidateId, baStatus);
-      }
+      rememberOpenaiStatus(baStatus);
     } catch {
       state.reviewBa = null;
     }
-    if (!slots.length && !baHtml) {
-      grid.innerHTML = '';
-      if (totalsEl) totalsEl.innerHTML = '';
-      if (filterEmpty) {
-        filterEmpty.style.display = 'none';
-        filterEmpty.textContent = '';
-      }
-      if (empty) empty.style.display = 'block';
-      renderReviewFluxToolbar();
-      restoreSlotBusyOverlays();
-      return;
-    }
-    if (empty) empty.style.display = 'none';
-    if (totalsEl) totalsEl.innerHTML = imagesMatchTotalsHtml(data.matchTotals, filter);
-    const visible = slots.filter(
-      (s) => imagesSlotMatchesFilter(s, filter) && imagesSlotMatchesSource(s, sourceFilter),
-    );
-    grid.innerHTML = `${imagesSlotsGroupedHtml(visible)}${baHtml}`;
-    renderReviewFluxToolbar();
-    restoreSlotBusyOverlays();
-    if (filterEmpty) {
-      if (!visible.length && !baHtml) {
-        filterEmpty.style.display = 'block';
-        const labels = {
-          all: 'No photo slots.',
-          poor: 'No poor matches.',
-          ok: 'No ok matches.',
-          good: 'No good matches.',
-          upload: 'No operator uploads.',
-          empty: 'No empty slots.',
-        };
-        const sourceLabels = {
-          stock: 'No stock photos.',
-          flux: 'No Flux photos.',
-          openai: 'No OpenAI photos.',
-        };
-        filterEmpty.textContent =
-          sourceFilter !== 'all' && filter === 'all'
-            ? sourceLabels[sourceFilter] || 'No matching slots.'
-            : sourceFilter !== 'all'
-              ? 'No matching slots.'
-              : labels[filter] || 'No matching slots.';
-      } else {
-        filterEmpty.style.display = 'none';
-        filterEmpty.textContent = '';
-      }
-    }
+    paintReviewImageSlotsFromState(candidateId, {
+      matchTotals: data.matchTotals,
+      renderToolbar: true,
+    });
   } catch (error) {
     if (totalsEl) totalsEl.innerHTML = '';
     if (filterEmpty) {
       filterEmpty.style.display = 'none';
       filterEmpty.textContent = '';
     }
+    if (empty) empty.style.display = 'none';
     grid.innerHTML = `<p class="muted" style="font-size:0.85rem">${esc(error.message || 'Could not load slots')}</p>`;
   }
 }
 
-/** After slot Re-pull/Upload: keep Review images open; refresh grid + status only. */
-async function commitReviewSlot(candidateId, { candidate, slotKey } = {}) {
+/** After slot Re-pull/Upload/generate: keep Review images open; patch one card when possible. */
+async function commitReviewSlot(candidateId, { candidate, slotKey, slot, baPair, status } = {}) {
   if (candidate) {
     state.detail = candidate;
     patchListLastCosts(candidate);
@@ -12232,15 +13162,28 @@ async function commitReviewSlot(candidateId, { candidate, slotKey } = {}) {
   state.websiteSoftCurrent = 'images';
   const statusEl = document.getElementById('ca-images-status');
   paintImagesStatusEl(statusEl, state.detail);
-  renderFluxSpendLine();
-  await refreshImageSlotsGrid(candidateId);
+  renderOpenaiSpendLine();
+  const mappedSlot = slot || status?.slot || null;
+  const mappedPair = baPair || status?.pair || null;
+  const patched = patchReviewImageCard(candidateId, {
+    slotKey,
+    slot: mappedSlot,
+    baPair: mappedPair,
+  });
+  if (!patched) await refreshImageSlotsGrid(candidateId);
   if (slotKey) await settleSlotBusy(slotKey);
 }
 
-async function refreshImageSlotInPlace(candidateId, candidate) {
-  await commitReviewSlot(candidateId, { candidate });
-  await settleSlotBusy();
-  setImagesProgress(false);
+async function refreshImageSlotInPlace(candidateId, patch) {
+  const opts =
+    patch && typeof patch === 'object'
+      ? 'status' in patch || 'slot' in patch || 'baPair' in patch || 'slotKey' in patch || 'candidate' in patch
+        ? patch
+        : { candidate: patch }
+      : {};
+  await commitReviewSlot(candidateId, opts);
+  await settleSlotBusy(opts.slotKey);
+  hideReviewImagesProgress();
 }
 
 function wireImageSlotActions(candidateId, _refreshFn) {
@@ -12249,6 +13192,19 @@ function wireImageSlotActions(candidateId, _refreshFn) {
     document.getElementById('ca-image-slots');
   if (!root || root.dataset.wired === '1') return;
   root.dataset.wired = '1';
+  wireSlotPromptEvents(root);
+
+  root.addEventListener('input', (ev) => {
+    const search = ev.target.closest?.('#review-title-search');
+    if (!search || !root.contains(search)) return;
+    state.imageTitleFilter = String(search.value || '');
+    paintReviewImageSlotsFromState(candidateId, { renderToolbar: false });
+  });
+  root.addEventListener('keydown', (ev) => {
+    if (ev.key !== 'Enter') return;
+    if (!ev.target.closest?.('#review-title-search')) return;
+    ev.preventDefault();
+  });
 
   const applyImageSlotShiftRange = (ev) => {
     const input = resolveSlotCheckInput(ev.target, root);
@@ -12319,32 +13275,45 @@ function wireImageSlotActions(candidateId, _refreshFn) {
       return;
     }
     const slug = baImport.getAttribute('data-service-slug') || '';
+    const card = baImport.closest('.image-slot-card');
+    const matchKey = card?.getAttribute('data-match-key') || '';
     try {
-      const payloadFiles = [];
-      for (const file of files.slice(0, 2)) {
-        payloadFiles.push({
-          name: file.name,
-          lastModified: file.lastModified || 0,
-          dataUrl: await new Promise((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = () => resolve(String(reader.result || ''));
-            reader.onerror = () => reject(new Error(`Could not read ${file.name}`));
-            reader.readAsDataURL(file);
-          }),
-        });
-      }
-      await api(`/api/candidates/${encodeURIComponent(candidateId)}/images/before-after-import`, {
-        method: 'POST',
-        body: JSON.stringify(
-          withLaunchedConfirmBody({
-            files: payloadFiles,
-            serviceSlug: slug || undefined,
-            pairIndex: Number(baImport.getAttribute('data-pair-index') || 1) || 1,
-          }),
-        ),
-      });
-      await refreshImageSlotInPlace(candidateId);
-      showToast('Imported before/after pair.');
+      await withReviewImagesWork(
+        {
+          label: 'Importing pair…',
+          key: matchKey,
+          card,
+        },
+        async () => {
+          const payloadFiles = [];
+          for (const file of files.slice(0, 2)) {
+            payloadFiles.push({
+              name: file.name,
+              lastModified: file.lastModified || 0,
+              dataUrl: await new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(String(reader.result || ''));
+                reader.onerror = () => reject(new Error(`Could not read ${file.name}`));
+                reader.readAsDataURL(file);
+              }),
+            });
+          }
+          await api(`/api/candidates/${encodeURIComponent(candidateId)}/images/before-after-import`, {
+            method: 'POST',
+            body: JSON.stringify(
+              withLaunchedConfirmBody({
+                files: payloadFiles,
+                serviceSlug: slug || undefined,
+                pairIndex: Number(baImport.getAttribute('data-pair-index') || 1) || 1,
+              }),
+            ),
+          });
+          await refreshImageSlotInPlace(candidateId, {
+            slotKey: matchKey.startsWith('ba:') ? matchKey : matchKey ? `ba:${matchKey}` : undefined,
+          });
+          showToast('Imported before/after pair.');
+        },
+      );
     } catch (error) {
       await showModal({
         title: 'Import failed',
@@ -12367,19 +13336,38 @@ function wireImageSlotActions(candidateId, _refreshFn) {
       const next = nextImageMatchGrade(current);
       gradeBtn.disabled = true;
       try {
-        await api(
-          `/api/candidates/${encodeURIComponent(candidateId)}/images/slots/${encodeURIComponent(slotKey)}/match-grade`,
-          { method: 'POST', body: JSON.stringify({ matchGrade: next }) },
-        );
-        await refreshImageSlotsGrid(candidateId);
+        if (String(slotKey).startsWith('ba:')) {
+          const data = await withReviewImagesWork({ label: 'Updating match…' }, () =>
+            api(`/api/candidates/${encodeURIComponent(candidateId)}/images/before-after/match-grade`, {
+              method: 'POST',
+              body: JSON.stringify({ matchKey: slotKey.replace(/^ba:/, ''), matchGrade: next }),
+            }),
+          );
+          const status = data?.status || data;
+          if (status) state.reviewBa = status;
+          const pair = pickReviewBaPairFromStatus(status, slotKey);
+          const patched = patchReviewImageCard(candidateId, { slotKey, baPair: pair });
+          if (!patched) await refreshImageSlotsGrid(candidateId);
+        } else {
+          const data = await withReviewImagesWork({ label: 'Updating match…' }, () =>
+            api(
+              `/api/candidates/${encodeURIComponent(candidateId)}/images/slots/${encodeURIComponent(slotKey)}/match-grade`,
+              { method: 'POST', body: JSON.stringify({ matchGrade: next }) },
+            ),
+          );
+          const slot = data?.slot || (data?.slots || []).find((s) => s.key === slotKey) || null;
+          const patched = patchReviewImageCard(candidateId, { slotKey, slot });
+          if (!patched) await refreshImageSlotsGrid(candidateId);
+        }
       } catch (error) {
-        gradeBtn.disabled = false;
         await showModal({
           title: 'Could not set match grade',
           confirmLabel: 'OK',
           hideCancel: true,
           bodyHtml: `<p>${esc(error.message)}</p>`,
         });
+      } finally {
+        gradeBtn.disabled = false;
       }
       return;
     }
@@ -12424,7 +13412,7 @@ function wireImageSlotActions(candidateId, _refreshFn) {
       const next = imagesMatchFilterId(filterBtn.getAttribute('data-match-filter'));
       if (state.imageMatchFilter === next) return;
       state.imageMatchFilter = next;
-      await refreshImageSlotsGrid(candidateId);
+      paintReviewImageSlotsFromState(candidateId, { renderToolbar: true });
       return;
     }
     const sourceBtn = ev.target.closest('[data-source-filter]');
@@ -12432,7 +13420,7 @@ function wireImageSlotActions(candidateId, _refreshFn) {
       ev.preventDefault();
       const next = imagesSourceFilterId(sourceBtn.getAttribute('data-source-filter'));
       state.imageSourceFilter = state.imageSourceFilter === next ? 'all' : next;
-      await refreshImageSlotsGrid(candidateId);
+      paintReviewImageSlotsFromState(candidateId, { renderToolbar: true });
       return;
     }
     const vpBtn = ev.target.closest('[data-ba-viewpoint]');
@@ -12442,22 +13430,23 @@ function wireImageSlotActions(candidateId, _refreshFn) {
       ev.preventDefault();
       const stepKey = group.dataset?.baViewpointStep || '';
       if (!stepKey) return;
+      const card = group.closest('.photo-ba-card') || group.closest('.image-slot-card');
+      stashSlotPromptDraft(card);
       const next = setBaViewpoint(stepKey, vpBtn.dataset.baViewpoint);
       group.querySelectorAll('[data-ba-viewpoint]').forEach((b) => {
         b.classList.toggle('active', b.dataset.baViewpoint === next);
       });
-      fillBaPromptsPanel(group.closest('.photo-ba-card') || group.closest('.image-slot-card'));
+      fillBaPromptsPanel(card);
       return;
     }
-    const fluxBulk = ev.target.closest('.slot-generate-selected-flux');
     const openaiBulk = ev.target.closest('.slot-generate-selected-openai');
-    if ((fluxBulk || openaiBulk) && root.contains(fluxBulk || openaiBulk)) {
+    if (openaiBulk && root.contains(openaiBulk)) {
       ev.preventDefault();
-      const btn = fluxBulk || openaiBulk;
+      const btn = openaiBulk;
       if (btn.disabled) return;
       btn.disabled = true;
       try {
-        await generateReviewSelected(candidateId, fluxBulk ? 'flux' : 'openai');
+        await generateReviewSelected(candidateId);
       } finally {
         btn.disabled = false;
         renderReviewFluxToolbar();
@@ -12494,7 +13483,7 @@ function wireImageSlotActions(candidateId, _refreshFn) {
                   method: 'POST',
                   body: JSON.stringify(
                     withLaunchedConfirmBody({
-                      viewpoint: getBaViewpoint(matchKey),
+                      ...promptBodyFromCard(openaiBtn.closest('.image-slot-card'), { pair: true }),
                       serviceSlug: slug,
                       pairIndex,
                     }),
@@ -12503,7 +13492,10 @@ function wireImageSlotActions(candidateId, _refreshFn) {
               ),
           );
           showToast('Generated OpenAI before/after pair.');
-          await refreshImageSlotInPlace(candidateId, result.candidate);
+          await refreshImageSlotInPlace(candidateId, {
+            slotKey: matchKey.startsWith('ba:') ? matchKey : `ba:${matchKey}`,
+            status: result.status,
+          });
         } else {
           const slotKey = openaiBtn.getAttribute('data-slot-key');
           if (!slotKey) return;
@@ -12522,13 +13514,13 @@ function wireImageSlotActions(candidateId, _refreshFn) {
                 {
                   method: 'POST',
                   body: JSON.stringify(
-                    withLaunchedConfirmBody({ viewpoint: getBaViewpoint(slotKey) }),
+                    withLaunchedConfirmBody(promptBodyFromCard(openaiBtn.closest('.image-slot-card'))),
                   ),
                 },
               ),
           );
           showToast(`Generated ${slotKey}.`);
-          await refreshImageSlotInPlace(candidateId, result.candidate);
+          await refreshImageSlotInPlace(candidateId, { slotKey, status: result.status });
         }
       } catch (error) {
         setImagesProgress(false);
@@ -12540,59 +13532,9 @@ function wireImageSlotActions(candidateId, _refreshFn) {
         });
       } finally {
         setImagesProgress(false);
+        await settleSlotBusy();
         openaiBtn.disabled = false;
-        refreshImageWallets({ fresh: true, remind: true });
-      }
-      return;
-    }
-    const genBtn = ev.target.closest('.slot-generate');
-    if (
-      genBtn &&
-      root.contains(genBtn) &&
-      !genBtn.classList.contains('slot-generate-selected') &&
-      !genBtn.classList.contains('slot-generate-selected-flux')
-    ) {
-      ev.preventDefault();
-      if (genBtn.disabled) return;
-      if (!(await confirmLaunchedSiteChange('Generate Flux photo'))) return;
-      genBtn.disabled = true;
-      try {
-        const slotKey = genBtn.getAttribute('data-slot-key');
-        if (!slotKey) return;
-        const result = await withFluxProgress(
-            {
-              label: `Generating ${slotKey}…`,
-              detail: slotKey,
-              card: genBtn.closest('.image-slot-card'),
-              index: 1,
-              total: 1,
-              kind: 'photo',
-            },
-            () =>
-              api(
-                `/api/candidates/${encodeURIComponent(candidateId)}/images/slots/${encodeURIComponent(slotKey)}/generate`,
-                {
-                  method: 'POST',
-                  body: JSON.stringify(
-                    withLaunchedConfirmBody({ viewpoint: getBaViewpoint(slotKey) }),
-                  ),
-                },
-              ),
-          );
-          showToast(`Generated ${slotKey}.`);
-          await refreshImageSlotInPlace(candidateId, result.candidate);
-      } catch (error) {
-        setImagesProgress(false);
-        await showModal({
-          title: 'Generate failed',
-          confirmLabel: 'OK',
-          hideCancel: true,
-          bodyHtml: `<p>${esc(error.message)}</p>`,
-        });
-      } finally {
-        setImagesProgress(false);
-        genBtn.disabled = false;
-        refreshImageWallets({ fresh: true, remind: true });
+        refreshImageWallets({ fresh: true });
       }
       return;
     }
@@ -12601,24 +13543,35 @@ function wireImageSlotActions(candidateId, _refreshFn) {
       ev.preventDefault();
       const card = varBtn.closest('.image-slot-card');
       if (varBtn.getAttribute('data-pair-id')) {
+        const matchKey = card?.getAttribute('data-match-key') || '';
         const slug = card?.getAttribute('data-service-slug') || '';
         const pairIndex = Number(card?.getAttribute('data-pair-index') || 1) || 1;
         try {
-          await api(
-            `/api/candidates/${encodeURIComponent(candidateId)}/images/before-after/variants/use`,
-            {
-              method: 'POST',
-              body: JSON.stringify(
-                withLaunchedConfirmBody({
-                  pairId: varBtn.getAttribute('data-pair-id'),
-                  serviceSlug: slug,
-                  pairIndex,
-                }),
-              ),
+          await withReviewImagesWork(
+            { label: 'Loading pair…', key: matchKey, card },
+            async () => {
+              const used = await api(
+                `/api/candidates/${encodeURIComponent(candidateId)}/images/before-after/variants/use`,
+                {
+                  method: 'POST',
+                  body: JSON.stringify(
+                    withLaunchedConfirmBody({
+                      pairId: varBtn.getAttribute('data-pair-id'),
+                      matchKey,
+                      serviceSlug: slug,
+                      pairIndex,
+                      beforeFilename: varBtn.getAttribute('data-before-filename') || '',
+                    }),
+                  ),
+                },
+              );
+              await refreshImageSlotInPlace(candidateId, {
+                slotKey: matchKey.startsWith('ba:') ? matchKey : `ba:${matchKey}`,
+                status: used.status,
+              });
+              showToast('Restored before/after pair.');
             },
           );
-          await refreshImageSlotInPlace(candidateId);
-          showToast('Restored before/after pair.');
         } catch (error) {
           await showModal({
             title: 'Swap failed',
@@ -12633,15 +13586,20 @@ function wireImageSlotActions(candidateId, _refreshFn) {
       const filename = varBtn.getAttribute('data-filename');
       if (!slotKey || !filename) return;
       try {
-        await api(
-          `/api/candidates/${encodeURIComponent(candidateId)}/images/slots/${encodeURIComponent(slotKey)}/variants/use`,
-          {
-            method: 'POST',
-            body: JSON.stringify(withLaunchedConfirmBody({ filename })),
+        await withReviewImagesWork(
+          { label: 'Loading photo…', key: slotKey, card },
+          async () => {
+            const used = await api(
+              `/api/candidates/${encodeURIComponent(candidateId)}/images/slots/${encodeURIComponent(slotKey)}/variants/use`,
+              {
+                method: 'POST',
+                body: JSON.stringify(withLaunchedConfirmBody({ filename })),
+              },
+            );
+            await refreshImageSlotInPlace(candidateId, { slotKey, status: used.status });
+            showToast('Restored previous photo.');
           },
         );
-        await refreshImageSlotInPlace(candidateId);
-        showToast('Restored previous photo.');
       } catch (error) {
         await showModal({
           title: 'Swap failed',
@@ -12652,21 +13610,38 @@ function wireImageSlotActions(candidateId, _refreshFn) {
       }
       return;
     }
+    const seeMoreBtn = ev.target.closest('.slot-see-more');
+    if (seeMoreBtn && root.contains(seeMoreBtn)) {
+      ev.preventDefault();
+      const slotKey = seeMoreBtn.getAttribute('data-slot-key');
+      if (!slotKey) return;
+      if (seeMoreBtn.getAttribute('data-ba') === '1') {
+        void openLoadedGroupBaSeeMore(candidateId, slotKey);
+      } else {
+        void openLoadedGroupSeeMore(candidateId, slotKey);
+      }
+      return;
+    }
     const baCopy = ev.target.closest('.ca-ba-card-copy');
     if (baCopy && root.contains(baCopy)) {
       ev.preventDefault();
       const kind = baCopy.getAttribute('data-ba-kind') || 'before';
       const { matchKey, serviceSlug: slug, pairIndex } = baTargetFromGenerateEl(baCopy);
       try {
-        const params = new URLSearchParams({
-          viewpoint: getBaViewpoint(matchKey),
-          pairIndex: String(pairIndex || 1),
-        });
-        if (slug) params.set('service', slug);
-        const prompts = await api(
-          `/api/candidates/${encodeURIComponent(candidateId)}/images/before-after-prompts?${params}`,
-        );
-        const text = prompts[kind] || prompts.pair || '';
+        const card = baCopy.closest('.image-slot-card');
+        const fromPanel = promptBodyFromCard(card, { pair: true });
+        let text = kind === 'after' ? fromPanel.after : fromPanel.before;
+        if (!text) {
+          const params = new URLSearchParams({
+            viewpoint: fromPanel.viewpoint || getBaViewpoint(matchKey),
+            pairIndex: String(pairIndex || 1),
+          });
+          if (slug) params.set('service', slug);
+          const prompts = await api(
+            `/api/candidates/${encodeURIComponent(candidateId)}/images/before-after-prompts?${params}`,
+          );
+          text = prompts[kind] || prompts.pair || '';
+        }
         await navigator.clipboard.writeText(text);
         showToast(`Copied ${kind} prompt (${text.length} chars).`);
       } catch (error) {
@@ -12681,16 +13656,24 @@ function wireImageSlotActions(candidateId, _refreshFn) {
       if (!slotKey) return;
       promptBtn.disabled = true;
       try {
-        const viewpoint = getBaViewpoint(slotKey);
-        const params = new URLSearchParams({ viewpoint });
-        const data = await api(
-          `/api/candidates/${encodeURIComponent(candidateId)}/images/slots/${encodeURIComponent(slotKey)}/chatgpt-prompt?${params}`,
-        );
-        const text = String(data?.prompt || '');
+        const card = promptBtn.closest('.image-slot-card');
+        const fromPanel = promptBodyFromCard(card);
+        let text = fromPanel.prompt || '';
+        let label = slotKey;
+        let viewpoint = fromPanel.viewpoint || getBaViewpoint(slotKey);
+        if (!text) {
+          const params = new URLSearchParams({ viewpoint });
+          const data = await api(
+            `/api/candidates/${encodeURIComponent(candidateId)}/images/slots/${encodeURIComponent(slotKey)}/chatgpt-prompt?${params}`,
+          );
+          text = String(data?.prompt || '');
+          label = data.label || slotKey;
+          viewpoint = data.viewpoint || viewpoint;
+        }
         if (!text) throw new Error('Empty prompt');
         await navigator.clipboard.writeText(text);
         showToast(
-          `Copied ChatGPT prompt · ${data.label || slotKey} · ${data.viewpoint || viewpoint} (${text.length} chars). Paste into ChatGPT, then Upload.`,
+          `Copied ChatGPT prompt · ${label} · ${viewpoint} (${text.length} chars). Paste into ChatGPT, then Upload.`,
         );
       } catch (error) {
         await showModal({
@@ -12710,28 +13693,28 @@ function wireImageSlotActions(candidateId, _refreshFn) {
     if (!slotKey) return;
     if (!(await confirmLaunchedSiteChange(`Re-pull photo slot ${slotKey}`))) return;
     btn.disabled = true;
-    beginSlotBusy(slotKey, btn.closest('.image-slot-card'));
-    setImagesProgress(true, {
-      label: `Re-pulling ${slotKey}…`,
-      detail: 'Searching providers',
-      current: 1,
-      total: 2,
-    });
     try {
-      const result = await api(
-        `/api/candidates/${encodeURIComponent(candidateId)}/images/slots/${encodeURIComponent(slotKey)}/repull`,
-        { method: 'POST', body: JSON.stringify(withLaunchedConfirmBody({})) },
+      await withReviewImagesWork(
+        {
+          label: `Re-pulling ${slotKey}…`,
+          detail: 'Searching providers',
+          key: slotKey,
+          card: btn.closest('.image-slot-card'),
+        },
+        async () => {
+          const result = await api(
+            `/api/candidates/${encodeURIComponent(candidateId)}/images/slots/${encodeURIComponent(slotKey)}/repull`,
+            { method: 'POST', body: JSON.stringify(withLaunchedConfirmBody({})) },
+          );
+          await refreshImageSlotInPlace(candidateId, {
+            candidate: result.candidate,
+            slotKey,
+            slot: result.slot,
+            status: result.status,
+          });
+        },
       );
-      setImagesProgress(true, {
-        label: 'Slot updated',
-        detail: result.slot?.filename || slotKey,
-        current: 2,
-        total: 2,
-      });
-      await refreshImageSlotInPlace(candidateId, result.candidate);
     } catch (error) {
-      setImagesProgress(false);
-      await settleSlotBusy();
       await showModal({
         title: 'Re-pull failed',
         confirmLabel: 'OK',
@@ -12753,37 +13736,40 @@ function wireImageSlotActions(candidateId, _refreshFn) {
       input.value = '';
       return;
     }
-    setImagesProgress(true, {
-      label: `Uploading ${slotKey}…`,
-      detail: file.name,
-      current: 1,
-      total: 2,
-    });
+    const card = input.closest('.image-slot-card');
     try {
-      const dataUrl = await new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(reader.result);
-        reader.onerror = () => reject(new Error('Could not read file'));
-        reader.readAsDataURL(file);
-      });
-      const result = await api(
-        `/api/candidates/${encodeURIComponent(candidateId)}/images/slots/${encodeURIComponent(slotKey)}/upload`,
+      await withReviewImagesWork(
         {
-          method: 'POST',
-          body: JSON.stringify(
-            withLaunchedConfirmBody({ dataUrl, alt: file.name.replace(/\.[^.]+$/, '') }),
-          ),
+          label: `Uploading ${slotKey}…`,
+          detail: file.name,
+          key: slotKey,
+          card,
+        },
+        async () => {
+          const dataUrl = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result);
+            reader.onerror = () => reject(new Error('Could not read file'));
+            reader.readAsDataURL(file);
+          });
+          const result = await api(
+            `/api/candidates/${encodeURIComponent(candidateId)}/images/slots/${encodeURIComponent(slotKey)}/upload`,
+            {
+              method: 'POST',
+              body: JSON.stringify(
+                withLaunchedConfirmBody({ dataUrl, alt: file.name.replace(/\.[^.]+$/, '') }),
+              ),
+            },
+          );
+          await refreshImageSlotInPlace(candidateId, {
+            candidate: result.candidate,
+            slotKey,
+            slot: result.slot,
+            status: result.status,
+          });
         },
       );
-      setImagesProgress(true, {
-        label: 'Upload saved',
-        detail: result.slot?.filename || slotKey,
-        current: 2,
-        total: 2,
-      });
-      await refreshImageSlotInPlace(candidateId, result.candidate);
     } catch (error) {
-      setImagesProgress(false);
       await showModal({
         title: 'Upload failed',
         confirmLabel: 'OK',
@@ -12825,11 +13811,6 @@ function renderWebsite() {
   const hasLogoAsset = Boolean(f.hasLogo || d?.siteConfig?.logo);
   const hasCoverageMapAsset = Boolean(f.hasCoverageMap);
   const logoMapDone = hasLogoAsset;
-  const hasStockPhotos = Boolean(d?.imagesManifest?.files?.length || f.hasImages);
-  const pullPhotosBtnLabel = hasStockPhotos ? 'Re-pull photos' : 'Pull photos';
-  const pullPhotosTip = hasStockPhotos
-    ? 'Accept usually already pulled stock. Fills empty slots, or asks before replacing when every slot is full (not logo/map).'
-    : 'Accept normally pulls stock. Use here if Accept skipped or failed.';
   const logoBtnLabel = hasLogoAsset ? 'Regenerate logo' : 'Generate logo';
   const mapBtnLabel = hasCoverageMapAsset ? 'Regenerate coverage map' : 'Generate coverage map';
   const logoTip = hasLogoAsset
@@ -12956,7 +13937,7 @@ function renderWebsite() {
   }
 
   const assembleProg = state.assembleProgress || { visible: false, detail: '' };
-  const assembleProgVisible = Boolean(assembleProg.visible || state.preparePreviewHold);
+  const assembleProgVisible = Boolean(assembleProg.visible && !state.preparePreviewHold);
 
   parts.push(
     contentStepHtml({
@@ -13054,13 +14035,20 @@ function renderWebsite() {
       freezeHtml:
         openId === 'images'
           ? imagesReviewChromeHtml({
-              actionsHtml: `<div class="photo-group-cluster">
-              <button type="button" class="btn pg-pull" id="ca-pull-images" data-tip="${esc(
-                pullPhotosTip,
-              )}">${esc(pullPhotosBtnLabel)}</button>
-              <button type="button" class="btn pg-save" id="ca-pg-save" data-tip="Save this site’s stock photos, uploads, and ChatGPT before/after pairs">Save photo group</button>
-              ${photoGroupRankSelectsHtml('ca-pg-select')}
-              <button type="button" class="btn pg-load" id="ca-pg-load" disabled data-tip="Replace this site’s Review images. 1st group fills matching slots; 2nd and 3rd fill leftovers; extras go to trays.">Load</button>
+              spendHtml: openaiSpendLineHtml(state.detail),
+              actionsHtml: `<div class="photo-group-menu">
+              <button type="button" class="btn btn-sm" id="ca-pg-menu-toggle" aria-expanded="${
+                state.reviewPhotoGroupMenuOpen ? 'true' : 'false'
+              }" aria-controls="ca-pg-menu" data-tip="Save, rank, and load photo groups">Photo groups</button>
+              <div id="ca-pg-menu" class="photo-group-menu-panel${
+                state.reviewPhotoGroupMenuOpen ? '' : ' hidden'
+              }">
+                <div class="photo-group-menu-actions">
+                  <button type="button" class="btn btn-sm pg-save" id="ca-pg-save" data-tip="Save this site’s stock photos, uploads, and ChatGPT before/after pairs">Save photo group</button>
+                  <button type="button" class="btn btn-sm pg-load" id="ca-pg-load" disabled data-tip="Replace this site’s Review images. 1st group fills matching slots; later groups fill leftovers; empty slots take the first tray still as live; extras go to trays.">Load</button>
+                </div>
+                ${photoGroupRankSelectsHtml('ca-pg-select')}
+              </div>
             </div>`,
               progressHtml: `<div id="ca-images-progress" class="job-progress hidden" aria-live="polite">
           <div class="job-progress-track"><div class="job-progress-bar" id="ca-images-progress-bar"></div></div>
@@ -13069,7 +14057,7 @@ function renderWebsite() {
         </div>`,
             })
           : '',
-      info: 'Accept content already pulls stock photos. Use <strong>Pull photos</strong> to fill empty slots, or to replace the set when every slot is full. Per-slot Re-pull / Upload / Copy prompt (ChatGPT) for near-launch QA — process slots show step titles; What we do cards use named service slots. ChatGPT before/after is optional gallery polish. Logo and coverage map live under <strong>Logo &amp; Map</strong>.',
+      info: 'Accept content already pulls stock photos. <strong>Photo groups</strong> saves, ranks, and loads named groups. Per-slot Re-pull / Upload / Copy prompt (ChatGPT) for near-launch QA — process slots show step titles; What we do cards use named service slots. ChatGPT before/after is optional gallery polish. Logo and coverage map live under <strong>Logo &amp; Map</strong>.',
       bodyHtml: imagesSlotsShellHtml(),
     }),
   );
@@ -13252,11 +14240,6 @@ function renderWebsite() {
             ? 'Push updates = ship only (GitHub + build + Worker). Re-assemble via Prepare preview when template/content changed.'
             : 'Create key at <a href="https://web3forms.com" target="_blank" rel="noopener">web3forms.com</a> · before Run launch: domain NS at Cloudflare · after: verify Gmail once if new'
         }</p>
-        <div id="ca-launch-progress" class="job-progress hidden" aria-live="polite">
-          <div class="job-progress-track"><div class="job-progress-bar"></div></div>
-          <p class="job-progress-label" id="ca-launch-progress-label">Launching…</p>
-          <p class="job-progress-detail" id="ca-launch-progress-detail">Starting…</p>
-        </div>
         </div>`,
     }),
   );
@@ -13352,7 +14335,7 @@ function renderWebsite() {
     }),
   );
 
-  return parts.join('');
+  return `<div class="content-panel-wrap">${prepareOverlayHtml()}${shipOverlayHtml()}${launchOverlayHtml()}${parts.join('')}</div>`;
 }
 
 function shipProgressStepsFromOpts({
@@ -13387,40 +14370,135 @@ function launchProgressStepsFromForm(body = {}) {
   return steps;
 }
 
-function launchProgressLabel(kind, done, total) {
-  const base = kind === 'ship' ? 'Pushing updates' : 'Launching';
-  if (Number(total) > 0) return `${base} ${Number(done) || 0} / ${Number(total)}`;
-  return `${base}…`;
+function setLaunchOverlayPhases(phases) {
+  const list = Array.isArray(phases) && phases.length ? phases : ['Keys'];
+  state._launchOverlayPhases = list;
+  const ol = document.getElementById('ln-overlay-phases');
+  if (!ol) return;
+  ol.innerHTML = list.map((p) => `<li data-ln-phase="${esc(p)}">${esc(p)}</li>`).join('');
 }
 
-function setLaunchProgress(visible, label, detail, { step = null, total = null } = {}) {
-  const box = document.getElementById('ca-launch-progress');
-  const labelEl = document.getElementById('ca-launch-progress-label');
-  const detailEl = document.getElementById('ca-launch-progress-detail');
-  const bar = box?.querySelector('.job-progress-bar');
-  if (!box) {
-    if (visible) {
-      const done = total != null && step != null ? Math.min(Number(total), Number(step) + 1) : undefined;
-      setMasterProgress({ visible: true, label, detail, done, total });
-    } else {
-      setMasterProgress({ visible: false });
-    }
+function snapWithOptimisticLaunch(candidateId, phases) {
+  const jobs = [...(state.heavyJobsSnap?.jobs || [])];
+  if (
+    !jobs.some(
+      (j) =>
+        j.phase === 'launch' &&
+        String(j.candidateId) === String(candidateId) &&
+        (j.status === 'running' || j.status === 'queued'),
+    )
+  ) {
+    jobs.unshift({
+      id: 'optimistic-launch',
+      candidateId,
+      phase: 'launch',
+      label: 'Launch',
+      status: 'running',
+      detail: 'Starting…',
+      progressDone: 0,
+      progressTotal: phases.length || 1,
+    });
+  }
+  return { ...(state.heavyJobsSnap || {}), jobs };
+}
+
+function paintPrepareOverlay(job) {
+  hideWebsiteJobOverlaysExcept('website-prepare-overlay');
+  const leftover = document.getElementById('ca-assemble-progress');
+  if (leftover) leftover.classList.add('hidden');
+  paintRoverJobOverlay({
+    overlayId: 'website-prepare-overlay',
+    detailId: 'pr-overlay-detail',
+    barId: 'pr-overlay-bar',
+    phasesId: 'pr-overlay-phases',
+    job,
+  });
+}
+
+function hidePrepareOverlay() {
+  setRoverJobOverlayVisible('website-prepare-overlay', false);
+}
+
+function defaultShipOverlayPhases() {
+  return shipProgressStepsFromOpts({}).map(shortenLaunchPhase);
+}
+
+function setShipOverlayPhases(phases) {
+  const list = Array.isArray(phases) && phases.length ? phases : ['GitHub'];
+  state._shipOverlayPhases = list;
+  const ol = document.getElementById('sh-overlay-phases');
+  if (!ol) return;
+  ol.innerHTML = list.map((p) => `<li data-sh-phase="${esc(p)}">${esc(p)}</li>`).join('');
+}
+
+function paintShipOverlay(job) {
+  hideWebsiteJobOverlaysExcept('website-ship-overlay');
+  paintRoverJobOverlay({
+    overlayId: 'website-ship-overlay',
+    detailId: 'sh-overlay-detail',
+    barId: 'sh-overlay-bar',
+    phasesId: 'sh-overlay-phases',
+    job,
+  });
+}
+
+function hideShipOverlay({ clearHold = true } = {}) {
+  if (clearHold) state._shipHold = false;
+  setRoverJobOverlayVisible('website-ship-overlay', false);
+}
+
+function showShipOverlayStarting() {
+  const phases = defaultShipOverlayPhases();
+  state._shipHold = true;
+  setShipOverlayPhases(phases);
+  paintShipOverlay({
+    detail: 'Starting…',
+    progressDone: 0,
+    progressTotal: phases.length,
+  });
+}
+
+function syncLaunchOverlay(snap) {
+  const id = String(state.selectedId || '').trim();
+  const jobs = Array.isArray(snap?.jobs) ? snap.jobs : [];
+  const job = jobs.find(
+    (j) =>
+      String(j.candidateId || '') === id &&
+      j.phase === 'launch' &&
+      (j.status === 'queued' || j.status === 'running'),
+  );
+  if (job) {
+    hideWebsiteJobOverlaysExcept('website-launch-overlay');
+    paintRoverJobOverlay({
+      overlayId: 'website-launch-overlay',
+      detailId: 'ln-overlay-detail',
+      barId: 'ln-overlay-bar',
+      phasesId: 'ln-overlay-phases',
+      job: {
+        ...job,
+        detail: job.status === 'queued' ? 'Queued…' : job.detail || 'Working…',
+      },
+    });
     return;
   }
-  box.classList.toggle('hidden', !visible);
-  if (labelEl && label) labelEl.textContent = label;
-  if (detailEl && detail) detailEl.textContent = detail;
-  if (!visible) {
-    setDeterminateProgress(bar, {});
-    setMasterProgress({ visible: false });
-  } else if (total != null) {
-    const done = step == null ? 0 : Math.min(Number(total), Number(step) + 1);
-    setDeterminateProgress(bar, { done, total: Number(total) });
-    setMasterProgress({ visible: true, label, detail, done, total: Number(total) });
-  } else {
-    setDeterminateProgress(bar, {});
-    setMasterProgress({ visible: true, label, detail });
+  if (state._launchHold) {
+    hideWebsiteJobOverlaysExcept('website-launch-overlay');
+    setRoverJobOverlayVisible('website-launch-overlay', true);
+    return;
   }
+  setRoverJobOverlayVisible('website-launch-overlay', false);
+}
+
+function showLaunchOverlayStarting(body) {
+  const phases = launchOverlayPhaseLabels(body);
+  state._launchHold = true;
+  setLaunchOverlayPhases(phases);
+  syncLaunchOverlay(snapWithOptimisticLaunch(state.selectedId, phases));
+}
+
+function hideLaunchOverlay() {
+  state._launchHold = false;
+  setRoverJobOverlayVisible('website-launch-overlay', false);
 }
 
 function prepareProgressLabel(done, total) {
@@ -13484,35 +14562,43 @@ function setAssembleProgress(visible, detail, { done = null, total = null } = {}
   const detailEl = document.getElementById('ca-assemble-progress-detail');
   const labelEl = document.getElementById('ca-assemble-progress-label');
   const bar = box?.querySelector('.job-progress-bar');
-  if (box) {
-    box.classList.toggle('hidden', !visible);
-    if (detailEl && detail != null) detailEl.textContent = String(detail);
-    if (labelEl && visible) labelEl.textContent = label;
+  const useOverlay = Boolean(state.preparePreviewHold);
+
+  if (useOverlay) {
+    if (box) box.classList.add('hidden');
+    if (visible) {
+      paintPrepareOverlay({
+        detail: detailText || 'Working…',
+        progressDone: known ? nextDone : 0,
+        progressTotal: known ? nextTotal : 5,
+      });
+    } else {
+      hidePrepareOverlay();
+    }
+  } else {
+    hidePrepareOverlay();
+    if (box) {
+      box.classList.toggle('hidden', !visible);
+      if (detailEl && detail != null) detailEl.textContent = String(detail);
+      if (labelEl && visible) labelEl.textContent = label;
+    }
+    if (!visible) {
+      setDeterminateProgress(bar, {});
+    } else if (known) {
+      setDeterminateProgress(bar, { done: nextDone, total: nextTotal });
+    } else {
+      setDeterminateProgress(bar, {});
+    }
   }
-  if (!visible) {
-    setDeterminateProgress(bar, {});
-    setMasterProgress({ visible: false });
-    return;
-  }
-  if (known) {
-    setDeterminateProgress(bar, { done: nextDone, total: nextTotal });
-    setMasterProgress({
-      visible: true,
-      label,
-      detail: detailText,
+
+  if (visible) {
+    patchPreviewWaitingTab({
+      title: 'Preparing preview…',
       done: nextDone,
       total: nextTotal,
+      detail: detailText,
     });
-  } else {
-    setDeterminateProgress(bar, {});
-    setMasterProgress({ visible: true, label, detail: detailText });
   }
-  patchPreviewWaitingTab({
-    title: 'Preparing preview…',
-    done: nextDone,
-    total: nextTotal,
-    detail: detailText,
-  });
 }
 
 function syncLaunchProgressFromJobs(snap) {
@@ -13525,51 +14611,95 @@ function syncLaunchProgressFromJobs(snap) {
       (j.phase === 'launch' || j.phase === 'ship') &&
       (j.status === 'queued' || j.status === 'running'),
   );
-  if (!job) return;
-  if (job.status === 'queued' && !(Number(job.progressTotal) > 0)) return;
-  const kind = job.phase === 'ship' ? 'ship' : 'launch';
+  if (!job) {
+    if (jobSyncedBarOn.launch) jobSyncedBarOn.launch = false;
+    if (!state._shipHold) hideShipOverlay({ clearHold: false });
+    syncLaunchOverlay(snap);
+    return;
+  }
+  if (job.phase === 'launch') {
+    jobSyncedBarOn.launch = true;
+    hideShipOverlay();
+    syncLaunchOverlay(snap);
+    return;
+  }
+  jobSyncedBarOn.launch = true;
   const total = Number(job.progressTotal);
   const done = Number(job.progressDone);
   const known = Number.isFinite(total) && total > 0;
   const n = Number.isFinite(done) && done > 0 ? done : 0;
-  const detail = job.status === 'queued' ? 'Queued…' : job.detail || '';
-  if (known) {
-    setLaunchProgress(true, launchProgressLabel(kind, n, total), detail, {
-      step: n > 0 ? n - 1 : 0,
-      total,
+  const detail = job.status === 'queued' ? 'Queued…' : job.detail || 'Working…';
+  const phases =
+    Array.isArray(state._shipOverlayPhases) && state._shipOverlayPhases.length
+      ? state._shipOverlayPhases
+      : defaultShipOverlayPhases();
+  setShipOverlayPhases(phases);
+  paintShipOverlay({
+    ...job,
+    detail,
+    progressDone: known ? n : 0,
+    progressTotal: known ? total : phases.length,
+  });
+}
+
+/** Drive Website prepare overlay from Heavy jobs for this candidate. */
+function syncPrepareProgressFromJobs(snap) {
+  const id = String(state.selectedId || '').trim();
+  if (!id) return;
+  const jobs = Array.isArray(snap?.jobs) ? snap.jobs : [];
+  const heldJobId = String(state.preparePreviewJobId || '').trim();
+  const active = jobs.find(
+    (j) =>
+      String(j.candidateId || '') === id &&
+      j.phase === 'prepare' &&
+      (j.status === 'queued' || j.status === 'running'),
+  );
+  const held = heldJobId ? jobs.find((j) => j.id === heldJobId) : null;
+
+  if (active) {
+    const total = Number(active.progressTotal) > 0 ? Number(active.progressTotal) : 5;
+    const n = Number.isFinite(Number(active.progressDone)) ? Number(active.progressDone) : 0;
+    const detail = active.status === 'queued' ? 'Queued…' : active.detail || 'Running…';
+    paintPrepareOverlay({
+      detail,
+      progressDone: active.status === 'queued' ? 0 : n,
+      progressTotal: total,
+    });
+    if (state.preparePreviewHold) {
+      state.assembleProgress = {
+        visible: true,
+        detail,
+        done: n,
+        total,
+      };
+      patchPreviewWaitingTab({
+        title: 'Preparing preview…',
+        done: n,
+        total,
+        detail,
+      });
+    }
+    return;
+  }
+
+  if (held && held.status === 'done') {
+    paintPrepareOverlay({
+      detail: 'Prepare finished — opening result…',
+      progressDone: 5,
+      progressTotal: 5,
     });
     return;
   }
-  setLaunchProgress(true, launchProgressLabel(kind, 0, 0), detail || 'Queued…');
-}
+  if (held && held.status === 'error') {
+    paintPrepareOverlay({
+      detail: `Prepare failed: ${held.error || held.detail || 'error'}`,
+      progressDone: 0,
+      progressTotal: 5,
+    });
+    return;
+  }
 
-/** Drive Website prepare spinner from Jobs SSE/poll for the held prepare jobId. */
-function syncPrepareProgressFromJobs(snap) {
-  const id = String(state.selectedId || '').trim();
-  const heldJobId = String(state.preparePreviewJobId || '').trim();
-  if (!id || !state.preparePreviewHold || !heldJobId) return;
-  const jobs = Array.isArray(snap?.jobs) ? snap.jobs : [];
-  const job = jobs.find((j) => j.id === heldJobId);
-  if (!job) return;
-
-  if (job.status === 'queued') {
-    setAssembleProgress(true, 'Queued…', { done: 0, total: 5 });
-    return;
-  }
-  if (job.status === 'running') {
-    const total = Number(job.progressTotal) > 0 ? Number(job.progressTotal) : 5;
-    const n = Number.isFinite(Number(job.progressDone)) ? Number(job.progressDone) : 0;
-    setAssembleProgress(true, job.detail || 'Running…', { done: n, total });
-    return;
-  }
-  if (job.status === 'done') {
-    // Click handler owns hold / button; only update progress copy here.
-    setAssembleProgress(true, 'Prepare finished — opening result…', { done: 5, total: 5 });
-    return;
-  }
-  if (job.status === 'error') {
-    setAssembleProgress(true, `Prepare failed: ${job.error || job.detail || 'error'}`);
-  }
+  if (!state.preparePreviewHold) hidePrepareOverlay();
 }
 
 function beginAcceptProgress(detail = 'Starting…') {
@@ -13581,7 +14711,7 @@ function beginAcceptProgress(detail = 'Starting…') {
   });
 }
 
-function setAcceptProgress(visible, { label, detail, step = null, total = null } = {}) {
+function setAcceptProgress(visible, { label, detail, step = null, total = null, fromJob = false } = {}) {
   const box = document.getElementById('ca-accept-progress');
   const labelEl = document.getElementById('ca-accept-progress-label');
   const detailEl = document.getElementById('ca-accept-progress-detail');
@@ -13598,16 +14728,9 @@ function setAcceptProgress(visible, { label, detail, step = null, total = null }
       setDeterminateProgress(bar, { done, total: Number(total) });
     }
   }
-  setMasterProgress({
-    visible: Boolean(visible),
-    label,
-    detail,
-    done,
-    total: visible && total != null ? Number(total) : undefined,
-  });
 }
 
-function setImagesProgress(visible, { label, detail, current, total, box: boxPrefix = 'ca-images' } = {}) {
+function setImagesProgress(visible, { label, detail, current, total, box: boxPrefix = 'ca-images', fromJob = false } = {}) {
   const prefix = boxPrefix || 'ca-images';
   const box = document.getElementById(`${prefix}-progress`);
   const labelEl = document.getElementById(`${prefix}-progress-label`);
@@ -13624,13 +14747,6 @@ function setImagesProgress(visible, { label, detail, current, total, box: boxPre
       setDeterminateProgress(bar, known ? { done: Number(current), total: Number(total) } : {});
     }
   }
-  setMasterProgress({
-    visible: Boolean(visible),
-    label,
-    detail,
-    done: known ? Number(current) : undefined,
-    total: known ? Number(total) : undefined,
-  });
 }
 
 function wireContentTab(d) {
@@ -13676,7 +14792,16 @@ function wireContentTab(d) {
       } else {
         state.contentOpenStep = state.contentOpenStep === step ? null : step;
       }
-      renderDetail();
+      const openId =
+        state.tab === 'website'
+          ? state.websiteOpenStep
+          : state.tab === 'site-config'
+            ? state.siteConfigOpenStep
+            : state.contentOpenStep;
+      document.querySelectorAll('#tab-panels .content-step').forEach((el) => {
+        el.classList.toggle('open', el.dataset.contentStep === openId);
+      });
+      applyDetailShelf();
     });
   });
 
@@ -13703,7 +14828,11 @@ function wireContentTab(d) {
       });
     }
   });
-  if (state.tab === 'content') syncWriteSiteOverlay(state.lightJobsSnap);
+  if (state.tab === 'content') {
+    syncWriteSiteOverlay(state.lightJobsSnap);
+    syncAcceptOverlay(state.lightJobsSnap);
+  }
+  if (state.tab === 'website') syncLaunchOverlay(state.heavyJobsSnap);
 
   const collectStructureSelection = () => {
     const pages = [...document.querySelectorAll('input[name="structure-page"]')]
@@ -14387,146 +15516,6 @@ function wireContentTab(d) {
   document
     .getElementById('ca-paste-editor')
     ?.addEventListener('click', () => loadFileBlocks('ca-editor-paste'));
-  const runPullImages = async () => {
-    const pullBtn = document.getElementById('ca-pull-images');
-    const setBusy = (busy) => {
-      if (pullBtn) pullBtn.disabled = busy;
-    };
-    let replace = false;
-    let pullSlots = [];
-    try {
-      const slotSnap = await api(`/api/candidates/${encodeURIComponent(id)}/images/slots`);
-      pullSlots = slotSnap?.slots || [];
-      if (!pullSlots.length) {
-        await showModal({
-          title: 'No photo slots',
-          confirmLabel: 'OK',
-          hideCancel: true,
-          bodyHtml:
-            '<p>Structure has no photo-capable sections for this candidate. Enable photos on sections first.</p>',
-        });
-        return;
-      }
-      const missing = pullSlots.filter((s) => s.missing).length;
-      if (missing === 0) {
-        const ok = await showModal({
-          title: 'Replace existing stock photos?',
-          confirmLabel: 'Replace all',
-          cancelLabel: 'Cancel',
-          bodyHtml:
-            '<p>Every slot already has a photo. Replace re-downloads stock only (not logo or coverage map). Per-slot Re-pull can refresh one image instead.</p>',
-        });
-        if (!ok) return;
-        replace = true;
-      }
-    } catch (error) {
-      await showModal({
-        title: 'Could not check photo slots',
-        confirmLabel: 'OK',
-        hideCancel: true,
-        bodyHtml: `<p>${esc(error.message)}</p>`,
-      });
-      return;
-    }
-
-    if (!(await confirmLaunchedSiteChange(replace ? 'Replace stock photos' : 'Pull photos'))) {
-      return;
-    }
-
-    setBusy(true);
-    setImagesProgress(true, {
-      label: replace ? 'Replacing images…' : 'Pulling photos…',
-      detail: 'Starting…',
-    });
-    const pullTargets = replace ? pullSlots : pullSlots.filter((s) => s.missing);
-    for (const s of pullTargets) beginSlotBusy(s.key, null, { scroll: false });
-    if (pullTargets[0]) beginSlotBusy(pullTargets[0].key);
-    let pollTimer = null;
-    let pollInFlight = false;
-    let lastPullSlotKey = '';
-    const pollProgress = async () => {
-      if (pollInFlight) return;
-      pollInFlight = true;
-      try {
-        const snap = await api(`/api/candidates/${encodeURIComponent(id)}/images`);
-        const ps = snap?.pullStatus;
-        if (ps?.status === 'running') {
-          setImagesProgress(true, {
-            label: replace ? 'Replacing images…' : 'Pulling photos…',
-            detail: `Images loading ${ps.current || 0}`,
-            current: ps.current,
-            total: ps.total,
-          });
-          if (ps.slotKey) {
-            beginSlotBusy(ps.slotKey, null, { scroll: ps.slotKey !== lastPullSlotKey });
-            lastPullSlotKey = ps.slotKey;
-          }
-        }
-        await refreshImageSlotsGrid(id);
-        for (const s of state.reviewImageSlots || []) {
-          if (s?.previewUrl && state.imageSlotBusyKeys?.[s.key]) await settleSlotBusy(s.key);
-        }
-      } catch {
-        // ignore poll errors while pull runs
-      } finally {
-        pollInFlight = false;
-      }
-    };
-    pollTimer = setInterval(pollProgress, 600);
-    try {
-      const result = await api(`/api/candidates/${encodeURIComponent(id)}/images/pull`, {
-        method: 'POST',
-        body: JSON.stringify(withLaunchedConfirmBody({ replace: Boolean(replace) })),
-      });
-      clearInterval(pollTimer);
-      pollTimer = null;
-      await pollProgress();
-      await settleSlotBusy();
-      const filled = result.filled ?? 0;
-      const total = result.total ?? 0;
-      const sources = result.sources || {};
-      const sourceLine = Object.keys(sources).length
-        ? ` · ${Object.entries(sources)
-            .map(([k, v]) => `${k}×${v}`)
-            .join(' · ')}`
-        : '';
-      setImagesProgress(true, {
-        label: replace ? 'Images replaced' : 'Photos pulled',
-        detail: `${filled}/${total} slots${sourceLine}`,
-        current: total,
-        total: total || 1,
-      });
-      announceStepComplete(replace ? 'Replace photos' : 'Pull photos');
-      await refresh(result.candidate, 'images', 'website');
-      const lines = (result.human || []).map((h) => `<p>${esc(h)}</p>`).join('');
-      const files = (result.files || [])
-        .slice(0, 12)
-        .map((f) => `<li><code>${esc(f.filename || '')}</code></li>`)
-        .join('');
-      await showModal({
-        title: replace ? 'Images replaced' : 'Photos pulled',
-        confirmLabel: 'OK',
-        hideCancel: true,
-        bodyHtml: `${lines || '<p>Done.</p>'}${
-          files ? `<ul class="narrative-list">${files}</ul>` : ''
-        }`,
-      });
-    } catch (error) {
-      if (pollTimer) clearInterval(pollTimer);
-      await settleSlotBusy();
-      setImagesProgress(false);
-      await showModal({
-        title: 'Image pull failed',
-        confirmLabel: 'OK',
-        hideCancel: true,
-        bodyHtml: `<p>${esc(error.message)}</p>`,
-      });
-    } finally {
-      setBusy(false);
-      if (pollTimer) clearInterval(pollTimer);
-    }
-  };
-
   let previewWordmarkDataUrl = '';
   let previewWordmarkWarmPromise = null;
 
@@ -14748,7 +15737,7 @@ function wireContentTab(d) {
     state.websiteOpenStep = 'prepare';
     state.websiteSoftCurrent = 'prepare';
     state.websiteFollowCurrent = 'prepare';
-    // Re-render so the in-step bar appears and Prepare is disabled before gaps/modals.
+    // Re-render so Prepare is disabled before gaps/modals.
     renderDetail();
     setAssembleProgress(true, 'Checking content…', { done: 0, total: 5 });
     let previewTab = null;
@@ -14823,6 +15812,15 @@ function wireContentTab(d) {
         });
         jobId = accepted.jobId;
       } catch (enqueueErr) {
+        if (enqueueErr.code === 'HEAVY_CONCURRENCY') {
+          abortPrepareUi();
+          await explainConcurrencyLimit({
+            key: 'heavy',
+            running: enqueueErr.running,
+            limit: enqueueErr.limit ?? state.concurrency?.heavy ?? 2,
+          });
+          return;
+        }
         const joinId = enqueueErr?.status === 409 && enqueueErr?.job?.id ? enqueueErr.job.id : null;
         if (!joinId) throw enqueueErr;
         jobId = joinId;
@@ -14935,7 +15933,46 @@ function wireContentTab(d) {
       if (state.selectedId === id && state.tab === 'website') renderDetail();
     }
   });
-  document.getElementById('ca-pull-images')?.addEventListener('click', () => runPullImages());
+  document.getElementById('ca-pg-menu-toggle')?.addEventListener('click', () => {
+    const toggle = document.getElementById('ca-pg-menu-toggle');
+    const panel = document.getElementById('ca-pg-menu');
+    if (!toggle || !panel) return;
+    const willOpen = panel.classList.contains('hidden');
+    panel.classList.toggle('hidden', !willOpen);
+    toggle.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
+    state.reviewPhotoGroupMenuOpen = willOpen;
+  });
+  const pgMenu = document.querySelector('#tab-panels [data-content-step="images"] .photo-group-menu');
+  if (pgMenu && pgMenu.dataset.leaveWired !== '1') {
+    pgMenu.dataset.leaveWired = '1';
+    let leaveTimer = null;
+    const selectFocused = () => {
+      const ae = document.activeElement;
+      return Boolean(ae && pgMenu.contains(ae) && String(ae.tagName || '').toLowerCase() === 'select');
+    };
+    const closeMenu = () => {
+      const toggle = document.getElementById('ca-pg-menu-toggle');
+      const panel = document.getElementById('ca-pg-menu');
+      if (!toggle || !panel) return;
+      panel.classList.add('hidden');
+      toggle.setAttribute('aria-expanded', 'false');
+      state.reviewPhotoGroupMenuOpen = false;
+    };
+    pgMenu.addEventListener('mouseenter', () => {
+      if (leaveTimer) {
+        clearTimeout(leaveTimer);
+        leaveTimer = null;
+      }
+    });
+    pgMenu.addEventListener('mouseleave', () => {
+      if (selectFocused()) return;
+      leaveTimer = setTimeout(() => {
+        leaveTimer = null;
+        if (selectFocused()) return;
+        closeMenu();
+      }, 180);
+    });
+  }
   document.getElementById('ca-pg-save')?.addEventListener('click', () =>
     savePhotoGroupFromUi(id, { refresh, nextStep: 'images', tab: 'website' }),
   );
@@ -14949,7 +15986,12 @@ function wireContentTab(d) {
   );
   wirePhotoGroupRankSelects('ca-pg-select');
   wireImageSlotActions(id, refresh);
-  void refreshImageSlotsGrid(id);
+  if (state.websiteOpenStep === 'images') {
+    if ((state.reviewImageSlots && state.reviewImageSlots.length) || state.reviewBa) {
+      paintReviewImageSlotsFromState(id, { renderToolbar: true });
+    }
+    void refreshImageSlotsGrid(id);
+  }
   document.getElementById('ca-logo-style')?.addEventListener('click', (ev) => {
     const seg = ev.target.closest('[data-logo-style]');
     if (!seg) return;
@@ -15482,12 +16524,7 @@ function wireContentTab(d) {
     form?.querySelectorAll('input,button,select,textarea').forEach((el) => {
       el.disabled = true;
     });
-    const shipSteps = shipProgressStepsFromOpts({});
-    const shipTotal = shipSteps.length;
-    setLaunchProgress(true, launchProgressLabel('ship', 1, shipTotal), shipSteps[0], {
-      step: 0,
-      total: shipTotal,
-    });
+    showShipOverlayStarting();
     try {
       const result = await api(`/api/candidates/${encodeURIComponent(id)}/ship`, {
         method: 'POST',
@@ -15509,13 +16546,14 @@ function wireContentTab(d) {
           <p class="muted">If the live site still looks old, confirm <strong>Prepare preview</strong> ran after your template/content changes, then Push updates again.</p>`,
       });
     } catch (error) {
+      if (await maybeExplainHeavyConcurrency(error)) return;
       await showModal({
         title: 'Push updates failed',
         confirmLabel: 'OK',
         bodyHtml: `<p>${esc(error.message)}</p>`,
       });
     } finally {
-      setLaunchProgress(false);
+      hideShipOverlay();
       form?.querySelectorAll('input,button,select,textarea').forEach((el) => {
         el.disabled = false;
       });
@@ -15570,18 +16608,32 @@ function wireContentTab(d) {
     form?.querySelectorAll('input,button,select,textarea').forEach((el) => {
       el.disabled = true;
     });
-    const launchSteps = launchProgressStepsFromForm(pendingBody);
-    const launchTotal = launchSteps.length;
-    setLaunchProgress(true, launchProgressLabel('launch', 1, launchTotal), launchSteps[0], {
-      step: 0,
-      total: launchTotal,
-    });
+    showLaunchOverlayStarting(pendingBody);
     try {
       const body = { ...pendingBody, allowIncompleteLaunch };
-      const result = await api(`/api/candidates/${encodeURIComponent(id)}/launch`, {
-        method: 'POST',
-        body: JSON.stringify(body),
-      });
+      let jobId = null;
+      try {
+        const accepted = await api(`/api/candidates/${encodeURIComponent(id)}/launch`, {
+          method: 'POST',
+          body: JSON.stringify(body),
+        });
+        jobId = accepted.jobId;
+      } catch (enqueueErr) {
+        if (enqueueErr.code === 'HEAVY_CONCURRENCY') {
+          hideLaunchOverlay();
+          await explainConcurrencyLimit({
+            key: 'heavy',
+            running: enqueueErr.running,
+            limit: enqueueErr.limit ?? state.concurrency?.heavy ?? 2,
+          });
+          return;
+        }
+        const joinId = enqueueErr?.status === 409 && enqueueErr?.job?.id ? enqueueErr.job.id : null;
+        if (!joinId) throw enqueueErr;
+        jobId = joinId;
+      }
+      const result = await waitForHeavyJobResult(jobId);
+      hideLaunchOverlay();
       await refresh(result.candidate, 'indexing', 'website');
       announceStepComplete('Launch');
       const human = (result.human || []).map((h) => `<li>${esc(h)}</li>`).join('');
@@ -15605,6 +16657,7 @@ function wireContentTab(d) {
           <p class="muted"><strong>After launch:</strong> verify Gmail once if Email Routing is new; smoke-test the live form; then use <strong>Website → Indexing</strong> for Search Console + sitemap.</p>`,
       });
     } catch (error) {
+      if (await maybeExplainHeavyConcurrency(error)) return;
       const blockerList = (error.details?.blockers || [])
         .map((b) => `<li>${esc(b.label || b.id || b)}</li>`)
         .join('');
@@ -15616,7 +16669,7 @@ function wireContentTab(d) {
         }`,
       });
     } finally {
-      setLaunchProgress(false);
+      hideLaunchOverlay();
       form?.querySelectorAll('input,button,select,textarea').forEach((el) => {
         el.disabled = false;
       });
@@ -15638,7 +16691,7 @@ function wireContentTab(d) {
       if (!ok) return;
       if (!(await confirmLaunchedSiteChange('Accept content'))) return;
       acceptBtn.disabled = true;
-      beginAcceptProgress();
+      showAcceptOverlayStarting();
       try {
         let result;
         try {
@@ -15648,14 +16701,14 @@ function wireContentTab(d) {
           });
         } catch (error) {
           if (error.message?.includes('ignoreWarnings') || error.check?.warnings?.length) {
-            setAcceptProgress(false);
+            hideAcceptOverlay();
             const force = await showModal({
               title: 'Content warnings',
               confirmLabel: 'Write anyway',
               bodyHtml: `<p>${esc(error.message)}</p>`,
             });
             if (!force) throw error;
-            beginAcceptProgress();
+            showAcceptOverlayStarting();
             result = await api(`/api/candidates/${encodeURIComponent(id)}/content/accept`, {
               method: 'POST',
               body: JSON.stringify(
@@ -15663,14 +16716,14 @@ function wireContentTab(d) {
               ),
             });
           } else if (error.message?.includes('ignoreSeoWarnings') || error.seoLint) {
-            setAcceptProgress(false);
+            hideAcceptOverlay();
             const force = await showModal({
               title: 'Critical SEO findings',
               confirmLabel: 'Accept with SEO warnings',
               bodyHtml: `<p>${esc(error.message)}</p><p class="muted">Or cancel and fix via the Editor step.</p>`,
             });
             if (!force) throw error;
-            beginAcceptProgress();
+            showAcceptOverlayStarting();
             result = await api(`/api/candidates/${encodeURIComponent(id)}/content/accept`, {
               method: 'POST',
               body: JSON.stringify(withLaunchedConfirmBody({ ignoreSeoWarnings: true })),
@@ -15679,7 +16732,7 @@ function wireContentTab(d) {
             throw error;
           }
         }
-        setAcceptProgress(false);
+        hideAcceptOverlay();
         announceStepComplete('Accept content');
         await refresh(result.candidate, 'prepare', 'website');
         const map = result.coverageMap;
@@ -15761,7 +16814,7 @@ function wireContentTab(d) {
           <p><strong>Up next:</strong> <strong>Website</strong> → Logo &amp; Map → Review images → <strong>Prepare preview</strong> (full Stage + Assemble + open :4322).</p>`,
         });
       } catch (error) {
-        setAcceptProgress(false);
+        hideAcceptOverlay();
         const gapsMissing = error.check?.missing || [];
         const gapsStubs = error.check?.stubs || [];
         const isLaunchGap =
@@ -16214,17 +17267,9 @@ function wireSiteConfigTab(d) {
     state.baSearchMode = doRefresh ? 'refresh' : 'find';
     if (!state.siteConfigOpenStep) state.siteConfigOpenStep = 'address';
     renderDetail();
-    setMasterProgress({
-      visible: true,
-      label: doRefresh ? 'Refreshing listings…' : 'Finding addresses…',
-      detail: doRefresh
-        ? 'Pulling checked sources, then screening with Places.'
-        : 'City cache when available, then Places screening.',
-    });
     const stopBaBusy = () => {
       state.baSearchBusy = false;
       state.baSearchMode = 'find';
-      setMasterProgress({ visible: false });
       renderDetail();
     };
     try {
@@ -16805,9 +17850,6 @@ function wireSiteConfigTab(d) {
       if (result.placeholders?.length) {
         notes.push(`Placeholders: ${result.placeholders.join(', ')}`);
       }
-      if (result.suburbCheck?.warnings?.length) {
-        notes.push(result.suburbCheck.warnings.join('; '));
-      }
       showToast(
         notes.length
           ? `Draft loaded — Accept in Review services. ${notes.join(' · ')}`
@@ -17090,15 +18132,7 @@ function wireSiteConfigTab(d) {
       try {
         result = await postAccept();
       } catch (error) {
-        if (error.suburbCheck) {
-          const force = await showModal({
-            title: 'Suburb warnings',
-            confirmLabel: 'Write anyway',
-            bodyHtml: `<p>${esc(error.message)}</p>`,
-          });
-          if (!force) throw error;
-          result = await postAccept({ ignoreSuburbWarnings: true });
-        } else if (/placeholder/i.test(String(error.message || ''))) {
+        if (/placeholder/i.test(String(error.message || ''))) {
           result = await postAccept({ allowPlaceholders: true });
         } else {
           throw error;
@@ -17180,9 +18214,6 @@ function wireSiteConfigTab(d) {
         const notes = [];
         if (result.placeholders?.length) {
           notes.push(`Placeholders: ${result.placeholders.join(', ')}`);
-        }
-        if (result.suburbCheck?.warnings?.length) {
-          notes.push(result.suburbCheck.warnings.join('; '));
         }
         showToast(
           notes.length
@@ -17680,6 +18711,7 @@ function renderDetail() {
         state.detail = await api(`/api/candidates/${encodeURIComponent(d.id)}`);
         await loadCandidates();
         renderDetail();
+        notifyCandidatesChanged({ type: 'candidates', ids: [d.id] });
       } catch (error) {
         await showModal({
           title: 'Error',
@@ -17697,6 +18729,16 @@ function renderDetail() {
     });
   }
   restoreSlotBusyOverlays();
+}
+
+async function loadConcurrencySettings() {
+  try {
+    const data = await api('/api/concurrency');
+    applyConcurrencyPayload(data);
+  } catch {
+    /* keep defaults */
+  }
+  syncSettingsConcurrencyInputs();
 }
 
 function wireUi() {
@@ -17819,6 +18861,7 @@ function wireUi() {
         body: JSON.stringify({ ids, decision }),
       });
       await loadCandidates();
+      notifyCandidatesChanged({ type: 'candidates', ids });
       if (state.selectedId) {
         state.detail = await api(`/api/candidates/${encodeURIComponent(state.selectedId)}`);
         if (state.selectedIds.size > 1) renderMultiDetail();
@@ -18228,14 +19271,6 @@ function setSitesMetricsProgress({ visible, label, detail, pct } = {}) {
       setDeterminateProgress(bar, { done: Number(pct), total: 100 });
     }
   }
-  const known = pct != null && Number.isFinite(Number(pct));
-  setMasterProgress({
-    visible: Boolean(visible),
-    label,
-    detail,
-    done: known ? Number(pct) : undefined,
-    total: known ? 100 : undefined,
-  });
 }
 
 function setSitesMetricsButtonsDisabled(busy) {
@@ -19461,14 +20496,14 @@ function photoLibMasterLabel(g) {
 
 function photoLibSlotCardHtml(slot, { selected = false } = {}) {
   const key = slot.matchKey || slot.key;
-  const configured = fluxIsConfigured(state.photoLib?.flux);
   const checked = Boolean(state.photoLib.selectedChecks?.[key]);
   const thumb = slotThumbImg(slot.previewUrl, { role: 'Empty' });
   const grade = slot.matchGrade;
   const matchDot = grade ? imagesMatchDotHtml(grade, slot.matchTip || grade) : '';
-  const badge = slot.missing
-    ? `<span class="muted" style="font-size:0.75rem">missing</span>`
-    : `<span class="muted" style="font-size:0.75rem">${esc(slot.source || 'stock')}</span>`;
+  const sourceLabel = imagesSlotSourceLabel(slot);
+  const badge = sourceLabel
+    ? `<span class="muted" style="font-size:0.75rem">${esc(sourceLabel)}</span>`
+    : '';
   return `<div class="image-slot-card photo-slot-card${selected ? ' selected' : ''}" data-match-key="${esc(
     key,
   )}" data-filename="${esc(slot.filename || '')}">
@@ -19482,7 +20517,6 @@ function photoLibSlotCardHtml(slot, { selected = false } = {}) {
       ${slotSourceActionsHtml({
         kind: 'photo',
         viewpointKey: key,
-        fluxConfigured: configured,
         generateExtra: ` data-match-key="${esc(key)}"`,
         copyHtml: `<button type="button" class="btn btn-sm photo-slot-chatgpt" data-match-key="${esc(key)}" data-tip="Copy a ChatGPT image prompt for this slot">Copy prompt</button>`,
         filesHtml: `<button type="button" class="btn btn-sm photo-slot-repull" data-match-key="${esc(key)}" data-tip="Fetch a different stock photo into this group">Re-pull</button>
@@ -19492,8 +20526,12 @@ function photoLibSlotCardHtml(slot, { selected = false } = {}) {
         </label>
         <button type="button" class="btn btn-sm photo-slot-swap" data-match-key="${esc(key)}" data-filename="${esc(slot.filename || '')}" data-tip="Select this slot, then pick an alternate in Swap">Swap</button>`,
       })}
+      ${slotPromptPanelHtml({ kind: 'photo', key })}
     </div>
-    ${variantTrayHtml(slot.variants)}
+    ${variantTrayHtml(slot.variants, {
+      seeMore: true,
+      slotKey: key,
+    })}
   </div>`;
 }
 
@@ -19504,6 +20542,21 @@ function photoLibBaCardHtml(pair, { selected = false } = {}) {
     ? `Before & after — ${pair.serviceName}`
     : `Before & after — home ${pair.pairIndex || 1}`;
   const kind = pair.serviceName || pair.serviceSlug ? 'service' : 'home';
+  const slot = baPairAsReviewSlot({
+    ...pair,
+    matchKey: key,
+    slug: pair.serviceSlug || pair.slug,
+  });
+  const grade = imagesSlotGrade(slot);
+  const tip =
+    grade === 'upload'
+      ? 'Operator upload'
+      : pair.matchTip || (slot.missing ? 'No photo in this slot' : '');
+  const matchDot = grade ? imagesMatchDotHtml(grade, tip) : '';
+  const sourceLabel = imagesSlotSourceLabel(slot);
+  const badge = sourceLabel
+    ? `<span class="muted" style="font-size:0.75rem">${esc(sourceLabel)}</span>`
+    : '';
   return `<div class="image-slot-card photo-slot-card photo-ba-card${selected ? ' selected' : ''}" data-match-key="${esc(
     key,
   )}" data-ba="1" data-ba-kind="${esc(kind)}" data-filename="${esc(pair.before?.filename || '')}" data-pair-index="${esc(String(pair.pairIndex || 1))}" data-service-slug="${esc(pair.serviceSlug || '')}" data-service-name="${esc(pair.serviceName || '')}">
@@ -19513,7 +20566,8 @@ function photoLibBaCardHtml(pair, { selected = false } = {}) {
       <figure>${slotThumbImg(pair.afterUrl, { alt: 'After' })}<figcaption class="muted">After</figcaption></figure>
     </div>
     <div style="padding:0.55rem;display:flex;flex-direction:column;gap:0.35rem">
-      <strong style="font-size:0.85rem">${esc(label)}</strong>
+      <strong style="font-size:0.85rem;display:flex;align-items:center;gap:0.35rem">${matchDot}${esc(label)}</strong>
+      ${badge}
       ${slotSourceActionsHtml({
         kind: 'ba',
         viewpointKey: key,
@@ -19526,9 +20580,9 @@ function photoLibBaCardHtml(pair, { selected = false } = {}) {
         </label>
         <button type="button" class="btn btn-sm photo-slot-swap" data-match-key="${esc(key)}" data-ba="1" data-filename="${esc(pair.before?.filename || '')}">Swap pair</button>`,
       })}
-      ${baShowPromptsHtml(pair, key)}
+      ${slotPromptPanelHtml({ kind: 'ba', key, pair })}
     </div>
-    ${variantTrayHtml(pair.variants, { ba: true })}
+    ${variantTrayHtml(pair.variants, { ba: true, seeMore: true, slotKey: key })}
   </div>`;
 }
 
@@ -19605,13 +20659,13 @@ function renderPhotoFluxToolbar() {
   el.replaceWith(wrap.firstElementChild);
 }
 
-async function generatePhotoSelected(provider) {
+async function generatePhotoSelected() {
   const lib = photoLibCurrent();
   if (!lib.groupId) return;
   const checks = lib.selectedChecks || {};
   const slotIds = Object.keys(checks).filter((k) => checks[k] && !k.startsWith('ba:'));
-  const baIds =
-    provider === 'openai' ? Object.keys(checks).filter((k) => checks[k] && k.startsWith('ba:')) : [];
+  let baIds = Object.keys(checks).filter((k) => checks[k] && k.startsWith('ba:'));
+  baIds = await gateOpenaiBeforeAfterKeys(baIds);
   const ids = [...slotIds, ...baIds];
   if (!ids.length) return;
   const nSlots = slotIds.length;
@@ -19619,138 +20673,69 @@ async function generatePhotoSelected(provider) {
   const n = nSlots + nPairs;
   if (n >= 8) {
     const ok = await showModal({
-      title: provider === 'openai' ? 'Generate OpenAI' : 'Generate Flux',
+      title: 'Generate OpenAI',
       confirmLabel: 'Generate',
-      bodyHtml: `<p>${esc(selectedGenerateCostLine(nSlots, nPairs, provider))}</p>`,
+      bodyHtml: `<p>${esc(selectedGenerateCostLine(nSlots, nPairs))}</p>`,
     });
     if (!ok) return;
   }
-  const slotPath = provider === 'openai' ? 'generate-openai' : 'generate';
   const failures = [];
-  const samples = { photo: [], pair: [] };
-  let walletStop = false;
   try {
-    let i = 0;
     for (const id of slotIds) beginSlotBusy(id, null, { scroll: false });
     for (const id of baIds) beginSlotBusy(id, null, { scroll: false });
-    if (provider === 'openai') {
-      const jobs = [
-        ...slotIds.map((id) => ({ kind: 'photo', id })),
-        ...baIds.map((id) => ({ kind: 'pair', id })),
-      ];
-      let done = 0;
-      paintOpenaiBatchProgress(0, n);
-      const enqueue = createSerialQueue();
-      await runWeightedPool(jobs, OPENAI_GENERATE_CONCURRENCY, openaiGenerateWeight, async (job) => {
-        const t0 = Date.now();
-        try {
-          if (job.kind === 'photo') {
-            await withOpenaiRateLimitRetry(() =>
-              api(`/api/photo-groups/${encodeURIComponent(lib.groupId)}/slots/${slotPath}`, {
-                method: 'POST',
-                body: JSON.stringify({ matchKey: job.id, viewpoint: getBaViewpoint(job.id) }),
-              }),
-            );
-            samples.photo.push(Date.now() - t0);
-          } else {
-            await withOpenaiRateLimitRetry(() =>
-              api(`/api/photo-groups/${encodeURIComponent(lib.groupId)}/before-after/generate-openai`, {
-                method: 'POST',
-                body: JSON.stringify({ matchKey: job.id, viewpoint: getBaViewpoint(job.id) }),
-              }),
-            );
-            samples.pair.push(Date.now() - t0);
-          }
-          await enqueue(async () => {
-            await loadPhotoGroupView();
-            renderPhotoView();
-            await settleSlotBusy(job.id);
-          });
-        } catch (error) {
-          await enqueue(() => settleSlotBusy(job.id));
-          failures.push(`${job.id}: ${error.message}`);
-        } finally {
-          done += 1;
-          paintOpenaiBatchProgress(done, n);
-        }
-      });
-    } else {
-      for (const id of slotIds) {
-        i += 1;
-        const t0 = Date.now();
-        try {
-          await withFluxProgress(
-            {
-              label: 'Generating…',
-              detail: id,
-              index: i,
-              total: n,
-              kind: 'photo',
-              samples,
-            },
-            () =>
-              api(`/api/photo-groups/${encodeURIComponent(lib.groupId)}/slots/${slotPath}`, {
-                method: 'POST',
-                body: JSON.stringify({ matchKey: id, viewpoint: getBaViewpoint(id) }),
-              }),
+    const photoJobs = slotIds.map((id) => ({ kind: 'photo', id }));
+    const pairJobs = baIds.map((id) => ({ kind: 'pair', id }));
+    let done = 0;
+    paintOpenaiBatchProgress(0, n);
+    const enqueue = createSerialQueue();
+    const photoRoot = document.getElementById('view-photo') || document.getElementById('photo-group-body');
+    const runOne = async (job) => {
+      try {
+        if (job.kind === 'photo') {
+          const card = photoRoot?.querySelector(reviewCardAttrSel('data-match-key', job.id));
+          await withOpenaiRateLimitRetry(() =>
+            api(`/api/photo-groups/${encodeURIComponent(lib.groupId)}/slots/generate-openai`, {
+              method: 'POST',
+              body: JSON.stringify({ matchKey: job.id, ...promptBodyFromCard(card) }),
+            }),
           );
-          samples.photo.push(Date.now() - t0);
+        } else {
+          const card = photoRoot?.querySelector(reviewCardAttrSel('data-match-key', job.id));
+          await withOpenaiRateLimitRetry(() =>
+            api(`/api/photo-groups/${encodeURIComponent(lib.groupId)}/before-after/generate-openai`, {
+              method: 'POST',
+              body: JSON.stringify({ matchKey: job.id, ...promptBodyFromCard(card, { pair: true }) }),
+            }),
+          );
+        }
+        await enqueue(async () => {
           await loadPhotoGroupView();
           renderPhotoView();
-          await settleSlotBusy(id);
-        } catch (error) {
-          await settleSlotBusy(id);
-          failures.push(`${id}: ${error.message}`);
-          if (isFluxWalletError(error)) {
-            walletStop = true;
-            break;
-          }
-        }
+          await settleSlotBusy(job.id);
+        });
+      } catch (error) {
+        await enqueue(() => settleSlotBusy(job.id));
+        failures.push(`${job.id}: ${error.message}`);
+      } finally {
+        done += 1;
+        paintOpenaiBatchProgress(done, n);
       }
-      if (!walletStop) {
-        for (const id of baIds) {
-          i += 1;
-          const t0 = Date.now();
-          try {
-            await withFluxProgress(
-              {
-                label: 'Generating pair…',
-                detail: id,
-                index: i,
-                total: n,
-                kind: 'pair',
-                samples,
-              },
-              () =>
-                api(`/api/photo-groups/${encodeURIComponent(lib.groupId)}/before-after/generate-openai`, {
-                  method: 'POST',
-                  body: JSON.stringify({ matchKey: id, viewpoint: getBaViewpoint(id) }),
-                }),
-            );
-            samples.pair.push(Date.now() - t0);
-            await loadPhotoGroupView();
-            renderPhotoView();
-            await settleSlotBusy(id);
-          } catch (error) {
-            await settleSlotBusy(id);
-            failures.push(`${id}: ${error.message}`);
-            if (isFluxWalletError(error)) break;
-          }
-        }
-      }
-    }
+    };
+    await Promise.all([
+      runPool(photoJobs, openaiPhotoConcurrency(), runOne),
+      runPool(pairJobs, openaiBaConcurrency(), runOne),
+    ]);
     if (failures.length) {
-      if (!(await showFluxGenerateFailures(failures))) {
+      if (!(await showGenerateFailures(failures))) {
         showToast(`Generated with ${failures.length} error${failures.length === 1 ? '' : 's'}.`);
       }
     } else {
-      const label = provider === 'openai' ? 'OpenAI' : 'Flux';
-      showToast(`Generated ${n} ${label} job${n === 1 ? '' : 's'}.`);
+      showToast(`Generated ${n} OpenAI job${n === 1 ? '' : 's'}.`);
     }
   } finally {
     await settleSlotBusy();
     setImagesProgress(false);
-    refreshImageWallets({ fresh: true, remind: true });
+    refreshImageWallets({ fresh: true });
   }
 }
 
@@ -19930,7 +20915,8 @@ async function loadPhotoGroupView() {
     return;
   }
   lib.view = await api(`/api/photo-groups/${encodeURIComponent(lib.groupId)}`);
-  if (lib.view?.flux) lib.flux = lib.view.flux;
+  rememberOpenaiStatus(lib.view);
+  if (lib.view?.openai) lib.flux = lib.view.openai;
   if (lib.selectedMatchKey) {
     await loadPhotoSwapRail();
   }
@@ -20172,6 +21158,7 @@ function wirePhotoUi() {
   const root = document.getElementById('view-photo');
   if (!root || root.dataset.wired === '1') return;
   root.dataset.wired = '1';
+  wireSlotPromptEvents(root);
 
   const applyPhotoSlotShiftRange = (ev) => {
     const slotCheck = resolveSlotCheckInput(ev.target, root);
@@ -20267,23 +21254,24 @@ function wirePhotoUi() {
       if (!group) return;
       ev.preventDefault();
       const stepKey = group.dataset?.baViewpointStep || '';
+      const card = group.closest('.photo-ba-card') || group.closest('.image-slot-card');
+      stashSlotPromptDraft(card);
       const next = setBaViewpoint(stepKey, vpBtn.dataset.baViewpoint);
       group.querySelectorAll('[data-ba-viewpoint]').forEach((b) => {
         b.classList.toggle('active', b.dataset.baViewpoint === next);
       });
-      fillBaPromptsPanel(group.closest('.photo-ba-card') || group.closest('.image-slot-card'));
+      fillBaPromptsPanel(card);
       return;
     }
 
-    const fluxBulk = ev.target.closest('.slot-generate-selected-flux');
     const openaiBulk = ev.target.closest('.slot-generate-selected-openai');
-    if ((fluxBulk || openaiBulk) && root.contains(fluxBulk || openaiBulk)) {
+    if (openaiBulk && root.contains(openaiBulk)) {
       ev.preventDefault();
-      const btn = fluxBulk || openaiBulk;
+      const btn = openaiBulk;
       if (!lib.groupId || btn.disabled) return;
       btn.disabled = true;
       try {
-        await generatePhotoSelected(fluxBulk ? 'flux' : 'openai');
+        await generatePhotoSelected();
       } finally {
         btn.disabled = false;
         renderPhotoFluxToolbar();
@@ -20316,7 +21304,10 @@ function wirePhotoUi() {
             () =>
               api(`/api/photo-groups/${encodeURIComponent(lib.groupId)}/before-after/generate-openai`, {
                 method: 'POST',
-                body: JSON.stringify({ matchKey, viewpoint: getBaViewpoint(matchKey) }),
+                body: JSON.stringify({
+                  matchKey,
+                  ...promptBodyFromCard(openaiBtn.closest('.image-slot-card'), { pair: true }),
+                }),
               }),
           );
           showToast('Generated OpenAI before/after pair.');
@@ -20333,7 +21324,10 @@ function wirePhotoUi() {
             () =>
               api(`/api/photo-groups/${encodeURIComponent(lib.groupId)}/slots/generate-openai`, {
                 method: 'POST',
-                body: JSON.stringify({ matchKey, viewpoint: getBaViewpoint(matchKey) }),
+                body: JSON.stringify({
+                  matchKey,
+                  ...promptBodyFromCard(openaiBtn.closest('.image-slot-card')),
+                }),
               }),
           );
           showToast('Generated photo.');
@@ -20351,55 +21345,20 @@ function wirePhotoUi() {
         });
       } finally {
         openaiBtn.disabled = false;
-        setMasterProgress({ visible: false });
-        refreshImageWallets({ fresh: true, remind: true });
+        refreshImageWallets({ fresh: true });
       }
       return;
     }
 
-    const genBtn = ev.target.closest('.slot-generate');
-    if (
-      genBtn &&
-      root.contains(genBtn) &&
-      !genBtn.classList.contains('slot-generate-selected') &&
-      !genBtn.classList.contains('slot-generate-selected-flux')
-    ) {
+    const seeMoreBtn = ev.target.closest('.slot-see-more');
+    if (seeMoreBtn && root.contains(seeMoreBtn)) {
       ev.preventDefault();
-      if (!lib.groupId || genBtn.disabled) return;
-      genBtn.disabled = true;
-      try {
-        const matchKey = genBtn.getAttribute('data-match-key') || '';
-        await withFluxProgress(
-          {
-            label: 'Generating photo…',
-            detail: matchKey,
-            card: genBtn.closest('.image-slot-card'),
-            index: 1,
-            total: 1,
-            kind: 'photo',
-          },
-          () =>
-            api(`/api/photo-groups/${encodeURIComponent(lib.groupId)}/slots/generate`, {
-              method: 'POST',
-              body: JSON.stringify({ matchKey, viewpoint: getBaViewpoint(matchKey) }),
-            }),
-        );
-        showToast('Generated photo.');
-        await loadPhotoGroupView();
-        renderPhotoView();
-        await settleSlotBusy();
-      } catch (error) {
-        await settleSlotBusy();
-        await showModal({
-          title: 'Generate failed',
-          confirmLabel: 'OK',
-          hideCancel: true,
-          bodyHtml: `<p>${esc(error.message)}</p>`,
-        });
-      } finally {
-        genBtn.disabled = false;
-        setMasterProgress({ visible: false });
-        refreshImageWallets({ fresh: true, remind: true });
+      const matchKey = seeMoreBtn.getAttribute('data-slot-key');
+      if (!matchKey) return;
+      if (seeMoreBtn.getAttribute('data-ba') === '1') {
+        void openPhotoLibBaSeeMore(matchKey);
+      } else {
+        void openPhotoLibSeeMore(matchKey);
       }
       return;
     }
@@ -20416,7 +21375,11 @@ function wirePhotoUi() {
             `/api/photo-groups/${encodeURIComponent(lib.groupId)}/before-after/variants/use`,
             {
               method: 'POST',
-              body: JSON.stringify({ matchKey, pairId: varBtn.getAttribute('data-pair-id') }),
+              body: JSON.stringify({
+                matchKey,
+                pairId: varBtn.getAttribute('data-pair-id'),
+                beforeFilename: varBtn.getAttribute('data-before-filename') || '',
+              }),
             },
           );
           showToast('Restored before/after pair.');
@@ -20659,14 +21622,20 @@ function wirePhotoUi() {
       ev.preventDefault();
       if (!lib.groupId) return;
       const matchKey = gptBtn.getAttribute('data-match-key');
-      const viewpoint = getBaViewpoint(matchKey);
       try {
-        const data = await api(
-          `/api/photo-groups/${encodeURIComponent(lib.groupId)}/slots/${encodeURIComponent(
-            matchKey,
-          )}/chatgpt-prompt?viewpoint=${encodeURIComponent(viewpoint)}`,
-        );
-        await navigator.clipboard.writeText(data.prompt || '');
+        const card = gptBtn.closest('.image-slot-card');
+        const fromPanel = promptBodyFromCard(card);
+        let text = fromPanel.prompt || '';
+        if (!text) {
+          const viewpoint = fromPanel.viewpoint || getBaViewpoint(matchKey);
+          const data = await api(
+            `/api/photo-groups/${encodeURIComponent(lib.groupId)}/slots/${encodeURIComponent(
+              matchKey,
+            )}/chatgpt-prompt?viewpoint=${encodeURIComponent(viewpoint)}`,
+          );
+          text = data.prompt || '';
+        }
+        await navigator.clipboard.writeText(text);
         showToast('ChatGPT prompt copied.');
       } catch (error) {
         await showModal({
@@ -20684,17 +21653,21 @@ function wirePhotoUi() {
       ev.preventDefault();
       const kind = baCopy.getAttribute('data-ba-kind');
       const key = baCopy.getAttribute('data-match-key') || '';
-      const viewpoint = getBaViewpoint(key);
       if (!lib.groupId) return;
       try {
-        const params = new URLSearchParams({
-          matchKey: key,
-          viewpoint,
-        });
-        const prompts = await api(
-          `/api/photo-groups/${encodeURIComponent(lib.groupId)}/before-after-prompts?${params}`,
-        );
-        const text = prompts[kind] || prompts.pair || '';
+        const card = baCopy.closest('.image-slot-card');
+        const fromPanel = promptBodyFromCard(card, { pair: true });
+        let text = kind === 'after' ? fromPanel.after : fromPanel.before;
+        if (!text) {
+          const params = new URLSearchParams({
+            matchKey: key,
+            viewpoint: fromPanel.viewpoint || getBaViewpoint(key),
+          });
+          const prompts = await api(
+            `/api/photo-groups/${encodeURIComponent(lib.groupId)}/before-after-prompts?${params}`,
+          );
+          text = prompts[kind] || prompts.pair || '';
+        }
         await navigator.clipboard.writeText(text);
         showToast(`${kind === 'before' ? 'Before' : 'After'} prompt copied.`);
       } catch (error) {
@@ -21766,6 +22739,7 @@ async function ensureGroupIdForAction() {
     });
     state.candidateGroups = data.groups || [];
     fillCandidateGroupSelects();
+    notifyCandidatesChanged({ type: 'candidates' });
     groupId = data.group?.id || null;
     if (sel && groupId) sel.value = groupId;
   }
@@ -21795,6 +22769,7 @@ async function applyGroupMembership(op) {
       body: JSON.stringify({ ids, op }),
     });
     await loadCandidates();
+    notifyCandidatesChanged({ type: 'candidates', ids });
   } catch (error) {
     await showModal({
       title: 'Group update failed',
@@ -21822,6 +22797,7 @@ async function applyCandidateArchive(archived) {
       body: JSON.stringify({ ids, archived }),
     });
     await loadCandidates();
+    notifyCandidatesChanged({ type: 'candidates', ids });
     const visible = new Set(filteredCandidates().map((c) => c.id));
     for (const id of [...state.selectedIds]) {
       if (!visible.has(id)) state.selectedIds.delete(id);
@@ -22013,6 +22989,7 @@ async function manageCandidateGroups() {
         body: JSON.stringify({ name }),
       });
       await loadCandidates();
+      notifyCandidatesChanged({ type: 'candidates' });
     } catch (error) {
       await showModal({
         title: 'Rename failed',
@@ -22039,6 +23016,7 @@ async function manageCandidateGroups() {
     });
     if (state.candidateGroupFilter === delId) state.candidateGroupFilter = '';
     await loadCandidates();
+    notifyCandidatesChanged({ type: 'candidates' });
   } catch (error) {
     await showModal({
       title: 'Delete failed',
@@ -22088,6 +23066,7 @@ function clearDiscoveryBatch() {
   renderDiscoveryTable();
   updateDiscoveryStepChecks({}, []);
   updateDiscoveryProcessControls();
+  syncDiscoveryApiRerunButton();
 }
 
 const DISCOVERY_SOURCES = {
@@ -22378,6 +23357,7 @@ async function persistDiscoveryDecisions(updates) {
     { method: 'POST', body: JSON.stringify({ updates }) },
   );
   state.discoveryRows = result.rows;
+  notifyCandidatesChanged({ type: 'discovery', batchId: state.discoveryBatchId });
   return result;
 }
 
@@ -22991,7 +23971,7 @@ async function selectDiscoveryBatch(id) {
   renderDiscoveryTable();
   updateDiscoveryStepChecks(data.batch, state.discoveryRows);
   if (effectiveClaudeUiMode() === 'api') {
-    fillDiscoveryGeneratePackStep(data.batch);
+    syncDiscoveryApiRerunButton();
     syncGeneratePackOverlay(state.lightJobsSnap);
   }
   await loadDiscoveryBatches();
@@ -23034,7 +24014,9 @@ function updateDiscoveryStepChecks(batch, rows) {
 }
 
 function showDiscoverySidebarStep(step) {
-  if (effectiveClaudeUiMode() === 'api' && step === 'import') step = 'enrich';
+  if (effectiveClaudeUiMode() === 'api' && (step === 'import' || step === 'claude')) {
+    step = step === 'claude' ? 'pack' : 'enrich';
+  }
   const sections = {
     pack: document.getElementById('discovery-new-pack-section'),
     claude: document.getElementById('discovery-claude-pack-section'),
@@ -23070,7 +24052,7 @@ function wireDiscoveryUi() {
 
   showDiscoverySidebarStep('pack');
   syncDiscoveryClaudeModeUi();
-  document.getElementById('discovery-claude-pack-section')?.addEventListener('click', (event) => {
+  document.getElementById('discovery-new-pack-section')?.addEventListener('click', (event) => {
     if (event.target.closest('#discovery-generate-pack')) {
       void startGeneratePackFromUi(state.discoveryBatchId);
     }
@@ -23099,11 +24081,6 @@ function wireDiscoveryUi() {
   wirePhoneUi();
   wirePhotoUi();
   wireImageZoom();
-  api('/api/images/flux-status')
-    .then((data) => {
-      state.flux = data;
-    })
-    .catch(() => {});
 
   document.getElementById('discovery-batch-select')?.addEventListener('change', (event) => {
     const id = event.target.value;
@@ -23147,39 +24124,40 @@ function wireDiscoveryUi() {
       state.lastDiscoveryPack = pack;
       state.discoveryBatchId = pack.batch.id;
       state.discoveryClaudeSent = false;
+      updateDiscoveryStepChecks(pack.batch, state.discoveryRows);
+      await loadDiscoveryBatches();
+      await selectDiscoveryBatch(pack.batch.id);
       if (effectiveClaudeUiMode() === 'api') {
-        fillDiscoveryGeneratePackStep(pack.batch);
+        syncDiscoveryApiRerunButton();
+        await startGeneratePackFromUi(pack.batch.id);
       } else {
-      const box = document.getElementById('discovery-pack-result');
-      const empty = document.getElementById('discovery-pack-empty');
-      if (empty) empty.classList.add('hidden');
-      box.classList.remove('hidden');
-      box.innerHTML = `
+        const box = document.getElementById('discovery-pack-result');
+        const empty = document.getElementById('discovery-pack-empty');
+        if (empty) empty.classList.add('hidden');
+        box.classList.remove('hidden');
+        box.innerHTML = `
         <ol class="discovery-pack-next">
           <li><button type="button" class="btn primary" id="dl-discovery-csv">Download Discovery Pack Template</button></li>
           <li><button type="button" class="btn" id="copy-discovery-claude">Copy Claude Prompt</button></li>
           <li>Paste both in <a href="https://claude.ai" target="_blank" rel="noopener noreferrer">Claude.ai</a></li>
         </ol>
       `;
-      document.getElementById('dl-discovery-csv').onclick = () =>
-        downloadText(pack.csvName || 'discovery.csv', pack.csv, 'text/csv');
-      const markClaudeSent = () => {
-        state.discoveryClaudeSent = true;
-        updateDiscoveryStepChecks(pack.batch, state.discoveryRows);
-        showDiscoverySidebarStep('import');
-      };
-      document.getElementById('copy-discovery-claude').onclick = async () => {
-        await navigator.clipboard.writeText(pack.claudePrompt);
-        showToast('Claude prompt copied to clipboard.');
-      };
-      box.querySelector('a[href="https://claude.ai"]')?.addEventListener('click', () => {
-        markClaudeSent();
-      });
+        document.getElementById('dl-discovery-csv').onclick = () =>
+          downloadText(pack.csvName || 'discovery.csv', pack.csv, 'text/csv');
+        const markClaudeSent = () => {
+          state.discoveryClaudeSent = true;
+          updateDiscoveryStepChecks(pack.batch, state.discoveryRows);
+          showDiscoverySidebarStep('import');
+        };
+        document.getElementById('copy-discovery-claude').onclick = async () => {
+          await navigator.clipboard.writeText(pack.claudePrompt);
+          showToast('Claude prompt copied to clipboard.');
+        };
+        box.querySelector('a[href="https://claude.ai"]')?.addEventListener('click', () => {
+          markClaudeSent();
+        });
+        showDiscoverySidebarStep('claude');
       }
-      showDiscoverySidebarStep('claude');
-      updateDiscoveryStepChecks(pack.batch, state.discoveryRows);
-      await loadDiscoveryBatches();
-      await selectDiscoveryBatch(pack.batch.id);
     } catch (error) {
       await showModal({
         title: 'Discovery pack failed',
@@ -23299,20 +24277,12 @@ function wireDiscoveryUi() {
       setDeterminateProgress(bar, { done: 0, total: preview.probeCount });
       if (labelEl) labelEl.textContent = 'Starting Light SERP…';
       if (detailEl) detailEl.textContent = `0 / ${preview.probeCount}`;
-      setMasterProgress({
-        visible: true,
-        label: 'Starting Light SERP…',
-        detail: `0 / ${preview.probeCount}`,
-        done: 0,
-        total: preview.probeCount,
-      });
 
       const started = await api(
         `/api/discovery/batches/${encodeURIComponent(state.discoveryBatchId)}/serp-probe`,
         {
           method: 'POST',
           body: JSON.stringify({
-            concurrency: 1,
             ...(scopedIndices ? { indices: scopedIndices } : {}),
           }),
         },
@@ -23336,18 +24306,6 @@ function wireDiscoveryUi() {
                 ? job.currentLabel
                 : `ok ${job.ok || 0} · errors ${job.errors || 0} · ${formatMoney(job.costUsd || 0)}`;
             }
-            setMasterProgress({
-              visible: true,
-              label:
-                job.status === 'running'
-                  ? `Probing ${job.done || 0} / ${job.total}`
-                  : `Probe ${job.status}`,
-              detail: job.currentLabel
-                ? job.currentLabel
-                : `ok ${job.ok || 0} · errors ${job.errors || 0} · ${formatMoney(job.costUsd || 0)}`,
-              done: job.done || 0,
-              total: job.total,
-            });
             if (job.status === 'running') {
               setTimeout(tick, 400);
               return;
@@ -23363,7 +24321,6 @@ function wireDiscoveryUi() {
         await selectDiscoveryBatch(job.batchId || state.discoveryBatchId);
         setDeterminateProgress(bar, {});
         if (progress) progress.classList.add('hidden');
-        setMasterProgress({ visible: false });
         announceStepComplete('Light SERP');
         const p = job.probe || job;
         await showModal({
@@ -23389,12 +24346,19 @@ function wireDiscoveryUi() {
     } catch (error) {
       setDeterminateProgress(bar, {});
       if (progress) progress.classList.add('hidden');
-      setMasterProgress({ visible: false });
-      await showModal({
-        title: 'Light SERP failed',
-        confirmLabel: 'OK',
-        bodyHtml: `<p>${esc(error.message)}</p>`,
-      });
+      if (error.code === 'LIGHT_SERP_CONCURRENCY') {
+        await explainConcurrencyLimit({
+          key: 'lightSerp',
+          running: error.running,
+          limit: error.limit ?? state.concurrency?.lightSerp ?? 2,
+        });
+      } else {
+        await showModal({
+          title: 'Light SERP failed',
+          confirmLabel: 'OK',
+          bodyHtml: `<p>${esc(error.message)}</p>`,
+        });
+      }
     } finally {
       const enrichBtn = document.getElementById('discovery-enrich-pack-btn');
       if (enrichBtn) enrichBtn.disabled = false;
@@ -23828,11 +24792,6 @@ async function pollBatchJob(batchJobId) {
   const detailEl = document.getElementById('job-progress-detail');
   const bar = progress?.querySelector('.job-progress-bar');
   if (progress) progress.classList.remove('hidden');
-  setMasterProgress({
-    visible: true,
-    label: `Running ${jobActLabel(state.activeAct)}…`,
-    detail: 'Working…',
-  });
   const tick = async () => {
     try {
       const batch = await api(`/api/jobs/batches/${encodeURIComponent(batchJobId)}`);
@@ -23851,13 +24810,6 @@ async function pollBatchJob(batchJobId) {
         } queued${failBits ? ` · ${failBits}` : ''}`;
       }
       state.jobStatusLine = detailEl?.textContent || '';
-      setMasterProgress({
-        visible: true,
-        label: `Running ${jobActLabel(batch.act)}…`,
-        detail: state.jobStatusLine,
-        done,
-        total,
-      });
       if (state.selectedIds.size > 1) renderMultiDetail();
       if (batch.status === 'running') {
         state.pollTimer = setTimeout(tick, 800);
@@ -23867,7 +24819,6 @@ async function pollBatchJob(batchJobId) {
       state.activeAct = null;
       setDeterminateProgress(bar, {});
       if (progress) progress.classList.add('hidden');
-      setMasterProgress({ visible: false });
       if (batch.status === 'ok' || batch.status === 'done') {
         announceStepComplete(`Batch ${jobActLabel(batch.act)}`);
       }
@@ -23896,7 +24847,6 @@ async function pollBatchJob(batchJobId) {
       state.activeBatchJobId = null;
       setDeterminateProgress(bar, {});
       if (progress) progress.classList.add('hidden');
-      setMasterProgress({ visible: false });
       await showModal({
         title: 'Batch poll failed',
         confirmLabel: 'OK',
@@ -23909,13 +24859,14 @@ async function pollBatchJob(batchJobId) {
 
 try {
   await loadHealth();
-  await loadApiCost();
+  void loadApiCost();
   startBalancePolling();
   await loadRubric();
   wireSettingsUi();
   wireApiCostUi();
   wireJobsUi();
   wireHelpUi();
+  await loadConcurrencySettings();
   wireUi();
   syncClaudeModeToggle();
   renderDiscoverySourceLegend();
@@ -23929,13 +24880,9 @@ try {
     /* discovery optional until server restart */
   }
   await loadCandidates();
-  await applyClaudeUiRestore();
 } finally {
-  const boot = document.getElementById('app-boot-loading');
-  if (boot) {
-    boot.classList.add('hidden');
-    boot.setAttribute('aria-hidden', 'true');
-    boot.setAttribute('aria-busy', 'false');
-  }
+  hideAppBootLoading();
 }
-void maybeShowFalRetireReminder();
+startJobStreamLeader();
+wireCandidatesBroadcast();
+await applyClaudeUiRestore();

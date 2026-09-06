@@ -212,7 +212,7 @@
       "maxImages": 6,
       "astroKey": "materials",
       "kind": "materials",
-      "writeInstructions": "Short intro + 4–6 material option bullets. Each bullet: **Product/system name** — then 1–2 sentences (why it matters, climate or use cue from City context when available, durable outcome). Concrete photographable product names as titles (not “professional grade” alone). Do NOT include markdown body images — photos come from Rover Pull materialsImages (compact row thumbs)."
+      "writeInstructions": "Short intro + exactly 3 or 6 material option bullets (never 4, 5, 7, or 8). Choose 6 when research/entities support six distinct products/methods; otherwise 3. Each bullet: **Product/system name** — then 1–2 sentences (why it matters, climate or use cue from City context when available, durable outcome). Concrete photographable product names as titles (not “professional grade” alone). Do NOT include markdown body images — photos come from Rover Pull materialsImages (compact row thumbs)."
     },
     {
       "id": "timeline",
@@ -425,7 +425,7 @@
       "maxImages": 6,
       "astroKey": null,
       "kind": "materials",
-      "writeInstructions": "Short intro + 4–6 material option bullets for this serviceName. Each bullet: **Product/system name** — then 1–2 sentences (why it matters for this service, climate or use cue from City context when available, durable outcome). Concrete product/system/method titles (not “professional grade” alone). Do NOT include markdown body images — photos come from Rover Pull materialsImages (compact row thumbs)."
+      "writeInstructions": "Short intro + exactly 3 or 6 material option bullets for this serviceName (never 4, 5, 7, or 8). Choose 6 when research/entities support six distinct products/methods; otherwise 3. Each bullet: **Product/system name** — then 1–2 sentences (why it matters for this service, climate or use cue from City context when available, durable outcome). Concrete product/system/method titles (not “professional grade” alone). Do NOT include markdown body images — photos come from Rover Pull materialsImages (compact row thumbs)."
     },
     {
       "id": "svcTimeline",

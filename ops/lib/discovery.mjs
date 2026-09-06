@@ -23,6 +23,7 @@ import {
 } from './known-candidates.mjs';
 import { startBatchJobs } from './batch-jobs.mjs';
 import { isSerpCacheFresh, readSerpCache, serpCachePath } from '../../scripts/lib/serp-cache.mjs';
+import { normalizeCityStateCluster } from './city-state.mjs';
 
 const ROOT = process.cwd();
 const BATCHES_DIR = path.join(ROOT, 'research', 'batches');
@@ -581,6 +582,26 @@ function fillPrompt(relativePath, vars = {}) {
     out = out.replaceAll(`{{${key}}}`, value == null ? '' : String(value));
   }
   return out;
+}
+
+/**
+ * Anthropic API Generate pack prompt (CSV fence only — not the Claude.ai file protocol).
+ */
+export function buildDiscoveryApiPrompt(batchId) {
+  const { batch } = getBatch(batchId);
+  const f = normalizeFilters(batch.filters || {});
+  const csv = rowsToCsv(buildEmptyTemplateRows(), DISCOVERY_CLAUDE_COLUMNS);
+  return fillPrompt('prompts/discovery-claude-api.md', {
+    FILTER_BRIEF: buildFilterBrief(f),
+    NICHE_RULES: buildNicheRules(f),
+    DISCOVERY_CSV: csv.trimEnd(),
+    HIGH_TICKET_NICHES: buildCompactHighTicketCatalog(f),
+    KNOWN_CANDIDATES: formatKnownCandidatesForPrompt({
+      stateFilter: f.state || null,
+      limit: 200,
+      compact: true,
+    }),
+  });
 }
 
 /**
@@ -1149,15 +1170,7 @@ export function recommendBatch(batchId) {
 }
 
 function parseSuburbsCluster(text, state) {
-  const st = String(state || '').toUpperCase();
-  return String(text || '')
-    .split(/;/)
-    .map((s) => s.trim())
-    .filter(Boolean)
-    .map((part) => {
-      if (part.includes(',')) return part.replace(/\s+/g, ' ');
-      return st ? `${part},${st}` : part;
-    });
+  return normalizeCityStateCluster(text, state);
 }
 
 /**

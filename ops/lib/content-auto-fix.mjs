@@ -1,11 +1,12 @@
 /**
  * Deterministic auto-fix for speech stock phrases, leaked editor prompts,
- * missing soft internal links, broken body images, and heading grammar. No LLM.
+ * prose em dashes, missing soft internal links, broken body images, and heading grammar. No LLM.
  */
 
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { buildRequiredLinksByFile, isFaqQuestionOffNiche } from './content-seo-lint.mjs';
+import { isStructuredLabelDashLine } from './content-speech-lint.mjs';
 
 const STOCK_REPLACEMENTS = [
   { re: /\bdelve(?:s|d|ing)?\s+into\b/gi, to: 'look into' },
@@ -102,6 +103,17 @@ export function autoFixContentDraft(files, opts = {}) {
       });
     }
 
+    const processCase = healProcessSentenceCase(body);
+    if (processCase.changed) {
+      body = processCase.body;
+      changes.push({
+        file: rel,
+        rule: 'process_sentence_case',
+        kind: 'speech',
+        detail: `Sentence-cased ${processCase.count} process description(s)`,
+      });
+    }
+
     const longSplit = splitLongProseParagraphs(body);
     if (longSplit.changed) {
       body = longSplit.body;
@@ -110,6 +122,17 @@ export function autoFixContentDraft(files, opts = {}) {
         rule: 'long_paragraph',
         kind: 'speech',
         detail: `Split ${longSplit.count} long paragraph(s) into shorter blocks`,
+      });
+    }
+
+    const emDash = replaceProseEmDashes(body);
+    if (emDash.changed) {
+      body = emDash.body;
+      changes.push({
+        file: rel,
+        rule: 'em_dash',
+        kind: 'speech',
+        detail: `Replaced ${emDash.count} prose em dash(es) (ranges kept as en dashes)`,
       });
     }
 
@@ -289,6 +312,42 @@ function countProcessStepStarts(text) {
 
 function looksLikeProcessHeading(heading) {
   return /process\s+works/i.test(String(heading || ''));
+}
+
+function sentenceCaseLine(s) {
+  let t = String(s || '').trim();
+  if (!t) return t;
+  t = t.replace(/^[a-z]/, (c) => c.toUpperCase());
+  if (!/[.!?…]$/.test(t) && t.split(/\s+/).filter(Boolean).length >= 3) t += '.';
+  return t;
+}
+
+/** Capitalize lowercase process blurbs in YAML `description:` and `- **Title** — desc` lines. */
+function healProcessSentenceCase(src) {
+  let count = 0;
+  let body = String(src || '');
+  body = body.replace(/^([ \t]*description:\s*)(["'])([^"'\n]+)\2\s*$/gm, (full, prefix, q, val) => {
+    const healed = sentenceCaseLine(val);
+    if (healed === val) return full;
+    count += 1;
+    return `${prefix}${q}${healed}${q}`;
+  });
+  body = body.replace(/^([ \t]*description:\s*)([^"'\s][^\n]*)$/gm, (full, prefix, val) => {
+    const healed = sentenceCaseLine(val);
+    if (healed === val) return full;
+    count += 1;
+    return `${prefix}${healed}`;
+  });
+  body = body.replace(
+    /^([ \t]*[-*•]\s+\*\*[^*]+\*\*\s+[—–-]\s+)(.+)$/gm,
+    (full, prefix, desc) => {
+      const healed = sentenceCaseLine(desc);
+      if (healed === desc) return full;
+      count += 1;
+      return prefix + healed;
+    },
+  );
+  return { body, changed: count > 0, count };
 }
 
 /**
@@ -617,8 +676,39 @@ function slugify(name) {
     .replace(/^-|-$/g, '');
 }
 
-function isStructuredLabelDashLine(line) {
-  return /^\s*(?:[-*+]\s+)?\*\*.+?\*\*\s+[—–\u2013\u2014]\s+/.test(String(line || ''));
+const EM_DASH_RE = /[—\u2014]/;
+
+/**
+ * Convert leftover prose em dashes so speech lint does not fail Write site Polish.
+ * Structured `**Label** —` bullets stay. Numeric ranges become en dashes.
+ */
+function replaceProseEmDashes(src) {
+  const { fm, body } = splitFrontmatter(src);
+  if (!EM_DASH_RE.test(body)) return { body: src, changed: false, count: 0 };
+  let count = 0;
+  const nextBody = body
+    .split('\n')
+    .map((line) => {
+      if (isStructuredLabelDashLine(line) || /^\s*#{1,6}\s/.test(line)) return line;
+      const rangeRe = /(\$?\d[\d,]*(?:\.\d+)?)\s*[—\u2014]\s*(\$?\d[\d,]*(?:\.\d+)?)/g;
+      let out = line.replace(rangeRe, (_, a, b) => {
+        count += 1;
+        return `${a}–${b}`;
+      });
+      out = out.replace(/\s*[—\u2014]\s*(?=\S|$)/g, (full, offset, str) => {
+        count += 1;
+        const ch = str[offset + full.length] || '';
+        return /[A-Z]/.test(ch) ? '. ' : ', ';
+      });
+      return out;
+    })
+    .join('\n');
+  if (nextBody === body) return { body: src, changed: false, count: 0 };
+  return {
+    body: fm != null ? `---\n${fm}\n---\n${nextBody.replace(/^\n+/, '')}` : nextBody,
+    changed: true,
+    count,
+  };
 }
 
 function wordCount(s) {

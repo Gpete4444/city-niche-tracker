@@ -94,24 +94,27 @@ import {
   readSiteImageFile,
 } from './lib/fill-site-images.mjs';
 import {
-  generateImageSlot,
   generateImageSlotOpenai,
   useImageSlotVariant,
   generateCandidateBaPairOpenai,
   useCandidateBaVariant,
-} from './lib/flux-generate.mjs';
-import { fluxStatus, getFalBalance, getFluxJobProgress } from './lib/image-providers/flux.mjs';
+} from './lib/openai-generate.mjs';
+import { openaiImageStatus } from './lib/image-providers/openai-image.mjs';
 import {
   applyPhotoGroups,
   attachPhotoGroup,
   findNicheMaster,
   skipPhotoGroup,
   getAttachedPhotoGroup,
+  listAttachedGroupStills,
+  listAttachedGroupBaPairs,
   listPhotoGroups,
   normalizePhotoGroupIds,
   previewPhotoGroup,
   savePhotoGroup,
   readPhotoGroupFile,
+  useGroupFileOnSlot,
+  useGroupBaPairOnSlot,
 } from './lib/photo-groups.mjs';
 import {
   listPhotoLibrary,
@@ -121,27 +124,32 @@ import {
   uploadPhotoGroupSlot,
   repullPhotoGroupSlot,
   chatgptPromptForGroupSlot,
+  savePhotoGroupSlotOpenaiPrompt,
   importPhotoGroupBa,
   removePhotoGroupSlot,
   renamePhotoGroup,
   duplicatePhotoGroup,
   deletePhotoGroup,
   upsertNicheMaster,
-  generatePhotoGroupSlot,
   generatePhotoGroupSlotOpenai,
+  useFileOnPhotoGroupSlot,
   usePhotoGroupSlotVariant,
   generatePhotoGroupBaPairOpenai,
   usePhotoGroupBaVariant,
+  useBaPairOnPhotoGroupSlot,
   getPhotoGroupBaPrompts,
+  savePhotoGroupBaOpenaiPrompt,
 } from './lib/photo-library.mjs';
 import { generateSiteLogo, useLogoVariant } from './lib/generate-site-logo.mjs';
 import { generateCoverageMapForCandidate, getCoverageMapProgress, useCoverageMapVariant } from './lib/generate-coverage-map.mjs';
 import {
   importBeforeAfterPair,
   listBeforeAfterStatus,
-  resolveBaChatgptPrompts,
+  resolveBaPromptsWithOverride,
+  saveBaOpenaiPrompt,
+  setBaPairMatchGrade,
 } from './lib/chatgpt-before-after.mjs';
-import { buildSlotImagePrompt } from './lib/chatgpt-slot-image.mjs';
+import { buildSlotImagePrompt, saveSlotOpenaiPrompt } from './lib/chatgpt-slot-image.mjs';
 import {
   buildResearcherPrompt,
   buildOutlinePrompt,
@@ -220,6 +228,7 @@ import {
   cancelLightJob,
   findActiveLightJob,
   discoveryPackJobCandidateId,
+  assertWriteSiteStartAllowed,
 } from './lib/rover-light-jobs.mjs';
 import {
   getGeneratePackCostPreview,
@@ -229,7 +238,7 @@ import { getUserGuidePayload } from './lib/help-markdown.mjs';
 import { assembleSiteInWorker, getAssembleChecklist, planAssembleReplace, finalizePreviousAssembledSite } from './lib/assemble-site.mjs';
 import { assertLaunchedEditAllowed } from './lib/launched-edit-guard.mjs';
 import { restoreLaunchedFromGithub } from './lib/restore-launched-from-github.mjs';
-import { getLaunchStatus, launchSite } from './lib/launch-site.mjs';
+import { getLaunchStatus, launchSite, listLaunchProgressSteps } from './lib/launch-site.mjs';
 import {
   BILLING_CYCLES,
   createManualSite,
@@ -318,6 +327,8 @@ import {
 import { previewSerpProbe, runDiscoverySerpProbe, startDiscoverySerpProbe, getSerpProbeJob, discoveryStepStatus } from './lib/discovery-serp-probe.mjs';
 import { suggestPlaces } from './lib/census.mjs';
 import { aggregateStageFlags, getBatchJob, startBatchJobs } from './lib/batch-jobs.mjs';
+import { getEvalConcurrency, setEvalConcurrency } from './lib/eval-concurrency.mjs';
+import { concurrencyPayload, setConcurrencySettings } from './lib/rover-concurrency.mjs';
 import {
   regenerateKnownCandidates,
   listKnownForEditor,
@@ -360,6 +371,9 @@ function sendError(res, error) {
   if (error.job) payload.job = error.job;
   if (error.jobId) payload.jobId = error.jobId;
   if (error.candidateId) payload.candidateId = error.candidateId;
+  if (error.running != null) payload.running = error.running;
+  if (error.limit != null) payload.limit = error.limit;
+  if (error.selected != null) payload.selected = error.selected;
   if (error.batchId) payload.batchId = error.batchId;
   if (error.speechLint) payload.speechLint = error.speechLint;
   if (error.seoLint) payload.seoLint = error.seoLint;
@@ -390,6 +404,7 @@ app.get('/api/health', (_req, res) => {
     },
     // 2 · Copy & AI
     { name: 'Anthropic', group: 'Copy & AI', ok: envSet('ANTHROPIC_API_KEY') },
+    { name: 'Anthropic Admin', group: 'Copy & AI', ok: envSet('ANTHROPIC_ADMIN_KEY'), optional: true },
     // 3 · Site-config · address
     { name: 'Google Maps', group: 'Site-config · address', ok: envSet('GOOGLE_MAPS_API_KEY') },
     { name: 'Apify token', group: 'Site-config · address', ok: envSet('APIFY_TOKEN') },
@@ -408,19 +423,9 @@ app.get('/api/health', (_req, res) => {
     { name: 'Pexels', group: 'Website · images', ok: envSet('PEXELS_API_KEY') },
     { name: 'Pixabay', group: 'Website · images', ok: envSet('PIXABAY_API_KEY') },
     {
-      name: 'Flux 2 Pro',
-      group: 'Website · images',
-      ok: envSet('FAL_KEY') || envSet('FAL_API_KEY'),
-    },
-    {
       name: 'GPT Image (OpenAI)',
       group: 'Website · images',
       ok: envSet('OPENAI_API_KEY'),
-    },
-    {
-      name: 'Flux remaining',
-      group: 'Website · images',
-      ok: envSet('FAL_ADMIN_KEY'),
     },
     // 5 · Assemble & launch
     { name: 'GitHub owner', group: 'Assemble & launch', ok: envSet('GITHUB_OWNER') },
@@ -861,13 +866,11 @@ app.post('/api/discovery/batches/:id/serp-probe', async (req, res) => {
     if (body.sync) {
       const result = await runDiscoverySerpProbe(req.params.id, {
         indices: Array.isArray(body.indices) ? body.indices : null,
-        concurrency: Number(body.concurrency) || 1,
       });
       return res.json(result);
     }
     const job = startDiscoverySerpProbe(req.params.id, {
       indices: Array.isArray(body.indices) ? body.indices : null,
-      concurrency: Number(body.concurrency) || 1,
     });
     res.status(202).json({
       jobId: job.id,
@@ -947,12 +950,38 @@ app.post('/api/jobs/batch', (req, res) => {
       startBatchJobs({
         act,
         candidateIds,
-        concurrency: Number(body.concurrency) || 1,
+        requireWithinLimit: true,
         adsMode: body.adsMode === 'standard' ? 'standard' : 'live',
         forceSerp: Boolean(body.forceSerp),
         volumesOnly: Boolean(body.volumesOnly),
       }),
     );
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.get('/api/eval-concurrency', (_req, res) => {
+  res.json({ value: getEvalConcurrency() });
+});
+
+app.post('/api/eval-concurrency', (req, res) => {
+  try {
+    const value = setEvalConcurrency(req.body?.value ?? req.body?.concurrency);
+    res.json({ value });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.get('/api/concurrency', (_req, res) => {
+  res.json(concurrencyPayload());
+});
+
+app.post('/api/concurrency', (req, res) => {
+  try {
+    setConcurrencySettings(req.body || {});
+    res.json(concurrencyPayload());
   } catch (error) {
     sendError(res, error);
   }
@@ -1610,7 +1639,6 @@ app.post('/api/candidates/:id/site-config/accept', (req, res) => {
     res.json(
       acceptSiteConfig(req.params.id, {
         allowNonPursue: Boolean(body.allowNonPursue),
-        ignoreSuburbWarnings: Boolean(body.ignoreSuburbWarnings),
         allowPlaceholders: Boolean(body.allowPlaceholders),
       }),
     );
@@ -1906,6 +1934,22 @@ app.post('/api/candidates/:id/photo-groups/skip', (req, res) => {
   }
 });
 
+app.get('/api/candidates/:id/photo-groups/stills', (req, res) => {
+  try {
+    res.json(listAttachedGroupStills(req.params.id));
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.get('/api/candidates/:id/photo-groups/ba-pairs', (req, res) => {
+  try {
+    res.json(listAttachedGroupBaPairs(req.params.id));
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
 function sendLocalImageFile(res, abs, filename) {
   const ext = path.extname(filename).toLowerCase();
   const type =
@@ -1957,7 +2001,7 @@ app.get('/api/photo-groups/:id/file/:filename', (req, res) => {
 
 app.get('/api/photo-groups/:id', (req, res) => {
   try {
-    res.json({ ...getPhotoGroupView(req.params.id), flux: fluxStatus() });
+    res.json({ ...getPhotoGroupView(req.params.id), openai: openaiImageStatus() });
   } catch (error) {
     sendError(res, error);
   }
@@ -2007,12 +2051,13 @@ app.get('/api/photo-groups/:id/slots/:key/chatgpt-prompt', (req, res) => {
   }
 });
 
-app.post('/api/photo-groups/:id/slots/generate', async (req, res) => {
+app.post('/api/photo-groups/:id/slots/:key/openai-prompt', (req, res) => {
   try {
     res.json(
-      await generatePhotoGroupSlot(req.params.id, {
-        matchKey: req.body?.matchKey || req.body?.key,
+      savePhotoGroupSlotOpenaiPrompt(req.params.id, req.params.key, {
         viewpoint: req.body?.viewpoint || 'inside',
+        prompt: req.body?.prompt,
+        restore: Boolean(req.body?.restore),
       }),
     );
   } catch (error) {
@@ -2026,6 +2071,21 @@ app.post('/api/photo-groups/:id/slots/generate-openai', async (req, res) => {
       await generatePhotoGroupSlotOpenai(req.params.id, {
         matchKey: req.body?.matchKey || req.body?.key,
         viewpoint: req.body?.viewpoint || 'inside',
+        prompt: req.body?.prompt,
+      }),
+    );
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/photo-groups/:id/slots/use-file', (req, res) => {
+  try {
+    res.json(
+      useFileOnPhotoGroupSlot(req.params.id, {
+        matchKey: req.body?.matchKey || req.body?.key,
+        fromGroupId: req.body?.fromGroupId || req.body?.groupId,
+        filename: req.body?.filename,
       }),
     );
   } catch (error) {
@@ -2061,6 +2121,24 @@ app.get('/api/photo-groups/:id/before-after-prompts', (req, res) => {
   }
 });
 
+app.post('/api/photo-groups/:id/before-after/openai-prompt', (req, res) => {
+  try {
+    res.json(
+      savePhotoGroupBaOpenaiPrompt(req.params.id, {
+        matchKey: req.body?.matchKey || req.body?.match || '',
+        viewpoint: req.body?.viewpoint || 'inside',
+        pairIndex: req.body?.pairIndex || 1,
+        serviceSlug: req.body?.service || req.body?.serviceSlug || '',
+        before: req.body?.before,
+        after: req.body?.after,
+        restore: Boolean(req.body?.restore),
+      }),
+    );
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
 app.post('/api/photo-groups/:id/before-after/generate-openai', async (req, res) => {
   try {
     res.json(
@@ -2071,6 +2149,8 @@ app.post('/api/photo-groups/:id/before-after/generate-openai', async (req, res) 
         pairIndex: req.body?.pairIndex,
         serviceSlug: req.body?.serviceSlug,
         serviceName: req.body?.serviceName,
+        before: req.body?.before,
+        after: req.body?.after,
       }),
     );
   } catch (error) {
@@ -2084,6 +2164,22 @@ app.post('/api/photo-groups/:id/before-after/variants/use', (req, res) => {
       usePhotoGroupBaVariant(req.params.id, {
         matchKey: req.body?.matchKey,
         pairId: req.body?.pairId || req.body?.id,
+        beforeFilename: req.body?.beforeFilename || '',
+      }),
+    );
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/photo-groups/:id/before-after/use-pair', (req, res) => {
+  try {
+    res.json(
+      useBaPairOnPhotoGroupSlot(req.params.id, {
+        matchKey: req.body?.matchKey || req.body?.key,
+        fromGroupId: req.body?.fromGroupId || req.body?.groupId,
+        beforeFilename: req.body?.beforeFilename,
+        afterFilename: req.body?.afterFilename,
       }),
     );
   } catch (error) {
@@ -2133,7 +2229,7 @@ app.get('/api/candidates/:id/images', (req, res) => {
 
 app.get('/api/candidates/:id/images/slots', (req, res) => {
   try {
-    res.json({ ...listImageSlotStatus(req.params.id), flux: fluxStatus() });
+    res.json({ ...listImageSlotStatus(req.params.id), openai: openaiImageStatus() });
   } catch (error) {
     sendError(res, error);
   }
@@ -2216,13 +2312,15 @@ app.get('/api/candidates/:id/images/slots/:slotKey/chatgpt-prompt', (req, res) =
   }
 });
 
-app.post('/api/candidates/:id/images/slots/:slotKey/generate', async (req, res) => {
+app.post('/api/candidates/:id/images/slots/:slotKey/openai-prompt', (req, res) => {
   try {
-    assertLaunchedEditAllowed(req.params.id, req.body || {});
-    const result = await generateImageSlot(req.params.id, req.params.slotKey, {
-      viewpoint: req.body?.viewpoint || 'inside',
-    });
-    res.json(result);
+    res.json(
+      saveSlotOpenaiPrompt(req.params.id, req.params.slotKey, {
+        viewpoint: req.body?.viewpoint || req.query?.viewpoint || 'inside',
+        prompt: req.body?.prompt,
+        restore: Boolean(req.body?.restore),
+      }),
+    );
   } catch (error) {
     sendError(res, error);
   }
@@ -2233,6 +2331,7 @@ app.post('/api/candidates/:id/images/slots/:slotKey/generate-openai', async (req
     assertLaunchedEditAllowed(req.params.id, req.body || {});
     const result = await generateImageSlotOpenai(req.params.id, req.params.slotKey, {
       viewpoint: req.body?.viewpoint || 'inside',
+      prompt: req.body?.prompt,
     });
     res.json(result);
   } catch (error) {
@@ -2245,6 +2344,20 @@ app.post('/api/candidates/:id/images/slots/:slotKey/variants/use', (req, res) =>
     assertLaunchedEditAllowed(req.params.id, req.body || {});
     res.json(
       useImageSlotVariant(req.params.id, req.params.slotKey, {
+        filename: req.body?.filename,
+      }),
+    );
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/candidates/:id/images/slots/:slotKey/use-group-file', (req, res) => {
+  try {
+    assertLaunchedEditAllowed(req.params.id, req.body || {});
+    res.json(
+      useGroupFileOnSlot(req.params.id, req.params.slotKey, {
+        groupId: req.body?.groupId,
         filename: req.body?.filename,
       }),
     );
@@ -2341,45 +2454,38 @@ app.get('/api/candidates/:id/coverage-map/progress', (req, res) => {
 
 app.get('/api/candidates/:id/images/before-after-prompts', (req, res) => {
   try {
-    const resolved = resolveBaChatgptPrompts(req.params.id, {
-      serviceSlug: req.query?.service || req.query?.serviceSlug || '',
-      pairIndex: req.query?.pairIndex || 1,
-      viewpoint: req.query?.viewpoint || 'inside',
-    });
-    res.json({
-      ...resolved,
-      chatgptUrl: 'https://chatgpt.com/',
-    });
+    res.json(
+      resolveBaPromptsWithOverride(req.params.id, {
+        serviceSlug: req.query?.service || req.query?.serviceSlug || '',
+        pairIndex: req.query?.pairIndex || 1,
+        viewpoint: req.query?.viewpoint || 'inside',
+      }),
+    );
   } catch (error) {
     sendError(res, error);
   }
 });
 
-app.get('/api/images/flux-status', (_req, res) => {
-  res.json({ ok: true, ...fluxStatus() });
-});
-
-app.get('/api/images/flux-balance', async (req, res) => {
+app.post('/api/candidates/:id/images/before-after/openai-prompt', (req, res) => {
   try {
-    const fresh = String(req.query?.fresh || '') === '1' || req.query?.fresh === 'true';
-    res.json(await getFalBalance({ fresh }));
+    res.json(
+      saveBaOpenaiPrompt(req.params.id, {
+        serviceSlug: req.body?.serviceSlug || req.body?.service || '',
+        pairIndex: req.body?.pairIndex || 1,
+        viewpoint: req.body?.viewpoint || 'inside',
+        before: req.body?.before,
+        after: req.body?.after,
+        restore: Boolean(req.body?.restore),
+      }),
+    );
   } catch (error) {
-    res.json({
-      ok: false,
-      balance: null,
-      error: error.message || String(error),
-      fetchedAt: new Date().toISOString(),
-    });
+    sendError(res, error);
   }
-});
-
-app.get('/api/images/flux-progress', (_req, res) => {
-  res.json(getFluxJobProgress());
 });
 
 app.get('/api/candidates/:id/images/before-after-status', (req, res) => {
   try {
-    res.json({ ...listBeforeAfterStatus(req.params.id), flux: fluxStatus() });
+    res.json({ ...listBeforeAfterStatus(req.params.id), openai: openaiImageStatus() });
   } catch (error) {
     sendError(res, error);
   }
@@ -2393,7 +2499,19 @@ app.post('/api/candidates/:id/images/before-after-generate-openai', async (req, 
         viewpoint: req.body?.viewpoint || 'inside',
         serviceSlug: req.body?.serviceSlug || req.body?.service || '',
         pairIndex: req.body?.pairIndex || 1,
+        before: req.body?.before,
+        after: req.body?.after,
       }),
+    );
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/candidates/:id/images/before-after/match-grade', (req, res) => {
+  try {
+    res.json(
+      setBaPairMatchGrade(req.params.id, req.body?.matchKey || req.body?.key, req.body?.matchGrade),
     );
   } catch (error) {
     sendError(res, error);
@@ -2406,8 +2524,25 @@ app.post('/api/candidates/:id/images/before-after/variants/use', (req, res) => {
     res.json(
       useCandidateBaVariant(req.params.id, {
         pairId: req.body?.pairId || req.body?.id,
+        matchKey: req.body?.matchKey || '',
         serviceSlug: req.body?.serviceSlug || '',
         pairIndex: req.body?.pairIndex || 1,
+        beforeFilename: req.body?.beforeFilename || '',
+      }),
+    );
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/candidates/:id/images/before-after/use-group-pair', (req, res) => {
+  try {
+    assertLaunchedEditAllowed(req.params.id, req.body || {});
+    res.json(
+      useGroupBaPairOnSlot(req.params.id, req.body?.matchKey || req.body?.key || '', {
+        groupId: req.body?.groupId,
+        beforeFilename: req.body?.beforeFilename,
+        afterFilename: req.body?.afterFilename,
       }),
     );
   } catch (error) {
@@ -2737,24 +2872,7 @@ app.post('/api/candidates/:id/content/write-site', (req, res) => {
     requireAnthropicKey();
     assertWriteSiteReady(candidateId);
 
-    const same = findActiveLightJob('write-site', candidateId);
-    if (same) {
-      return res.status(409).json({
-        error: 'Write site is already running for this candidate',
-        code: 'WRITE_SITE_RUNNING',
-        jobId: same.id,
-        candidateId,
-      });
-    }
-    const other = findActiveLightJob('write-site');
-    if (other) {
-      return res.status(409).json({
-        error: `Write site is already running for ${other.candidateId}`,
-        code: 'WRITE_SITE_BUSY',
-        jobId: other.id,
-        candidateId: other.candidateId,
-      });
-    }
+    assertWriteSiteStartAllowed(candidateId);
 
     const photosOn = Boolean(
       Object.values(getCandidateDetail(candidateId)?.contentStructure?.photos || {}).some(
@@ -3393,11 +3511,20 @@ app.post('/api/candidates/:id/launch', async (req, res) => {
   try {
     const body = req.body || {};
     const candidateId = req.params.id;
-    const result = await enqueueHeavyJob({
+    const planned = listLaunchProgressSteps({
+      ship: body.ship !== false,
+      skipGithub: Boolean(body.skipGithub),
+      skipBuild: Boolean(body.skipBuild),
+      skipDeploy: Boolean(body.skipDeploy),
+      skipBuildsConnect: Boolean(body.skipBuildsConnect),
+      runCloudflare: body.runCloudflare !== false,
+    });
+    const total = planned.length || 1;
+    const { jobId } = startHeavyJob({
       candidateId,
       phase: 'launch',
       label: 'Launch',
-      run: async ({ jobId }) => {
+      run: async ({ jobId: jid }) => {
         const out = await launchSite(candidateId, {
           domain: body.domain,
           phone: body.phone,
@@ -3416,7 +3543,7 @@ app.post('/api/candidates/:id/launch', async (req, res) => {
           setupEmail: body.setupEmail !== false,
           markCloudflareProjectDone: Boolean(body.markCloudflareProjectDone),
           allowIncompleteLaunch: body.allowIncompleteLaunch === true,
-          onProgress: (p) => updateJobProgress(jobId, p),
+          onProgress: (p) => updateJobProgress(jid, p),
         });
         const site = out.site || upsertSiteAfterLaunch(candidateId);
         return {
@@ -3427,7 +3554,8 @@ app.post('/api/candidates/:id/launch', async (req, res) => {
         };
       },
     });
-    res.json(result);
+    updateJobProgress(jobId, { detail: 'Queued…', done: 0, total });
+    res.status(202).json({ jobId, accepted: true });
   } catch (error) {
     if (error.checklist) {
       return res.status(error.status || 500).json({
@@ -4021,7 +4149,7 @@ const server = app.listen(PORT, HOST, () => {
   console.log(`Rover dashboard: http://${HOST}:${PORT}`);
   console.log('Local only — do not expose this port publicly.');
   console.log(
-    `DataForSEO: ${process.env.DATAFORSEO_LOGIN ? 'configured' : 'missing'} · Anthropic: ${process.env.ANTHROPIC_API_KEY ? 'configured' : 'missing'} · GSC OAuth: ${process.env.GOOGLE_GSC_CLIENT_ID && process.env.GOOGLE_GSC_CLIENT_SECRET ? 'configured' : 'missing'} · Flux remaining: ${String(process.env.FAL_ADMIN_KEY || '').trim() ? 'FAL_ADMIN_KEY set' : 'FAL_ADMIN_KEY missing'}`,
+    `DataForSEO: ${process.env.DATAFORSEO_LOGIN ? 'configured' : 'missing'} · Anthropic: ${process.env.ANTHROPIC_API_KEY ? 'configured' : 'missing'} · GSC OAuth: ${process.env.GOOGLE_GSC_CLIENT_ID && process.env.GOOGLE_GSC_CLIENT_SECRET ? 'configured' : 'missing'}`,
   );
   try {
     const r = migrateDecisionsToScoreModel();

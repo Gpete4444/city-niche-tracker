@@ -41,7 +41,7 @@ Rules:
 - Prefer CONTENT RESEARCH `paaStyleQuestions` for `faqSeeds` when present.
 - faqSeeds / PAA must stay on-niche (cost, permits, timeline, DIY, methods). Drop city trivia, pets, civic officials, unrelated appliances.
 - Intro instructions: max ~2 concise salesperson paragraphs; industry entities/stats; NO street/landmark stuffing (geo belongs in areas).
-- Educational sections (cost/materials/timeline/codes/diyVsPro/whenToCall): instruct short intro + bullets (diyVsPro two-column headings). For **cost**, instruct 3–5 dollar-range rows (`Tier — $low–$high — included`) so writers fill a scannable table.
+- Educational sections (cost/materials/timeline/codes/diyVsPro/whenToCall): instruct short intro + bullets (diyVsPro two-column headings). For **cost**, instruct 3–5 dollar-range rows (`Tier — $low–$high — included`) so writers fill a scannable table. For **timeline**, instruct one `- **Stage title** — duration` per line (no packed `**Job** —` chains).
 - faqSeeds should prefer research paaStyleQuestions (filtered for niche relevance).
 - Operator may edit this JSON before Writer runs.
 - See docs/SECTION-UX.md for full section contracts.

@@ -102,6 +102,17 @@ function coverageAreasFromConfig(config) {
   ).filter((a) => a?.name && a?.state);
 }
 
+/** Lowercased names of SEO location pages (primary + targetSuburbs). */
+export function pageCityNamesFromConfig(config) {
+  return [config?.primaryCity, ...(config?.targetSuburbs || [])]
+    .map((n) =>
+      String(typeof n === 'string' ? n : n?.name || n?.city || '')
+        .trim()
+        .toLowerCase(),
+    )
+    .filter(Boolean);
+}
+
 function readJson(filePath) {
   if (!existsSync(filePath)) return null;
   try {
@@ -293,8 +304,16 @@ function geographicArea(geometry) {
   return geometryProjectedArea(geometry, ([lng, lat]) => [lng, lat]);
 }
 
-function dropAreaOutliers(boundaries) {
+/**
+ * Drop mistaken giant polygons (county/state vs a village median).
+ * Never drop SEO location-page cities — they are allowed to be larger than
+ * the also-served towns that set the median.
+ */
+export function dropAreaOutliers(boundaries, { keepNames } = {}) {
   if (!Array.isArray(boundaries) || boundaries.length < 2) return boundaries;
+  const keep = new Set(
+    (keepNames || []).map((n) => String(n || '').trim().toLowerCase()).filter(Boolean),
+  );
   const areas = boundaries.map((b) => geographicArea(b.geometry));
   const sorted = areas.filter((a) => a > 0).sort((a, b) => a - b);
   if (!sorted.length) return boundaries;
@@ -302,7 +321,8 @@ function dropAreaOutliers(boundaries) {
   if (!(median > 0)) return boundaries;
   const kept = [];
   for (let i = 0; i < boundaries.length; i += 1) {
-    if (areas[i] > 12 * median) {
+    const nameKey = String(boundaries[i].name || '').trim().toLowerCase();
+    if (areas[i] > 12 * median && !keep.has(nameKey)) {
       console.warn(
         `[coverage-map] dropped outlier ${boundaries[i].name}, ${boundaries[i].state} (${(areas[i] / median).toFixed(1)}× median area)`,
       );
@@ -684,7 +704,8 @@ export async function generateCoverageMapSvg(
       );
     }
   }
-  boundaries = dropAreaOutliers(boundaries);
+  const pageCityNames = pageCityNamesFromConfig(config);
+  boundaries = dropAreaOutliers(boundaries, { keepNames: pageCityNames });
   console.log(
     `[coverage-map] done — ${boundaries.length}/${total} outlined` +
       (missingBoundaries.length ? `; missing: ${missingBoundaries.join('; ')}` : ''),
@@ -769,15 +790,7 @@ export async function generateCoverageMapSvg(
   const fills = ['#e8a317', '#f2b83c', '#dc8f08', '#f6c65f', '#d9a11e', '#edb83d'];
 
   // Label only SEO location pages (primary + targetSuburbs); still shade all coverage polygons.
-  const labelNames = new Set(
-    [config.primaryCity, ...(config.targetSuburbs || [])]
-      .map((n) =>
-        String(typeof n === 'string' ? n : n?.name || n?.city || '')
-          .trim()
-          .toLowerCase(),
-      )
-      .filter(Boolean),
-  );
+  const labelNames = new Set(pageCityNames);
 
   const geoPts = points.map(project);
   const geoBounds = {

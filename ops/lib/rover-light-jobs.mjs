@@ -1,10 +1,12 @@
 /**
  * Light-job registry for Accept / logo / coverage map / pull photos / SERP.
- * No K queue and no one-job-per-candidate lock. Source of truth for Light Jobs.
+ * No K queue. Write site allows up to the Settings Write site Concurrent Limit
+ * (same candidate still exclusive via assertWriteSiteStartAllowed).
  */
 
 import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
+import { getConcurrency } from './rover-concurrency.mjs';
 
 /** @typedef {'queued'|'running'|'done'|'error'} JobStatus */
 
@@ -30,6 +32,13 @@ const bus = new EventEmitter();
 bus.setMaxListeners(50);
 
 const RECENT_KEEP = 40;
+
+/** Default / compat: Settings Write site box default. Hard max is CONCURRENCY_MAX.writeSite. */
+export const WRITE_SITE_MAX_CONCURRENT = 6;
+
+export function writeSiteConcurrencyLimit() {
+  return getConcurrency().writeSite;
+}
 
 function emitChange() {
   bus.emit('change', listLightJobsSnapshot());
@@ -225,6 +234,64 @@ export function findActiveLightJob(phase, candidateId = null) {
     if (cid && String(j.candidateId || '') !== cid) return false;
     return true;
   });
+}
+
+/** Running + queued jobs for a phase. */
+export function countActiveLightJobs(phase) {
+  const want = String(phase || '');
+  let n = 0;
+  for (const j of jobs.values()) {
+    if (String(j.phase || '') !== want) continue;
+    if (j.status !== 'running' && j.status !== 'queued') continue;
+    n += 1;
+  }
+  return n;
+}
+
+/**
+ * Same candidate cannot run two Write site jobs. Up to the Write site Concurrent Limit
+ * jobs may run on different candidates.
+ * @param {string} candidateId
+ */
+export function assertWriteSiteStartAllowed(candidateId) {
+  const cid = String(candidateId || '').trim();
+  const same = findActiveLightJob('write-site', cid);
+  if (same) {
+    throw Object.assign(new Error('Write site is already running for this candidate'), {
+      status: 409,
+      code: 'WRITE_SITE_RUNNING',
+      jobId: same.id,
+      candidateId: cid,
+    });
+  }
+  const running = countActiveLightJobs('write-site');
+  const limit = writeSiteConcurrencyLimit();
+  if (running >= limit) {
+    throw Object.assign(
+      new Error(
+        `Already ${running} Write site jobs running. Concurrent Limit for Write site is ${limit} — a soft limit so you do not spend too much money at once.`,
+      ),
+      {
+        status: 409,
+        code: 'WRITE_SITE_CAP',
+        candidateId: cid,
+        running,
+        limit,
+      },
+    );
+  }
+}
+
+/** Test-only: abort and drop every light job in this process. */
+export function resetLightJobsForTests() {
+  for (const job of jobs.values()) {
+    try {
+      job.abort?.abort();
+    } catch {
+      /* ignore */
+    }
+  }
+  jobs.clear();
 }
 
 /**

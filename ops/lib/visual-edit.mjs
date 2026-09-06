@@ -35,6 +35,7 @@ import {
   stopAssembledPreview,
   getAssembledPreviewBinding,
 } from './assembled-preview.mjs';
+import { isProcessHeading } from '../../src/lib/is-process-heading.mjs';
 import { ghAuthStatus } from './github-site.mjs';
 import { cloudflareConfigured } from './cloudflare-launch.mjs';
 
@@ -241,7 +242,7 @@ function replaceProcessBodyLine(body, index, title, description) {
     const t = lines[i].trim();
     if (/^#{1,2}\s/.test(t)) {
       const heading = t.replace(/^#+\s+/, '');
-      inProcess = /process works|how (our |the )?.+process|how we (work|do)/i.test(heading);
+      inProcess = isProcessHeading(heading);
       continue;
     }
     if (!inProcess || !t || /^#{3}\s/.test(t)) continue;

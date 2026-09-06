@@ -1,5 +1,7 @@
 /**
- * Batch job runner: queue the same act across many candidate IDs with limited concurrency.
+ * Batch job runner: the same act across many candidate IDs.
+ * Parallel slots = stored Evaluations Concurrent Limit (Settings).
+ * UI batches (`requireWithinLimit`) refuse more rows than the box.
  */
 
 import { randomUUID } from 'node:crypto';
@@ -19,6 +21,7 @@ import {
   RESEARCH_DIR,
 } from './candidates.mjs';
 import { assertEvalPrerequisite } from './candidate-protection.mjs';
+import { getEvalConcurrency } from './eval-concurrency.mjs';
 
 const batchJobs = new Map();
 const JOBS_DIR = path.join(RESEARCH_DIR, '_jobs');
@@ -183,15 +186,22 @@ function pump(batch) {
 }
 
 /**
- * @param {{ act: 'research'|'enrich'|'prospects'|'narrative', candidateIds: string[], concurrency?: number, adsMode?: 'live'|'standard', forceSerp?: boolean, volumesOnly?: boolean }} opts
+ * @param {{
+ *   act: 'research'|'enrich'|'prospects'|'narrative',
+ *   candidateIds: string[],
+ *   adsMode?: 'live'|'standard',
+ *   forceSerp?: boolean,
+ *   volumesOnly?: boolean,
+ *   requireWithinLimit?: boolean,
+ * }} opts
  */
 export function startBatchJobs({
   act,
   candidateIds = [],
-  concurrency = 1,
   adsMode = 'live',
   forceSerp = false,
   volumesOnly = false,
+  requireWithinLimit = false,
 } = {}) {
   const ids = [...new Set(candidateIds.map((id) => String(id || '').trim()).filter(Boolean))];
   if (!ids.length) {
@@ -204,9 +214,20 @@ export function startBatchJobs({
     err.status = 400;
     throw err;
   }
-  // Narrative always concurrency 1
-  const conc =
-    act === 'narrative' ? 1 : Math.min(3, Math.max(1, Number(concurrency) || 1));
+  const conc = getEvalConcurrency();
+  if (requireWithinLimit && ids.length > conc) {
+    throw Object.assign(
+      new Error(
+        `You selected ${ids.length} candidates. Concurrent Limit for Evaluations is ${conc} — a soft limit so you do not spend too much money at once.`,
+      ),
+      {
+        status: 400,
+        code: 'EVAL_CONCURRENCY',
+        limit: conc,
+        selected: ids.length,
+      },
+    );
+  }
   const mode = String(adsMode || 'live').toLowerCase() === 'standard' ? 'standard' : 'live';
   const volOnly = Boolean(volumesOnly);
   const force = Boolean(forceSerp) && !volOnly;

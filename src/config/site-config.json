@@ -1,78 +1,333 @@
 {
-  "businessName": "Omaha Egress Window Pros",
-  "tagline": "Egress window installation in Omaha, NE — basement window cutting, window wells, and drainage grading. Free estimates.",
-  "domain": "omahaegresswindowpros.com",
-  "niche": "egress window installation",
-  "primaryCity": "Omaha",
-  "state": "NE",
+  "businessName": "Cedar Rapids Drywall Repair Pros",
+  "tagline": "Drywall repair and patching in Cedar Rapids, IA — texture matching, popcorn ceiling removal, water stain repair. Free estimates.",
+  "domain": "cedarrapidsdrywallrepairpros.com",
+  "niche": "Drywall Repair",
+  "primaryCity": "Cedar Rapids",
+  "state": "IA",
   "targetSuburbs": [
-    "Bellevue",
-    "La Vista",
-    "Papillion",
-    "Fremont"
+    "Marion",
+    "Hiawatha",
+    "North Liberty",
+    "Iowa City",
+    "Coralville"
   ],
   "coverageAreas": [
     {
-      "name": "Omaha",
-      "state": "NE"
+      "name": "Cedar Rapids",
+      "state": "IA"
     },
     {
-      "name": "Bellevue",
-      "state": "NE"
+      "name": "Alburnett",
+      "state": "IA"
     },
     {
-      "name": "Blair",
-      "state": "NE"
+      "name": "Amana",
+      "state": "IA"
     },
     {
-      "name": "Fremont",
-      "state": "NE"
+      "name": "Anamosa",
+      "state": "IA"
     },
     {
-      "name": "Gretna",
-      "state": "NE"
+      "name": "Atkins",
+      "state": "IA"
     },
     {
-      "name": "La Vista",
-      "state": "NE"
+      "name": "Belle Plaine",
+      "state": "IA"
     },
     {
-      "name": "Offutt AFB",
-      "state": "NE"
+      "name": "Bertram",
+      "state": "IA"
     },
     {
-      "name": "Papillion",
-      "state": "NE"
+      "name": "Blairstown",
+      "state": "IA"
     },
     {
-      "name": "Plattsmouth",
-      "state": "NE"
+      "name": "Brandon",
+      "state": "IA"
     },
     {
-      "name": "Ralston",
-      "state": "NE"
+      "name": "Center Junction",
+      "state": "IA"
     },
     {
-      "name": "Wahoo",
-      "state": "NE"
+      "name": "Center Point",
+      "state": "IA"
+    },
+    {
+      "name": "Central City",
+      "state": "IA"
+    },
+    {
+      "name": "Clarence",
+      "state": "IA"
+    },
+    {
+      "name": "Coggon",
+      "state": "IA"
+    },
+    {
+      "name": "Conroy",
+      "state": "IA"
+    },
+    {
+      "name": "Coralville",
+      "state": "IA"
+    },
+    {
+      "name": "Downey",
+      "state": "IA"
+    },
+    {
+      "name": "East Amana",
+      "state": "IA"
+    },
+    {
+      "name": "Elberon",
+      "state": "IA"
+    },
+    {
+      "name": "Ely",
+      "state": "IA"
+    },
+    {
+      "name": "Fairfax",
+      "state": "IA"
+    },
+    {
+      "name": "Frytown",
+      "state": "IA"
+    },
+    {
+      "name": "Garrison",
+      "state": "IA"
+    },
+    {
+      "name": "Hiawatha",
+      "state": "IA"
+    },
+    {
+      "name": "High Amana",
+      "state": "IA"
+    },
+    {
+      "name": "Hills",
+      "state": "IA"
+    },
+    {
+      "name": "Homestead",
+      "state": "IA"
+    },
+    {
+      "name": "Hopkinton",
+      "state": "IA"
+    },
+    {
+      "name": "Iowa City",
+      "state": "IA"
+    },
+    {
+      "name": "Keystone",
+      "state": "IA"
+    },
+    {
+      "name": "Ladora",
+      "state": "IA"
+    },
+    {
+      "name": "Lisbon",
+      "state": "IA"
+    },
+    {
+      "name": "Luzerne",
+      "state": "IA"
+    },
+    {
+      "name": "Marengo",
+      "state": "IA"
+    },
+    {
+      "name": "Marion",
+      "state": "IA"
+    },
+    {
+      "name": "Martelle",
+      "state": "IA"
+    },
+    {
+      "name": "Mechanicsville",
+      "state": "IA"
+    },
+    {
+      "name": "Middle Amana",
+      "state": "IA"
+    },
+    {
+      "name": "Monticello",
+      "state": "IA"
+    },
+    {
+      "name": "Morley",
+      "state": "IA"
+    },
+    {
+      "name": "Mount Auburn",
+      "state": "IA"
+    },
+    {
+      "name": "Mount Vernon",
+      "state": "IA"
+    },
+    {
+      "name": "Newhall",
+      "state": "IA"
+    },
+    {
+      "name": "North Liberty",
+      "state": "IA"
+    },
+    {
+      "name": "Norway",
+      "state": "IA"
+    },
+    {
+      "name": "Olin",
+      "state": "IA"
+    },
+    {
+      "name": "Oxford",
+      "state": "IA"
+    },
+    {
+      "name": "Palo",
+      "state": "IA"
+    },
+    {
+      "name": "Parnell",
+      "state": "IA"
+    },
+    {
+      "name": "Prairieburg",
+      "state": "IA"
+    },
+    {
+      "name": "Quasqueton",
+      "state": "IA"
+    },
+    {
+      "name": "Robins",
+      "state": "IA"
+    },
+    {
+      "name": "Rowley",
+      "state": "IA"
+    },
+    {
+      "name": "Ryan",
+      "state": "IA"
+    },
+    {
+      "name": "Shellsburg",
+      "state": "IA"
+    },
+    {
+      "name": "Shueyville",
+      "state": "IA"
+    },
+    {
+      "name": "Solon",
+      "state": "IA"
+    },
+    {
+      "name": "South Amana",
+      "state": "IA"
+    },
+    {
+      "name": "Springville",
+      "state": "IA"
+    },
+    {
+      "name": "Stanwood",
+      "state": "IA"
+    },
+    {
+      "name": "Stone City",
+      "state": "IA"
+    },
+    {
+      "name": "Swisher",
+      "state": "IA"
+    },
+    {
+      "name": "Tiffin",
+      "state": "IA"
+    },
+    {
+      "name": "Tipton",
+      "state": "IA"
+    },
+    {
+      "name": "University Heights",
+      "state": "IA"
+    },
+    {
+      "name": "Urbana",
+      "state": "IA"
+    },
+    {
+      "name": "Van Horne",
+      "state": "IA"
+    },
+    {
+      "name": "Vinton",
+      "state": "IA"
+    },
+    {
+      "name": "Walford",
+      "state": "IA"
+    },
+    {
+      "name": "Walker",
+      "state": "IA"
+    },
+    {
+      "name": "Watkins",
+      "state": "IA"
+    },
+    {
+      "name": "West Amana",
+      "state": "IA"
+    },
+    {
+      "name": "West Branch",
+      "state": "IA"
+    },
+    {
+      "name": "Williamsburg",
+      "state": "IA"
     }
   ],
-  "serviceRadiusMiles": 30,
-  "phone": "+1 (531) 301-8697",
-  "email": "leads@omahaegresswindowpros.com",
-  "web3FormsAccessKey": "YOUR_WEB3FORMS_ACCESS_KEY",
+  "serviceRadiusMiles": 33,
+  "phone": "+1 (319) 320-1675",
+  "email": "leads@cedarrapidsdrywallrepairpros.com",
+  "web3FormsAccessKey": "89d2cced-3c6a-4623-ac6f-f550a7c7dfe7",
   "turnstileSiteKey": "",
   "primaryCta": "Get a Free Estimate",
-  "siteArchetype": "single_service",
+  "siteArchetype": "multi_service",
   "services": [
-    "Egress Window Installation",
-    "Basement Egress Window Cutting",
-    "Window Well Installation",
-    "Window Well Covers",
-    "Window Well Drainage & Grading",
-    "Egress Window Replacement",
-    "Code Compliance Consulting",
-    "Permit Assistance"
+    "Drywall Patching",
+    "Sheetrock Repair",
+    "Texture Matching",
+    "Drywall Crack Repair",
+    "Nail Pop Repair",
+    "Water Stain & Water Damage Repair",
+    "Ceiling Repair",
+    "Popcorn Ceiling Removal",
+    "Wall & Seam Repair",
+    "Drywall Installation & Replacement"
   ],
   "homepageServicesLimit": 8,
   "brand": {
@@ -81,6 +336,12 @@
     "ink": "#0B1220",
     "paletteId": "ink-sky",
     "fontTheme": "archivo-source"
+  },
+  "address": {
+    "street": "200 1st St Se, STE-150",
+    "city": "Cedar Rapids",
+    "state": "IA",
+    "zip": "52401"
   },
   "socialProof": {
     "rating": {
@@ -92,7 +353,7 @@
     "licenses": [
       {
         "name": "Licensed & Insured",
-        "jurisdiction": "NE"
+        "jurisdiction": "IA"
       }
     ],
     "statistics": [
@@ -111,33 +372,33 @@
     ],
     "reviews": [
       {
-        "quote": "Honestly did not expect such a professional team. They showed up on time, explained every step, and the egress window installation turned out better than I pictured.",
-        "author": "Justin A.",
+        "quote": "Price was way more affordable than the other quotes we got for texture matching. Still felt premium — clean jobsite, solid finish, and I'd hire them again without thinking twice.",
+        "author": "Richard W.",
         "rating": 5,
         "source": "Google",
-        "date": "2026-08-01",
+        "date": "2026-09-02",
         "verified": true,
         "avatarUrl": "/images/review-avatars/m04.jpg",
-        "location": "Omaha, NE"
+        "location": "Cedar Rapids, IA"
       },
       {
-        "quote": "Called Omaha Egress Window Pros after a neighbor tip in Omaha. Super easy to deal with — clear answers, no runaround, and they actually cared about the details on our window well drainage & grading.",
-        "author": "Sandra R.",
+        "quote": "Honestly did not expect such a professional team. They showed up on time, explained every step, and the nail pop repair turned out better than I pictured.",
+        "author": "Michelle B.",
         "rating": 5,
         "source": "Google",
-        "date": "2026-08-19",
+        "date": "2026-08-27",
+        "verified": true,
+        "location": "Marion, IA"
+      },
+      {
+        "quote": "Called Cedar Rapids Drywall Repair Pros after a neighbor tip in Cedar Rapids. Super easy to deal with — clear answers, no runaround, and they actually cared about the details on our drywall repair.",
+        "author": "Melissa W.",
+        "rating": 5,
+        "source": "Google",
+        "date": "2026-08-05",
         "verified": true,
         "avatarUrl": "/images/review-avatars/f04.jpg",
-        "location": "Bellevue, NE"
-      },
-      {
-        "quote": "Price was way more affordable than the other quotes we got for window well installation. Still felt premium — clean jobsite, solid finish, and I'd hire them again without thinking twice.",
-        "author": "Michelle H.",
-        "rating": 5,
-        "source": "Google",
-        "date": "2026-08-10",
-        "verified": true,
-        "location": "Papillion, NE"
+        "location": "Hiawatha, IA"
       }
     ]
   },
@@ -147,7 +408,7 @@
     "intro",
     "services",
     "whyChooseUs",
-    "offerProcess",
+    "process",
     "cost",
     "materials",
     "timeline",
@@ -161,7 +422,7 @@
     "cta"
   ],
   "logo": {
-    "src": "/images/logo.svg",
-    "alt": "Omaha Egress Window Pros logo"
+    "src": "/images/logo.png",
+    "alt": "Cedar Rapids Drywall Repair Pros logo"
   }
 }

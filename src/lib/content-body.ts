@@ -27,6 +27,15 @@ export function stripLeadingTitleEcho(body: string, ...titles: Array<string | un
   return lines.slice(i).join('\n').trimStart();
 }
 
+/** Capitalize a process blurb and add a period when it reads as a sentence. */
+export function sentenceCaseLine(s: string): string {
+  let t = String(s || '').trim();
+  if (!t) return '';
+  t = t.replace(/^[a-z]/, (c) => c.toUpperCase());
+  if (!/[.!?…]$/.test(t) && t.split(/\s+/).filter(Boolean).length >= 3) t += '.';
+  return t;
+}
+
 const SECTION_START_RE =
   /^(#{1,3}\s+|(?:why |our |how |what |when |ready |frequently |common |materials|cost|timeline|faq|process|services)\b)/i;
 

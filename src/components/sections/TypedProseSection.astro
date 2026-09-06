@@ -16,6 +16,7 @@ import {
 import { simpleProseToHtml } from '../../lib/content-body';
 import { defaultSectionCtaPrompt } from '../../lib/section-ctas';
 import { ve } from '../../lib/visual-edit';
+import { fitEqualGrid } from '../../lib/equal-grid';
 
 interface Props {
   surface: string;
@@ -70,12 +71,11 @@ const optionRowsAll =
   variant === 'generic'
     ? parseOptionRows(bullets)
     : [];
-// Materials: all option rows; zip photos for first N only
-const MATERIALS_PHOTO_CAP = 6;
+const materialsGrid = isMaterials ? fitEqualGrid(optionRowsAll, { maxCols: 3 }) : null;
+const optionRows = isMaterials ? materialsGrid.items : optionRowsAll;
 const materialsThumbs = isMaterials
-  ? (rowImages || []).filter((img) => img?.src).slice(0, MATERIALS_PHOTO_CAP)
+  ? (rowImages || []).filter((img) => img?.src).slice(0, optionRows.length)
   : [];
-const optionRows = optionRowsAll;
 const timelineStages = isTimeline ? parseTimelineStages(body) : [];
 const codesCompare = isCodes ? parseCodesColumns(body) : null;
 const codesIntroHtml =
@@ -214,7 +214,7 @@ const resolvedCta = showMiniCta
           {introHtml && <div class="prose-site max-w-3xl text-sm" set:html={introHtml} />}
           {
             optionRows.length > 0 ? (
-              <ul class="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              <ul class:list={['mt-6 grid gap-4', materialsGrid?.className || 'sm:grid-cols-2']}>
                 {optionRows.map((row, i) => {
                   const thumb = materialsThumbs[i] || null;
                   return (

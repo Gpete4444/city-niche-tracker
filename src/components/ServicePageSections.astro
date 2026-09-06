@@ -2,7 +2,7 @@
 import { formatPhoneDisplay, phoneHref, site } from '../config/site';
 import { fitEqualGrid } from '../lib/equal-grid';
 import { bandSurface, SURFACE_INK } from '../lib/section-surfaces';
-import { simpleProseToHtml } from '../lib/content-body';
+import { simpleProseToHtml, sentenceCaseLine } from '../lib/content-body';
 import { defaultSectionCtaPrompt } from '../lib/section-ctas';
 import {
   parseServiceBody,
@@ -228,7 +228,7 @@ const introSurface = introParagraphs.length ? nextBandSurface() : null;
                           : undefined
                       }
                     >
-                      {step.description}
+                      {sentenceCaseLine(step.description)}
                     </p>
                   </div>
                 </li>

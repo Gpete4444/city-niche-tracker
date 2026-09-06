@@ -1,0 +1,121 @@
+import {
+  clampConcurrencyKey,
+  CONCURRENCY_DEFAULTS,
+  CONCURRENCY_MAX,
+  getConcurrency,
+  setConcurrencySettings,
+} from '../ops/lib/rover-concurrency.mjs';
+import { startBatchJobs } from '../ops/lib/batch-jobs.mjs';
+import {
+  assertWriteSiteStartAllowed,
+  countActiveLightJobs,
+  openLightJob,
+  resetLightJobsForTests,
+} from '../ops/lib/rover-light-jobs.mjs';
+import {
+  forceRunningCountForTests,
+  resetHeavyJobsForTests,
+  startHeavyJob,
+} from '../ops/lib/rover-heavy-jobs.mjs';
+import {
+  assertLightSerpStartAllowed,
+  putRunningSerpProbeForTests,
+  resetSerpProbesForTests,
+} from '../ops/lib/discovery-serp-probe.mjs';
+
+function assertEqual(got, want, label) {
+  if (got !== want) {
+    console.error(`${label}: got ${JSON.stringify(got)}, want ${JSON.stringify(want)}`);
+    process.exit(1);
+  }
+}
+
+function assertThrows(fn, code, label) {
+  try {
+    fn();
+    console.error(`${label}: expected throw ${code}`);
+    process.exit(1);
+  } catch (error) {
+    if (error.code !== code) {
+      console.error(`${label}: got code ${error.code}, want ${code} (${error.message})`);
+      process.exit(1);
+    }
+  }
+}
+
+assertEqual(clampConcurrencyKey('openaiPhotos', 80), CONCURRENCY_MAX.openaiPhotos, 'photos 80→50');
+assertEqual(clampConcurrencyKey('openaiBeforeAfter', 80), CONCURRENCY_MAX.openaiBeforeAfter, 'BA 80→20');
+assertEqual(clampConcurrencyKey('heavy', 80), CONCURRENCY_MAX.heavy, 'heavy 80→12');
+assertEqual(clampConcurrencyKey('evaluations', 80), CONCURRENCY_MAX.evaluations, 'eval 80→50');
+assertEqual(clampConcurrencyKey('lightSerp', 0), 1, 'light serp 0→1');
+assertEqual(clampConcurrencyKey('writeSite', 'nope'), CONCURRENCY_DEFAULTS.writeSite, 'write site junk');
+
+const prev = getConcurrency();
+
+try {
+  setConcurrencySettings({
+    lightSerp: 2,
+    evaluations: 6,
+    writeSite: 2,
+    openaiPhotos: 5,
+    openaiBeforeAfter: 2,
+    heavy: 2,
+  });
+
+  try {
+    startBatchJobs({
+      act: 'research',
+      candidateIds: ['a', 'b', 'c', 'd', 'e', 'f', 'g'],
+      requireWithinLimit: true,
+    });
+    console.error('expected EVAL_CONCURRENCY for 7 ids');
+    process.exit(1);
+  } catch (error) {
+    assertEqual(error.code, 'EVAL_CONCURRENCY', '7 vs 6 code');
+    assertEqual(error.limit, 6, '7 vs 6 limit');
+    assertEqual(error.selected, 7, '7 vs 6 selected');
+  }
+
+  resetLightJobsForTests();
+  openLightJob({
+    candidateId: 'ws-a',
+    phase: 'write-site',
+    label: 'Write site',
+  });
+  openLightJob({
+    candidateId: 'ws-b',
+    phase: 'write-site',
+    label: 'Write site',
+  });
+  assertEqual(countActiveLightJobs('write-site'), 2, 'write site at 2');
+  assertThrows(() => assertWriteSiteStartAllowed('ws-c'), 'WRITE_SITE_CAP', 'write site extra start');
+  resetLightJobsForTests();
+
+  resetHeavyJobsForTests();
+  forceRunningCountForTests(2);
+  assertThrows(
+    () =>
+      startHeavyJob({
+        candidateId: 'hv-c',
+        phase: 'prepare',
+        label: 'Prepare preview',
+        run: async () => ({}),
+      }),
+    'HEAVY_CONCURRENCY',
+    'heavy extra start',
+  );
+  resetHeavyJobsForTests();
+
+  resetSerpProbesForTests();
+  putRunningSerpProbeForTests();
+  putRunningSerpProbeForTests();
+  assertThrows(() => assertLightSerpStartAllowed(), 'LIGHT_SERP_CONCURRENCY', 'light serp extra run');
+  resetSerpProbesForTests();
+} finally {
+  resetLightJobsForTests();
+  resetHeavyJobsForTests();
+  resetSerpProbesForTests();
+  setConcurrencySettings(prev);
+}
+
+console.log('test-concurrency-settings: ok');

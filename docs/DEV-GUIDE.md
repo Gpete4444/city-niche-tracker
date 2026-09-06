@@ -124,9 +124,9 @@ When a bug shows on one candidate:
 
 ## Images, logo, map, photo library {#images}
 
-**What:** Stock pull, slot generate (Flux/OpenAI), logo, coverage SVG, niche photo groups.
+**What:** Stock pull, slot generate (OpenAI), logo, coverage SVG, niche photo groups.
 
-**Where:** [`ops/lib/fill-site-images.mjs`](../ops/lib/fill-site-images.mjs), [`ops/lib/generate-site-logo.mjs`](../ops/lib/generate-site-logo.mjs), [`ops/lib/generate-coverage-map.mjs`](../ops/lib/generate-coverage-map.mjs), [`ops/lib/photo-groups.mjs`](../ops/lib/photo-groups.mjs), [`ops/lib/photo-library.mjs`](../ops/lib/photo-library.mjs), [`ops/lib/flux-generate.mjs`](../ops/lib/flux-generate.mjs), [`ops/lib/chatgpt-slot-image.mjs`](../ops/lib/chatgpt-slot-image.mjs), [`ops/lib/chatgpt-before-after.mjs`](../ops/lib/chatgpt-before-after.mjs).
+**Where:** [`ops/lib/fill-site-images.mjs`](../ops/lib/fill-site-images.mjs), [`ops/lib/generate-site-logo.mjs`](../ops/lib/generate-site-logo.mjs), [`ops/lib/generate-coverage-map.mjs`](../ops/lib/generate-coverage-map.mjs), [`ops/lib/photo-groups.mjs`](../ops/lib/photo-groups.mjs), [`ops/lib/photo-library.mjs`](../ops/lib/photo-library.mjs), [`ops/lib/openai-generate.mjs`](../ops/lib/openai-generate.mjs), [`ops/lib/chatgpt-slot-image.mjs`](../ops/lib/chatgpt-slot-image.mjs), [`ops/lib/chatgpt-before-after.mjs`](../ops/lib/chatgpt-before-after.mjs).
 
 **API:** `/images/pull`, slot generate/repull, `/logo/generate`, `/coverage-map/generate`, photo-groups. Pull and map forward `onProgress` into Light jobs.
 
@@ -136,9 +136,9 @@ When a bug shows on one candidate:
 
 ## Heavy jobs vs Light jobs {#jobs}
 
-**Heavy** ([`ops/lib/rover-heavy-jobs.mjs`](../ops/lib/rover-heavy-jobs.mjs)): K pool (1–6), **one active job per candidate**, phases `assemble` | `preview` | `prepare` | `launch` | `ship` (plus `orphan`). `updateJobProgress({ detail, done, total })`. Snapshot `progressDone` / `progressTotal` for header rows.
+**Heavy** ([`ops/lib/rover-heavy-jobs.mjs`](../ops/lib/rover-heavy-jobs.mjs)): Concurrent Limit pool (1–12), **one active job per candidate**, phases `assemble` | `preview` | `prepare` | `launch` | `ship` (plus `orphan`). Extra starts when already at the box get `HEAVY_CONCURRENCY` (no silent queue). `updateJobProgress({ detail, done, total })`. Snapshot `progressDone` / `progressTotal` for header rows.
 
-**Light** ([`ops/lib/rover-light-jobs.mjs`](../ops/lib/rover-light-jobs.mjs)): no queue, no candidate lock. Accept, logo, coverage-map, images-pull, research/enrich/prospects (via `openLightJob` in run-script).
+**Light** ([`ops/lib/rover-light-jobs.mjs`](../ops/lib/rover-light-jobs.mjs)): no K queue. Accept, logo, coverage-map, images-pull, research/enrich/prospects (via `openLightJob` in run-script). **Write site** allows up to the Settings Write site box on different candidates (`assertWriteSiteStartAllowed`); same candidate is still exclusive. Generate pack stays one at a time. **Concurrent Limit** ([`ops/lib/rover-concurrency.mjs`](../ops/lib/rover-concurrency.mjs)) lives in Settings — Evaluations UI batches that select more rows than the box get `EVAL_CONCURRENCY`. Same candidate + act cannot double-start (`assertScriptJobStartAllowed`).
 
 **UI:** [`renderHeavyJobs`](../ops/public/app.js) / `renderLightJobs`; master strip summarizes when 2+ active.
 

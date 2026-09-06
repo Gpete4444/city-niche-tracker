@@ -5,6 +5,7 @@ import { getCandidateDetail } from './candidates.mjs';
 import { loadAcceptedSiteConfig } from './content-markdown.mjs';
 import { listImageSlots } from './fill-site-images.mjs';
 import { normalizeBaViewpoint, roomHint } from './chatgpt-before-after.mjs';
+import { slotSettingKind } from './image-setting.mjs';
 
 /** ChatGPT Copy prompt — explicit negatives are fine for the operator. */
 export const NO_PEOPLE_RULES =
@@ -35,9 +36,10 @@ function loadCandidateConfig(candidateId) {
   );
 }
 
-export function slotRoleLine(slot) {
+export function slotRoleLine(slot, setting = 'residential') {
   const kind = String(slot.kind || '').toLowerCase();
   const sectionId = String(slot.sectionId || '');
+  const commercial = setting === 'commercial';
   if (slot.materialTitle) {
     return `Slot role: materials / product detail — show ${stripMdBold(slot.materialTitle)}.`;
   }
@@ -48,7 +50,9 @@ export function slotRoleLine(slot) {
     return 'Slot role: hero / service card — strong wide establishing photo of the service subject.';
   }
   if (kind === 'intro' || sectionId === 'intro') {
-    return 'Slot role: intro section — clean supporting photo of the trade in a residential setting.';
+    return commercial
+      ? 'Slot role: intro section — clean supporting photo of the trade in a commercial building.'
+      : 'Slot role: intro section — clean supporting photo of the trade in a residential setting.';
   }
   if (kind === 'gallery' || /gallery/i.test(sectionId)) {
     return 'Slot role: gallery — documentary-style trade photo suitable for a contractor site.';
@@ -77,12 +81,14 @@ export function buildFluxSlotPrompt(ctx = {}) {
   const label = stripMdBold(slot.label || slot.key || '');
   const queryHint = stripMdBold(slot.queryHint || slot.query || label);
   const focus = serviceName || niche;
+  const setting = ctx.setting === 'commercial' ? 'commercial' : 'residential';
+  const commercial = setting === 'commercial';
   const servicesForRoom = serviceName
     ? [serviceName]
     : Array.isArray(ctx.services)
       ? ctx.services.slice(0, 3)
       : [];
-  const room = roomHint(niche, servicesForRoom, viewpoint);
+  const room = roomHint(niche, servicesForRoom, viewpoint, setting);
   const placeBit = place ? ` in ${place}` : '';
   const cameraLine =
     viewpoint === 'outside'
@@ -95,18 +101,22 @@ export function buildFluxSlotPrompt(ctx = {}) {
     serviceName,
   ].filter(Boolean);
   const subject = [...new Set(subjectBits)].slice(0, 4).join('; ');
+  const placeLine = commercial
+    ? `ordinary U.S. commercial building setting — no landmarks or readable street signs`
+    : `ordinary U.S. residential setting — no landmarks or readable street signs`;
+  const illustrativeLine = ctx.forChatGpt
+    ? 'This is ILLUSTRATIVE service imagery for the website — not a photo of a real completed job, not a fake before/after, and not proof of work.'
+    : commercial
+      ? 'Illustrative website service photo of the trade subject in an ordinary commercial building.'
+      : 'Illustrative website service photo of the trade subject in an ordinary residential setting.';
   const parts = [
     `Create a single photorealistic stock-style photo for a local ${niche} business website.`,
-    place
-      ? `Location vibe: ${place} (ordinary U.S. residential/commercial setting — no landmarks or readable street signs).`
-      : '',
+    place ? `Location vibe: ${place} (${placeLine}).` : '',
     `Service focus: ${focus}.`,
     cameraLine,
-    slotRoleLine(slot),
+    slotRoleLine(slot, setting),
     `Primary subject: ${subject || niche}.`,
-    ctx.forChatGpt
-      ? 'This is ILLUSTRATIVE service imagery for the website — not a photo of a real completed job, not a fake before/after, and not proof of work.'
-      : 'Illustrative website service photo of the trade subject in an ordinary residential setting.',
+    illustrativeLine,
     'Photoreal documentary look, natural light, horizontal landscape framing (~16:10).',
     occupancyLine(ctx.forChatGpt),
     ctx.forChatGpt
@@ -127,6 +137,11 @@ export function fluxSlotPromptForCandidate(candidateId, slotKey, { viewpoint, fo
   const detail = getCandidateDetail(candidateId);
   const vp = normalizeBaViewpoint(viewpoint);
   const niche = String(config.niche || detail.config?.niche || 'home service').trim();
+  const setting = slotSettingKind({
+    serviceName: slot.serviceName,
+    serviceSlug: slot.serviceSlug,
+    config,
+  });
   const prompt = buildFluxSlotPrompt({
     niche,
     city: config.primaryCity,
@@ -134,6 +149,7 @@ export function fluxSlotPromptForCandidate(candidateId, slotKey, { viewpoint, fo
     services: config.services,
     viewpoint: vp,
     slot,
+    setting,
     forChatGpt,
   });
   return {
@@ -143,6 +159,7 @@ export function fluxSlotPromptForCandidate(candidateId, slotKey, { viewpoint, fo
     niche,
     queryHint: stripMdBold(slot.queryHint || slot.label || '') || null,
     viewpoint: vp,
+    setting,
     chatgptUrl: 'https://chatgpt.com/',
   };
 }
@@ -154,25 +171,38 @@ export function fluxSlotPromptFromMeta({
   services,
   slot,
   viewpoint,
+  setting,
+  config,
   forChatGpt = false,
 } = {}) {
   const vp = normalizeBaViewpoint(viewpoint);
+  const slotObj = slot || {};
+  const kind =
+    setting === 'commercial' || setting === 'residential'
+      ? setting
+      : slotSettingKind({
+          serviceName: slotObj.serviceName,
+          serviceSlug: slotObj.serviceSlug,
+          config: config || {},
+        });
   const prompt = buildFluxSlotPrompt({
     niche,
     city,
     state,
     services,
     viewpoint: vp,
-    slot: slot || {},
+    slot: slotObj,
+    setting: kind,
     forChatGpt,
   });
   return {
     prompt,
-    slotKey: slot?.key || null,
-    label: stripMdBold(slot?.label || slot?.key || ''),
+    slotKey: slotObj.key || null,
+    label: stripMdBold(slotObj.label || slotObj.key || ''),
     niche: String(niche || 'home service').trim(),
-    queryHint: stripMdBold(slot?.queryHint || slot?.query || slot?.label || '') || null,
+    queryHint: stripMdBold(slotObj.queryHint || slotObj.query || slotObj.label || '') || null,
     viewpoint: vp,
+    setting: kind,
     chatgptUrl: 'https://chatgpt.com/',
   };
 }
@@ -185,6 +215,8 @@ export function buildFluxBaPrompts({
   serviceName,
   services,
   viewpoint,
+  setting,
+  config,
   forChatGpt = false,
 } = {}) {
   const vp = normalizeBaViewpoint(viewpoint);
@@ -193,12 +225,20 @@ export function buildFluxBaPrompts({
   const st = String(state || '').trim();
   const place = st ? `${c}, ${st}` : c;
   const focusName = String(serviceName || n).trim();
+  const kind =
+    setting === 'commercial' || setting === 'residential'
+      ? setting
+      : slotSettingKind({
+          serviceName: focusName,
+          config: config || {},
+        });
+  const commercial = kind === 'commercial';
   const svcList = serviceName
     ? [serviceName]
     : Array.isArray(services)
       ? services.slice(0, 3)
       : [];
-  const room = roomHint(n, svcList, vp);
+  const room = roomHint(n, svcList, vp, kind);
   const serviceLine = serviceName
     ? `Focus specifically on ${focusName} (not other services).`
     : svcList.length
@@ -212,25 +252,39 @@ export function buildFluxBaPrompts({
   const sceneHint = /egress|window.?well|basement.?window/i.test(`${focusName} ${n}`)
     ? 'an undersized or unfinished basement window'
     : 'an unfinished or damaged service element — irregular, modest, and believable';
+  const ordinarySpace = commercial
+    ? 'The space looks tidy and ordinary for an office, retail, or commercial building. The story is the older or incomplete service element, not a full remodel.'
+    : 'The room looks tidy and ordinary. The story is the older or incomplete service element, not a full remodel.';
   const surgicalRules = forChatGpt
     ? [
         `SINGLE SUBJECT: only the ${focusName} change is the story.`,
         'Keep flooring, wall paint, ceiling, furniture, and unrelated finishes identical between before and after. Only the service element changes.',
-        'The room looks tidy and ordinary. The story is the older or incomplete service element, not a full remodel.',
+        ordinarySpace,
       ].join(' ')
     : [
         `The story is only the ${focusName} element.`,
         'Keep the same flooring, wall paint, ceiling, furniture, and layout. Only the service feature itself changes.',
-        'The room is tidy and ordinary. The service element looks older or unfinished while the rest of the space stays the same.',
+        commercial
+          ? 'The interior is tidy and ordinary. The service element looks older or unfinished while the rest of the commercial space stays the same.'
+          : 'The room is tidy and ordinary. The service element looks older or unfinished while the rest of the space stays the same.',
       ].join(' ');
+  const architecture = commercial
+    ? 'Realistic commercial architecture — not CGI, not a showroom.'
+    : 'Realistic residential architecture — not CGI, not a showroom.';
+  const livedIn = commercial
+    ? `The ${focusName} element looks older or incomplete (${sceneHint}). The rest of the interior is an ordinary occupied commercial space, not a catalog set.`
+    : `The ${focusName} element looks older or incomplete (${sceneHint}). The rest of the room is ordinary and lived-in, not a catalog set.`;
+  const beforeLine = commercial
+    ? `1) BEFORE: the ${focusName} element looks older or incomplete; the space is an ordinary office, retail, or commercial interior.`
+    : `1) BEFORE: the ${focusName} element looks older or incomplete; the room is lived-in and ordinary.`;
   const before = [
     `Create a single documentary BEFORE photo for a local ${n} business website.`,
     cameraLine,
     serviceLine,
-    `The ${focusName} element looks older or incomplete (${sceneHint}). The rest of the room is ordinary and lived-in, not a catalog set.`,
+    livedIn,
     surgicalRules,
     `Straight-on documentary photo, available indoor light, 4:3. No golden hour, no cinematic bokeh, no blown-out windows. ${occupy}`,
-    'Realistic residential architecture — not CGI, not a showroom.',
+    architecture,
     forChatGpt ? 'Generate one image only; I will download it.' : '',
   ]
     .filter(Boolean)
@@ -249,16 +303,18 @@ export function buildFluxBaPrompts({
         serviceLine,
         `Same camera angle, framing, lens, lighting, and room layout as a matching BEFORE of this ${room}. The ${focusName} work is finished.`,
         `The story is only the ${focusName} element. Keep flooring, wall paint, ceiling, furniture, and layout the same as the BEFORE. Only the service feature is finished.`,
-        'The room is tidy and ordinary. Photoreal documentary still. Not a white blob, not a remodel.',
+        commercial
+          ? 'The interior is tidy and ordinary. Photoreal documentary still. Not a white blob, not a remodel.'
+          : 'The room is tidy and ordinary. Photoreal documentary still. Not a white blob, not a remodel.',
         `Straight-on documentary photo, available indoor light, 4:3. ${occupy}`,
-        'Realistic residential architecture.',
+        architecture,
       ].join(' ');
   const pair = [
     'I need a matched BEFORE and AFTER pair for a contractor website (two separate images).',
     `Niche: ${n}. Service focus: ${focusName}. Location vibe: ${place}. Setting: ${room}. Viewpoint: ${vp}.`,
     serviceLine,
     cameraLine,
-    `1) BEFORE: the ${focusName} element looks older or incomplete; the room is lived-in and ordinary.`,
+    beforeLine,
     `2) AFTER: same camera and room; only the ${focusName} work is finished.`,
     surgicalRules,
     `Photoreal, 4:3. ${occupy} Generate the BEFORE first, then the AFTER matching that angle.`,
@@ -271,5 +327,6 @@ export function buildFluxBaPrompts({
     room,
     niche: n,
     serviceName: focusName,
+    setting: kind,
   };
 }

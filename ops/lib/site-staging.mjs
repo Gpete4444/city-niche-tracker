@@ -13,7 +13,7 @@ import {
 import path from 'node:path';
 import { Worker } from 'node:worker_threads';
 import { getCandidateDetail, pathsFor, saveMeta } from './candidates.mjs';
-import { loadAcceptedSiteConfig, sanitizeMarkdownImageFrontmatter, ensureLocationFilesInMap, pruneLocationFilesToConfigured, pruneFilesToStructure } from './content-markdown.mjs';
+import { loadAcceptedSiteConfig, sanitizeMarkdownImageFrontmatter, healStagedMarkdown, ensureLocationFilesInMap, pruneLocationFilesToConfigured, pruneFilesToStructure } from './content-markdown.mjs';
 import { buildBuildPackage } from './build-package.mjs';
 import { runTemplateContract } from './template-contract.mjs';
 import { applyArchetypeDefaults } from '../../scripts/lib/site-archetypes.mjs';
@@ -167,7 +167,7 @@ export function stageSiteContent(candidateId, { mode = 'full', refreshPackage = 
   // Heal frontmatter (e.g. missing closing ---) before contract + write
   for (const [rel, body] of Object.entries(files)) {
     if (rel.endsWith('.md')) {
-      files[rel] = sanitizeMarkdownImageFrontmatter(body, sanitizeOpts);
+      files[rel] = healStagedMarkdown(sanitizeMarkdownImageFrontmatter(body, sanitizeOpts)).markdown;
     }
   }
 

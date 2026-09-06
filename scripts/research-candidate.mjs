@@ -38,6 +38,7 @@ import {
 } from './lib/scoring.mjs';
 import { enrichResearchReport } from './lib/enrich.mjs';
 import { lookupPopulation } from '../ops/lib/census.mjs';
+import { normalizeCityStateCluster, parseCityStateToken } from '../ops/lib/city-state.mjs';
 
 loadEnvFile();
 
@@ -235,11 +236,27 @@ function parseArgs(argv) {
 }
 
 function parseCityState(value) {
-  const match = String(value).match(/^(.+),\s*([A-Za-z]{2})$/);
-  if (!match) {
+  const parsed = parseCityStateToken(value);
+  if (!parsed) {
     throw new Error(`Expected "City,ST" got "${value}"`);
   }
-  return { city: match[1].trim(), state: match[2].trim().toUpperCase() };
+  return parsed;
+}
+
+function rewriteConfigCluster(configPath, cluster) {
+  const resolved = path.resolve(configPath);
+  if (!existsSync(resolved)) return;
+  let raw;
+  try {
+    raw = JSON.parse(readFileSync(resolved, 'utf8'));
+  } catch {
+    return;
+  }
+  const prev = Array.isArray(raw.cluster) ? raw.cluster : raw.cluster ? [raw.cluster] : [];
+  if (JSON.stringify(prev) === JSON.stringify(cluster)) return;
+  raw.cluster = cluster;
+  writeFileSync(resolved, `${JSON.stringify(raw, null, 2)}\n`, 'utf8');
+  console.error(`Healed cluster in ${configPath}: ${cluster.join(' | ')}`);
 }
 
 function googleSearchLink(query) {
@@ -280,7 +297,9 @@ function buildSpreadsheetFields(report) {
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const primary = parseCityState(args.primary);
-  const cluster = args.cluster.map(parseCityState);
+  const clusterLabels = normalizeCityStateCluster(args.cluster, primary.state);
+  if (args.config) rewriteConfigCluster(args.config, clusterLabels);
+  const cluster = clusterLabels.map(parseCityState);
   const allCities = [primary, ...cluster.filter((c) => !(c.city === primary.city && c.state === primary.state))];
 
   const niche = args.niche.trim();

@@ -2,7 +2,10 @@
  * Named niche photo groups: save filled Review images (stock, uploads, ChatGPT
  * before/after) and load them onto a later candidate. Match by role, not by
  * copying Structure. Ranked groups fill live slots first; leftover matching
- * photos go into that slot’s tray.
+ * photos go into that slot’s tray. Materials and process stills also fan out
+ * by canonical title to every same-titled slot (home + services). If a slot is
+ * still empty after that, the first tray still becomes live. Other unused
+ * photos still go to the best matching tray (click Use). Service before/after pairs tray onto every similar service, not only one best name.
  */
 
 import {
@@ -20,17 +23,27 @@ import { RESEARCH_DIR, getCandidateDetail, pathsFor } from './candidates.mjs';
 import {
   listConfiguredServiceTargets,
   rehydrateGalleryBaFrontmatter,
+  archiveLiveBaPairToTray,
   baVariantKey,
+  findLiveBaFiles,
+  resolveBaVariantTarget,
   setBaTrayEntries,
+  stampBaPairMeta,
+  writeGeneratedBaPair,
 } from './chatgpt-before-after.mjs';
 import { loadAcceptedSiteConfig } from './content-markdown.mjs';
 import { getContentStructure } from './content-structure.mjs';
 import {
   applyImagesToContentFiles,
+  imageSlotCardStatus,
   listImageSlots,
+  promoteFirstTrayIntoEmptySlots,
+  saveSlotIntoManifest,
   syncSiteImagesToPublic,
   pushImageSlotTrayEntry,
 } from './fill-site-images.mjs';
+import { baStatusPayload, useImageSlotVariant } from './openai-generate.mjs';
+import { baSourceIsDuplicate, slotSourceIsDuplicate } from './image-tray.mjs';
 
 const ROOT = process.cwd();
 export const PHOTO_GROUPS_DIR = path.join(RESEARCH_DIR, '_photo-groups');
@@ -219,7 +232,295 @@ export function getAttachedPhotoGroup(candidateId) {
   return { ...doc, groupIds, groupId: groupIds[0] };
 }
 
-/** Up to 3 unique group ids from `{ groupIds }` or legacy `{ groupId }`. */
+/** Last applied ranking from the images manifest, else Content attach sidecar. */
+export function loadedPhotoGroupIds(candidateId) {
+  const fromManifest = normalizePhotoGroupIds({
+    groupIds: loadManifest(candidateId).photoGroupIds || [],
+  });
+  if (fromManifest.length) return fromManifest;
+  return getAttachedPhotoGroup(candidateId)?.groupIds || [];
+}
+
+/** True if See More / Use may copy from this library group (applied or attached). */
+export function groupIdIsLoaded(candidateId, groupId) {
+  const id = String(groupId || '').trim();
+  if (!id) return false;
+  const fromManifest = normalizePhotoGroupIds({
+    groupIds: loadManifest(candidateId).photoGroupIds || [],
+  });
+  if (fromManifest.includes(id)) return true;
+  return (getAttachedPhotoGroup(candidateId)?.groupIds || []).includes(id);
+}
+
+function namesForGroupIds(groupIds) {
+  const names = [];
+  for (const gid of groupIds || []) {
+    try {
+      names.push(getPhotoGroup(gid).name);
+    } catch {
+      /* missing library row */
+    }
+  }
+  return names;
+}
+
+/** Persist `{id}-photo-group.json` so Accept, rank dropdowns, and See More share one ranking. */
+export function persistAttachedPhotoGroups(candidateId, groups, extra = {}) {
+  const list = Array.isArray(groups) ? groups.filter((g) => g && g.id) : [];
+  if (!list.length) {
+    throw Object.assign(new Error('Pick at least one photo group'), { status: 400 });
+  }
+  const first = list[0];
+  const ids = list.map((g) => g.id);
+  const names = list.map((g) => g.name);
+  const attachedAt = extra.attachedAt || new Date().toISOString();
+  const doc = {
+    ...extra,
+    groupId: first.id,
+    groupIds: ids,
+    name: first.name,
+    names,
+    niche: first.niche || extra.niche || '',
+    attachedAt,
+  };
+  delete doc.skipped;
+  writeJson(pathsFor(candidateId).photoGroup, doc);
+  return {
+    groupId: first.id,
+    groupIds: ids,
+    name: first.name,
+    names,
+    attachedAt,
+  };
+}
+
+export function listAttachedGroupStills(candidateId) {
+  const groupIds = loadedPhotoGroupIds(candidateId);
+  if (!groupIds.length) return { photos: [], groupIds: [], names: [] };
+  const photos = [];
+  const seen = new Set();
+  for (const gid of groupIds) {
+    let group;
+    try {
+      group = getPhotoGroup(gid);
+    } catch {
+      continue;
+    }
+    for (const saved of group.slots || []) {
+      for (const row of slotFileRows(saved)) {
+        const id = `${group.id}\0${row.filename}`;
+        if (!row.filename || seen.has(id)) continue;
+        seen.add(id);
+        photos.push({
+          groupId: group.id,
+          groupName: group.name,
+          filename: row.filename,
+          previewUrl: `/api/photo-groups/${encodeURIComponent(group.id)}/file/${encodeURIComponent(row.filename)}?v=${encodeURIComponent(row.filename)}`,
+          label: saved.materialTitle || saved.processTitle || saved.label || row.filename,
+        });
+      }
+    }
+  }
+  return {
+    photos,
+    groupIds,
+    names: namesForGroupIds(groupIds),
+  };
+}
+
+function groupFilePreviewUrl(groupId, filename) {
+  return `/api/photo-groups/${encodeURIComponent(groupId)}/file/${encodeURIComponent(filename)}?v=${encodeURIComponent(filename)}`;
+}
+
+function groupHasFile(group, filename) {
+  const name = path.basename(String(filename || ''));
+  return Boolean(name && existsSync(path.join(group.dir, name)));
+}
+
+export function listAttachedGroupBaPairs(candidateId) {
+  const groupIds = loadedPhotoGroupIds(candidateId);
+  if (!groupIds.length) return { pairs: [], groupIds: [], names: [] };
+  const pairs = [];
+  const seen = new Set();
+  const push = (group, beforeFilename, afterFilename, roleLabel) => {
+    const before = path.basename(String(beforeFilename || ''));
+    const after = path.basename(String(afterFilename || ''));
+    if (!groupHasFile(group, before) || !groupHasFile(group, after)) return;
+    const id = `${group.id}\0${before}\0${after}`;
+    if (seen.has(id)) return;
+    seen.add(id);
+    const label = group.name ? `${roleLabel} · ${group.name}` : roleLabel;
+    pairs.push({
+      groupId: group.id,
+      groupName: group.name,
+      beforeFilename: before,
+      afterFilename: after,
+      beforeUrl: groupFilePreviewUrl(group.id, before),
+      afterUrl: groupFilePreviewUrl(group.id, after),
+      label,
+    });
+  };
+  for (const gid of groupIds) {
+    let group;
+    try {
+      group = getPhotoGroup(gid);
+    } catch {
+      continue;
+    }
+    for (const p of group.beforeAfter?.home || []) {
+      const role = `Home ${p.pairIndex || 1}`;
+      push(group, p.before?.filename, p.after?.filename, role);
+      for (const v of p.variants || []) {
+        push(group, v.beforeFilename, v.afterFilename, role);
+      }
+    }
+    for (const p of group.beforeAfter?.services || []) {
+      const role = p.serviceName || p.serviceSlug || 'Service';
+      push(group, p.before?.filename, p.after?.filename, role);
+      for (const v of p.variants || []) {
+        push(group, v.beforeFilename, v.afterFilename, role);
+      }
+    }
+  }
+  return {
+    pairs,
+    groupIds,
+    names: namesForGroupIds(groupIds),
+  };
+}
+
+export function useGroupBaPairOnSlot(
+  candidateId,
+  matchKey,
+  { groupId, beforeFilename, afterFilename } = {},
+) {
+  const gid = String(groupId || '').trim();
+  const wantBefore = path.basename(String(beforeFilename || ''));
+  const wantAfter = path.basename(String(afterFilename || ''));
+  if (!gid || !wantBefore || !wantAfter) {
+    throw Object.assign(new Error('groupId, beforeFilename, and afterFilename required'), {
+      status: 400,
+    });
+  }
+  if (!groupIdIsLoaded(candidateId, gid)) {
+    throw Object.assign(new Error('Pair is not in a loaded photo group'), { status: 400 });
+  }
+  let key = String(matchKey || '').trim();
+  if (key.startsWith('ba:')) key = key.slice(3);
+  const parsed = resolveBaVariantTarget({ matchKey: key });
+  const group = getPhotoGroup(gid);
+  const beforeAbs = path.join(group.dir, wantBefore);
+  const afterAbs = path.join(group.dir, wantAfter);
+  if (!existsSync(beforeAbs) || !existsSync(afterAbs)) {
+    throw Object.assign(new Error('Pair not found in photo group'), { status: 404 });
+  }
+  archiveLiveBaPairToTray(candidateId, {
+    serviceSlug: parsed.serviceSlug,
+    pairIndex: parsed.pairIndex,
+  });
+  writeGeneratedBaPair(candidateId, {
+    serviceSlug: parsed.serviceSlug,
+    pairIndex: parsed.pairIndex,
+    beforeBuffer: readFileSync(beforeAbs),
+    afterBuffer: readFileSync(afterAbs),
+    sourceLabel: 'photo group',
+  });
+  stampBaPairMeta(candidateId, parsed.key, {
+    source: 'photo-group',
+    matchGrade: 'ok',
+    matchTip: 'Loaded from photo group',
+    matchGradeManual: false,
+  });
+  return {
+    ok: true,
+    status: baStatusPayload(candidateId, {
+      serviceSlug: parsed.serviceSlug,
+      pairIndex: parsed.pairIndex,
+    }),
+  };
+}
+
+export function useGroupFileOnSlot(candidateId, slotKey, { groupId, filename } = {}) {
+  const want = path.basename(String(filename || ''));
+  const gid = String(groupId || '').trim();
+  if (!want || !gid) {
+    throw Object.assign(new Error('groupId and filename required'), { status: 400 });
+  }
+  if (!groupIdIsLoaded(candidateId, gid)) {
+    throw Object.assign(new Error('Photo is not in a loaded photo group'), { status: 400 });
+  }
+  const target = listImageSlots(candidateId).find((s) => s.key === slotKey);
+  if (!target) {
+    throw Object.assign(new Error(`Unknown image slot: ${slotKey}`), { status: 404 });
+  }
+  const group = getPhotoGroup(gid);
+  const p = pathsFor(candidateId);
+  const destName = copyGroupFile(group.dir, want, p.siteImages, `see-${want}`, { unique: true });
+  if (!destName) {
+    throw Object.assign(new Error('Image not found in photo group'), { status: 404 });
+  }
+  const destAbs = path.join(p.siteImages, destName);
+  const manifest = loadManifest(candidateId);
+  const dest = manifest.slots?.[slotKey] || stubSlotEntry(target);
+  const incoming = { abs: destAbs, filename: destName, photoId: null };
+  const dropCopy = () => {
+    try {
+      if (existsSync(destAbs)) unlinkSync(destAbs);
+    } catch {
+      // ignore
+    }
+  };
+
+  if (
+    dest.filename &&
+    slotSourceIsDuplicate(p.siteImages, incoming, {
+      liveFilename: dest.filename,
+      livePhotoId: dest.photoId,
+      variants: [],
+    })
+  ) {
+    dropCopy();
+    return {
+      ok: true,
+      slot: dest,
+      status: { slot: imageSlotCardStatus(candidateId, slotKey) },
+    };
+  }
+
+  const trayHit = (dest.variants || []).find((v) =>
+    slotSourceIsDuplicate(p.siteImages, incoming, {
+      liveFilename: '',
+      livePhotoId: null,
+      variants: [v],
+    }),
+  );
+  if (trayHit?.filename) {
+    dropCopy();
+    return useImageSlotVariant(candidateId, slotKey, { filename: trayHit.filename });
+  }
+
+  dest.variants = pushImageSlotTrayEntry(
+    p.siteImages,
+    dest.variants,
+    {
+      filename: destName,
+      source: 'photo-group',
+      matchGrade: 'ok',
+    },
+    { liveFilename: dest.filename, livePhotoId: dest.photoId },
+  );
+  saveSlotIntoManifest(candidateId, dest);
+  const stillOnTray = (dest.variants || []).some(
+    (v) => path.basename(String(v.filename || '')) === destName,
+  );
+  if (!stillOnTray) {
+    dropCopy();
+    throw Object.assign(new Error('Could not add photo to this slot'), { status: 400 });
+  }
+  return useImageSlotVariant(candidateId, slotKey, { filename: destName });
+}
+
+/** Unique group ids from `{ groupIds }` or legacy `{ groupId }`, ranked in order. */
 export function normalizePhotoGroupIds(input) {
   const body = input && typeof input === 'object' && !Array.isArray(input) ? input : {};
   const raw = Array.isArray(body.groupIds)
@@ -235,7 +536,6 @@ export function normalizePhotoGroupIds(input) {
     if (seen.has(id)) continue;
     seen.add(id);
     out.push(id);
-    if (out.length >= 3) break;
   }
   return out;
 }
@@ -377,6 +677,195 @@ export function matchKeyForSlot(slot) {
     return `home:${id}:${Number(slot.index) || 1}`;
   }
   return `home:${id}:${Number(slot.index) || 1}`;
+}
+
+const TITLE_STOPWORDS = new Set([
+  'the',
+  'a',
+  'an',
+  'and',
+  'or',
+  'of',
+  'for',
+  'to',
+  'in',
+  'on',
+  'at',
+  'with',
+  'photo',
+  'image',
+  'step',
+  'our',
+  'your',
+  'this',
+  'that',
+  'from',
+  'into',
+]);
+
+function stemTitleToken(token) {
+  let s = String(token || '');
+  if (s.length > 5 && s.endsWith('ing')) s = s.slice(0, -3);
+  else if (s.length > 4 && s.endsWith('ions')) s = s.slice(0, -4);
+  else if (s.length > 4 && s.endsWith('ion')) s = s.slice(0, -3);
+  else if (s.length > 3 && s.endsWith('ed')) s = s.slice(0, -2);
+  else if (s.length > 3 && s.endsWith('es') && !s.endsWith('ss')) s = s.slice(0, -2);
+  else if (s.length > 3 && s.endsWith('s') && !s.endsWith('ss')) s = s.slice(0, -1);
+  return s;
+}
+
+function titleTokens(text) {
+  const norm = normService(text);
+  if (!norm) return [];
+  const out = [];
+  const seen = new Set();
+  for (const raw of norm.split(/\s+/)) {
+    if (raw.length < 2 || TITLE_STOPWORDS.has(raw)) continue;
+    const stem = stemTitleToken(raw);
+    if (!stem || TITLE_STOPWORDS.has(stem) || seen.has(stem)) continue;
+    seen.add(stem);
+    out.push(stem);
+  }
+  return out;
+}
+
+/** Distinctive titles only — not the stock query (niche words would match every slot). */
+function distinctiveSlotText(slot) {
+  const parts = [];
+  const add = (value) => {
+    const s = String(value || '').trim();
+    if (!s || looksLikeSlotKey(s, slot?.key)) return;
+    parts.push(s);
+  };
+  add(slot?.processTitle);
+  add(slot?.materialTitle);
+  add(slot?.serviceName);
+  add(slot?.label);
+  return parts.join(' ');
+}
+
+export function titleMatchScore(a, b) {
+  const ta = titleTokens(a);
+  const tb = titleTokens(b);
+  if (!ta.length || !tb.length) return { score: 0, shared: 0, contained: 0 };
+  const setB = new Set(tb);
+  let shared = 0;
+  for (const t of ta) if (setB.has(t)) shared += 1;
+  if (!shared) return { score: 0, shared: 0, contained: 0 };
+  const shorter = Math.min(ta.length, tb.length);
+  const union = new Set([...ta, ...tb]).size;
+  const jaccard = shared / union;
+  const contained = shared / shorter;
+  return { score: Math.max(jaccard, contained), shared, contained };
+}
+
+export function isMediumTitleMatch(result) {
+  if (!result || result.shared < 1) return false;
+  if (result.shared >= 2) return true;
+  return result.contained >= 0.6;
+}
+
+/** Materials/process title only — not service name (that blocked same-title fan-out). */
+export function canonicalSlotTitle(slot) {
+  const fam = sectionFamily(slot?.sectionId);
+  let raw = '';
+  if (fam === 'materials') raw = slot?.materialTitle || slot?.label || '';
+  else if (fam === 'process') raw = slot?.processTitle || slot?.label || '';
+  else return '';
+  if (!raw || looksLikeSlotKey(raw, slot?.key)) return '';
+  return titleTokens(raw).join(' ');
+}
+
+/**
+ * Exact canonical title, or one token-set contains the other with the same
+ * two-word head (moisture resistant board ⊂ moisture resistant drywall board).
+ * Primer-sealer does not match board.
+ */
+export function titlesStronglyMatch(a, b) {
+  const ta = titleTokens(a);
+  const tb = titleTokens(b);
+  if (!ta.length || !tb.length) return false;
+  if (ta.join(' ') === tb.join(' ')) return true;
+  const setA = new Set(ta);
+  const setB = new Set(tb);
+  const aInB = ta.every((t) => setB.has(t));
+  const bInA = tb.every((t) => setA.has(t));
+  if (!aInB && !bInA) return false;
+  const shorter = ta.length <= tb.length ? ta : tb;
+  const longer = ta.length <= tb.length ? tb : ta;
+  if (shorter.length < 2) return false;
+  return shorter[0] === longer[0] && shorter[1] === longer[1];
+}
+
+export function slotsMatchingCanonicalTitle(saved, targets = []) {
+  const fam = sectionFamily(saved?.sectionId);
+  if (fam !== 'materials' && fam !== 'process') return [];
+  const savedTitle = canonicalSlotTitle(saved);
+  if (!savedTitle) return [];
+  return targets.filter((target) => {
+    if (sectionFamily(target.sectionId) !== fam) return false;
+    const other = canonicalSlotTitle(target);
+    return Boolean(other) && titlesStronglyMatch(savedTitle, other);
+  });
+}
+
+function sectionFamily(sectionId) {
+  const id = String(sectionId || '');
+  if (id === 'process' || id === 'offerProcess' || id === 'svcProcess') return 'process';
+  if (id === 'materials' || id === 'svcMaterials') return 'materials';
+  if (id === 'services' || id === 'svcHero') return 'services';
+  return id || null;
+}
+
+function svcStepServiceCompatible(saved, target) {
+  const svcIds = new Set(['svcProcess', 'svcMaterials']);
+  if (!svcIds.has(saved?.sectionId) || !svcIds.has(target?.sectionId)) return true;
+  return isMediumTitleMatch(
+    titleMatchScore(saved.serviceName || saved.label || '', target.serviceName || target.label || ''),
+  );
+}
+
+function bestSimilarStockTarget(saved, targets, filledKeys) {
+  const fam = sectionFamily(saved?.sectionId);
+  if (!fam) return null;
+  const savedText = distinctiveSlotText(saved);
+  if (!savedText) return null;
+  let best = null;
+  for (const target of targets) {
+    if (sectionFamily(target.sectionId) !== fam) continue;
+    if (!svcStepServiceCompatible(saved, target)) continue;
+    const targetText = distinctiveSlotText(target);
+    if (!targetText) continue;
+    const result = titleMatchScore(savedText, targetText);
+    if (!isMediumTitleMatch(result)) continue;
+    const filled = Boolean(matchKeyForSlot(target) && filledKeys.has(matchKeyForSlot(target)));
+    if (
+      !best ||
+      result.score > best.result.score + 1e-9 ||
+      (Math.abs(result.score - best.result.score) < 1e-9 && filled && !best.filled)
+    ) {
+      best = { target, result, filled };
+    }
+  }
+  return best;
+}
+
+function similarServiceTargets(name, targets, { excludeSlug } = {}) {
+  const savedText = String(name || '').trim();
+  if (!savedText) return [];
+  const skip = String(excludeSlug || '').trim().toLowerCase();
+  const hits = [];
+  for (const target of targets) {
+    if (skip && String(target.slug || '').toLowerCase() === skip) continue;
+    const result = titleMatchScore(savedText, target.serviceName || target.slug || '');
+    if (!isMediumTitleMatch(result)) continue;
+    hits.push({ target, result });
+  }
+  hits.sort((a, b) => {
+    if (b.result.shared !== a.result.shared) return b.result.shared - a.result.shared;
+    return b.result.score - a.result.score;
+  });
+  return hits;
 }
 
 function copyIntoGroup(fromAbs, dir, filename) {
@@ -555,6 +1044,37 @@ function slotFileRows(saved) {
   return rows;
 }
 
+/**
+ * If a slot has tray stills but no live apply, the first tray row becomes live.
+ * Remaining tray rows stay. Mutates `plan.applied` / `plan.tray`.
+ */
+export function promoteFirstTrayIntoEmptyPlan(plan) {
+  const applied = plan?.applied;
+  const tray = plan?.tray;
+  if (!Array.isArray(applied) || !Array.isArray(tray)) return plan;
+  const filled = new Set(applied.map((a) => a.matchKey).filter(Boolean));
+  const keepTray = [];
+  for (const row of tray) {
+    const k = row.matchKey;
+    if (k && !filled.has(k) && row.saved?.filename && row.target) {
+      applied.push({
+        saved: row.saved,
+        target: row.target,
+        group: row.group,
+        rank: row.rank,
+        matchKey: k,
+        fromTray: true,
+      });
+      filled.add(k);
+      continue;
+    }
+    keepTray.push(row);
+  }
+  tray.length = 0;
+  tray.push(...keepTray);
+  return plan;
+}
+
 function planMatchesMulti(candidateId, groups) {
   const targetSlots = listImageSlots(candidateId);
   const slotByKey = new Map();
@@ -566,7 +1086,7 @@ function planMatchesMulti(candidateId, groups) {
   const filledKeys = new Set();
   const applied = [];
   const tray = [];
-  const unused = [];
+  const unusedPending = [];
 
   groups.forEach((group, gi) => {
     const rank = gi + 1;
@@ -575,7 +1095,7 @@ function planMatchesMulti(candidateId, groups) {
       const target = k ? slotByKey.get(k) : null;
       const rows = slotFileRows(saved);
       if (!target) {
-        unused.push(unusedSlotMeta(saved, group));
+        unusedPending.push({ saved, group, rank, rows });
         continue;
       }
       for (const row of rows) {
@@ -588,6 +1108,66 @@ function planMatchesMulti(candidateId, groups) {
       }
     }
   });
+
+  const traySeen = new Set(
+    tray.map((row) => `${row.matchKey}\0${row.group?.id || ''}\0${row.saved?.filename || ''}`),
+  );
+  const pushTrayRow = (row, target, group, rank, similar) => {
+    const mk = matchKeyForSlot(target);
+    if (!mk || !row?.filename) return;
+    const id = `${mk}\0${group?.id || ''}\0${row.filename}`;
+    if (traySeen.has(id)) return;
+    const live = applied.some(
+      (a) =>
+        a.matchKey === mk &&
+        a.group?.id === group?.id &&
+        a.saved?.filename === row.filename,
+    );
+    if (live) return;
+    traySeen.add(id);
+    tray.push({
+      saved: row,
+      target,
+      group,
+      rank,
+      matchKey: mk,
+      similar: Boolean(similar),
+    });
+  };
+
+  groups.forEach((group, gi) => {
+    const rank = gi + 1;
+    for (const saved of group.slots || []) {
+      const fans = slotsMatchingCanonicalTitle(saved, targetSlots);
+      if (!fans.length) continue;
+      for (const target of fans) {
+        for (const row of slotFileRows(saved)) {
+          pushTrayRow(row, target, group, rank, true);
+        }
+      }
+    }
+  });
+
+  const unused = [];
+  for (const pending of unusedPending) {
+    const fans = slotsMatchingCanonicalTitle(pending.saved, targetSlots);
+    if (fans.length) continue;
+    const hit = bestSimilarStockTarget(pending.saved, targetSlots, filledKeys);
+    if (!hit) {
+      unused.push(unusedSlotMeta(pending.saved, pending.group));
+      continue;
+    }
+    const rows = pending.rows.length ? pending.rows : slotFileRows(pending.saved);
+    for (const row of rows) {
+      pushTrayRow(row, hit.target, pending.group, pending.rank, true);
+    }
+  }
+
+  promoteFirstTrayIntoEmptyPlan({ applied, tray });
+  filledKeys.clear();
+  for (const row of applied) {
+    if (row.matchKey) filledKeys.add(row.matchKey);
+  }
 
   const targetEmpty = [...slotByKey.entries()]
     .filter(([k]) => !filledKeys.has(k))
@@ -653,32 +1233,49 @@ function planMatchesMulti(candidateId, groups) {
             (t) => t.slug === pair.serviceSlug || normService(t.serviceName) === name,
           )
         : null;
-      if (!hit) {
+      if (hit) {
+        if (svcFilled.has(hit.slug)) {
+          baTray.push({
+            kind: 'service',
+            serviceSlug: hit.slug,
+            serviceName: hit.serviceName,
+            pair,
+            group,
+            rank,
+          });
+        } else {
+          svcFilled.add(hit.slug);
+          baApplied.push({
+            kind: 'service',
+            serviceSlug: hit.slug,
+            serviceName: hit.serviceName,
+            pair,
+            group,
+            rank,
+          });
+        }
+      }
+      const similarHits = wantSvcBa
+        ? similarServiceTargets(pair.serviceName || pair.serviceSlug, bTargets, {
+            excludeSlug: hit?.slug,
+          })
+        : [];
+      for (const similar of similarHits) {
+        baTray.push({
+          kind: 'service',
+          serviceSlug: similar.target.slug,
+          serviceName: similar.target.serviceName,
+          pair,
+          group,
+          rank,
+          similar: true,
+        });
+      }
+      if (!hit && !similarHits.length) {
         baUnused.push({
           kind: 'service',
           serviceName: pair.serviceName || pair.serviceSlug,
           groupId: group.id,
-        });
-        continue;
-      }
-      if (svcFilled.has(hit.slug)) {
-        baTray.push({
-          kind: 'service',
-          serviceSlug: hit.slug,
-          serviceName: hit.serviceName,
-          pair,
-          group,
-          rank,
-        });
-      } else {
-        svcFilled.add(hit.slug);
-        baApplied.push({
-          kind: 'service',
-          serviceSlug: hit.slug,
-          serviceName: hit.serviceName,
-          pair,
-          group,
-          rank,
         });
       }
     }
@@ -693,6 +1290,8 @@ function planMatchesMulti(candidateId, groups) {
     baApplied,
     baTray,
     baUnused,
+    similarTray:
+      tray.filter((row) => row.similar).length + baTray.filter((row) => row.similar).length,
     groups: groups.map((g, i) => ({
       id: g.id,
       name: g.name,
@@ -736,6 +1335,7 @@ export function previewPhotoGroup(candidateId, groupIdOrBody) {
     baUnused: plan.baUnused.length,
     tray: plan.tray.length,
     baTray: plan.baTray.length,
+    similarTray: plan.similarTray || 0,
     unusedSamples: plan.unused.slice(0, 8),
     emptySamples: plan.targetEmpty.slice(0, 8),
     traySamples: plan.tray.slice(0, 8).map((row) => ({
@@ -776,7 +1376,7 @@ function copyGroupFile(groupDir, filename, destDir, destName, { unique = false }
   return toName;
 }
 
-function liveSlotEntry(target, saved, destName) {
+function liveSlotEntry(target, saved, destName, { fromTray = false } = {}) {
   return {
     key: target.key,
     sectionId: target.sectionId,
@@ -792,14 +1392,44 @@ function liveSlotEntry(target, saved, destName) {
     query: saved.query || null,
     score: saved.score ?? null,
     matchGrade: saved.matchGrade || 'ok',
-    matchTip:
-      saved.matchGrade === 'good' ? 'From saved photo group' : 'Loaded from saved photo group',
+    matchTip: fromTray
+      ? 'Loaded from similar photo-group title'
+      : saved.matchGrade === 'good'
+        ? 'From saved photo group'
+        : 'Loaded from saved photo group',
     attribution: saved.attribution || null,
     serviceName: target.serviceName || saved.serviceName || null,
     serviceSlug: target.serviceSlug || saved.serviceSlug || null,
     materialTitle: target.materialTitle || saved.materialTitle || null,
     processTitle: target.processTitle || saved.processTitle || null,
     label: target.label || saved.label || null,
+    variants: [],
+  };
+}
+
+function stubSlotEntry(target) {
+  return {
+    key: target.key,
+    sectionId: target.sectionId,
+    index: target.index,
+    filename: null,
+    src: null,
+    alt: target.label || 'Service photo',
+    provider: null,
+    source: null,
+    photoId: null,
+    photographer: null,
+    pageUrl: null,
+    query: null,
+    score: null,
+    matchGrade: null,
+    matchTip: null,
+    attribution: null,
+    serviceName: target.serviceName || null,
+    serviceSlug: target.serviceSlug || null,
+    materialTitle: target.materialTitle || null,
+    processTitle: target.processTitle || null,
+    label: target.label || null,
     variants: [],
   };
 }
@@ -823,10 +1453,16 @@ export function applyPhotoGroups(candidateId, groupIds) {
   });
   for (const f of keepOtherFiles) filesMap.set(f.filename, f);
 
-  for (const { saved, target, group } of plan.applied) {
-    const destName = copyGroupFile(group.dir, saved.filename, p.siteImages, saved.filename);
+  for (const { saved, target, group, fromTray, rank } of plan.applied) {
+    const destName = copyGroupFile(
+      group.dir,
+      saved.filename,
+      p.siteImages,
+      fromTray ? `pg${rank || 1}-${path.basename(String(saved.filename))}` : saved.filename,
+      fromTray ? { unique: true } : {},
+    );
     if (!destName) continue;
-    const entry = liveSlotEntry(target, saved, destName);
+    const entry = liveSlotEntry(target, saved, destName, { fromTray: Boolean(fromTray) });
     slots[target.key] = entry;
     if (entry.photoId) usedIds.add(entry.photoId);
     filesMap.set(destName, {
@@ -844,9 +1480,25 @@ export function applyPhotoGroups(candidateId, groupIds) {
   }
 
   for (const { saved, target, group, rank } of plan.tray) {
-    const live = slots[target.key];
-    if (!live) continue;
-    if (saved.photoId && live.photoId && saved.photoId === live.photoId) continue;
+    let live = slots[target.key];
+    if (!live) {
+      live = stubSlotEntry(target);
+      slots[target.key] = live;
+    }
+    const sourceAbs = path.join(group.dir, path.basename(String(saved.filename || '')));
+    if (
+      slotSourceIsDuplicate(
+        p.siteImages,
+        { abs: sourceAbs, filename: saved.filename, photoId: saved.photoId },
+        {
+          liveFilename: live.filename,
+          livePhotoId: live.photoId,
+          variants: live.variants,
+        },
+      )
+    ) {
+      continue;
+    }
     const destName = copyGroupFile(
       group.dir,
       saved.filename,
@@ -855,14 +1507,19 @@ export function applyPhotoGroups(candidateId, groupIds) {
       { unique: true },
     );
     if (!destName) continue;
-    live.variants = pushImageSlotTrayEntry(p.siteImages, live.variants, {
-      filename: destName,
-      source: saved.source || 'photo-group',
-      provider: saved.provider || null,
-      photoId: saved.photoId || null,
-      attribution: saved.attribution || null,
-      matchGrade: saved.matchGrade || null,
-    });
+    live.variants = pushImageSlotTrayEntry(
+      p.siteImages,
+      live.variants,
+      {
+        filename: destName,
+        source: saved.source || 'photo-group',
+        provider: saved.provider || null,
+        photoId: saved.photoId || null,
+        attribution: saved.attribution || null,
+        matchGrade: saved.matchGrade || null,
+      },
+      { liveFilename: live.filename, livePhotoId: live.photoId },
+    );
   }
 
   const publicImages = path.join(ROOT, 'public', 'images');
@@ -887,6 +1544,12 @@ export function applyPhotoGroups(candidateId, groupIds) {
       const afterName = `gallery-ba-${n}-after.${row.pair.after.ext || 'jpg'}`;
       copyGroupFile(row.group.dir, row.pair.before.filename, p.siteImages, beforeName);
       copyGroupFile(row.group.dir, row.pair.after.filename, p.siteImages, afterName);
+      stampBaPairMeta(candidateId, baVariantKey({ pairIndex: n }), {
+        source: 'photo-group',
+        matchGrade: 'ok',
+        matchTip: 'Loaded from photo group',
+        matchGradeManual: false,
+      });
     }
   }
 
@@ -900,6 +1563,12 @@ export function applyPhotoGroups(candidateId, groupIds) {
       const afterName = `svc-ba-${row.serviceSlug}-1-after.${row.pair.after.ext || 'jpg'}`;
       copyGroupFile(row.group.dir, row.pair.before.filename, p.siteImages, beforeName);
       copyGroupFile(row.group.dir, row.pair.after.filename, p.siteImages, afterName);
+      stampBaPairMeta(candidateId, baVariantKey({ serviceSlug: row.serviceSlug }), {
+        source: 'photo-group',
+        matchGrade: 'ok',
+        matchTip: 'Loaded from photo group',
+        matchGradeManual: false,
+      });
     }
   }
 
@@ -908,6 +1577,35 @@ export function applyPhotoGroups(candidateId, groupIds) {
       row.kind === 'service'
         ? `svc-ba-${row.serviceSlug}`
         : `gallery-ba-${row.pairIndex}`;
+    const key =
+      row.kind === 'service'
+        ? baVariantKey({ serviceSlug: row.serviceSlug })
+        : baVariantKey({ pairIndex: row.pairIndex });
+    const live = findLiveBaFiles(candidateId, {
+      serviceSlug: row.kind === 'service' ? row.serviceSlug : '',
+      pairIndex: row.pairIndex || 1,
+    });
+    const existing = baTrayByKey.get(key) || [];
+    const beforeAbs = path.join(row.group.dir, path.basename(String(row.pair.before.filename || '')));
+    const afterAbs = path.join(row.group.dir, path.basename(String(row.pair.after.filename || '')));
+    if (
+      baSourceIsDuplicate(
+        p.siteImages,
+        {
+          beforeAbs,
+          afterAbs,
+          beforeFilename: row.pair.before.filename,
+          afterFilename: row.pair.after.filename,
+        },
+        {
+          liveBefore: live.before,
+          liveAfter: live.after,
+          variants: existing,
+        },
+      )
+    ) {
+      continue;
+    }
     const beforeName = copyGroupFile(
       row.group.dir,
       row.pair.before.filename,
@@ -922,10 +1620,6 @@ export function applyPhotoGroups(candidateId, groupIds) {
       `${prefix}-pg${row.rank}-after.${row.pair.after.ext || 'jpg'}`,
       { unique: true },
     );
-    const key =
-      row.kind === 'service'
-        ? baVariantKey({ serviceSlug: row.serviceSlug })
-        : baVariantKey({ pairIndex: row.pairIndex });
     noteBaTray(key, {
       beforeFilename: beforeName,
       afterFilename: afterName,
@@ -973,9 +1667,15 @@ export function applyPhotoGroups(candidateId, groupIds) {
     photoGroupName: groups.map((g) => g.name).join(' → '),
   };
   writeJson(p.imagesManifest, nextManifest);
+  promoteFirstTrayIntoEmptySlots(candidateId, { sync: false });
+  const afterPromote = loadManifest(candidateId);
+  persistAttachedPhotoGroups(candidateId, groups, { groups: plan.groups });
 
   const synced = syncSiteImagesToPublic(candidateId);
-  const contentUpdate = applyImagesToContentFiles(candidateId, Object.values(slots));
+  const contentUpdate = applyImagesToContentFiles(
+    candidateId,
+    Object.values(afterPromote.slots || {}),
+  );
   let ba = null;
   try {
     ba = rehydrateGalleryBaFrontmatter(candidateId);
@@ -993,11 +1693,12 @@ export function applyPhotoGroups(candidateId, groupIds) {
     baUnused: plan.baUnused.length,
     tray: plan.tray.length,
     baTray: plan.baTray.length,
+    similarTray: plan.similarTray || 0,
     unused: plan.unused,
     synced,
     contentUpdate,
     ba,
-    manifest: nextManifest,
+    manifest: afterPromote,
     group: { id: first.id, name: first.name, niche: first.niche },
     groups: plan.groups,
     candidate: getCandidateDetail(candidateId),
@@ -1007,7 +1708,10 @@ export function applyPhotoGroups(candidateId, groupIds) {
         (plan.tray.length + plan.baTray.length
           ? `, ${plan.tray.length + plan.baTray.length} added to trays`
           : '') +
-        (plan.unused.length ? `, ${plan.unused.length} unused (section not on this site)` : '') +
+        (plan.similarTray
+          ? ` (${plan.similarTray} similar titles)`
+          : '') +
+        (plan.unused.length ? `, ${plan.unused.length} unused (no matching or similar slot)` : '') +
         '.',
     ],
   };
@@ -1023,27 +1727,13 @@ export function attachPhotoGroup(candidateId, groupIdOrBody) {
   );
   const groups = loadGroupsOrThrow(ids);
   const preview = previewPhotoGroup(candidateId, { groupIds: ids });
-  const attachedAt = new Date().toISOString();
-  const first = groups[0];
-  writeJson(pathsFor(candidateId).photoGroup, {
-    groupId: first.id,
-    groupIds: ids,
-    name: first.name,
-    names: groups.map((g) => g.name),
+  const attached = persistAttachedPhotoGroups(candidateId, groups, {
     groups: preview.groups,
-    niche: first.niche,
-    attachedAt,
     preview,
   });
   return {
     ok: true,
-    attached: {
-      groupId: first.id,
-      groupIds: ids,
-      name: first.name,
-      names: groups.map((g) => g.name),
-      attachedAt,
-    },
+    attached,
     preview,
     candidate: getCandidateDetail(candidateId),
   };

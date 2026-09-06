@@ -938,7 +938,7 @@ ${
 - title, description, h1
 - sectionHeading (intro H2)
 - whyChooseUs: [{ title, description }] when whyChooseUs section enabled
-- process: [{ title, description, image? }] when process/offerProcess enabled — prefer **4, 6, or 8** steps (even under 4-col grid); each \`description\` = one short line (~8–14 words), not a paragraph
+- process: [{ title, description, image? }] when process/offerProcess enabled — prefer **4, 6, or 8** steps so the last grid row is full; each \`description\` = one **sentence** (~8–14 words, capital letter, period), not a lowercase caption or paragraph
 - faqs: [{ question, answer }] when faqs enabled
 - gallery: [{ src, alt }] when beforeAfter/gallery photos enabled
 - materialsImages: [{ src, alt }] is Pull-owned when materials photos are on — omit or preserve existing; do not invent image paths. Ranking builds pull materials thumbs for compact media rows.
@@ -973,7 +973,7 @@ heroImage:
 - DIY vs pro (when enabled): \`### DIY\` first, then \`### Hire a pro\`, each with balanced bullets
 - Timeline (when enabled): stage bullets \`**Stage title** — duration\` where duration is a complete phrase (\`same day\`, \`1–2 days\`, \`3–7 days\`). Keep en-dashes in ranges. Never write hedges like \"or next day\" / \"usually\" / \"in most cases\" / \"varies by city\" that can drop mid-phrase
 - Before/after (when enabled): short problem → solution text lines only; photos live on the **homepage** gallery — do not invent image paths; optionally link to \`/\` for photo examples
-- Materials (when enabled): short intro + 4–6 option bullets; each bullet \`**Product/system name** —\` then **1–2 sentences** (why it matters, climate/use cue from City context when available, durable outcome). Concrete product/system/method titles (not “professional grade” alone). No body images — Pull supplies \`materialsImages\` thumbs for compact text+photo rows
+- Materials (when enabled): short intro + **exactly 3 or 6** option bullets (choose **6** when research/entities support six distinct products/methods; otherwise **3**; never 4, 5, 7, or 8); each bullet \`**Product/system name** —\` then **1–2 sentences** (why it matters, climate/use cue from City context when available, durable outcome). Concrete product/system/method titles (not “professional grade” alone). No body images — Pull supplies \`materialsImages\` thumbs for compact text+photo rows
 
 ## Frontmatter expectations (about.md)
 - title, description, h1

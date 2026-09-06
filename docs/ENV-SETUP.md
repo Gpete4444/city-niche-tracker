@@ -145,6 +145,23 @@ ANTHROPIC_API_KEY=sk-ant-api03-…
 
 **Copy & AI → Anthropic** is green when `ANTHROPIC_API_KEY` is set.
 
+### Optional: API Cost balance (Admin key)
+
+By default Rover shows **PAYG** for Anthropic in the API Cost table. `ANTHROPIC_ADMIN_KEY` is the only extra key (not `ANTHROPIC_ADMIN_API_KEY`). Anthropic’s Admin API does not currently return prepaid organization credits, so Balance stays **—**. Spent uses Rover-recorded totals.
+
+1. Open [Anthropic Console → Settings → Admin keys](https://console.anthropic.com/settings/admin-keys).
+2. You must be an **organization admin / owner** to create admin keys.
+3. Click **Create key**, give it a name, and copy the secret (starts with `sk-ant-admin01-…`). It is shown only once.
+4. Add to `.env`:
+
+```env
+ANTHROPIC_ADMIN_KEY=sk-ant-admin01-…
+```
+
+5. Save and restart Rover. Spent stays Rover-recorded. Balance stays **—** until Anthropic exposes prepaid credits on the Admin API (the Console billing page is not available via `ANTHROPIC_ADMIN_KEY`).
+
+Optional: `ANTHROPIC_CREDIT_BALANCE=100` (total purchased credits in USD) if you want Rover to compute `credits − month-to-date spend` when the Admin API does not return a credit cap.
+
 ---
 
 ## 3. Site-config · address — Google Maps & Apify
@@ -290,35 +307,25 @@ Optional: `IMAGE_SOURCES=unsplash,pexels,pixabay` to control order.
 
 Save `.env` and restart Rover.
 
-### Flux 2 Pro and GPT Image (Generate in Photo / Review images)
+### GPT Image (Generate in Photo / Review images)
 
 Optional. One-click AI photos. Stock Pull still uses Unsplash / Pexels / Pixabay.
 
-**Flux generate (hero, gallery, materials):** `FAL_KEY` (fal.ai). Optional alias: `FAL_API_KEY`.
-
-**OpenAI generate and before/after pairs:** `OPENAI_API_KEY` (same key as Phone). Model `gpt-image-2` medium.
+**OpenAI generate and before/after pairs:** `OPENAI_API_KEY` (same key as Phone). Model `gpt-image-2` medium (~$0.04 per photo, ~$0.09 per BA pair).
 
 ```env
-FAL_KEY=
-FAL_ADMIN_KEY=
 OPENAI_API_KEY=
 ```
 
-Remaining-balance chip needs a separate **Admin** key (`FAL_ADMIN_KEY`). A regular API-scope key can Flux generate but fal rejects it on billing. The chip is fal’s wallet; OpenAI is billed separately (~$0.04 per photo, ~$0.09 per BA pair).
+Save `.env` and restart Rover (reload is not enough). `OPENAI_API_KEY` is already used for Phone.
 
-1. Open [fal.ai/dashboard/keys](https://fal.ai/dashboard/keys).
-2. Create an **API** key → paste into `FAL_KEY`.
-3. Create an **ADMIN** key → paste into `FAL_ADMIN_KEY`.
-4. Save `.env` and restart Rover (reload is not enough). `OPENAI_API_KEY` is already used for Phone.
-
-**Website · images → Flux 2 Pro** turns green when `FAL_KEY` or `FAL_API_KEY` is set. **GPT Image (OpenAI)** turns green when `OPENAI_API_KEY` is set. **Flux remaining** turns green when `FAL_ADMIN_KEY` is set.
+**Website · images → GPT Image (OpenAI)** turns green when `OPENAI_API_KEY` is set.
 
 ### Links
 
 - [Unsplash applications](https://unsplash.com/oauth/applications)
 - [Pexels API](https://www.pexels.com/api/)
 - [Pixabay API](https://pixabay.com/api/docs/)
-- [fal.ai](https://fal.ai)
 
 ### Where to paste
 
@@ -326,14 +333,12 @@ Remaining-balance chip needs a separate **Admin** key (`FAL_ADMIN_KEY`). A regul
 UNSPLASH_ACCESS_KEY=…
 PEXELS_API_KEY=…
 PIXABAY_API_KEY=…
-FAL_KEY=…
-FAL_ADMIN_KEY=…
 OPENAI_API_KEY=…
 ```
 
 ### How Settings shows ✓
 
-**Website · images → Unsplash / Pexels / Pixabay** each turn green when that provider’s variable is set. One green provider is enough to pull photos. **Flux 2 Pro** turns green when `FAL_KEY` is set. **GPT Image (OpenAI)** turns green when `OPENAI_API_KEY` is set. **Flux remaining** turns green when `FAL_ADMIN_KEY` is set.
+**Website · images → Unsplash / Pexels / Pixabay** each turn green when that provider’s variable is set. One green provider is enough to pull photos. **GPT Image (OpenAI)** turns green when `OPENAI_API_KEY` is set.
 
 ---
 
@@ -704,7 +709,7 @@ GOOGLE_GSC_CLIENT_SECRET=GOCSPX-…
 | Discovery & research | DataForSEO login + password |
 | Copy & AI | Anthropic API key |
 | Site-config · address | Google Maps key; Apify token + LoopNet and/or Crexi actor id |
-| Website · images | At least one of Unsplash / Pexels / Pixabay; optional `FAL_KEY` for Flux Generate; `FAL_ADMIN_KEY` for remaining credits |
+| Website · images | At least one of Unsplash / Pexels / Pixabay; optional `OPENAI_API_KEY` for GPT Image generate |
 | Assemble & launch | GitHub owner (+ `gh auth login`); optional template & sites dir; Cloudflare account + token; notify email |
 | Phone | Four Twilio vars + OpenAI key; see PHONE-TRACKING.md |
 | Launched Sites · metrics | GSC OAuth client in `.env` + Connect GSC in Rover |

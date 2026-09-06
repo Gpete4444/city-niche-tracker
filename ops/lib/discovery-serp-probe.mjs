@@ -17,6 +17,7 @@ import { writeSerpCache } from '../../scripts/lib/serp-cache.mjs';
 import { enrichClassifiedSerp } from '../../scripts/lib/serp-signals.mjs';
 import { applyRecommendations } from './discovery-recommend.mjs';
 import { getBatch, rowKey, rowsToCsv } from './discovery.mjs';
+import { getConcurrency } from './rover-concurrency.mjs';
 
 loadEnvFile();
 
@@ -117,10 +118,48 @@ export function getSerpProbeJob(jobId) {
   return probeJobs.get(jobId) || null;
 }
 
+export function countRunningSerpProbes() {
+  let n = 0;
+  for (const job of probeJobs.values()) {
+    if (job.status === 'running') n += 1;
+  }
+  return n;
+}
+
+export function assertLightSerpStartAllowed() {
+  const limit = getConcurrency().lightSerp;
+  const running = countRunningSerpProbes();
+  if (running >= limit) {
+    throw Object.assign(
+      new Error(
+        `Already ${running} Light SERP jobs running. Concurrent Limit for Light SERP is ${limit} — a soft limit so you do not spend too much money at once.`,
+      ),
+      {
+        status: 409,
+        code: 'LIGHT_SERP_CONCURRENCY',
+        limit,
+        running,
+      },
+    );
+  }
+}
+
+/** Test-only: insert a dummy running probe so the extra-Run gate can be exercised. */
+export function putRunningSerpProbeForTests() {
+  const id = randomUUID();
+  probeJobs.set(id, { id, status: 'running', batchId: '__test__' });
+  return id;
+}
+
+/** Test-only. */
+export function resetSerpProbesForTests() {
+  probeJobs.clear();
+}
+
 /**
  * Start async probe; returns job immediately. Poll getSerpProbeJob / GET endpoint.
  */
-export function startDiscoverySerpProbe(batchId, { indices = null, concurrency = 1 } = {}) {
+export function startDiscoverySerpProbe(batchId, { indices = null } = {}) {
   requireCredentials();
   const { batch, rows, dir } = getBatch(batchId);
   if (!rows.length) {
@@ -134,6 +173,7 @@ export function startDiscoverySerpProbe(batchId, { indices = null, concurrency =
     err.status = 400;
     throw err;
   }
+  assertLightSerpStartAllowed();
 
   const jobId = randomUUID();
   const job = {
@@ -160,7 +200,7 @@ export function startDiscoverySerpProbe(batchId, { indices = null, concurrency =
   };
   probeJobs.set(jobId, job);
 
-  const conc = Math.min(2, Math.max(1, Number(concurrency) || 1));
+  const conc = getConcurrency().lightSerp;
   let nextRows = [...rows];
   let cursor = 0;
 

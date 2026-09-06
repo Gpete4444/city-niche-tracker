@@ -97,6 +97,31 @@ export function listJobsForCandidate(candidateId) {
   return [...jobs.values()].filter((j) => j.candidateId === candidateId);
 }
 
+export function findRunningScriptJob(candidateId, label) {
+  const cid = String(candidateId || '').trim();
+  const lab = String(label || '').trim();
+  if (!cid || !lab) return null;
+  return (
+    [...jobs.values()].find(
+      (j) =>
+        String(j.candidateId || '') === cid &&
+        String(j.label || '') === lab &&
+        j.status === 'running',
+    ) || null
+  );
+}
+
+export function assertScriptJobStartAllowed(candidateId, label) {
+  const running = findRunningScriptJob(candidateId, label);
+  if (!running) return;
+  throw Object.assign(new Error(`${label} is already running for this candidate`), {
+    status: 409,
+    code: 'EVAL_JOB_RUNNING',
+    jobId: running.id,
+    candidateId: String(candidateId || ''),
+  });
+}
+
 function appendLog(job, chunk, stream) {
   const text = chunk.toString();
   job.logs.push({ t: Date.now(), stream, text });
@@ -105,6 +130,23 @@ function appendLog(job, chunk, stream) {
   if (job.logText.length > 500_000) {
     job.logText = job.logText.slice(-400_000);
   }
+}
+
+function lastJobErrorLine(job, code) {
+  const fromLogs = [...(job.logs || [])]
+    .filter((e) => e.stream === 'stderr')
+    .flatMap((e) => String(e.text || '').split(/\r?\n/))
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const last = fromLogs.length ? fromLogs[fromLogs.length - 1] : '';
+  if (last) return last.slice(0, 400);
+  const fromText = String(job.logText || '')
+    .split(/\r?\n/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const lastText = fromText.length ? fromText[fromText.length - 1] : '';
+  if (lastText) return lastText.slice(0, 400);
+  return `Exit code ${code}`;
 }
 
 function parseCostFromLog(logText) {
@@ -180,6 +222,7 @@ export function startJob({
   args = [],
   onSuccess = null,
 }) {
+  assertScriptJobStartAllowed(candidateId, label);
   const jobId = randomUUID();
   const scriptPath = path.join(ROOT, script);
   const job = {
@@ -233,7 +276,7 @@ export function startJob({
     const outputOk = code === 0 || prospectsOutputComplete(job);
     if (!outputOk) {
       job.status = 'error';
-      job.error = `Exit code ${code}`;
+      job.error = lastJobErrorLine(job, code);
       closeScriptLightJob(job);
       return;
     }
@@ -312,6 +355,7 @@ export function runProspects(candidateId) {
  * Async Narrative draft as a job record (for batch runner + single poll).
  */
 export function runNarrativeJob(candidateId) {
+  assertScriptJobStartAllowed(candidateId, 'narrative');
   const jobId = randomUUID();
   const job = {
     id: jobId,

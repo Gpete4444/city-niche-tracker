@@ -38,7 +38,7 @@ Use from research/narrative when present:
 - city / primaryCity → primaryCity
 - state → state
 - suggestedServices → starting labels for services; expand to related residential offers
-- suggestedSuburbs → targetSuburbs (prefer 3–5 suburbs / 4–6 location pages with primary; Website Builder Service area may widen coverageAreas and keep ≤5 SEO suburbs)
+- suggestedSuburbs → targetSuburbs (prefer 3–5 real municipality names / 4–6 location pages with primary; never schema keys like "string", "ID", "XX", never ids, never duplicates, never the primary city). Website Builder Service area may widen coverageAreas and keep ≤5 SEO suburbs
 - coverageAreas = primary city + service-area selections (map radius + toggles); each with correct state (cross-state OK)
 - localPainPoints may inform tagline wording only — do not invent stats
 - niche / keyword volumes (when present) → order services by expected search demand (highest first). Do NOT copy raw volume numbers into site-config.
@@ -52,7 +52,7 @@ Rules:
 1. Treat SERP / competitor claims as draft research, not verified facts beyond what DataForSEO already measured.
 2. Include "address" (street + city + state + zip) only when Street NAP above provides a real street — copy those fields exactly. Never invent a street or postal code. Omit "geo" unless I provide coordinates. If street is blank / omit, omit "address" entirely.
 3. Omit "socialProof" unless I provide owner rating/licenses/reviews — Rover will seed defaults when empty. Do not invent review counts from SERP competitors.
-4. Prefer real municipalities for suburbs.
+4. Prefer real municipalities for suburbs from suggestedSuburbs. Never copy schema keys ("string", "ID", "XX"), never ids, never duplicates, never primaryCity.
 5. "brand" hex colors: use the operator Colors & fonts values above (primary/accent/ink + paletteId). Avoid purple gradients and cream+terracotta clichés.
    Include "fontTheme": "{{FONT_THEME}}" on brand (operator-chosen; do not invent other font ids).
 6. Placeholders allowed: web3FormsAccessKey = "YOUR_WEB3FORMS_ACCESS_KEY", turnstileSiteKey = "".

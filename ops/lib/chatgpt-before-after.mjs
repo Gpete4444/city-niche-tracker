@@ -15,8 +15,42 @@ import path from 'node:path';
 import { pathsFor, getCandidateDetail, saveMeta } from './candidates.mjs';
 import { loadAcceptedSiteConfig } from './content-markdown.mjs';
 import { syncSiteImagesToPublic } from './fill-site-images.mjs';
+import {
+  IMAGE_TRAY_CAP,
+  baSourceIsDuplicate,
+  compactBaTray,
+  pushBaTrayEntry,
+  trimTrayVariants,
+} from './image-tray.mjs';
+import { slotSettingKind, storedBaLooksResidential } from './image-setting.mjs';
+import {
+  loadCandidateOpenaiPrompts,
+  overlayBaCardPrompts,
+  getBaPromptOverride,
+  pickBaPromptPair,
+  saveCandidateOpenaiPrompts,
+  setBaPromptOverride,
+  clearBaPromptOverride,
+} from './openai-prompt-overrides.mjs';
 
 const ROOT = process.cwd();
+
+function escapeRegExp(s) {
+  return String(s || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** Live pair files only: svc-ba-{slug}-{n}-before.jpg — not -pgN- or -var- copies. */
+function isLiveSvcBaFilename(name, slug) {
+  const n = String(name || '');
+  const s = escapeRegExp(String(slug || '').trim());
+  if (!s) return false;
+  return new RegExp(`^svc-ba-${s}-\\d+-(before|after)\\.\\w+$`, 'i').test(n);
+}
+
+function isLiveHomeBaFilename(name, pairIndex) {
+  const idx = Math.max(1, Number(pairIndex) || 1);
+  return new RegExp(`^gallery-ba-${idx}-(before|after)\\.\\w+$`, 'i').test(String(name || ''));
+}
 
 const MONTHS = {
   jan: 0,
@@ -60,23 +94,49 @@ function loadConfig(candidateId) {
   );
 }
 
-export function roomHint(niche, services, viewpoint = 'inside') {
+export function roomHint(niche, services, viewpoint = 'inside', setting = 'residential') {
   const hay = `${niche || ''} ${(services || []).join(' ')}`.toLowerCase();
   const outside = viewpoint === 'outside';
+  const commercial = setting === 'commercial';
   if (/egress|basement.?window|window.?well|foundation.?cut/.test(hay)) {
     return outside
-      ? 'home exterior foundation wall with basement window well'
-      : 'basement interior focused on a basement window';
+      ? commercial
+        ? 'commercial building foundation wall with a basement window well'
+        : 'home exterior foundation wall with basement window well'
+      : commercial
+        ? 'commercial basement interior focused on a basement window'
+        : 'basement interior focused on a basement window';
   }
   if (/bath|shower|tub/.test(hay)) {
-    return outside ? 'home exterior near bathroom window/vent' : 'bathroom';
+    return outside
+      ? commercial
+        ? 'commercial building exterior near a restroom vent'
+        : 'home exterior near bathroom window/vent'
+      : commercial
+        ? 'commercial restroom'
+        : 'bathroom';
   }
   if (/kitchen|cabin|counter/.test(hay)) {
-    return outside ? 'home exterior near kitchen window' : 'kitchen';
+    return outside
+      ? commercial
+        ? 'commercial building exterior near a kitchen or break-room window'
+        : 'home exterior near kitchen window'
+      : commercial
+        ? 'commercial kitchen or break room'
+        : 'kitchen';
   }
-  if (/roof/.test(hay)) return 'home exterior roof';
-  if (/hvac|air/.test(hay)) {
-    return outside ? 'home exterior HVAC equipment pad' : 'utility / mechanical space';
+  if (/roof/.test(hay)) return commercial ? 'commercial building roof' : 'home exterior roof';
+  if (/\bhvac\b|air[\s-]?cond|mini[\s-]?split/.test(hay)) {
+    return outside
+      ? commercial
+        ? 'rooftop HVAC equipment on a commercial building'
+        : 'home exterior HVAC equipment pad'
+      : 'utility / mechanical space';
+  }
+  if (commercial) {
+    return outside
+      ? 'commercial building exterior at the service feature'
+      : 'office, retail, or commercial interior';
   }
   return outside ? 'home exterior at the service feature' : 'residential interior room';
 }
@@ -153,42 +213,79 @@ export function listBaPromptSlots(candidateId) {
   return out;
 }
 
-function fallbackBaScene({ serviceSlug = '', serviceName = '', pairIndex = 1, viewpoint = 'inside' } = {}) {
+function fallbackBaScene({
+  serviceSlug = '',
+  serviceName = '',
+  pairIndex = 1,
+  viewpoint = 'inside',
+  setting = 'residential',
+} = {}) {
   const slug = String(serviceSlug || '').toLowerCase();
   const name = String(serviceName || '').toLowerCase();
   const hay = `${slug} ${name}`;
   const outside = viewpoint === 'outside';
+  const commercial = setting === 'commercial';
   if (/egress|window.?well|basement.?window/.test(hay)) {
     return {
-      room: outside ? 'home exterior foundation wall with window well' : 'basement interior at a basement window',
+      room: outside
+        ? commercial
+          ? 'commercial building foundation wall with window well'
+          : 'home exterior foundation wall with window well'
+        : commercial
+          ? 'commercial basement interior at a basement window'
+          : 'basement interior at a basement window',
       defect: 'undersized or unfinished basement window and well',
       result: 'finished code-sized egress window and well',
     };
   }
   if (/texture/.test(hay)) {
     return {
-      room: outside ? 'home exterior stucco wall' : 'dining room with orange-peel drywall',
+      room: outside
+        ? commercial
+          ? 'commercial stucco or masonry wall'
+          : 'home exterior stucco wall'
+        : commercial
+          ? 'office corridor with orange-peel drywall'
+          : 'dining room with orange-peel drywall',
       defect: 'a mismatched drywall texture patch that does not blend',
       result: 'even knockdown or orange-peel texture matching the surrounding wall',
     };
   }
   if (/patch/.test(hay)) {
     return {
-      room: outside ? 'home exterior siding near a patched wall' : 'bedroom with a ceiling drywall patch',
+      room: outside
+        ? commercial
+          ? 'commercial building exterior near a patched wall'
+          : 'home exterior siding near a patched wall'
+        : commercial
+          ? 'retail back-of-house with a ceiling drywall patch'
+          : 'bedroom with a ceiling drywall patch',
       defect: 'an unfinished drywall patch with visible tape and mud',
       result: 'a smooth blended patch ready for paint',
     };
   }
   if (/repair/.test(hay)) {
     return {
-      room: outside ? 'home exterior near a damaged wall corner' : 'hallway with a jagged hole in drywall',
+      room: outside
+        ? commercial
+          ? 'commercial building exterior near a damaged wall corner'
+          : 'home exterior near a damaged wall corner'
+        : commercial
+          ? 'office hallway with a jagged hole in drywall'
+          : 'hallway with a jagged hole in drywall',
       defect: 'a punched or water-damaged hole in the drywall',
       result: 'a repaired, taped, and sanded drywall surface',
     };
   }
   if (!slug) {
     return {
-      room: outside ? 'home exterior at the main living-room window wall' : 'living room with an unfinished drywall seam',
+      room: outside
+        ? commercial
+          ? 'commercial building exterior at the storefront window wall'
+          : 'home exterior at the main living-room window wall'
+        : commercial
+          ? 'office lobby with an unfinished drywall seam'
+          : 'living room with an unfinished drywall seam',
       defect:
         Number(pairIndex) > 1
           ? 'an unmudded drywall joint on a long wall'
@@ -197,7 +294,13 @@ function fallbackBaScene({ serviceSlug = '', serviceName = '', pairIndex = 1, vi
     };
   }
   return {
-    room: outside ? 'home exterior at the service feature' : 'a distinct residential room for this service',
+    room: outside
+      ? commercial
+        ? 'commercial building exterior at the service feature'
+        : 'home exterior at the service feature'
+      : commercial
+        ? 'a distinct office or retail interior for this service'
+        : 'a distinct residential room for this service',
     defect: `an incomplete ${serviceName || 'service'} element`,
     result: `the finished ${serviceName || 'service'} result`,
   };
@@ -228,12 +331,23 @@ function lookupBaPlanPrompts(candidateId, { serviceSlug = '', pairIndex = 1, vie
   const vp = normalizeBaViewpoint(viewpoint);
   const slug = serviceSlug ? slugifyService(serviceSlug) : '';
   const key = slug ? `svc:${slug}` : `home:${Math.max(1, Number(pairIndex) || 1)}`;
+  const config = loadConfig(candidateId);
+  const setting = slotSettingKind({
+    serviceName: slug
+      ? listConfiguredServiceTargets(candidateId).find((t) => t.slug === slug)?.serviceName || slug
+      : '',
+    serviceSlug: slug,
+    config,
+  });
   const plan = readImagesPlanDoc(candidateId);
   const entry = plan?.beforeAfter && typeof plan.beforeAfter === 'object' ? plan.beforeAfter[key] : null;
   const side = entry?.[vp] || null;
   const claudeBefore = String(side?.before || '').trim();
   const claudeAfter = String(side?.after || '').trim();
-  if (claudeBefore && claudeAfter) {
+  const staleHome =
+    setting === 'commercial' &&
+    storedBaLooksResidential(`${claudeBefore} ${claudeAfter}`, entry?.room);
+  if (claudeBefore && claudeAfter && !staleHome) {
     return {
       key,
       viewpoint: vp,
@@ -242,6 +356,7 @@ function lookupBaPlanPrompts(candidateId, { serviceSlug = '', pairIndex = 1, vie
       before: claudeBefore,
       after: claudeAfter,
       afterRaw: claudeAfter,
+      setting,
     };
   }
   const built = buildBeforeAfterPrompts(candidateId, { serviceSlug: slug, viewpoint: vp });
@@ -253,6 +368,7 @@ function lookupBaPlanPrompts(candidateId, { serviceSlug = '', pairIndex = 1, vie
     before: built.before,
     after: built.after,
     afterRaw: built.after,
+    setting,
   };
 }
 
@@ -270,11 +386,63 @@ export function baPromptsForCard(candidateId, { serviceSlug = '', pairIndex = 1 
     sides[viewpoint] = {
       before: r.before,
       after: r.after,
+      originalBefore: r.before,
+      originalAfter: r.after,
       source: r.source,
       room: r.room,
+      setting: r.setting || null,
     };
   }
   return sides;
+}
+
+export function resolveBaPromptsWithOverride(candidateId, opts = {}) {
+  const resolved = resolveBaChatgptPrompts(candidateId, opts);
+  const ov = getBaPromptOverride(
+    loadCandidateOpenaiPrompts(candidateId),
+    resolved.key,
+    resolved.viewpoint,
+  );
+  const used = pickBaPromptPair(resolved, ov, {
+    before: opts.before,
+    after: opts.after,
+  });
+  return {
+    ...resolved,
+    originalBefore: resolved.before,
+    originalAfter: resolved.after,
+    before: used.before,
+    after: used.after,
+    overridden: used.before !== resolved.before || used.after !== resolved.after,
+    chatgptUrl: 'https://chatgpt.com/',
+  };
+}
+
+export function saveBaOpenaiPrompt(
+  candidateId,
+  { serviceSlug = '', pairIndex = 1, viewpoint, before, after, restore } = {},
+) {
+  const resolved = resolveBaChatgptPrompts(candidateId, { serviceSlug, pairIndex, viewpoint });
+  let doc = loadCandidateOpenaiPrompts(candidateId);
+  const beforeText = String(before || '').trim();
+  const afterText = String(after || '').trim();
+  const same =
+    beforeText === String(resolved.before || '').trim() &&
+    afterText === String(resolved.after || '').trim();
+  if (restore || same) {
+    doc = clearBaPromptOverride(doc, resolved.key, resolved.viewpoint);
+  } else if (beforeText || afterText) {
+    doc = setBaPromptOverride(doc, resolved.key, resolved.viewpoint, {
+      before: beforeText,
+      after: afterText,
+    });
+  }
+  saveCandidateOpenaiPrompts(candidateId, doc);
+  return resolveBaPromptsWithOverride(candidateId, {
+    serviceSlug,
+    pairIndex,
+    viewpoint: resolved.viewpoint,
+  });
 }
 
 export function imagesPlanMeetsBaRequirements(candidateId, plan = null) {
@@ -341,13 +509,19 @@ export function buildBeforeAfterPrompts(candidateId, opts = {}) {
       ? config.services.slice(0, 3)
       : [];
   const viewpoint = normalizeBaViewpoint(opts.viewpoint);
+  const setting = slotSettingKind({
+    serviceName: serviceTarget?.serviceName || '',
+    serviceSlug: serviceTarget?.slug || serviceSlug,
+    config,
+  });
   const scene = fallbackBaScene({
     serviceSlug: serviceTarget?.slug || '',
     serviceName: focusName,
     pairIndex: Number(opts.pairIndex) || 1,
     viewpoint,
+    setting,
   });
-  const room = scene.room || roomHint(niche, services, viewpoint);
+  const room = scene.room || roomHint(niche, services, viewpoint, setting);
   const serviceLine = serviceTarget
     ? `Focus specifically on ${serviceTarget.serviceName} (not other services).`
     : services.length
@@ -361,8 +535,12 @@ export function buildBeforeAfterPrompts(candidateId, opts = {}) {
 
   const surgicalRules = [
     `SINGLE SUBJECT: only the ${focusName} change is the story.`,
-    'Do NOT remodel the whole room/house. Do NOT change flooring, wall paint, ceiling, furniture, clutter layout, or unrelated finishes between before and after.',
-    'Do NOT stage a trashy or demolished room. The space may look tidy, lived-in, or even attractive — the problem is specifically the service element.',
+    setting === 'commercial'
+      ? 'Do NOT remodel the whole room/building. Do NOT change flooring, wall paint, ceiling, furniture, clutter layout, or unrelated finishes between before and after.'
+      : 'Do NOT remodel the whole room/house. Do NOT change flooring, wall paint, ceiling, furniture, clutter layout, or unrelated finishes between before and after.',
+    setting === 'commercial'
+      ? 'Do NOT stage a demolished space. The interior may look tidy and ordinary for an office, retail, or commercial building — the problem is specifically the service element.'
+      : 'Do NOT stage a trashy or demolished room. The space may look tidy, lived-in, or even attractive — the problem is specifically the service element.',
   ].join(' ');
 
   const before = [
@@ -372,8 +550,12 @@ export function buildBeforeAfterPrompts(candidateId, opts = {}) {
     `Show a clear need for ${focusName} only (${scene.defect}) while the rest of the scene stays ordinary and believable.`,
     'If the defect is broken gypsum drywall, show thin paper-faced board, an irregular tear (not a circular crater), and a real wall cavity with wood studs — not masonry, clay, or a neat rubble pile.',
     surgicalRules,
-    'Straight-on documentary photo, available indoor light — not golden hour, not cinematic bokeh, not a blown-out window. No people, no faces, no hands, no crew, no customers, no silhouettes. Lived-in ordinary house, not a catalog set. No text, no logos, no watermarks, no UI.',
-    'Aspect ratio 4:3. Realistic residential architecture — not a showroom, not CGI-looking.',
+    setting === 'commercial'
+      ? 'Straight-on documentary photo, available indoor light — not golden hour, not cinematic bokeh, not a blown-out window. No people, no faces, no hands, no crew, no customers, no silhouettes. Ordinary occupied commercial interior, not a catalog set. No text, no logos, no watermarks, no UI.'
+      : 'Straight-on documentary photo, available indoor light — not golden hour, not cinematic bokeh, not a blown-out window. No people, no faces, no hands, no crew, no customers, no silhouettes. Lived-in ordinary house, not a catalog set. No text, no logos, no watermarks, no UI.',
+    setting === 'commercial'
+      ? 'Aspect ratio 4:3. Realistic commercial architecture — not a showroom, not CGI-looking.'
+      : 'Aspect ratio 4:3. Realistic residential architecture — not a showroom, not CGI-looking.',
   ].join(' ');
 
   const after = [
@@ -403,6 +585,7 @@ export function buildBeforeAfterPrompts(candidateId, opts = {}) {
     state,
     room,
     viewpoint,
+    setting,
     serviceSlug: serviceTarget?.slug || null,
     serviceName: serviceTarget?.serviceName || null,
     before,
@@ -625,9 +808,9 @@ function svcBaPairFromDisk(siteImagesDir, slug, niche, serviceName) {
   if (!existsSync(siteImagesDir)) return [];
   const byRole = {};
   for (const name of readdirSync(siteImagesDir)) {
-    const m = name.match(new RegExp(`^svc-ba-${slug}-(\\d+)-(before|after)\\.(\\w+)$`, 'i'));
-    if (!m) continue;
-    const role = m[2].toLowerCase();
+    if (!isLiveSvcBaFilename(name, slug)) continue;
+    const role = /-before\./i.test(name) ? 'before' : /-after\./i.test(name) ? 'after' : '';
+    if (!role) continue;
     byRole[role] = {
       filename: name,
       src: `/images/${name}`,
@@ -649,11 +832,10 @@ function findServiceFileKey(files, slug) {
 
 function deleteSvcBaFilesForSlug(dirs, slug) {
   let deleted = 0;
-  const re = new RegExp(`^svc-ba-${slug}-\\d+-(before|after)\\.`, 'i');
   for (const dir of dirs) {
     if (!dir || !existsSync(dir)) continue;
     for (const name of readdirSync(dir)) {
-      if (!re.test(name)) continue;
+      if (!isLiveSvcBaFilename(name, slug)) continue;
       try {
         unlinkSync(path.join(dir, name));
         deleted += 1;
@@ -917,6 +1099,12 @@ function importServiceBeforeAfterPair(candidateId, body = {}) {
   }
   syncSiteImagesToPublic(candidateId);
   saveMeta(candidateId, { lastServiceBeforeAfterImportAt: new Date().toISOString() });
+  stampBaPairMeta(candidateId, baVariantKey({ serviceSlug: target.slug }), {
+    source: 'upload',
+    matchGrade: null,
+    matchTip: 'Operator upload',
+    matchGradeManual: false,
+  });
   return {
     ok: true,
     scope: 'service',
@@ -1048,6 +1236,12 @@ export function importBeforeAfterPair(candidateId, body = {}) {
   syncSiteImagesToPublic(candidateId);
   deleteStockBeforeAfterFiles([path.join(ROOT, 'public', 'images')]);
   saveMeta(candidateId, { lastBeforeAfterImportAt: new Date().toISOString() });
+  stampBaPairMeta(candidateId, baVariantKey({ pairIndex }), {
+    source: 'upload',
+    matchGrade: null,
+    matchTip: 'Operator upload',
+    matchGradeManual: false,
+  });
 
   return {
     ok: true,
@@ -1079,7 +1273,7 @@ function unlinkMatching(dir, re) {
  */
 export function writeGeneratedBaPair(
   candidateId,
-  { serviceSlug = '', pairIndex = 1, beforeBuffer, afterBuffer, sourceLabel = 'Flux 2 Pro' } = {},
+  { serviceSlug = '', pairIndex = 1, beforeBuffer, afterBuffer, sourceLabel = 'GPT Image 2 (OpenAI)' } = {},
 ) {
   if (!beforeBuffer?.length || !afterBuffer?.length) {
     throw Object.assign(new Error('beforeBuffer and afterBuffer required'), { status: 400 });
@@ -1089,11 +1283,14 @@ export function writeGeneratedBaPair(
   const config = loadConfig(candidateId);
   const niche = String(config.niche || 'remodel').trim();
   const city = String(config.primaryCity || '').trim();
-  const labelBit = sourceLabel || 'Flux 2 Pro';
+  const labelBit = sourceLabel || 'GPT Image 2 (OpenAI)';
 
   if (serviceSlug) {
     const target = resolveServiceTarget(candidateId, serviceSlug);
-    unlinkMatching(p.siteImages, new RegExp(`^svc-ba-${target.slug}-\\d+-(before|after)\\.`, 'i'));
+    unlinkMatching(
+      p.siteImages,
+      new RegExp(`^svc-ba-${escapeRegExp(target.slug)}-\\d+-(before|after)\\.`, 'i'),
+    );
     const beforeName = `svc-ba-${target.slug}-1-before.jpg`;
     const afterName = `svc-ba-${target.slug}-1-after.jpg`;
     writeFileSync(path.join(p.siteImages, beforeName), beforeBuffer);
@@ -1135,6 +1332,12 @@ export function writeGeneratedBaPair(
     }
     syncSiteImagesToPublic(candidateId);
     saveMeta(candidateId, { lastServiceBeforeAfterImportAt: new Date().toISOString() });
+    stampBaPairMeta(candidateId, baVariantKey({ serviceSlug: target.slug }), {
+      source: baSourceFromLabel(labelBit),
+      matchGrade: 'ok',
+      matchTip: `AI-generated (${labelBit})`,
+      matchGradeManual: false,
+    });
     return {
       ok: true,
       scope: 'service',
@@ -1202,6 +1405,12 @@ export function writeGeneratedBaPair(
   }
   syncSiteImagesToPublic(candidateId);
   saveMeta(candidateId, { lastBeforeAfterImportAt: new Date().toISOString() });
+  stampBaPairMeta(candidateId, baVariantKey({ pairIndex: idx }), {
+    source: baSourceFromLabel(labelBit),
+    matchGrade: 'ok',
+    matchTip: `AI-generated (${labelBit})`,
+    matchGradeManual: false,
+  });
   return {
     ok: true,
     scope: 'home',
@@ -1253,23 +1462,49 @@ export function listBeforeAfterStatus(candidateId) {
       : null;
   const plan = readImagesPlanDoc(candidateId);
   const attachVariants = (key, row) => {
-    const variants = (variantsDoc[key] || []).map((v) => ({
-      ...v,
-      beforeUrl: stampPreview(v.beforeFilename),
-      afterUrl: stampPreview(v.afterFilename),
-    }));
+    const variants = (variantsDoc[key] || [])
+      .filter((v) => {
+        const b = v?.beforeFilename
+          ? path.join(p.siteImages, path.basename(String(v.beforeFilename)))
+          : '';
+        const a = v?.afterFilename
+          ? path.join(p.siteImages, path.basename(String(v.afterFilename)))
+          : '';
+        return Boolean(v?.id && b && a && existsSync(b) && existsSync(a));
+      })
+      .map((v) => ({
+        ...v,
+        beforeUrl: stampPreview(v.beforeFilename),
+        afterUrl: stampPreview(v.afterFilename),
+      }));
     const slug = row.slug || '';
     const pairIndex = row.pairIndex || 1;
+    const complete = Boolean(row.before?.filename && row.after?.filename);
+    const lastSource = variantsDoc._lastSent?.[key]?.source || '';
+    const graded = baPairGradeFields({
+      complete,
+      alts: [row.before?.alt, row.after?.alt].filter(Boolean).join(' '),
+      meta: variantsDoc._meta?.[key] || {},
+      lastSource,
+    });
     return {
       ...row,
       matchKey: key,
       beforeUrl: stampPreview(row.before?.filename),
       afterUrl: stampPreview(row.after?.filename),
-      complete: Boolean(row.before?.filename && row.after?.filename),
+      complete: graded.complete,
+      missing: graded.missing,
+      source: graded.source,
+      matchGrade: graded.matchGrade,
+      matchTip: graded.matchTip,
       variants,
       lastPrompts: variantsDoc._lastSent?.[key] || null,
       promptPlan: plan?.beforeAfter?.[key] || null,
-      promptsForGenerate: baPromptsForCard(candidateId, { serviceSlug: slug, pairIndex }),
+      promptsForGenerate: overlayBaCardPrompts(
+        baPromptsForCard(candidateId, { serviceSlug: slug, pairIndex }),
+        loadCandidateOpenaiPrompts(candidateId),
+        key,
+      ),
     };
   };
   const services = listConfiguredServiceTargets(candidateId).map((t) => {
@@ -1302,6 +1537,15 @@ export function listBeforeAfterStatus(candidateId) {
   };
 }
 
+export function pickBaStatusPair(status, { serviceSlug = '', pairIndex = 1 } = {}) {
+  const slug = String(serviceSlug || '').trim();
+  if (slug) {
+    return (status?.services || []).find((s) => s.slug === slug) || null;
+  }
+  const n = Math.max(1, Number(pairIndex) || 1);
+  return (status?.homePairs || []).find((p) => (p.pairIndex || 1) === n) || status?.homePairs?.[0] || null;
+}
+
 function readBaVariantsDoc(candidateId) {
   const file = pathsFor(candidateId).baVariants;
   if (!existsSync(file)) return {};
@@ -1323,24 +1567,123 @@ export function saveBaVariantsDoc(candidateId, doc) {
   writeFileSync(file, `${JSON.stringify(doc, null, 2)}\n`, 'utf8');
 }
 
-export const BA_VARIANT_CAP = 8;
+const BA_MANUAL_GRADE_TIPS = {
+  poor: 'Poor match (set by you)',
+  ok: 'OK match (set by you)',
+  good: 'Good match (set by you)',
+};
 
-function unlinkQuietBa(abs) {
-  try {
-    if (existsSync(abs)) unlinkSync(abs);
-  } catch {
-    /* ignore */
-  }
+export function normalizeBaMatchKey(matchKey) {
+  let key = String(matchKey || '').trim();
+  if (key.startsWith('ba:')) key = key.slice(3);
+  return key;
 }
 
-export function trimBaVariantList(dir, variants, cap = BA_VARIANT_CAP) {
-  const kept = (variants || []).slice(0, cap);
-  for (const v of (variants || []).slice(cap)) {
-    if (v.filename) unlinkQuietBa(path.join(dir, path.basename(String(v.filename))));
-    if (v.beforeFilename) unlinkQuietBa(path.join(dir, path.basename(String(v.beforeFilename))));
-    if (v.afterFilename) unlinkQuietBa(path.join(dir, path.basename(String(v.afterFilename))));
+export function inferBaSourceFromText(text) {
+  const t = String(text || '');
+  if (/gpt image|\bopenai\b/i.test(t)) return 'openai';
+  if (/\bflux\b/i.test(t)) return 'flux';
+  if (/chatgpt/i.test(t)) return 'chatgpt';
+  return '';
+}
+
+export function baPairGradeFields({ complete = false, alts = '', meta = {}, lastSource = '' } = {}) {
+  const missing = !complete;
+  const known = new Set(['openai', 'flux', 'upload', 'photo-group', 'chatgpt', 'stock']);
+  const inferred =
+    inferBaSourceFromText(alts) ||
+    (known.has(String(lastSource || '').toLowerCase()) ? String(lastSource).toLowerCase() : '') ||
+    (known.has(String(meta.source || '').toLowerCase()) ? String(meta.source).toLowerCase() : '');
+  const source = missing ? null : meta.source && known.has(meta.source) ? meta.source : inferred || 'photo-group';
+  if (missing) {
+    return {
+      missing: true,
+      complete: false,
+      source: null,
+      matchGrade: null,
+      matchTip: 'No photo in this slot',
+    };
   }
-  return kept;
+  if (source === 'upload') {
+    return {
+      missing: false,
+      complete: true,
+      source: 'upload',
+      matchGrade: null,
+      matchTip: 'Operator upload',
+    };
+  }
+  const g =
+    meta.matchGrade === 'poor' || meta.matchGrade === 'ok' || meta.matchGrade === 'good'
+      ? meta.matchGrade
+      : 'ok';
+  const tip =
+    meta.matchTip ||
+    (g === 'good' ? 'Good match' : g === 'poor' ? 'Poor match' : 'OK match');
+  return { missing: false, complete: true, source, matchGrade: g, matchTip: tip };
+}
+
+export function stampBaPairMeta(candidateId, matchKey, patch = {}) {
+  const key = normalizeBaMatchKey(matchKey);
+  if (!key) return null;
+  const doc = loadBaVariantsDoc(candidateId);
+  const all = { ...(doc._meta && typeof doc._meta === 'object' ? doc._meta : {}) };
+  const next = { ...(all[key] || {}) };
+  if (patch.source != null && patch.source !== '') next.source = patch.source;
+  if ('matchGrade' in patch) next.matchGrade = patch.matchGrade;
+  if ('matchTip' in patch) next.matchTip = patch.matchTip;
+  if ('matchGradeManual' in patch) next.matchGradeManual = patch.matchGradeManual;
+  all[key] = next;
+  doc._meta = all;
+  saveBaVariantsDoc(candidateId, doc);
+  return next;
+}
+
+function baSourceFromLabel(label) {
+  const t = String(label || '');
+  if (/\bflux\b/i.test(t)) return 'flux';
+  if (/openai|gpt image/i.test(t)) return 'openai';
+  return 'openai';
+}
+
+export function setBaPairMatchGrade(candidateId, matchKey, matchGrade) {
+  const grade = String(matchGrade || '').toLowerCase();
+  if (grade !== 'poor' && grade !== 'ok' && grade !== 'good') {
+    throw Object.assign(new Error('matchGrade must be poor, ok, or good'), { status: 400 });
+  }
+  const key = normalizeBaMatchKey(matchKey);
+  const parsed = resolveBaVariantTarget({ matchKey: key });
+  const live = findLiveBaFiles(candidateId, {
+    serviceSlug: parsed.serviceSlug,
+    pairIndex: parsed.pairIndex,
+  });
+  if (!live.before || !live.after) {
+    throw Object.assign(new Error('No before/after pair in this slot to grade'), { status: 400 });
+  }
+  const prior = loadBaVariantsDoc(candidateId)._meta?.[parsed.key] || {};
+  if (prior.source === 'upload') {
+    throw Object.assign(
+      new Error('Upload slots keep the upload marker; they are not Poor / OK / Good'),
+      { status: 400 },
+    );
+  }
+  stampBaPairMeta(candidateId, parsed.key, {
+    matchGrade: grade,
+    matchTip: BA_MANUAL_GRADE_TIPS[grade],
+    matchGradeManual: true,
+  });
+  return {
+    ok: true,
+    status: listBeforeAfterStatus(candidateId),
+    matchKey: parsed.key,
+    matchGrade: grade,
+  };
+}
+
+export const BA_VARIANT_CAP = IMAGE_TRAY_CAP;
+
+export function trimBaVariantList(dir, variants, cap = BA_VARIANT_CAP) {
+  return trimTrayVariants(dir, variants, cap);
 }
 
 export function baVariantKey({ serviceSlug, pairIndex } = {}) {
@@ -1348,22 +1691,35 @@ export function baVariantKey({ serviceSlug, pairIndex } = {}) {
   return `home:${Math.max(1, Number(pairIndex) || 1)}`;
 }
 
+export function resolveBaVariantTarget({ matchKey = '', serviceSlug = '', pairIndex = 1 } = {}) {
+  const key = String(matchKey || '').trim();
+  if (key.startsWith('svc:')) {
+    const slug = key.slice(4).trim();
+    return { serviceSlug: slug, pairIndex: 1, key: baVariantKey({ serviceSlug: slug }) };
+  }
+  if (key.startsWith('home:')) {
+    const n = Math.max(1, Number(key.split(':')[1]) || 1);
+    return { serviceSlug: '', pairIndex: n, key: baVariantKey({ pairIndex: n }) };
+  }
+  const slug = String(serviceSlug || '').trim();
+  const n = Math.max(1, Number(pairIndex) || 1);
+  return { serviceSlug: slug, pairIndex: n, key: baVariantKey({ serviceSlug: slug, pairIndex: n }) };
+}
+
 export function findLiveBaFiles(candidateId, { serviceSlug, pairIndex } = {}) {
   const p = pathsFor(candidateId);
   if (!existsSync(p.siteImages)) return { before: null, after: null };
   const names = readdirSync(p.siteImages);
   if (serviceSlug) {
-    const reB = new RegExp(`^svc-ba-${serviceSlug}-\\d+-before\\.`, 'i');
-    const reA = new RegExp(`^svc-ba-${serviceSlug}-\\d+-after\\.`, 'i');
     return {
-      before: names.find((n) => reB.test(n)) || null,
-      after: names.find((n) => reA.test(n)) || null,
+      before: names.find((n) => isLiveSvcBaFilename(n, serviceSlug) && /-before\./i.test(n)) || null,
+      after: names.find((n) => isLiveSvcBaFilename(n, serviceSlug) && /-after\./i.test(n)) || null,
     };
   }
   const idx = Math.max(1, Number(pairIndex) || 1);
   return {
-    before: names.find((n) => new RegExp(`^gallery-ba-${idx}-before\\.`, 'i').test(n)) || null,
-    after: names.find((n) => new RegExp(`^gallery-ba-${idx}-after\\.`, 'i').test(n)) || null,
+    before: names.find((n) => isLiveHomeBaFilename(n, idx) && /-before\./i.test(n)) || null,
+    after: names.find((n) => isLiveHomeBaFilename(n, idx) && /-after\./i.test(n)) || null,
   };
 }
 
@@ -1372,6 +1728,23 @@ export function archiveLiveBaPairToTray(candidateId, { serviceSlug = '', pairInd
   const p = pathsFor(candidateId);
   const live = findLiveBaFiles(candidateId, { serviceSlug, pairIndex });
   if (!live.before && !live.after) return;
+  const key = baVariantKey({ serviceSlug, pairIndex });
+  const doc = loadBaVariantsDoc(candidateId);
+  const list = [...(doc[key] || [])];
+  if (
+    baSourceIsDuplicate(
+      p.siteImages,
+      {
+        beforeAbs: live.before ? path.join(p.siteImages, live.before) : '',
+        afterAbs: live.after ? path.join(p.siteImages, live.after) : '',
+        beforeFilename: live.before,
+        afterFilename: live.after,
+      },
+      { variants: list },
+    )
+  ) {
+    return;
+  }
   const stamp = Date.now().toString(36);
   const prefix = serviceSlug
     ? `svc-ba-${serviceSlug}`
@@ -1388,17 +1761,13 @@ export function archiveLiveBaPairToTray(candidateId, { serviceSlug = '', pairInd
   if (afterDest) {
     copyFileSync(path.join(p.siteImages, live.after), path.join(p.siteImages, afterDest));
   }
-  const key = baVariantKey({ serviceSlug, pairIndex });
-  const doc = loadBaVariantsDoc(candidateId);
-  const list = [...(doc[key] || [])];
-  list.unshift({
+  doc[key] = pushBaTrayEntry(p.siteImages, list, {
     id: `var-${stamp}`,
     beforeFilename: beforeDest,
     afterFilename: afterDest,
     source: 'prior',
     generatedAt: new Date().toISOString(),
   });
-  doc[key] = trimBaVariantList(p.siteImages, list);
   saveBaVariantsDoc(candidateId, doc);
 }
 
@@ -1406,16 +1775,13 @@ export function archiveLiveBaPairToTray(candidateId, { serviceSlug = '', pairInd
 export function setBaTrayEntries(candidateId, { serviceSlug = '', pairIndex = 1, entries = [] } = {}) {
   const p = pathsFor(candidateId);
   const key = baVariantKey({ serviceSlug, pairIndex });
+  const live = findLiveBaFiles(candidateId, { serviceSlug, pairIndex });
   const doc = loadBaVariantsDoc(candidateId);
   const list = [];
-  const seen = new Set();
   for (const e of entries || []) {
     const b = e?.beforeFilename ? path.basename(String(e.beforeFilename)) : '';
     const a = e?.afterFilename ? path.basename(String(e.afterFilename)) : '';
-    const sig = `${b}|${a}`;
     if (!b && !a) continue;
-    if (seen.has(sig)) continue;
-    seen.add(sig);
     list.push({
       id: e.id || `var-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
       beforeFilename: b || null,
@@ -1424,7 +1790,10 @@ export function setBaTrayEntries(candidateId, { serviceSlug = '', pairIndex = 1,
       generatedAt: e.generatedAt || new Date().toISOString(),
     });
   }
-  doc[key] = trimBaVariantList(p.siteImages, list);
+  doc[key] = compactBaTray(p.siteImages, list, {
+    liveBefore: live.before,
+    liveAfter: live.after,
+  });
   saveBaVariantsDoc(candidateId, doc);
   return doc[key];
 }

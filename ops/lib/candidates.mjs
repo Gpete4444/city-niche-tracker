@@ -20,6 +20,7 @@ import {
 import { lookupPopulation } from './census.mjs';
 import { recordRoverApiSpend } from './rover-api-spend.mjs';
 import { logoPromptDefaultsForConfig } from './logo-prompt.mjs';
+import { normalizeCityStateCluster } from './city-state.mjs';
 
 const ROOT = process.cwd();
 export const RESEARCH_DIR = path.join(ROOT, 'research');
@@ -67,6 +68,7 @@ export function pathsFor(id) {
     imagesPlan: path.join(RESEARCH_DIR, `${safe}-images-plan.json`),
     baVariants: path.join(RESEARCH_DIR, `${safe}-ba-variants.json`),
     photoGroup: path.join(RESEARCH_DIR, `${safe}-photo-group.json`),
+    openaiPrompts: path.join(RESEARCH_DIR, `${safe}-openai-prompts.json`),
     prospects: path.join(RESEARCH_DIR, `${safe}-prospects.json`),
     prospectsDraft: path.join(RESEARCH_DIR, `${safe}-prospects.draft.json`),
     businessAddress: path.join(RESEARCH_DIR, `${safe}-business-address.json`),
@@ -139,7 +141,7 @@ export function clearLaunchedBookkeeping(id, extra = {}) {
   });
 }
 
-/** Add to a lastCosts key (Flux is cumulative; other keys are usually last-run). */
+/** Add to a lastCosts key (OpenAI image spend is cumulative; other keys are usually last-run). */
 export function addLastCost(id, key, deltaUsd) {
   const name = String(key || '').trim();
   const delta = Number(deltaUsd);
@@ -376,7 +378,11 @@ const RESEARCH_ARTIFACT_SUFFIXES = [
   '-content.draft.json',
   '-site-config.draft.json',
   '-images-manifest.json',
+  '-images-plan.json',
   '-images-pull.json',
+  '-ba-variants.json',
+  '-photo-group.json',
+  '-openai-prompts.json',
   '-build-package.json',
   '-discovery-seed.json',
   '-narrative.draft.json',
@@ -409,19 +415,51 @@ export function candidateIdFromResearchFile(file) {
   return null;
 }
 
+function isResearchReport(data) {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return false;
+  if (data.niche && data.primaryCity && data.state) return true;
+  if (data.serp || data.volumes || data.scoring) return true;
+  return false;
+}
+
 function candidateHasCoreFiles(id) {
   const p = pathsFor(id);
-  return (
-    existsSync(p.research) ||
-    existsSync(p.config) ||
-    existsSync(p.meta) ||
-    existsSync(p.narrative) ||
-    existsSync(p.prospects)
-  );
+  if (existsSync(p.config)) return true;
+  if (existsSync(p.narrative) || existsSync(p.prospects) || existsSync(p.discoverySeed)) return true;
+  if (existsSync(p.research) && isResearchReport(readJson(p.research))) return true;
+  if (existsSync(p.meta)) {
+    const meta = readJson(p.meta);
+    if (meta?.primary && meta?.niche) return true;
+  }
+  return false;
+}
+
+const PHANTOM_SIDECAR_ID_SUFFIXES = ['-images-plan', '-ba-variants', '-photo-group', '-openai-prompts'];
+
+/** Drop leftover `{parent}-images-plan.meta.json` etc. Never delete sidecar `.json` artifacts. */
+function prunePhantomSidecarMetas() {
+  ensureResearchDir();
+  for (const file of readdirSync(RESEARCH_DIR)) {
+    if (!file.endsWith('.meta.json')) continue;
+    const id = file.slice(0, -'.meta.json'.length);
+    const kind = PHANTOM_SIDECAR_ID_SUFFIXES.find((s) => id.endsWith(s));
+    if (!kind) continue;
+    const parent = id.slice(0, -kind.length);
+    if (!parent) continue;
+    const phantom = pathsFor(id);
+    if (existsSync(phantom.config)) continue;
+    if (!candidateHasCoreFiles(parent)) continue;
+    try {
+      unlinkSync(path.join(RESEARCH_DIR, file));
+    } catch {
+      /* ignore */
+    }
+  }
 }
 
 export function listCandidates() {
   ensureResearchDir();
+  prunePhantomSidecarMetas();
   const files = readdirSync(RESEARCH_DIR);
   const cleaned = new Set();
 
@@ -750,7 +788,7 @@ export function createCandidate({
   const config = {
     niche,
     primary: `${city},${state.toUpperCase()}`,
-    cluster: Array.isArray(cluster) ? cluster : String(cluster).split(/[|;]/).map((s) => s.trim()).filter(Boolean),
+    cluster: normalizeCityStateCluster(cluster, state.toUpperCase()),
     related: Number(related) || 10,
     seeds,
     out: path.relative(ROOT, p.research).replace(/\\/g, '/'),

@@ -24,6 +24,10 @@ export function openaiImageKeySet() {
   return Boolean(String(process.env.OPENAI_API_KEY || '').trim());
 }
 
+export function openaiImageStatus() {
+  return { openaiKeySet: openaiImageKeySet() };
+}
+
 function openaiKey() {
   const key = String(process.env.OPENAI_API_KEY || '').trim();
   if (!key) {

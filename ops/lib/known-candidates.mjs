@@ -450,11 +450,22 @@ export async function removeKnownEntries(keys = []) {
   };
 }
 
+function compactKnownCell(value) {
+  return String(value || '')
+    .replace(/\|/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 /**
  * Markdown/CSV block for Discovery Claude prompt.
- * @param {{ stateFilter?: string|null, limit?: number }} opts
+ * @param {{ stateFilter?: string|null, limit?: number, compact?: boolean }} opts
  */
-export function formatKnownCandidatesForPrompt({ stateFilter = null, limit = 500 } = {}) {
+export function formatKnownCandidatesForPrompt({
+  stateFilter = null,
+  limit = 500,
+  compact = false,
+} = {}) {
   const st = stateFilter ? String(stateFilter).trim().toUpperCase() : null;
   let rows = [...indexKnownForPrompt().values()];
   if (st) rows = rows.filter((r) => r.state === st);
@@ -469,6 +480,17 @@ export function formatKnownCandidatesForPrompt({ stateFilter = null, limit = 500
   const header = st
     ? `Known markets already in Rover (state ${st}; showing ${rows.length} of ${total}). Do **not** re-propose these Niche×City×State pairs — they are Candidates or previously tracked (pass/etc.).`
     : `Known markets already in Rover (showing ${rows.length} of ${total}). Do **not** re-propose these Niche×City×State pairs — they are Candidates or previously tracked (pass/etc.).`;
+
+  if (compact) {
+    return [
+      `${header} Format: niche|city|ST`,
+      '',
+      ...rows.map(
+        (r) =>
+          `${compactKnownCell(r.niche)}|${compactKnownCell(r.city)}|${compactKnownCell(r.state)}`,
+      ),
+    ].join('\n');
+  }
 
   const lines = [
     header,

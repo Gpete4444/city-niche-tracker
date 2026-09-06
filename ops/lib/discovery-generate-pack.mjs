@@ -2,22 +2,13 @@
  * Anthropic API Generate pack: Claude fills the Discovery CSV, then Rover imports
  * the same path as paste Import Claude CSV.
  */
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { claudeMessages, defaultModel } from './claude.mjs';
-import { getBatch, importDiscoveryCsv } from './discovery.mjs';
+import { buildDiscoveryApiPrompt, getBatch, importDiscoveryCsv } from './discovery.mjs';
 import { estimateClaudeCostUsd, estimateTokensFromText } from './cost-estimates.mjs';
 import { recordRoverApiSpend } from './rover-api-spend.mjs';
 import { updateLightJobProgress } from './rover-light-jobs.mjs';
-
-const API_CSV_APPENDIX = `
-
-## Anthropic Messages (Rover API)
-
-You cannot write files into the repo. File and artifact tools are unavailable.
-
-Use Notes: FALLBACK_FENCE. After the DONE block, output exactly one \`\`\`csv fence containing the complete CSV (header row + data rows). Do not paste CSV as unfenced prose.
-`;
 
 function formatUsd(n) {
   if (n == null || Number.isNaN(Number(n))) return null;
@@ -30,21 +21,9 @@ function throwIfAborted(signal) {
   }
 }
 
-function readBatchPrompt(batchId) {
-  const { batch, dir } = getBatch(batchId);
-  const name = batch.files?.claudePrompt || 'prompt-claude.md';
-  const promptPath = path.join(dir, name);
-  if (!existsSync(promptPath)) {
-    throw Object.assign(
-      new Error('No Claude prompt for this pack — Generate Discovery pack first'),
-      { status: 400 },
-    );
-  }
-  return {
-    batch,
-    dir,
-    prompt: readFileSync(promptPath, 'utf8'),
-  };
+function generatePackMaxTokens(maxRows) {
+  const n = Math.min(100, Math.max(1, Number(maxRows) || 40));
+  return Math.min(16384, Math.max(6144, n * 200));
 }
 
 function patchBatchMeta(batchId, patch) {
@@ -60,10 +39,11 @@ function patchBatchMeta(batchId, patch) {
 }
 
 export function getGeneratePackCostPreview(batchId) {
-  const { batch, prompt } = readBatchPrompt(batchId);
-  const blob = `${prompt}${API_CSV_APPENDIX}`;
-  const inputTokens = estimateTokensFromText(blob);
-  const outputTokens = 6000;
+  const { batch } = getBatch(batchId);
+  const prompt = buildDiscoveryApiPrompt(batchId);
+  const inputTokens = estimateTokensFromText(prompt);
+  const maxRows = Math.min(100, Math.max(1, Number(batch.filters?.maxRows) || 40));
+  const outputTokens = Math.min(8000, Math.max(2500, maxRows * 80));
   const priced = estimateClaudeCostUsd({
     inputTokens,
     outputTokens,
@@ -105,18 +85,27 @@ export function getGeneratePackCostPreview(batchId) {
  * @param {{ jobId: string, signal?: AbortSignal }} ctx
  */
 export async function runGeneratePackJob(batchId, { jobId, signal } = {}) {
-  const { prompt } = readBatchPrompt(batchId);
+  const { batch } = getBatch(batchId);
+  const prompt = buildDiscoveryApiPrompt(batchId);
+  const maxRows = Math.min(100, Math.max(1, Number(batch.filters?.maxRows) || 40));
+  const maxTokens = generatePackMaxTokens(maxRows);
   const tick = (detail, done) => {
     updateLightJobProgress(jobId, { detail, done, total: 2 });
   };
   tick('Calling Claude', 1);
   throwIfAborted(signal);
-  const { text, costUsd, costNote, usage } = await claudeMessages({
-    user: `${prompt}${API_CSV_APPENDIX}`,
-    maxTokens: 16384,
-    temperature: 0.3,
+  const { text, costUsd, costNote, usage, truncated } = await claudeMessages({
+    user: prompt,
+    maxTokens,
+    effort: 'low',
     signal,
   });
+  if (truncated) {
+    throw Object.assign(
+      new Error('Claude hit the token cap — CSV incomplete. Retry Generate pack.'),
+      { status: 502 },
+    );
+  }
   if (costUsd != null) {
     recordRoverApiSpend('anthropic', costUsd);
     patchBatchMeta(batchId, { lastCosts: { generatePack: costUsd } });

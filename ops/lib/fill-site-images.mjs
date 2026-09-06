@@ -19,6 +19,9 @@ import {
 } from './candidates.mjs';
 import {
   ensureYamlFrontmatter,
+  healMaterialsCompleteRows,
+  healStagedMarkdown,
+  keepMaterialsRowCount,
   loadAcceptedSiteConfig,
   looksLikeStockScrapeAlt,
   slugifyContentName,
@@ -32,6 +35,13 @@ import {
   configuredImageProviders,
   imageProvidersStatus,
 } from './image-providers/registry.mjs';
+import {
+  IMAGE_TRAY_CAP,
+  pushSlotTrayEntry,
+  trimTrayVariants,
+} from './image-tray.mjs';
+import { isCandidateLaunched } from './launched-edit-guard.mjs';
+import { isProcessHeading } from '../../src/lib/is-process-heading.mjs';
 
 const ROOT = process.cwd();
 
@@ -111,7 +121,7 @@ function processSectionBody(md) {
     : text.replace(/^---[\s\S]*?---\n?/, '');
   const section = body.split(/^#{1,2}\s+/m).find((chunk) => {
     const heading = (chunk.trim().split('\n')[0] || '').trim();
-    return /process works|how (our |the )?.+process|how we (work|do)/i.test(heading);
+    return isProcessHeading(heading);
   });
   return section || '';
 }
@@ -132,7 +142,7 @@ function parseProcessTitleFromLine(raw) {
 }
 
 /** Process step titles from a service-page body `##`. */
-function listProcessStepTitlesFromBody(md) {
+export function listProcessStepTitlesFromBody(md) {
   const section = processSectionBody(md);
   if (!section) return [];
   return section
@@ -301,6 +311,8 @@ export function listImageSlots(candidateId) {
     }
     if (sectionId === 'materials' && homeMaterialTitles.length > 0) {
       materialTitles = homeMaterialTitles.slice(0, max);
+      const keep = keepMaterialsRowCount(materialTitles.length);
+      materialTitles = materialTitles.slice(0, keep);
       count = materialTitles.length;
     }
     const outlineSec = (outline?.sections || []).find((s) => s.id === sectionId);
@@ -343,10 +355,12 @@ export function listImageSlots(candidateId) {
     for (const rel of serviceRels) {
       const md = contentFiles[rel];
       const titles = listMaterialOptionTitles(md).slice(0, max);
-      if (!titles.length) continue;
+      const keep = keepMaterialsRowCount(titles.length);
+      const keptTitles = titles.slice(0, keep);
+      if (!keptTitles.length) continue;
       const serviceName = serviceNameFromMarkdown(md, rel);
       const serviceSlug = serviceSlugFromRel(rel);
-      titles.forEach((materialTitleRaw, i) => {
+      keptTitles.forEach((materialTitleRaw, i) => {
         const n = i + 1;
         const materialTitle = stripMaterialBold(materialTitleRaw);
         slots.push({
@@ -1765,6 +1779,20 @@ export function applyImagesToContentFiles(candidateId, filledSlots) {
     });
   };
 
+  /** Sibling key column for a process list item (`title` / `description`, not `image:`). */
+  const processItemKeyIndent = (item) => {
+    const sibling = item.match(/\n([ \t]+)(?:title|description|question|answer)\s*:/);
+    if (sibling) return sibling[1];
+    const dash = item.match(/^([ \t]*-[ \t]+)/);
+    if (dash) return ' '.repeat(dash[1].length);
+    return '    ';
+  };
+
+  const processImageYamlBlock = (slot, indent) => {
+    const nested = `${indent}  `;
+    return `${indent}image:\n${nested}src: ${JSON.stringify(`/images/${slot.filename}`)}\n${nested}alt: ${JSON.stringify(slot.alt || altFromSrc(slot.filename))}\n`;
+  };
+
   /** Attach image objects onto process: list items by index. */
   const setProcessImages = (md, slots) => {
     if (!slots.length) return md;
@@ -1776,7 +1804,6 @@ export function applyImagesToContentFiles(candidateId, filledSlots) {
     // Split into list items starting with "  - " or "- "
     const itemStarts = [...block.matchAll(/^[ \t]*-(?!-)[ \t]*/gm)];
     if (!itemStarts.length) return md;
-    let next = block;
     // Rebuild items: for each item range, ensure image: under it
     const parts = [];
     for (let i = 0; i < itemStarts.length; i += 1) {
@@ -1785,11 +1812,12 @@ export function applyImagesToContentFiles(candidateId, filledSlots) {
       let item = block.slice(start, end);
       const slot = sorted[i];
       if (slot?.filename) {
-        const imgBlock = `    image:\n      src: ${JSON.stringify(`/images/${slot.filename}`)}\n      alt: ${JSON.stringify(slot.alt || altFromSrc(slot.filename))}\n`;
+        const imgBlock = processImageYamlBlock(slot, processItemKeyIndent(item));
         if (/^[ \t]+image:/m.test(item)) {
-          item = item.replace(/^[ \t]+image:\s*\n(?:[ \t]+.*\n)*/m, imgBlock);
+          item = item.replace(/^[ \t]+image:[ \t]*(?:\n[ \t]+(?:src|alt)[ \t]*:.*)*/m, imgBlock.trimEnd());
+          if (!item.endsWith('\n')) item = `${item}\n`;
         } else {
-          item = item.replace(/\n?$/, `\n${imgBlock}`);
+          item = item.replace(/\n*$/, '\n') + imgBlock;
         }
       }
       parts.push(item.endsWith('\n') ? item : `${item}\n`);
@@ -1877,6 +1905,7 @@ export function applyImagesToContentFiles(candidateId, filledSlots) {
       if (md !== before) updated += 1;
     }
     md = ensureYamlFrontmatter(md);
+    md = healStagedMarkdown(md).markdown;
     files[indexKey] = md.endsWith('\n') ? md : `${md}\n`;
   }
 
@@ -1952,6 +1981,7 @@ export function applyImagesToContentFiles(candidateId, filledSlots) {
       md = setProcessImagesList(md, procSlots);
       updated += 1;
     }
+    md = healMaterialsCompleteRows(md).markdown;
     files[rel] = md.endsWith('\n') ? md : `${md}\n`;
   });
 
@@ -2537,8 +2567,141 @@ export function sectionLabelForGroup(groupKey, registry) {
   return byId(groupKey)?.label || groupKey;
 }
 
+function mapImageSlotCard(candidateId, slot, entry, p, registry) {
+  const filename = entry?.filename || null;
+  const onDisk = Boolean(filename && existsSync(path.join(p.siteImages, filename)));
+  let source = entry?.source || null;
+  if (!source && entry?.provider) source = 'stock';
+  if (!source && filename && /gallery-ba-/i.test(filename)) source = 'chatgpt';
+  const query = stripMaterialBold(entry?.query || slot.queryHint || '');
+  const graded =
+    entry?.matchGrade && entry?.matchTip && onDisk
+      ? { matchGrade: entry.matchGrade, matchTip: entry.matchTip }
+      : matchGradeFromScore(onDisk ? entry?.score : null, {
+          query,
+          missing: !onDisk,
+        });
+  const groupKey = sectionGroupKey(slot.sectionId);
+  return {
+    key: slot.key,
+    sectionId: slot.sectionId,
+    sectionGroup: groupKey,
+    sectionLabel: sectionLabelForGroup(groupKey === 'services' ? 'services' : slot.sectionId, registry),
+    index: slot.index,
+    label: displayLabelForSlot(slot),
+    kind: slot.kind,
+    serviceName: slot.serviceName || null,
+    processTitle: slot.processTitle || null,
+    materialTitle: slot.materialTitle || null,
+    queryHint: slot.queryHint ? stripMaterialBold(slot.queryHint) : slot.queryHint,
+    query,
+    score: entry?.score ?? null,
+    matchGrade: graded.matchGrade,
+    matchTip: graded.matchTip,
+    filename: onDisk ? filename : null,
+    src: onDisk ? `/images/${filename}` : null,
+    previewUrl: onDisk
+      ? `/api/candidates/${encodeURIComponent(p.id)}/images/file/${encodeURIComponent(filename)}?v=${encodeURIComponent(entry?.photoId || filename)}`
+      : null,
+    provider: entry?.provider || null,
+    source,
+    photoId: entry?.photoId || null,
+    wiredFm: wiredFmForSlot(slot),
+    missing: !onDisk,
+    variants: (entry?.variants || []).map((v) => {
+      const file = v.filename ? path.basename(String(v.filename)) : '';
+      const varOnDisk = Boolean(file && existsSync(path.join(p.siteImages, file)));
+      return {
+        ...v,
+        previewUrl: varOnDisk
+          ? `/api/candidates/${encodeURIComponent(p.id)}/images/file/${encodeURIComponent(file)}?v=${encodeURIComponent(v.filename)}`
+          : null,
+      };
+    }),
+  };
+}
+
+/** One Review card payload — no tray compact (writes already compact). */
+export function imageSlotCardStatus(candidateId, slotKey) {
+  const slots = listImageSlots(candidateId);
+  const slot = slots.find((s) => s.key === slotKey);
+  if (!slot) return null;
+  const p = pathsFor(candidateId);
+  return mapImageSlotCard(
+    candidateId,
+    slot,
+    loadManifest(candidateId).slots?.[slot.key] || null,
+    p,
+    loadSectionRegistry(),
+  );
+}
+
+/**
+ * Empty live slot with tray stills: promote the first on-disk tray file to live.
+ * Idempotent. `{ sync: false }` when the caller already writes content/public.
+ */
+export function promoteFirstTrayIntoEmptySlots(candidateId, { sync = true } = {}) {
+  const p = pathsFor(candidateId);
+  const structureSlots = listImageSlots(candidateId);
+  let changed = false;
+  for (const slot of structureSlots) {
+    const manifest = loadManifest(candidateId);
+    const entry = manifest.slots?.[slot.key];
+    const liveName = entry?.filename ? path.basename(String(entry.filename)) : '';
+    const liveOnDisk = Boolean(liveName && existsSync(path.join(p.siteImages, liveName)));
+    if (liveOnDisk) continue;
+    const variants = [...(entry?.variants || [])];
+    const idx = variants.findIndex((v) => {
+      const fn = path.basename(String(v?.filename || ''));
+      return Boolean(fn && existsSync(path.join(p.siteImages, fn)));
+    });
+    if (idx < 0) continue;
+    const picked = variants[idx];
+    variants.splice(idx, 1);
+    const filename = path.basename(String(picked.filename));
+    saveSlotIntoManifest(candidateId, {
+      ...(entry || {}),
+      key: slot.key,
+      sectionId: entry?.sectionId || slot.sectionId,
+      index: entry?.index ?? slot.index,
+      filename,
+      src: `/images/${filename}`,
+      alt: entry?.alt || slot.label || 'Service photo',
+      provider: picked.provider || entry?.provider || null,
+      source: picked.source || entry?.source || 'photo-group',
+      photoId: picked.photoId || entry?.photoId || null,
+      photographer: entry?.photographer || null,
+      pageUrl: entry?.pageUrl || null,
+      query: entry?.query || null,
+      score: entry?.score ?? null,
+      matchGrade: picked.matchGrade || entry?.matchGrade || 'ok',
+      matchTip: 'Loaded from similar photo-group title',
+      attribution: picked.attribution || entry?.attribution || null,
+      serviceName: entry?.serviceName || slot.serviceName || null,
+      serviceSlug: entry?.serviceSlug || slot.serviceSlug || null,
+      materialTitle: entry?.materialTitle || slot.materialTitle || null,
+      processTitle: entry?.processTitle || slot.processTitle || null,
+      label: entry?.label || slot.label || null,
+      variants,
+    });
+    changed = true;
+  }
+  if (changed && sync) {
+    const next = loadManifest(candidateId);
+    syncSiteImagesToPublic(candidateId);
+    applyImagesToContentFiles(
+      candidateId,
+      Object.values(next.slots || {}).filter((s) => s?.filename),
+    );
+  }
+  return changed;
+}
+
 /** Structure slots + manifest status for Website operator grid. */
 export function listImageSlotStatus(candidateId) {
+  if (!isCandidateLaunched(candidateId)) {
+    promoteFirstTrayIntoEmptySlots(candidateId);
+  }
   const slots = listImageSlots(candidateId);
   const manifest = loadManifest(candidateId);
   const p = pathsFor(candidateId);
@@ -2550,62 +2713,20 @@ export function listImageSlotStatus(candidateId) {
   };
   const matchTotals = { poor: 0, ok: 0, good: 0, uploaded: 0, missing: 0 };
   const mapped = slots.map((slot) => {
-    const entry = manifest.slots?.[slot.key] || null;
-    const filename = entry?.filename || null;
-    const onDisk = Boolean(filename && existsSync(path.join(p.siteImages, filename)));
-    let source = entry?.source || null;
-    if (!source && entry?.provider) source = 'stock';
-    if (!source && filename && /gallery-ba-/i.test(filename)) source = 'chatgpt';
-    const query = stripMaterialBold(entry?.query || slot.queryHint || '');
-    const graded =
-      entry?.matchGrade && entry?.matchTip && onDisk
-        ? { matchGrade: entry.matchGrade, matchTip: entry.matchTip }
-        : matchGradeFromScore(onDisk ? entry?.score : null, {
-            query,
-            missing: !onDisk,
-          });
-    if (!onDisk) matchTotals.missing += 1;
-    else if (source === 'upload') matchTotals.uploaded += 1;
-    else if (graded.matchGrade === 'good') matchTotals.good += 1;
-    else if (graded.matchGrade === 'ok') matchTotals.ok += 1;
+    const card = mapImageSlotCard(
+      candidateId,
+      slot,
+      manifest.slots?.[slot.key] || null,
+      p,
+      registry,
+    );
+    if (card.missing) matchTotals.missing += 1;
+    else if (card.source === 'upload') matchTotals.uploaded += 1;
+    else if (card.matchGrade === 'good') matchTotals.good += 1;
+    else if (card.matchGrade === 'ok') matchTotals.ok += 1;
     else matchTotals.poor += 1;
-    const groupKey = sectionGroupKey(slot.sectionId);
     return {
-      key: slot.key,
-      sectionId: slot.sectionId,
-      sectionGroup: groupKey,
-      sectionLabel: sectionLabelForGroup(groupKey === 'services' ? 'services' : slot.sectionId, registry),
-      index: slot.index,
-      label: displayLabelForSlot(slot),
-      kind: slot.kind,
-      serviceName: slot.serviceName || null,
-      processTitle: slot.processTitle || null,
-      materialTitle: slot.materialTitle || null,
-      queryHint: slot.queryHint ? stripMaterialBold(slot.queryHint) : slot.queryHint,
-      query,
-      score: entry?.score ?? null,
-      matchGrade: graded.matchGrade,
-      matchTip: graded.matchTip,
-      filename: onDisk ? filename : null,
-      src: onDisk ? `/images/${filename}` : null,
-      previewUrl: onDisk
-        ? `/api/candidates/${encodeURIComponent(p.id)}/images/file/${encodeURIComponent(filename)}?v=${encodeURIComponent(entry?.photoId || filename)}`
-        : null,
-      provider: entry?.provider || null,
-      source,
-      photoId: entry?.photoId || null,
-      wiredFm: wiredFmForSlot(slot),
-      missing: !onDisk,
-      variants: (entry?.variants || []).map((v) => {
-        const file = v.filename ? path.basename(String(v.filename)) : '';
-        const varOnDisk = Boolean(file && existsSync(path.join(p.siteImages, file)));
-        return {
-          ...v,
-          previewUrl: varOnDisk
-            ? `/api/candidates/${encodeURIComponent(p.id)}/images/file/${encodeURIComponent(file)}?v=${encodeURIComponent(v.filename)}`
-            : null,
-        };
-      }),
+      ...card,
       _order: orderIndex(slot.sectionId) * 1000 + (Number(slot.index) || 0),
     };
   });
@@ -2666,7 +2787,12 @@ export function setImageSlotMatchGrade(candidateId, slotKey, matchGrade) {
     matchGradeManual: true,
   };
   saveSlotIntoManifest(candidateId, entry);
-  return { ...listImageSlotStatus(candidateId), slotKey: slot.key, matchGrade: grade };
+  return {
+    ...listImageSlotStatus(candidateId),
+    slot: imageSlotCardStatus(candidateId, slot.key),
+    slotKey: slot.key,
+    matchGrade: grade,
+  };
 }
 
 export function saveSlotIntoManifest(candidateId, entry, { replaceFilename = null } = {}) {
@@ -2687,18 +2813,20 @@ export function saveSlotIntoManifest(candidateId, entry, { replaceFilename = nul
   if (prior?.filename && prior.filename !== entry.filename) {
     filesMap.delete(prior.filename);
   }
-  filesMap.set(entry.filename, {
-    filename: entry.filename,
-    src: entry.src,
-    sectionId: entry.sectionId,
-    provider: entry.provider || null,
-    photoId: entry.photoId || null,
-    photographer: entry.photographer || null,
-    pageUrl: entry.pageUrl || null,
-    attribution: entry.attribution || null,
-    serviceName: entry.serviceName || null,
-    source: entry.source || null,
-  });
+  if (entry.filename) {
+    filesMap.set(entry.filename, {
+      filename: entry.filename,
+      src: entry.src,
+      sectionId: entry.sectionId,
+      provider: entry.provider || null,
+      photoId: entry.photoId || null,
+      photographer: entry.photographer || null,
+      pageUrl: entry.pageUrl || null,
+      attribution: entry.attribution || null,
+      serviceName: entry.serviceName || null,
+      source: entry.source || null,
+    });
+  }
   const next = {
     ...manifest,
     version: 1,
@@ -2712,62 +2840,31 @@ export function saveSlotIntoManifest(candidateId, entry, { replaceFilename = nul
   return next;
 }
 
-export const SLOT_VARIANT_CAP = 8;
-
-function unlinkQuiet(abs) {
-  try {
-    if (existsSync(abs)) unlinkSync(abs);
-  } catch {
-    /* ignore */
-  }
-}
+export const SLOT_VARIANT_CAP = IMAGE_TRAY_CAP;
 
 export function trimSlotVariants(dir, variants, cap = SLOT_VARIANT_CAP) {
-  const kept = (variants || []).slice(0, cap);
-  for (const v of (variants || []).slice(cap)) {
-    if (v.filename) unlinkQuiet(path.join(dir, path.basename(String(v.filename))));
-    if (v.beforeFilename) unlinkQuiet(path.join(dir, path.basename(String(v.beforeFilename))));
-    if (v.afterFilename) unlinkQuiet(path.join(dir, path.basename(String(v.afterFilename))));
-  }
-  return kept;
+  return trimTrayVariants(dir, variants, cap);
 }
 
-/** Append a tray item without changing the live slot. Dedupes photoId/filename, then caps. */
-export function pushImageSlotTrayEntry(dir, variants, entry, cap = SLOT_VARIANT_CAP) {
-  const list = Array.isArray(variants) ? [...variants] : [];
-  const filename = entry?.filename ? path.basename(String(entry.filename)) : '';
-  const photoId = entry?.photoId || null;
-  if (!filename) return list;
-  if (photoId && list.some((v) => v.photoId && v.photoId === photoId)) return list;
-  if (list.some((v) => v.filename === filename)) return list;
-  list.unshift({
-    id: entry.id || `var-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
-    filename,
-    source: entry.source || 'photo-group',
-    provider: entry.provider || null,
-    photoId,
-    attribution: entry.attribution || null,
-    matchGrade: entry.matchGrade || null,
-    generatedAt: entry.generatedAt || new Date().toISOString(),
-  });
-  return trimSlotVariants(dir, list, cap);
+/** Append a tray item without changing the live slot. Dedupes photoId/content, then caps. */
+export function pushImageSlotTrayEntry(dir, variants, entry, capOrOpts = SLOT_VARIANT_CAP) {
+  const opts =
+    typeof capOrOpts === 'number' || capOrOpts == null
+      ? { cap: capOrOpts ?? SLOT_VARIANT_CAP }
+      : { cap: SLOT_VARIANT_CAP, ...capOrOpts };
+  return pushSlotTrayEntry(dir, variants, entry, opts);
 }
 
 function archiveLiveSlotToVariants(dir, prior) {
-  const variants = [...(prior?.variants || [])];
-  if (prior?.filename && existsSync(path.join(dir, path.basename(String(prior.filename))))) {
-    variants.unshift({
-      id: `var-${Date.now().toString(36)}`,
-      filename: prior.filename,
-      source: prior.source || 'stock',
-      provider: prior.provider || null,
-      photoId: prior.photoId || null,
-      attribution: prior.attribution || null,
-      matchGrade: prior.matchGrade || null,
-      generatedAt: new Date().toISOString(),
-    });
-  }
-  return trimSlotVariants(dir, variants);
+  if (!prior?.filename) return [...(prior?.variants || [])];
+  return pushSlotTrayEntry(dir, prior.variants, {
+    filename: prior.filename,
+    source: prior.source || 'stock',
+    provider: prior.provider || null,
+    photoId: prior.photoId || null,
+    attribution: prior.attribution || null,
+    matchGrade: prior.matchGrade || null,
+  });
 }
 
 /**

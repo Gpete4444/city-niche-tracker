@@ -16,6 +16,7 @@ import {
   pasteAndConfirmSoftBrief,
   saveContentFieldResearch,
   saveImagesPlan,
+  imagesPlanIsComplete,
   stampFinalCheck,
   syncWriteBatchesFromDraft,
 } from './content-eight-pass.mjs';
@@ -35,7 +36,8 @@ import {
   buildContinueWritePrompt,
 } from './content-structure.mjs';
 import { loadAcceptedSiteConfig } from './content-markdown.mjs';
-import { structureHasPhotosEnabled } from './fill-site-images.mjs';
+import { listImageSlots, structureHasPhotosEnabled } from './fill-site-images.mjs';
+import { listBaPromptSlots } from './chatgpt-before-after.mjs';
 import { updateLightJobProgress } from './rover-light-jobs.mjs';
 
 const COST_KEY = (candidateId) => ({
@@ -67,9 +69,7 @@ export function writeSiteInnerDone(candidateId) {
   const speechChecked = Boolean(draft?._ops?.lastSpeechCheckAt);
   const finalOk = Boolean(draft?._ops?.lastFinalCheckAt || d.content?._ops?.lastFinalCheckAt);
   const photosOn = structureHasPhotosEnabled(candidateId);
-  const queriesLoaded = Boolean(
-    d.imagesPlan?.loadedAt || draft?._ops?.lastImagesPlanAt || d.content?._ops?.lastImagesPlanAt,
-  );
+  const queriesLoaded = imagesPlanIsComplete(candidateId);
   return {
     field: Boolean(field?.status === 'loaded'),
     brief: brief?.status === 'confirmed',
@@ -336,20 +336,72 @@ async function runPolish(candidateId, signal, tick) {
   throw err;
 }
 
+const IMAGE_QUERY_BA_CHUNK = 2;
+
+function missingImageQuerySlotKeys(candidateId) {
+  const plan = getCandidateDetail(candidateId).imagesPlan;
+  const slots = plan?.slots && typeof plan.slots === 'object' ? plan.slots : {};
+  return listImageSlots(candidateId)
+    .filter((s) => !String(slots[s.key]?.query || '').trim())
+    .map((s) => s.key);
+}
+
+function missingImageQueryBaKeys(candidateId) {
+  const plan = getCandidateDetail(candidateId).imagesPlan;
+  const ba = plan?.beforeAfter && typeof plan.beforeAfter === 'object' ? plan.beforeAfter : {};
+  return listBaPromptSlots(candidateId)
+    .filter((s) => {
+      const e = ba[s.key];
+      return !(
+        String(e?.inside?.before || '').trim() &&
+        String(e?.inside?.after || '').trim() &&
+        String(e?.outside?.before || '').trim() &&
+        String(e?.outside?.after || '').trim()
+      );
+    })
+    .map((s) => s.key);
+}
+
 async function runImageQueries(candidateId, signal, tick) {
   if (!structureHasPhotosEnabled(candidateId)) return;
-  const d = getCandidateDetail(candidateId);
-  if (d.imagesPlan?.loadedAt || d.contentDraft?._ops?.lastImagesPlanAt) return;
+  if (imagesPlanIsComplete(candidateId)) return;
   tick('Image queries');
-  const { prompt } = buildImageQueriesPrompt(candidateId);
-  const { parsed, text, truncated } = await callClaude(candidateId, {
-    user: prompt,
-    maxTokens: 16384,
-    temperature: 0.3,
-    signal,
-  });
-  throwIfMissingJson('Image queries', { parsed, truncated, text });
-  saveImagesPlan(candidateId, parsed.value);
+
+  const missingStock = missingImageQuerySlotKeys(candidateId);
+  if (missingStock.length) {
+    tick('Image queries — stock slots');
+    const { prompt } = buildImageQueriesPrompt(candidateId, { slotKeys: missingStock, baKeys: [] });
+    const { parsed, text, truncated } = await callClaude(candidateId, {
+      user: prompt,
+      maxTokens: 16384,
+      temperature: 0.3,
+      signal,
+    });
+    throwIfMissingJson('Image queries', { parsed, truncated, text });
+    saveImagesPlan(candidateId, parsed.value, { merge: true });
+  }
+
+  let remainingBa = missingImageQueryBaKeys(candidateId);
+  while (remainingBa.length) {
+    const chunk = remainingBa.slice(0, IMAGE_QUERY_BA_CHUNK);
+    tick(`Image queries — before/after ${chunk.join(', ')}`);
+    const { prompt } = buildImageQueriesPrompt(candidateId, { slotKeys: [], baKeys: chunk });
+    const { parsed, text, truncated } = await callClaude(candidateId, {
+      user: prompt,
+      maxTokens: 16384,
+      temperature: 0.3,
+      signal,
+    });
+    throwIfMissingJson('Image queries', { parsed, truncated, text });
+    saveImagesPlan(candidateId, parsed.value, { merge: true });
+    const next = missingImageQueryBaKeys(candidateId);
+    if (chunk.every((key) => next.includes(key))) {
+      throw Object.assign(new Error('Image queries: before/after chunk did not save. Retry Write site.'), {
+        status: 500,
+      });
+    }
+    remainingBa = next;
+  }
 }
 
 /**

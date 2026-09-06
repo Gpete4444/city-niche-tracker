@@ -23,6 +23,17 @@ function gridClassName(cols: number): string {
 }
 
 /**
+ * Keep a complete 3-wide materials row (cap 6). Do not use fitEqualGrid here —
+ * 4 items would become 2×2 instead of dropping to 3.
+ * 4→3, 5→3, 7→6, 8→6; 1–2 stay.
+ */
+export function keepCompleteMaterialsRows(n: number): number {
+  const count = Math.max(0, Math.floor(Number(n) || 0));
+  if (count < 3) return count;
+  return Math.min(6, Math.floor(count / 3) * 3);
+}
+
+/**
  * Prefer the largest keep ≤ items.length with cols in 2..maxCols dividing keep.
  * Single item → 1 column. Never returns a ragged last row for the chosen cols.
  */

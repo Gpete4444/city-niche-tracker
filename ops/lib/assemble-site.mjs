@@ -20,7 +20,7 @@ import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { getCandidateDetail, pathsFor, saveMeta } from './candidates.mjs';
-import { loadAcceptedSiteConfig, sanitizeMarkdownImageFrontmatter } from './content-markdown.mjs';
+import { loadAcceptedSiteConfig, sanitizeMarkdownImageFrontmatter, healStagedMarkdown } from './content-markdown.mjs';
 import {
   ensureRoverSocialProofSeed,
   ensureSocialProofOnSiteConfigFile,
@@ -672,7 +672,7 @@ export function injectStagingIntoSite(siteRoot, stagingRoot) {
         let nextBuf;
         if (name.endsWith('.md')) {
           const raw = readFileSync(from, 'utf8');
-          const cleaned = sanitizeMarkdownImageFrontmatter(raw);
+          const cleaned = healStagedMarkdown(sanitizeMarkdownImageFrontmatter(raw)).markdown;
           const text = cleaned.endsWith('\n') ? cleaned : `${cleaned}\n`;
           nextBuf = Buffer.from(text, 'utf8');
         } else {
@@ -770,7 +770,7 @@ function syncLiveContentCollections(siteRoot, config, injectedRels = []) {
 
   const writeSanitized = (from, to, rel) => {
     const raw = readFileSync(from, 'utf8');
-    const cleaned = sanitizeMarkdownImageFrontmatter(raw);
+    const cleaned = healStagedMarkdown(sanitizeMarkdownImageFrontmatter(raw)).markdown;
     mkdirSync(path.dirname(to), { recursive: true });
     writeFileSync(to, cleaned.endsWith('\n') ? cleaned : `${cleaned}\n`, 'utf8');
     synced.push(rel);

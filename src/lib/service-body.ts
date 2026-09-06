@@ -4,6 +4,7 @@
  */
 
 import { normTitle, simpleProseToHtml, stripLeadingTitleEcho } from './content-body';
+import { isProcessHeading } from './is-process-heading.mjs';
 
 export type ServiceSectionKind =
   | 'intro'
@@ -48,14 +49,7 @@ function classifyHeading(heading: string): ServiceSectionKind {
   const t = normTitle(heading);
   if (/\bfaqs?\b|frequently asked|common questions/.test(t)) return 'faq';
   if (/what'?s included|what is included|\bscope\b|typically included/.test(t)) return 'scope';
-  // Writers use “Our {service} Process”, “Our … Approach”, “How we …”, not only “how the process works”
-  if (
-    /process works|how (our |the )?.+process|how we (work|do)/.test(t) ||
-    /\bour .{0,80}\b(process|approach)\b/.test(t) ||
-    /^how we /.test(t)
-  ) {
-    return 'process';
-  }
+  if (isProcessHeading(t)) return 'process';
   if (/\bcost\b|pricing|what does .+ cost|how much/.test(t)) return 'cost';
   if (/materials|methods/.test(t)) return 'materials';
   if (/how long|timeline|duration/.test(t)) return 'timeline';

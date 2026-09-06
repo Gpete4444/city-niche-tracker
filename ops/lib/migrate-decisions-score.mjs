@@ -1,10 +1,9 @@
 /**
- * Idempotent migration: rewrite candidate + discovery + tracked decisions
- * to the score-based recommend model.
+ * Idempotent migration: rewrite leftover legacy decision labels only.
+ * Never overwrite operator pursue / maybe / pass / hold / review / ignore.
  */
 
 import { listCandidates, setDecision } from './candidates.mjs';
-import { listBatches, recommendBatch } from './discovery.mjs';
 import { recommendCandidate } from './discovery-recommend.mjs';
 import {
   loadTrackedDecisions,
@@ -12,35 +11,39 @@ import {
 } from './known-candidates.mjs';
 
 const LEGACY = new Set(['deprioritize', 'pass_unless_gbp_angle']);
+const OPERATOR_KEEP = new Set(['pursue', 'maybe', 'pass', 'hold', 'review', 'ignore']);
+
+/** True when boot migrate may replace this saved decision (legacy, empty, or invalid). */
+export function shouldRewriteOperatorDecision(decision) {
+  const d = String(decision || '').trim();
+  if (OPERATOR_KEEP.has(d)) return false;
+  return true;
+}
+
+/**
+ * Next decision to write, or null if the operator value must stay.
+ * @param {object} c
+ * @returns {{ decision: string, notes: string } | null}
+ */
+export function migrateCandidateDecision(c = {}) {
+  if (!shouldRewriteOperatorDecision(c.decision)) return null;
+  const rec = recommendCandidate(c);
+  return { decision: rec.recommended_decision, notes: rec.recommended_reason };
+}
 
 /**
  * @returns {{ candidates: number, discoveryBatches: number, tracked: number }}
  */
 export function migrateDecisionsToScoreModel() {
   let candidates = 0;
-  let discoveryBatches = 0;
+  const discoveryBatches = 0;
   let tracked = 0;
 
   for (const c of listCandidates()) {
-    const rec = recommendCandidate(c);
-    const nextDecision = rec.recommended_decision;
-    const nextNotes = rec.recommended_reason;
-    if (c.decision === nextDecision && String(c.decisionNotes || '') === nextNotes) {
-      continue;
-    }
-    setDecision(c.id, nextDecision, nextNotes);
+    const next = migrateCandidateDecision(c);
+    if (!next) continue;
+    setDecision(c.id, next.decision, next.notes);
     candidates += 1;
-  }
-
-  for (const meta of listBatches()) {
-    const id = meta.id || meta.batchId;
-    if (!id) continue;
-    try {
-      recommendBatch(id);
-      discoveryBatches += 1;
-    } catch (err) {
-      console.warn(`[migrate-decisions] batch ${id}:`, err.message || err);
-    }
   }
 
   for (const r of loadTrackedDecisions()) {

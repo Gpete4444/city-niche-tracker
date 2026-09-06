@@ -485,10 +485,54 @@ function looksTbd(v) {
   return /^tbd\b/i.test(s) || s === 'XX' || s === SITE_CONFIG_PLACEHOLDERS.listItem;
 }
 
+const SUBURB_SCHEMA_JUNK = new Set(['id', 'string', 'xx', 'tbd', 'name', 'state', '[object object]']);
+
+/** City label from a string or object. Never use id / ID / placeId. */
+function suburbNameFromItem(x) {
+  if (x == null) return '';
+  if (typeof x === 'string' || typeof x === 'number') return String(x).trim();
+  if (typeof x === 'object' && !Array.isArray(x)) {
+    return String(x.name ?? x.city ?? x.label ?? x.place ?? '').trim();
+  }
+  if (Array.isArray(x)) return suburbNameFromItem(x[0]);
+  return '';
+}
+
+/**
+ * Real municipality names only: coerce objects, drop schema tokens / ids / duplicates / primary.
+ * Empty list is fine — Service area fills targetSuburbs next.
+ */
+export function normalizeTargetSuburbs(raw, { primaryCity, pack } = {}) {
+  const primary = String(primaryCity || '').trim().toLowerCase();
+  const seen = new Set();
+  const out = [];
+
+  const ingest = (list) => {
+    const items = Array.isArray(list) ? list : parseListField(list);
+    for (const item of items) {
+      const name = suburbNameFromItem(item);
+      if (!name || name.length < 2) continue;
+      if (/^\d+$/.test(name)) continue;
+      if (SUBURB_SCHEMA_JUNK.has(name.toLowerCase())) continue;
+      if (/^tbd\b/i.test(name)) continue;
+      const key = name.toLowerCase();
+      if (primary && key === primary) continue;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(name);
+      if (out.length >= 8) return;
+    }
+  };
+
+  ingest(raw);
+  if (!out.length && pack) ingest(suburbsFromPack(pack));
+  return out;
+}
+
 /** Split semicolon/comma lists from ops form fields into string[]. */
 export function parseListField(raw) {
   if (Array.isArray(raw)) {
-    return raw.map((x) => String(x || '').trim()).filter(Boolean);
+    return raw.map((x) => suburbNameFromItem(x)).filter(Boolean);
   }
   return String(raw || '')
     .split(/[;\n,]+/)
@@ -925,7 +969,7 @@ export function scanSiteConfigPlaceholders(config) {
   }
 
   const suburbs = Array.isArray(c.targetSuburbs) ? c.targetSuburbs : [];
-  if (!suburbs.length || suburbs.every((x) => looksTbd(x))) placeholders.push('targetSuburbs');
+  if (suburbs.length && suburbs.every((x) => looksTbd(x))) placeholders.push('targetSuburbs');
 
   const services = Array.isArray(c.services) ? c.services : [];
   if (!services.length || services.every((x) => looksTbd(x))) placeholders.push('services');
@@ -984,10 +1028,10 @@ export function withSiteConfigPlaceholders(config, nap = {}, pack = null) {
     const svc = servicesFromPack(pack);
     if (svc.length) base.services = svc;
   }
-  if (isBlank(base.targetSuburbs)) {
-    const subs = suburbsFromPack(pack);
-    if (subs.length) base.targetSuburbs = subs;
-  }
+  base.targetSuburbs = normalizeTargetSuburbs(base.targetSuburbs, {
+    primaryCity: base.primaryCity,
+    pack,
+  });
 
   // Explicit placeholders for anything still missing
   const ensure = (key, value) => {
@@ -1007,10 +1051,6 @@ export function withSiteConfigPlaceholders(config, nap = {}, pack = null) {
   ensure('web3FormsAccessKey', P.web3FormsAccessKey);
   ensure('primaryCta', P.primaryCta);
 
-  if (isBlank(base.targetSuburbs)) {
-    base.targetSuburbs = [P.listItem];
-    filledKeys.push('targetSuburbs');
-  }
   if (isBlank(base.services)) {
     base.services = [P.listItem];
     filledKeys.push('services');
@@ -1243,7 +1283,6 @@ export function acceptSiteConfig(
   candidateId,
   {
     allowNonPursue = false,
-    ignoreSuburbWarnings = false,
     allowPlaceholders = false,
   } = {},
 ) {
@@ -1257,9 +1296,14 @@ export function acceptSiteConfig(
     throw err;
   }
   const { _ops, ...cleanRaw } = draft;
+  const pack = getApprovedPackage(candidateId);
   const clean = applyNormalizedAddress(
     ensureBusinessNameNotNiche(applyArchetypeDefaults(cleanRaw)),
   );
+  clean.targetSuburbs = normalizeTargetSuburbs(clean.targetSuburbs, {
+    primaryCity: clean.primaryCity,
+    pack,
+  });
   if (!isBlank(clean.domain)) {
     clean.email = publicLeadsEmail(clean.email, clean.domain);
   }
@@ -1274,14 +1318,6 @@ export function acceptSiteConfig(
   }
 
   const suburbCheck = validateSuburbsForSiteConfig(clean);
-  if (!suburbCheck.ok && !ignoreSuburbWarnings) {
-    const err = new Error(
-      `Suburb checks failed: ${suburbCheck.warnings.slice(0, 3).join('; ')}. Pass ignoreSuburbWarnings to proceed.`,
-    );
-    err.status = 400;
-    err.suburbCheck = suburbCheck;
-    throw err;
-  }
 
   mkdirSync(path.dirname(SITE_CONFIG_PATH), { recursive: true });
   if (existsSync(SITE_CONFIG_PATH)) {

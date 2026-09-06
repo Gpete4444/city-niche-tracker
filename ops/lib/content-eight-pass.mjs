@@ -6,8 +6,10 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
+  extractPromptTemplate,
   getCandidateDetail,
   pathsFor,
+  readPromptFile,
   RESEARCH_DIR,
 } from './candidates.mjs';
 import { loadAcceptedSiteConfig } from './content-markdown.mjs';
@@ -30,9 +32,9 @@ import {
   structureHasPhotosEnabled,
 } from './fill-site-images.mjs';
 import { listBaPromptSlots } from './chatgpt-before-after.mjs';
+import { slotSettingKind } from './image-setting.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
-const AGENTS = path.join(ROOT, 'prompts', 'agents');
 
 function ensureResearchDir() {
   mkdirSync(RESEARCH_DIR, { recursive: true });
@@ -77,13 +79,18 @@ function parsePasteObject(raw) {
 }
 
 function readAgentTemplate(name) {
-  const filePath = path.join(AGENTS, name);
-  const raw = readFileSync(filePath, 'utf8');
-  const m = raw.match(/```text\n([\s\S]*?)```/);
-  if (!m) {
+  const relativePath = `prompts/agents/${name}`;
+  let raw;
+  try {
+    raw = readPromptFile(relativePath);
+  } catch (error) {
+    throw Object.assign(new Error(`Agent template missing: ${name}`), { status: 500, cause: error });
+  }
+  try {
+    return extractPromptTemplate(raw);
+  } catch {
     throw Object.assign(new Error(`Agent template missing text block: ${name}`), { status: 500 });
   }
-  return m[1].trim();
 }
 
 function fillPlaceholders(template, vars = {}) {
@@ -623,7 +630,7 @@ function fewShotImageProfiles() {
     }));
 }
 
-export function buildImageQueriesPrompt(candidateId) {
+export function buildImageQueriesPrompt(candidateId, { slotKeys = null, baKeys = null } = {}) {
   const config = loadAcceptedSiteConfig(candidateId)?.config;
   if (!config) throw Object.assign(new Error('Accept Site config first'), { status: 400 });
   if (!structureHasPhotosEnabled(candidateId)) {
@@ -631,24 +638,44 @@ export function buildImageQueriesPrompt(candidateId) {
       status: 400,
     });
   }
-  const slots = listImageSlots(candidateId).map((s) => ({
+  let slots = listImageSlots(candidateId).map((s) => ({
     key: s.key,
     section: s.sectionId,
     label: s.label || null,
     service: s.serviceName || null,
     processStep: s.processTitle || null,
     material: s.materialTitle || null,
+    setting: slotSettingKind({
+      serviceName: s.serviceName,
+      serviceSlug: s.serviceSlug,
+      config,
+    }),
   }));
-  const baSlots = listBaPromptSlots(candidateId);
+  if (Array.isArray(slotKeys)) {
+    const want = new Set(slotKeys.map((k) => String(k)));
+    slots = slots.filter((s) => want.has(s.key));
+  }
+  let baSlots = listBaPromptSlots(candidateId).map((s) => ({
+    ...s,
+    setting: slotSettingKind({
+      serviceName: s.serviceName,
+      serviceSlug: s.slug,
+      config,
+    }),
+  }));
+  if (Array.isArray(baKeys)) {
+    const want = new Set(baKeys.map((k) => String(k)));
+    baSlots = baSlots.filter((s) => want.has(s.key));
+  }
   if (!slots.length && !baSlots.length) {
     throw Object.assign(new Error('No photo slots to query yet — finish Full write first'), {
       status: 400,
     });
   }
-  const services = [
-    ...(Array.isArray(config.services) ? config.services : []),
-    ...(Array.isArray(config.commercialServices) ? config.commercialServices : []),
-  ];
+  const services = {
+    residential: Array.isArray(config.services) ? config.services : [],
+    commercial: Array.isArray(config.commercialServices) ? config.commercialServices : [],
+  };
   const template = readAgentTemplate('content-image-queries.md');
   const prompt = fillPlaceholders(template, {
     NICHE: String(config.niche || '').trim() || 'home service',
@@ -660,62 +687,115 @@ export function buildImageQueriesPrompt(candidateId) {
   return { prompt, slotCount: slots.length, baSlotCount: baSlots.length, niche: config.niche, slots, baSlots };
 }
 
-export function saveImagesPlan(candidateId, raw) {
+function baSideComplete(side) {
+  return Boolean(String(side?.before || '').trim() && String(side?.after || '').trim());
+}
+
+function normalizeBaEntry(entry) {
+  const pick = (side) => ({
+    before: String(entry?.[side]?.before || '').trim(),
+    after: String(entry?.[side]?.after || '').trim(),
+  });
+  const inside = pick('inside');
+  const outside = pick('outside');
+  if (!baSideComplete(inside) || !baSideComplete(outside)) return null;
+  return {
+    room: String(entry?.room || '').trim() || null,
+    inside,
+    outside,
+  };
+}
+
+export function imagesPlanIsComplete(candidateId, plan = null) {
+  const doc = plan || readJson(pathsFor(candidateId).imagesPlan);
+  if (!doc) return false;
+  const known = listImageSlots(candidateId);
+  const slots = doc.slots && typeof doc.slots === 'object' ? doc.slots : {};
+  if (known.length && known.some((s) => !String(slots[s.key]?.query || '').trim())) return false;
+  const baNeeded = listBaPromptSlots(candidateId);
+  const ba = doc.beforeAfter && typeof doc.beforeAfter === 'object' ? doc.beforeAfter : {};
+  return baNeeded.every((slot) => Boolean(normalizeBaEntry(ba[slot.key])));
+}
+
+export function saveImagesPlan(candidateId, raw, { merge = false } = {}) {
   const parsed = parsePasteObject(raw);
-  const slotQueries = parsed?.slots && typeof parsed.slots === 'object' ? parsed.slots : null;
-  if (!slotQueries || Array.isArray(slotQueries)) {
-    throw Object.assign(
-      new Error('Image queries JSON needs a "slots" object keyed by slot key (hero-1, …).'),
-      { status: 400 },
-    );
-  }
+  const existing = merge ? readJson(pathsFor(candidateId).imagesPlan) : null;
   const known = new Set(listImageSlots(candidateId).map((s) => s.key));
-  const slots = {};
-  for (const [key, val] of Object.entries(slotQueries)) {
-    if (!known.has(key)) continue;
-    const query = String(val?.query || val || '')
-      .trim()
-      .replace(/\s+/g, ' ');
-    if (!query) continue;
-    slots[key] = { query };
+  const slots = { ...(merge && existing?.slots && typeof existing.slots === 'object' ? existing.slots : {}) };
+  const slotQueries =
+    parsed?.slots && typeof parsed.slots === 'object' && !Array.isArray(parsed.slots) ? parsed.slots : null;
+  if (slotQueries) {
+    for (const [key, val] of Object.entries(slotQueries)) {
+      if (!known.has(key)) continue;
+      const query = String(val?.query || val || '')
+        .trim()
+        .replace(/\s+/g, ' ');
+      if (!query) continue;
+      slots[key] = { query };
+    }
   }
   const baNeeded = listBaPromptSlots(candidateId);
   if (!Object.keys(slots).length) {
-    if (known.size || !baNeeded.length) {
+    if (known.size && !(merge && baNeeded.length && slotQueries == null)) {
       throw Object.assign(
         new Error('No matching slot queries — use the keys from Copy prompt (hero-1, svcHero-…).'),
         { status: 400 },
       );
     }
-  }
-  const rawBa = parsed?.beforeAfter && typeof parsed.beforeAfter === 'object' ? parsed.beforeAfter : {};
-  const beforeAfter = {};
-  const missingBa = [];
-  for (const slot of baNeeded) {
-    const entry = rawBa[slot.key];
-    const pick = (side) => ({
-      before: String(entry?.[side]?.before || '').trim(),
-      after: String(entry?.[side]?.after || '').trim(),
-    });
-    const inside = pick('inside');
-    const outside = pick('outside');
-    if (!inside.before || !inside.after || !outside.before || !outside.after) {
-      missingBa.push(slot.key);
-      continue;
+    if (!merge && (known.size || !baNeeded.length)) {
+      throw Object.assign(
+        new Error('Image queries JSON needs a "slots" object keyed by slot key (hero-1, …).'),
+        { status: 400 },
+      );
     }
-    beforeAfter[slot.key] = {
-      room: String(entry.room || '').trim() || null,
-      inside,
-      outside,
-    };
   }
-  if (baNeeded.length && missingBa.length) {
+  if (!merge && (!slotQueries || Array.isArray(parsed?.slots))) {
     throw Object.assign(
-      new Error(
-        `Image queries JSON needs beforeAfter prompts for: ${missingBa.join(', ')} (inside and outside, before and after).`,
-      ),
+      new Error('Image queries JSON needs a "slots" object keyed by slot key (hero-1, …).'),
       { status: 400 },
     );
+  }
+
+  const beforeAfter = {
+    ...(merge && existing?.beforeAfter && typeof existing.beforeAfter === 'object' ? existing.beforeAfter : {}),
+  };
+  const rawBa = parsed?.beforeAfter && typeof parsed.beforeAfter === 'object' ? parsed.beforeAfter : {};
+  const missingBa = [];
+  if (merge) {
+    for (const [key, entry] of Object.entries(rawBa)) {
+      if (!baNeeded.some((s) => s.key === key)) continue;
+      const norm = normalizeBaEntry(entry);
+      if (!norm) {
+        missingBa.push(key);
+        continue;
+      }
+      beforeAfter[key] = norm;
+    }
+    if (missingBa.length) {
+      throw Object.assign(
+        new Error(
+          `Image queries JSON needs beforeAfter prompts for: ${missingBa.join(', ')} (inside and outside, before and after).`,
+        ),
+        { status: 400 },
+      );
+    }
+  } else {
+    for (const slot of baNeeded) {
+      const norm = normalizeBaEntry(rawBa[slot.key]);
+      if (!norm) {
+        missingBa.push(slot.key);
+        continue;
+      }
+      beforeAfter[slot.key] = norm;
+    }
+    if (baNeeded.length && missingBa.length) {
+      throw Object.assign(
+        new Error(
+          `Image queries JSON needs beforeAfter prompts for: ${missingBa.join(', ')} (inside and outside, before and after).`,
+        ),
+        { status: 400 },
+      );
+    }
   }
 
   const config = loadAcceptedSiteConfig(candidateId)?.config || {};
@@ -724,15 +804,17 @@ export function saveImagesPlan(candidateId, raw) {
     ...(Array.isArray(config.services) ? config.services : []),
     ...(Array.isArray(config.commercialServices) ? config.commercialServices : []),
   ];
-  const profilePersist = persistNicheProfileFromPlan(niche, services, parsed.profile || {});
+  const profileIn = parsed.profile || (merge ? existing?.profile : null) || {};
+  const profilePersist = persistNicheProfileFromPlan(niche, services, profileIn);
 
-  const loadedAt = new Date().toISOString();
+  const complete = imagesPlanIsComplete(candidateId, { slots, beforeAfter });
+  const loadedAt = complete ? new Date().toISOString() : existing?.loadedAt || null;
   const record = {
     version: 1,
     candidateId: pathsFor(candidateId).id,
     loadedAt,
     niche,
-    profile: parsed.profile || null,
+    profile: parsed.profile || existing?.profile || null,
     profilePersist,
     slots,
     beforeAfter,
@@ -740,23 +822,26 @@ export function saveImagesPlan(candidateId, raw) {
   };
   writeJson(pathsFor(candidateId).imagesPlan, record);
 
-  const stampOps = (filePath) => {
-    const doc = readJson(filePath);
-    if (!doc) return;
-    doc._ops = {
-      ...(doc._ops || {}),
-      lastImagesPlanAt: loadedAt,
-      lastImagesPlanSlotCount: Object.keys(slots).length,
-      lastImagesPlanBaCount: Object.keys(beforeAfter).length,
+  if (complete) {
+    const stampOps = (filePath) => {
+      const doc = readJson(filePath);
+      if (!doc) return;
+      doc._ops = {
+        ...(doc._ops || {}),
+        lastImagesPlanAt: loadedAt,
+        lastImagesPlanSlotCount: Object.keys(slots).length,
+        lastImagesPlanBaCount: Object.keys(beforeAfter).length,
+      };
+      writeJson(filePath, doc);
     };
-    writeJson(filePath, doc);
-  };
-  stampOps(pathsFor(candidateId).contentDraft);
-  stampOps(pathsFor(candidateId).content);
+    stampOps(pathsFor(candidateId).contentDraft);
+    stampOps(pathsFor(candidateId).content);
+  }
 
   return {
     ok: true,
     loadedAt,
+    complete,
     slotCount: Object.keys(slots).length,
     baSlotCount: Object.keys(beforeAfter).length,
     profilePersist,

@@ -10,7 +10,7 @@ You write TWO things for a home-service website: (A) STOCK SEARCH QUERIES for Un
 NICHE
 {{NICHE}}
 
-SERVICES
+SERVICES (residential vs commercial lists)
 {{SERVICES_JSON}}
 
 PHOTO SLOTS — stock search only (use these keys exactly in slots)
@@ -27,14 +27,14 @@ STOCK QUERY RULES (slots)
 2. Service heroes: show THAT service being done or the finished trade result (Texture Matching → knockdown texture on interior drywall wall — never bottles, couches, phones, cars).
 3. Process steps: rewrite poison verbs (sand → sanding joint compound on drywall; cut and prep → cut out damaged drywall; mud → joint compound on drywall seam).
 4. Materials: product/tool close-up for this trade, prefixed with the trade word (drywall mesh tape, hopper gun spraying drywall texture) — never beauty primer, industrial chain, or empty macros.
-5. Hero/intro: finished or in-progress work of THIS niche in a home — never street signs, beaches, oceans, mallorca, family movie night.
+5. Hero/intro: finished or in-progress work of THIS niche. If the slot’s setting is "commercial" (or the service is in commercialServices / named commercial-*), stage it in an office, retail, warehouse, or other commercial building — never a home living room. Residential slots stay in a home. Never street signs, beaches, oceans, mallorca, family movie night.
 6. profile.tokens: distinctive trade words only (no repair, water, damage, matching, sand, texture as standalone tokens).
 7. profile.requireNicheHit must be true.
 8. profile.boost / kindHints: stock-searchable visual phrases that include a distinctive token.
 
 BEFORE/AFTER PROMPT RULES (beforeAfter)
 9. Do NOT reuse stock queries as before/after prompts. Each before/after value is a full paragraph prompt for a documentary contractor photo (not CGI, not a real-estate listing). No people, no faces, no hands, no crew, no customers, no silhouettes.
-10. Each BA key is a DIFFERENT building, room, layout, and defect. Never the same basement, window, or water heater twice. Home gallery (home:1) is the niche hero job. Each svc:* key is ONLY that service’s job (repair a hole ≠ skim a patch ≠ match wall texture ≠ water stain ≠ popcorn).
+10. Each BA key is a DIFFERENT building, room, layout, and defect. Never the same basement, window, or water heater twice. Home gallery (home:1) is the niche hero job. Each svc:* key is ONLY that service’s job (repair a hole ≠ skim a patch ≠ match wall texture ≠ water stain ≠ popcorn). Each BA slot has setting "commercial" or "residential". Commercial jobs (commercial-* names, commercialServices, or setting:"commercial") MUST be staged in a commercial building — office, retail, warehouse, storefront, lobby, or corridor. Never a living room, bedroom, dining room, or ordinary house for those keys.
 11. inside.before = generate a BEFORE photo from scratch. inside.after = EDIT-THIS-PHOTO instructions (same crop, camera height, lens, white balance, furniture, floor; change only the service result). Same for outside.before / outside.after. Outside is a real exterior of THAT job, not a generic curb shot. After is an in-place edit of the Before JPEG, not a second interior.
 12. No egress-window or window-well examples unless that service is actually egress / basement windows.
 13. Distinctive trade words in every prompt. 4:3. No text/logos/watermarks.
@@ -61,12 +61,12 @@ Return JSON ONLY (no markdown fence unless the whole reply is one json fence):
   },
   "beforeAfter": {
     "BA_KEY": {
-      "room": "distinct room name",
+      "room": "distinct room name (commercial building room when setting is commercial)",
       "inside": { "before": "full generate prompt", "after": "Edit this BEFORE photo…" },
       "outside": { "before": "full generate prompt", "after": "Edit this BEFORE photo…" }
     }
   }
 }
 
-Include a slots entry for EVERY photo slot key. Include a beforeAfter entry for EVERY before/after key listed above (inside and outside, before and after). If BEFORE/AFTER SLOTS is an empty array, omit beforeAfter or use {}.
+Include a slots entry for EVERY photo slot key listed above. Include a beforeAfter entry for EVERY before/after key listed above (inside and outside, before and after). If PHOTO SLOTS is an empty array, omit slots or use {}. If BEFORE/AFTER SLOTS is an empty array, omit beforeAfter or use {}.
 ```

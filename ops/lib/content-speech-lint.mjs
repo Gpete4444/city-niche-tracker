@@ -228,7 +228,7 @@ function stripStructuredLabelDashLines(body) {
 }
 
 /** `- **Title** — desc` or `**Tier** — $low–$high — …` (em or en dash after bold label). */
-function isStructuredLabelDashLine(line) {
+export function isStructuredLabelDashLine(line) {
   const t = String(line || '');
   // Optional list marker, bold label (may include a markdown link), then em/en dash
   return /^\s*(?:[-*+]\s+)?\*\*.+?\*\*\s+[—–\u2013\u2014]\s+/.test(t);

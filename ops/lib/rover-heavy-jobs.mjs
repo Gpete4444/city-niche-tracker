@@ -1,59 +1,20 @@
 /**
  * Global heavy-job registry + concurrency queue for assemble / preview / ship / launch.
  * Source of truth for the top-bar Heavy Jobs popover (all Rover tabs).
+ * Concurrent Limit for Heavy lives in rover-concurrency.mjs (Settings).
  */
 
 import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import path from 'node:path';
+import {
+  CONCURRENCY_MAX,
+  CONCURRENCY_MIN,
+  getConcurrency,
+  setConcurrencySettings,
+} from './rover-concurrency.mjs';
 
-export const MAX_CONCURRENCY = 6;
-export const MIN_CONCURRENCY = 1;
-
-const ROOT = process.cwd();
-const RUNTIME_SETTINGS_PATH = path.join(ROOT, 'research', '_rover', 'runtime-settings.json');
-
-function clampConcurrency(n) {
-  const v = Math.round(Number(n));
-  if (!Number.isFinite(v)) return null;
-  return Math.max(MIN_CONCURRENCY, Math.min(MAX_CONCURRENCY, v));
-}
-
-function envConcurrencyFallback() {
-  return (
-    clampConcurrency(process.env.ROVER_SHIP_CONCURRENCY) ??
-    clampConcurrency(2) ??
-    2
-  );
-}
-
-/** @type {number | null} */
-let concurrencyOverride = null;
-
-function loadRuntimeSettings() {
-  try {
-    if (!existsSync(RUNTIME_SETTINGS_PATH)) return;
-    const raw = JSON.parse(readFileSync(RUNTIME_SETTINGS_PATH, 'utf8'));
-    const n = clampConcurrency(raw?.concurrency);
-    if (n != null) concurrencyOverride = n;
-  } catch {
-    /* ignore corrupt file */
-  }
-}
-
-function saveRuntimeSettings() {
-  mkdirSync(path.dirname(RUNTIME_SETTINGS_PATH), { recursive: true });
-  const payload = {
-    concurrency: concurrencyLimit(),
-    updatedAt: new Date().toISOString(),
-  };
-  writeFileSync(RUNTIME_SETTINGS_PATH, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
-}
-
-loadRuntimeSettings();
-
-const DEFAULT_CONCURRENCY = envConcurrencyFallback();
+export const MAX_CONCURRENCY = CONCURRENCY_MAX.heavy;
+export const MIN_CONCURRENCY = CONCURRENCY_MIN;
 
 /** @typedef {'queued'|'running'|'done'|'error'} JobStatus */
 /** @typedef {'assemble'|'preview'|'ship'|'launch'|'prepare'} JobPhase */
@@ -115,30 +76,15 @@ function serializeHeavyJob(job, { includeResult = true } = {}) {
 }
 
 export function concurrencyLimit() {
-  if (concurrencyOverride != null) return concurrencyOverride;
-  return (
-    clampConcurrency(process.env.ROVER_SHIP_CONCURRENCY) ??
-    DEFAULT_CONCURRENCY
-  );
+  return getConcurrency().heavy;
 }
 
 /**
- * Set Jobs K (1..6). Persists to research/_rover/runtime-settings.json.
+ * Set Heavy Concurrent Limit (1..12). Persists with the other Settings limits.
  * @param {number} n
  */
 export function setConcurrency(n) {
-  const next = clampConcurrency(n);
-  if (next == null) {
-    const err = new Error(`concurrency must be ${MIN_CONCURRENCY}–${MAX_CONCURRENCY}`);
-    err.status = 400;
-    throw err;
-  }
-  concurrencyOverride = next;
-  try {
-    saveRuntimeSettings();
-  } catch (error) {
-    console.warn('[rover-jobs] could not persist concurrency:', error?.message || error);
-  }
+  setConcurrencySettings({ heavy: n });
   emitChange();
   pump();
   return concurrencyLimit();
@@ -172,7 +118,7 @@ export function listJobsSnapshot() {
     concurrency: concurrencyLimit(),
     maxConcurrency: MAX_CONCURRENCY,
     minConcurrency: MIN_CONCURRENCY,
-    concurrencySource: concurrencyOverride != null ? 'runtime' : 'env',
+    concurrencySource: 'settings',
     running: runningCount,
     queued: queue.length,
     activeCount: active.length,
@@ -257,6 +203,21 @@ export function startHeavyJob(opts) {
         `Candidate already has a ${existing.phase} job (${existing.status}). Wait or use another candidate.`,
       ),
       { status: 409, job: serializeHeavyJob(existing, { includeResult: false }) },
+    );
+  }
+
+  const limit = concurrencyLimit();
+  if (runningCount >= limit) {
+    throw Object.assign(
+      new Error(
+        `Already ${runningCount} Heavy jobs running. Concurrent Limit for Heavy (Prepare / Launch) is ${limit} — a soft limit so you do not spend too much money at once.`,
+      ),
+      {
+        status: 409,
+        code: 'HEAVY_CONCURRENCY',
+        limit,
+        running: runningCount,
+      },
     );
   }
 
@@ -363,4 +324,16 @@ export function updateJobProgress(jobId, { detail, done, total } = {}) {
     job.progressTotal != null ? ` ${job.progressDone ?? 0}/${job.progressTotal}` : '';
   console.log('[rover-job]', job.candidateId, job.phase, `${job.detail || ''}${frac}`);
   emitChange();
+}
+
+/** Test-only: drop every heavy job in this process. */
+export function resetHeavyJobsForTests() {
+  jobs.clear();
+  queue.length = 0;
+  runningCount = 0;
+}
+
+/** Test-only: pretend this many Heavy jobs are in flight. */
+export function forceRunningCountForTests(n) {
+  runningCount = Math.max(0, Math.round(Number(n)) || 0);
 }

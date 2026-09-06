@@ -1,6 +1,7 @@
 ---
 import { site, formatPhoneDisplay, phoneHref } from '../config/site';
 import { fitEqualGrid } from '../lib/equal-grid';
+import { sentenceCaseLine } from '../lib/content-body';
 import {
   SURFACE_BRAND,
   SURFACE_INK,
@@ -88,7 +89,7 @@ const {
 } = Astro.props;
 const reviewsRaw = showReviews ? (site.socialProof?.reviews ?? []) : [];
 
-/** Why choose us: prefer 2×2 (maxCols 2); process/services keep default maxCols 4. */
+/** Why choose us: prefer 2×2 (maxCols 2). Process uses default maxCols 4 (6 → 3×2). */
 const whyGrid = fitEqualGrid(whyChooseUsRaw, { maxCols: 2 });
 const whyChooseUs = whyGrid.items;
 
@@ -335,7 +336,7 @@ const coverageMapHtml = loadInlineCoverageMapHtml(
                         kind: 'body',
                       })}
                     >
-                      {item.description}
+                      {sentenceCaseLine(item.description)}
                     </p>
                   </div>
                 </li>

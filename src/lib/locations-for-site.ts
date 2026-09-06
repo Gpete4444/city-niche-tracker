@@ -69,6 +69,7 @@ export function filterLocationsForSite<T extends LocationEntryLike>(
 
 /**
  * Coverage cities without a location page — for “Also serving” (link to contact).
+ * Homepage always appends “and others” after this list.
  */
 export function alsoServingLinks(site: SiteGeo): LocationLink[] {
   const state = String(site.state || '').trim().toUpperCase();

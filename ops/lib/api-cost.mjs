@@ -3,7 +3,6 @@
  */
 import { fetchUserBalance } from '../../scripts/lib/dataforseo.mjs';
 import { fetchApifyPlanUsage } from './address-screen.mjs';
-import { getFalBalance } from './image-providers/flux.mjs';
 import { fetchTwilioBalance } from './phone-tracking-twilio.mjs';
 import { getRoverApiSpend } from './rover-api-spend.mjs';
 
@@ -41,6 +40,8 @@ async function fetchApifyMonthSpend(token, date) {
 }
 
 /** Sum monthly Apify usage walking back. Not used by Address Find. */
+let apifyLifetimeCache = { ready: false, value: null };
+
 async function fetchApifyLifetimeSpend() {
   const token = String(process.env.APIFY_TOKEN || '').trim();
   if (!token) return null;
@@ -57,6 +58,13 @@ async function fetchApifyLifetimeSpend() {
     total += spent;
   }
   return Number(total.toFixed(6));
+}
+
+async function resolveApifyLifetimeSpend(fresh = false) {
+  if (!fresh) return apifyLifetimeCache.ready ? apifyLifetimeCache.value : null;
+  const value = await fetchApifyLifetimeSpend();
+  apifyLifetimeCache = { ready: true, value };
+  return value;
 }
 
 async function fetchDfsBalance() {
@@ -84,6 +92,116 @@ async function fetchDfsBalance() {
   }
 }
 
+const ANTHROPIC_API = 'https://api.anthropic.com/v1/organizations';
+
+function anthropicAdminHeaders(adminKey) {
+  return { 'x-api-key': adminKey, 'anthropic-version': '2023-06-01' };
+}
+
+/**
+ * Try GET /v1/organizations/me — returns { current_spend, customer_limit } on
+ * prepaid Console orgs. Not in official docs but returned by the Admin API.
+ * Returns null when the endpoint 404s or the fields are missing.
+ */
+async function fetchAnthropicOrgBilling(adminKey) {
+  try {
+    const res = await fetch(`${ANTHROPIC_API}/me`, {
+      headers: anthropicAdminHeaders(adminKey),
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!res.ok) return null;
+    const json = await res.json().catch(() => null);
+    if (!json) return null;
+    const spend = Number(json.current_spend);
+    const limit = Number(json.customer_limit);
+    if (Number.isFinite(spend) && Number.isFinite(limit) && limit > 0) {
+      return { spend, limit };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Fallback: sum month-to-date spend from the official Cost Report API.
+ * Returns spend in USD or null on failure.
+ */
+async function fetchAnthropicCostReport(adminKey) {
+  const now = new Date();
+  const startOfMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+  const endingAt = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1));
+  const params = new URLSearchParams({
+    starting_at: startOfMonth.toISOString(),
+    ending_at: endingAt.toISOString(),
+    bucket_width: '1d',
+    limit: '31',
+  });
+  const res = await fetch(`${ANTHROPIC_API}/cost_report?${params}`, {
+    headers: anthropicAdminHeaders(adminKey),
+    signal: AbortSignal.timeout(15000),
+  });
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(`Anthropic Admin API ${res.status}: ${body.slice(0, 200)}`);
+  }
+  const json = await res.json();
+  let totalCents = 0;
+  for (const bucket of json.data || []) {
+    for (const result of bucket.results || []) {
+      const amt = Number(result.amount);
+      if (Number.isFinite(amt)) totalCents += amt;
+    }
+  }
+  return Number((totalCents / 100).toFixed(6));
+}
+
+/**
+ * Fetch Anthropic remaining credits and month-to-date spend.
+ * Requires ANTHROPIC_ADMIN_KEY (sk-ant-admin01-…).
+ *
+ * 1. Try /v1/organizations/me → customer_limit − current_spend (automatic).
+ * 2. Fall back to Cost Report + optional ANTHROPIC_CREDIT_BALANCE override.
+ * 3. If neither yields a credit cap, balance is null (UI shows "—").
+ */
+async function fetchAnthropicBalance() {
+  const fetchedAt = new Date().toISOString();
+  const adminKey = String(process.env.ANTHROPIC_ADMIN_KEY || '').trim();
+  if (!adminKey) {
+    return { ok: false, balance: null, spentAllTime: null, error: 'ANTHROPIC_ADMIN_KEY not set', fetchedAt };
+  }
+
+  try {
+    // Primary: billing endpoint with customer_limit / current_spend
+    const billing = await fetchAnthropicOrgBilling(adminKey);
+    if (billing) {
+      return {
+        ok: true,
+        balance: Number((billing.limit - billing.spend).toFixed(2)),
+        spentAllTime: Number(billing.spend.toFixed(6)),
+        error: null,
+        fetchedAt,
+      };
+    }
+
+    // Fallback: Cost Report (official) + optional manual credit cap
+    const spentUsd = await fetchAnthropicCostReport(adminKey);
+    const creditEnv = String(process.env.ANTHROPIC_CREDIT_BALANCE || '').trim();
+    const creditBalance = Number(creditEnv);
+    const hasCredit = creditEnv && Number.isFinite(creditBalance) && creditBalance > 0;
+
+    return {
+      ok: true,
+      balance: hasCredit ? Number((creditBalance - spentUsd).toFixed(2)) : null,
+      spentAllTime: spentUsd,
+      error: null,
+      fetchedAt,
+    };
+  } catch (error) {
+    return { ok: false, balance: null, spentAllTime: null, error: error.message || String(error), fetchedAt };
+  }
+}
+
 function wrapSettled(result, fallback) {
   if (result.status === 'fulfilled') return result.value;
   return fallback(result.reason);
@@ -100,17 +218,16 @@ export async function getApiCostSnapshot({ fresh = false } = {}) {
     openai: envSet('OPENAI_API_KEY'),
     googleMaps: envSet('GOOGLE_MAPS_API_KEY'),
     apify: envSet('APIFY_TOKEN'),
-    fal: envSet('FAL_KEY') || envSet('FAL_API_KEY'),
-    falAdmin: envSet('FAL_ADMIN_KEY'),
     twilio: envSet('TWILIO_ACCOUNT_SID', 'TWILIO_AUTH_TOKEN'),
+    anthropicAdmin: envSet('ANTHROPIC_ADMIN_KEY'),
   };
 
-  const [dfsR, falR, apifyR, twilioR, apifyLifeR] = await Promise.allSettled([
+  const [dfsR, apifyR, twilioR, apifyLifeR, anthropicR] = await Promise.allSettled([
     fetchDfsBalance(),
-    getFalBalance({ fresh }),
     fetchApifyPlanUsage(),
     fetchTwilioBalance(),
-    fetchApifyLifetimeSpend(),
+    resolveApifyLifetimeSpend(fresh),
+    fetchAnthropicBalance(),
   ]);
 
   const apify = wrapSettled(apifyR, (reason) => ({
@@ -133,13 +250,6 @@ export async function getApiCostSnapshot({ fresh = false } = {}) {
       error: reason?.message || String(reason),
       fetchedAt,
     })),
-    fal: wrapSettled(falR, (reason) => ({
-      ok: false,
-      balance: null,
-      spentAllTime: null,
-      error: reason?.message || String(reason),
-      fetchedAt,
-    })),
     apify,
     twilio: wrapSettled(twilioR, (reason) => ({
       ok: false,
@@ -147,6 +257,13 @@ export async function getApiCostSnapshot({ fresh = false } = {}) {
       balance: null,
       spentAllTime: null,
       currency: null,
+      error: reason?.message || String(reason),
+      fetchedAt,
+    })),
+    anthropic: wrapSettled(anthropicR, (reason) => ({
+      ok: false,
+      balance: null,
+      spentAllTime: null,
       error: reason?.message || String(reason),
       fetchedAt,
     })),

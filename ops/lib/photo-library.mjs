@@ -19,7 +19,6 @@ import { recordRoverApiSpend } from './rover-api-spend.mjs';
 import { loadAcceptedSiteConfig } from './content-markdown.mjs';
 import { loadSectionRegistry } from './content-structure.mjs';
 import { configuredImageProviders } from './image-providers/registry.mjs';
-import { generateFluxImage, fluxStatus, assertFluxCredits, invalidateFalBalanceCache, setFluxJobProgress, clearFluxJobProgress } from './image-providers/flux.mjs';
 import {
   OPENAI_IMAGE_COST,
   openaiImageKeySet,
@@ -27,6 +26,23 @@ import {
   editOpenaiImage,
 } from './image-providers/openai-image.mjs';
 import { fluxSlotPromptForCandidate, fluxSlotPromptFromMeta, buildFluxBaPrompts } from './flux-prompts.mjs';
+import { slotSettingKind } from './image-setting.mjs';
+import {
+  loadOpenaiPromptsFile,
+  openaiPromptsPathForGroupDir,
+  getSlotPromptOverride,
+  getBaPromptOverride,
+  pickPromptText,
+  pickBaPromptPair,
+  overlayBaCardPrompts,
+  persistSlotOverrideIfBody,
+  persistBaOverrideIfBody,
+  setSlotPromptOverride,
+  clearSlotPromptOverride,
+  setBaPromptOverride,
+  clearBaPromptOverride,
+  saveOpenaiPromptsFile,
+} from './openai-prompt-overrides.mjs';
 import {
   displayLabelForSlot,
   IMAGE_SECTION_DEFAULT_ORDER,
@@ -42,6 +58,7 @@ import {
   saveLastBaPrompts,
   baPromptsForCard,
   normalizeBaViewpoint,
+  baPairGradeFields,
 } from './chatgpt-before-after.mjs';
 import {
   collectBaFromDisk,
@@ -59,9 +76,18 @@ import {
   PHOTO_GROUPS_DIR,
   nichesEqual,
 } from './photo-groups.mjs';
+import {
+  IMAGE_TRAY_CAP,
+  baSourceIsDuplicate,
+  compactBaTray,
+  compactSlotTray,
+  pushBaTrayEntry,
+  pushSlotTrayEntry,
+  trimTrayVariants,
+} from './image-tray.mjs';
 
 const SKIP_SAVE_NAMES = /^(logo\.(svg|png)|coverage-map\.svg)$/i;
-const ALT_CAP = 8;
+const ALT_CAP = IMAGE_TRAY_CAP;
 
 function gradeRank(g) {
   const v = String(g || '').toLowerCase();
@@ -278,7 +304,7 @@ function slotVariantsOnDisk(group, variants) {
 
 function baVariantsOnDisk(group, variants) {
   return (Array.isArray(variants) ? variants : []).filter(
-    (v) => groupFileExists(group, v.beforeFilename) || groupFileExists(group, v.afterFilename),
+    (v) => groupFileExists(group, v.beforeFilename) && groupFileExists(group, v.afterFilename),
   );
 }
 
@@ -287,16 +313,24 @@ function pruneMissingGroupVariants(group) {
   let dropped = 0;
   for (const s of group.slots || []) {
     const list = Array.isArray(s.variants) ? s.variants : [];
-    const kept = slotVariantsOnDisk(group, list);
-    dropped += list.length - kept.length;
-    if (kept.length !== list.length) s.variants = kept;
+    const onDisk = slotVariantsOnDisk(group, list);
+    const compacted = compactSlotTray(group.dir, onDisk, {
+      liveFilename: s.filename,
+      livePhotoId: s.photoId,
+    });
+    dropped += list.length - compacted.length;
+    s.variants = compacted;
   }
   const pruneBa = (pairs) => {
     for (const p of pairs || []) {
       const list = Array.isArray(p.variants) ? p.variants : [];
-      const kept = baVariantsOnDisk(group, list);
-      dropped += list.length - kept.length;
-      if (kept.length !== list.length) p.variants = kept;
+      const onDisk = baVariantsOnDisk(group, list);
+      const compacted = compactBaTray(group.dir, onDisk, {
+        liveBefore: p.before?.filename,
+        liveAfter: p.after?.filename,
+      });
+      dropped += list.length - compacted.length;
+      p.variants = compacted;
     }
   };
   pruneBa(group.beforeAfter?.home);
@@ -344,9 +378,61 @@ function copyOnDiskVariants(srcDir, destDir, variants, { ba = false } = {}) {
   return out;
 }
 
+function groupSiteConfig(group) {
+  const cid = candidateIdForGroup(group);
+  if (!cid) return {};
+  try {
+    return loadAcceptedSiteConfig(cid)?.config || {};
+  } catch {
+    return {};
+  }
+}
+
+function groupSlotSetting(group, slot = {}) {
+  return slotSettingKind({
+    serviceName: slot.serviceName,
+    serviceSlug: slot.serviceSlug,
+    config: groupSiteConfig(group),
+  });
+}
+
+function groupOpenaiDoc(group) {
+  return loadOpenaiPromptsFile(openaiPromptsPathForGroupDir(group.dir));
+}
+
+function saveGroupOpenaiDoc(group, doc) {
+  return saveOpenaiPromptsFile(openaiPromptsPathForGroupDir(group.dir), doc);
+}
+
+function canonicalGroupSlotPrompt(group, existing, { viewpoint, forChatGpt = true } = {}) {
+  const cid = candidateIdForGroup(group);
+  const setting = groupSlotSetting(group, existing);
+  if (cid && existing.key) {
+    try {
+      return fluxSlotPromptForCandidate(cid, existing.key, { viewpoint, forChatGpt });
+    } catch {
+      /* fall through */
+    }
+  }
+  return fluxSlotPromptFromMeta({
+    niche: group.niche,
+    slot: existing,
+    viewpoint,
+    setting,
+    config: groupSiteConfig(group),
+    forChatGpt,
+  });
+}
+
 function decorateBaPair(group, pair, extras = {}) {
   const row = { ...pair, ...extras };
   const cid = candidateIdForGroup(group);
+  const config = groupSiteConfig(group);
+  const setting = slotSettingKind({
+    serviceName: extras.serviceName || pair.serviceName || '',
+    serviceSlug: extras.serviceSlug || pair.serviceSlug || '',
+    config,
+  });
   let promptsForGenerate = null;
   if (cid) {
     try {
@@ -360,26 +446,46 @@ function decorateBaPair(group, pair, extras = {}) {
   }
   if (!promptsForGenerate) {
     const one = (vp) => {
-      const opts = {
+      const built = buildFluxBaPrompts({
         niche: group.niche,
         serviceName: extras.serviceName || pair.serviceName || group.niche,
         viewpoint: vp,
-      };
+        setting,
+        config,
+        forChatGpt: true,
+      });
       return {
-        before: buildFluxBaPrompts({ ...opts, forChatGpt: true }).before,
-        after: buildFluxBaPrompts({ ...opts, forChatGpt: true }).after,
+        before: built.before,
+        after: built.after,
+        originalBefore: built.before,
+        originalAfter: built.after,
         source: 'template',
-        room: null,
+        room: built.room || null,
+        setting: built.setting || setting,
       };
     };
     promptsForGenerate = { inside: one('inside'), outside: one('outside') };
   }
+  promptsForGenerate = overlayBaCardPrompts(
+    promptsForGenerate,
+    groupOpenaiDoc(group),
+    extras.matchKey || pair.matchKey || '',
+  );
   return {
     ...row,
     beforeUrl: row.before?.filename ? previewUrl(group.id, row.before.filename) : null,
     afterUrl: row.after?.filename ? previewUrl(group.id, row.after.filename) : null,
     lastPrompts: row.lastPrompts || null,
     promptsForGenerate,
+    ...baPairGradeFields({
+      complete: Boolean(row.before?.filename && row.after?.filename),
+      alts: [row.before?.alt, row.after?.alt, row.source].filter(Boolean).join(' '),
+      meta: {
+        source: row.source || null,
+        matchGrade: row.matchGrade || null,
+        matchTip: row.matchTip || null,
+      },
+    }),
     variants: baVariantsOnDisk(group, row.variants).map((v) => ({
       ...v,
       beforeUrl: groupFileExists(group, v.beforeFilename)
@@ -826,16 +932,14 @@ export async function repullPhotoGroupSlot(groupId, { matchKey } = {}) {
     throw Object.assign(new Error('Re-pull found no unused stock'), { status: 400 });
   }
   const filename = uniqueDest(dest.dir, `${existing.key || 'slot'}-stock.jpg`);
-  const variants = [...(existing.variants || [])];
+  let variants = [...(existing.variants || [])];
   if (existing.filename && existsSync(path.join(dest.dir, existing.filename))) {
-    variants.unshift({
-      id: `var-${Date.now().toString(36)}`,
+    variants = pushSlotTrayEntry(dest.dir, variants, {
       filename: existing.filename,
       source: existing.source || 'stock',
       provider: existing.provider || null,
       photoId: existing.photoId || null,
       matchGrade: existing.matchGrade || null,
-      generatedAt: new Date().toISOString(),
     });
   }
   writeFileSync(path.join(dest.dir, filename), searched.download.buffer);
@@ -852,32 +956,45 @@ export async function repullPhotoGroupSlot(groupId, { matchKey } = {}) {
     photographer: searched.download.photographer,
     pageUrl: searched.download.pageUrl,
     savedAt: new Date().toISOString(),
-    variants: trimGroupVariants(dest.dir, variants),
+    variants,
   };
   putSlotOnGroup(dest, matchKey, incoming);
   return { ok: true, group: persistPhotoGroupRecord(dest) };
 }
 
-export function chatgptPromptForGroupSlot(groupId, matchKey, { viewpoint } = {}) {
+export function chatgptPromptForGroupSlot(groupId, matchKey, { viewpoint, prompt: bodyPrompt } = {}) {
   const dest = getPhotoGroup(groupId);
   const existing = (dest.slots || []).find((s) => matchKeyForSlot(s) === matchKey);
   if (!existing) {
     throw Object.assign(new Error('Unknown slot'), { status: 404 });
   }
-  const cid = candidateIdForGroup(dest);
-  if (cid && existing.key) {
-    try {
-      return fluxSlotPromptForCandidate(cid, existing.key, { viewpoint, forChatGpt: true });
-    } catch {
-      /* fall through */
-    }
+  const built = canonicalGroupSlotPrompt(dest, existing, { viewpoint, forChatGpt: true });
+  const override = getSlotPromptOverride(groupOpenaiDoc(dest), matchKey, built.viewpoint);
+  const prompt = pickPromptText(built.prompt, override, bodyPrompt);
+  return {
+    ...built,
+    original: built.prompt,
+    prompt,
+    overridden: prompt !== built.prompt,
+  };
+}
+
+export function savePhotoGroupSlotOpenaiPrompt(groupId, matchKey, { viewpoint, prompt, restore } = {}) {
+  const dest = getPhotoGroup(groupId);
+  const existing = (dest.slots || []).find((s) => matchKeyForSlot(s) === matchKey);
+  if (!existing) {
+    throw Object.assign(new Error('Unknown slot'), { status: 404 });
   }
-  return fluxSlotPromptFromMeta({
-    niche: dest.niche,
-    slot: existing,
-    viewpoint,
-    forChatGpt: true,
-  });
+  const built = canonicalGroupSlotPrompt(dest, existing, { viewpoint, forChatGpt: true });
+  let doc = groupOpenaiDoc(dest);
+  const text = String(prompt || '').trim();
+  if (restore || text === built.prompt) {
+    doc = clearSlotPromptOverride(doc, matchKey, built.viewpoint);
+  } else if (text) {
+    doc = setSlotPromptOverride(doc, matchKey, built.viewpoint, text);
+  }
+  saveGroupOpenaiDoc(dest, doc);
+  return chatgptPromptForGroupSlot(groupId, matchKey, { viewpoint: built.viewpoint });
 }
 
 export function importPhotoGroupBa(groupId, body = {}) {
@@ -1201,13 +1318,6 @@ export function upsertNicheMaster(candidateId) {
   };
 }
 
-function fluxUnconfiguredError() {
-  return Object.assign(
-    new Error('No Flux key configured. Set FAL_KEY in .env (fal.ai), then restart Rover.'),
-    { status: 400, code: 'flux-unconfigured' },
-  );
-}
-
 function unlinkQuiet(abs) {
   try {
     if (existsSync(abs)) unlinkSync(abs);
@@ -1217,19 +1327,33 @@ function unlinkQuiet(abs) {
 }
 
 function archiveGroupBaPair(dest, pair) {
-  const variants = [...(pair.variants || [])];
+  let variants = [...(pair.variants || [])];
   if (
     pair.before?.filename &&
     pair.after?.filename &&
     existsSync(path.join(dest.dir, pair.before.filename)) &&
     existsSync(path.join(dest.dir, pair.after.filename))
   ) {
+    if (
+      baSourceIsDuplicate(
+        dest.dir,
+        {
+          beforeAbs: path.join(dest.dir, pair.before.filename),
+          afterAbs: path.join(dest.dir, pair.after.filename),
+          beforeFilename: pair.before.filename,
+          afterFilename: pair.after.filename,
+        },
+        { variants },
+      )
+    ) {
+      return variants;
+    }
     const stamp = Date.now().toString(36);
     const bVar = uniqueDest(dest.dir, `${path.parse(pair.before.filename).name}-var-${stamp}.jpg`);
     const aVar = uniqueDest(dest.dir, `${path.parse(pair.after.filename).name}-var-${stamp}.jpg`);
     copyFileSync(path.join(dest.dir, pair.before.filename), path.join(dest.dir, bVar));
     copyFileSync(path.join(dest.dir, pair.after.filename), path.join(dest.dir, aVar));
-    variants.unshift({
+    variants = pushBaTrayEntry(dest.dir, variants, {
       id: `var-${stamp}`,
       beforeFilename: bVar,
       afterFilename: aVar,
@@ -1241,75 +1365,10 @@ function archiveGroupBaPair(dest, pair) {
 }
 
 function trimGroupVariants(dir, variants) {
-  const kept = (variants || []).slice(0, ALT_CAP);
-  for (const v of (variants || []).slice(ALT_CAP)) {
-    if (v.filename) unlinkQuiet(path.join(dir, path.basename(String(v.filename))));
-    if (v.beforeFilename) unlinkQuiet(path.join(dir, path.basename(String(v.beforeFilename))));
-    if (v.afterFilename) unlinkQuiet(path.join(dir, path.basename(String(v.afterFilename))));
-  }
-  return kept;
+  return trimTrayVariants(dir, variants, ALT_CAP);
 }
 
-function groupSlotPrompt(dest, existing, viewpoint) {
-  const cid = candidateIdForGroup(dest);
-  if (cid && existing.key) {
-    try {
-      return fluxSlotPromptForCandidate(cid, existing.key, { viewpoint, forChatGpt: false });
-    } catch {
-      /* fall through */
-    }
-  }
-  return fluxSlotPromptFromMeta({
-    niche: dest.niche,
-    slot: existing,
-    viewpoint,
-    forChatGpt: false,
-  });
-}
-
-export async function generatePhotoGroupSlot(groupId, { matchKey, viewpoint } = {}) {
-  if (!fluxStatus().configured) throw fluxUnconfiguredError();
-  await assertFluxCredits('generate');
-  const dest = getPhotoGroup(groupId);
-  const existing = (dest.slots || []).find((s) => matchKeyForSlot(s) === matchKey);
-  if (!existing) throw Object.assign(new Error('Unknown slot'), { status: 400 });
-  const built = groupSlotPrompt(dest, existing, viewpoint);
-  try {
-    const { buffer, provider } = await generateFluxImage({ prompt: built.prompt });
-  const variants = [...(existing.variants || [])];
-  if (existing.filename && existsSync(path.join(dest.dir, existing.filename))) {
-    variants.unshift({
-      id: `var-${Date.now().toString(36)}`,
-      filename: existing.filename,
-      source: existing.source || 'stock',
-      provider: existing.provider || null,
-      generatedAt: new Date().toISOString(),
-    });
-  }
-  const filename = uniqueDest(dest.dir, `${existing.key || 'slot'}-flux.jpg`);
-  writeFileSync(path.join(dest.dir, filename), buffer);
-  const incoming = {
-    ...existing,
-    filename,
-    source: 'flux',
-    provider,
-    photoId: `flux:${groupId}:${Date.now()}`,
-    attribution: 'AI-generated (Flux 2 Pro)',
-    matchGrade: 'ok',
-    matchTip: 'AI-generated (Flux 2 Pro)',
-    savedAt: new Date().toISOString(),
-    variants: trimGroupVariants(dest.dir, variants),
-  };
-  putSlotOnGroup(dest, matchKey, incoming);
-  persistPhotoGroupRecord(dest);
-  invalidateFalBalanceCache();
-  return { ok: true, view: getPhotoGroupView(groupId) };
-  } finally {
-    clearFluxJobProgress();
-  }
-}
-
-export async function generatePhotoGroupSlotOpenai(groupId, { matchKey, viewpoint } = {}) {
+export async function generatePhotoGroupSlotOpenai(groupId, { matchKey, viewpoint, prompt } = {}) {
   if (!openaiImageKeySet()) {
     throw Object.assign(
       new Error('Set OPENAI_API_KEY in .env (same key as Phone), then restart Rover.'),
@@ -1320,61 +1379,155 @@ export async function generatePhotoGroupSlotOpenai(groupId, { matchKey, viewpoin
   const existing = (dest.slots || []).find((s) => matchKeyForSlot(s) === matchKey);
   if (!existing) throw Object.assign(new Error('Unknown slot'), { status: 400 });
   const cid = candidateIdForGroup(dest);
-  let built;
-  if (cid && existing.key) {
-    try {
-      built = fluxSlotPromptForCandidate(cid, existing.key, { viewpoint, forChatGpt: true });
-    } catch {
-      built = fluxSlotPromptFromMeta({
-        niche: dest.niche,
-        slot: existing,
-        viewpoint,
-        forChatGpt: true,
-      });
-    }
-  } else {
-    built = fluxSlotPromptFromMeta({
-      niche: dest.niche,
-      slot: existing,
-      viewpoint,
-      forChatGpt: true,
+  const built = chatgptPromptForGroupSlot(groupId, matchKey, { viewpoint, prompt });
+  if (String(prompt || '').trim()) {
+    persistSlotOverrideIfBody(
+      openaiPromptsPathForGroupDir(dest.dir),
+      matchKey,
+      built.viewpoint,
+      built.original,
+      built.prompt,
+    );
+  }
+  const { buffer, provider } = await generateOpenaiImage({ prompt: built.prompt });
+  let variants = [...(existing.variants || [])];
+  if (existing.filename && existsSync(path.join(dest.dir, existing.filename))) {
+    variants = pushSlotTrayEntry(dest.dir, variants, {
+      filename: existing.filename,
+      source: existing.source || 'stock',
+      provider: existing.provider || null,
+      photoId: existing.photoId || null,
     });
   }
-  try {
-    setFluxJobProgress({ step: 'generate', status: 'SUBMITTING', model: 'openai' });
-    const { buffer, provider } = await generateOpenaiImage({ prompt: built.prompt });
-    const variants = [...(existing.variants || [])];
-    if (existing.filename && existsSync(path.join(dest.dir, existing.filename))) {
-      variants.unshift({
-        id: `var-${Date.now().toString(36)}`,
+  const filename = uniqueDest(dest.dir, `${existing.key || 'slot'}-openai.jpg`);
+  writeFileSync(path.join(dest.dir, filename), buffer);
+  const incoming = {
+    ...existing,
+    filename,
+    source: 'openai',
+    provider,
+    photoId: `openai:${groupId}:${Date.now()}`,
+    attribution: 'GPT Image 2 (OpenAI)',
+    matchGrade: 'ok',
+    matchTip: 'AI-generated (GPT Image 2 (OpenAI))',
+    savedAt: new Date().toISOString(),
+    variants,
+  };
+  putSlotOnGroup(dest, matchKey, incoming);
+  persistPhotoGroupRecord(dest);
+  if (cid) addLastCost(cid, 'openai', OPENAI_IMAGE_COST.generate);
+  else recordRoverApiSpend('openai', OPENAI_IMAGE_COST.generate);
+  return { ok: true, view: getPhotoGroupView(groupId) };
+}
+
+/** Copy a still onto this group slot. Current live goes to the tray. */
+export function useFileOnPhotoGroupSlot(groupId, { matchKey, fromGroupId, filename } = {}) {
+  const dest = getPhotoGroup(groupId);
+  const src = getPhotoGroup(String(fromGroupId || groupId).trim() || groupId);
+  if (!nichesEqual(dest.niche, src.niche)) {
+    throw Object.assign(new Error('Can only use photos within the same niche'), { status: 400 });
+  }
+  const want = path.basename(String(filename || ''));
+  const key = String(matchKey || '').trim();
+  if (!want || !key) {
+    throw Object.assign(new Error('matchKey and filename required'), { status: 400 });
+  }
+  const fromAbs = path.join(src.dir, want);
+  if (!existsSync(fromAbs)) {
+    throw Object.assign(new Error('Image not found'), { status: 404 });
+  }
+  const existing = (dest.slots || []).find((s) => matchKeyForSlot(s) === key);
+  if (!existing) {
+    throw Object.assign(new Error('Unknown slot'), { status: 400 });
+  }
+  if (dest.id === src.id && existing.filename && path.basename(String(existing.filename)) === want) {
+    return { ok: true, view: getPhotoGroupView(groupId) };
+  }
+  const trayHit = (existing.variants || []).find(
+    (v) => dest.id === src.id && path.basename(String(v.filename || '')) === want,
+  );
+  if (trayHit?.filename) {
+    return usePhotoGroupSlotVariant(groupId, { matchKey: key, filename: trayHit.filename });
+  }
+  const destName = uniqueDest(dest.dir, `see-${want}`);
+  copyFileSync(fromAbs, path.join(dest.dir, destName));
+  let variants = [...(existing.variants || [])];
+  if (existing.filename && existsSync(path.join(dest.dir, existing.filename))) {
+    variants = pushSlotTrayEntry(
+      dest.dir,
+      variants,
+      {
         filename: existing.filename,
         source: existing.source || 'stock',
         provider: existing.provider || null,
-        generatedAt: new Date().toISOString(),
-      });
-    }
-    const filename = uniqueDest(dest.dir, `${existing.key || 'slot'}-openai.jpg`);
-    writeFileSync(path.join(dest.dir, filename), buffer);
-    const incoming = {
-      ...existing,
-      filename,
-      source: 'openai',
-      provider,
-      photoId: `openai:${groupId}:${Date.now()}`,
-      attribution: 'GPT Image 2 (OpenAI)',
-      matchGrade: 'ok',
-      matchTip: 'AI-generated (GPT Image 2 (OpenAI))',
-      savedAt: new Date().toISOString(),
-      variants: trimGroupVariants(dest.dir, variants),
-    };
-    putSlotOnGroup(dest, matchKey, incoming);
-    persistPhotoGroupRecord(dest);
-    if (cid) addLastCost(cid, 'openai', OPENAI_IMAGE_COST.generate);
-    else recordRoverApiSpend('openai', OPENAI_IMAGE_COST.generate);
-    return { ok: true, view: getPhotoGroupView(groupId) };
-  } finally {
-    clearFluxJobProgress();
+        photoId: existing.photoId || null,
+      },
+      { liveFilename: destName, livePhotoId: existing.photoId },
+    );
   }
+  const incoming = {
+    ...existing,
+    filename: destName,
+    source: 'photo-group',
+    savedAt: new Date().toISOString(),
+    variants,
+  };
+  putSlotOnGroup(dest, key, incoming);
+  persistPhotoGroupRecord(dest);
+  return { ok: true, view: getPhotoGroupView(groupId) };
+}
+
+/** Copy a before/after pair onto this group BA slot. Current live pair goes to the tray. */
+export function useBaPairOnPhotoGroupSlot(
+  groupId,
+  { matchKey, fromGroupId, beforeFilename, afterFilename } = {},
+) {
+  const dest = getPhotoGroup(groupId);
+  const src = getPhotoGroup(String(fromGroupId || groupId).trim() || groupId);
+  if (!nichesEqual(dest.niche, src.niche)) {
+    throw Object.assign(new Error('Can only use photos within the same niche'), { status: 400 });
+  }
+  const wantBefore = path.basename(String(beforeFilename || ''));
+  const wantAfter = path.basename(String(afterFilename || ''));
+  const key = String(matchKey || '').trim();
+  if (!wantBefore || !wantAfter || !key) {
+    throw Object.assign(new Error('matchKey, beforeFilename, and afterFilename required'), {
+      status: 400,
+    });
+  }
+  const fromBefore = path.join(src.dir, wantBefore);
+  const fromAfter = path.join(src.dir, wantAfter);
+  if (!existsSync(fromBefore) || !existsSync(fromAfter)) {
+    throw Object.assign(new Error('Pair not found'), { status: 404 });
+  }
+  const found = findGroupBaPair(dest, key);
+  const pair = found.pair;
+  const liveBefore = path.basename(String(pair.before?.filename || ''));
+  const liveAfter = path.basename(String(pair.after?.filename || ''));
+  if (dest.id === src.id && liveBefore === wantBefore && liveAfter === wantAfter) {
+    return { ok: true, view: getPhotoGroupView(groupId) };
+  }
+  const trayHit = (pair.variants || []).find(
+    (v) =>
+      dest.id === src.id &&
+      path.basename(String(v.beforeFilename || '')) === wantBefore &&
+      path.basename(String(v.afterFilename || '')) === wantAfter,
+  );
+  if (trayHit?.beforeFilename) {
+    return usePhotoGroupBaVariant(groupId, {
+      matchKey: key,
+      pairId: trayHit.id,
+      beforeFilename: trayHit.beforeFilename,
+    });
+  }
+  const ctx = groupBaPairContext(groupId, { matchKey: key });
+  return persistGeneratedGroupBaPair(groupId, ctx, {
+    beforeBuffer: readFileSync(fromBefore),
+    afterBuffer: readFileSync(fromAfter),
+    beforePrompt: ctx.pair.lastPrompts?.before || '',
+    afterPrompt: ctx.pair.lastPrompts?.after || '',
+    source: 'photo-group',
+  });
 }
 
 export function usePhotoGroupSlotVariant(groupId, { matchKey, filename } = {}) {
@@ -1383,28 +1536,41 @@ export function usePhotoGroupSlotVariant(groupId, { matchKey, filename } = {}) {
   if (!existing) throw Object.assign(new Error('Unknown slot'), { status: 400 });
   const want = path.basename(String(filename || ''));
   const variants = [...(existing.variants || [])];
-  const idx = variants.findIndex((v) => path.basename(String(v.filename || '')) === want);
+  let idx = variants.findIndex((v) => path.basename(String(v.filename || '')) === want);
+  if (idx < 0) {
+    for (const slot of dest.slots || []) {
+      if (matchKeyForSlot(slot) === matchKey) continue;
+      const list = [...(slot.variants || [])];
+      const i = list.findIndex((v) => path.basename(String(v.filename || '')) === want);
+      if (i < 0) continue;
+      variants.push(list[i]);
+      idx = variants.length - 1;
+      list.splice(i, 1);
+      slot.variants = list;
+      break;
+    }
+  }
   if (idx < 0) throw Object.assign(new Error('Variant not found'), { status: 404 });
   const picked = variants[idx];
   if (!existsSync(path.join(dest.dir, picked.filename))) {
     throw Object.assign(new Error('Variant file missing'), { status: 404 });
   }
   variants.splice(idx, 1);
+  let nextVariants = variants;
   if (existing.filename) {
-    variants.unshift({
-      id: picked.id || `var-${Date.now().toString(36)}`,
+    nextVariants = pushSlotTrayEntry(dest.dir, variants, {
       filename: existing.filename,
       source: existing.source || null,
       provider: existing.provider || null,
-      generatedAt: new Date().toISOString(),
-    });
+      photoId: existing.photoId || null,
+    }, { liveFilename: picked.filename, livePhotoId: picked.photoId || existing.photoId });
   }
   const incoming = {
     ...existing,
     filename: picked.filename,
     source: picked.source || existing.source,
     provider: picked.provider || existing.provider,
-    variants: trimGroupVariants(dest.dir, variants),
+    variants: nextVariants,
     savedAt: new Date().toISOString(),
   };
   putSlotOnGroup(dest, matchKey, incoming);
@@ -1498,7 +1664,7 @@ function persistGeneratedGroupBaPair(groupId, ctx, { beforeBuffer, afterBuffer, 
   return { ok: true, view: getPhotoGroupView(groupId) };
 }
 
-export async function generatePhotoGroupBaPairOpenai(groupId, { matchKey, viewpoint, kind, pairIndex, serviceSlug, serviceName } = {}) {
+export async function generatePhotoGroupBaPairOpenai(groupId, { matchKey, viewpoint, kind, pairIndex, serviceSlug, serviceName, before, after } = {}) {
   if (!openaiImageKeySet()) {
     throw Object.assign(
       new Error('Set OPENAI_API_KEY in .env (same key as Phone), then restart Rover.'),
@@ -1506,48 +1672,44 @@ export async function generatePhotoGroupBaPairOpenai(groupId, { matchKey, viewpo
     );
   }
   const ctx = groupBaPairContext(groupId, { matchKey, viewpoint, kind, pairIndex, serviceSlug, serviceName });
-  const { dest, pair, cid, slug, idx, vp } = ctx;
-  let beforePrompt = '';
-  let afterPrompt = '';
-  if (cid) {
-    const resolved = resolveBaChatgptPrompts(cid, {
-      serviceSlug: slug,
-      pairIndex: idx,
-      viewpoint: vp,
-    });
-    beforePrompt = resolved.before;
-    afterPrompt = resolved.after;
-  } else {
-    const promptOpts = {
-      niche: dest.niche,
-      serviceName: pair.serviceName || dest.niche,
-      viewpoint: vp,
-    };
-    const built = buildFluxBaPrompts({ ...promptOpts, forChatGpt: true });
-    beforePrompt = built.before;
-    afterPrompt = built.after;
+  const { dest, cid, slug, idx, vp, key } = ctx;
+  const resolved = getPhotoGroupBaPrompts(groupId, {
+    matchKey: key,
+    viewpoint: vp,
+    pairIndex: idx,
+    serviceSlug: slug,
+    before,
+    after,
+  });
+  if (String(before || '').trim() || String(after || '').trim()) {
+    persistBaOverrideIfBody(
+      openaiPromptsPathForGroupDir(dest.dir),
+      key,
+      resolved.viewpoint,
+      { before: resolved.originalBefore, after: resolved.originalAfter },
+      { before: resolved.before, after: resolved.after },
+    );
   }
-  try {
-    setFluxJobProgress({ step: 'before', status: 'SUBMITTING', model: 'openai' });
-    const before = await generateOpenaiImage({ prompt: beforePrompt });
-    setFluxJobProgress({ step: 'after', status: 'SUBMITTING', model: 'openai' });
-    const after = await editOpenaiImage({ prompt: afterPrompt, imageBuffer: before.buffer });
-    const result = persistGeneratedGroupBaPair(groupId, ctx, {
-      beforeBuffer: before.buffer,
-      afterBuffer: after.buffer,
-      beforePrompt,
-      afterPrompt,
-      source: 'openai',
-    });
-    if (cid) addLastCost(cid, 'openai', OPENAI_IMAGE_COST.pair);
-    else recordRoverApiSpend('openai', OPENAI_IMAGE_COST.pair);
-    return result;
-  } finally {
-    clearFluxJobProgress();
-  }
+  const beforePrompt = resolved.before;
+  const afterPrompt = resolved.after;
+  const beforeImg = await generateOpenaiImage({ prompt: beforePrompt });
+  const afterImg = await editOpenaiImage({ prompt: afterPrompt, imageBuffer: beforeImg.buffer });
+  const result = persistGeneratedGroupBaPair(groupId, ctx, {
+    beforeBuffer: beforeImg.buffer,
+    afterBuffer: afterImg.buffer,
+    beforePrompt,
+    afterPrompt,
+    source: 'openai',
+  });
+  if (cid) addLastCost(cid, 'openai', OPENAI_IMAGE_COST.pair);
+  else recordRoverApiSpend('openai', OPENAI_IMAGE_COST.pair);
+  return result;
 }
 
-export function getPhotoGroupBaPrompts(groupId, { matchKey, viewpoint, pairIndex, serviceSlug } = {}) {
+export function getPhotoGroupBaPrompts(
+  groupId,
+  { matchKey, viewpoint, pairIndex, serviceSlug, before, after } = {},
+) {
   const dest = getPhotoGroup(groupId);
   const key =
     matchKey ||
@@ -1560,31 +1722,91 @@ export function getPhotoGroupBaPrompts(groupId, { matchKey, viewpoint, pairIndex
   const slug = pair.serviceSlug || serviceSlug || '';
   const idx = found.pairIndex || pair.pairIndex || Number(pairIndex) || 1;
   const vp = normalizeBaViewpoint(viewpoint);
+  const config = groupSiteConfig(dest);
+  const setting = slotSettingKind({
+    serviceName: pair.serviceName || '',
+    serviceSlug: slug,
+    config,
+  });
+  let canonical;
   if (cid) {
-    return resolveBaChatgptPrompts(cid, { serviceSlug: slug, pairIndex: idx, viewpoint: vp });
+    canonical = resolveBaChatgptPrompts(cid, { serviceSlug: slug, pairIndex: idx, viewpoint: vp });
+  } else {
+    const built = buildFluxBaPrompts({
+      niche: dest.niche,
+      serviceName: pair.serviceName || dest.niche,
+      viewpoint: vp,
+      setting,
+      config,
+      forChatGpt: true,
+    });
+    canonical = {
+      key,
+      viewpoint: vp,
+      source: 'template',
+      room: built.room,
+      before: built.before,
+      after: built.after,
+      setting: built.setting || setting,
+    };
   }
-  const promptOpts = {
-    niche: dest.niche,
-    serviceName: pair.serviceName || dest.niche,
-    viewpoint: vp,
-  };
-  const built = buildFluxBaPrompts({ ...promptOpts, forChatGpt: true });
+  const ov = getBaPromptOverride(groupOpenaiDoc(dest), key, vp);
+  const used = pickBaPromptPair(canonical, ov, { before, after });
   return {
+    ...canonical,
     key,
     viewpoint: vp,
-    source: 'template',
-    before: built.before,
-    after: built.after,
+    originalBefore: canonical.before,
+    originalAfter: canonical.after,
+    before: used.before,
+    after: used.after,
+    overridden: used.before !== canonical.before || used.after !== canonical.after,
+    setting: canonical.setting || setting,
     chatgptUrl: 'https://chatgpt.com/',
   };
 }
 
-export function usePhotoGroupBaVariant(groupId, { matchKey, pairId } = {}) {
+export function savePhotoGroupBaOpenaiPrompt(
+  groupId,
+  { matchKey, viewpoint, pairIndex, serviceSlug, before, after, restore } = {},
+) {
+  const dest = getPhotoGroup(groupId);
+  const current = getPhotoGroupBaPrompts(groupId, {
+    matchKey,
+    viewpoint,
+    pairIndex,
+    serviceSlug,
+  });
+  const key = current.key || matchKey;
+  const vp = current.viewpoint;
+  const originalBefore = current.originalBefore;
+  const originalAfter = current.originalAfter;
+  let doc = groupOpenaiDoc(dest);
+  const beforeText = String(before || '').trim();
+  const afterText = String(after || '').trim();
+  const same =
+    beforeText === String(originalBefore || '').trim() &&
+    afterText === String(originalAfter || '').trim();
+  if (restore || same) {
+    doc = clearBaPromptOverride(doc, key, vp);
+  } else if (beforeText || afterText) {
+    doc = setBaPromptOverride(doc, key, vp, { before: beforeText, after: afterText });
+  }
+  saveGroupOpenaiDoc(dest, doc);
+  return getPhotoGroupBaPrompts(groupId, { matchKey: key, viewpoint: vp, pairIndex, serviceSlug });
+}
+
+export function usePhotoGroupBaVariant(groupId, { matchKey, pairId, beforeFilename = '' } = {}) {
   const dest = getPhotoGroup(groupId);
   const found = findGroupBaPair(dest, matchKey);
   const pair = found.pair;
-  const variants = [...(pair.variants || [])];
-  const idx = variants.findIndex((v) => v.id === pairId);
+  let variants = [...(pair.variants || [])];
+  const wantId = String(pairId || '').trim();
+  const wantBefore = path.basename(String(beforeFilename || ''));
+  let idx = wantId ? variants.findIndex((v) => v.id === wantId) : -1;
+  if (idx < 0 && wantBefore) {
+    idx = variants.findIndex((v) => path.basename(String(v.beforeFilename || '')) === wantBefore);
+  }
   if (idx < 0) throw Object.assign(new Error('Pair variant not found'), { status: 404 });
   const picked = variants[idx];
   if (
@@ -1597,18 +1819,33 @@ export function usePhotoGroupBaVariant(groupId, { matchKey, pairId } = {}) {
   }
   const stamp = Date.now().toString(36);
   if (pair.before?.filename && pair.after?.filename) {
-    const bVar = uniqueDest(dest.dir, `${path.parse(pair.before.filename).name}-swap-${stamp}.jpg`);
-    const aVar = uniqueDest(dest.dir, `${path.parse(pair.after.filename).name}-swap-${stamp}.jpg`);
-    copyFileSync(path.join(dest.dir, pair.before.filename), path.join(dest.dir, bVar));
-    copyFileSync(path.join(dest.dir, pair.after.filename), path.join(dest.dir, aVar));
-    variants.splice(idx, 1);
-    variants.unshift({
-      id: `var-${stamp}`,
-      beforeFilename: bVar,
-      afterFilename: aVar,
-      source: 'prior',
-      generatedAt: new Date().toISOString(),
-    });
+    if (
+      baSourceIsDuplicate(
+        dest.dir,
+        {
+          beforeAbs: path.join(dest.dir, pair.before.filename),
+          afterAbs: path.join(dest.dir, pair.after.filename),
+          beforeFilename: pair.before.filename,
+          afterFilename: pair.after.filename,
+        },
+        { variants: variants.filter((_, i) => i !== idx) },
+      )
+    ) {
+      variants.splice(idx, 1);
+    } else {
+      const bVar = uniqueDest(dest.dir, `${path.parse(pair.before.filename).name}-swap-${stamp}.jpg`);
+      const aVar = uniqueDest(dest.dir, `${path.parse(pair.after.filename).name}-swap-${stamp}.jpg`);
+      copyFileSync(path.join(dest.dir, pair.before.filename), path.join(dest.dir, bVar));
+      copyFileSync(path.join(dest.dir, pair.after.filename), path.join(dest.dir, aVar));
+      variants.splice(idx, 1);
+      variants = pushBaTrayEntry(dest.dir, variants, {
+        id: `var-${stamp}`,
+        beforeFilename: bVar,
+        afterFilename: aVar,
+        source: 'prior',
+        generatedAt: new Date().toISOString(),
+      });
+    }
   } else {
     variants.splice(idx, 1);
   }
@@ -1618,7 +1855,10 @@ export function usePhotoGroupBaVariant(groupId, { matchKey, pairId } = {}) {
   copyFileSync(path.join(dest.dir, picked.afterFilename), path.join(dest.dir, liveAfter));
   pair.before = { filename: liveBefore, ext: path.extname(liveBefore).slice(1) || 'jpg' };
   pair.after = { filename: liveAfter, ext: path.extname(liveAfter).slice(1) || 'jpg' };
-  pair.variants = trimGroupVariants(dest.dir, variants);
+  pair.variants = compactBaTray(dest.dir, variants, {
+    liveBefore,
+    liveAfter,
+  });
   persistPhotoGroupRecord(dest);
   return { ok: true, view: getPhotoGroupView(groupId) };
 }

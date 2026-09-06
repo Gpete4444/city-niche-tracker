@@ -68,7 +68,7 @@ Use **only** the empty-template headers below:
 - `Est. time to rank with GBP` — e.g. `2-3 months`
 - `Est. time to rank without GBP` — e.g. `4-6 months`
 - `pain_points` / `suggested_services` — ≤3 short semicolon-separated items each; leave blank rather than invent fluff
-- `suggested_suburbs` — prefer **3–5** real municipalities (SEO / cluster seeds for Stage 1 measure); leave blank rather than invent fluff
+- `suggested_suburbs` — prefer **3–5** real municipalities (SEO / cluster seeds for Stage 1 measure); **semicolon-separated** names (e.g. `Goodyear; Litchfield Park; Tolleson`); leave blank rather than invent fluff
 - `confidence_narrative` (`high` | `medium` | `low`)
 - Leave `Population` blank (Rover fills Census)
 

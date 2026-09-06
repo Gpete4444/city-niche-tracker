@@ -35,7 +35,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/styles.css?v=20260902herointro" />
+  <link rel="stylesheet" href="/styles.css?v=20260905disc1" />
   <link rel="stylesheet" href="/brand/rover-loader.css" />
 </head>
 <body>
@@ -56,34 +56,37 @@
       <p class="rover-loading-text">Loading…</p>
     </div>
   </div>
+  <div class="rover-chrome">
   <header class="top">
     <div class="top-brand-cluster">
       <span class="top-brand" aria-label="Rover">
         <img class="top-brand-logo top-brand-logo--light" src="/brand/rover-logo-light.png" alt="" width="800" height="168" decoding="async" />
         <img class="top-brand-logo top-brand-logo--dark" src="/brand/rover-logo-dark.png" alt="" width="800" height="168" decoding="async" />
       </span>
-      <span class="top-version muted small" title="Rover product version">v1.8</span>
+      <span class="top-version muted small" title="Rover product version">v1.9</span>
       <div class="claude-mode-segment" role="group" aria-label="Claude pipeline mode">
         <button type="button" class="claude-mode-seg active" data-claude-mode="paste" id="claude-mode-paste" aria-label="Copy and paste">
-          Copy &amp; paste
+          <span class="claude-mode-seg-full">Copy &amp; paste</span>
+          <span class="claude-mode-seg-short" aria-hidden="true">Paste</span>
         </button>
         <button type="button" class="claude-mode-seg" data-claude-mode="api" id="claude-mode-api" aria-label="Anthropic API">
-          Anthropic API
+          <span class="claude-mode-seg-full">Anthropic API</span>
+          <span class="claude-mode-seg-short" aria-hidden="true">API</span>
         </button>
       </div>
     </div>
     <nav class="top-nav" aria-label="Primary">
       <div class="nav-pipeline" aria-label="Pipeline stages">
-        <button type="button" class="nav-btn active" data-view="discovery" aria-label="1 Discovery"><span class="nav-stage-num">1</span> <span class="nav-label">Discovery</span></button>
+        <button type="button" class="nav-btn active" data-view="discovery" aria-label="1 Discovery"><span class="nav-stage-full"><span class="nav-stage-num">1</span> <span class="nav-label">Discovery</span></span><span class="nav-stage-abbr" aria-hidden="true">1-D</span></button>
         <img class="nav-pipeline-arrow nav-pipeline-arrow--light" src="/brand/stage-arrow.png?v=4" alt="" width="48" height="14" decoding="async" aria-hidden="true" />
         <img class="nav-pipeline-arrow nav-pipeline-arrow--dark" src="/brand/stage-arrow-dark.png?v=4" alt="" width="48" height="14" decoding="async" aria-hidden="true" />
-        <button type="button" class="nav-btn" data-view="research" aria-label="2 Research"><span class="nav-stage-num">2</span> <span class="nav-label">Research</span></button>
+        <button type="button" class="nav-btn" data-view="research" aria-label="2 Research"><span class="nav-stage-full"><span class="nav-stage-num">2</span> <span class="nav-label">Research</span></span><span class="nav-stage-abbr" aria-hidden="true">2-R</span></button>
         <img class="nav-pipeline-arrow nav-pipeline-arrow--light" src="/brand/stage-arrow.png?v=4" alt="" width="48" height="14" decoding="async" aria-hidden="true" />
         <img class="nav-pipeline-arrow nav-pipeline-arrow--dark" src="/brand/stage-arrow-dark.png?v=4" alt="" width="48" height="14" decoding="async" aria-hidden="true" />
-        <button type="button" class="nav-btn" data-view="website-builder" aria-label="3 Website"><span class="nav-stage-num">3</span> <span class="nav-label">Website</span></button>
+        <button type="button" class="nav-btn" data-view="website-builder" aria-label="3 Website"><span class="nav-stage-full"><span class="nav-stage-num">3</span> <span class="nav-label">Website</span></span><span class="nav-stage-abbr" aria-hidden="true">3-W</span></button>
         <img class="nav-pipeline-arrow nav-pipeline-arrow--light" src="/brand/stage-arrow.png?v=4" alt="" width="48" height="14" decoding="async" aria-hidden="true" />
         <img class="nav-pipeline-arrow nav-pipeline-arrow--dark" src="/brand/stage-arrow-dark.png?v=4" alt="" width="48" height="14" decoding="async" aria-hidden="true" />
-        <button type="button" class="nav-btn" data-view="launched-sites" aria-label="4 Launched"><span class="nav-stage-num">4</span> <span class="nav-label">Launched</span></button>
+        <button type="button" class="nav-btn" data-view="launched-sites" aria-label="4 Launched"><span class="nav-stage-full"><span class="nav-stage-num">4</span> <span class="nav-label">Launched</span></span><span class="nav-stage-abbr" aria-hidden="true">4-L</span></button>
       </div>
       <span class="nav-pipeline-sep" aria-hidden="true"></span>
       <button type="button" class="nav-btn nav-btn-map" data-view="map" aria-label="Map"><svg class="nav-icon" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><path fill="currentColor" d="M8 1.4a4.2 4.2 0 0 0-4.2 4.2c0 3.15 4.2 8.5 4.2 8.5s4.2-5.35 4.2-8.5A4.2 4.2 0 0 0 8 1.4zm0 5.7A1.5 1.5 0 1 1 8 4.1a1.5 1.5 0 0 1 0 3z"/></svg><span class="nav-label">Map</span></button>
@@ -92,52 +95,6 @@
     </nav>
     <div class="top-right">
       <div class="jobs-cluster">
-        <div class="jobs-wrap">
-          <button
-            type="button"
-            id="jobs-btn"
-            class="jobs-btn"
-            aria-haspopup="true"
-            aria-expanded="false"
-            aria-controls="jobs-popover"
-            title="Assemble / preview / launch jobs"
-          >
-            <span class="jobs-btn-label">Heavy</span>
-            <span id="jobs-badge" class="jobs-badge hidden" aria-live="polite">0</span>
-          </button>
-          <div id="jobs-popover" class="jobs-popover hidden" role="dialog" aria-label="Heavy jobs">
-            <div class="jobs-popover-head">
-              <strong>Heavy Jobs</strong>
-              <span id="jobs-popover-meta" class="muted small"></span>
-            </div>
-            <div id="jobs-popover-list" class="jobs-popover-list">
-              <p class="muted small jobs-empty">No jobs running.</p>
-            </div>
-          </div>
-        </div>
-        <div class="jobs-wrap">
-          <button
-            type="button"
-            id="light-jobs-btn"
-            class="jobs-btn"
-            aria-haspopup="true"
-            aria-expanded="false"
-            aria-controls="light-jobs-popover"
-            title="Accept / logo / photos / SERP jobs"
-          >
-            <span class="jobs-btn-label">Light</span>
-            <span id="light-jobs-badge" class="jobs-badge hidden" aria-live="polite">0</span>
-          </button>
-          <div id="light-jobs-popover" class="jobs-popover hidden" role="dialog" aria-label="Light jobs">
-            <div class="jobs-popover-head">
-              <strong>Light Jobs</strong>
-              <span id="light-jobs-popover-meta" class="muted small"></span>
-            </div>
-            <div id="light-jobs-popover-list" class="jobs-popover-list">
-              <p class="muted small jobs-empty">No jobs running.</p>
-            </div>
-          </div>
-        </div>
         <div class="jobs-wrap help-wrap">
           <button
             type="button"
@@ -147,8 +104,10 @@
             aria-expanded="false"
             aria-controls="help-panel"
             title="User guide"
+            aria-label="Help"
           >
             <span class="jobs-btn-label">Help</span>
+            <span class="jobs-btn-label-short" aria-hidden="true">?</span>
           </button>
           <div id="help-panel" class="help-panel hidden" role="dialog" aria-label="User guide">
             <div class="help-panel-head">
@@ -227,21 +186,32 @@
           </div>
           <div id="settings-connections-list" class="settings-connections-list hidden" hidden></div>
           <div class="settings-divider"></div>
-          <div class="settings-row settings-jobs-k-row">
-            <span class="settings-label" id="settings-jobs-k-label">Jobs K</span>
-            <select
-              id="settings-jobs-k"
-              class="settings-select"
-              aria-labelledby="settings-jobs-k-label"
-              data-tip="Max concurrent Prepare / assemble / ship / launch jobs (1–6). Applies immediately; saved for this machine."
-            >
-              <option value="1">1</option>
-              <option value="2">2</option>
-              <option value="3">3</option>
-              <option value="4">4</option>
-              <option value="5">5</option>
-              <option value="6">6</option>
-            </select>
+          <div class="settings-concurrency" role="group" aria-labelledby="settings-concurrency-label">
+            <div class="settings-concurrency-head" id="settings-concurrency-label">Concurrent Limit</div>
+            <label class="settings-concurrency-row" for="conc-light-serp">
+              <span class="settings-concurrency-name"><span class="settings-concurrency-stage" aria-hidden="true" data-tip="Discovery">D</span> Light SERP</span>
+              <input id="conc-light-serp" type="number" min="1" max="50" step="1" inputmode="numeric" data-conc-key="lightSerp" data-tip="Maximum 50" />
+            </label>
+            <label class="settings-concurrency-row" for="conc-evaluations">
+              <span class="settings-concurrency-name"><span class="settings-concurrency-stage" aria-hidden="true" data-tip="Research">R</span> Evaluations</span>
+              <input id="conc-evaluations" type="number" min="1" max="50" step="1" inputmode="numeric" data-conc-key="evaluations" data-tip="Maximum 50" />
+            </label>
+            <label class="settings-concurrency-row" for="conc-write-site">
+              <span class="settings-concurrency-name"><span class="settings-concurrency-stage" aria-hidden="true" data-tip="Website">W</span> Write site</span>
+              <input id="conc-write-site" type="number" min="1" max="50" step="1" inputmode="numeric" data-conc-key="writeSite" data-tip="Maximum 50" />
+            </label>
+            <label class="settings-concurrency-row" for="conc-openai-photos">
+              <span class="settings-concurrency-name"><span class="settings-concurrency-stage" aria-hidden="true" data-tip="Website">W</span> OpenAI photos</span>
+              <input id="conc-openai-photos" type="number" min="1" max="50" step="1" inputmode="numeric" data-conc-key="openaiPhotos" data-tip="Maximum 50" />
+            </label>
+            <label class="settings-concurrency-row" for="conc-openai-ba">
+              <span class="settings-concurrency-name"><span class="settings-concurrency-stage" aria-hidden="true" data-tip="Website">W</span> OpenAI before/after</span>
+              <input id="conc-openai-ba" type="number" min="1" max="20" step="1" inputmode="numeric" data-conc-key="openaiBeforeAfter" data-tip="Maximum 20" />
+            </label>
+            <label class="settings-concurrency-row" for="conc-heavy">
+              <span class="settings-concurrency-name"><span class="settings-concurrency-stage" aria-hidden="true" data-tip="Website">W</span> Heavy (Prepare / Launch)</span>
+              <input id="conc-heavy" type="number" min="1" max="12" step="1" inputmode="numeric" data-conc-key="heavy" data-tip="Maximum 12" />
+            </label>
           </div>
           <div class="settings-divider"></div>
           <div class="settings-row settings-theme-row">
@@ -272,15 +242,6 @@
       </div>
     </div>
   </header>
-
-  <div id="rover-master-progress" class="rover-master-progress hidden" aria-live="polite">
-    <div class="rover-master-progress-track">
-      <div class="job-progress-bar" id="rover-master-progress-bar"></div>
-    </div>
-    <p class="rover-master-progress-text">
-      <span id="rover-master-progress-label"></span>
-      <span id="rover-master-progress-detail" class="muted"></span>
-    </p>
   </div>
 
   <main class="layout candidates-layout hidden" id="view-candidates">
@@ -679,6 +640,7 @@
           </label>
           <button type="submit" class="btn primary">Generate Discovery pack</button>
         </form>
+        <button type="button" class="btn hidden" id="discovery-generate-pack">Re-run Generate pack</button>
       </details>
 
       <details
@@ -1244,6 +1206,6 @@
   </div>
   <img id="img-peek" class="img-peek hidden" alt="" hidden />
 
-  <script src="/app.js?v=20260902siteconfiggen" type="module"></script>
+  <script src="/app.js?v=20260905disc1" type="module"></script>
 </body>
 </html>

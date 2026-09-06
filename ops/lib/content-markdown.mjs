@@ -372,26 +372,161 @@ function tryParseYamlMapping(fm) {
 
 /**
  * Tabs → 2 spaces, then indent process/whyChooseUs/faqs (and similar) list items
- * that Claude left at column 0. Returns healed markdown even if parse still fails.
+ * that Claude left at column 0, and pull over-indented image/src/alt back to the
+ * dash’s sibling column. Returns healed markdown even if parse still fails.
  */
 export function healYamlFrontmatter(markdown) {
   const split = splitFrontmatter(markdown);
   if (!split.ok) return { markdown, healed: false, parseOk: false, error: split.error };
   const original = split.frontmatter;
   let fm = String(original).replace(/\t/g, '  ');
-  const first = tryParseYamlMapping(fm);
-  if (first.ok) {
-    if (fm === original) return { markdown, healed: false, parseOk: true };
-    return { markdown: rebuildMarkdownFromParts(fm, split.body), healed: true, parseOk: true };
-  }
   fm = healYamlListIndent(fm);
-  const second = tryParseYamlMapping(fm);
+  const parsed = tryParseYamlMapping(fm);
   return {
     markdown: fm === original ? markdown : rebuildMarkdownFromParts(fm, split.body),
     healed: fm !== original,
-    parseOk: second.ok,
-    error: second.ok ? null : second.error,
+    parseOk: parsed.ok,
+    error: parsed.ok ? null : parsed.error,
   };
+}
+
+/**
+ * Keep a complete 3-wide materials row (cap 6). 4→3, 5→3, 7→6, 8→6; 1–2 stay.
+ * Shared with Review slot counts — do not use a 2–4 col fitter (4 would become 2×2).
+ */
+export function keepMaterialsRowCount(n) {
+  const count = Math.max(0, Math.floor(Number(n) || 0));
+  if (count < 3) return count;
+  return Math.min(6, Math.floor(count / 3) * 3);
+}
+
+function isMaterialsMethodsHeading(line) {
+  const m = String(line || '').match(/^#{1,2}\s+(.+)$/);
+  if (!m) return false;
+  return /^(materials|methods)\b/i.test(m[1].trim());
+}
+
+function isMaterialsOptionBullet(line) {
+  const t = String(line || '').trim();
+  return /^[-*•]\s+/.test(t) || /^\d+[.)]\s+/.test(t);
+}
+
+function trimMaterialsSectionBullets(body) {
+  const text = String(body || '').replace(/\r\n/g, '\n');
+  const lines = text.split('\n');
+  let changed = false;
+  const out = [];
+  let i = 0;
+  while (i < lines.length) {
+    if (!isMaterialsMethodsHeading(lines[i])) {
+      out.push(lines[i]);
+      i += 1;
+      continue;
+    }
+    out.push(lines[i]);
+    i += 1;
+    const sectionLines = [];
+    while (i < lines.length && !/^#{1,2}\s+/.test(lines[i])) {
+      sectionLines.push(lines[i]);
+      i += 1;
+    }
+    const bulletIdx = [];
+    for (let j = 0; j < sectionLines.length; j += 1) {
+      if (isMaterialsOptionBullet(sectionLines[j])) bulletIdx.push(j);
+    }
+    const keep = keepMaterialsRowCount(bulletIdx.length);
+    if (keep < bulletIdx.length) {
+      const drop = new Set(bulletIdx.slice(keep));
+      out.push(...sectionLines.filter((_, j) => !drop.has(j)));
+      changed = true;
+    } else {
+      out.push(...sectionLines);
+    }
+  }
+  return { body: out.join('\n'), changed };
+}
+
+function countMaterialsOptionBullets(body) {
+  const text = String(body || '').replace(/\r\n/g, '\n');
+  const lines = text.split('\n');
+  let count = 0;
+  let inSection = false;
+  for (const line of lines) {
+    if (isMaterialsMethodsHeading(line)) {
+      inSection = true;
+      continue;
+    }
+    if (inSection && /^#{1,2}\s+/.test(line)) break;
+    if (inSection && isMaterialsOptionBullet(line)) count += 1;
+  }
+  return count;
+}
+
+function sliceFmListToCount(fm, key, keep) {
+  const lines = String(fm || '').split('\n');
+  const start = lines.findIndex((l) => new RegExp(`^${key}\\s*:`).test(l));
+  if (start < 0) return { fm, changed: false };
+  let end = start + 1;
+  while (end < lines.length) {
+    if (/^[A-Za-z_][\w]*\s*:/.test(lines[end]) && !/^[ \t]/.test(lines[end])) break;
+    end += 1;
+  }
+  const head = lines[start];
+  const block = lines.slice(start + 1, end);
+  const itemStarts = [];
+  for (let i = 0; i < block.length; i += 1) {
+    if (/^[ \t]*-(?!-)[ \t]/.test(block[i])) itemStarts.push(i);
+  }
+  if (itemStarts.length <= keep) return { fm, changed: false };
+  if (keep <= 0) {
+    return { fm: [...lines.slice(0, start), ...lines.slice(end)].join('\n'), changed: true };
+  }
+  const cut = itemStarts[keep];
+  let keptBlock = block.slice(0, cut);
+  while (keptBlock.length && !keptBlock[keptBlock.length - 1].trim()) keptBlock.pop();
+  return {
+    fm: [...lines.slice(0, start), head, ...keptBlock, ...lines.slice(end)].join('\n'),
+    changed: true,
+  };
+}
+
+/**
+ * Drop leftover materials/methods option bullets so the 3-wide grid is full rows,
+ * and slice `materialsImages:` to the same length. Homepage and service pages.
+ */
+export function healMaterialsCompleteRows(markdown) {
+  const split = splitFrontmatter(markdown);
+  if (!split.ok) {
+    const trimmed = trimMaterialsSectionBullets(markdown);
+    return { markdown: trimmed.changed ? trimmed.body : markdown, healed: trimmed.changed };
+  }
+  const bullets = trimMaterialsSectionBullets(split.body);
+  const n = countMaterialsOptionBullets(bullets.body);
+  const sliced =
+    n > 0
+      ? sliceFmListToCount(split.frontmatter, 'materialsImages', n)
+      : { fm: split.frontmatter, changed: false };
+  if (!bullets.changed && !sliced.changed) return { markdown, healed: false };
+  return { markdown: rebuildMarkdownFromParts(sliced.fm, bullets.body), healed: true };
+}
+
+/** YAML indent heal, then materials 3-or-6 row trim. Load / Stage / Assemble. */
+export function healStagedMarkdown(markdown) {
+  const yaml = healYamlFrontmatter(markdown);
+  const rows = healMaterialsCompleteRows(yaml.markdown);
+  return {
+    markdown: rows.markdown,
+    healed: yaml.healed || rows.healed,
+    parseOk: yaml.parseOk,
+    error: yaml.error,
+  };
+}
+
+function dashSiblingIndent(dashLine) {
+  const prefix = String(dashLine || '').match(/^([ \t]*-[ \t]+)/);
+  if (prefix) return ' '.repeat(prefix[1].length);
+  const lead = String(dashLine || '').match(/^[ \t]*/)?.[0] || '';
+  return `${lead}  `;
 }
 
 function healYamlListIndent(fm) {
@@ -400,7 +535,35 @@ function healYamlListIndent(fm) {
   let i = 0;
   const listKeyRe =
     /^(process|whyChooseUs|faqs|gallery|materialsImages|processImages|beforeAfterImages|serviceCardImages)\s*:\s*$/;
-  const childKeyRe = /^(title|description|question|answer|image|src|alt)\s*:/;
+  const mappingListKeys = new Set(['process', 'whyChooseUs', 'faqs']);
+
+  const consumeItemChildren = (keyIndent, nestedSrcAlt) => {
+    const nestedIndent = `${keyIndent}  `;
+    while (i < lines.length) {
+      const c = lines[i];
+      if (!c.trim()) {
+        out.push(c);
+        i += 1;
+        continue;
+      }
+      if (/^[ \t]*- /.test(c)) break;
+      if (/^[A-Za-z][\w]*\s*:/.test(c) && !/^[ \t]/.test(c)) break;
+      const trimmed = c.trim();
+      if (/^(title|description|question|answer|image)\s*:/.test(trimmed)) {
+        out.push(keyIndent + trimmed);
+        i += 1;
+        continue;
+      }
+      if (/^(src|alt)\s*:/.test(trimmed)) {
+        out.push((nestedSrcAlt ? nestedIndent : keyIndent) + trimmed);
+        i += 1;
+        continue;
+      }
+      out.push(c);
+      i += 1;
+    }
+  };
+
   while (i < lines.length) {
     const line = lines[i];
     if (!listKeyRe.test(line)) {
@@ -408,6 +571,8 @@ function healYamlListIndent(fm) {
       i += 1;
       continue;
     }
+    const keyName = line.match(/^([A-Za-z]\w*)/)[1];
+    const nestedSrcAlt = mappingListKeys.has(keyName);
     out.push(line);
     i += 1;
     while (i < lines.length) {
@@ -419,55 +584,16 @@ function healYamlListIndent(fm) {
       }
       if (/^[A-Za-z][\w]*\s*:/.test(l) && !/^[ \t]/.test(l) && !/^- /.test(l)) break;
       if (/^- /.test(l)) {
-        out.push(`  ${l}`);
+        const rewritten = `  ${l}`;
+        out.push(rewritten);
         i += 1;
-        while (i < lines.length) {
-          const c = lines[i];
-          if (!c.trim()) {
-            out.push(c);
-            i += 1;
-            continue;
-          }
-          if (/^- /.test(c)) break;
-          if (childKeyRe.test(c)) {
-            out.push(`    ${c}`);
-            i += 1;
-            continue;
-          }
-          if (/^[A-Za-z][\w]*\s*:/.test(c) && !/^[ \t]/.test(c)) break;
-          if (/^  (?! )/.test(c) && childKeyRe.test(c.trim())) {
-            out.push(`    ${c.trim()}`);
-            i += 1;
-            continue;
-          }
-          out.push(c);
-          i += 1;
-        }
+        consumeItemChildren(dashSiblingIndent(rewritten), nestedSrcAlt);
         continue;
       }
       if (/^[ \t]+- /.test(l)) {
         out.push(l);
         i += 1;
-        const itemIndent = l.match(/^[ \t]*/)[0];
-        const childWant = `${itemIndent}  `;
-        while (i < lines.length) {
-          const c = lines[i];
-          if (!c.trim()) {
-            out.push(c);
-            i += 1;
-            continue;
-          }
-          if (/^[ \t]*- /.test(c)) break;
-          const cIndent = c.match(/^[ \t]*/)[0];
-          if (childKeyRe.test(c.trim()) && cIndent.length <= itemIndent.length) {
-            out.push(childWant + c.trim());
-            i += 1;
-            continue;
-          }
-          if (/^[A-Za-z][\w]*\s*:/.test(c) && !/^[ \t]/.test(c)) break;
-          out.push(c);
-          i += 1;
-        }
+        consumeItemChildren(dashSiblingIndent(l), nestedSrcAlt);
         continue;
       }
       out.push(l);
@@ -1745,8 +1871,8 @@ export function normalizeContentFilesMap(files, siteConfig = null) {
   const primarySlug = slugifyContentName(primaryCity);
   const out = {};
   for (const [rel, markdown] of Object.entries(files || {})) {
-    let md = sanitizeMarkdownImageFrontmatter(ensureYamlFrontmatter(markdown));
-    md = healYamlFrontmatter(md).markdown;
+    let     md = sanitizeMarkdownImageFrontmatter(ensureYamlFrontmatter(markdown));
+    md = healStagedMarkdown(md).markdown;
     if (niche && /locations\/.+\.md$/i.test(rel)) {
       const slug = String(rel).replace(/^.*\//, '').replace(/\.md$/i, '');
       md = healLocationNicheHeadings(md, {

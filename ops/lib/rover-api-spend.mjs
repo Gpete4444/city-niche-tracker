@@ -96,7 +96,10 @@ export function getRoverApiSpend() {
   return loadOrSeed();
 }
 
-/** Add a positive USD amount to a PAYG provider. No-op on invalid provider or non-positive delta. */
+/** Add a positive USD amount to a PAYG provider. No-op on invalid provider or non-positive delta.
+ * Sync read-modify-write is atomic on this Node process (one thread); concurrent jobs
+ * cannot interleave inside this function.
+ */
 export function recordRoverApiSpend(provider, usd) {
   const key = String(provider || '').trim();
   if (!ROVER_PAYG_PROVIDERS.includes(key)) return loadOrSeed();

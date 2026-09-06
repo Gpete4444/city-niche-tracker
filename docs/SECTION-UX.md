@@ -66,7 +66,7 @@ Rank & Rent sites should mirror what a future GBP will claim:
 
 1. Hard-refresh Rover.
 2. Content → **Speech check** (auto-strips off-niche FAQs; Stage sanitize also places `Optional:` / `Customer prep:` under What’s included).
-3. Website → **Pull photos** (confirm replace when all slots are full, or re-pull Camera hero + CIPP materials/process slots) so camera/permit gates apply.
+3. Website → Review images → per-slot **Re-pull** (Camera hero + CIPP materials/process slots) so camera/permit gates apply.
 4. **Prepare preview** → confirm FAQs + images → **Push**.
 
 ## E-E-A-T
@@ -90,9 +90,9 @@ Seed `socialProof` with rating, 2–3 stats, license line, and **exactly 3** Goo
 | intro | 2 paras (+ optional bullets) | Salesperson; one natural city mention OK; no landmark stuffing |
 | services | Compact photo cards; ≤2 rows (6→3×2 or 8→4×2) | High-ticket first; full list via nav |
 | whyChooseUs | 3–5 reasons mid-page; **`fitEqualGrid({ maxCols: 2 })` → 2×2 when 4 reasons** | Condensed; not a hero essay |
-| process / offerProcess | Numbered step cards with photos (`process[].image` via Pull); **`fitEqualGrid` default max 4** (8 → 2×4 on lg) | Prefer 4/6/8 steps; short title + one short line (~8–14 words). **Mutual exclusion:** Services pages → `process` only; single-offer sites → `offerProcess`; never both. |
+| process / offerProcess | Numbered step cards with photos (`process[].image` via Pull); **`fitEqualGrid` (default max 4 cols)** — 6 → 3×2, 8 → 4×2; last row always full | Prefer 4/6/8 steps; short title + one **sentence** (~8–14 words, capital, period). **Mutual exclusion:** Services pages → `process` only; single-offer sites → `offerProcess`; never both. |
 | cost | Wide ranges table (type / \$ range / included) + mini-CTA | 3–5 ballpark `$` bands; never a single fixed quote |
-| materials | Process-style card grid (bordered/raised; 2-col tablet / 3-col desktop); optional full-bleed top photo; denser `text-sm` body; up to 6 thumbs | Industry materials + stats; never body `![]()` images |
+| materials | Process-style card grid (bordered/raised; **`fitEqualGrid({ maxCols: 3 })`** — 2 → 2-col, 3/6 → 3-col, 4 → 2×2; no empty last-row cell); optional full-bleed top photo; denser `text-sm` body | Industry materials + stats; never body `![]()` images |
 | timeline | Vertical stage rail + duration chips | Realistic durations |
 | codes | Checklist + disclaimer strip | Educational; verify locally |
 | diyVsPro | Comparison table or two-column check lists | When DIY vs pro |
@@ -103,11 +103,11 @@ Seed `socialProof` with rating, 2–3 stats, license line, and **exactly 3** Goo
 | faqs | Left-aligned accordion | 6–10 PAA-style |
 | cta | Ink band | Phone + estimate |
 
-**Equal card grids:** Most equal box/card lists (services, process, reviews, related) use [`fitEqualGrid`](../src/lib/equal-grid.ts) with **default `maxCols: 4`** — no ragged last row; **1-col on phone**, then denser from `sm`/`lg` (8 items → 2×4 on large screens). **Why choose us** is an exception: `maxCols: 2` so four reasons stay **2×2 from `sm` up** (still stacked on phone).
+**Equal card grids:** Services, process, reviews, and related lists use [`fitEqualGrid`](../src/lib/equal-grid.ts) with **default `maxCols: 4`** — no empty last-row cells; **1-col on phone**, then denser from `sm`/`lg` (6 items → 3×2, 8 → 2×4). **Why choose us** uses `maxCols: 2` (4 reasons → 2×2). **Materials** uses `maxCols: 3` so two cards stay two columns instead of leaving an empty third cell.
 
 ## Service sections
 
-Reuse the same typed layouts for cost/materials/timeline/codes/diy/whenToCall. `svcIntro` is **unmarked** body (2 paragraphs before the first `##` — not an H2). Service process/FAQs/cost live in **markdown body** (no FM copy arrays). `svcProcess` uses the same numbered step cards as homepage (`processImages[]` via Pull, one photo per step). Process H2s that match “Our {service} Process”, “Our … Approach”, or “How we …” classify as `process` (not a generic checkmark dump). `svcMaterials` uses the same Process-style card grid as homepage (`materialsImages[]` via Pull, up to 6 full-bleed top photos — bordered raised cards). `svcBeforeAfter` = homepage-style photo gallery from Website → ChatGPT import (`svc-ba-{slug}-*` / `beforeAfterImages`); show only when that service has a complete before+after pair — omit the section if either image is missing (no caption-only fallback). `svcCta` = short ink band above LeadForm.
+Reuse the same typed layouts for cost/materials/timeline/codes/diy/whenToCall. `svcIntro` is **unmarked** body (2 paragraphs before the first `##` — not an H2). Service process/FAQs/cost live in **markdown body** (no FM copy arrays). `svcProcess` uses the same numbered step cards as homepage (`processImages[]` via Pull, one photo per step). Process H2s that match “Our {service} Process”, “Our … Approach”, or “How we …” classify as `process` (not a generic checkmark dump). Review `svcProcess` slots use that same heading match, so those pages get a photo slot per step. `svcMaterials` uses the same Process-style card grid as homepage (`fitEqualGrid` + `materialsImages[]` via Pull — bordered raised cards; column count divides the card count). `svcBeforeAfter` = homepage-style photo gallery from Website → ChatGPT import (`svc-ba-{slug}-*` / `beforeAfterImages`); show only when that service has a complete before+after pair — omit the section if either image is missing (no caption-only fallback). `svcCta` = short ink band above LeadForm.
 
 ## External LLM critique prompt
 

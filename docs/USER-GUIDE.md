@@ -9,8 +9,8 @@ Rover finds local home-service markets worth ranking for, then ships a lead-gen 
 ## How to start {#start}
 
 1. On this machine, open a terminal in the Rover folder.
-2. Run `npm run rover`.
-3. Open [http://127.0.0.1:8787](http://127.0.0.1:8787).
+2. Run `npm run rover` **once**. Leave that terminal open.
+3. Open [http://127.0.0.1:8787](http://127.0.0.1:8787). Extra windows or tabs to that URL are extra views — do not start six terminals.
 4. After you change API keys in `.env`, stop Rover and start it again. Settings only reloads keys on startup.
 
 First-time keys: follow [ENV-SETUP.md](ENV-SETUP.md) until Settings → API/Other is green.
@@ -21,7 +21,7 @@ The top bar is always there.
 
 ### Version {#chrome-version}
 
-**v1.8** (or current) sits next to the Rover wordmark. That is the product version, not a candidate.
+**v1.9** (or current) sits next to the Rover wordmark. That is the product version, not a candidate.
 
 ### Stages {#chrome-stages}
 
@@ -31,13 +31,9 @@ Numbered pipeline: **1 Discovery** → **2 Research** → **3 Website** → **4 
 
 Unnumbered helpers after Launched. They are not stages. You can skip Map and Photo. Phone is for calls after a ranking number exists.
 
-### Heavy and Light {#chrome-jobs}
+### Jobs {#chrome-jobs}
 
-**Heavy** lists assemble / preview / prepare / launch / ship jobs, each with a step bar (`3/5`). **Light** lists Accept, logo, coverage map, pull photos, and SERP / Enrich / Prospects. Badges show how many are running. Click a row to jump to that candidate. **Jobs K** in Settings is how many Heavy jobs may run at once (1–6).
-
-### Header strip {#chrome-strip}
-
-When one job is running, a thin bar under the header shows that job. When two or more run, it says how many — open Heavy or Light to see each bar.
+Prepare preview, Push updates, Run launch, Write site, Accept, and Generate pack dim the workspace under the top bar on that candidate. Other work (Light SERP, Find addresses, GSC, Research) uses a bar on that step. **Concurrent Limit** in Settings is how many of each kind may run at once. Write site, Evaluations, Light SERP, OpenAI before/after, and Heavy (Prepare / Launch) pop up if you try to start more than the box. OpenAI photos queue extras instead.
 
 ### API Cost {#chrome-api-cost}
 
@@ -45,7 +41,7 @@ Dollar icon. Spend by provider (DataForSEO, Claude, and others). Anthropic, Open
 
 ### Settings {#chrome-settings}
 
-Gear. **Host** is this Rover instance. **API/Other** expands the green ✓ / red ✕ key checklist. **Jobs K** is Heavy concurrency. **Theme** is Light 1–4 and Dark 5–8 (Blue is default light).
+Gear. **Host** is this Rover instance. **API/Other** expands the green ✓ / red ✕ key checklist. **Concurrent Limit** is how many Light SERP / Evaluations / Write site / OpenAI photos / OpenAI before/after / Heavy jobs may run at once (hover a box for the hard max). Rows are marked **D** Discovery, **R** Research, **W** Website in the same Space Grotesk as the top-nav stage names. **Theme** is Light 1–4 and Dark 5–8 (Blue is default light).
 
 ### Help {#chrome-help}
 
@@ -70,19 +66,23 @@ Find niche × city ideas. Most rows will not become sites.
 
 ### New Discovery Pack {#discovery-new-pack}
 
-Creates a CSV template and a Claude prompt from your filters. Required niche text stays exact. Suggested / OPEN niches prefer head terms (Drywall → Drywall Repair). Claude also estimates monthly search volume for triage only.
+Creates a pack from your filters. Required niche text stays exact. Suggested / OPEN niches prefer head terms (Drywall → Drywall Repair). Claude also estimates monthly search volume for triage only.
+
+In **Anthropic API** mode, **Generate Discovery pack** creates the pack and runs Claude in one click (confirm cost, then wait on the overlay). Glance/fix rows, then Light SERP (sidebar step 2). **Re-run Generate pack** appears under that button when a batch is already selected. Canceling the cost confirm leaves the empty batch selected.
+
+In **Copy & paste** mode, Generate only writes the CSV template and prompt — then use Send to Claude and Import.
 
 ### Send to Claude {#discovery-send-claude}
 
-Copy the prompt, run it in Claude, wait for the filled CSV. This is usually the longest Discovery wait.
+Copy & paste only. Copy the prompt, run it in Claude, wait for the filled CSV. This is usually the longest Discovery wait. Hidden in Anthropic API mode.
 
 ### Import Claude CSV {#discovery-import}
 
-Paste or load the CSV. Rows appear in the batch table.
+Copy & paste only. Paste or load the CSV. Rows appear in the batch table. Hidden in Anthropic API mode.
 
 ### Light SERP {#discovery-light-serp}
 
-Cheap Map Pack / organic probe so you can decide before paying for full Research. Not the same as Research → SERP / Volume.
+Cheap Map Pack / organic probe so you can decide before paying for full Research. Not the same as Research → SERP / Volume. Sidebar step 2 in Anthropic API mode; step 4 in Copy & paste.
 
 ### Decision {#discovery-decision}
 
@@ -103,6 +103,8 @@ Sidebar editor for the **do-not-repropose** list (tracked orphans + Research at 
 ## Research {#research}
 
 Prove the market with paid search data and a written story. Set **pursue** only when you are ready to build. The list table shows a green **LIVE** badge after the checkbox for launched sites (blank otherwise), then Evaluation (1–4) and Website Track (1 Site-Config · 2 Content · 3 Launch), and **Type** after API $ (Discovery / Research / Website / Launched).
+
+**Concurrent Limit** (Settings, gear) is how many Evaluations may run at once (default 6, maximum 50). SERP / Enrich / Prospects use it in Copy & paste and API. API **Run Narrative** uses it too; paste Narrative is still Copy prompt for one candidate. If you select more rows than the Evaluations box, Rover explains the soft limit and does not start — raise **Evaluations** under Concurrent Limit or select fewer.
 
 ### Overview {#research-overview}
 
@@ -155,13 +157,15 @@ Build the site for a **pursue** candidate. Three tracks, in order: Site-Config �
 7. **Final check** — Copy → Load OK or FILE fixes.
 8. **Image queries** — search phrases for stock photos.
 9. **Load photo group** — optional. Skip uses fresh stock on Accept (queries required).
-10. **Accept** — writes pages, then photos (group, niche master, or stock pull), logo, and coverage map. Watch **Light**.
+10. **Accept** — writes pages, then photos (group, niche master, or stock pull), logo, and coverage map. A card covers the workspace while it runs.
+
+In **API** mode, steps 2–8 are **Write site with Claude** (one job per candidate). You can start Write site on up to **six different** candidates at the same time. A second Write site on the same candidate is blocked until the first finishes (or you Stop it in Light). Each window still confirms cost. Generate pack stays one at a time.
 
 ### Launch track {#website-launch}
 
 1. **Logo & Map** — regenerate logo or coverage map if Accept skipped them. Accept uses **Mark + text**. Logo modes: Mark, Mark + text, Monogram. Previous logos (up to 4) and maps (up to 2) sit in trays under the previews.
 2. **Review images** — grade slots, re-pull, generate, save/load photo groups. Niche master is first in the dropdown.
-3. **Prepare preview** — stages, assembles, builds, starts a local preview. Watch **Heavy** (`Staging… 1/5` through Starting preview). A waiting tab opens while it runs.
+3. **Prepare preview** — stages, assembles, builds, starts a local preview. A card covers the workspace (`Staging` through `Preview`). A waiting tab opens while it runs.
 4. **QA preview** — spot-check key URLs on the preview.
 5. **Run launch** — first go-live: paste domain / Web3Forms / email destination; Auto ship is on by default.
 6. **Push updates** — already live: ship GitHub + build + Worker only. Run **Prepare preview** first if content changed.
@@ -190,11 +194,11 @@ Optional group organizer. Skipping it does **not** block Content, Accept, stock 
 
 ## Jobs {#jobs}
 
-Long work always shows a bar. **Heavy** = prepare / assemble / preview / launch / ship (limited by Jobs K). **Light** = Accept, logo, map, pull photos, SERP / Enrich / Prospects (no K). In-page bars on a step match the same numbers as the list. If several things run, open both lists instead of trusting the single header strip.
+Long work shows on the page you started it from. Prepare / Push / Launch / Write site / Accept / Generate pack use a card under the top bar. Light SERP, listings, GSC, and Research use an in-page bar on that step. Concurrent Limit → Heavy still caps Prepare / Launch.
 
 ## Waiting vs doing {#waiting}
 
-Most clicks are seconds. Wall-clock is Claude, DataForSEO, Prepare preview, and Launch. Typical waits: Discovery Claude pack ~8–12 min; Full write ~12–22 min; Prepare preview ~2–4 min; Launch ship ~3–5 min. Full table: [USER-FLOW.md](USER-FLOW.md). You can switch candidates or screens while a job runs — watch Heavy / Light.
+Most clicks are seconds. Wall-clock is Claude, DataForSEO, Prepare preview, and Launch. Typical waits: Discovery Claude pack ~8–12 min; Full write ~12–22 min; Prepare preview ~2–4 min; Launch ship ~3–5 min. Full table: [USER-FLOW.md](USER-FLOW.md). You can switch candidates or screens while a job runs — the card only appears if you are on that same candidate.
 
 ## Still done by hand {#manual}
 

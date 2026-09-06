@@ -1,211 +1,219 @@
 ---
-title: "Egress Window Installation Omaha, NE"
-description: "Code-compliant egress window installation in Omaha, NE — basement cutting, window wells, and drainage grading. Licensed & insured. Free estimates."
-h1: "Omaha Egress Window Pros: Egress Window Installation in Omaha, NE"
-sectionHeading: "Basement Egress Window Installation for Omaha Homes"
+title: "Drywall Repair Broken Arrow, OK | Free Estimates"
+description: "Drywall repair, patching, and texture matching in Broken Arrow, OK. Popcorn ceiling removal, sheetrock repair, and honest pricing. Call for a free estimate."
+h1: "Drywall Repair in Broken Arrow, OK"
+sectionHeading: "Repair dry wall the right way in Broken Arrow"
 whyChooseUs:
-  - title: "Code-First Approach"
-    description: "Every job starts with a code check against Nebraska egress minimums, so you're not left with a failed inspection."
-  - title: "Drainage-Conscious Well Design"
-    description: "We grade and layer gravel drainage for Omaha's clay soils, keeping wells and basements dry through spring rain."
-  - title: "Clear, Written Estimates"
-    description: "Free written estimates spell out cutting, framing, well, and drainage costs before any work begins."
-  - title: "Licensed & Insured Locally"
-    description: "Licensed and insured in Nebraska with 15+ years of local experience and 500+ completed egress projects."
+  - title: "Texture matching that actually blends"
+    description: "Broken Arrow Drywall Repair Pros matches knockdown, orange peel, and popcorn texture so patches disappear, not just get painted over."
+  - title: "Clean, contained popcorn removal"
+    description: "Plastic sheeting and dust control keep scraping and skim-coating from wrecking the rest of the room."
+  - title: "Written estimates, no surprise add-ons"
+    description: "You get a price before work starts, not a guess that grows once the drywall's cut open."
+  - title: "Specialists, not a side job"
+    description: "This crew does drywall repair day in and day out, not as one line item on a long handyman list."
 process:
-  - title: "Site Assessment & Code Check"
-    description: "We inspect the basement wall and check it against egress code minimums."
+  - title: "Site visit and damage inspection"
+    description: "We look at the crack, hole, or stain and check what's behind it."
     image:
-      src: "/images/process-1-site-assessment-code-check.jpg"
-      alt: "View through window frame of construction site"
-  - title: "Marking the Opening"
-    description: "The foundation wall is marked to code-required opening dimensions."
+      src: "/images/process-1-openai-mti5wm50.jpg"
+      alt: "Site visit and estimate photo"
+  - title: "Cut out the damaged section"
+    description: "Clean edges cut back to solid drywall or the nearest stud."
     image:
-      src: "/images/offerProcess-2-upload-mt3qiorb.png"
-      alt: "ChatGPT Image Aug 21, 2026, 08_03_51 PM"
-  - title: "Cutting the Foundation"
-    description: "A concrete saw opens the wall for the new egress window."
+      src: "/images/process-2-openai-mtjli5n8.jpg"
+      alt: "Protecting the workspace photo"
+  - title: "Tape the seams"
+    description: "Mesh or paper tape bridges the patch into the surrounding wall."
     image:
-      src: "/images/offerProcess-3-upload-mt3qis1a.png"
-      alt: "ChatGPT Image Aug 21, 2026, 08_02_36 PM"
-  - title: "Framing & Window Set"
-    description: "We frame the rough opening and set the egress-rated window."
+      src: "/images/process-3-openai-mtjlifzh.jpg"
+      alt: "Removing damaged drywall photo"
+  - title: "Mud and build up coats"
+    description: "Joint compound applied in layers, feathered wide for a flat blend."
     image:
-      src: "/images/offerProcess-4-upload-mt3qi548.png"
-      alt: "ChatGPT Image Aug 21, 2026, 08_02_41 PM"
-  - title: "Window Well Installation"
-    description: "A corrugated steel or composite well is set outside the opening."
+      src: "/images/process-4-openai-mti5zry7.jpg"
+      alt: "Tape and mud the patch photo"
+  - title: "Match the texture"
+    description: "Knockdown, orange peel, or popcorn sprayed to match what's already there."
     image:
-      src: "/images/offerProcess-5-upload-mt3qier6.png"
-      alt: "ChatGPT Image Aug 21, 2026, 07_59_42 PM"
-  - title: "Drainage & Grading"
-    description: "Gravel drainage base and grading route water away from the wall."
+      src: "/images/see-process-drywall-patching-5-sand-between-coats.jpg"
+      alt: "Sand smooth between coats photo"
+  - title: "Sand smooth"
+    description: "Light sanding levels ridges without scuffing the surrounding texture."
     image:
-      src: "/images/offerProcess-6-upload-mt3qjtxo.png"
-      alt: "ChatGPT Image Aug 21, 2026, 08_04_42 PM"
-  - title: "Backfill & Cleanup"
-    description: "We backfill, regrade the yard, and clear the jobsite."
+      src: "/images/process-6-openai-mtjlhtqs.jpg"
+      alt: "Texture matching photo"
+  - title: "Prime the patch"
+    description: "Stain-blocking primer seals the repair so paint goes on even."
     image:
-      src: "/images/offerProcess-7-upload-mt3qk3p7.png"
-      alt: "ChatGPT Image Aug 21, 2026, 08_04_59 PM"
-  - title: "Final Walkthrough & Inspection Prep"
-    description: "We walk the finished install with you and prep it for city inspection."
+      src: "/images/process-7-prime-and-paint-ready-finish.jpg"
+      alt: "Drywall Repair Prime and paint-ready finish photo"
+  - title: "Final walkthrough"
+    description: "We check the blend in daylight before calling the job done."
     image:
-      src: "/images/offerProcess-8-upload-mt3qlbek.png"
-      alt: "ChatGPT Image Aug 21, 2026, 08_05_55 PM"
+      src: "/images/process-8-openai-mti61owq.jpg"
+      alt: "Final walkthrough photo"
 faqs:
-  - question: "What is the average cost to have an egress window installed?"
-    answer: "Most Omaha-area egress window projects run $2,500–$9,000 depending on whether it's a well swap on an existing opening or a full foundation cut with a new window and well. Cover-only work and drainage add-ons run lower; basement bedroom conversions with permit work run higher."
-  - question: "What are the minimum requirements for egress windows in Nebraska?"
-    answer: "Nebraska follows the International Residential Code egress minimums used across the Omaha metro: a clear opening of at least 5.7 square feet (5.0 sq ft for ground-floor windows), a minimum opening width and height, a sill height no more than 44 inches above the floor, and a window well with at least 9 square feet of clear floor area when the well is deeper than 44 inches."
-  - question: "Do I need a permit to install an egress window?"
-    answer: "In most Omaha-area jurisdictions, yes — cutting a new foundation opening, enlarging an existing one, or adding a basement bedroom typically requires a permit and inspection. A like-for-like window swap without enlarging the opening, or a cover-only replacement, usually doesn't. Always confirm with your local building department."
-  - question: "Is it illegal to have a bedroom in the basement without an egress window?"
-    answer: "Under the residential code adopted across Nebraska, a basement room used as a bedroom generally must have a compliant egress window or door. Without one, the space typically can't be legally counted as a bedroom, which can also affect a home's listed square footage and value when selling."
-  - question: "How long does egress window installation take?"
-    answer: "A straightforward well swap or window replacement usually takes 1–2 days on site. A full new foundation cut with a window well and drainage typically takes a bit longer, and permit approval can add 1–2 weeks before work starts."
-  - question: "Is DIY egress window installation a good idea?"
-    answer: "DIY works fine for a cover swap or clearing debris from an existing well. Cutting a foundation opening, framing a new window, or building a well with proper drainage is a different scope — mistakes here risk a failed inspection or water getting into the basement, so most homeowners bring in a pro for that part."
-  - question: "What are the best window well covers for keeping debris and water out?"
-    answer: "For most Omaha homes, a domed polycarbonate cover or a flat metal grate cover works well — polycarbonate sheds water and leaves while still letting light in, and metal grates hold up well if you want a walk-safe cover. The right egress window coverings choice depends on well size, foot traffic near the well, and how much sun the window gets."
-  - question: "How do I know if my basement bedroom needs an egress window?"
-    answer: "If the room is used or marketed as a bedroom, it needs a compliant egress opening. Warning signs it doesn't have one include an undersized or high-set basement window, a window well that's too shallow or narrow to climb out of, or no window in the room at all."
+  - question: "How much does it cost to have someone fix drywall?"
+    answer: "Small nail holes and dings usually run in the low hundreds. Bigger holes, panel swaps, or ceiling work cost more depending on size and texture matching. A free estimate gets you a real number."
+  - question: "Can a handyman handle drywall repairs?"
+    answer: "A handyman can patch a small hole fine. Texture matching, popcorn ceiling removal, and larger panel repairs usually turn out better with a drywall specialist who does this work every day."
+  - question: "How can I fix damaged drywall myself before calling a pro?"
+    answer: "For a nail hole or small ding, a dab of spackle and light sanding works. Anything bigger than a few inches, or on a textured wall, is where DIY patches start to show."
+  - question: "How big of a hole can I repair in drywall?"
+    answer: "Holes up to about the size of a fist can usually be patched without replacing a full panel. Bigger than that, and cutting in a new section of sheetrock is the cleaner fix."
+  - question: "How much does Drywall Repair cost in Broken Arrow?"
+    answer: "Ranges run roughly $150 to $350 for small patches, $300 to $700 for larger holes or panel sections, and more for full wall or ceiling replacement. Call for a firm quote based on your damage."
+  - question: "How long does Drywall Repair take?"
+    answer: "Small patches can be done and paint-ready the same day or next. Larger jobs need dry time between coats, so plan on a day or two for anything beyond a simple patch."
+  - question: "Do I need a permit for Drywall Repair?"
+    answer: "Standard patching, texture matching, and popcorn ceiling removal are typically permit-free in Broken Arrow. Structural framing or electrical changes behind the wall are the exception."
+  - question: "Is DIY Drywall Repair a good idea?"
+    answer: "For a small nail hole, sure, go for it. For textured walls, recurring cracks, or water-stained ceilings, a pro saves you from a patch that stands out like a sore thumb."
 heroImage:
-  src: "/images/hero-1-upload-mt3q4umf.png"
-  alt: "ChatGPT Image Aug 20, 2026, 11_16_39 PM"
+  src: "/images/see-svcMaterials-drywall-installation-1-openai-mtjlamc9.jpg"
+  alt: "Hero photo"
 featureImage:
-  src: "/images/intro-1-upload-mt3q4nfu.png"
-  alt: "ChatGPT Image Aug 20, 2026, 11_31_01 PM"
+  src: "/images/intro-1-openai-mtjj0kt4.jpg"
+  alt: "Intro photo"
 materialsImages:
-  - src: "/images/materials-1-upload-mt3qc8wm.png"
-    alt: "ChatGPT Image Aug 21, 2026, 06_53_28 PM"
-  - src: "/images/materials-2-upload-mt3qbu3u.png"
-    alt: "ChatGPT Image Aug 20, 2026, 11_16_39 PM"
-  - src: "/images/materials-3-upload-mt3qbdlc.png"
-    alt: "ChatGPT Image Aug 21, 2026, 07_02_02 PM"
-  - src: "/images/materials-4-upload-mt3qlrzu.png"
-    alt: "ChatGPT Image Aug 21, 2026, 08_06_15 PM"
-  - src: "/images/materials-5-upload-mt3qay8y.png"
-    alt: "ChatGPT Image Aug 21, 2026, 07_07_15 PM"
-  - src: "/images/materials-6-upload-mt3qb788.png"
-    alt: "ChatGPT Image Aug 21, 2026, 07_09_28 PM"
+  - src: "/images/pg6-svcMaterials-drywall-installation-3-openai-mtjlg8vj-19.jpg"
+    alt: "Paperless mold-resistant board photo"
+  - src: "/images/materials-2-openai-mtjl8xsw.jpg"
+    alt: "Mesh joint tape photo"
+  - src: "/images/materials-3-openai-mti47sev.jpg"
+    alt: "Moisture-resistant primer-sealer photo"
+  - src: "/images/pg3-svcMaterials-2-close-up-of-a-hand-painting-a-wall-with-5583116-20.jpg"
+    alt: "Hopper-gun orange peel texture photo"
+  - src: "/images/pg5-svcMaterials-nail-pop-repair-3-openai-mtl62boa-5.jpg"
+    alt: "Knockdown texture technique photo"
+  - src: "/images/pg6-svcMaterials-office-and-retail-buildout-drywall--openai-mtjlbij3-5.jpg"
+    alt: "Metal corner bead photo"
+gallery:
+  - src: "/images/gallery-ba-1-before.jpg"
+    alt: "Before — Drywall Repair"
+  - src: "/images/gallery-ba-1-after.jpg"
+    alt: "After — Drywall Repair"
 coverageMap:
   src: "/images/coverage-map.svg"
-  alt: "Coverage map for Omaha area"
-serviceCardImages:
-  - src: "/images/services-1-upload-mt3q5ksw.png"
-    alt: "ChatGPT Image Aug 21, 2026, 06_52_07 PM"
-  - src: "/images/services-2-upload-mt3q5tc0.png"
-    alt: "egress_installation_14"
-  - src: "/images/services-3-upload-mt3q60te.png"
-    alt: "egress_installation_04"
-  - src: "/images/services-4-upload-mt3qdy90.png"
-    alt: "ChatGPT Image Aug 21, 2026, 07_59_39 PM"
-  - src: "/images/services-5-upload-mt3qe8cm.png"
-    alt: "ChatGPT Image Aug 21, 2026, 08_00_24 PM"
-  - src: "/images/services-6-upload-mt3q8knb.png"
-    alt: "ChatGPT Image Aug 21, 2026, 06_58_10 PM"
-  - src: "/images/services-7-upload-mt3qdlgq.png"
-    alt: "ChatGPT Image Aug 21, 2026, 07_59_48 PM"
-  - src: "/images/services-8-upload-mt3q8xoy.png"
-    alt: "ChatGPT Image Aug 21, 2026, 06_53_42 PM"
+  alt: "Coverage map for Cedar Rapids area"
 ---
-Basement egress window installation is one of the most common code-driven upgrades we handle for Omaha homeowners. It's a specialized job. Cutting a new foundation opening, framing it correctly, and setting an egress-rated window is a different scope than a standard window swap.
+Cracked drywall over a doorway. Nail pops popping up again after you just painted. Sound familiar? You're not alone, and it's not always something you did wrong.
 
-Many older Omaha homes were built with small basement windows, or none at all, in what's now used as a bedroom. That means the opening, the window, and the well all have to be brought up to current egress minimums together.
+Broken Arrow sits on clay soil that shifts with the seasons, and that shows up as diagonal cracks over doors and windows as homes settle. Add in Oklahoma's swing between humid summers and dry winters, and seams stress, fasteners loosen, nail pops appear. Broken Arrow Drywall Repair Pros handles patching, texture matching, and sheetrock replacement built around exactly this kind of movement, not a one-size patch job.
 
-Omaha Egress Window Pros handles the full scope: concrete cutting for new wall openings, code-sized window and well selection, and drainage-conscious grading that accounts for the clay soils and freeze-thaw cycles common around Omaha window wells. Whether you're finishing a basement bedroom, replacing a failed window well, or just need a code compliance check before you sell, we walk you through what's required before any cutting starts. [Contact us](/contact) for a free estimate or read more [about our team](/about).
+Whether it's a hole from moving furniture, a water stain on the ceiling after a spring storm, or a popcorn ceiling ready for an update, we match compound, texture, and paint prep to what's actually causing the damage. [Contact](/contact) us or keep reading for cost ranges, materials, and what to expect.
 
-## Basement Egress Window Installation Cost in Omaha
+## Drywall Repair services in Broken Arrow
 
-Egress window installation costs vary mainly by how much foundation cutting and drainage work the project needs. Here's a general idea of where projects typically land:
+**[Drywall Repair](/services/drywall-repair)** covers general cracks, holes, and seam damage, patched and texture-matched so the repair blends into the wall, not stands out from it.
 
-- **Cover-Only Replacement** — $600–$1,200 — swapping a damaged or leaking well cover without touching the window or well itself.
-- **Standard Window Well Swap** — $2,500–$5,000 — replacing an existing non-compliant window and well with a code-sized unit on an opening that's already cut.
-- **New Foundation Cut & Full Egress Install** — $4,500–$9,000 — cutting a new opening, framing, setting an egress-rated window, and installing a well with drainage.
-- **Well Drainage & Grading Add-On** — $800–$2,000 — gravel drainage base and regrading to stop water pooling around an existing well.
-- **Basement Bedroom Egress Upgrade** — $5,000–$10,000+ — a full compliance package for a basement bedroom conversion, including permit coordination.
+**[Sheetrock Repair](/services/sheetrock-repair)** handles panel-level damage where a patch alone won't cut it, cutting out the bad section and fitting new board cleanly.
 
-These are estimate ranges, not fixed quotes — the exact price depends on wall thickness, soil conditions, and window/well selection. Request a free estimate and we'll give you a firm number for your project.
+**Water Damage Repair** addresses ceilings and walls stained or softened by a leak, replacing what's compromised and sealing with stain-blocking primer so it doesn't bleed through new paint.
 
-## Materials and Methods We Use for Egress Windows
+**[Popcorn Ceiling Removal](/services/popcorn-ceiling-removal)** updates older Broken Arrow homes still carrying that dated texture, with containment to keep the mess in one room.
 
-The materials on an egress window job matter as much as the cutting and framing. Here's what we typically work with:
+**[Texture Matching](/services/texture-matching)** is the step that makes any patch invisible, whether the wall's knockdown, orange peel, or popcorn.
 
-- **Corrugated Steel Window Wells** — a durable, budget-friendly option that holds up well to Omaha's freeze-thaw cycles and heavier soil pressure than lighter-gauge products.
-- **Composite Polymer Window Wells** — won't rust and resists the corrosion that can affect metal wells over time, a good fit for wetter yards or homes closer to drainage swales.
-- **Egress-Rated Casement & Slider Windows** — sized and hinged to meet code-minimum clear opening while sealing tightly against Nebraska's swinging temperatures.
-- **Gravel Drainage Base & Backfill** — a layered gravel base under and around the well routes spring rain and snowmelt away from the foundation instead of letting it pool.
-- **Polycarbonate & Metal Well Covers** — keep leaves, debris, and standing water out of the well while still meeting egress access requirements.
-- **Sealant & Flashing** — properly flashed and sealed window-to-foundation joints keep the new opening watertight through Omaha's heavy spring rains.
+**Wall Crack Repair** targets cosmetic cracks tied to normal home settling, especially the diagonal ones over doors and windows that keep coming back.
 
-## Egress Window Coverings We Install
+**Ceiling Repair** covers sagging, cracked, or stained ceiling drywall, common in two-story Broken Arrow homes after an upstairs leak.
 
-A well needs a good cover as much as it needs good drainage. We fit domed polycarbonate covers when homeowners want light and weather protection, and flat metal grate covers when the well doubles as foot traffic.
+**Nail Pop Repair** re-fastens and refinishes drywall where nails or screws have worked loose, a common issue in newer subdivisions still settling.
 
-Either option keeps leaves and standing water out while still meeting egress access rules. We help you pick between covers based on well size, sun exposure, and how close the well is to a walkway.
+**[Drywall Patching](/services/drywall-patching)** fixes small to medium holes from doorknobs, furniture, or accidents, matched to texture so nothing shows.
 
-## How long does a Putting In an Egress Window take?
-Most projects move through a few clear stages, though permit approval is usually the longest wait. Here's a typical timeline:
+**Drywall Hole Repair** scales the patch method to the hole size, from a quick mesh patch to a full cutout and new backing.
 
-- **Site Assessment & Estimate** — same day
-- **Permit Approval** — 1–2 weeks
-- **Cutting & Window Install** — 1–2 days
-- **Window Well & Drainage** — 1 day
-- **Final Inspection** — scheduled after install
+## Drywall repair broken arrow cost: what to expect
 
-## Egress Window Permits, Codes, and Compliance
+Pricing depends on damage size, texture complexity, and whether it's a wall or ceiling. Here's a rough breakdown:
+
+- **Small patch (nail holes, dings)** — $150–$350 — texture match and paint-ready finish
+- **Medium hole or panel section** — $300–$700 — cut-out repair, new backing, taping and texture
+- **Full wall or ceiling section** — $700–$2,000+ — larger sheetrock replacement with multiple mud coats
+- **Water damage repair** — $250–$900 — depends on stain size and whether replacement is needed
+
+These are ballparks, not quotes. Call for a free estimate and we'll give you a firm number after seeing the damage.
+
+## Materials and Methods We Use
+
+Broken Arrow's humidity swings and clay-soil settling push us toward materials built for that kind of movement, not just whatever's cheapest at the box store.
+
+- **Setting-type joint compound** — Dries chemically instead of by evaporation, so it handles Oklahoma's humidity swings better and won't shrink or crack as it cures.
+- **Self-adhesive mesh tape** — Bridges seams and cracks with flexibility, holding up better against the minor movement from clay-soil settling than paper tape alone.
+- **Knockdown texture spray** — Matches the most common wall texture in Broken Arrow homes built since the 90s, applied and knocked down by hand for a real blend.
+- **Orange peel texture** — Common in older homes and some newer builds, sprayed at the right pressure so the pattern matches rather than looks pasted on.
+- **Moisture-resistant drywall** — Used in bath and kitchen areas prone to humidity, holding up longer where standard board would soften over time.
+- **Stain-blocking primer** — Seals water stains so they don't bleed through fresh paint, essential after any leak-related repair.
+
+## How long does a Drywall Repair take?
+Small jobs move fast. Bigger ones need dry time between coats, so patience pays off with a better finish.
+
+- **Inspection** — same day
+- **Patch and first coat** — same day
+- **Dry time between coats** — 24 hours
+- **Texture and paint-ready** — 1–2 days
+
+## Permits, Codes, and Compliance for Drywall Repair
 
 ### Usually needs a permit
-- Cutting a new opening in the foundation wall
-- Adding a basement bedroom that requires a compliant egress window
-- Structural changes to an existing window well
-- Enlarging an existing window opening to meet code-minimum size
+- Structural framing changes behind the wall
+- Electrical work tied into the repair area
+- Plumbing tie-ins affecting the wall cavity
+- Load-bearing wall alterations
 
 ### Usually no permit
-- A like-for-like window swap without enlarging the opening
-- Cover-only replacement
-- Routine well cleanout or debris removal
-- Minor regrading around an existing, unchanged well
+- Standard patch and crack repair
+- Texture matching
+- Popcorn ceiling removal
+- Nail pop repair
+- Cosmetic drywall replacement
 
-Requirements vary by city and county — always verify exact permit rules with your local Omaha-area building department before starting work.
+Always verify with the City of Broken Arrow or your county before starting work, especially if you're unsure whether something behind the wall counts as structural.
 
-## DIY vs Hiring a Pro for Installing an Egress Window in a Basement
+## DIY vs Hiring a Drywall Repair Pro
 
 ### DIY
-- Swapping a damaged or worn window well cover
-- Clearing leaves, dirt, or debris from an existing well
-- Minor sealant touch-ups on a well that isn't leaking into the basement
+- Small nail holes and picture-hanger dings
+- Minor scuffs fixable with spackle and a light sand
+- Flat, untextured walls where blending isn't an issue
 
 ### Hire a pro
-- Cutting a new foundation opening
-- Framing and setting an egress-rated window
-- Installing or resizing a window well with proper drainage
-- Any work tied to a permit or inspection, where a mistake can mean a failed inspection or water intrusion
+- Holes larger than a fist
+- Textured walls or ceilings needing a blended patch
+- Recurring cracks that keep coming back in the same spot
+- Water-stained drywall that might be softened underneath
+- Multiple nail pops across one wall or ceiling
 
-## When to Call for Egress Window Installation
+## When to Call for Drywall Repair
 
-- You're finishing a basement bedroom that doesn't have a compliant egress window
-- You've received a failed inspection notice tied to egress
-- Your window well is cracked, sinking, or leaking into the basement
-- You're planning to sell and need code compliance handled before listing
-- Your current basement window is undersized for Nebraska's egress minimums
+- Cracks over doors or windows that keep returning after you patch them
+- Water stains or soft spots on a ceiling
+- Several nail pops showing up across the same wall
+- Holes bigger than a couple inches
+- A previous handyman patch with a visible seam or flat spot
 
-Not sure which situation applies to you? [Contact us](/contact) for a free estimate and we'll walk through it together.
+None of these need to turn into an emergency. Give us a call and we'll get it sorted before it gets worse.
 
-## Egress Window Installation Near Omaha: Bellevue, La Vista, Papillion & Fremont
+## Locations We Serve Near Broken Arrow
 
-We install egress windows throughout the Omaha metro, with local jobs in these communities:
+**[Bixby](/locations/bixby)** — fast-growing subdivisions still settling, which means plenty of nail pops and hairline cracks in newer homes.
 
-- **[Bellevue](/locations/bellevue)** — a large Sarpy County suburb with a mix of older and newer housing stock, meaning we see both full foundation cuts and simpler well swaps.
-- **[La Vista](/locations/la-vista)** — a smaller, more recently developed suburb, where jobs more often involve well upgrades or drainage work rather than cutting new openings.
-- **[Papillion](/locations/papillion)** — the Sarpy County seat, with an older railroad-era core alongside newer growth that mirrors Omaha's, so egress needs vary block by block.
-- **[Fremont](/locations/fremont)** — the Dodge County seat, further from the metro core, where older basement construction often lacks a compliant egress opening.
+**[Coweta](/locations/coweta)** — older and more rural housing stock, often with original texture and popcorn ceilings needing careful matching.
 
-We also serve our primary area, **[Omaha (primary area)](/locations/omaha)**, along with Blair, Gretna, Offutt AFB, Plattsmouth, Ralston, and Wahoo within our standard service radius.
+**[Tulsa](/locations/tulsa)** — a mix of ranch-style and two-story homes, so both ceiling leak repairs and wall crack work are common calls.
 
-## Get a Free Egress Window Installation Estimate in Omaha
+**[Jenks](/locations/jenks)** — rapid new-construction growth near the river corridor, with settling cracks showing up 1-3 years after move-in.
 
-Ready to get your basement egress opening up to code? Explore our services — [Egress Window Installation](/services/egress-window-installation), [Basement Egress Window Cutting](/services/basement-egress-window-cutting), [Window Well Installation](/services/window-well-installation), [Window Well Covers](/services/window-well-covers), [Window Well Drainage & Grading](/services/window-well-drainage-and-grading), and [Egress Window Replacement](/services/egress-window-replacement) — or call **(531) 301-8697** for a free, no-obligation estimate.
+**[Owasso](/locations/owasso)** — one of the fastest-growing northern suburbs, seeing the same new-build settling issues as Bixby and Jenks.
 
-Omaha Egress Window Pros serves the whole metro, including Omaha, Bellevue, La Vista, Papillion, and Fremont. [Get in touch](/contact) and we'll schedule your site assessment.
+**[Broken Arrow (primary area)](/locations/broken-arrow)** stays our home base, with the widest mix of housing eras and drywall issues.
+
+<!-- rover-autofix-links -->
+- [About](/about)
+
+## Get a Free Estimate in Broken Arrow
+
+Cracked wall, stained ceiling, or a hole that's been bugging you for months, it's an easy fix once someone who knows drywall takes a look. Call Broken Arrow Drywall Repair Pros at +1 (918) 317-6536 or [request a free estimate](/contact) and we'll get you a real number, not a guess.

@@ -154,7 +154,7 @@ export function parseOptionRows(bullets: string[]): Array<{ title: string; detai
       return { title: colon[1].trim(), detail: colon[2].trim() };
     }
     const bold = b.match(/^\*\*(.+?)\*\*\s*[—–:-]?\s*(.*)$/);
-    if (bold) return { title: bold[1].trim(), detail: bold[2].trim() };
+    if (bold) return { title: bold[1].trim(), detail: stripBold(bold[2]).trim() };
     return { title: cleaned, detail: '' };
   });
 }
@@ -343,11 +343,86 @@ export function isTimelineDurationFluff(detail: string): boolean {
 function stripDurationFluff(text: string): string {
   return String(text || '')
     .replace(DURATION_FLUFF_RE, ' ')
+    .replace(/\s*[—–-]\s*,/g, ',')
+    .replace(/,\s*[—–-]\s*/g, ', ')
     .replace(/\s*[—–-]\s*$/g, '')
     .replace(/^\s*[—–-]\s*/g, '')
     .replace(/\s{2,}/g, ' ')
     .replace(/^[,\s;:]+|[,\s;:]+$/g, '')
     .trim();
+}
+
+function cleanTimelineDashJunk(s: string): string {
+  return String(s || '')
+    .replace(/\s*[—–-]\s*,/g, ',')
+    .replace(/,\s*[—–-]\s*/g, ', ')
+    .replace(/\s*[—–-]\s*$/g, '')
+    .replace(/^\s*[—–-]\s*/g, '')
+    .replace(/\s{2,}/g, ' ')
+    .replace(/^[,\s;:]+|[,\s;:]+$/g, '')
+    .trim();
+}
+
+/** Split a bullet that packed several `**Label** — …` jobs into one line. */
+function splitPackedTimelineSegments(raw: string): string[] {
+  const t = String(raw || '').trim();
+  if (!t) return [];
+  const hits = [...t.matchAll(/\*\*(.+?)\*\*(?:\s*[—–:-]\s*|\s+)/g)];
+  if (hits.length < 2) return [t];
+  const parts: string[] = [];
+  const firstIdx = hits[0].index ?? 0;
+  if (firstIdx > 8) {
+    const prefix = t.slice(0, firstIdx).trim();
+    if (prefix) parts.push(prefix);
+  }
+  for (let i = 0; i < hits.length; i += 1) {
+    const start = hits[i].index ?? 0;
+    const end = i + 1 < hits.length ? (hits[i + 1].index ?? t.length) : t.length;
+    const slice = t.slice(start, end).trim();
+    if (slice) parts.push(slice);
+  }
+  return parts.length ? parts : [t];
+}
+
+function stageFromTimelineRaw(
+  raw: string,
+  fallbackTitle: string,
+  { forceUntitledDetail = false } = {},
+): TimelineStage {
+  const rows = parseOptionRows([raw])[0] || { title: '', detail: '' };
+  let title = stripBold(rows.title || '');
+  let detail = stripBold(rows.detail || '');
+  if (forceUntitledDetail && !detail) {
+    title = fallbackTitle;
+    detail = stripBold(raw);
+  }
+  if (!detail && !title) {
+    title = fallbackTitle;
+    detail = stripBold(raw);
+  }
+  const dur = pickDurationMatch(title, detail);
+  let duration: string | undefined;
+  if (dur) {
+    duration = shortenDurationChip(dur[0]);
+    const strip = (s: string) =>
+      s
+        .replace(dur[0], '')
+        .replace(/\s*[—–-]\s*$/g, '')
+        .replace(/^\s*[—–-]\s*/g, '')
+        .replace(/\s{2,}/g, ' ')
+        .trim();
+    title = strip(title);
+    detail = strip(detail);
+    detail = stripDurationFluff(detail);
+    title = stripDurationFluff(title);
+    if (isTimelineDurationFluff(detail)) detail = '';
+  } else if (isTimelineDurationFluff(detail) && detail.length < 80) {
+    detail = '';
+  }
+  title = stripBold(cleanTimelineDashJunk(title)).replace(/\.$/, '') || fallbackTitle;
+  detail = stripBold(cleanTimelineDashJunk(detail));
+  if (isTimelineDurationFluff(detail) && detail.length < 80) detail = '';
+  return { title, detail, duration };
 }
 
 export function parseTimelineStages(body: string): TimelineStage[] {
@@ -362,41 +437,14 @@ export function parseTimelineStages(body: string): TimelineStage[] {
           .filter((s) => s.length > 20)
           .slice(0, 4);
 
-  return source.map((raw, i) => {
-    const rows = parseOptionRows([raw])[0];
-    let title = rows.title;
-    let detail = rows.detail;
-    if (!detail && !bullets.length) {
-      title = `Stage ${i + 1}`;
-      detail = raw;
-    }
-    const dur = pickDurationMatch(title, detail);
-    let duration: string | undefined;
-    if (dur) {
-      duration = shortenDurationChip(dur[0]);
-      const strip = (s: string) =>
-        s
-          .replace(dur[0], '')
-          .replace(/\s*[—–-]\s*$/g, '')
-          .replace(/^\s*[—–-]\s*/g, '')
-          .replace(/\s{2,}/g, ' ')
-          .trim();
-      title = strip(title);
-      detail = strip(detail);
-      // Drop parenthetical / alternate-timing leftovers — chip stays the clean duration only
-      detail = stripDurationFluff(detail);
-      title = stripDurationFluff(title);
-      if (isTimelineDurationFluff(detail)) detail = '';
-    } else {
-      // No chip match but detail is pure hedge — still hide it
-      if (isTimelineDurationFluff(detail) && detail.length < 80) detail = '';
-    }
-    return {
-      title: title.replace(/\.$/, '') || `Stage ${i + 1}`,
-      detail,
-      duration,
-    };
-  });
+  const expanded: string[] = [];
+  for (const raw of source) {
+    expanded.push(...splitPackedTimelineSegments(raw));
+  }
+
+  return expanded.map((raw, i) =>
+    stageFromTimelineRaw(raw, `Stage ${i + 1}`, { forceUntitledDetail: !bullets.length }),
+  );
 }
 
 /** Strip “Usually needs a permit:” style labels and expand comma lists into rows. */

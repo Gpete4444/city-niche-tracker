@@ -34,6 +34,11 @@ export function defaultEffort() {
   return EFFORT_LEVELS.has(raw) ? raw : 'medium';
 }
 
+function resolveEffort(override) {
+  const raw = String(override || '').trim().toLowerCase();
+  return EFFORT_LEVELS.has(raw) ? raw : defaultEffort();
+}
+
 function isSonnet5(model) {
   return String(model || '').startsWith('claude-sonnet-5');
 }
@@ -75,6 +80,56 @@ function parseJsonLoose(text) {
 }
 
 export { parseJsonLoose };
+
+const ANTHROPIC_RETRY_ATTEMPTS = 6;
+const ANTHROPIC_RETRY_CAP_MS = 60_000;
+
+export function isAnthropicRetryableStatus(status) {
+  const n = Number(status);
+  return n === 429 || n === 529;
+}
+
+/**
+ * @param {number} attempt zero-based failed attempt index
+ * @param {string | null | undefined} retryAfterHeader
+ */
+export function anthropicRetryDelayMs(attempt, retryAfterHeader) {
+  const header = String(retryAfterHeader ?? '').trim();
+  if (header) {
+    const sec = Number(header);
+    if (Number.isFinite(sec) && sec >= 0) {
+      return Math.min(ANTHROPIC_RETRY_CAP_MS, Math.max(0, Math.round(sec * 1000)));
+    }
+  }
+  const n = Number(attempt);
+  const exp = Number.isFinite(n) && n >= 0 ? n : 0;
+  return Math.min(ANTHROPIC_RETRY_CAP_MS, 2000 * 2 ** exp);
+}
+
+function sleepAbortable(ms, signal) {
+  const wait = Math.max(0, Number(ms) || 0);
+  if (wait <= 0) {
+    if (signal?.aborted) {
+      return Promise.reject(Object.assign(new Error('Stopped'), { status: 499, cancelled: true }));
+    }
+    return Promise.resolve();
+  }
+  return new Promise((resolve, reject) => {
+    const fail = () => {
+      reject(Object.assign(new Error('Stopped'), { status: 499, cancelled: true }));
+    };
+    if (signal?.aborted) {
+      fail();
+      return;
+    }
+    const t = setTimeout(resolve, wait);
+    const onAbort = () => {
+      clearTimeout(t);
+      fail();
+    };
+    signal?.addEventListener('abort', onAbort, { once: true });
+  });
+}
 
 /**
  * Save a Claude.ai (or other) narrative JSON paste and auto-accept when valid.
@@ -167,8 +222,11 @@ function attachClaudeCost(usage, model, costKey) {
  *   cacheSystem?: boolean,
  *   maxTokens?: number,
  *   temperature?: number,
+ *   effort?: string,
  *   signal?: AbortSignal,
  *   costKey?: { candidateId: string, label: string, accumulate?: boolean },
+ *   fetch?: typeof fetch,
+ *   retrySleep?: (ms: number, signal?: AbortSignal) => Promise<void>,
  * }} opts
  */
 export async function claudeMessages(opts = {}) {
@@ -197,7 +255,7 @@ export async function claudeMessages(opts = {}) {
     model,
     max_tokens: Number(opts.maxTokens) > 0 ? Number(opts.maxTokens) : 8192,
     messages: [{ role: 'user', content: user }],
-    output_config: { effort: defaultEffort() },
+    output_config: { effort: resolveEffort(opts.effort) },
   };
   if (!isSonnet5(model)) {
     body.temperature = opts.temperature == null ? 0.4 : Number(opts.temperature);
@@ -208,31 +266,45 @@ export async function claudeMessages(opts = {}) {
       ? [{ type: 'text', text: sys, cache_control: { type: 'ephemeral' } }]
       : sys;
   }
+  const doFetch = typeof opts.fetch === 'function' ? opts.fetch : fetch;
+  const retrySleep = typeof opts.retrySleep === 'function' ? opts.retrySleep : sleepAbortable;
+
   let response;
-  try {
-    response = await fetch(ANTHROPIC_URL, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(body),
-      signal: opts.signal,
-    });
-  } catch (error) {
-    if (error?.name === 'AbortError' || opts.signal?.aborted) {
+  let json = {};
+  for (let attempt = 0; attempt < ANTHROPIC_RETRY_ATTEMPTS; attempt += 1) {
+    if (opts.signal?.aborted) {
       throw Object.assign(new Error('Stopped'), { status: 499, cancelled: true });
     }
-    throw error;
-  }
-  const json = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    const raw = json?.error?.message || JSON.stringify(json).slice(0, 400);
-    const msg = String(raw || '');
-    if (/anthropic-workspace-id is required/i.test(msg)) {
-      throw new Error(
-        'This Anthropic key needs a workspace. Set ANTHROPIC_WORKSPACE_ID in .env to the wrkspc_… id from Console → Settings → Workspaces, then restart Rover.',
-      );
+    try {
+      response = await doFetch(ANTHROPIC_URL, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(body),
+        signal: opts.signal,
+      });
+    } catch (error) {
+      if (error?.name === 'AbortError' || opts.signal?.aborted || error?.cancelled) {
+        throw Object.assign(new Error('Stopped'), { status: 499, cancelled: true });
+      }
+      throw error;
     }
-    throw new Error(`Anthropic HTTP ${response.status}: ${raw}`);
+    json = await response.json().catch(() => ({}));
+    if (response.ok) break;
+    const retryable = isAnthropicRetryableStatus(response.status);
+    if (!retryable || attempt === ANTHROPIC_RETRY_ATTEMPTS - 1) {
+      const raw = json?.error?.message || JSON.stringify(json).slice(0, 400);
+      const msg = String(raw || '');
+      if (/anthropic-workspace-id is required/i.test(msg)) {
+        throw new Error(
+          'This Anthropic key needs a workspace. Set ANTHROPIC_WORKSPACE_ID in .env to the wrkspc_… id from Console → Settings → Workspaces, then restart Rover.',
+        );
+      }
+      throw new Error(`Anthropic HTTP ${response.status}: ${raw}`);
+    }
+    const delay = anthropicRetryDelayMs(attempt, response.headers?.get?.('retry-after'));
+    await retrySleep(delay, opts.signal);
   }
+
   const text = (json.content ?? [])
     .filter((block) => block.type === 'text')
     .map((block) => block.text)
