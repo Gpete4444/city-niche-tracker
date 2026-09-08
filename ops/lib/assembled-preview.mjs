@@ -1,9 +1,10 @@
 /**
  * Preview assembled sibling sites (astro preview on dist).
  *
- * Port pool (default base 4322, 2 slots): each siteRoot can keep its own preview
- * without killing others. When the pool is full, the oldest other binding is evicted.
- * Idle bindings are stopped after ASSEMBLED_PREVIEW_IDLE_MS (default 15 min).
+ * Port pool (default base 4322): slot count comes from Concurrent Limit
+ * (assembledPreviews, default 5, max 8). When the pool is full, the oldest
+ * other binding is evicted. Idle bindings stop after ASSEMBLED_PREVIEW_IDLE_MS
+ * (default 15 min).
  */
 
 import { spawn, execFileSync } from 'node:child_process';
@@ -11,16 +12,20 @@ import { createConnection } from 'node:net';
 import { existsSync, readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { buildAssembledSiteAsync } from './ship-site.mjs';
+import { getConcurrency } from './rover-concurrency.mjs';
 
 const PREVIEW_HOST = '127.0.0.1';
 const PORT_BASE = Math.max(
   1024,
   Number(process.env.ASSEMBLED_PREVIEW_PORT_BASE || 4322) || 4322,
 );
-const PORT_SLOTS = Math.max(
-  1,
-  Math.min(8, Number(process.env.ASSEMBLED_PREVIEW_SLOTS || 2) || 2),
-);
+const PREVIEW_SLOTS_HARD_MAX = 8;
+
+export function assembledPreviewSlotCount() {
+  const n = Number(getConcurrency().assembledPreviews);
+  if (!Number.isFinite(n)) return 5;
+  return Math.max(1, Math.min(PREVIEW_SLOTS_HARD_MAX, Math.round(n)));
+}
 const IDLE_MS = Math.max(
   60_000,
   Number(process.env.ASSEMBLED_PREVIEW_IDLE_MS || 15 * 60 * 1000) || 15 * 60 * 1000,
@@ -209,7 +214,7 @@ function reservePort(siteRoot) {
   if (existing?.port != null) return existing.port;
 
   const used = usedPorts();
-  for (let i = 0; i < PORT_SLOTS; i += 1) {
+  for (let i = 0; i < assembledPreviewSlotCount(); i += 1) {
     const p = PORT_BASE + i;
     if (used.has(p)) continue;
     bindings.set(key, {
@@ -226,7 +231,7 @@ function reservePort(siteRoot) {
 
 function allocatePort() {
   const used = usedPorts();
-  for (let i = 0; i < PORT_SLOTS; i += 1) {
+  for (let i = 0; i < assembledPreviewSlotCount(); i += 1) {
     const p = PORT_BASE + i;
     if (!used.has(p)) return p;
   }
@@ -235,7 +240,7 @@ function allocatePort() {
 
 function poolPorts() {
   const ports = [];
-  for (let i = 0; i < PORT_SLOTS; i += 1) ports.push(PORT_BASE + i);
+  for (let i = 0; i < assembledPreviewSlotCount(); i += 1) ports.push(PORT_BASE + i);
   return ports;
 }
 
@@ -544,7 +549,7 @@ export async function ensureAssembledPreview(
       started: false,
       rebound: false,
       build: null,
-      error: `Preview port pool full (${PORT_SLOTS} slots from ${PORT_BASE})`,
+      error: `Preview port pool full (${assembledPreviewSlotCount()} slots from ${PORT_BASE})`,
       assembledSitePath: abs,
       port: null,
     };
@@ -632,7 +637,7 @@ export function getAssembledPreviewBinding(siteRoot) {
         port: slot.port,
         boundSiteRoot: slot.siteRoot,
         url: `http://${PREVIEW_HOST}:${slot.port}/`,
-        pool: { base: PORT_BASE, slots: PORT_SLOTS, active: bindings.size },
+        pool: { base: PORT_BASE, slots: assembledPreviewSlotCount(), active: bindings.size },
       };
     }
     // Do not invent PORT_BASE for a specific siteRoot — that caused duplicate :4322 URLs.
@@ -640,7 +645,7 @@ export function getAssembledPreviewBinding(siteRoot) {
       port: null,
       boundSiteRoot: null,
       url: null,
-      pool: { base: PORT_BASE, slots: PORT_SLOTS, active: bindings.size },
+      pool: { base: PORT_BASE, slots: assembledPreviewSlotCount(), active: bindings.size },
     };
   }
   // Prefer first active binding for legacy callers
@@ -650,14 +655,14 @@ export function getAssembledPreviewBinding(siteRoot) {
       port: first.port,
       boundSiteRoot: first.siteRoot,
       url: `http://${PREVIEW_HOST}:${first.port}/`,
-      pool: { base: PORT_BASE, slots: PORT_SLOTS, active: bindings.size },
+      pool: { base: PORT_BASE, slots: assembledPreviewSlotCount(), active: bindings.size },
     };
   }
   return {
     port: PORT_BASE,
     boundSiteRoot: null,
     url: `http://${PREVIEW_HOST}:${PORT_BASE}/`,
-    pool: { base: PORT_BASE, slots: PORT_SLOTS, active: 0 },
+    pool: { base: PORT_BASE, slots: assembledPreviewSlotCount(), active: 0 },
   };
 }
 
@@ -670,6 +675,20 @@ export function listAssembledPreviewBindings() {
   }));
 }
 
+/**
+ * Drop previews whose ports sit outside the current Settings slot range.
+ */
+export async function syncAssembledPreviewPoolSize() {
+  const slots = assembledPreviewSlotCount();
+  const allowed = new Set();
+  for (let i = 0; i < slots; i += 1) allowed.add(PORT_BASE + i);
+  for (const slot of [...bindings.values()]) {
+    if (!allowed.has(slot.port)) {
+      await stopAssembledPreview(slot.siteRoot);
+    }
+  }
+}
+
 export const ASSEMBLED_PREVIEW_PORT = PORT_BASE;
 export const ASSEMBLED_PREVIEW_URL = `http://${PREVIEW_HOST}:${PORT_BASE}/`;
-export const ASSEMBLED_PREVIEW_SLOTS = PORT_SLOTS;
+export const ASSEMBLED_PREVIEW_SLOTS = assembledPreviewSlotCount;

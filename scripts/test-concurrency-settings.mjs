@@ -8,6 +8,7 @@ import {
 import { startBatchJobs } from '../ops/lib/batch-jobs.mjs';
 import {
   assertAcceptStartAllowed,
+  assertGeneratePackStartAllowed,
   assertWriteSiteStartAllowed,
   countActiveLightJobs,
   countQueuedLightJobs,
@@ -53,6 +54,12 @@ assertEqual(clampConcurrencyKey('heavy', 80), CONCURRENCY_MAX.heavy, 'heavy 80�
 assertEqual(clampConcurrencyKey('evaluations', 80), CONCURRENCY_MAX.evaluations, 'eval 80→50');
 assertEqual(clampConcurrencyKey('lightSerp', 0), 1, 'light serp 0→1');
 assertEqual(clampConcurrencyKey('writeSite', 'nope'), CONCURRENCY_DEFAULTS.writeSite, 'write site junk');
+assertEqual(clampConcurrencyKey('generatePack', 80), CONCURRENCY_MAX.generatePack, 'pack 80→10');
+assertEqual(clampConcurrencyKey('assembledPreviews', 80), CONCURRENCY_MAX.assembledPreviews, 'previews 80→8');
+assertEqual(CONCURRENCY_DEFAULTS.lightSerp, 5, 'default light serp 5');
+assertEqual(CONCURRENCY_DEFAULTS.generatePack, 5, 'default generate pack 5');
+assertEqual(CONCURRENCY_DEFAULTS.heavy, 5, 'default heavy 5');
+assertEqual(CONCURRENCY_DEFAULTS.assembledPreviews, 5, 'default previews 5');
 
 const prev = getConcurrency();
 
@@ -155,6 +162,16 @@ try {
   });
   assertEqual(countRunningLightJobs('openai-photo'), 5, 'openai photos running cap');
   assertEqual(countQueuedLightJobs('openai-photo'), 1, 'openai photos queued extra');
+  resetLightJobsForTests();
+  setConcurrencySettings({ generatePack: 1 });
+  openLightJob({
+    candidateId: 'discovery:batch-a',
+    batchId: 'batch-a',
+    phase: 'generate-pack',
+    label: 'Generate pack',
+  });
+  assertThrows(() => assertGeneratePackStartAllowed('batch-b'), 'GENERATE_PACK_BUSY', 'pack extra start');
+  assertThrows(() => assertGeneratePackStartAllowed('batch-a'), 'GENERATE_PACK_RUNNING', 'pack same batch');
   resetLightJobsForTests();
   forceRunningCountForTests(2);
   assertThrows(

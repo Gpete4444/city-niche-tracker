@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+## Version 2.2 (`2.2.0`)
+
+Concurrency defaults, a Website write lock, Launch that does not freeze other tabs, and a recoverable GSC sync:
+
+- **Concurrent Limit defaults:** Light SERP, Generate pack, Heavy (Prepare / Launch), and assembled previews default to **5**. Generate pack and assembled previews are now Settings rows (pack max 10, previews max 8). Extra Generate packs on *different* batches pop the limit; the same batch is still one at a time. Preview pool size follows Settings, not only `ASSEMBLED_PREVIEW_SLOTS`.
+- **Website write lock:** Two Rover tabs can open the same Website candidate to watch, but only one can save (grades, photos, Site-Config, Visual Edit, Accept). The other tab is read-only until the editor closes, the lock expires (~15s), or you **Take over**. The lock applies only to that same row — a tab on a different candidate can still Run launch / Prepare / Push. Hard-refresh every open tab.
+- **Launch does not freeze Rover:** GitHub push and Wrangler deploy use async spawn (same as npm build). Other tabs stay clickable and reloadable while a site ships.
+- **GSC sync:** Token refresh is single-flight. A revoked Google login clears tokens, stops the batch, and asks to **Reconnect GSC** once instead of failing every site. 400s include Google’s reason; unverified properties say so; property match is exact Domain / URL-prefix only.
+- **Regression:** `scripts/test-concurrency-settings.mjs`, `scripts/test-website-write-lease.mjs`, `scripts/test-ship-async-spawn.mjs`, `scripts/test-gsc-sync.mjs`.
+
 ## Version 2.1 (`2.1.0`)
 
 Dashboard stays clickable during photo generate, and live sites follow a consistent indexing URL policy:

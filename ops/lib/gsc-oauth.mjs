@@ -11,11 +11,59 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { RESEARCH_DIR } from './candidates.mjs';
 
+export const GSC_AUTH_REVOKED = 'GSC_AUTH_REVOKED';
+
 const TOKEN_FILE = path.join(RESEARCH_DIR, 'gsc-oauth.json');
 const PENDING_FILE = path.join(RESEARCH_DIR, 'gsc-oauth-pending.json');
 const SCOPES = ['https://www.googleapis.com/auth/webmasters.readonly'];
 const AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
 const TOKEN_URL = 'https://oauth2.googleapis.com/token';
+
+let tokenFileOverride = null;
+let fetchImpl = globalThis.fetch.bind(globalThis);
+let refreshInFlight = null;
+
+function tokenFilePath() {
+  return tokenFileOverride || TOKEN_FILE;
+}
+
+function gscFetchImpl(url, opts) {
+  return fetchImpl(url, opts);
+}
+
+/**
+ * Test hook — reset after each case. Do not use from production paths.
+ */
+export function _configureGscOauthForTests({ fetchImpl: nextFetch, tokenFile } = {}) {
+  if (nextFetch !== undefined) {
+    fetchImpl = nextFetch || globalThis.fetch.bind(globalThis);
+  }
+  if (tokenFile !== undefined) tokenFileOverride = tokenFile;
+  refreshInFlight = null;
+}
+
+export function isGscRefreshRevoked(json, message = '') {
+  const err = typeof json?.error === 'string' ? json.error : String(json?.error?.status || '');
+  const desc = String(json?.error_description || json?.error?.message || message || '');
+  return err === 'invalid_grant' || /expired or revoked/i.test(desc);
+}
+
+export function gscAuthRevokedError(message) {
+  return Object.assign(
+    new Error(message || 'GSC login expired — reconnect Google Search Console on Launched.'),
+    { status: 401, code: GSC_AUTH_REVOKED },
+  );
+}
+
+export function formatGscApiError(json, fallback = 'GSC API error') {
+  const message =
+    json?.error?.message || json?.error_description || (typeof json?.raw === 'string' ? json.raw : '') || fallback;
+  const reason = json?.error?.errors?.[0]?.reason || json?.error?.status || null;
+  if (reason && !String(message).includes(String(reason))) {
+    return `${message} (${reason})`;
+  }
+  return String(message || fallback);
+}
 
 function ensureResearchDir() {
   mkdirSync(RESEARCH_DIR, { recursive: true });
@@ -48,7 +96,7 @@ export function gscRedirectUri(port = Number(process.env.OPS_PORT) || 8787) {
 
 export function getGscAuthStatus() {
   const configured = gscClientConfigured();
-  const tokens = readJson(TOKEN_FILE, null);
+  const tokens = readJson(tokenFilePath(), null);
   const connected = Boolean(tokens?.refresh_token || tokens?.access_token);
   return {
     configured,
@@ -97,7 +145,7 @@ async function exchangeCode(code, redirectUri) {
     redirect_uri: redirectUri,
     grant_type: 'authorization_code',
   });
-  const res = await fetch(TOKEN_URL, {
+  const res = await gscFetchImpl(TOKEN_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body,
@@ -119,13 +167,17 @@ async function refreshAccessToken(refreshToken) {
     refresh_token: refreshToken,
     grant_type: 'refresh_token',
   });
-  const res = await fetch(TOKEN_URL, {
+  const res = await gscFetchImpl(TOKEN_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body,
   });
   const json = await res.json().catch(() => ({}));
   if (!res.ok) {
+    if (isGscRefreshRevoked(json, json.error_description || json.error)) {
+      disconnectGsc();
+      throw gscAuthRevokedError(json.error_description || json.error);
+    }
     throw Object.assign(
       new Error(json.error_description || json.error || `Token refresh failed (${res.status})`),
       { status: 401, details: json },
@@ -134,9 +186,18 @@ async function refreshAccessToken(refreshToken) {
   return json;
 }
 
+function refreshAccessTokenOnce(refreshToken) {
+  if (!refreshInFlight) {
+    refreshInFlight = refreshAccessToken(refreshToken).finally(() => {
+      refreshInFlight = null;
+    });
+  }
+  return refreshInFlight;
+}
+
 async function fetchTokenEmail(accessToken) {
   try {
-    const res = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
+    const res = await gscFetchImpl('https://www.googleapis.com/oauth2/v2/userinfo', {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
     if (!res.ok) return null;
@@ -159,7 +220,7 @@ export async function completeGscOAuth({ code, state }) {
   }
 
   const tokenJson = await exchangeCode(code, pending.redirectUri);
-  const prev = readJson(TOKEN_FILE, null) || {};
+  const prev = readJson(tokenFilePath(), null) || {};
   const refresh_token = tokenJson.refresh_token || prev.refresh_token;
   if (!refresh_token) {
     throw Object.assign(
@@ -180,7 +241,7 @@ export async function completeGscOAuth({ code, state }) {
     email,
     updatedAt: new Date().toISOString(),
   };
-  writeJson(TOKEN_FILE, stored);
+  writeJson(tokenFilePath(), stored);
   try {
     unlinkSync(PENDING_FILE);
   } catch {
@@ -191,7 +252,7 @@ export async function completeGscOAuth({ code, state }) {
 
 export function disconnectGsc() {
   try {
-    if (existsSync(TOKEN_FILE)) unlinkSync(TOKEN_FILE);
+    if (existsSync(tokenFilePath())) unlinkSync(tokenFilePath());
   } catch {
     /* ignore */
   }
@@ -210,10 +271,11 @@ export async function getGscAccessToken() {
   if (!gscClientConfigured()) {
     throw Object.assign(new Error('GSC OAuth client not configured in .env'), { status: 400 });
   }
-  const tokens = readJson(TOKEN_FILE, null);
+  const tokens = readJson(tokenFilePath(), null);
   if (!tokens?.refresh_token && !tokens?.access_token) {
     throw Object.assign(new Error('GSC not connected — use Connect Google on Launched Sites'), {
       status: 401,
+      code: GSC_AUTH_REVOKED,
     });
   }
 
@@ -222,27 +284,27 @@ export async function getGscAccessToken() {
     return tokens.access_token;
   }
   if (!tokens.refresh_token) {
-    throw Object.assign(new Error('GSC access token expired and no refresh_token stored'), {
-      status: 401,
-    });
+    disconnectGsc();
+    throw gscAuthRevokedError('GSC access token expired and no refresh_token stored');
   }
 
-  const refreshed = await refreshAccessToken(tokens.refresh_token);
+  const refreshed = await refreshAccessTokenOnce(tokens.refresh_token);
+  const current = readJson(tokenFilePath(), null) || tokens;
   const next = {
-    ...tokens,
+    ...current,
     access_token: refreshed.access_token,
     expiry_date: Date.now() + (Number(refreshed.expires_in) || 3600) * 1000,
-    scope: refreshed.scope || tokens.scope,
+    scope: refreshed.scope || current.scope,
     updatedAt: new Date().toISOString(),
   };
   if (refreshed.refresh_token) next.refresh_token = refreshed.refresh_token;
-  writeJson(TOKEN_FILE, next);
+  writeJson(tokenFilePath(), next);
   return next.access_token;
 }
 
 export async function gscFetch(pathname, { method = 'GET', body = null } = {}) {
   const accessToken = await getGscAccessToken();
-  const res = await fetch(`https://www.googleapis.com/webmasters/v3${pathname}`, {
+  const res = await gscFetchImpl(`https://www.googleapis.com/webmasters/v3${pathname}`, {
     method,
     headers: {
       Authorization: `Bearer ${accessToken}`,
@@ -258,9 +320,15 @@ export async function gscFetch(pathname, { method = 'GET', body = null } = {}) {
     json = { raw: text };
   }
   if (!res.ok) {
-    const msg =
-      json?.error?.message || json?.error_description || text || `GSC API ${res.status}`;
-    throw Object.assign(new Error(msg), { status: res.status >= 400 ? res.status : 502, details: json });
+    const msg = formatGscApiError(json, text || `GSC API ${res.status}`);
+    if (res.status === 401 && isGscRefreshRevoked(json, msg)) {
+      disconnectGsc();
+      throw gscAuthRevokedError(msg);
+    }
+    throw Object.assign(new Error(msg), {
+      status: res.status >= 400 ? res.status : 502,
+      details: json,
+    });
   }
   return json;
 }

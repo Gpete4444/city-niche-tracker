@@ -395,6 +395,44 @@ export function assertWriteSiteStartAllowed(candidateId) {
   }
 }
 
+/**
+ * Same batch cannot run two Generate packs. Up to the Generate pack Concurrent Limit
+ * packs may run on different batches.
+ * @param {string} batchId
+ */
+export function assertGeneratePackStartAllowed(batchId) {
+  const bid = String(batchId || '').trim();
+  const key = discoveryPackJobCandidateId(bid);
+  const same = findActiveLightJob('generate-pack', key);
+  if (same) {
+    throw Object.assign(new Error('Generate pack is already running for this batch'), {
+      status: 409,
+      code: 'GENERATE_PACK_RUNNING',
+      jobId: same.id,
+      batchId: bid,
+    });
+  }
+  const running = countActiveLightJobs('generate-pack');
+  const limit = Math.max(1, Number(getConcurrency().generatePack) || 5);
+  if (running >= limit) {
+    const other = findActiveLightJob('generate-pack');
+    throw Object.assign(
+      new Error(
+        `Already ${running} Generate pack jobs running. Concurrent Limit for Generate pack is ${limit} — a soft limit so you do not spend too much money at once.`,
+      ),
+      {
+        status: 409,
+        code: 'GENERATE_PACK_BUSY',
+        jobId: other?.id || null,
+        batchId: other?.batchId || other?.candidateId || null,
+        candidateId: other?.candidateId || null,
+        running,
+        limit,
+      },
+    );
+  }
+}
+
 /** Same candidate cannot run two Accept jobs. Other candidates may Accept in parallel. */
 export function assertAcceptStartAllowed(candidateId) {
   const cid = String(candidateId || '').trim();

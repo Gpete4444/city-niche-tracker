@@ -4,7 +4,7 @@
  */
 
 import { existsSync, readFileSync } from 'node:fs';
-import { execFileSync, spawn, spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { getCandidateDetail, getCandidateShell, saveMeta } from './candidates.mjs';
 import {
@@ -14,7 +14,13 @@ import {
   writeDepsHashMarker,
 } from './assemble-site.mjs';
 import { cloudflareConfigured, cfFetch, getCloudflareCredentials } from './cloudflare-launch.mjs';
-import { pushAssembledSiteToGithub, ghAvailable, ghAuthStatus, resolveGithubOwner, diffAssembledAgainstRemote } from './github-site.mjs';
+import {
+  pushAssembledSiteToGithubAsync,
+  ghAvailable,
+  ghAuthStatus,
+  resolveGithubOwner,
+  diffAssembledAgainstRemote,
+} from './github-site.mjs';
 
 const ROOT = process.cwd();
 
@@ -50,14 +56,21 @@ function runNpm(args, cwd, timeoutMs = 600_000, envExtra = {}) {
 }
 
 /**
- * Non-blocking npm — allows K>1 heavy jobs to overlap builds.
+ * Non-blocking child process — keeps Express free to serve other Rover tabs.
  */
-function runNpmAsync(args, cwd, timeoutMs = 600_000, envExtra = {}) {
-  const npmCmd = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+function runCommandAsync(cmd, args, {
+  cwd,
+  timeoutMs = 600_000,
+  envExtra = {},
+  shell = false,
+  label,
+  failPrefix,
+} = {}) {
+  const pretty = label || `${cmd} ${args.join(' ')}`;
   return new Promise((resolve, reject) => {
-    const child = spawn(npmCmd, args, {
+    const child = spawn(cmd, args, {
       cwd,
-      shell: process.platform === 'win32',
+      shell,
       env: { ...process.env, ...envExtra },
       windowsHide: true,
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -80,7 +93,7 @@ function runNpmAsync(args, cwd, timeoutMs = 600_000, envExtra = {}) {
         /* ignore */
       }
       reject(
-        Object.assign(new Error(`npm ${args.join(' ')} timed out after ${timeoutMs}ms`), {
+        Object.assign(new Error(`${pretty} timed out after ${timeoutMs}ms`), {
           status: 500,
           stdout,
           stderr,
@@ -95,7 +108,7 @@ function runNpmAsync(args, cwd, timeoutMs = 600_000, envExtra = {}) {
       clearTimeout(timer);
       if (code !== 0) {
         const err = new Error(
-          `npm ${args.join(' ')} failed (exit ${code}): ${(stderr || stdout).slice(-2000)}`,
+          `${failPrefix || `${pretty} failed`} (exit ${code}): ${(stderr || stdout).slice(-2000)}`,
         );
         err.status = 500;
         err.stdout = stdout;
@@ -105,6 +118,20 @@ function runNpmAsync(args, cwd, timeoutMs = 600_000, envExtra = {}) {
       }
       resolve({ ok: true, stdout, stderr });
     });
+  });
+}
+
+/**
+ * Non-blocking npm — allows K>1 heavy jobs to overlap builds.
+ */
+function runNpmAsync(args, cwd, timeoutMs = 600_000, envExtra = {}) {
+  const npmCmd = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+  return runCommandAsync(npmCmd, args, {
+    cwd,
+    timeoutMs,
+    envExtra,
+    shell: process.platform === 'win32',
+    label: `npm ${args.join(' ')}`,
   });
 }
 
@@ -176,9 +203,9 @@ export async function buildAssembledSiteAsync(siteRoot, { visualEdit = false } =
 }
 
 /**
- * Deploy static Worker via Wrangler (creates Worker if missing).
+ * Deploy static Worker via Wrangler (async — does not freeze Rover).
  */
-export function deployAssembledWithWrangler(siteRoot) {
+export async function deployAssembledWithWranglerAsync(siteRoot) {
   if (!cloudflareConfigured()) {
     const err = new Error('Set CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN for Wrangler deploy');
     err.status = 400;
@@ -186,32 +213,26 @@ export function deployAssembledWithWrangler(siteRoot) {
   }
   const abs = path.resolve(siteRoot);
   const { accountId, apiToken } = getCloudflareCredentials();
-  const env = {
-    ...process.env,
-    CLOUDFLARE_ACCOUNT_ID: accountId,
-    CLOUDFLARE_API_TOKEN: apiToken,
-  };
   const npx = process.platform === 'win32' ? 'npx.cmd' : 'npx';
-  const res = spawnSync(npx, ['wrangler', 'deploy'], {
+  const { stdout, stderr } = await runCommandAsync(npx, ['wrangler', 'deploy'], {
     cwd: abs,
-    encoding: 'utf8',
+    timeoutMs: 600_000,
+    envExtra: {
+      CLOUDFLARE_ACCOUNT_ID: accountId,
+      CLOUDFLARE_API_TOKEN: apiToken,
+    },
     shell: process.platform === 'win32',
-    env,
-    timeout: 600_000,
-    maxBuffer: 20 * 1024 * 1024,
+    label: 'wrangler deploy',
+    failPrefix: 'wrangler deploy failed',
   });
-  const stdout = String(res.stdout || '');
-  const stderr = String(res.stderr || '');
-  if (res.status !== 0) {
-    const err = new Error(
-      `wrangler deploy failed (exit ${res.status}): ${(stderr || stdout).slice(-2000)}`,
-    );
-    err.status = 500;
-    err.stdout = stdout;
-    err.stderr = stderr;
-    throw err;
-  }
-  return { ok: true, stdout: stdout.slice(-1500), stderr };
+  return { ok: true, stdout: String(stdout || '').slice(-1500), stderr };
+}
+
+/**
+ * One implementation: async spawn. Callers must await.
+ */
+export function deployAssembledWithWrangler(siteRoot) {
+  return deployAssembledWithWranglerAsync(siteRoot);
 }
 
 /**
@@ -363,7 +384,7 @@ export async function shipAssembledSite(candidateId, opts = {}) {
   } else {
     tick('GitHub create + push…');
     try {
-      steps.github = pushAssembledSiteToGithub(assembledRoot, {
+      steps.github = await pushAssembledSiteToGithubAsync(assembledRoot, {
         repoName: slug,
         commitMessage: `Ship ${slug} (${candidateId})`,
       });
@@ -403,7 +424,7 @@ export async function shipAssembledSite(candidateId, opts = {}) {
   } else {
     tick('Wrangler deploy…');
     try {
-      steps.deploy = deployAssembledWithWrangler(assembledRoot);
+      steps.deploy = await deployAssembledWithWranglerAsync(assembledRoot);
       human.push(`Deployed Worker "${slug}" with Wrangler.`);
     } catch (error) {
       steps.deploy = { ok: false, error: error.message };

@@ -2,7 +2,7 @@
  * Sync Google Search Console traffic metrics onto site-metrics files.
  */
 import { registrableDomain } from '../../scripts/lib/dataforseo.mjs';
-import { gscFetch, getGscAuthStatus } from './gsc-oauth.mjs';
+import { GSC_AUTH_REVOKED, gscFetch, getGscAuthStatus } from './gsc-oauth.mjs';
 import {
   ensureSiteMetrics,
   metricsEligibleSites,
@@ -36,30 +36,54 @@ function hostFromSite(site) {
   }
 }
 
+function normalizeHost(host) {
+  return String(host || '')
+    .toLowerCase()
+    .replace(/^www\./, '');
+}
+
 /**
- * Pick best GSC property for a host from listSites response.
+ * Exact Domain or URL-prefix property for a host (no substring fallback).
  */
-export function matchGscProperty(host, siteEntryList) {
+export function matchGscPropertyEntry(host, siteEntryList) {
   if (!host) return null;
-  const h = host.toLowerCase().replace(/^www\./, '');
+  const h = normalizeHost(host);
   const entries = siteEntryList || [];
 
   const domainProp = entries.find(
     (e) => String(e.siteUrl || '').toLowerCase() === `sc-domain:${h}`,
   );
-  if (domainProp) return domainProp.siteUrl;
+  if (domainProp) return domainProp;
 
-  const httpsWww = entries.find((e) => {
-    const u = String(e.siteUrl || '').toLowerCase();
-    return u === `https://www.${h}/` || u === `https://${h}/`;
-  });
-  if (httpsWww) return httpsWww.siteUrl;
+  return (
+    entries.find((e) => {
+      const u = String(e.siteUrl || '').toLowerCase();
+      return u === `https://www.${h}/` || u === `https://${h}/`;
+    }) || null
+  );
+}
 
-  const any = entries.find((e) => {
-    const u = String(e.siteUrl || '').toLowerCase();
-    return u.includes(h);
-  });
-  return any?.siteUrl || null;
+/**
+ * Pick best GSC property URL for a host from listSites response.
+ */
+export function matchGscProperty(host, siteEntryList) {
+  return matchGscPropertyEntry(host, siteEntryList)?.siteUrl || null;
+}
+
+export function isGscPropertyUnverified(entry) {
+  return String(entry?.permissionLevel || '') === 'siteUnverifiedUser';
+}
+
+/** Search Analytics POST body — omit empty dimensions (totals query). */
+export function buildSearchAnalyticsQueryBody({ startDate, endDate, dimensions = [] } = {}) {
+  const body = { startDate, endDate };
+  if (Array.isArray(dimensions) && dimensions.length) {
+    body.dimensions = dimensions;
+    body.rowLimit = dimensions.includes('date') ? 500 : 25;
+  } else {
+    body.rowLimit = 25;
+  }
+  return body;
 }
 
 export async function listGscProperties() {
@@ -71,12 +95,7 @@ async function querySearchAnalytics(propertyUrl, { startDate, endDate, dimension
   const encoded = encodeURIComponent(propertyUrl);
   return gscFetch(`/sites/${encoded}/searchAnalytics/query`, {
     method: 'POST',
-    body: {
-      startDate,
-      endDate,
-      dimensions,
-      rowLimit: dimensions.includes('date') ? 500 : 25,
-    },
+    body: buildSearchAnalyticsQueryBody({ startDate, endDate, dimensions }),
   });
 }
 
@@ -110,11 +129,19 @@ export async function syncSiteGsc(siteId, { properties = null } = {}) {
   }
 
   const props = properties || (await listGscProperties());
-  const propertyUrl = matchGscProperty(host, props);
+  const entry = matchGscPropertyEntry(host, props);
+  const propertyUrl = entry?.siteUrl || null;
   const metrics = ensureSiteMetrics(siteId, { domain: host });
 
   if (!propertyUrl) {
     metrics.gsc.syncError = `No GSC property matched for ${host}. Verify Domain property under the connected Google account.`;
+    metrics.gsc.lastSyncAt = new Date().toISOString();
+    saveSiteMetrics(metrics);
+    return { ok: false, siteId, error: metrics.gsc.syncError, metrics };
+  }
+
+  if (isGscPropertyUnverified(entry)) {
+    metrics.gsc.syncError = `GSC property for ${host} is not verified yet`;
     metrics.gsc.lastSyncAt = new Date().toISOString();
     saveSiteMetrics(metrics);
     return { ok: false, siteId, error: metrics.gsc.syncError, metrics };
@@ -149,6 +176,7 @@ export async function syncSiteGsc(siteId, { properties = null } = {}) {
     saveSiteMetrics(metrics);
     return { ok: true, siteId, propertyUrl, metrics };
   } catch (error) {
+    if (error?.code === GSC_AUTH_REVOKED) throw error;
     metrics.gsc.syncError = error.message || String(error);
     metrics.gsc.lastSyncAt = new Date().toISOString();
     saveSiteMetrics(metrics);

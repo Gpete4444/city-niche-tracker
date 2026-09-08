@@ -63,7 +63,7 @@
         <img class="top-brand-logo top-brand-logo--light" src="/brand/rover-logo-light.png" alt="" width="800" height="168" decoding="async" />
         <img class="top-brand-logo top-brand-logo--dark" src="/brand/rover-logo-dark.png" alt="" width="800" height="168" decoding="async" />
       </span>
-      <span class="top-version muted small" title="Rover product version">v2.1</span>
+      <span class="top-version muted small" title="Rover product version">v2.2</span>
       <div class="claude-mode-segment" role="group" aria-label="Claude pipeline mode">
         <button type="button" class="claude-mode-seg active" data-claude-mode="paste" id="claude-mode-paste" aria-label="Copy and paste">
           <span class="claude-mode-seg-full">Copy &amp; paste</span>
@@ -192,6 +192,10 @@
               <span class="settings-concurrency-name"><span class="settings-concurrency-stage" aria-hidden="true" data-tip="Discovery">D</span> Light SERP</span>
               <input id="conc-light-serp" type="number" min="1" max="50" step="1" inputmode="numeric" data-conc-key="lightSerp" data-tip="Maximum 50" />
             </label>
+            <label class="settings-concurrency-row" for="conc-generate-pack">
+              <span class="settings-concurrency-name"><span class="settings-concurrency-stage" aria-hidden="true" data-tip="Discovery">D</span> Generate pack</span>
+              <input id="conc-generate-pack" type="number" min="1" max="10" step="1" inputmode="numeric" data-conc-key="generatePack" data-tip="Maximum 10" />
+            </label>
             <label class="settings-concurrency-row" for="conc-evaluations">
               <span class="settings-concurrency-name"><span class="settings-concurrency-stage" aria-hidden="true" data-tip="Research">R</span> Evaluations</span>
               <input id="conc-evaluations" type="number" min="1" max="50" step="1" inputmode="numeric" data-conc-key="evaluations" data-tip="Maximum 50" />
@@ -211,6 +215,10 @@
             <label class="settings-concurrency-row" for="conc-heavy">
               <span class="settings-concurrency-name"><span class="settings-concurrency-stage" aria-hidden="true" data-tip="Website">W</span> Heavy (Prepare / Launch)</span>
               <input id="conc-heavy" type="number" min="1" max="12" step="1" inputmode="numeric" data-conc-key="heavy" data-tip="Maximum 12" />
+            </label>
+            <label class="settings-concurrency-row" for="conc-assembled-previews">
+              <span class="settings-concurrency-name"><span class="settings-concurrency-stage" aria-hidden="true" data-tip="Website">W</span> Assembled previews</span>
+              <input id="conc-assembled-previews" type="number" min="1" max="8" step="1" inputmode="numeric" data-conc-key="assembledPreviews" data-tip="Maximum 8" />
             </label>
           </div>
           <div class="settings-divider"></div>
@@ -361,6 +369,7 @@
             <div id="detail-sub" class="muted"></div>
           </div>
         </div>
+        <div id="website-write-lock-banner" class="website-write-lock-banner hidden" hidden></div>
 
         <div class="tabs" id="tabs">
           <div class="tabs-row tabs-row-meta">
@@ -1206,6 +1215,6 @@
   </div>
   <img id="img-peek" class="img-peek hidden" alt="" hidden />
 
-  <script src="/app.js?v=20260906jobs1" type="module"></script>
+  <script src="/app.js?v=20260907gsc1" type="module"></script>
 </body>
 </html>

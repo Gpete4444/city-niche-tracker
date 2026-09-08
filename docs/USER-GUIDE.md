@@ -21,7 +21,7 @@ The top bar is always there.
 
 ### Version {#chrome-version}
 
-**v2.1** (or current) sits next to the Rover wordmark. That is the product version, not a candidate.
+**v2.2** (or current) sits next to the Rover wordmark. That is the product version, not a candidate.
 
 ### Stages {#chrome-stages}
 
@@ -33,7 +33,7 @@ Unnumbered helpers after Launched. They are not stages. You can skip Map and Pho
 
 ### Jobs {#chrome-jobs}
 
-Prepare preview, Push updates, Run launch, Write site, Accept, and Generate pack dim the workspace under the top bar on that candidate. Other work (Light SERP, Find addresses, GSC, Research) uses a bar on that step. **Concurrent Limit** in Settings is how many of each kind may run at once. Write site, Evaluations, Light SERP, and Heavy (Prepare / Launch) pop up if you try to start more than the box. **OpenAI photos** and **OpenAI before/after** queue extras in the background (including other Rover tabs and other candidates). Generating photos does not lock the table or other tabs — you can switch candidates and start SERP / Write site / Prepare while images finish. Hard-refresh every open tab after a Rover update.
+Prepare preview, Push updates, Run launch, Write site, Accept, and Generate pack dim the workspace under the top bar on that candidate. Other work (Light SERP, Find addresses, GSC, Research) uses a bar on that step. **Concurrent Limit** in Settings is how many of each kind may run at once. Write site, Evaluations, Light SERP, Generate pack, and Heavy (Prepare / Launch) pop up if you try to start more than the box. **Assembled previews** is how many live preview doors may stay open. **OpenAI photos** and **OpenAI before/after** queue extras in the background (including other Rover tabs and other candidates). Generating photos does not lock the table or other tabs — you can switch candidates and start SERP / Write site / Prepare while images finish. Hard-refresh every open tab after a Rover update.
 
 ### API Cost {#chrome-api-cost}
 
@@ -41,7 +41,7 @@ Dollar icon. Spend by provider (DataForSEO, Claude, and others). Anthropic, Open
 
 ### Settings {#chrome-settings}
 
-Gear. **Host** is this Rover instance. **API/Other** expands the green ✓ / red ✕ key checklist. **Concurrent Limit** is how many Light SERP / Evaluations / Write site / OpenAI photos / OpenAI before/after / Heavy jobs may run at once (hover a box for the hard max). Rows are marked **D** Discovery, **R** Research, **W** Website in the same Space Grotesk as the top-nav stage names. **Theme** is Light 1–4 and Dark 5–8 (Blue is default light).
+Gear. **Host** is this Rover instance. **API/Other** expands the green ✓ / red ✕ key checklist. **Concurrent Limit** is how many Light SERP / Generate pack / Evaluations / Write site / OpenAI photos / OpenAI before/after / Heavy / assembled previews may run at once (hover a box for the hard max). New Rover setups default Light SERP, Generate pack, Heavy, and assembled previews to **5**. If this computer already saved older numbers, those stay until you change them. Rows are marked **D** Discovery, **R** Research, **W** Website in the same Space Grotesk as the top-nav stage names. **Theme** is Light 1–4 and Dark 5–8 (Blue is default light).
 
 ### Help {#chrome-help}
 
@@ -161,7 +161,7 @@ Build the site for a **pursue** candidate. Three tracks, in order: Site-Config �
 9. **Load photo group** — optional. Skip uses fresh stock on Accept (queries required).
 10. **Accept** — writes pages, then photos (group, niche master, or stock pull), logo, and coverage map. A card covers the workspace while it runs.
 
-In **API** mode, steps 2–8 are **Write site with Claude** (one job per candidate). You can start Write site on up to **six different** candidates at the same time. A second Write site on the same candidate is blocked until the first finishes (or you Stop it in Light). Each window still confirms cost. Generate pack stays one at a time.
+In **API** mode, steps 2–8 are **Write site with Claude** (one job per candidate). You can start Write site on up to **six different** candidates at the same time. A second Write site on the same candidate is blocked until the first finishes (or you Stop it in Light). Each window still confirms cost. Generate pack can run on different batches up to the Generate pack box (default 5). A second Generate pack on the same batch is blocked.
 
 ### Launch track {#website-launch}
 
@@ -200,7 +200,7 @@ Long work shows on the page you started it from. Prepare / Push / Launch / Write
 
 ## Waiting vs doing {#waiting}
 
-Most clicks are seconds. Wall-clock is Claude, DataForSEO, Prepare preview, and Launch. Typical waits: Discovery Claude pack ~8–12 min; Full write ~12–22 min; Prepare preview ~2–4 min; Launch ship ~3–5 min. Full table: [USER-FLOW.md](USER-FLOW.md). You can switch candidates or screens while a job runs — the card only appears if you are on that same candidate.
+Most clicks are seconds. Wall-clock is Claude, DataForSEO, Prepare preview, and Launch. Typical waits: Discovery Claude pack ~8–12 min; Full write ~12–22 min; Prepare preview ~2–4 min; Launch ship ~3–5 min. Full table: [USER-FLOW.md](USER-FLOW.md). You can switch candidates or screens while a job runs — the card only appears if you are on that same candidate. Two Rover tabs can both **open** the same Website candidate to watch jobs. Only one tab can **save** (grades, photos, Site-Config, Visual Edit, Accept). The other tab shows a lock banner; use **Take over** only if you mean to steal editing.
 
 ## Still done by hand {#manual}
 

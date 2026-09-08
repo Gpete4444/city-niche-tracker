@@ -4,7 +4,7 @@
  */
 
 import { existsSync } from 'node:fs';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import path from 'node:path';
 
 function run(cmd, args, cwd, { allowFail = false } = {}) {
@@ -30,8 +30,82 @@ function run(cmd, args, cwd, { allowFail = false } = {}) {
   }
 }
 
+/**
+ * Non-blocking git/gh — keeps the Rover event loop free during Launch / ship.
+ */
+export function runAsync(cmd, args, cwd, { allowFail = false, timeoutMs = 600_000 } = {}) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(cmd, args, {
+      cwd,
+      windowsHide: true,
+      env: process.env,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    let stdout = '';
+    let stderr = '';
+    const maxBuf = 20 * 1024 * 1024;
+    child.stdout?.on('data', (chunk) => {
+      stdout += chunk;
+      if (stdout.length > maxBuf) stdout = stdout.slice(-maxBuf);
+    });
+    child.stderr?.on('data', (chunk) => {
+      stderr += chunk;
+      if (stderr.length > maxBuf) stderr = stderr.slice(-maxBuf);
+    });
+    const timer = setTimeout(() => {
+      try {
+        child.kill('SIGTERM');
+      } catch {
+        /* ignore */
+      }
+      const detail = `${cmd} ${args.join(' ')} timed out after ${timeoutMs}ms`;
+      if (allowFail) {
+        resolve({ ok: false, stdout: String(stdout || '').trim(), stderr: detail });
+        return;
+      }
+      const err = new Error(detail);
+      err.status = 500;
+      err.stdout = stdout;
+      err.stderr = stderr;
+      reject(err);
+    }, timeoutMs);
+    child.on('error', (error) => {
+      clearTimeout(timer);
+      const detail = String(error?.message || error);
+      if (allowFail) {
+        resolve({ ok: false, stdout: '', stderr: detail });
+        return;
+      }
+      reject(error);
+    });
+    child.on('close', (code) => {
+      clearTimeout(timer);
+      const out = String(stdout || '').trim();
+      const errText = String(stderr || '').trim();
+      if (code !== 0) {
+        const detail = errText || out || `${cmd} ${args.join(' ')} failed`;
+        if (allowFail) {
+          resolve({ ok: false, stdout: out, stderr: detail });
+          return;
+        }
+        const err = new Error(detail);
+        err.status = 500;
+        err.stdout = out;
+        err.stderr = detail;
+        reject(err);
+        return;
+      }
+      resolve({ ok: true, stdout: out, stderr: errText });
+    });
+  });
+}
+
 function runGit(args, cwd, opts) {
   return run('git', args, cwd, opts);
+}
+
+function runGitAsync(args, cwd, opts) {
+  return runAsync('git', args, cwd, opts);
 }
 
 export function ghAvailable() {
@@ -65,9 +139,14 @@ function remoteUrl(cwd) {
   return r.ok ? r.stdout : null;
 }
 
-function ensureCommit(siteRoot, message) {
-  runGit(['add', '-A'], siteRoot);
-  const commit = runGit(
+async function remoteUrlAsync(cwd) {
+  const r = await runGitAsync(['remote', 'get-url', 'origin'], cwd, { allowFail: true });
+  return r.ok ? r.stdout : null;
+}
+
+async function ensureCommitAsync(siteRoot, message) {
+  await runGitAsync(['add', '-A'], siteRoot);
+  const commit = await runGitAsync(
     ['-c', 'user.email=rover@local', '-c', 'user.name=Rover', 'commit', '-m', message],
     siteRoot,
     { allowFail: true },
@@ -86,21 +165,25 @@ function isNonFastForward(detail = '') {
 /**
  * Push main; if remote diverged, fetch + force-with-lease (assembled site is source of truth).
  */
-function pushMainWithLease(abs, human) {
-  const push = runGit(['push', '-u', 'origin', 'main'], abs, { allowFail: true });
+async function pushMainWithLeaseAsync(abs, human) {
+  const push = await runGitAsync(['push', '-u', 'origin', 'main'], abs, { allowFail: true });
   if (push.ok) return push;
 
   const detail = `${push.stderr || ''}\n${push.stdout || ''}`;
   if (!isNonFastForward(detail)) {
-    const push2 = runGit(['push', '--set-upstream', 'origin', 'main'], abs, { allowFail: true });
+    const push2 = await runGitAsync(['push', '--set-upstream', 'origin', 'main'], abs, {
+      allowFail: true,
+    });
     if (push2.ok) return push2;
     const err = new Error(push2.stderr || push.stderr || 'git push failed');
     err.status = 500;
     throw err;
   }
 
-  runGit(['fetch', 'origin'], abs, { allowFail: true });
-  const forced = runGit(['push', '--force-with-lease', 'origin', 'main'], abs, { allowFail: true });
+  await runGitAsync(['fetch', 'origin'], abs, { allowFail: true });
+  const forced = await runGitAsync(['push', '--force-with-lease', 'origin', 'main'], abs, {
+    allowFail: true,
+  });
   if (!forced.ok) {
     const err = new Error(
       forced.stderr ||
@@ -115,11 +198,11 @@ function pushMainWithLease(abs, human) {
 }
 
 /**
- * Create GitHub repo if needed and push main.
+ * Create GitHub repo if needed and push main (async — does not freeze Rover).
  * @param {string} siteRoot absolute path
  * @param {{ repoName: string, owner?: string, private?: boolean, commitMessage?: string }} opts
  */
-export function pushAssembledSiteToGithub(siteRoot, opts = {}) {
+export async function pushAssembledSiteToGithubAsync(siteRoot, opts = {}) {
   const abs = path.resolve(siteRoot);
   if (!existsSync(abs)) {
     const err = new Error(`Assembled site not found: ${abs}`);
@@ -151,15 +234,15 @@ export function pushAssembledSiteToGithub(siteRoot, opts = {}) {
   const commitMessage = opts.commitMessage || `Launch update for ${repoName}`;
 
   if (!existsSync(path.join(abs, '.git'))) {
-    runGit(['init'], abs);
-    runGit(['branch', '-M', 'main'], abs);
+    await runGitAsync(['init'], abs);
+    await runGitAsync(['branch', '-M', 'main'], abs);
   } else {
-    runGit(['branch', '-M', 'main'], abs, { allowFail: true });
+    await runGitAsync(['branch', '-M', 'main'], abs, { allowFail: true });
   }
 
-  ensureCommit(abs, commitMessage);
+  await ensureCommitAsync(abs, commitMessage);
 
-  let existing = remoteUrl(abs);
+  let existing = await remoteUrlAsync(abs);
   let created = false;
 
   if (!existing) {
@@ -172,14 +255,14 @@ export function pushAssembledSiteToGithub(siteRoot, opts = {}) {
       '--remote=origin',
       '--push',
     ];
-    const createdRes = run('gh', createArgs, abs, { allowFail: true });
+    const createdRes = await runAsync('gh', createArgs, abs, { allowFail: true });
     if (!createdRes.ok) {
       // Repo may already exist remotely — add remote and push
       if (/already exists|Name already exists/i.test(createdRes.stderr || '')) {
-        runGit(['remote', 'add', 'origin', `https://github.com/${fullName}.git`], abs, {
+        await runGitAsync(['remote', 'add', 'origin', `https://github.com/${fullName}.git`], abs, {
           allowFail: true,
         });
-        pushMainWithLease(abs, human);
+        await pushMainWithLeaseAsync(abs, human);
         human.push(`Used existing GitHub repo ${fullName} and pushed main.`);
       } else {
         const err = new Error(createdRes.stderr || `gh repo create ${fullName} failed`);
@@ -190,19 +273,23 @@ export function pushAssembledSiteToGithub(siteRoot, opts = {}) {
       created = true;
       human.push(`Created and pushed GitHub repo ${fullName}.`);
     }
-    existing = remoteUrl(abs) || `https://github.com/${fullName}.git`;
+    existing = (await remoteUrlAsync(abs)) || `https://github.com/${fullName}.git`;
   } else {
-    pushMainWithLease(abs, human);
+    await pushMainWithLeaseAsync(abs, human);
     human.push(`Pushed to existing remote ${existing}.`);
   }
 
   // Resolve numeric repo id for CF Builds (best-effort)
   let repoId = null;
-  const repoApi = run('gh', ['api', `repos/${fullName}`, '-q', '.id'], abs, { allowFail: true });
+  const repoApi = await runAsync('gh', ['api', `repos/${fullName}`, '-q', '.id'], abs, {
+    allowFail: true,
+  });
   if (repoApi.ok) repoId = String(repoApi.stdout || '').trim() || null;
 
   let ownerId = null;
-  const ownerApi = run('gh', ['api', `users/${owner}`, '-q', '.id'], abs, { allowFail: true });
+  const ownerApi = await runAsync('gh', ['api', `users/${owner}`, '-q', '.id'], abs, {
+    allowFail: true,
+  });
   if (ownerApi.ok) ownerId = String(ownerApi.stdout || '').trim() || null;
 
   return {
@@ -217,6 +304,13 @@ export function pushAssembledSiteToGithub(siteRoot, opts = {}) {
     created,
     human,
   };
+}
+
+/**
+ * One implementation: async spawn. Callers must await.
+ */
+export function pushAssembledSiteToGithub(siteRoot, opts = {}) {
+  return pushAssembledSiteToGithubAsync(siteRoot, opts);
 }
 
 const DIFF_FILE_CAP = 80;

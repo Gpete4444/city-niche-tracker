@@ -510,21 +510,26 @@ const state = {
   candidateSort: { key: 'proposedScore', dir: -1 },
   evalConcurrency: 6,
   concurrency: {
-    lightSerp: 2,
+    lightSerp: 5,
+    generatePack: 5,
     evaluations: 6,
     writeSite: 6,
     openaiPhotos: 5,
     openaiBeforeAfter: 2,
-    heavy: 2,
+    heavy: 5,
+    assembledPreviews: 5,
   },
   concurrencyMax: {
     lightSerp: 50,
+    generatePack: 10,
     evaluations: 50,
     writeSite: 50,
     openaiPhotos: 50,
     openaiBeforeAfter: 20,
     heavy: 12,
+    assembledPreviews: 8,
   },
+  websiteLease: { candidateId: null, mine: true, holderTabId: null },
   detail: null,
   contentOpenStep: null,
   websiteOpenStep: null,
@@ -654,12 +659,18 @@ const DISCOVERY_DECISION_OPTS = [
   'ignore',
 ];
 
+const ROVER_TAB_ID = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+
 async function api(path, options = {}) {
   let res;
   try {
     const { signal, ...rest } = options;
     res = await fetch(path, {
-      headers: { 'content-type': 'application/json', ...(rest.headers || {}) },
+      headers: {
+        'content-type': 'application/json',
+        'X-Rover-Tab-Id': ROVER_TAB_ID,
+        ...(rest.headers || {}),
+      },
       ...rest,
       signal,
     });
@@ -695,6 +706,12 @@ async function api(path, options = {}) {
     if (data.twilioSid) err.twilioSid = data.twilioSid;
     if (data.e164) err.e164 = data.e164;
     if (data.existingId) err.existingId = data.existingId;
+    if (data.holderTabId) err.holderTabId = data.holderTabId;
+    if (data.code === 'WEBSITE_WRITE_LOCKED') {
+      showToast('Could not save — this business is open for editing in another tab.', {
+        tone: 'err',
+      });
+    }
     throw err;
   }
   return data;
@@ -1932,7 +1949,16 @@ function wireHelpUi() {
 
 function applyConcurrencyPayload(data) {
   const next = { ...state.concurrency };
-  const keys = ['lightSerp', 'evaluations', 'writeSite', 'openaiPhotos', 'openaiBeforeAfter', 'heavy'];
+  const keys = [
+    'lightSerp',
+    'generatePack',
+    'evaluations',
+    'writeSite',
+    'openaiPhotos',
+    'openaiBeforeAfter',
+    'heavy',
+    'assembledPreviews',
+  ];
   for (const key of keys) {
     const n = Number(data?.[key]);
     if (Number.isFinite(n) && n >= 1) next[key] = n;
@@ -2901,7 +2927,7 @@ async function loadRubric() {
 }
 
 const CANDIDATES_BC_NAME = 'rover-candidates';
-const CANDIDATES_TAB_ID = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+const CANDIDATES_TAB_ID = ROVER_TAB_ID;
 let candidatesBc = null;
 let candidatesBcWired = false;
 let candidatesRemoteTimer = 0;
@@ -4225,9 +4251,158 @@ function renderList() {
   });
 }
 
+let websiteLeaseTimer = 0;
+let websiteLeaseUiWired = false;
+
+function websiteLeaseNeeded() {
+  if (state.view !== 'website-builder') return false;
+  if (state.selectedIds.size > 1) return false;
+  const id = state.selectedId;
+  if (!id) return false;
+  const c = state.candidates.find((x) => x.id === id) || state.detail;
+  if (!c) return false;
+  return c.decision === 'pursue' || isWebsiteLaunched(c);
+}
+
+function applyWebsiteLeaseState(candidateId, payload) {
+  state.websiteLease = {
+    candidateId: candidateId || null,
+    mine: payload?.mine !== false,
+    holderTabId: payload?.holderTabId || null,
+  };
+  syncWebsiteWriteLockBanner();
+}
+
+function syncWebsiteWriteLockBanner() {
+  const el = document.getElementById('website-write-lock-banner');
+  const detail = document.getElementById('detail');
+  if (!el || !detail) return;
+  if (!websiteLeaseUiWired) {
+    websiteLeaseUiWired = true;
+    el.addEventListener('click', (ev) => {
+      if (ev.target.closest('.website-lease-takeover')) {
+        ev.preventDefault();
+        void takeoverWebsiteWriteLease();
+      }
+    });
+    window.addEventListener('pagehide', releaseWebsiteWriteLeaseOnLeave);
+  }
+  const locked =
+    websiteLeaseNeeded() &&
+    String(state.websiteLease.candidateId || '') === String(state.selectedId || '') &&
+    state.websiteLease.mine === false;
+  detail.classList.toggle('website-write-locked', locked);
+  if (!locked) {
+    el.classList.add('hidden');
+    el.hidden = true;
+    el.innerHTML = '';
+    return;
+  }
+  el.hidden = false;
+  el.classList.remove('hidden');
+  el.innerHTML = `<p><strong>Website editing is locked in another tab.</strong> You can look. You cannot change grades, photos, Site-Config, or Visual Edit until that tab closes or you Take over.</p><button type="button" class="btn website-lease-takeover">Take over</button>`;
+}
+
+function stopWebsiteLeaseHeartbeat() {
+  if (websiteLeaseTimer) {
+    clearInterval(websiteLeaseTimer);
+    websiteLeaseTimer = 0;
+  }
+}
+
+function startWebsiteLeaseHeartbeat(id) {
+  stopWebsiteLeaseHeartbeat();
+  websiteLeaseTimer = setInterval(() => {
+    if (!websiteLeaseNeeded() || state.websiteLease.candidateId !== id || !state.websiteLease.mine) {
+      stopWebsiteLeaseHeartbeat();
+      return;
+    }
+    api(`/api/candidates/${encodeURIComponent(id)}/website-lease/heartbeat`, {
+      method: 'POST',
+      body: '{}',
+    }).catch((error) => {
+      if (error?.code !== 'WEBSITE_WRITE_LOCKED') return;
+      if (String(state.selectedId || '') !== String(id || '')) return;
+      applyWebsiteLeaseState(id, { mine: false, holderTabId: error.holderTabId });
+      stopWebsiteLeaseHeartbeat();
+    });
+  }, 5000);
+}
+
+async function releaseHeldWebsiteLease(id) {
+  if (!id) return;
+  try {
+    await api(`/api/candidates/${encodeURIComponent(id)}/website-lease`, { method: 'DELETE' });
+  } catch {
+    /* ignore */
+  }
+}
+
+function releaseWebsiteWriteLeaseOnLeave() {
+  const id = state.websiteLease.candidateId;
+  if (!id || !state.websiteLease.mine) return;
+  try {
+    fetch(`/api/candidates/${encodeURIComponent(id)}/website-lease`, {
+      method: 'DELETE',
+      headers: { 'content-type': 'application/json', 'X-Rover-Tab-Id': ROVER_TAB_ID },
+      keepalive: true,
+    });
+  } catch {
+    /* ignore */
+  }
+}
+
+async function refreshWebsiteWriteLease() {
+  stopWebsiteLeaseHeartbeat();
+  const prev = state.websiteLease.candidateId;
+  if (!websiteLeaseNeeded()) {
+    stopWebsiteLeaseHeartbeat();
+    if (prev && state.websiteLease.mine) await releaseHeldWebsiteLease(prev);
+    applyWebsiteLeaseState(null, { mine: true, holderTabId: null });
+    return;
+  }
+  const id = state.selectedId;
+  if (prev && prev !== id && state.websiteLease.mine) await releaseHeldWebsiteLease(prev);
+  try {
+    const claimed = await api(`/api/candidates/${encodeURIComponent(id)}/website-lease`, {
+      method: 'POST',
+      body: JSON.stringify({ takeover: false }),
+    });
+    applyWebsiteLeaseState(id, claimed);
+    if (claimed.mine) startWebsiteLeaseHeartbeat(id);
+    else stopWebsiteLeaseHeartbeat();
+  } catch {
+    applyWebsiteLeaseState(id, { mine: true, holderTabId: null });
+  }
+}
+
+async function takeoverWebsiteWriteLease() {
+  const id = state.selectedId;
+  if (!id) return;
+  const ok = await showModal({
+    title: 'Take over editing?',
+    confirmLabel: 'Take over',
+    bodyHtml:
+      '<p>This will steal editing from the other tab. Unsaved typing there can be lost.</p>',
+  });
+  if (!ok) return;
+  try {
+    const claimed = await api(`/api/candidates/${encodeURIComponent(id)}/website-lease`, {
+      method: 'POST',
+      body: JSON.stringify({ takeover: true }),
+    });
+    applyWebsiteLeaseState(id, claimed);
+    if (claimed.mine) startWebsiteLeaseHeartbeat(id);
+  } catch (error) {
+    showToast(error.message || 'Could not take over editing.', { tone: 'err' });
+  }
+}
+
 async function selectCandidate(id) {
   if (candidateSelectionLocked()) return;
+  if (state.selectedId && state.selectedId !== id) stopWebsiteLeaseHeartbeat();
   state.selectedId = id;
+  syncWebsiteWriteLockBanner();
   state.multiQueue = false;
   state.contentOpenStep = null;
   state.websiteOpenStep = null;
@@ -4263,7 +4438,10 @@ async function selectCandidate(id) {
   document.getElementById('detail').classList.remove('hidden');
   try {
     await loadSelectedCandidateDetail(id);
-    if (state.selectedId === id) renderDetail();
+    if (state.selectedId === id) {
+      await refreshWebsiteWriteLease();
+      renderDetail();
+    }
   } catch (error) {
     if (error?.name === 'AbortError') return;
     throw error;
@@ -5650,10 +5828,12 @@ async function warnResearchOrphansEnrichment(ids, forceSerp) {
 
 const CONCURRENCY_UI = {
   lightSerp: { title: 'Light SERP limit', label: 'Light SERP' },
+  generatePack: { title: 'Generate pack limit', label: 'Generate pack' },
   evaluations: { title: 'Evaluation limit', label: 'Evaluations' },
   writeSite: { title: 'Write site limit', label: 'Write site' },
   openaiBeforeAfter: { title: 'OpenAI before/after limit', label: 'OpenAI before/after' },
   heavy: { title: 'Heavy job limit', label: 'Heavy (Prepare / Launch)' },
+  assembledPreviews: { title: 'Assembled preview limit', label: 'Assembled previews' },
 };
 
 function concurrencyHardMax(key) {
@@ -10561,13 +10741,10 @@ async function startGeneratePackFromUi(batchId) {
       return;
     }
     if (error.code === 'GENERATE_PACK_BUSY') {
-      await showModal({
-        title: 'Generate pack already running',
-        confirmLabel: 'OK',
-        hideCancel: true,
-        bodyHtml: `<p>Generate pack is already running for <code>${esc(
-          error.batchId || error.candidateId || 'another batch',
-        )}</code>. One Generate pack at a time. Watch Light, or open that batch to Stop.</p>`,
+      await explainConcurrencyLimit({
+        key: 'generatePack',
+        running: error.running,
+        limit: error.limit ?? state.concurrency?.generatePack ?? 5,
       });
       return;
     }
@@ -18946,6 +19123,7 @@ function renderDetail() {
   syncCandidatesDetailVisibility();
   document.getElementById('empty-detail').classList.add('hidden');
   document.getElementById('detail').classList.remove('hidden');
+  syncWebsiteWriteLockBanner();
   const niche = d.summary?.niche || d.config?.niche || '';
   const city =
     d.summary?.primaryCity ||
@@ -19394,6 +19572,9 @@ function setView(view) {
     renderActions();
     syncCandidatesDetailVisibility();
     if (state.detail) renderDetail();
+    void refreshWebsiteWriteLease();
+  } else {
+    void refreshWebsiteWriteLease();
   }
   if (view === 'launched-sites') {
     loadSites().catch(() => {});
@@ -19633,17 +19814,30 @@ function renderSitesPortfolioCharts() {
   );
 }
 
+function isGscAuthRevokedError(error) {
+  return (
+    error?.code === 'GSC_AUTH_REVOKED' ||
+    /expired or revoked/i.test(String(error?.message || ''))
+  );
+}
+
+async function showGscReconnectModal(error) {
+  await showModal({
+    title: 'Reconnect GSC',
+    confirmLabel: 'OK',
+    hideCancel: true,
+    bodyHtml: `<p>${esc(
+      error?.message || 'GSC login expired — reconnect Google Search Console.',
+    )}</p>
+      <p class="muted small">Click <strong>Connect GSC</strong> and sign in with the Google account that owns the Domain properties.</p>`,
+  });
+}
+
 function updateSitesGscConnectButton() {
   const connectBtn = document.getElementById('sites-gsc-connect-btn');
   if (!connectBtn) return;
   const g = state.gscStatus || {};
-  connectBtn.textContent = 'Connect GSC';
-  if (g.connected) {
-    connectBtn.classList.add('hidden');
-    connectBtn.hidden = true;
-    connectBtn.disabled = true;
-    return;
-  }
+  connectBtn.textContent = g.connected ? 'Reconnect GSC' : 'Connect GSC';
   connectBtn.classList.remove('hidden');
   connectBtn.hidden = false;
   if (!g.configured) {
@@ -19664,7 +19858,7 @@ function renderSitesGscStatus() {
   } else if (g.connected) {
     el.textContent = `GSC: connected${g.email ? ` (${g.email})` : ''}${
       g.updatedAt ? ` · ${String(g.updatedAt).slice(0, 16).replace('T', ' ')}` : ''
-    }`;
+    }. Use Reconnect GSC if sync says the login expired.`;
   } else {
     el.textContent = `GSC: not connected · redirect URI must be allowed: ${g.redirectUri || ''}`;
   }
@@ -19835,6 +20029,7 @@ async function syncSitesGscSequential(siteList) {
   let synced = 0;
   let failed = 0;
   const errors = [];
+  let authRevoked = null;
   await withSitesMetricsBusy(
     { label: 'Syncing GSC…', detail: `0/${sites.length}`, pct: 0 },
     async ({ setProgress }) => {
@@ -19857,6 +20052,10 @@ async function syncSitesGscSequential(siteList) {
             errors.push(`${label}: ${result.error || 'failed'}`);
           }
         } catch (error) {
+          if (isGscAuthRevokedError(error)) {
+            authRevoked = error;
+            break;
+          }
           failed += 1;
           errors.push(`${label}: ${error.message || error}`);
         }
@@ -19869,6 +20068,10 @@ async function syncSitesGscSequential(siteList) {
       await loadSites();
     },
   );
+  if (authRevoked) {
+    await showGscReconnectModal(authRevoked);
+    return;
+  }
   await showModal({
     title: 'GSC sync',
     confirmLabel: 'OK',
@@ -20632,6 +20835,10 @@ function renderSitesDetail() {
         });
       }
     } catch (error) {
+      if (isGscAuthRevokedError(error)) {
+        await showGscReconnectModal(error);
+        return;
+      }
       await showModal({
         title: 'GSC sync failed',
         confirmLabel: 'OK',
@@ -22424,7 +22631,7 @@ function wireSitesUi() {
   });
 
   document.getElementById('sites-gsc-connect-btn')?.addEventListener('click', async () => {
-    if (state.sitesMetricsBusy || state.gscStatus?.connected) return;
+    if (state.sitesMetricsBusy) return;
     try {
       const started = await api('/api/gsc/oauth/start');
       startSitesGscConnectWait();

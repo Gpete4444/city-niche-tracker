@@ -14,40 +14,48 @@ const RUNTIME_LEGACY = path.join(ROVER_DIR, 'runtime-settings.json');
 
 export const CONCURRENCY_KEYS = [
   'lightSerp',
+  'generatePack',
   'evaluations',
   'writeSite',
   'openaiPhotos',
   'openaiBeforeAfter',
   'heavy',
+  'assembledPreviews',
 ];
 
 export const CONCURRENCY_DEFAULTS = {
-  lightSerp: 2,
+  lightSerp: 5,
+  generatePack: 5,
   evaluations: 6,
   writeSite: 6,
   openaiPhotos: 5,
   openaiBeforeAfter: 2,
-  heavy: 2,
+  heavy: 5,
+  assembledPreviews: 5,
 };
 
 export const CONCURRENCY_MAX = {
   lightSerp: 50,
+  generatePack: 10,
   evaluations: 50,
   writeSite: 50,
   openaiPhotos: 50,
   openaiBeforeAfter: 20,
   heavy: 12,
+  assembledPreviews: 8,
 };
 
 export const CONCURRENCY_MIN = 1;
 
 export const CONCURRENCY_LABELS = {
   lightSerp: 'Light SERP',
+  generatePack: 'Generate pack',
   evaluations: 'Evaluations',
   writeSite: 'Write site',
   openaiPhotos: 'OpenAI photos',
   openaiBeforeAfter: 'OpenAI before/after',
   heavy: 'Heavy (Prepare / Launch)',
+  assembledPreviews: 'Assembled previews',
 };
 
 function readJson(file) {

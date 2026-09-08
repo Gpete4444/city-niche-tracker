@@ -205,7 +205,12 @@ import {
   launchFidelitySummary,
 } from './lib/preview-fidelity.mjs';
 import { ensureAstroPreview, stopAstroPreview, ASTRO_PREVIEW_URL } from './lib/astro-preview.mjs';
-import { ensureAssembledPreview, stopAssembledPreview, contentNewerThanDist } from './lib/assembled-preview.mjs';
+import {
+  ensureAssembledPreview,
+  stopAssembledPreview,
+  contentNewerThanDist,
+  syncAssembledPreviewPoolSize,
+} from './lib/assembled-preview.mjs';
 import {
   enqueueHeavyJob,
   startHeavyJob,
@@ -224,10 +229,9 @@ import {
   onLightJobsChange,
   updateLightJobProgress,
   cancelLightJob,
-  findActiveLightJob,
-  discoveryPackJobCandidateId,
   assertWriteSiteStartAllowed,
   assertAcceptStartAllowed,
+  assertGeneratePackStartAllowed,
 } from './lib/rover-light-jobs.mjs';
 import { listCombinedJobsSnapshot, onCombinedJobsChange } from './lib/rover-jobs-stream.mjs';
 import { stopCpuPool } from './lib/rover-cpu-pool.mjs';
@@ -236,6 +240,13 @@ import {
   enqueuePhotoGroupOpenaiJobs,
 } from './lib/openai-generate-jobs.mjs';
 import { yieldEventLoop } from './lib/yield-event-loop.mjs';
+import {
+  claimWebsiteWriteLease,
+  heartbeatWebsiteWriteLease,
+  releaseWebsiteWriteLease,
+  peekWebsiteWriteLease,
+  assertWebsiteWriteAllowed,
+} from './lib/website-write-lease.mjs';
 import {
   getGeneratePackCostPreview,
   runGeneratePackJob,
@@ -387,6 +398,7 @@ function sendError(res, error) {
   if (error.e164) payload.e164 = error.e164;
   if (error.provisioned) payload.provisioned = error.provisioned;
   if (error.existingId) payload.existingId = error.existingId;
+  if (error.holderTabId != null) payload.holderTabId = error.holderTabId;
   res.status(status).json(payload);
 }
 
@@ -727,26 +739,7 @@ app.post('/api/discovery/batches/:id/generate-pack', (req, res) => {
     requireAnthropicKey();
     getBatch(batchId);
 
-    const key = discoveryPackJobCandidateId(batchId);
-    const same = findActiveLightJob('generate-pack', key);
-    if (same) {
-      return res.status(409).json({
-        error: 'Generate pack is already running for this batch',
-        code: 'GENERATE_PACK_RUNNING',
-        jobId: same.id,
-        batchId,
-      });
-    }
-    const other = findActiveLightJob('generate-pack');
-    if (other) {
-      return res.status(409).json({
-        error: `Generate pack is already running for ${other.batchId || other.candidateId}`,
-        code: 'GENERATE_PACK_BUSY',
-        jobId: other.id,
-        batchId: other.batchId || null,
-        candidateId: other.candidateId,
-      });
-    }
+    assertGeneratePackStartAllowed(batchId);
 
     const { jobId } = startLightJob({
       batchId,
@@ -988,6 +981,7 @@ app.get('/api/concurrency', (_req, res) => {
 app.post('/api/concurrency', (req, res) => {
   try {
     setConcurrencySettings(req.body || {});
+    void syncAssembledPreviewPoolSize();
     res.json(concurrencyPayload());
   } catch (error) {
     sendError(res, error);
@@ -1204,6 +1198,112 @@ app.post('/api/candidates/delete', async (req, res) => {
     assertDeletableIds(ids);
     const result = await deleteCandidates(ids);
     res.json(result);
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+function roverTabId(req) {
+  return String(req.get('x-rover-tab-id') || req.body?.tabId || '').trim();
+}
+
+function websiteWriteCandidateId(req) {
+  const fromParams = String(req.params?.id || '').trim();
+  if (fromParams) return fromParams;
+  const url = String(req.originalUrl || req.url || '').split('?')[0];
+  const m = url.match(/^\/api\/candidates\/([^/]+)/);
+  if (!m) return '';
+  try {
+    return decodeURIComponent(m[1]);
+  } catch {
+    return m[1];
+  }
+}
+
+function websiteWriteRest(req) {
+  const url = String(req.originalUrl || req.url || '').split('?')[0];
+  const m = url.match(/^\/api\/candidates\/[^/]+(\/.*)$/);
+  return m ? m[1] : '';
+}
+
+function isWebsiteWriteRequest(req) {
+  const method = String(req.method || '').toUpperCase();
+  if (method === 'GET' || method === 'HEAD' || method === 'OPTIONS') return false;
+  const rest = websiteWriteRest(req);
+  if (!rest || rest.startsWith('/website-lease')) return false;
+  if (rest === '/research' || rest === '/enrich' || rest === '/prospects') return false;
+  if (rest.startsWith('/narrative')) return false;
+  const prefixes = [
+    '/site-config',
+    '/content',
+    '/photo-groups',
+    '/images',
+    '/logo',
+    '/coverage-map',
+    '/address',
+    '/archetype',
+    '/staging',
+    '/assemble',
+    '/assembled',
+    '/prepare-preview',
+    '/visual-edit',
+    '/launch',
+    '/revert-launched',
+    '/phone',
+    '/indexing',
+    '/build-package',
+  ];
+  return prefixes.some((p) => rest === p || rest.startsWith(`${p}/`));
+}
+
+app.use('/api/candidates/:id', (req, res, next) => {
+  if (!isWebsiteWriteRequest(req)) return next();
+  try {
+    assertWebsiteWriteAllowed(websiteWriteCandidateId(req), roverTabId(req));
+    next();
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.get('/api/candidates/:id/website-lease', (req, res) => {
+  try {
+    const peek = peekWebsiteWriteLease(req.params.id);
+    const tab = roverTabId(req);
+    res.json({
+      candidateId: req.params.id,
+      holderTabId: peek?.holderTabId || null,
+      mine: Boolean(peek && tab && peek.holderTabId === tab),
+      expiresAt: peek?.expiresAt || null,
+    });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/candidates/:id/website-lease', (req, res) => {
+  try {
+    res.json(
+      claimWebsiteWriteLease(req.params.id, roverTabId(req), {
+        takeover: Boolean(req.body?.takeover),
+      }),
+    );
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/candidates/:id/website-lease/heartbeat', (req, res) => {
+  try {
+    res.json(heartbeatWebsiteWriteLease(req.params.id, roverTabId(req)));
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.delete('/api/candidates/:id/website-lease', (req, res) => {
+  try {
+    res.json(releaseWebsiteWriteLease(req.params.id, roverTabId(req)));
   } catch (error) {
     sendError(res, error);
   }
