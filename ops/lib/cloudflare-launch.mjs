@@ -81,12 +81,21 @@ export async function cfFetch(method, pathSuffix, body) {
 
 /** Normalize apex domain (strip www / path). */
 export function normalizeDomain(domain) {
+  return hostnameForWorker(domain, { allowWww: false });
+}
+
+/**
+ * Hostname for Worker custom-domain attach. Apex by default; keep www when requested.
+ * @param {string} domain
+ * @param {{ allowWww?: boolean }} [opts]
+ */
+export function hostnameForWorker(domain, opts = {}) {
   let d = String(domain || '')
     .trim()
     .toLowerCase()
     .replace(/^https?:\/\//, '')
     .replace(/\/.*$/, '');
-  if (d.startsWith('www.')) d = d.slice(4);
+  if (!opts.allowWww && d.startsWith('www.')) d = d.slice(4);
   return d;
 }
 
@@ -265,7 +274,7 @@ export async function workerExists(scriptName) {
  */
 export async function attachWorkerCustomDomain(opts) {
   const { accountId } = getCloudflareCredentials();
-  const hostname = normalizeDomain(opts.hostname);
+  const hostname = hostnameForWorker(opts.hostname, { allowWww: Boolean(opts.allowWww) });
   const service = String(opts.service || '').trim();
   const environment = opts.environment || 'production';
   if (!hostname || !service) {
@@ -293,6 +302,53 @@ export async function attachWorkerCustomDomain(opts) {
       throw putErr;
     }
   }
+}
+
+/**
+ * Force HTTPS at the zone (Always Use HTTPS + Full SSL + HSTS).
+ * Soft-fails individual settings so a 403 cannot block Launch.
+ * @param {string} zoneId
+ */
+export async function ensureZoneHttpsSettings(zoneId) {
+  const id = String(zoneId || '').trim();
+  if (!id) {
+    const err = new Error('zoneId required');
+    err.status = 400;
+    throw err;
+  }
+  const steps = {};
+
+  try {
+    steps.alwaysUseHttps = await cfFetch('PATCH', `/zones/${id}/settings/always_use_https`, {
+      value: 'on',
+    });
+  } catch (error) {
+    steps.alwaysUseHttps = { error: error.message };
+  }
+
+  try {
+    steps.ssl = await cfFetch('PATCH', `/zones/${id}/settings/ssl`, { value: 'full' });
+  } catch (error) {
+    steps.ssl = { error: error.message };
+  }
+
+  try {
+    steps.hsts = await cfFetch('PATCH', `/zones/${id}/settings/security_header`, {
+      value: {
+        strict_transport_security: {
+          enabled: true,
+          max_age: 15552000,
+          include_subdomains: true,
+          preload: false,
+          nosniff: true,
+        },
+      },
+    });
+  } catch (error) {
+    steps.hsts = { error: error.message };
+  }
+
+  return steps;
 }
 
 /**
@@ -373,6 +429,21 @@ export async function runCloudflareLaunch(opts) {
     );
   }
 
+  try {
+    steps.https = await ensureZoneHttpsSettings(zone.id);
+    const httpsErrs = ['alwaysUseHttps', 'ssl', 'hsts']
+      .map((k) => steps.https?.[k]?.error)
+      .filter(Boolean);
+    if (httpsErrs.length) {
+      human.push(`HTTPS zone settings partial: ${httpsErrs.join('; ')}`);
+    } else {
+      human.push('Zone Always Use HTTPS + Full SSL + HSTS enabled.');
+    }
+  } catch (error) {
+    steps.https = { error: error.message };
+    human.push(`HTTPS zone settings skipped: ${error.message}`);
+  }
+
   if (setupEmail) {
     if (!destinationEmail) {
       human.push(
@@ -446,6 +517,22 @@ export async function runCloudflareLaunch(opts) {
         } catch (error) {
           steps.workerDomain = { error: error.message };
           human.push(`Custom domain attach failed: ${error.message}`);
+        }
+        try {
+          steps.workerDomainWww = await attachWorkerCustomDomain({
+            hostname: `www.${domain}`,
+            service: workerName,
+            zoneId: zone.id,
+            allowWww: true,
+          });
+          human.push(
+            steps.workerDomainWww?.created
+              ? `Attached custom domain www.${domain} → Worker "${workerName}".`
+              : `Custom domain www.${domain} already attached to Worker "${workerName}".`,
+          );
+        } catch (error) {
+          steps.workerDomainWww = { error: error.message };
+          human.push(`www custom domain attach failed: ${error.message}`);
         }
       }
     }

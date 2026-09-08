@@ -7,6 +7,7 @@ import {
   filterServicesByNames,
 } from '../lib/services-for-site';
 import { ve } from '../lib/visual-edit';
+import { locationPath, servicePath, sitePath } from '../lib/site-path';
 import PhoneIcon from './PhoneIcon.astro';
 
 const services = filterServicesByNames(
@@ -89,7 +90,7 @@ const navLinkClass =
                     <a
                       role="menuitem"
                       class="block px-3 py-2 text-sm text-ink/90 hover:bg-brand/5 hover:text-brand"
-                      href={`/services/${svc.id}`}
+                      href={servicePath(svc.id)}
                     >
                       {svc.data.serviceName}
                     </a>
@@ -126,7 +127,7 @@ const navLinkClass =
                     <a
                       role="menuitem"
                       class="block px-3 py-2 text-sm text-ink/90 hover:bg-brand/5 hover:text-brand"
-                      href={`/locations/${loc.id}`}
+                      href={locationPath(loc.id)}
                     >
                       {loc.data.city}, {loc.data.state}
                     </a>
@@ -136,8 +137,8 @@ const navLinkClass =
             </div>
           )
         }
-        <a class={navLinkClass} href="/about">About</a>
-        <a class={navLinkClass} href="/contact">Contact</a>
+        <a class={navLinkClass} href={sitePath('/about')}>About</a>
+        <a class={navLinkClass} href={sitePath('/contact')}>Contact</a>
       </div>
     </nav>
 

@@ -7,6 +7,12 @@ const imageSchema = z.object({
   alt: z.string().min(1),
 });
 
+/** Empty YAML keys become null/{}; treat those as “no photos” instead of failing the build. */
+const imageListSchema = z.preprocess(
+  (v) => (Array.isArray(v) ? v : undefined),
+  z.array(imageSchema).optional(),
+);
+
 const pageFields = {
   title: z.string(),
   description: z.string(),
@@ -22,10 +28,10 @@ const pages = defineCollection({
     sectionHeading: z.string().optional(),
     featureImage: imageSchema.optional(),
     coverageMap: imageSchema.optional(),
-    gallery: z.array(imageSchema).optional(),
-    materialsImages: z.array(imageSchema).optional(),
+    gallery: imageListSchema,
+    materialsImages: imageListSchema,
     /** Homepage What we do card thumbs when Service pages are off */
-    serviceCardImages: z.array(imageSchema).optional(),
+    serviceCardImages: imageListSchema,
     whyChooseUs: z
       .array(
         z.object({
@@ -61,9 +67,9 @@ const services = defineCollection({
     serviceName: z.string(),
     order: z.number().optional(),
     cardImage: imageSchema.optional(),
-    materialsImages: z.array(imageSchema).optional(),
-    processImages: z.array(imageSchema).optional(),
-    beforeAfterImages: z.array(imageSchema).optional(),
+    materialsImages: imageListSchema,
+    processImages: imageListSchema,
+    beforeAfterImages: imageListSchema,
   }),
 });
 

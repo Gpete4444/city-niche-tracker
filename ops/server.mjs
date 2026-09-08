@@ -97,9 +97,7 @@ import {
   readSiteImageFile,
 } from './lib/fill-site-images.mjs';
 import {
-  generateImageSlotOpenai,
   useImageSlotVariant,
-  generateCandidateBaPairOpenai,
   useCandidateBaVariant,
 } from './lib/openai-generate.mjs';
 import { openaiImageStatus } from './lib/image-providers/openai-image.mjs';
@@ -134,10 +132,8 @@ import {
   duplicatePhotoGroup,
   deletePhotoGroup,
   upsertNicheMaster,
-  generatePhotoGroupSlotOpenai,
   useFileOnPhotoGroupSlot,
   usePhotoGroupSlotVariant,
-  generatePhotoGroupBaPairOpenai,
   usePhotoGroupBaVariant,
   useBaPairOnPhotoGroupSlot,
   getPhotoGroupBaPrompts,
@@ -223,7 +219,6 @@ import {
 } from './lib/rover-heavy-jobs.mjs';
 import {
   startLightJob,
-  waitForLightJob,
   getLightJob,
   listLightJobsSnapshot,
   onLightJobsChange,
@@ -234,6 +229,12 @@ import {
   assertWriteSiteStartAllowed,
   assertAcceptStartAllowed,
 } from './lib/rover-light-jobs.mjs';
+import { listCombinedJobsSnapshot, onCombinedJobsChange } from './lib/rover-jobs-stream.mjs';
+import { stopCpuPool } from './lib/rover-cpu-pool.mjs';
+import {
+  enqueueCandidateOpenaiJobs,
+  enqueuePhotoGroupOpenaiJobs,
+} from './lib/openai-generate-jobs.mjs';
 import { yieldEventLoop } from './lib/yield-event-loop.mjs';
 import {
   getGeneratePackCostPreview,
@@ -1332,6 +1333,37 @@ app.get('/api/light-jobs/:jobId', (req, res) => {
   res.json({ job });
 });
 
+app.get('/api/jobs', (_req, res) => {
+  res.json(listCombinedJobsSnapshot());
+});
+
+app.get('/api/jobs/stream', (req, res) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  if (typeof res.flushHeaders === 'function') res.flushHeaders();
+  const send = (snap) => {
+    try {
+      res.write(`data: ${JSON.stringify(snap)}\n\n`);
+    } catch {
+      /* closed */
+    }
+  };
+  send(listCombinedJobsSnapshot());
+  const off = onCombinedJobsChange(send);
+  const ping = setInterval(() => {
+    try {
+      res.write(`: ping\n\n`);
+    } catch {
+      /* closed */
+    }
+  }, 15000);
+  req.on('close', () => {
+    clearInterval(ping);
+    off();
+  });
+});
+
 app.post('/api/light-jobs/:jobId/cancel', (req, res) => {
   try {
     const job = cancelLightJob(req.params.jobId);
@@ -1874,8 +1906,7 @@ app.post('/api/candidates/:id/content/accept', async (req, res) => {
         };
       },
     });
-    const payload = await waitForLightJob(jobId);
-    res.json({ ...payload, jobId });
+    res.status(202).json({ jobId, accepted: true, candidateId: acceptId });
   } catch (error) {
     if (error.check || error.seoLint) {
       return res.status(error.status || 400).json({
@@ -2077,15 +2108,36 @@ app.post('/api/photo-groups/:id/slots/:key/openai-prompt', (req, res) => {
   }
 });
 
-app.post('/api/photo-groups/:id/slots/generate-openai', async (req, res) => {
+app.post('/api/photo-groups/:id/generate-openai', (req, res) => {
   try {
-    res.json(
-      await generatePhotoGroupSlotOpenai(req.params.id, {
-        matchKey: req.body?.matchKey || req.body?.key,
-        viewpoint: req.body?.viewpoint || 'inside',
-        prompt: req.body?.prompt,
-      }),
-    );
+    const body = req.body || {};
+    const out = enqueuePhotoGroupOpenaiJobs(req.params.id, {
+      slotKeys: body.slotKeys,
+      baKeys: body.baKeys,
+      baItems: body.baItems,
+      viewpoint: body.viewpoint || 'inside',
+      prompt: body.prompt,
+      prompts: body.prompts,
+      onConflict: 'reuse',
+    });
+    res.status(202).json(out);
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/photo-groups/:id/slots/generate-openai', (req, res) => {
+  try {
+    const body = req.body || {};
+    const matchKey = body.matchKey || body.key;
+    const out = enqueuePhotoGroupOpenaiJobs(req.params.id, {
+      slotKeys: matchKey && !String(matchKey).startsWith('ba:') ? [matchKey] : [],
+      matchKey,
+      viewpoint: body.viewpoint || 'inside',
+      prompt: body.prompt,
+      onConflict: 'throw',
+    });
+    res.status(202).json({ ...out, jobId: out.jobs[0]?.jobId });
   } catch (error) {
     sendError(res, error);
   }
@@ -2151,20 +2203,21 @@ app.post('/api/photo-groups/:id/before-after/openai-prompt', (req, res) => {
   }
 });
 
-app.post('/api/photo-groups/:id/before-after/generate-openai', async (req, res) => {
+app.post('/api/photo-groups/:id/before-after/generate-openai', (req, res) => {
   try {
-    res.json(
-      await generatePhotoGroupBaPairOpenai(req.params.id, {
-        matchKey: req.body?.matchKey,
-        viewpoint: req.body?.viewpoint || 'inside',
-        kind: req.body?.kind,
-        pairIndex: req.body?.pairIndex,
-        serviceSlug: req.body?.serviceSlug,
-        serviceName: req.body?.serviceName,
-        before: req.body?.before,
-        after: req.body?.after,
-      }),
-    );
+    const body = req.body || {};
+    const out = enqueuePhotoGroupOpenaiJobs(req.params.id, {
+      kind: 'pair',
+      matchKey: body.matchKey,
+      viewpoint: body.viewpoint || 'inside',
+      pairIndex: body.pairIndex,
+      serviceSlug: body.serviceSlug,
+      serviceName: body.serviceName,
+      before: body.before,
+      after: body.after,
+      onConflict: 'throw',
+    });
+    res.status(202).json({ ...out, jobId: out.jobs[0]?.jobId });
   } catch (error) {
     sendError(res, error);
   }
@@ -2276,8 +2329,7 @@ app.post('/api/candidates/:id/images/pull', async (req, res) => {
             }),
         }),
     });
-    const result = await waitForLightJob(jobId);
-    res.json({ ...result, jobId });
+    res.status(202).json({ jobId, accepted: true });
   } catch (error) {
     sendError(res, error);
   }
@@ -2338,14 +2390,41 @@ app.post('/api/candidates/:id/images/slots/:slotKey/openai-prompt', (req, res) =
   }
 });
 
-app.post('/api/candidates/:id/images/slots/:slotKey/generate-openai', async (req, res) => {
+app.post('/api/candidates/:id/images/generate-openai', (req, res) => {
   try {
     assertLaunchedEditAllowed(req.params.id, req.body || {});
-    const result = await generateImageSlotOpenai(req.params.id, req.params.slotKey, {
+    const body = req.body || {};
+    const out = enqueueCandidateOpenaiJobs(req.params.id, {
+      slotKeys: body.slotKeys,
+      baKeys: body.baKeys,
+      baItems: body.baItems,
+      viewpoint: body.viewpoint || 'inside',
+      prompt: body.prompt,
+      prompts: body.prompts,
+      onConflict: 'reuse',
+    });
+    res.status(202).json(out);
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/candidates/:id/images/slots/:slotKey/generate-openai', (req, res) => {
+  try {
+    assertLaunchedEditAllowed(req.params.id, req.body || {});
+    const out = enqueueCandidateOpenaiJobs(req.params.id, {
+      slotKeys: [req.params.slotKey],
       viewpoint: req.body?.viewpoint || 'inside',
       prompt: req.body?.prompt,
+      prompts: {
+        [req.params.slotKey]: {
+          viewpoint: req.body?.viewpoint || 'inside',
+          prompt: req.body?.prompt,
+        },
+      },
+      onConflict: 'throw',
     });
-    res.json(result);
+    res.status(202).json({ ...out, jobId: out.jobs[0]?.jobId });
   } catch (error) {
     sendError(res, error);
   }
@@ -2405,8 +2484,7 @@ app.post('/api/candidates/:id/logo/generate', async (req, res) => {
         return result;
       },
     });
-    const result = await waitForLightJob(jobId);
-    res.json({ ...result, jobId });
+    res.status(202).json({ jobId, accepted: true });
   } catch (error) {
     sendError(res, error);
   }
@@ -2440,8 +2518,7 @@ app.post('/api/candidates/:id/coverage-map/generate', async (req, res) => {
             }),
         }),
     });
-    const result = await waitForLightJob(jobId);
-    res.json({ ...result, jobId });
+    res.status(202).json({ jobId, accepted: true });
   } catch (error) {
     sendError(res, error);
   }
@@ -2503,18 +2580,25 @@ app.get('/api/candidates/:id/images/before-after-status', (req, res) => {
   }
 });
 
-app.post('/api/candidates/:id/images/before-after-generate-openai', async (req, res) => {
+app.post('/api/candidates/:id/images/before-after-generate-openai', (req, res) => {
   try {
     assertLaunchedEditAllowed(req.params.id, req.body || {});
-    res.json(
-      await generateCandidateBaPairOpenai(req.params.id, {
-        viewpoint: req.body?.viewpoint || 'inside',
-        serviceSlug: req.body?.serviceSlug || req.body?.service || '',
-        pairIndex: req.body?.pairIndex || 1,
-        before: req.body?.before,
-        after: req.body?.after,
-      }),
-    );
+    const body = req.body || {};
+    const out = enqueueCandidateOpenaiJobs(req.params.id, {
+      baItems: [
+        {
+          matchKey: body.matchKey,
+          serviceSlug: body.serviceSlug || body.service || '',
+          pairIndex: body.pairIndex || 1,
+          viewpoint: body.viewpoint || 'inside',
+          before: body.before,
+          after: body.after,
+        },
+      ],
+      viewpoint: body.viewpoint || 'inside',
+      onConflict: 'throw',
+    });
+    res.status(202).json({ ...out, jobId: out.jobs[0]?.jobId });
   } catch (error) {
     sendError(res, error);
   }
@@ -4193,6 +4277,11 @@ async function shutdownRover() {
   }
   try {
     await stopAssembledPreview();
+  } catch {
+    /* ignore */
+  }
+  try {
+    stopCpuPool();
   } catch {
     /* ignore */
   }

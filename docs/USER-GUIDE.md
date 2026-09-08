@@ -21,7 +21,7 @@ The top bar is always there.
 
 ### Version {#chrome-version}
 
-**v2.0** (or current) sits next to the Rover wordmark. That is the product version, not a candidate.
+**v2.1** (or current) sits next to the Rover wordmark. That is the product version, not a candidate.
 
 ### Stages {#chrome-stages}
 
@@ -33,7 +33,7 @@ Unnumbered helpers after Launched. They are not stages. You can skip Map and Pho
 
 ### Jobs {#chrome-jobs}
 
-Prepare preview, Push updates, Run launch, Write site, Accept, and Generate pack dim the workspace under the top bar on that candidate. Other work (Light SERP, Find addresses, GSC, Research) uses a bar on that step. **Concurrent Limit** in Settings is how many of each kind may run at once. Write site, Evaluations, Light SERP, OpenAI before/after, and Heavy (Prepare / Launch) pop up if you try to start more than the box. OpenAI photos queue extras instead.
+Prepare preview, Push updates, Run launch, Write site, Accept, and Generate pack dim the workspace under the top bar on that candidate. Other work (Light SERP, Find addresses, GSC, Research) uses a bar on that step. **Concurrent Limit** in Settings is how many of each kind may run at once. Write site, Evaluations, Light SERP, and Heavy (Prepare / Launch) pop up if you try to start more than the box. **OpenAI photos** and **OpenAI before/after** queue extras in the background (including other Rover tabs and other candidates). Generating photos does not lock the table or other tabs — you can switch candidates and start SERP / Write site / Prepare while images finish. Hard-refresh every open tab after a Rover update.
 
 ### API Cost {#chrome-api-cost}
 

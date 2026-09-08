@@ -10,6 +10,7 @@ import {
 import { defaultSectionCtaPrompt } from '../lib/section-ctas';
 import { WHY_ICON_PATHS, assignUniqueWhyIcons } from '../lib/why-icons';
 import { loadInlineCoverageMapHtml } from '../lib/coverage-map-links';
+import { locationPath, sitePath } from '../lib/site-path';
 import TwoToneHeading from './TwoToneHeading.astro';
 import TypedProseSection from './sections/TypedProseSection.astro';
 import GoogleReviewCard from './GoogleReviewCard.astro';
@@ -183,7 +184,7 @@ const whyIcons = assignUniqueWhyIcons(whyChooseUs.map((item) => item.title));
 /** Inline coverage SVG so area <a> links navigate (object/img cannot). */
 const coverageMapHtml = loadInlineCoverageMapHtml(
   coverageMap?.src,
-  site.primaryCity || '',
+  locations,
 );
 ---
 
@@ -396,7 +397,7 @@ const coverageMapHtml = loadInlineCoverageMapHtml(
                   <li>
                     <a
                       class="flex items-center justify-between rounded-md border border-white/20 bg-white/10 px-4 py-3 text-sm font-semibold transition hover:bg-white/20"
-                      href={location.href || (location.id ? `/locations/${location.id}` : '/contact')}
+                      href={location.href || (location.id ? locationPath(location.id) : sitePath('/contact'))}
                     >
                       <span>
                         {location.city}, {location.state}
@@ -414,7 +415,7 @@ const coverageMapHtml = loadInlineCoverageMapHtml(
                       {i > 0 && <span class="text-white/35"> · </span>}
                       <a
                         class="underline decoration-white/30 underline-offset-2 hover:text-white"
-                        href="/contact"
+                        href={sitePath('/contact')}
                       >
                         {a.city}
                       </a>
@@ -423,7 +424,7 @@ const coverageMapHtml = loadInlineCoverageMapHtml(
                   {alsoServing.length > 0 && <span class="text-white/35"> · </span>}
                   <a
                     class="underline decoration-white/30 underline-offset-2 hover:text-white"
-                    href="/contact"
+                    href={sitePath('/contact')}
                   >
                     and others
                   </a>

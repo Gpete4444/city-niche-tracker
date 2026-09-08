@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+## Version 2.1 (`2.1.0`)
+
+Dashboard stays clickable during photo generate, and live sites follow a consistent indexing URL policy:
+
+- **Concurrent work:** OpenAI Review generate (and Photo library generate) enqueue as light jobs and return immediately (HTTP 202). Extra stills and before/after pairs **queue globally** at the Concurrent Limit boxes — including across tabs and candidates — instead of holding Chrome’s six connections. Accept, logo, coverage map, and Pull photos also return 202. Image generate + JPEG persist run in a forked worker so the dashboard stays clickable. One `/api/jobs/stream` EventSource replaces the two Heavy/Light streams. Hard-refresh every open Rover tab.
+- **Live URL policy:** Trailing slashes on every HTML path (`/about/`, `/services/{slug}/`). Coverage-map cities without a real location page link to `/contact/` — they never invent `/locations/{slug}/`. The Worker **301s `http://` → `https://`** and slashless paths; `*.workers.dev` sends `X-Robots-Tag: noindex`.
+- **Launch HTTPS:** Cloudflare launch turns on Always Use HTTPS, Full SSL, and HSTS when the token can edit zone settings (soft-skip otherwise), and attaches **www** plus apex to the Worker.
+- **Sitemap:** Pipeline always emits `sitemap.xml` (`src/integrations/ensure-sitemap-xml.mjs`).
+- **Regression:** `scripts/test-openai-generate-jobs.mjs` (202 enqueue + global caps). `scripts/test-gsc-url-policy.mjs` (trailing slash + coverage-map hrefs). Concurrency tests cover the unified jobs stream.
+
 ## Version 2.0 (`2.0.0`)
 
 Leaner Rover process and dashboard payloads, plus Research **Run all** and a 15-mile service-area default:

@@ -1,4 +1,5 @@
 import type { SiteConfig } from '../config/site';
+import { locationPath, sitePath } from './site-path';
 
 export type LocationEntryLike = {
   id: string;
@@ -76,7 +77,7 @@ export function alsoServingLinks(site: SiteGeo): LocationLink[] {
   const seo = seoLocationCities(site);
   return coverageCityNames(site)
     .filter((name) => !seo.has(norm(name)))
-    .map((city) => ({ city, state, href: '/contact' }));
+    .map((city) => ({ city, state, href: sitePath('/contact') }));
 }
 
 /** @deprecated Prefer alsoServingLinks + filterLocationsForSite */
@@ -91,7 +92,7 @@ export function locationLinksFromSite(site: SiteGeo): LocationLink[] {
     const key = norm(name);
     if (seen.has(key)) return;
     seen.add(key);
-    out.push({ city: name, state, href: '/contact' });
+    out.push({ city: name, state, href: sitePath('/contact') });
   };
 
   if (Array.isArray(site.coverageAreas) && site.coverageAreas.length) {
@@ -119,19 +120,19 @@ export function locationLinksForSite<T extends LocationEntryLike>(
       id: e.id,
       city: e.data.city,
       state: e.data.state,
-      href: `/locations/${e.id}`,
+      href: locationPath(e.id),
     }));
   }
   const seo = seoLocationCities(site);
   const state = String(site.state || '').trim().toUpperCase();
   const out: LocationLink[] = [];
   if (site.primaryCity && seo.has(norm(site.primaryCity))) {
-    out.push({ city: site.primaryCity, state, href: '/contact' });
+    out.push({ city: site.primaryCity, state, href: sitePath('/contact') });
   }
   for (const s of site.targetSuburbs || []) {
     const name = String(s || '').trim();
     if (!name) continue;
-    out.push({ city: name, state, href: '/contact' });
+    out.push({ city: name, state, href: sitePath('/contact') });
   }
   return out;
 }

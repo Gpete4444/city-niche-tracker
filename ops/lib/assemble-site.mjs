@@ -1052,8 +1052,13 @@ export function assembleSite(
   writeJson(path.join(siteRoot, 'wrangler.json'), {
     name: slug,
     compatibility_date: '2025-08-01',
+    main: './src/cf-assets-worker.js',
     assets: {
       directory: './dist',
+      binding: 'ASSETS',
+      run_worker_first: true,
+      html_handling: 'force-trailing-slash',
+      not_found_handling: '404-page',
     },
   });
 

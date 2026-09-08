@@ -10,6 +10,9 @@ import {
   assertAcceptStartAllowed,
   assertWriteSiteStartAllowed,
   countActiveLightJobs,
+  countQueuedLightJobs,
+  countRunningLightJobs,
+  enqueueLightJob,
   openLightJob,
   resetLightJobsForTests,
 } from '../ops/lib/rover-light-jobs.mjs';
@@ -101,7 +104,58 @@ try {
   assertThrows(() => assertAcceptStartAllowed('accept-a'), 'ACCEPT_RUNNING', 'accept same candidate');
   resetLightJobsForTests();
 
-  resetHeavyJobsForTests();
+  const hold = () => new Promise(() => {});
+  enqueueLightJob({
+    candidateId: 'oa-1',
+    phase: 'openai-photo',
+    label: 'OpenAI',
+    slotKey: 'a',
+    matchKey: 'a',
+    run: hold,
+  });
+  enqueueLightJob({
+    candidateId: 'oa-2',
+    phase: 'openai-photo',
+    label: 'OpenAI',
+    slotKey: 'b',
+    matchKey: 'b',
+    run: hold,
+  });
+  enqueueLightJob({
+    candidateId: 'oa-3',
+    phase: 'openai-photo',
+    label: 'OpenAI',
+    slotKey: 'c',
+    matchKey: 'c',
+    run: hold,
+  });
+  enqueueLightJob({
+    candidateId: 'oa-4',
+    phase: 'openai-photo',
+    label: 'OpenAI',
+    slotKey: 'd',
+    matchKey: 'd',
+    run: hold,
+  });
+  enqueueLightJob({
+    candidateId: 'oa-5',
+    phase: 'openai-photo',
+    label: 'OpenAI',
+    slotKey: 'e',
+    matchKey: 'e',
+    run: hold,
+  });
+  enqueueLightJob({
+    candidateId: 'oa-6',
+    phase: 'openai-photo',
+    label: 'OpenAI',
+    slotKey: 'f',
+    matchKey: 'f',
+    run: hold,
+  });
+  assertEqual(countRunningLightJobs('openai-photo'), 5, 'openai photos running cap');
+  assertEqual(countQueuedLightJobs('openai-photo'), 1, 'openai photos queued extra');
+  resetLightJobsForTests();
   forceRunningCountForTests(2);
   assertThrows(
     () =>

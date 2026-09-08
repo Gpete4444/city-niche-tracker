@@ -4,21 +4,58 @@ import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { cwd } from 'node:process';
 import { fileURLToPath } from 'node:url';
+import {
+  coverageMapAreaHref,
+  slugifyAreaName,
+  type CoverageMapLocationPage,
+} from './coverage-map-href';
 
-export function slugifyAreaName(name: string): string {
-  return String(name || '')
-    .toLowerCase()
-    .replace(/&/g, ' and ')
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-|-$/g, '');
+export { coverageMapAreaHref, slugifyAreaName };
+export type { CoverageMapLocationPage };
+
+export type CoverageMapLocationInput =
+  | string
+  | CoverageMapLocationPage
+  | Array<string | CoverageMapLocationPage>;
+
+function normalizeLocationPages(
+  locationPages: CoverageMapLocationInput = [],
+): Array<string | CoverageMapLocationPage> {
+  if (typeof locationPages === 'string') {
+    const city = locationPages.trim();
+    if (!city) return [];
+    return [{ id: slugifyAreaName(city), city }];
+  }
+  return Array.isArray(locationPages) ? locationPages : [];
+}
+
+function rewriteExistingMapHrefs(
+  svg: string,
+  locationPages: Array<string | CoverageMapLocationPage>,
+): string {
+  return String(svg || '').replace(
+    /href="(\/locations\/[^"]+|https?:\/\/[^/]+\/locations\/[^"]+)"/gi,
+    (_m, href: string) => {
+      const pathOnly = String(href).replace(/^https?:\/\/[^/]+/i, '');
+      const slug = pathOnly
+        .replace(/^\/locations\//i, '')
+        .replace(/\/$/, '')
+        .split(/[?#]/)[0];
+      return `href="${coverageMapAreaHref(slug, locationPages)}"`;
+    },
+  );
 }
 
 /**
- * Wrap each `.cov-area` group in `<a href="...">` (all cities → `/locations/{slug}`).
- * Safe to run on SVGs that already have links.
+ * Wrap each `.cov-area` group in `<a href="...">`.
+ * Real SEO location pages → `/locations/{id}/`; coverage-only towns → `/contact/`.
  */
-export function ensureCoverageMapAreaLinks(svg: string, primaryCity = ''): string {
-  let text = String(svg || '');
+export function ensureCoverageMapAreaLinks(
+  svg: string,
+  locationPages: CoverageMapLocationInput = [],
+): string {
+  const pages = normalizeLocationPages(locationPages);
+  let text = rewriteExistingMapHrefs(svg, pages);
   if (!text.includes('class="cov-area"')) return text;
 
   const marker = '<g class="cov-area">';
@@ -65,8 +102,7 @@ export function ensureCoverageMapAreaLinks(svg: string, primaryCity = ''): strin
       const cityRaw =
         block.match(/class="city">([^<]+)</)?.[1]?.replace(/&amp;/g, '&').replace(/&apos;/g, "'") ||
         '';
-      const slug = slugifyAreaName(cityRaw);
-      const href = slug ? `/locations/${slug}` : '/';
+      const href = coverageMapAreaHref(cityRaw, pages);
       out += `<a href="${href}" target="_top">${block}</a>`;
     }
     i = end;
@@ -120,12 +156,15 @@ function publicFileCandidates(src: string): string[] {
 }
 
 /** Read coverage SVG from public/ and prepare linked inline HTML. */
-export function loadInlineCoverageMapHtml(src: string | undefined, primaryCity = ''): string {
+export function loadInlineCoverageMapHtml(
+  src: string | undefined,
+  locationPages: CoverageMapLocationInput = [],
+): string {
   if (!src) return '';
   for (const abs of publicFileCandidates(src)) {
     if (!existsSync(abs)) continue;
     const raw = readFileSync(abs, 'utf8');
-    return svgForInlineEmbed(ensureCoverageMapAreaLinks(raw, primaryCity)).replace(
+    return svgForInlineEmbed(ensureCoverageMapAreaLinks(raw, locationPages)).replace(
       /<svg\b([^>]*)>/i,
       '<svg$1 class="h-auto w-full overflow-hidden rounded-xl bg-white shadow-2xl">',
     );

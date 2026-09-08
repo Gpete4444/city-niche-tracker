@@ -657,11 +657,18 @@ const DISCOVERY_DECISION_OPTS = [
 async function api(path, options = {}) {
   let res;
   try {
+    const { signal, ...rest } = options;
     res = await fetch(path, {
-      headers: { 'content-type': 'application/json', ...(options.headers || {}) },
-      ...options,
+      headers: { 'content-type': 'application/json', ...(rest.headers || {}) },
+      ...rest,
+      signal,
     });
-  } catch {
+  } catch (error) {
+    if (error?.name === 'AbortError' || options.signal?.aborted) {
+      const err = new Error('Aborted');
+      err.name = 'AbortError';
+      throw err;
+    }
     throw new Error(
       'Could not reach Rover ops — is npm run rover still running, or was the prompt response too large? Check the Rover terminal and retry.',
     );
@@ -726,8 +733,8 @@ function candidateDetailUrl(id, slices = []) {
   return `/api/candidates/${encodeURIComponent(id)}${q}`;
 }
 
-async function fetchCandidateDetail(id, slices = []) {
-  return api(candidateDetailUrl(id, slices));
+async function fetchCandidateDetail(id, slices = [], { signal } = {}) {
+  return api(candidateDetailUrl(id, slices), { signal });
 }
 
 async function ensureDetailSlices(id, slices) {
@@ -742,12 +749,26 @@ async function ensureDetailSlices(id, slices) {
   return state.detail;
 }
 
+let detailFetchAbort = null;
+
 async function loadSelectedCandidateDetail(id) {
   if (!id) return null;
-  const next = await fetchCandidateDetail(id, slicesForTab(state.tab));
-  if (state.selectedId && state.selectedId !== id) return state.detail;
-  state.detail = mergeCandidateDetail(state.detail?.id === id ? state.detail : null, next);
-  return state.detail;
+  try {
+    detailFetchAbort?.abort();
+  } catch {
+    /* ignore */
+  }
+  const ac = new AbortController();
+  detailFetchAbort = ac;
+  try {
+    const next = await fetchCandidateDetail(id, slicesForTab(state.tab), { signal: ac.signal });
+    if (ac.signal.aborted || (state.selectedId && state.selectedId !== id)) return state.detail;
+    state.detail = mergeCandidateDetail(state.detail?.id === id ? state.detail : null, next);
+    return state.detail;
+  } catch (error) {
+    if (error?.name === 'AbortError') return state.detail;
+    throw error;
+  }
 }
 
 async function applyCandidatePayload(candidate, id = candidate?.id || state.selectedId) {
@@ -777,6 +798,26 @@ async function waitForHeavyJobResult(jobId, { intervalMs = 400 } = {}) {
       const err = new Error(job.error || 'Job failed');
       if (job.check) err.check = job.check;
       if (job.contract) err.contract = job.contract;
+      throw err;
+    }
+    await new Promise((r) => setTimeout(r, intervalMs));
+  }
+}
+
+async function waitForLightJobResult(jobId, { intervalMs = 400 } = {}) {
+  const id = String(jobId || '').trim();
+  if (!id) throw new Error('jobId required');
+  for (;;) {
+    const { job } = await api(`/api/light-jobs/${encodeURIComponent(id)}`);
+    if (!job) throw new Error('Job not found');
+    if (job.status === 'done') return job.result;
+    if (job.status === 'error') {
+      const err = new Error(job.error || 'Job failed');
+      err.status = 400;
+      if (job.check) err.check = job.check;
+      if (job.seoLint) err.seoLint = job.seoLint;
+      if (job.contract) err.contract = job.contract;
+      if (job.speechLint) err.speechLint = job.speechLint;
       throw err;
     }
     await new Promise((r) => setTimeout(r, intervalMs));
@@ -1042,7 +1083,158 @@ const jobSyncedBarOn = {
   pull: false,
   logoMap: false,
   launch: false,
+  openai: false,
 };
+
+/** jobId → { candidateId, groupId, slotKey, kind } */
+const openaiJobWatch = new Map();
+const openaiJobHandled = new Set();
+/** @type {{ jobIds: string[], candidateId?: string, groupId?: string, failures: string[], announced: boolean }[]} */
+const openaiBatches = [];
+let openaiCommitChain = Promise.resolve();
+
+function enqueueOpenaiCommit(fn) {
+  const run = openaiCommitChain.then(() => fn());
+  openaiCommitChain = run.then(
+    () => {},
+    () => {},
+  );
+  return run;
+}
+
+function watchOpenaiJobList(jobs, { candidateId, groupId } = {}) {
+  const ids = [];
+  for (const row of jobs || []) {
+    const jobId = String(row.jobId || row.id || '').trim();
+    if (!jobId) continue;
+    ids.push(jobId);
+    openaiJobHandled.delete(jobId);
+    openaiJobWatch.set(jobId, {
+      candidateId: candidateId || row.candidateId || null,
+      groupId: groupId || null,
+      slotKey: row.slotKey || row.matchKey || null,
+      kind: row.kind || null,
+    });
+  }
+  if (ids.length) {
+    openaiBatches.push({
+      jobIds: ids,
+      candidateId: candidateId || null,
+      groupId: groupId || null,
+      failures: [],
+      announced: false,
+    });
+  }
+  return ids;
+}
+
+async function consumeOpenaiJobFinish(job) {
+  const id = String(job?.id || '');
+  const meta = openaiJobWatch.get(id);
+  if (!meta) return;
+  openaiJobWatch.delete(id);
+  const slotKey = job.slotKey || job.matchKey || meta.slotKey;
+  if (job.status === 'error') {
+    await settleSlotBusy(slotKey);
+    return;
+  }
+  let result = job.result;
+  if (!result) {
+    try {
+      const packed = await api(`/api/light-jobs/${encodeURIComponent(id)}`);
+      result = packed.job?.result;
+    } catch {
+      result = null;
+    }
+  }
+  const cid = meta.candidateId;
+  const isGroup = Boolean(meta.groupId) || String(cid || '').startsWith('photo-group:');
+  if (!isGroup) {
+    if (cid && state.selectedId === cid) {
+      await commitReviewSlot(cid, {
+        status: result?.status,
+        slotKey,
+        candidate: result?.candidate,
+      });
+    } else {
+      await settleSlotBusy(slotKey);
+    }
+    return;
+  }
+  const gid = meta.groupId || String(cid || '').replace(/^photo-group:/, '');
+  if (gid && photoLibCurrent()?.groupId === gid) {
+    try {
+      await loadPhotoGroupView();
+      renderPhotoView();
+    } catch {
+      /* ignore */
+    }
+  }
+  await settleSlotBusy(slotKey);
+}
+
+function syncOpenaiGenerateFromSnap(snap) {
+  const jobs = snap?.jobs || [];
+  const openai = jobs.filter((j) => j.phase === 'openai-photo' || j.phase === 'openai-ba');
+  const cid = state.selectedId;
+  const pgId = photoLibCurrent()?.groupId || '';
+  const pgKey = pgId ? `photo-group:${pgId}` : '';
+  for (const j of openai) {
+    if (j.status !== 'running' && j.status !== 'queued') continue;
+    const here =
+      j.candidateId === cid || j.candidateId === pgKey || openaiJobWatch.has(String(j.id));
+    const key = j.slotKey || j.matchKey;
+    if (here && key) beginSlotBusy(key, null, { scroll: false });
+  }
+  for (const j of openai) {
+    const id = String(j.id);
+    if (!openaiJobWatch.has(id) || openaiJobHandled.has(id)) continue;
+    if (j.status !== 'done' && j.status !== 'error') continue;
+    openaiJobHandled.add(id);
+    if (j.status === 'error') {
+      const batch = openaiBatches.find((b) => b.jobIds.includes(id));
+      const meta = openaiJobWatch.get(id);
+      const key = j.slotKey || j.matchKey || meta?.slotKey || id;
+      if (batch) batch.failures.push(`${key}: ${j.error || 'Generate failed'}`);
+    }
+    enqueueOpenaiCommit(() => consumeOpenaiJobFinish(j));
+  }
+  let pending = 0;
+  let total = 0;
+  for (const batch of openaiBatches) {
+    if (batch.announced) continue;
+    const remaining = batch.jobIds.filter((id) => !openaiJobHandled.has(id));
+    pending += remaining.length;
+    total += batch.jobIds.length;
+    if (!remaining.length) {
+      batch.announced = true;
+      const failures = [...batch.failures];
+      const n = batch.jobIds.length;
+      enqueueOpenaiCommit(async () => {
+        jobSyncedBarOn.openai = false;
+        setImagesProgress(false);
+        if (failures.length) {
+          if (!(await showGenerateFailures(failures))) {
+            announceBanner(
+              `Generated with ${failures.length} error${failures.length === 1 ? '' : 's'}.`,
+              { tone: 'warn' },
+            );
+          }
+        } else {
+          announceBanner(`Generated ${n} OpenAI job${n === 1 ? '' : 's'}.`);
+        }
+        refreshImageWallets({ fresh: true });
+      });
+    }
+  }
+  if (pending) {
+    jobSyncedBarOn.openai = true;
+    paintOpenaiBatchProgress(Math.max(0, total - pending), total);
+  } else if (jobSyncedBarOn.openai) {
+    jobSyncedBarOn.openai = false;
+    setImagesProgress(false);
+  }
+}
 
 function formatGenerateElapsed(ms) {
   const s = Math.max(0, Math.floor(Number(ms) / 1000) || 0);
@@ -1813,6 +2005,7 @@ function syncLightInPageBars(snap) {
     setImagesProgress(false);
   }
   syncWriteSiteOverlay(snap);
+  syncOpenaiGenerateFromSnap(snap);
   const research = ['research', 'enrich', 'prospects']
     .map((p) => findActiveJob(snap, p, cid))
     .find(Boolean);
@@ -2024,27 +2217,36 @@ function startJobStreamLeader() {
 
 function wireJobsUi() {
   wireJobStream({
-    streamUrl: '/api/heavy-jobs/stream',
-    pollUrl: '/api/heavy-jobs',
-    channelName: 'rover-heavy-jobs',
+    streamUrl: '/api/jobs/stream',
+    pollUrl: '/api/jobs',
+    channelName: 'rover-jobs',
     apply: (snap) => {
-      state.heavyJobsSnap = snap;
-      if (snap?.concurrency != null) {
-        applyConcurrencyPayload({ heavy: snap.concurrency });
-        syncSettingsConcurrencyInputs();
+      const heavy =
+        snap?.heavy && typeof snap.heavy === 'object'
+          ? snap.heavy
+          : snap?.concurrency != null
+            ? snap
+            : null;
+      const light =
+        snap?.light && typeof snap.light === 'object'
+          ? snap.light
+          : snap?.jobs && snap.concurrency == null
+            ? snap
+            : null;
+      if (heavy) {
+        state.heavyJobsSnap = heavy;
+        if (heavy.concurrency != null) {
+          applyConcurrencyPayload({ heavy: heavy.concurrency });
+          syncSettingsConcurrencyInputs();
+        }
+        syncPrepareProgressFromJobs(heavy);
+        syncLaunchProgressFromJobs(heavy);
       }
-      syncPrepareProgressFromJobs(snap);
-      syncLaunchProgressFromJobs(snap);
-    },
-  });
-  wireJobStream({
-    streamUrl: '/api/light-jobs/stream',
-    pollUrl: '/api/light-jobs',
-    channelName: 'rover-light-jobs',
-    apply: (snap) => {
-      state.lightJobsSnap = snap;
-      syncLightInPageBars(snap);
-      syncClaudeModeToggle();
+      if (light) {
+        state.lightJobsSnap = light;
+        syncLightInPageBars(light);
+        syncClaudeModeToggle();
+      }
     },
   });
   document.addEventListener('click', () => closeAllJobPopovers());
@@ -4059,8 +4261,13 @@ async function selectCandidate(id) {
   syncCandidatesDetailVisibility();
   document.getElementById('empty-detail').classList.add('hidden');
   document.getElementById('detail').classList.remove('hidden');
-  await loadSelectedCandidateDetail(id);
-  renderDetail();
+  try {
+    await loadSelectedCandidateDetail(id);
+    if (state.selectedId === id) renderDetail();
+  } catch (error) {
+    if (error?.name === 'AbortError') return;
+    throw error;
+  }
 }
 
 function renderMultiDetail() {
@@ -13069,11 +13276,31 @@ function paintOpenaiBatchProgress(done, total) {
   });
 }
 
+async function postOpenaiGenerate(url, body) {
+  try {
+    return await api(url, { method: 'POST', body: JSON.stringify(body) });
+  } catch (error) {
+    if (error.status === 409 && error.jobId) {
+      return {
+        accepted: true,
+        jobs: [
+          {
+            jobId: error.jobId,
+            reused: true,
+            slotKey: error.slotKey || null,
+            matchKey: error.matchKey || null,
+          },
+        ],
+      };
+    }
+    throw error;
+  }
+}
+
 async function generateReviewSelected(candidateId) {
   const checks = state.imageSlotChecks || {};
   const slotKeys = Object.keys(checks).filter((k) => checks[k] && !k.startsWith('ba:'));
-  let baKeys = Object.keys(checks).filter((k) => checks[k] && k.startsWith('ba:'));
-  baKeys = await gateOpenaiBeforeAfterKeys(baKeys);
+  const baKeys = Object.keys(checks).filter((k) => checks[k] && k.startsWith('ba:'));
   const nSlots = slotKeys.length;
   const nPairs = baKeys.length;
   const n = nSlots + nPairs;
@@ -13089,88 +13316,49 @@ async function generateReviewSelected(candidateId) {
   if (!(await confirmLaunchedSiteChange('Generate OpenAI photos'))) {
     return;
   }
-  const total = n;
-  const failures = [];
+  const prompts = {};
+  const baItems = [];
+  for (const slotKey of slotKeys) {
+    const card = document.querySelector(reviewCardAttrSel('data-slot-key', slotKey));
+    prompts[slotKey] = promptBodyFromCard(card);
+    beginSlotBusy(slotKey, null, { scroll: false });
+  }
+  for (const baId of baKeys) {
+    const raw = baId.replace(/^ba:/, '');
+    const card =
+      document.querySelector(reviewCardAttrSel('data-match-key', raw)) ||
+      document.querySelector(reviewCardAttrSel('data-match-key', baId));
+    const fromEl = card ? baTargetFromGenerateEl(card) : {};
+    prompts[baId] = promptBodyFromCard(card, { pair: true });
+    baItems.push({
+      matchKey: baId,
+      serviceSlug: fromEl.serviceSlug || '',
+      pairIndex: fromEl.pairIndex || 1,
+      ...prompts[baId],
+    });
+    beginSlotBusy(baId, null, { scroll: false });
+  }
+  paintOpenaiBatchProgress(0, n);
   try {
-    for (const slotKey of slotKeys) beginSlotBusy(slotKey, null, { scroll: false });
-    for (const baId of baKeys) beginSlotBusy(baId, null, { scroll: false });
-    const photoJobs = slotKeys.map((slotKey) => ({ kind: 'photo', id: slotKey }));
-    const pairJobs = baKeys.map((baId) => ({ kind: 'pair', id: baId }));
-    let done = 0;
-    paintOpenaiBatchProgress(0, total);
-    const enqueue = createSerialQueue();
-    const runOne = async (job) => {
-      try {
-        if (job.kind === 'photo') {
-          const card = document.querySelector(reviewCardAttrSel('data-slot-key', job.id));
-          const result = await withOpenaiRateLimitRetry(() =>
-            api(
-              `/api/candidates/${encodeURIComponent(candidateId)}/images/slots/${encodeURIComponent(job.id)}/generate-openai`,
-              {
-                method: 'POST',
-                body: JSON.stringify(
-                  withLaunchedConfirmBody(promptBodyFromCard(card)),
-                ),
-              },
-            ),
-          );
-          await enqueue(() =>
-            commitReviewSlot(candidateId, { status: result.status, slotKey: job.id }),
-          );
-        } else {
-          const raw = job.id.replace(/^ba:/, '');
-          const isSvc = raw.startsWith('svc:');
-          const slug = isSvc ? raw.slice(4) : '';
-          const pairIndex = isSvc ? 1 : Number(String(raw).split(':')[1]) || 1;
-          const card = document.querySelector(reviewCardAttrSel('data-match-key', raw));
-          const result = await withOpenaiRateLimitRetry(() =>
-            api(
-              `/api/candidates/${encodeURIComponent(candidateId)}/images/before-after-generate-openai`,
-              {
-                method: 'POST',
-                body: JSON.stringify(
-                  withLaunchedConfirmBody({
-                    ...promptBodyFromCard(card, { pair: true }),
-                    serviceSlug: slug,
-                    pairIndex,
-                  }),
-                ),
-              },
-            ),
-          );
-          await enqueue(() =>
-            commitReviewSlot(candidateId, { status: result.status, slotKey: job.id }),
-          );
-        }
-      } catch (error) {
-        await enqueue(async () => {
-          await settleSlotBusy(job.id);
-          if (job.kind === 'pair') await settleSlotBusy(job.id.replace(/^ba:/, ''));
-        });
-        const label = job.kind === 'pair' ? job.id.replace(/^ba:/, '') : job.id;
-        failures.push(`${label}: ${error.message}`);
-      } finally {
-        done += 1;
-        paintOpenaiBatchProgress(done, total);
-      }
-    };
-    await Promise.all([
-      runPool(photoJobs, openaiPhotoConcurrency(), runOne),
-      runPool(pairJobs, openaiBaConcurrency(), runOne),
-    ]);
-    if (failures.length) {
-      if (!(await showGenerateFailures(failures))) {
-        announceBanner(`Generated with ${failures.length} error${failures.length === 1 ? '' : 's'}.`, {
-          tone: 'warn',
-        });
-      }
-    } else {
-      announceBanner(`Generated ${total} OpenAI job${total === 1 ? '' : 's'}.`);
-    }
-  } finally {
+    const out = await postOpenaiGenerate(
+      `/api/candidates/${encodeURIComponent(candidateId)}/images/generate-openai`,
+      withLaunchedConfirmBody({
+        slotKeys,
+        baItems,
+        prompts,
+      }),
+    );
+    watchOpenaiJobList(out.jobs || [], { candidateId });
+    syncOpenaiGenerateFromSnap(state.lightJobsSnap || { jobs: out.jobs || [] });
+  } catch (error) {
     await settleSlotBusy();
     setImagesProgress(false);
-    refreshImageWallets({ fresh: true });
+    await showModal({
+      title: 'Generate failed',
+      confirmLabel: 'OK',
+      hideCancel: true,
+      bodyHtml: `<p>${esc(error.message)}</p>`,
+    });
   }
 }
 
@@ -13708,63 +13896,37 @@ function wireImageSlotActions(candidateId, _refreshFn) {
       try {
         if (isPair) {
           const { matchKey, serviceSlug: slug, pairIndex } = baTargetFromGenerateEl(openaiBtn);
-          const result = await withFluxProgress(
-            {
-              label: 'Generating OpenAI pair…',
-              detail: matchKey,
-              card: openaiBtn.closest('.image-slot-card'),
-              index: 1,
-              total: 1,
-              kind: 'pair',
-            },
-            () =>
-              api(
-                `/api/candidates/${encodeURIComponent(candidateId)}/images/before-after-generate-openai`,
-                {
-                  method: 'POST',
-                  body: JSON.stringify(
-                    withLaunchedConfirmBody({
-                      ...promptBodyFromCard(openaiBtn.closest('.image-slot-card'), { pair: true }),
-                      serviceSlug: slug,
-                      pairIndex,
-                    }),
-                  ),
-                },
-              ),
+          const card = openaiBtn.closest('.image-slot-card');
+          beginSlotBusy(matchKey, card);
+          const out = await postOpenaiGenerate(
+            `/api/candidates/${encodeURIComponent(candidateId)}/images/before-after-generate-openai`,
+            withLaunchedConfirmBody({
+              ...promptBodyFromCard(card, { pair: true }),
+              matchKey,
+              serviceSlug: slug,
+              pairIndex,
+            }),
           );
-          announceBanner('Generated OpenAI before/after pair.');
-          await refreshImageSlotInPlace(candidateId, {
-            slotKey: matchKey.startsWith('ba:') ? matchKey : `ba:${matchKey}`,
-            status: result.status,
+          watchOpenaiJobList(out.jobs || [{ jobId: out.jobId, slotKey: matchKey, kind: 'pair' }], {
+            candidateId,
           });
         } else {
           const slotKey = openaiBtn.getAttribute('data-slot-key');
           if (!slotKey) return;
-          const result = await withFluxProgress(
-            {
-              label: `Generating ${slotKey}…`,
-              detail: slotKey,
-              card: openaiBtn.closest('.image-slot-card'),
-              index: 1,
-              total: 1,
-              kind: 'photo',
-            },
-            () =>
-              api(
-                `/api/candidates/${encodeURIComponent(candidateId)}/images/slots/${encodeURIComponent(slotKey)}/generate-openai`,
-                {
-                  method: 'POST',
-                  body: JSON.stringify(
-                    withLaunchedConfirmBody(promptBodyFromCard(openaiBtn.closest('.image-slot-card'))),
-                  ),
-                },
-              ),
+          const card = openaiBtn.closest('.image-slot-card');
+          beginSlotBusy(slotKey, card);
+          const out = await postOpenaiGenerate(
+            `/api/candidates/${encodeURIComponent(candidateId)}/images/slots/${encodeURIComponent(slotKey)}/generate-openai`,
+            withLaunchedConfirmBody(promptBodyFromCard(card)),
           );
-          announceBanner(`Generated ${slotKey}.`);
-          await refreshImageSlotInPlace(candidateId, { slotKey, status: result.status });
+          watchOpenaiJobList(out.jobs || [{ jobId: out.jobId, slotKey, kind: 'photo' }], {
+            candidateId,
+          });
         }
+        syncOpenaiGenerateFromSnap(state.lightJobsSnap);
       } catch (error) {
         setImagesProgress(false);
+        await settleSlotBusy();
         await showModal({
           title: 'Generate failed',
           confirmLabel: 'OK',
@@ -13772,10 +13934,7 @@ function wireImageSlotActions(candidateId, _refreshFn) {
           bodyHtml: `<p>${esc(error.message)}</p>`,
         });
       } finally {
-        setImagesProgress(false);
-        await settleSlotBusy();
         openaiBtn.disabled = false;
-        refreshImageWallets({ fresh: true });
       }
       return;
     }
@@ -16295,20 +16454,22 @@ function wireContentTab(d) {
           }),
         ),
       });
+      const payload =
+        result?.accepted && result.jobId ? await waitForLightJobResult(result.jobId) : result;
       setImagesProgress(true, {
         label: 'Logo ready',
-        detail: result.path || result.logo?.src || '/images/logo.svg',
+        detail: payload.path || payload.logo?.src || '/images/logo.svg',
         current: 3,
         total: 3,
         box: 'ca-logo-map',
       });
       announceStepComplete('Generate logo');
-      await refresh(result.candidate, 'logoMap', 'website');
+      await refresh(payload.candidate, 'logoMap', 'website');
       await showModal({
         title: 'Logo generated',
         confirmLabel: 'OK',
         hideCancel: true,
-        bodyHtml: `<p>Wrote <code>${esc(result.path || result.logo?.src || '/images/logo.svg')}</code> and set site-config <code>logo</code>. Use <strong>Prepare preview</strong> to see it on the header.</p>`,
+        bodyHtml: `<p>Wrote <code>${esc(payload.path || payload.logo?.src || '/images/logo.svg')}</code> and set site-config <code>logo</code>. Use <strong>Prepare preview</strong> to see it on the header.</p>`,
       });
     } catch (error) {
       setImagesProgress(false, { box: 'ca-logo-map' });
@@ -16405,10 +16566,14 @@ function wireContentTab(d) {
     pollTimer = setInterval(pollProgress, 500);
     void pollProgress();
     try {
-      const result = await api(`/api/candidates/${encodeURIComponent(id)}/coverage-map/generate`, {
+      const accepted = await api(`/api/candidates/${encodeURIComponent(id)}/coverage-map/generate`, {
         method: 'POST',
         body: JSON.stringify(withLaunchedConfirmBody({ labelPlacement })),
       });
+      const result =
+        accepted?.accepted && accepted.jobId
+          ? await waitForLightJobResult(accepted.jobId)
+          : accepted;
       if (pollTimer) {
         clearInterval(pollTimer);
         pollTimer = null;
@@ -16945,12 +17110,19 @@ function wireContentTab(d) {
       acceptBtn.disabled = true;
       showAcceptOverlayStarting();
       try {
+        const runAccept = async (body) => {
+          const accepted = await api(`/api/candidates/${encodeURIComponent(id)}/content/accept`, {
+            method: 'POST',
+            body: JSON.stringify(body),
+          });
+          if (accepted?.accepted && accepted.jobId) {
+            return waitForLightJobResult(accepted.jobId);
+          }
+          return accepted;
+        };
         let result;
         try {
-          result = await api(`/api/candidates/${encodeURIComponent(id)}/content/accept`, {
-            method: 'POST',
-            body: JSON.stringify(withLaunchedConfirmBody({ ignoreSeoWarnings: ignoreSeo })),
-          });
+          result = await runAccept(withLaunchedConfirmBody({ ignoreSeoWarnings: ignoreSeo }));
         } catch (error) {
           if (error.message?.includes('ignoreWarnings') || error.check?.warnings?.length) {
             hideAcceptOverlay();
@@ -16961,12 +17133,9 @@ function wireContentTab(d) {
             });
             if (!force) throw error;
             showAcceptOverlayStarting();
-            result = await api(`/api/candidates/${encodeURIComponent(id)}/content/accept`, {
-              method: 'POST',
-              body: JSON.stringify(
-                withLaunchedConfirmBody({ ignoreWarnings: true, ignoreSeoWarnings: ignoreSeo }),
-              ),
-            });
+            result = await runAccept(
+              withLaunchedConfirmBody({ ignoreWarnings: true, ignoreSeoWarnings: ignoreSeo }),
+            );
           } else if (error.message?.includes('ignoreSeoWarnings') || error.seoLint) {
             hideAcceptOverlay();
             const force = await showModal({
@@ -16976,10 +17145,7 @@ function wireContentTab(d) {
             });
             if (!force) throw error;
             showAcceptOverlayStarting();
-            result = await api(`/api/candidates/${encodeURIComponent(id)}/content/accept`, {
-              method: 'POST',
-              body: JSON.stringify(withLaunchedConfirmBody({ ignoreSeoWarnings: true })),
-            });
+            result = await runAccept(withLaunchedConfirmBody({ ignoreSeoWarnings: true }));
           } else {
             throw error;
           }
@@ -20926,8 +21092,7 @@ async function generatePhotoSelected() {
   if (!lib.groupId) return;
   const checks = lib.selectedChecks || {};
   const slotIds = Object.keys(checks).filter((k) => checks[k] && !k.startsWith('ba:'));
-  let baIds = Object.keys(checks).filter((k) => checks[k] && k.startsWith('ba:'));
-  baIds = await gateOpenaiBeforeAfterKeys(baIds);
+  const baIds = Object.keys(checks).filter((k) => checks[k] && k.startsWith('ba:'));
   const ids = [...slotIds, ...baIds];
   if (!ids.length) return;
   const nSlots = slotIds.length;
@@ -20941,65 +21106,37 @@ async function generatePhotoSelected() {
     });
     if (!ok) return;
   }
-  const failures = [];
+  const photoRoot = document.getElementById('view-photo') || document.getElementById('photo-group-body');
+  const prompts = {};
+  const baItems = [];
+  for (const id of slotIds) {
+    const card = photoRoot?.querySelector(reviewCardAttrSel('data-match-key', id));
+    prompts[id] = promptBodyFromCard(card);
+    beginSlotBusy(id, null, { scroll: false });
+  }
+  for (const id of baIds) {
+    const card = photoRoot?.querySelector(reviewCardAttrSel('data-match-key', id));
+    prompts[id] = promptBodyFromCard(card, { pair: true });
+    baItems.push({ matchKey: id, ...prompts[id] });
+    beginSlotBusy(id, null, { scroll: false });
+  }
+  paintOpenaiBatchProgress(0, n);
   try {
-    for (const id of slotIds) beginSlotBusy(id, null, { scroll: false });
-    for (const id of baIds) beginSlotBusy(id, null, { scroll: false });
-    const photoJobs = slotIds.map((id) => ({ kind: 'photo', id }));
-    const pairJobs = baIds.map((id) => ({ kind: 'pair', id }));
-    let done = 0;
-    paintOpenaiBatchProgress(0, n);
-    const enqueue = createSerialQueue();
-    const photoRoot = document.getElementById('view-photo') || document.getElementById('photo-group-body');
-    const runOne = async (job) => {
-      try {
-        if (job.kind === 'photo') {
-          const card = photoRoot?.querySelector(reviewCardAttrSel('data-match-key', job.id));
-          await withOpenaiRateLimitRetry(() =>
-            api(`/api/photo-groups/${encodeURIComponent(lib.groupId)}/slots/generate-openai`, {
-              method: 'POST',
-              body: JSON.stringify({ matchKey: job.id, ...promptBodyFromCard(card) }),
-            }),
-          );
-        } else {
-          const card = photoRoot?.querySelector(reviewCardAttrSel('data-match-key', job.id));
-          await withOpenaiRateLimitRetry(() =>
-            api(`/api/photo-groups/${encodeURIComponent(lib.groupId)}/before-after/generate-openai`, {
-              method: 'POST',
-              body: JSON.stringify({ matchKey: job.id, ...promptBodyFromCard(card, { pair: true }) }),
-            }),
-          );
-        }
-        await enqueue(async () => {
-          await loadPhotoGroupView();
-          renderPhotoView();
-          await settleSlotBusy(job.id);
-        });
-      } catch (error) {
-        await enqueue(() => settleSlotBusy(job.id));
-        failures.push(`${job.id}: ${error.message}`);
-      } finally {
-        done += 1;
-        paintOpenaiBatchProgress(done, n);
-      }
-    };
-    await Promise.all([
-      runPool(photoJobs, openaiPhotoConcurrency(), runOne),
-      runPool(pairJobs, openaiBaConcurrency(), runOne),
-    ]);
-    if (failures.length) {
-      if (!(await showGenerateFailures(failures))) {
-        announceBanner(`Generated with ${failures.length} error${failures.length === 1 ? '' : 's'}.`, {
-          tone: 'warn',
-        });
-      }
-    } else {
-      announceBanner(`Generated ${n} OpenAI job${n === 1 ? '' : 's'}.`);
-    }
-  } finally {
+    const out = await postOpenaiGenerate(
+      `/api/photo-groups/${encodeURIComponent(lib.groupId)}/generate-openai`,
+      { slotKeys: slotIds, baItems, prompts },
+    );
+    watchOpenaiJobList(out.jobs || [], { groupId: lib.groupId, candidateId: `photo-group:${lib.groupId}` });
+    syncOpenaiGenerateFromSnap(state.lightJobsSnap || { jobs: out.jobs || [] });
+  } catch (error) {
     await settleSlotBusy();
     setImagesProgress(false);
-    refreshImageWallets({ fresh: true });
+    await showModal({
+      title: 'Generate failed',
+      confirmLabel: 'OK',
+      hideCancel: true,
+      bodyHtml: `<p>${esc(error.message)}</p>`,
+    });
   }
 }
 
@@ -21555,50 +21692,21 @@ function wirePhotoUi() {
       const isPair = openaiBtn.classList.contains('ba') || Boolean(openaiBtn.closest('.photo-ba-card'));
       try {
         const matchKey = openaiBtn.getAttribute('data-match-key') || '';
-        if (isPair) {
-          await withFluxProgress(
-            {
-              label: 'Generating OpenAI pair…',
-              detail: matchKey,
-              card: openaiBtn.closest('.image-slot-card'),
-              index: 1,
-              total: 1,
-              kind: 'pair',
-            },
-            () =>
-              api(`/api/photo-groups/${encodeURIComponent(lib.groupId)}/before-after/generate-openai`, {
-                method: 'POST',
-                body: JSON.stringify({
-                  matchKey,
-                  ...promptBodyFromCard(openaiBtn.closest('.image-slot-card'), { pair: true }),
-                }),
-              }),
-          );
-          announceBanner('Generated OpenAI before/after pair.');
-        } else {
-          await withFluxProgress(
-            {
-              label: 'Generating photo…',
-              detail: matchKey,
-              card: openaiBtn.closest('.image-slot-card'),
-              index: 1,
-              total: 1,
-              kind: 'photo',
-            },
-            () =>
-              api(`/api/photo-groups/${encodeURIComponent(lib.groupId)}/slots/generate-openai`, {
-                method: 'POST',
-                body: JSON.stringify({
-                  matchKey,
-                  ...promptBodyFromCard(openaiBtn.closest('.image-slot-card')),
-                }),
-              }),
-          );
-          announceBanner('Generated photo.');
-        }
-        await loadPhotoGroupView();
-        renderPhotoView();
-        await settleSlotBusy();
+        const card = openaiBtn.closest('.image-slot-card');
+        beginSlotBusy(matchKey, card);
+        const url = isPair
+          ? `/api/photo-groups/${encodeURIComponent(lib.groupId)}/before-after/generate-openai`
+          : `/api/photo-groups/${encodeURIComponent(lib.groupId)}/slots/generate-openai`;
+        const out = await postOpenaiGenerate(url, {
+          matchKey,
+          kind: isPair ? 'pair' : 'photo',
+          ...promptBodyFromCard(card, { pair: isPair }),
+        });
+        watchOpenaiJobList(out.jobs || [{ jobId: out.jobId, slotKey: matchKey, matchKey }], {
+          groupId: lib.groupId,
+          candidateId: `photo-group:${lib.groupId}`,
+        });
+        syncOpenaiGenerateFromSnap(state.lightJobsSnap);
       } catch (error) {
         await settleSlotBusy();
         await showModal({
@@ -21609,7 +21717,6 @@ function wirePhotoUi() {
         });
       } finally {
         openaiBtn.disabled = false;
-        refreshImageWallets({ fresh: true });
       }
       return;
     }

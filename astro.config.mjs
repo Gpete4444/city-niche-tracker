@@ -8,6 +8,7 @@ import ensureSitemapXml from './src/integrations/ensure-sitemap-xml.mjs';
 // https://astro.build/config
 export default defineConfig({
   site: `https://${siteConfig.domain}`,
+  trailingSlash: 'always',
   vite: {
     plugins: [tailwindcss()],
   },

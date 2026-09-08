@@ -1,5 +1,6 @@
 import type { SiteConfig } from '../config/site';
 import { homepageServicesDisplayLimit } from '../config/site';
+import { servicePath, sitePath } from './site-path';
 
 export type ServiceEntryLike = {
   id: string;
@@ -110,7 +111,7 @@ function cardsFromNames(
         return {
           id: e.id,
           title: e.data.serviceName,
-          href: `/services/${e.id}`,
+          href: servicePath(e.id),
           description: cityOverride
             ? `${e.data.serviceName} serving ${city} and nearby cities.`
             : e.data.description || `${e.data.serviceName} serving ${city}.`,
@@ -119,7 +120,7 @@ function cardsFromNames(
       }
       return {
         title: name,
-        href: '/contact',
+        href: sitePath('/contact'),
         description: `${name} serving ${city} and nearby cities.`,
       };
     });
@@ -127,7 +128,7 @@ function cardsFromNames(
 
   return sliceNames.map((name) => ({
     title: name,
-    href: '/contact',
+    href: sitePath('/contact'),
     description: `${name} serving ${city} and nearby cities.`,
   }));
 }

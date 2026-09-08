@@ -53,7 +53,7 @@ Do not invent a second “Ops product”. Dashboard state lives in `ops/public/a
 - Server: [`ops/server.mjs`](../ops/server.mjs) — Express, static `ops/public`, all `/api/*`.
 - Client: [`ops/public/app.js`](../ops/public/app.js) + [`ops/public/index.html`](../ops/public/index.html) + [`ops/public/styles.css`](../ops/public/styles.css).
 - Views: `discovery`, `research`, `website-builder`, `launched-sites`, `phone`, `map`, `photo`.
-- Jobs SSE: `GET /api/heavy-jobs/stream`, `GET /api/light-jobs/stream` (register `/stream` **before** `/:jobId`).
+- Jobs SSE: `GET /api/jobs/stream` (one EventSource; heavy + light snapshot). Legacy `/api/heavy-jobs/stream` and `/api/light-jobs/stream` remain. Register `/stream` **before** `/:jobId`.
 - Help: `GET /api/help/user-guide` (User guide only).
 
 ## Forever rule {#forever}

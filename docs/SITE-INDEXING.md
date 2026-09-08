@@ -51,6 +51,26 @@ There is **no guaranteed timeline**. Request indexing is a nudge, not a promise.
 
 ---
 
+## GSC Page indexing emails (“new reasons preventing indexing”)
+
+Google emails when a **new reason type first appears** on a property — not on a weekday or a day-of-month calendar. Page indexing data lags **~2–3 days**. Verifying many Domain properties on one Google account makes the same notification type land in one inbox around the same time after Google’s first crawl snapshot.
+
+[Page indexing report](https://support.google.com/webmasters/answer/7440203): **Not indexed is not always a bug.** Duplicate or alternate URLs should not be indexed.
+
+| GSC reason | Expected on Rover sites? | What to do |
+| --- | --- | --- |
+| **Alternate page with proper canonical tag** | Yes, if Google still fetched `http://` HTML before Always Use HTTPS | Confirm the HTTPS canonical is the one indexed. Do **not** Validate fix. |
+| **Page with redirect** | Yes — `http://` → `https://`, slashless → trailing slash, `www` → apex | Healthy. Google will keep probing `http://`. Do **not** Validate fix. |
+| **Crawled – currently not indexed** | Sometimes on new domains / thin location URLs | Wait; unique copy; citations. Only worry if **money pages** stay here for weeks. |
+| **Discovered – currently not indexed** | New URLs Google has not crawled yet | Normal for long-tail; don’t bulk Request indexing. |
+| **5xx, noindex, robots.txt, sitemap listing the wrong host** | No — fix immediately | Real blockers. |
+
+Launch turns on zone **Always Use HTTPS**, Full SSL, and HSTS when the API token has Zone Settings Edit (soft-skip otherwise). The Worker also **301s `http://` → `https://`** so HTTP HTML is not served even without that permission. Launch attaches **www** plus apex to the Worker. Sites use **trailing slashes everywhere** (`https://{domain}/about/`, homepage `https://{domain}/`). Coverage-map cities without a real `/locations/{id}/` page link to `/contact/` — they must not invent location URLs. `*.workers.dev` sends `X-Robots-Tag: noindex`.
+
+Real problems: 5xx, accidental `noindex`, robots blocks, sitemap URLs that are not the HTTPS canonical, or crawled-not-indexed on the **homepage / top services** for weeks.
+
+---
+
 ## Rover day-one checklist
 
 After **Run launch** (or **Push updates** when already live), open **Website → Indexing** (step 4):
@@ -75,7 +95,8 @@ After **Run launch** (or **Push updates** when already live), open **Website →
 | --- | --- |
 | Homepage indexed; services trickling in | Normal — keep internal links strong; don’t spam requests |
 | Many URLs **Discovered — currently not indexed** past ~21 days | Improve depth/uniqueness, internal links, earn a real backlink — **don’t** bulk Request indexing |
-| **Crawled — currently not indexed** | Quality / usefulness signal; fix content or consolidate thin pages |
+| **Crawled — currently not indexed** | Quality / usefulness signal; fix content or consolidate thin pages. Coverage-map towns without a location page must link to `/contact/`, not a fake `/locations/` URL. |
+| **Alternate page / Page with redirect** on `http://` or slashless URLs | Expected after HTTPS + trailing-slash 301s — do not Validate fix |
 | Sitemap “Success” but Indexed count stuck near zero | Recheck `noindex`, canonicals, soft 404s, wrong host in sitemap |
 | After **Push updates** (content/template change) | Rely on accurate `lastmod`; Request indexing only for edited money pages |
 

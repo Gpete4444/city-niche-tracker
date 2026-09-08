@@ -1,6 +1,6 @@
 /**
- * One-off / reusable: wrap cov-area groups with location <a> links.
- * Usage: node scripts/patch-coverage-map-links.mjs [svgPath...] [primaryCity]
+ * Wrap cov-area groups with location or contact <a> links.
+ * Usage: node scripts/patch-coverage-map-links.mjs [svgPath...]
  */
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import path from 'node:path';
@@ -13,8 +13,37 @@ function slugifyAreaName(name) {
     .replace(/^-|-$/g, '');
 }
 
-function ensureCoverageMapAreaLinks(svg, primaryCity = '') {
-  let text = String(svg || '');
+function sitePath(p) {
+  const raw = String(p || '').trim() || '/';
+  if (raw === '/') return '/';
+  return raw.endsWith('/') ? raw : `${raw}/`;
+}
+
+function coverageMapAreaHref(cityRaw, locationPages = []) {
+  const slug = slugifyAreaName(cityRaw);
+  if (!slug) return '/';
+  for (const page of locationPages) {
+    const id = String(page?.id || '').trim();
+    const city = String(page?.city || '').trim();
+    if (slugifyAreaName(id) === slug || slugifyAreaName(city) === slug) {
+      return sitePath(`/locations/${id || slug}`);
+    }
+  }
+  return sitePath('/contact');
+}
+
+function ensureCoverageMapAreaLinks(svg, locationPages = []) {
+  let text = String(svg || '').replace(
+    /href="(\/locations\/[^"]+|https?:\/\/[^/]+\/locations\/[^"]+)"/gi,
+    (_m, href) => {
+      const pathOnly = String(href).replace(/^https?:\/\/[^/]+/i, '');
+      const slug = pathOnly
+        .replace(/^\/locations\//i, '')
+        .replace(/\/$/, '')
+        .split(/[?#]/)[0];
+      return `href="${coverageMapAreaHref(slug, locationPages)}"`;
+    },
+  );
   if (!text.includes('class="cov-area"')) return text;
 
   const marker = '<g class="cov-area">';
@@ -61,8 +90,7 @@ function ensureCoverageMapAreaLinks(svg, primaryCity = '') {
       const cityRaw =
         block.match(/class="city">([^<]+)</)?.[1]?.replace(/&amp;/g, '&').replace(/&apos;/g, "'") ||
         '';
-      const slug = slugifyAreaName(cityRaw);
-      const href = slug ? `/locations/${slug}` : '/';
+      const href = coverageMapAreaHref(cityRaw, locationPages);
       out += `<a href="${href}" target="_top">${block}</a>`;
     }
     i = end;
@@ -81,28 +109,34 @@ function ensureCoverageMapAreaLinks(svg, primaryCity = '') {
   return out;
 }
 
+function locationPagesFromSiteConfig(root) {
+  const cfgPath = path.join(root, 'src/config/site-config.json');
+  if (!existsSync(cfgPath)) return [];
+  const cfg = JSON.parse(readFileSync(cfgPath, 'utf8'));
+  const pages = [];
+  if (cfg.primaryCity) {
+    pages.push({ id: slugifyAreaName(cfg.primaryCity), city: cfg.primaryCity });
+  }
+  for (const s of cfg.targetSuburbs || []) {
+    const city = String(s || '').trim();
+    if (city) pages.push({ id: slugifyAreaName(city), city });
+  }
+  return pages;
+}
+
 const root = process.cwd();
 const args = process.argv.slice(2);
-const primary =
-  args.find((a) => !a.endsWith('.svg')) ||
-  JSON.parse(readFileSync(path.join(root, 'src/config/site-config.json'), 'utf8')).primaryCity ||
-  '';
 const files = args.filter((a) => a.endsWith('.svg'));
-const defaults = [
-  path.join(root, 'public/images/coverage-map.svg'),
-  path.join(
-    root,
-    '../rank-and-rent-sites/spanish-fork-kitchen-bathroom-remodeling/public/images/coverage-map.svg',
-  ),
-];
+const defaults = [path.join(root, 'public/images/coverage-map.svg')];
 const targets = files.length ? files : defaults;
+const locationPages = locationPagesFromSiteConfig(root);
 
 for (const p of targets) {
   if (!existsSync(p)) {
     console.log('skip missing', p);
     continue;
   }
-  const next = ensureCoverageMapAreaLinks(readFileSync(p, 'utf8'), primary);
+  const next = ensureCoverageMapAreaLinks(readFileSync(p, 'utf8'), locationPages);
   writeFileSync(p, next);
   const links = [...next.matchAll(/href="([^"]+)"/g)].map((m) => m[1]);
   console.log('patched', p);

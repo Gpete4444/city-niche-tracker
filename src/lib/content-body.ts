@@ -1,6 +1,7 @@
 /**
  * Homepage / content body helpers for Astro pages.
  */
+import { sitePath } from './site-path';
 
 /** Normalize for title comparison. */
 export function normTitle(s: string): string {
@@ -245,7 +246,9 @@ export function inlineLightMarkdown(src: string): string {
     if (!safeHref || /^javascript:/i.test(safeHref)) {
       links.push(escHtml(String(label || '')));
     } else {
-      links.push(`<a href="${escAttr(safeHref)}">${escHtml(String(label || ''))}</a>`);
+      links.push(
+        `<a href="${escAttr(sitePath(safeHref))}">${escHtml(String(label || ''))}</a>`,
+      );
     }
     return `\u0000L${i}\u0000`;
   });

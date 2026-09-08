@@ -1,10 +1,17 @@
 /**
  * Emit dist/sitemap.xml for crawlers that expect the conventional path.
  * @astrojs/sitemap writes sitemap-0.xml (and sitemap-index.xml when chunked).
+ * Also copies Workers `_headers` so *.workers.dev stays noindex even if
+ * the bundler skips underscored public files.
  */
 import { copyFileSync, existsSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
+
+const WORKERS_DEV_HEADERS = `# Preview hostname must not be indexed. Apex / www custom domains stay indexable.
+https://:placeholder.workers.dev/*
+  X-Robots-Tag: noindex
+`;
 
 /** @returns {import('astro').AstroIntegration} */
 export default function ensureSitemapXml() {
@@ -13,6 +20,10 @@ export default function ensureSitemapXml() {
     hooks: {
       'astro:build:done': async ({ dir, logger }) => {
         const dist = fileURLToPath(dir);
+        const headersDest = path.join(dist, '_headers');
+        writeFileSync(headersDest, WORKERS_DEV_HEADERS, 'utf8');
+        logger.info('Wrote dist/_headers (workers.dev noindex)');
+
         const dest = path.join(dist, 'sitemap.xml');
         const indexPath = path.join(dist, 'sitemap-index.xml');
         const chunkPath = path.join(dist, 'sitemap-0.xml');

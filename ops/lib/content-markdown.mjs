@@ -511,13 +511,23 @@ export function healMaterialsCompleteRows(markdown) {
   return { markdown: rebuildMarkdownFromParts(sliced.fm, bullets.body), healed: true };
 }
 
-/** YAML indent heal, then materials 3-or-6 row trim. Load / Stage / Assemble. */
+/** YAML indent heal, then materials 3-or-6 row trim, then empty image-list keys. Load / Stage / Assemble. */
 export function healStagedMarkdown(markdown) {
   const yaml = healYamlFrontmatter(markdown);
   const rows = healMaterialsCompleteRows(yaml.markdown);
+  let md = rows.markdown;
+  let emptyKeys = false;
+  const split = splitFrontmatter(md);
+  if (split.ok) {
+    const stripped = stripEmptyImageListKeys(split.frontmatter);
+    if (stripped !== split.frontmatter) {
+      md = rebuildMarkdownFromParts(stripped, split.body);
+      emptyKeys = true;
+    }
+  }
   return {
-    markdown: rows.markdown,
-    healed: yaml.healed || rows.healed,
+    markdown: md,
+    healed: yaml.healed || rows.healed || emptyKeys,
     parseOk: yaml.parseOk,
     error: yaml.error,
   };
@@ -612,6 +622,44 @@ export function assertValidYamlFrontmatter(check) {
 }
 
 const IMAGE_FM_KEYS = ['heroImage', 'featureImage', 'cardImage', 'coverageMap'];
+const IMAGE_LIST_FM_KEYS = [
+  'gallery',
+  'materialsImages',
+  'processImages',
+  'beforeAfterImages',
+  'serviceCardImages',
+];
+
+/** True when the next non-blank lines are list items belonging to this key (stop at the next FM key). */
+function imageListKeyHasItems(after) {
+  for (const line of String(after || '').split(/\n/)) {
+    if (!String(line).trim()) continue;
+    if (!/^[ \t]/.test(line) && /^[A-Za-z_][\w]*[ \t]*:/.test(line)) return false;
+    if (/^[ \t]*-[ \t]/.test(line)) return true;
+    return false;
+  }
+  return false;
+}
+
+/**
+ * Drop empty image-list keys so Astro never sees null/{}.
+ * `beforeAfterImages:\nprocessImages:` is empty — do not treat the next key's items as ours.
+ */
+export function stripEmptyImageListKeys(fm) {
+  let out = String(fm || '');
+  for (const key of IMAGE_LIST_FM_KEYS) {
+    const re = new RegExp(
+      `^(${key})[ \\t]*:[ \\t]*(?:\\[\\s*\\]|\\{\\s*\\}|null|~|""|'')?[ \\t]*(?:\\n(?:[ \\t]*\\n)*)?`,
+      'gim',
+    );
+    out = out.replace(re, (match, _k, offset, full) => {
+      const after = String(full).slice(offset + match.length);
+      if (imageListKeyHasItems(after)) return `${key}:\n`;
+      return '';
+    });
+  }
+  return out.replace(/\n{3,}/g, '\n\n');
+}
 
 /** Top-level keys allowed in pages/services/locations frontmatter (Astro content.config). */
 const KNOWN_CONTENT_FM_KEYS = new Set([
@@ -1293,18 +1341,9 @@ function omitMissingImageFrontmatter(fm, opts = {}) {
   // Heal orphan indented src/alt object children (missing heroImage/cardImage parent)
   out = healOrphanImageObjectFrontmatter(out);
 
-  // Drop empty `gallery:` / `materialsImages:` / `beforeAfterImages:` only when no list items follow.
-  for (const key of ['gallery', 'materialsImages', 'beforeAfterImages', 'processImages', 'serviceCardImages']) {
-    const re = new RegExp(`^(${key})[ \\t]*:[ \\t]*\\n(?:[ \\t]*\\n)*`, 'im');
-    out = out.replace(re, (match, _k, offset, full) => {
-      const after = String(full).slice(offset + match.length);
-      const peek = after.split(/\n/).slice(0, 12);
-      const hasItem = peek.some((line) => /^[ \t]+-[ \t]/.test(line));
-      if (hasItem) return `${key}:\n`;
-      return '';
-    });
-  }
-  out = out.replace(/\n{3,}/g, '\n\n');
+  // Drop empty `gallery:` / `beforeAfterImages:` etc. Stop at the next FM key
+  // so `beforeAfterImages:\nprocessImages:` is not kept because the next list has items.
+  out = stripEmptyImageListKeys(out);
 
   return out;
 }

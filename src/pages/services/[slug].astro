@@ -10,6 +10,7 @@ import {
   filterServicesByNames,
 } from '../../lib/services-for-site';
 import { parseServiceBody } from '../../lib/service-body';
+import { servicePath } from '../../lib/site-path';
 
 export async function getStaticPaths() {
   const services = await getCollection('services');
@@ -34,7 +35,7 @@ const allServices = filterServicesByNames(
   allConfiguredServiceNames(site),
 ).filter((e) => !e.data.draft && e.id !== entry.id);
 const related = allServices.slice(0, 3).map((e) => ({
-  href: `/services/${e.id}`,
+  href: servicePath(e.id),
   title: e.data.serviceName,
   description: e.data.description,
   image: e.data.cardImage?.src

@@ -1,0 +1,4 @@
+# Preview hostname must not be indexed. Apex / www custom domains stay indexable.
+# Host rules must be HTTPS (Workers _headers rejects http:// URL patterns).
+https://:placeholder.workers.dev/*
+  X-Robots-Tag: noindex

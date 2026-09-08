@@ -1,8 +1,9 @@
 /**
- * Light-job registry for Accept / logo / coverage map / pull photos / SERP.
- * No K queue. Write site allows up to the Settings Write site Concurrent Limit
+ * Light-job registry for Accept / logo / coverage map / pull photos / SERP / OpenAI generate.
+ * Write site allows up to the Settings Write site Concurrent Limit
  * (same candidate still exclusive via assertWriteSiteStartAllowed).
  * Accept is exclusive per candidate (assertAcceptStartAllowed).
+ * OpenAI photo / before-after extras queue at the Settings boxes (cross-candidate).
  */
 
 import { randomUUID } from 'node:crypto';
@@ -65,6 +66,9 @@ function serializeLightJob(job, { includeResult = true } = {}) {
     detail: job.detail,
     progressDone: job.progressDone ?? null,
     progressTotal: job.progressTotal ?? null,
+    slotKey: job.slotKey || null,
+    matchKey: job.matchKey || null,
+    kind: job.kind || null,
     check: job.check || null,
     seoLint: job.seoLint || null,
     speechLint: job.speechLint || null,
@@ -129,6 +133,7 @@ export function openLightJob(opts) {
     opts.progressTotal != null && Number.isFinite(Number(opts.progressTotal))
       ? Number(opts.progressTotal)
       : null;
+  const queued = Boolean(opts.queued);
   /** @type {RoverLightJob & { check?: unknown, seoLint?: unknown, contract?: unknown, _httpStatus?: number, batchId?: string }} */
   const job = {
     id,
@@ -136,14 +141,17 @@ export function openLightJob(opts) {
     batchId: batchId || null,
     phase: String(opts.phase || 'job'),
     label: opts.label || opts.phase || 'job',
-    status: 'running',
+    status: queued ? 'queued' : 'running',
     error: null,
     createdAt: new Date().toISOString(),
-    startedAt: new Date().toISOString(),
+    startedAt: queued ? null : new Date().toISOString(),
     finishedAt: null,
-    detail: null,
+    detail: queued ? 'Queued…' : null,
     progressDone: total != null ? 0 : null,
     progressTotal: total,
+    slotKey: opts.slotKey ? String(opts.slotKey) : null,
+    matchKey: opts.matchKey ? String(opts.matchKey) : null,
+    kind: opts.kind ? String(opts.kind) : null,
     result: null,
   };
   jobs.set(id, job);
@@ -178,31 +186,126 @@ export function finishLightJob(jobId, { error, result } = {}) {
   job.finishedAt = new Date().toISOString();
   pruneFinished();
   emitChange();
+  pumpQueuedLightJobs();
+}
+
+function bindAndRunLightJob(jobId, run) {
+  const ac = new AbortController();
+  const job = jobs.get(jobId);
+  if (job) job.abort = ac;
+  Promise.resolve()
+    .then(() => new Promise((r) => setImmediate(r)))
+    .then(() => {
+      const j = jobs.get(jobId);
+      if (!j || j.status === 'error' || j.status === 'done') return { __roverSkip: true };
+      return run({ jobId, signal: ac.signal });
+    })
+    .then((result) => {
+      if (result && result.__roverSkip) return;
+      const j = jobs.get(jobId);
+      if (!j || j.status === 'done' || j.status === 'error') return;
+      finishLightJob(jobId, { result });
+    })
+    .catch((err) => finishLightJob(jobId, { error: err }));
+}
+
+/** Start light work immediately (Write site, Accept, logo). OpenAI uses enqueueLightJob. */
+export function startLightJob(opts) {
+  const { jobId } = openLightJob(opts);
+  bindAndRunLightJob(jobId, opts.run);
+  return { jobId };
+}
+
+const PHASE_QUEUE_CAPS = {
+  'openai-photo': () => getConcurrency().openaiPhotos,
+  'openai-ba': () => getConcurrency().openaiBeforeAfter,
+};
+
+export function countRunningLightJobs(phase) {
+  const want = String(phase || '');
+  let n = 0;
+  for (const j of jobs.values()) {
+    if (String(j.phase || '') !== want) continue;
+    if (j.status === 'running') n += 1;
+  }
+  return n;
+}
+
+export function countQueuedLightJobs(phase) {
+  const want = String(phase || '');
+  let n = 0;
+  for (const j of jobs.values()) {
+    if (String(j.phase || '') !== want) continue;
+    if (j.status === 'queued') n += 1;
+  }
+  return n;
+}
+
+function startQueuedLightJob(job) {
+  if (!job || job.status !== 'queued' || typeof job.run !== 'function') return;
+  job.status = 'running';
+  job.startedAt = new Date().toISOString();
+  job.detail = job.detail === 'Queued…' ? 'Starting…' : job.detail;
+  emitChange();
+  bindAndRunLightJob(job.id, job.run);
+}
+
+export function pumpQueuedLightJobs() {
+  for (const [phase, capFn] of Object.entries(PHASE_QUEUE_CAPS)) {
+    const limit = Math.max(1, Number(capFn()) || 1);
+    let running = countRunningLightJobs(phase);
+    const queued = [...jobs.values()]
+      .filter((j) => String(j.phase || '') === phase && j.status === 'queued')
+      .sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)));
+    for (const job of queued) {
+      if (running >= limit) break;
+      startQueuedLightJob(job);
+      running += 1;
+    }
+  }
 }
 
 /**
- * Start light work immediately (no K pool).
+ * Queue OpenAI photo/BA at the Settings cap; other phases start immediately.
  * @param {{
  *   candidateId?: string,
  *   batchId?: string,
  *   phase: string,
  *   label?: string,
  *   progressTotal?: number,
+ *   slotKey?: string,
+ *   matchKey?: string,
+ *   kind?: string,
  *   run: (ctx: { jobId: string, signal?: AbortSignal }) => Promise<unknown>,
  * }} opts
  * @returns {{ jobId: string }}
  */
-export function startLightJob(opts) {
-  const { jobId } = openLightJob(opts);
-  const ac = new AbortController();
+export function enqueueLightJob(opts) {
+  const phase = String(opts.phase || 'job');
+  if (!PHASE_QUEUE_CAPS[phase]) {
+    return startLightJob(opts);
+  }
+  const { jobId } = openLightJob({ ...opts, queued: true });
   const job = jobs.get(jobId);
-  if (job) job.abort = ac;
-  Promise.resolve()
-    .then(() => new Promise((r) => setImmediate(r)))
-    .then(() => opts.run({ jobId, signal: ac.signal }))
-    .then((result) => finishLightJob(jobId, { result }))
-    .catch((err) => finishLightJob(jobId, { error: err }));
+  if (job) job.run = opts.run;
+  pumpQueuedLightJobs();
   return { jobId };
+}
+
+/** Active openai-photo / openai-ba job for this slot (any candidate). */
+export function findActiveOpenaiJob({ candidateId, phase, slotKey, matchKey } = {}) {
+  const cid = candidateId != null ? String(candidateId) : null;
+  const wantPhase = phase != null ? String(phase) : null;
+  const slot = slotKey != null && String(slotKey).trim() ? String(slotKey) : null;
+  const match = matchKey != null && String(matchKey).trim() ? String(matchKey) : null;
+  return [...jobs.values()].find((j) => {
+    if (j.status !== 'running' && j.status !== 'queued') return false;
+    if (cid && String(j.candidateId || '') !== cid) return false;
+    if (wantPhase && String(j.phase || '') !== wantPhase) return false;
+    if (slot && String(j.slotKey || '') !== slot) return false;
+    if (match && String(j.matchKey || '') !== match) return false;
+    return Boolean(slot || match);
+  });
 }
 
 /**
@@ -217,6 +320,12 @@ export function cancelLightJob(jobId) {
   }
   if (job.status !== 'running' && job.status !== 'queued') {
     throw Object.assign(new Error('Job is not running'), { status: 409 });
+  }
+  if (job.status === 'queued') {
+    finishLightJob(id, {
+      error: Object.assign(new Error('Stopped'), { status: 499, code: 'STOPPED' }),
+    });
+    return serializeLightJob(jobs.get(id) || job, { includeResult: false });
   }
   job.detail = 'Stopping…';
   emitChange();

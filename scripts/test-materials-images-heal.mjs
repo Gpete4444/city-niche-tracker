@@ -1,4 +1,4 @@
-import { sanitizeMarkdownImageFrontmatter } from '../ops/lib/content-markdown.mjs';
+import { sanitizeMarkdownImageFrontmatter, healStagedMarkdown } from '../ops/lib/content-markdown.mjs';
 
 const broken = `---
 title: Test
@@ -39,4 +39,26 @@ console.log({
 
 if (!Object.values(checks).every(Boolean)) process.exit(1);
 if (!/materialsImages:\n  - src:/.test(okOut) || /^gallery:/m.test(okOut)) process.exit(1);
+
+const hooverEmptyThenNextKey = `---
+title: Drywall Patching
+beforeAfterImages:
+processImages:
+  - src: "https://example.com/images/process-1-foo.jpg"
+    alt: "a"
+---
+Body
+`;
+const hooverSanitized = sanitizeMarkdownImageFrontmatter(hooverEmptyThenNextKey);
+const hooverHealed = healStagedMarkdown(hooverEmptyThenNextKey).markdown;
+const hooverChecks = {
+  sanitizeDroppedEmpty: !/^beforeAfterImages:/m.test(hooverSanitized),
+  sanitizeKeptProcess: /processImages:\n  - src: "https:\/\/example.com\/images\/process-1/.test(hooverSanitized),
+  healDroppedEmpty: !/^beforeAfterImages:/m.test(hooverHealed),
+  healKeptProcess: /processImages:\n  - src: "https:\/\/example.com\/images\/process-1/.test(hooverHealed),
+};
+console.log('---hoover---\n' + hooverSanitized);
+console.log(hooverChecks);
+if (!Object.values(hooverChecks).every(Boolean)) process.exit(1);
+
 console.log('PASS');

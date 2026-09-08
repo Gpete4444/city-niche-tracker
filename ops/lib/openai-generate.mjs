@@ -18,6 +18,7 @@ import {
   loadManifest,
   saveSlotIntoManifest,
   syncSiteImagesToPublic,
+  syncSiteImagesToPublicAsync,
 } from './fill-site-images.mjs';
 import { IMAGE_TRAY_CAP, pushBaTrayEntry, pushSlotTrayEntry, trimTrayVariants } from './image-tray.mjs';
 import { buildSlotImagePrompt } from './chatgpt-slot-image.mjs';
@@ -113,7 +114,7 @@ export async function generateImageSlotOpenai(candidateId, slotKey, { viewpoint,
   });
 }
 
-function persistGeneratedSlot(
+async function persistGeneratedSlot(
   candidateId,
   slot,
   {
@@ -173,7 +174,7 @@ function persistGeneratedSlot(
     variants,
   };
   const nextManifest = saveSlotIntoManifest(candidateId, entry);
-  const synced = syncSiteImagesToPublic(candidateId);
+  const synced = await syncSiteImagesToPublicAsync(candidateId);
   const contentUpdate = applyImagesToContentFiles(candidateId, [
     ...Object.values(nextManifest.slots || {}).filter((s) => s?.filename),
   ]);

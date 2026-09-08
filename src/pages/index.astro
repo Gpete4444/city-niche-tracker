@@ -11,6 +11,7 @@ import TrustSignals from '../components/TrustSignals.astro';
 import TwoToneHeading from '../components/TwoToneHeading.astro';
 import { site, siteShowsServiceCards, socialProofHasTrustStrip } from '../config/site';
 import { filterLocationsForSite, alsoServingLinks } from '../lib/locations-for-site';
+import { locationPath } from '../lib/site-path';
 import { bandSurface } from '../lib/section-surfaces';
 import { ve } from '../lib/visual-edit';
 import {
@@ -59,7 +60,7 @@ const locations = locationEntries.map((e) => ({
   id: e.id,
   city: e.data.city,
   state: e.data.state,
-  href: `/locations/${e.id}`,
+  href: locationPath(e.id),
 }));
 const alsoServing = alsoServingLinks(site);
 

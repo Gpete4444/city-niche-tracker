@@ -7,6 +7,7 @@ import StickyCallBar from '../components/StickyCallBar.astro';
 import { site } from '../config/site';
 import { getFontTheme } from '../config/fonts';
 import { resolvePageTitle } from '../lib/page-title';
+import { sitePath } from '../lib/site-path';
 
 interface Props {
   title: string;
@@ -31,10 +32,8 @@ const {
 
 const fullTitle = resolvePageTitle(title, site.businessName, 60);
 const pathname = Astro.url.pathname || '/';
-/** Root has no trailing slash; every other path ends with `/`. */
-const canonicalPath =
-  pathname === '/' ? '' : pathname.endsWith('/') ? pathname : `${pathname}/`;
-const canonicalUrl = `https://${site.domain}${canonicalPath}`;
+/** Home and every other page use a trailing slash (`https://domain/`). */
+const canonicalUrl = `https://${site.domain}${sitePath(pathname)}`;
 
 const defaultOg =
   site.logo?.src ||

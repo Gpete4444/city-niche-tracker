@@ -1,5 +1,6 @@
 ---
 import { site, formatPhoneDisplay, phoneHref } from '../config/site';
+import { sitePath } from '../lib/site-path';
 import FooterSocial from './FooterSocial.astro';
 import PhoneIcon from './PhoneIcon.astro';
 ---
@@ -44,9 +45,9 @@ import PhoneIcon from './PhoneIcon.astro';
         </a>
       </p>
       <p class="pt-2">
-        <a class="text-white/60 hover:text-white" href="/privacy">Privacy</a>
+        <a class="text-white/60 hover:text-white" href={sitePath('/privacy')}>Privacy</a>
         <span class="mx-2 text-white/30">·</span>
-        <a class="text-white/60 hover:text-white" href="/contact">Contact</a>
+        <a class="text-white/60 hover:text-white" href={sitePath('/contact')}>Contact</a>
       </p>
     </div>
   </div>

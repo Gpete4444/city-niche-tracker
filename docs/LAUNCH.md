@@ -127,15 +127,16 @@ Ship also updates meta: `lastShipAt`, `githubRepo`, `githubRepoUrl`, and may set
 Requires `CLOUDFLARE_ACCOUNT_ID` + `CLOUDFLARE_API_TOKEN`. Worker name = `meta.assembledSiteSlug` or assembled folder basename.
 
 1. **Find zone** for the domain (zone must already exist in the account — nameservers already at Cloudflare)
-2. **Email Routing** (when destination email is set)
+2. **HTTPS** — Always Use HTTPS on, SSL `full`, HSTS (soft-skip per setting on API errors)
+3. **Email Routing** (when destination email is set)
    - Try enable zone Email Routing — **soft-skip** on settings API auth errors (common); enable in dashboard if routing is not on yet
    - Ensure destination address via **account** API `…/accounts/{id}/email/routing/addresses` (not zone-scoped Addresses)
    - If destination is new / unverified, human must click the Gmail verification link once
    - Create or update rule: `leads@{domain}` (or Leads email field) → destination
-3. **Custom domain**
+4. **Custom domain**
    - Confirm Worker exists via `GET …/workers/scripts/{name}/settings` (assets-only Workers return empty on the bare script GET — that path is avoided)
-   - Attach hostname → Worker (`PUT/POST …/workers/domains`)
-4. **Turnstile** (only if Create Turnstile is checked) — create widget; write `turnstileSiteKey` back into site-config when created
+   - Attach **apex** and **www** hostnames → Worker (`PUT/POST …/workers/domains`)
+5. **Turnstile** (only if Create Turnstile is checked) — create widget; write `turnstileSiteKey` back into site-config when created
 
 ### 3.5 Meta and build-package
 

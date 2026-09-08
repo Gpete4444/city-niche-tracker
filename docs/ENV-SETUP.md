@@ -487,6 +487,7 @@ CLOUDFLARE_API_TOKEN=
    - Zone · Zone · **Read**
    - Zone · DNS · **Edit**
    - Zone · Email Routing Rules · **Edit**
+   - Optional: Zone · Zone Settings · **Edit** (Always Use HTTPS / HSTS at the zone; the Worker still 301s `http` → `https` without this)
    - Optional for push-to-deploy: Account · Workers Builds Configuration · **Edit**
 5. Create the token, copy it once, paste into `CLOUDFLARE_API_TOKEN`.
 6. Paste the account id into `CLOUDFLARE_ACCOUNT_ID`.

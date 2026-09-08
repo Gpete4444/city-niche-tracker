@@ -1,5 +1,6 @@
 import { z } from 'astro/zod';
 import rawConfig from './site-config.json';
+import { sitePath } from '../lib/site-path';
 
 const addressSchema = z.object({
   street: z.string().min(1),
@@ -250,8 +251,7 @@ export function siteShowsServicesNav(config: SiteConfig = site): boolean {
 }
 
 export function siteUrl(path = '/'): string {
-  const normalized = path.startsWith('/') ? path : `/${path}`;
-  return `https://${site.domain}${normalized === '/' ? '' : normalized}`;
+  return `https://${site.domain}${sitePath(path)}`;
 }
 
 /** Format +15095550199 → (509) 555-0199 for display */
