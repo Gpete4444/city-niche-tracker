@@ -16,6 +16,9 @@ const TITLE_MAX = 60;
  *   businessName?: string,
  *   niche?: string,
  *   primaryCity?: string,
+ *   state?: string,
+ *   domain?: string,
+ *   tagline?: string,
  * }} [opts]
  * @returns {{ ok: boolean, findings: Array<{ severity: 'critical'|'soft', file: string, rule: string, excerpt: string, suggestion: string }> }}
  */
@@ -28,6 +31,9 @@ export function lintContentSeo(files, opts = {}) {
   const businessName = String(opts.businessName || '').trim();
   const niche = String(opts.niche || '').trim();
   const primaryCity = String(opts.primaryCity || '').trim();
+  const state = String(opts.state || '').trim();
+  const domain = String(opts.domain || '').trim();
+  const tagline = String(opts.tagline || '').trim();
 
   const primary = String(opts.primaryKeyword || '').trim();
   if (primary && homeBody) {
@@ -316,6 +322,15 @@ export function lintContentSeo(files, opts = {}) {
       });
     }
   }
+
+  lintNicheBrandVerbMismatch(files, findings, {
+    homeRel,
+    homeBody,
+    businessName,
+    domain,
+    tagline,
+  });
+  lintServiceCardCityStuffing(files, findings, { primaryCity, state });
 
   lintLocationDepth(files, findings, {
     minWords: Number(opts.locationMinWords) > 0 ? Number(opts.locationMinWords) : 450,
@@ -729,9 +744,86 @@ function parseSimpleFrontmatter(src) {
   const out = {};
   const title = block.match(/^title:\s*(.+)$/m);
   const h1 = block.match(/^h1:\s*(.+)$/m);
+  const description = block.match(/^description:\s*(.+)$/m);
   if (title) out.title = unquote(title[1]);
   if (h1) out.h1 = unquote(h1[1]);
+  if (description) out.description = unquote(description[1]);
   return out;
+}
+
+function brandVerbFromIdentity(businessName, domain) {
+  const hay = `${businessName || ''} ${domain || ''}`.toLowerCase();
+  const hasRepair = hay.includes('repair');
+  const hasInstall = hay.includes('install');
+  if (hasRepair && !hasInstall) return 'repair';
+  if (hasInstall && !hasRepair) return 'install';
+  return null;
+}
+
+function fieldLeadsWithOppositeVerb(text, brandVerb) {
+  const t = String(text || '').trim();
+  if (!t || !brandVerb) return false;
+  const head = t.slice(0, 120);
+  if (brandVerb === 'repair') {
+    return /\binstall(ation|ations|ing|s)?\b/i.test(head) && !/\brepair/i.test(head);
+  }
+  if (brandVerb === 'install') {
+    return /\brepair(s|ing)?\b/i.test(head) && !/\binstall/i.test(head);
+  }
+  return false;
+}
+
+function lintNicheBrandVerbMismatch(files, findings, { homeRel, homeBody, businessName, domain, tagline }) {
+  const verb = brandVerbFromIdentity(businessName, domain);
+  if (!verb || !homeBody) return;
+  const fm = parseSimpleFrontmatter(homeBody);
+  const fields = [
+    ['title', fm.title],
+    ['h1', fm.h1],
+    ['tagline', tagline],
+  ];
+  const hits = fields.filter(([, text]) => fieldLeadsWithOppositeVerb(text, verb));
+  if (!hits.length) return;
+  const opposite = verb === 'repair' ? 'Installation' : 'Repair';
+  const brand = verb === 'repair' ? 'Repair' : 'Installation';
+  findings.push({
+    severity: 'critical',
+    file: homeRel,
+    rule: 'niche_brand_verb_mismatch',
+    excerpt: `${hits.map(([k]) => k).join('/')} lead with ${opposite} while brand/domain is ${brand}`,
+    suggestion: `Match homepage title, H1, and tagline to the ${brand} brand (niche ${brand === 'Repair' ? 'Drywall Repair' : 'Drywall Installation'}). Do not ship Installation identity on a Repair Pros domain.`,
+  });
+}
+
+function lintServiceCardCityStuffing(files, findings, { primaryCity, state }) {
+  const city = String(primaryCity || '').trim();
+  if (!city) return;
+  const cityEsc = escapeRegExp(city);
+  const stEsc = state ? escapeRegExp(state) : '';
+  const phrase = stEsc
+    ? new RegExp(`\\bin\\s+${cityEsc}\\s*,\\s*${stEsc}\\b`, 'i')
+    : new RegExp(`\\bin\\s+${cityEsc}\\b`, 'i');
+  const serviceFiles = Object.entries(files || {}).filter(
+    ([rel, raw]) => /(^|\/)services\/.+\.md$/i.test(rel) && raw,
+  );
+  if (serviceFiles.length < 3) return;
+  const stuffed = [];
+  for (const [rel, raw] of serviceFiles) {
+    const fm = parseSimpleFrontmatter(raw);
+    const intro = stripFrontmatter(raw).slice(0, 500);
+    const hay = `${fm.description || ''} ${intro}`;
+    if (phrase.test(hay)) stuffed.push(rel);
+  }
+  const need = Math.max(3, Math.ceil(serviceFiles.length * 0.6));
+  if (stuffed.length < need) return;
+  findings.push({
+    severity: 'soft',
+    file: stuffed[0],
+    rule: 'service_card_city_stuffing',
+    excerpt: `${stuffed.length}/${serviceFiles.length} service cards repeat “in ${city}${state ? `, ${state}` : ''}”`,
+    suggestion:
+      'City belongs once in the homepage intro. Service card description = what it is, when needed, outcome — do not repeat in {city}, {ST} on every card.',
+  });
 }
 
 function extractIncludedSection(src) {

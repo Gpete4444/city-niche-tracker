@@ -554,7 +554,7 @@ Full Functions / webhook detail: [PHONE-TRACKING.md](PHONE-TRACKING.md).
 
 #### What it’s for
 
-Ranking DIDs, call forwarding, recordings, and Phone tab history sync.
+Ranking DIDs, ranking voicemail + SMS notify, recordings, and Phone tab history sync.
 
 #### Required?
 
@@ -575,17 +575,18 @@ TWILIO_VOICE_WEBHOOK_URL=
 2. Fund the account (trial works for testing; production needs paid balance).
 3. On the Console home, copy **Account SID** → `TWILIO_ACCOUNT_SID`.
 4. Copy **Auth Token** → `TWILIO_AUTH_TOKEN`.
-5. Set `TWILIO_FORWARD_TO` to your personal/mobile number in **E.164** form (US example: `+18015551234`).
-6. Deploy the Rover Twilio Function from `ops/twilio-functions/` (see [PHONE-TRACKING.md](PHONE-TRACKING.md)) so you get a public `https://….twil.io/inbound` URL.
-7. Paste that URL into `TWILIO_VOICE_WEBHOOK_URL`.
-8. Save `.env`, restart Rover.
+5. Set `TWILIO_FORWARD_TO` to your personal/mobile number in **E.164** form (US example: `+18015551234`). Ranking calls take a voicemail and **text this number** when a message is left (they do not ring it).
+6. Follow **User Guide → Phone → First-time Twilio setup** (Help panel: search **Twilio**). That walkthrough has every Console click and the Function code to paste. You will get a public `https://….twil.io/inbound` URL after **Deploy All**.
+7. Paste that URL into `TWILIO_VOICE_WEBHOOK_URL` (the four `.env` lines are in that same User Guide section).
+8. Save `.env`, restart Rover. Open **Phone** to upload a greeting or **Save spoken fallback**.
 
 Optional later (live webhook while Rover is online): `ROVER_PHONE_WEBHOOK_SECRET`, `ROVER_PUBLIC_WEBHOOK_BASE` — documented in PHONE-TRACKING.md. Not required for Settings ✓.
 
 #### Links
 
 - [Twilio Console](https://console.twilio.com/)
-- [Phone tracking guide](PHONE-TRACKING.md)
+- [User Guide — First-time Twilio setup](USER-GUIDE.md#phone-twilio-setup)
+- [Phone tracking (operators)](PHONE-TRACKING.md)
 
 #### Where to paste
 

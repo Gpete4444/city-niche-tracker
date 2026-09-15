@@ -313,6 +313,25 @@ export function pushAssembledSiteToGithub(siteRoot, opts = {}) {
   return pushAssembledSiteToGithubAsync(siteRoot, opts);
 }
 
+/**
+ * Delete a GitHub repo created at Launch (`gh repo delete --yes`).
+ * Best-effort: missing repo / missing delete scope is not a hard failure.
+ */
+export async function deleteGithubRepo(fullName, { runGh } = {}) {
+  const name = String(fullName || '').trim().replace(/^https?:\/\/github\.com\//i, '').replace(/\.git$/i, '');
+  if (!name || !name.includes('/')) {
+    return { ok: true, skipped: true, reason: 'no_repo', fullName: name || null };
+  }
+  const run = typeof runGh === 'function' ? runGh : runAsync;
+  const res = await run('gh', ['repo', 'delete', name, '--yes'], process.cwd(), { allowFail: true });
+  if (res.ok) return { ok: true, deleted: true, fullName: name };
+  const err = String(res.stderr || res.stdout || 'gh repo delete failed');
+  if (/not found|HTTP 404/i.test(err)) {
+    return { ok: true, skipped: true, reason: 'not_found', fullName: name, error: err };
+  }
+  return { ok: false, fullName: name, error: err };
+}
+
 const DIFF_FILE_CAP = 80;
 const DIFF_DIRTY_CAP = 40;
 const DIFF_STAT_CAP = 4000;

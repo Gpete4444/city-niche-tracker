@@ -302,9 +302,9 @@ export async function getGscAccessToken() {
   return next.access_token;
 }
 
-export async function gscFetch(pathname, { method = 'GET', body = null } = {}) {
+export async function gscFetchUrl(url, { method = 'GET', body = null } = {}) {
   const accessToken = await getGscAccessToken();
-  const res = await gscFetchImpl(`https://www.googleapis.com/webmasters/v3${pathname}`, {
+  const res = await gscFetchImpl(url, {
     method,
     headers: {
       Authorization: `Bearer ${accessToken}`,
@@ -325,10 +325,28 @@ export async function gscFetch(pathname, { method = 'GET', body = null } = {}) {
       disconnectGsc();
       throw gscAuthRevokedError(msg);
     }
+    const retryAfter = res.headers?.get?.('retry-after') || res.headers?.get?.('Retry-After') || null;
     throw Object.assign(new Error(msg), {
       status: res.status >= 400 ? res.status : 502,
       details: json,
+      retryAfter: retryAfter || null,
     });
   }
   return json;
+}
+
+export async function gscFetch(pathname, { method = 'GET', body = null } = {}) {
+  return gscFetchUrl(`https://www.googleapis.com/webmasters/v3${pathname}`, { method, body });
+}
+
+/** URL Inspection API — one URL per call. Same OAuth token as Search Analytics. */
+export async function gscInspectIndex({ inspectionUrl, siteUrl, languageCode = 'en-US' } = {}) {
+  return gscFetchUrl('https://searchconsole.googleapis.com/v1/urlInspection/index:inspect', {
+    method: 'POST',
+    body: {
+      inspectionUrl,
+      siteUrl,
+      languageCode,
+    },
+  });
 }

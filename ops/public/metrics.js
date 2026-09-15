@@ -186,6 +186,23 @@ export function metricHtml({
   return `<span class="metric metric-${tone}" ${tipAttr(tip)}><strong>${esc(display)}</strong><span class="metric-max">/${esc(max)}</span>${suffix ? `<span class="metric-suffix">${suffix}</span>` : ''}</span>`;
 }
 
+/** How Ads volumes should display so statewide/neighbor geos are not implied as the town. */
+export function adsVolumeHonesty(vols) {
+  if (!vols || typeof vols !== 'object') return { mode: 'none' };
+  if (vols.volumesSkipped) return { mode: 'skipped' };
+  if (vols.adsLocationFallback?.kind === 'state') {
+    return { mode: 'skipped', staleState: true };
+  }
+  if (vols.adsLocationFallback?.kind === 'neighbor') {
+    return {
+      mode: 'neighbor',
+      from: vols.adsLocationFallback.from || vols.adsLocationFallback.locationName || null,
+      requested: vols.adsLocationFallback.requested || null,
+    };
+  }
+  return { mode: 'local' };
+}
+
 /** Raw cluster sum — display only (demand bands apply to demandVolumeSum). */
 export function clusterVolumeHtml(volume) {
   const v = Number(volume);
@@ -201,7 +218,13 @@ export function clusterVolumeHtml(volume) {
 }
 
 /** Debiased demand volume used for scoring bands. */
-export function demandVolumeHtml(volume, { alpha = null } = {}) {
+export function demandVolumeHtml(volume, { alpha = null, honesty = null } = {}) {
+  if (honesty?.mode === 'skipped') {
+    const tip = honesty.staleState
+      ? 'Statewide Ads volume is not local to this city. Re-run SERP / Volume.'
+      : 'No Google Ads geo for this city (and no Ads-listed neighbor). Demand not measured.';
+    return `<span class="metric metric-neutral" ${tipAttr(tip)}>—</span>`;
+  }
   const band = classifyClusterVolume(volume);
   if (band.volume == null) return `<span class="metric metric-neutral">—</span>`;
   const factor =
@@ -215,12 +238,17 @@ export function demandVolumeHtml(volume, { alpha = null } = {}) {
     `α (suburbOverlapFactor) = ${factor}`,
     `Current: ${band.volume}/mo → ${band.label} (${band.range})`,
     band.howToTreat,
+    honesty?.mode === 'neighbor' && honesty.from
+      ? `Ads geo is ${honesty.from}${honesty.requested ? ` (neighbor of ${honesty.requested})` : ''} — not the town itself.`
+      : '',
     '',
     'Bands (apply to demandVolumeSum, not raw cluster sum):',
     clusterVolumeLegend(),
     '',
     'Higher = more scored demand.',
-  ].join('\n');
+  ]
+    .filter((line) => line !== '')
+    .join('\n');
   return `<span class="metric metric-${band.tone}" ${tipAttr(tip)}><strong>${esc(band.volume)}</strong><span class="metric-suffix"> /mo</span> <span class="metric-band">${esc(band.label)} (${esc(band.range)})</span></span>`;
 }
 

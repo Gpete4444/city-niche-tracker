@@ -7,7 +7,12 @@
 import { randomUUID } from 'node:crypto';
 import { writeFileSync, readFileSync } from 'node:fs';
 import path from 'node:path';
-import { adsLocationName, loadEnvFile, requireCredentials } from '../../scripts/lib/dataforseo.mjs';
+import {
+  loadEnvFile,
+  loadSerpLocations,
+  requireCredentials,
+  resolveSerpTaskLocation,
+} from '../../scripts/lib/dataforseo.mjs';
 import {
   classifySerpItems,
   fetchOrganicSerp,
@@ -16,7 +21,7 @@ import {
 import { writeSerpCache } from '../../scripts/lib/serp-cache.mjs';
 import { enrichClassifiedSerp } from '../../scripts/lib/serp-signals.mjs';
 import { applyRecommendations } from './discovery-recommend.mjs';
-import { getBatch, rowKey, rowsToCsv } from './discovery.mjs';
+import { emptyDiscoveryRowsHint, getBatch, rowKey, rowsToCsv } from './discovery.mjs';
 import { getConcurrency } from './rover-concurrency.mjs';
 
 loadEnvFile();
@@ -35,7 +40,7 @@ function writeBatchCsv(dir, _batch, rows) {
 export function previewSerpProbe(batchId, { indices = null } = {}) {
   const { batch, rows } = getBatch(batchId);
   if (!rows.length) {
-    const err = new Error('Batch has no rows — import Claude CSV first');
+    const err = new Error(emptyDiscoveryRowsHint(batch));
     err.status = 400;
     throw err;
   }
@@ -163,7 +168,7 @@ export function startDiscoverySerpProbe(batchId, { indices = null } = {}) {
   requireCredentials();
   const { batch, rows, dir } = getBatch(batchId);
   if (!rows.length) {
-    const err = new Error('Batch has no rows — import Claude CSV first');
+    const err = new Error(emptyDiscoveryRowsHint(batch));
     err.status = 400;
     throw err;
   }
@@ -205,6 +210,16 @@ export function startDiscoverySerpProbe(batchId, { indices = null } = {}) {
   let cursor = 0;
 
   (async () => {
+    let serpLocations = [];
+    try {
+      serpLocations = await loadSerpLocations();
+    } catch (error) {
+      job.status = 'error';
+      job.error = error.message || String(error);
+      job.finishedAt = new Date().toISOString();
+      return;
+    }
+
     async function worker() {
       while (cursor < targets.length) {
         const i = targets[cursor];
@@ -224,17 +239,16 @@ export function startDiscoverySerpProbe(batchId, { indices = null } = {}) {
         }
         const priorPack = String(row['Map Pack'] || '').trim().toLowerCase();
         const keyword = `${niche} ${city} ${state}`;
-        let locationName;
-        try {
-          locationName = adsLocationName(city, state);
-        } catch (error) {
-          job.results.push({ index: i, ok: false, error: error.message, label });
+        const spec = resolveSerpTaskLocation(city, state, { locations: serpLocations });
+        if (!spec) {
+          job.results.push({ index: i, ok: false, error: `no SERP location for ${city}, ${state}`, label });
           job.errors += 1;
           job.done += 1;
           continue;
         }
+        const locationName = spec.label;
         try {
-          const raw = await fetchOrganicSerp(keyword, locationName);
+          const raw = await fetchOrganicSerp(keyword, spec);
           job.costUsd = Number((job.costUsd + (Number(raw.cost) || 0)).toFixed(4));
           const classified = enrichClassifiedSerp(classifySerpItems(raw.items), {
             niche,

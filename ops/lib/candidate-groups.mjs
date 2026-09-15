@@ -1,16 +1,32 @@
 /**
  * Manual named candidate groups (playlist-style membership).
  * Registry: research/candidate-groups.json — not per-candidate meta.
+ * scope: "candidates" (Research/Website) or "launched" (Launched table only).
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { RESEARCH_DIR } from './candidates.mjs';
+import { isCandidateLaunched } from './launched-edit-guard.mjs';
 
 export const GROUPS_FILE = path.join(RESEARCH_DIR, 'candidate-groups.json');
 export const GROUPS_FILENAME = 'candidate-groups.json';
 
+export const GROUP_SCOPE_CANDIDATES = 'candidates';
+export const GROUP_SCOPE_LAUNCHED = 'launched';
+
+let groupsFileOverride = null;
+
+/** Test-only: point the registry at a temp file. Pass null to restore. */
+export function setGroupsFileForTests(filePath) {
+  groupsFileOverride = filePath || null;
+}
+
+function groupsFile() {
+  return groupsFileOverride || GROUPS_FILE;
+}
+
 function ensureResearchDir() {
-  mkdirSync(RESEARCH_DIR, { recursive: true });
+  mkdirSync(path.dirname(groupsFile()), { recursive: true });
 }
 
 function readJson(filePath, fallback = null) {
@@ -56,8 +72,16 @@ function normalizeIds(ids = []) {
   return out;
 }
 
+export function normalizeScope(scope) {
+  const raw = String(scope ?? '')
+    .trim()
+    .toLowerCase();
+  if (raw === GROUP_SCOPE_LAUNCHED) return GROUP_SCOPE_LAUNCHED;
+  return GROUP_SCOPE_CANDIDATES;
+}
+
 export function loadGroupsRegistry() {
-  const raw = readJson(GROUPS_FILE, { groups: [] });
+  const raw = readJson(groupsFile(), { groups: [] });
   const groups = Array.isArray(raw?.groups) ? raw.groups : [];
   return {
     groups: groups
@@ -66,6 +90,7 @@ export function loadGroupsRegistry() {
         id: String(g.id),
         name: String(g.name),
         ids: normalizeIds(g.ids),
+        scope: normalizeScope(g.scope),
         createdAt: g.createdAt || null,
         updatedAt: g.updatedAt || null,
       })),
@@ -73,11 +98,12 @@ export function loadGroupsRegistry() {
 }
 
 function saveGroupsRegistry(registry) {
-  writeJson(GROUPS_FILE, {
+  writeJson(groupsFile(), {
     groups: (registry.groups || []).map((g) => ({
       id: g.id,
       name: g.name,
       ids: normalizeIds(g.ids),
+      scope: normalizeScope(g.scope),
       createdAt: g.createdAt || nowIso(),
       updatedAt: g.updatedAt || nowIso(),
     })),
@@ -85,13 +111,14 @@ function saveGroupsRegistry(registry) {
   return loadGroupsRegistry();
 }
 
-export function listGroups() {
-  return loadGroupsRegistry().groups;
+export function listGroups(scope = GROUP_SCOPE_CANDIDATES) {
+  const want = normalizeScope(scope);
+  return loadGroupsRegistry().groups.filter((g) => g.scope === want);
 }
 
-/** Map candidateId → groupId[] */
+/** Map candidateId → groupId[] (from the given list, or all groups if omitted). */
 export function membershipByCandidateId(groups = null) {
-  const list = groups || listGroups();
+  const list = groups || loadGroupsRegistry().groups;
   const map = new Map();
   for (const g of list) {
     for (const id of g.ids || []) {
@@ -103,24 +130,45 @@ export function membershipByCandidateId(groups = null) {
 }
 
 export function attachGroupIds(candidates = []) {
-  const byId = membershipByCandidateId();
+  const byId = membershipByCandidateId(listGroups(GROUP_SCOPE_CANDIDATES));
   return candidates.map((c) => ({
     ...c,
     groupIds: byId.get(c.id) || [],
   }));
 }
 
-export function createGroup(name) {
+/** Attach Launched-scope groupIds using each site’s candidateId. */
+export function attachLaunchedGroupIds(sites = []) {
+  const byId = membershipByCandidateId(listGroups(GROUP_SCOPE_LAUNCHED));
+  return sites.map((s) => ({
+    ...s,
+    groupIds: s.candidateId ? byId.get(s.candidateId) || [] : [],
+  }));
+}
+
+export function createGroup(name, { scope } = {}) {
   const trimmed = normalizeName(name);
   if (!trimmed) {
     throw Object.assign(new Error('Group name is required'), { status: 400 });
   }
+  const groupScope = normalizeScope(scope);
   const registry = loadGroupsRegistry();
-  if (registry.groups.some((g) => g.name.toLowerCase() === trimmed.toLowerCase())) {
+  if (
+    registry.groups.some(
+      (g) => g.scope === groupScope && g.name.toLowerCase() === trimmed.toLowerCase(),
+    )
+  ) {
     throw Object.assign(new Error(`Group “${trimmed}” already exists`), { status: 409 });
   }
   const ts = nowIso();
-  const group = { id: newGroupId(), name: trimmed, ids: [], createdAt: ts, updatedAt: ts };
+  const group = {
+    id: newGroupId(),
+    name: trimmed,
+    ids: [],
+    scope: groupScope,
+    createdAt: ts,
+    updatedAt: ts,
+  };
   registry.groups.push(group);
   saveGroupsRegistry(registry);
   return group;
@@ -138,7 +186,10 @@ export function renameGroup(id, name) {
   }
   if (
     registry.groups.some(
-      (g) => g.id !== id && g.name.toLowerCase() === trimmed.toLowerCase(),
+      (g) =>
+        g.id !== id &&
+        g.scope === group.scope &&
+        g.name.toLowerCase() === trimmed.toLowerCase(),
     )
   ) {
     throw Object.assign(new Error(`Group “${trimmed}” already exists`), { status: 409 });
@@ -173,6 +224,17 @@ export function updateGroupMembers(id, ids = [], op = 'add') {
   const group = registry.groups.find((g) => g.id === id);
   if (!group) {
     throw Object.assign(new Error('Group not found'), { status: 404 });
+  }
+  if (action === 'add' && group.scope === GROUP_SCOPE_LAUNCHED) {
+    const notLaunched = memberIds.filter((mid) => !isCandidateLaunched(mid));
+    if (notLaunched.length) {
+      throw Object.assign(
+        new Error(
+          `Launched groups only accept launched candidates. Not launched: ${notLaunched.join(', ')}`,
+        ),
+        { status: 400 },
+      );
+    }
   }
   const set = new Set(group.ids || []);
   if (action === 'add') {

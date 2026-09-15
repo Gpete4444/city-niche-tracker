@@ -21,7 +21,7 @@ Reply with **exactly one** fenced CSV block and nothing else: ` ```csv ` then th
 ## Row selection rules
 
 1. Create **new data rows** (the CSV template has headers only). Cap at **Max rows**.
-2. If **State = ANY**: search **nationwide** for the best markets.
+2. If **State = ANY** or Markets are nationwide: search **nationwide** for the best markets. If **Markets** lists states, stay inside those states (OPEN = pick cities in that state; listed cities = prefer those).
 {{NICHE_RULES}}
 4. If **Cities = OPEN**: pick the best cities under the filter constraints.
 5. Prefer cities with population roughly inside the **Population band** (avoid mega-metros above max unless the operator raised the cap). Rural/exurban niches (well, septic) may dip slightly below min pop when the fit is strong — note that in Notes.

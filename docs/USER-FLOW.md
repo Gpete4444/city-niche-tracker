@@ -179,12 +179,12 @@ Almost every in-app **button / paste / Accept** step is **~5–30 seconds** of y
 | **4 · Light SERP**                    | Light competition signal before Research   |
 | Set a **Decision** on every row       | Required before Process                    |
 | **Process batch**                     | Keepers → Research; pass → tracked; ignore → skip (rediscoverable) |
-| **Advanced** (sidebar)                | Edit / wipe Generate Pack **do-not-repropose** editor (tracked orphans + Research Eval 1 only; Website/Launched never listed) |
+| **Advanced** (sidebar)                | Edit / wipe Generate Pack **do-not-repropose** editor (tracked orphans + Research Eval 1 only; Launched never listed) |
 
 
 **Forward:** pursue, maybe, review, hold · **Tracked only:** pass · **Skip (rediscoverable):** ignore
 
-Generate Pack tells Claude not to re-propose Niche×City×State pairs already in Active Research Candidates or tracked. Archived Candidates are excluded from the prompt. Use **Advanced → Edit do-not-repropose list** (shift-select + Remove) or **Wipe to match Active Research** to clean test leftovers. The Advanced editor only shows tracked/orphan pairs and Research Candidates at Evaluation 1 — Website/Launched Candidates cannot be removed or permanently deleted from Rover.
+Generate Pack tells Claude not to re-propose Niche×City×State pairs already in Active Research Candidates or tracked. Archived Candidates are excluded from the prompt. Use **Advanced → Edit do-not-repropose list** (shift-select + Remove) or **Wipe to match Active Research** to clean test leftovers. The Advanced editor only shows tracked/orphan pairs and Research Candidates at Evaluation 1 — Launched Candidates cannot be removed or permanently deleted from Rover. Unlaunched Website Candidates can be permanently deleted from the candidate list (Rover files + local assembled folder; not GitHub / Cloudflare / Twilio).
 
 ### Screen: Research
 
@@ -287,7 +287,7 @@ Twilio calls — answered/missed, recordings, AI summaries. Numbers are provisio
 | [MASTER-FLOW.md](MASTER-FLOW.md)                     | Tools, costs, technical flowchart               |
 | [ASSEMBLE-AND-LAUNCH.md](ASSEMBLE-AND-LAUNCH.md)     | Assemble / ship / Cloudflare deep dive          |
 | [LAUNCH.md](LAUNCH.md)                               | Launch button reference                         |
-| [PHONE-TRACKING.md](PHONE-TRACKING.md)               | Twilio ranking → rented cutover                 |
+| [PHONE-TRACKING.md](PHONE-TRACKING.md)               | Twilio ranking voicemail → rented cutover       |
 | [SITE-INDEXING.md](SITE-INDEXING.md)                 | Post-launch Google indexing                     |
 | [SITES-METRICS.md](SITES-METRICS.md)                 | GSC traffic + keyword ranks                     |
 

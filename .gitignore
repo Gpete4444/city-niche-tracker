@@ -40,3 +40,12 @@ data/census/map/
 _audit-*/
 _video-review-*/
 
+# local celebration audio (third-party tracks stay on this machine)
+ops/sounds/
+
+# local video-frame / preview scratch (not product)
+.tmp*
+
+# Office lock files
+~$*
+

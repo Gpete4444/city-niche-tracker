@@ -36,23 +36,38 @@ GOOGLE_GSC_CLIENT_SECRET=
 
 ## Operator actions
 
-Toolbar Sync GSC / Check ranks (and per-site Sync / Check) show a **progress bar** with `N/M · domain` while work runs; metrics buttons stay disabled until finished.
+Toolbar Sync GSC / Check index / Check ranks (and per-site Sync / Check) show a **progress bar** with `N/M · domain` while work runs; metrics buttons stay disabled until finished.
 
 | Button | What it does |
 | --- | --- |
 | Connect GSC | OAuth; stores refresh token in `research/gsc-oauth.json` (shows waiting progress until Google returns) |
-| Sync GSC | 28d clicks/impressions + ~90d daily series per site |
+| Sync GSC | 28d clicks/impressions, top queries/pages, ~90d daily series, sitemap submitted count. Does **not** update Indexed. |
+| Check index | URL Inspection of each live sitemap URL (includes `/privacy`). First run ~5–30s per site; later runs skip URLs indexed in the last 7 days. |
 | Check ranks | All eligible sites; ≤5 keywords; Standard queue |
 | Per-site Sync / Check / keywords | Same, scoped to one row |
 
 Primary keyword defaults to `{niche} {city}` from hydrated site-config; edit up to 5 on the detail panel.
+
+**Pages** and **Words** on the table come from local markdown (`src/content/{pages,services,locations}` on the assembled tree, then staging, then accepted content). They refresh on Launched load — they do not wait for GSC.
+
+**Indexed** is URL Inspection of sitemap URLs (`n/N`). Empty (`—`) until you run **Check index**. It is not the GSC Pages / Coverage report (Google has no API for those totals; `contents[].indexed` on the Sitemaps API is deprecated and always 0). The denominator includes `/privacy`, so it is usually **Pages + 1**. Hover the cell for last check time.
+
+**GSC queries / pages** in the site detail are Search Analytics rows with impressions. A new domain with no search traffic will show an empty table even if pages exist. Tracked keywords + **Check ranks** still work before impressions.
+
+## What GSC cannot return
+
+| Need | Source |
+| --- | --- |
+| Pages report totals (13 indexed / 10 not indexed) and why-not-indexed reasons | GSC UI only |
+| Per-URL index status | URL Inspection API — Rover **Check index** (sitemap URLs only; 2,000/day per property) |
+| Pages on site / word count | Local markdown (above) |
 
 ## Storage
 
 | Path | Contents |
 | --- | --- |
 | `research/gsc-oauth.json` | OAuth tokens (gitignored) |
-| `research/site-metrics/{siteId}.json` | GSC rollups, daily series, keyword history |
+| `research/site-metrics/{siteId}.json` | GSC rollups, daily series, top queries/pages, sitemap submitted, URL Inspection by URL, keyword history |
 
 ## Phase 2 (backlog)
 

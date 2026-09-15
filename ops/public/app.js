@@ -1,4 +1,5 @@
 import {
+  adsVolumeHonesty,
   clusterVolumeHtml,
   competitionOpennessTip,
   computeProposedScore,
@@ -31,11 +32,41 @@ import {
   mountDiscoveryCitiesMap,
   setServiceAreaTableMode,
   setDiscoveryTableMapMode,
-} from './service-area-map.js?v=20260905sa100';
+} from './service-area-map.js?v=20260911bootFix';
+import { mountShotgunMap } from './shotgun-map.js?v=20260915nowave2';
+import {
+  clusterColor,
+  cityMapLabel,
+  memberClusterKey,
+  parseClusterKey,
+} from './shotgun-waves.js?v=20260915nowave';
+import { suggestExactMatchDomains } from './domain-suggest.mjs?v=20260908domSug';
 import {
   enableResizableTablesIn,
   enableTableColumnResize,
 } from './table-col-resize.js?v=20260825batchNotes14ch';
+import {
+  burstLaunchConfetti,
+  launchedCountStats,
+  playLaunchSuccessSound,
+  primeLaunchSuccessSound,
+} from './launch-celebrate.js?v=20260909launch';
+import {
+  resolveWriteSiteOverlay,
+  selectedWriteSiteNeedsRefresh,
+  writeSiteTrackHoldsLease,
+} from '/write-site-overlay-track.mjs?v=20260908wsLive';
+import {
+  openaiJobsNeedingWatch,
+  openaiJobsProgressFromSnap,
+  openaiSlotOverlayCaption,
+} from '/openai-jobs-progress.mjs?v=20260908oaProg';
+import { reviewSlotServiceSubtitle } from '/review-slot-service-subtitle.mjs?v=20260908svcSub';
+import {
+  contentStepIsOpen,
+  contentStepShowsFreeze,
+  nextAccordionOpenId,
+} from '/website-step-accordion.mjs?v=20260908imgAcc';
 
 /** @type {{ destroy: () => void, invalidateSize?: () => void } | null} */
 let serviceAreaMount = null;
@@ -61,6 +92,18 @@ function serviceAreaLiveFor(candidateId) {
 }
 /** @type {{ destroy: () => void, invalidateSize?: () => void } | null} */
 let discoveryCitiesMount = null;
+/** @type {HTMLElement | null} */
+let discoveryMapGeoRow = null;
+let shotgunMapMount = null;
+let zoneMapMount = null;
+let zoneMapId = '';
+let shotgunMountedHubKey = '';
+let shotgunMountedMembersSig = '';
+let shotgunExpandedHubs = new Set();
+let shotgunMapExpanded = false;
+let discoverySidebarCollapsed = false;
+let shotgunRenderGen = 0;
+let shotgunSidebarSurfaceLock = false;
 
 /** Set large ops tooltip; strips native title to avoid double tips. */
 function setElementTip(el, text) {
@@ -503,6 +546,8 @@ const state = {
   candidateDecisionFilter: '',
   candidateBatchFilter: '',
   candidateGroupFilter: '',
+  candidateZoneFilter: '',
+  candidateClusterFilter: '',
   candidateVisibilityFilter: 'active',
   candidateTextFilter: '',
   candidateGroups: [],
@@ -574,6 +619,7 @@ const state = {
     selectedCallId: null,
     filterText: '',
     filterPhase: '',
+    greeting: null,
   },
   photoLib: {
     niches: [],
@@ -625,7 +671,12 @@ const state = {
   /** Last plain-clicked Discovery row index for Shift+click range select */
   discoveryCheckAnchor: null,
   discoverySort: { key: null, dir: 1 },
-  discoveryFilters: { text: '', human: '', rec: '', mapPack: '' },
+  clusterRosterSort: { key: 'population', dir: -1 },
+  discoveryFilters: { text: '', human: '', rec: '', mapPack: '', role: '' },
+  discoveryPackType: 'single',
+  shotgunWorkspace: null,
+  /** Shotgun main panel: hub picker/map vs Discovery SERP table. */
+  shotgunSurface: 'hub',
   discoveryKnownMode: false,
   discoveryKnownRows: [],
   discoveryKnownSelected: new Set(),
@@ -638,8 +689,12 @@ const state = {
   sitePaymentMethods: [],
   siteBillingCycles: [],
   selectedSiteId: null,
+  selectedSiteIds: new Set(),
+  /** Last plain-clicked Launched row id for Shift+click range select */
+  siteCheckAnchor: null,
+  launchedGroups: [],
   siteSort: { key: 'lastLaunchAt', dir: -1 },
-  siteFilters: { text: '', status: '', state: '' },
+  siteFilters: { text: '', status: '', state: '', group: '', zone: '', cluster: '' },
   gscStatus: null,
   sitesPortfolio: { traffic: [], ranks: [] },
   sitesMetricsBusy: false,
@@ -664,7 +719,7 @@ const ROVER_TAB_ID = `${Date.now().toString(36)}-${Math.random().toString(36).sl
 async function api(path, options = {}) {
   let res;
   try {
-    const { signal, ...rest } = options;
+    const { signal, quietLock, ...rest } = options;
     res = await fetch(path, {
       headers: {
         'content-type': 'application/json',
@@ -705,9 +760,10 @@ async function api(path, options = {}) {
     if (data.batchId) err.batchId = data.batchId;
     if (data.twilioSid) err.twilioSid = data.twilioSid;
     if (data.e164) err.e164 = data.e164;
+    if (data.meta) err.meta = data.meta;
     if (data.existingId) err.existingId = data.existingId;
     if (data.holderTabId) err.holderTabId = data.holderTabId;
-    if (data.code === 'WEBSITE_WRITE_LOCKED') {
+    if (data.code === 'WEBSITE_WRITE_LOCKED' && !options.quietLock) {
       showToast('Could not save — this business is open for editing in another tab.', {
         tone: 'err',
       });
@@ -793,10 +849,10 @@ async function applyCandidatePayload(candidate, id = candidate?.id || state.sele
   if (candidate && cid) {
     const prev = state.detail?.id === cid ? state.detail : null;
     state.detail = mergeCandidateDetail(prev, candidate);
-    if (state.detail?._slices) {
-      for (const s of slicesForTab(state.tab)) {
-        state.detail._slices[s] = false;
-      }
+  }
+  if (cid && state.detail?.id === cid && state.detail._slices) {
+    for (const s of slicesForTab(state.tab)) {
+      state.detail._slices[s] = false;
     }
   }
   if (cid) await ensureDetailSlices(cid, slicesForTab(state.tab));
@@ -897,6 +953,7 @@ function showModal({
   hideCancel = false,
   afterOpen = null,
   requireTypedConfirm = null,
+  modalClass = '',
 }) {
   return new Promise((resolve) => {
     const root = document.getElementById('modal-root');
@@ -904,7 +961,12 @@ function showModal({
     const bodyEl = document.getElementById('modal-body');
     const confirmBtn = document.getElementById('modal-confirm');
     const cancelBtn = document.getElementById('modal-cancel');
+    const dialog = root.querySelector('.modal');
     const typedPhrase = requireTypedConfirm != null ? String(requireTypedConfirm) : '';
+
+    if (showModal._modalClass && dialog) dialog.classList.remove(showModal._modalClass);
+    showModal._modalClass = modalClass ? String(modalClass) : '';
+    if (showModal._modalClass && dialog) dialog.classList.add(showModal._modalClass);
 
     titleEl.textContent = title;
     bodyEl.innerHTML = bodyHtml;
@@ -956,6 +1018,8 @@ function showModal({
       if (typedInput && onTypedInput) {
         typedInput.removeEventListener('input', onTypedInput);
       }
+      if (showModal._modalClass && dialog) dialog.classList.remove(showModal._modalClass);
+      showModal._modalClass = '';
       root.classList.add('hidden');
       root.setAttribute('aria-hidden', 'true');
       confirmBtn.onclick = null;
@@ -1067,6 +1131,72 @@ function announceBanner(message, opts) {
 function announceStepComplete(stepLabel) {
   const label = String(stepLabel || 'Step').trim() || 'Step';
   announceBanner(`${label} complete`);
+}
+
+function launchResultDetailsHtml(result) {
+  const human = (result.human || []).map((h) => `<li>${esc(h)}</li>`).join('');
+  const shipOk = result.ship?.ok ? 'Ship (GitHub/Worker) ok' : result.ship ? 'Ship partial/failed' : 'Ship skipped';
+  const cfOk = result.cloudflare?.ok
+    ? 'Cloudflare domain/email ran'
+    : 'Cloudflare domain/email skipped or incomplete';
+  return `<p>${esc(shipOk)}. ${esc(cfOk)}. Forms key: ${result.formsDone ? 'set' : 'still placeholder'}.</p>
+          <ul class="narrative-list">${human || '<li>No extra notes</li>'}</ul>
+          ${
+            result.assembledConfigPath
+              ? `<p class="muted">Wrote <code>${esc(result.assembledConfigPath)}</code></p>`
+              : ''
+          }
+          ${
+            result.ship?.steps?.github?.repoUrl
+              ? `<p class="muted">Repo: <a href="${esc(result.ship.steps.github.repoUrl)}" target="_blank" rel="noopener">${esc(result.ship.steps.github.fullName)}</a></p>`
+              : ''
+          }
+          <p class="muted"><strong>After launch:</strong> verify Gmail once if Email Routing is new; smoke-test the live form; then use <strong>Website → Indexing</strong> for Search Console + sitemap.</p>`;
+}
+
+function launchSiteDisplayName(result) {
+  const site = result.site || {};
+  const cand = result.candidate || state.detail || {};
+  return (
+    site.businessName ||
+    cand.config?.businessName ||
+    site.domain ||
+    cand.meta?.launchDomain ||
+    cand.id ||
+    'Your site'
+  );
+}
+
+async function showLaunchSuccessCelebrate(result, fallbackId) {
+  const candidateId =
+    result.candidateId || result.candidate?.id || result.site?.candidateId || fallbackId || '';
+  const { ordinal, total } = launchedCountStats(state.sites, candidateId);
+  const name = launchSiteDisplayName(result);
+  const domain = String(result.site?.domain || result.candidate?.meta?.launchDomain || '').trim();
+  const liveUrl = result.site?.liveUrl || (domain ? `https://${domain}` : '');
+  const siteLine = liveUrl
+    ? `<p class="launch-celebrate-site"><a href="${esc(liveUrl)}" target="_blank" rel="noopener">${esc(name)}</a></p>`
+    : `<p class="launch-celebrate-site">${esc(name)}</p>`;
+  burstLaunchConfetti();
+  const stopSound = playLaunchSuccessSound();
+  try {
+    await showModal({
+      title: "You're live!",
+      confirmLabel: 'Nice',
+      hideCancel: true,
+      modalClass: 'modal-launch-success',
+      bodyHtml: `<div class="launch-celebrate">
+          ${siteLine}
+          <p class="launch-celebrate-ordinal">This is site <span>#${ordinal}</span></p>
+          <p class="launch-celebrate-total">You have a total of <strong>${total}</strong> site${
+            total === 1 ? '' : 's'
+          } launched.</p>
+          <div class="launch-celebrate-details">${launchResultDetailsHtml(result)}</div>
+        </div>`,
+    });
+  } finally {
+    stopSound();
+  }
 }
 
 /** Fill a .job-progress-bar from done/total; clear for indeterminate. */
@@ -1192,16 +1322,32 @@ async function consumeOpenaiJobFinish(job) {
 
 function syncOpenaiGenerateFromSnap(snap) {
   const jobs = snap?.jobs || [];
-  const openai = jobs.filter((j) => j.phase === 'openai-photo' || j.phase === 'openai-ba');
   const cid = state.selectedId;
   const pgId = photoLibCurrent()?.groupId || '';
   const pgKey = pgId ? `photo-group:${pgId}` : '';
+  const unseen = openaiJobsNeedingWatch(jobs, {
+    selectedId: cid,
+    photoGroupKey: pgKey,
+    watchedIds: [...openaiJobWatch.keys()],
+  });
+  const unseenHere = cid
+    ? unseen.filter((j) => String(j.candidateId || '') === String(cid))
+    : [];
+  const unseenPg = pgKey
+    ? unseen.filter((j) => String(j.candidateId || '') === pgKey)
+    : [];
+  if (unseenHere.length) watchOpenaiJobList(unseenHere, { candidateId: cid });
+  if (unseenPg.length) watchOpenaiJobList(unseenPg, { candidateId: pgKey, groupId: pgId || null });
+  const openai = jobs.filter((j) => j.phase === 'openai-photo' || j.phase === 'openai-ba');
   for (const j of openai) {
     if (j.status !== 'running' && j.status !== 'queued') continue;
     const here =
       j.candidateId === cid || j.candidateId === pgKey || openaiJobWatch.has(String(j.id));
     const key = j.slotKey || j.matchKey;
-    if (here && key) beginSlotBusy(key, null, { scroll: false });
+    if (here && key) {
+      beginSlotBusy(key, null, { scroll: false });
+      paintSlotGenerateCaption(key, j);
+    }
   }
   for (const j of openai) {
     const id = String(j.id);
@@ -1244,7 +1390,14 @@ function syncOpenaiGenerateFromSnap(snap) {
       });
     }
   }
-  if (pending) {
+  const snapProgress = openaiJobsProgressFromSnap(jobs, {
+    selectedId: cid,
+    photoGroupKey: pgKey,
+  });
+  if (snapProgress.active) {
+    jobSyncedBarOn.openai = true;
+    paintOpenaiSnapProgress(snapProgress);
+  } else if (pending) {
     jobSyncedBarOn.openai = true;
     paintOpenaiBatchProgress(Math.max(0, total - pending), total);
   } else if (jobSyncedBarOn.openai) {
@@ -1315,7 +1468,7 @@ function findGeneratingSlotCard(key) {
   return null;
 }
 
-function slotGenerateOverlayHtml() {
+function slotGenerateOverlayHtml(caption = 'Generating') {
   return `<div class="slot-generate-overlay" aria-hidden="true">
     <div class="rover-loader rover-loader--dark rover-loader--mark-only">
       <svg class="rover-loader-mark" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" focusable="false">
@@ -1328,6 +1481,7 @@ function slotGenerateOverlayHtml() {
         </g>
       </svg>
     </div>
+    <p class="slot-generate-caption">${esc(caption)}</p>
   </div>`;
 }
 
@@ -1336,17 +1490,30 @@ function slotGenerateOverlayHost(card) {
   return card.querySelector('.ba-pair-thumbs') || card.querySelector('.slot-thumb') || card;
 }
 
-function setSlotGenerateOverlay(card, on) {
+function setSlotGenerateOverlay(card, on, { caption } = {}) {
   const host = slotGenerateOverlayHost(card);
   if (!host) return;
   const overlay =
     host.querySelector(':scope > .slot-generate-overlay') ||
     (host !== card ? card.querySelector(':scope > .slot-generate-overlay') : null);
   if (on) {
-    if (!overlay) host.insertAdjacentHTML('beforeend', slotGenerateOverlayHtml());
+    if (!overlay) host.insertAdjacentHTML('beforeend', slotGenerateOverlayHtml(caption || 'Generating'));
+    else if (caption) {
+      const cap = overlay.querySelector('.slot-generate-caption');
+      if (cap) cap.textContent = caption;
+    }
   } else if (overlay) {
     overlay.remove();
   }
+}
+
+function paintSlotGenerateCaption(slotKey, job) {
+  const card = findGeneratingSlotCard(slotKey);
+  if (!card) return;
+  const { label, elapsedMs } = openaiSlotOverlayCaption(job);
+  const caption =
+    label === 'Queued' || !elapsedMs ? label : `${label} · ${formatGenerateElapsed(elapsedMs)}`;
+  setSlotGenerateOverlay(card, true, { caption });
 }
 
 function slotBusyKeyList() {
@@ -1996,6 +2163,7 @@ function findActiveJob(snap, phase, candidateId) {
 
 function syncLightInPageBars(snap) {
   syncGeneratePackOverlay(snap);
+  syncShotgunJobOverlay(snap);
   syncAcceptOverlay(snap);
   const cid = state.selectedId;
   if (!cid) return;
@@ -2547,6 +2715,44 @@ function remainingTone(balance, { loading = false, failed = false, unset = false
   return 'ok';
 }
 
+const DATAFORSEO_API_ACCESS_URL = 'https://app.dataforseo.com/api-access';
+
+function isDataForSeoPaymentError(text) {
+  const s = String(text || '');
+  return (
+    /DATAFORSEO_PAYMENT_REQUIRED/i.test(s) ||
+    /DataForSEO payment required/i.test(s) ||
+    /enable\/fund this DataForSEO/i.test(s) ||
+    /payment required/i.test(s) ||
+    /\b40200\b/.test(s) ||
+    /\b402\b/.test(s)
+  );
+}
+
+function dataForSeoPaymentHelpHtml({ failedCount = 0, createdOk = true } = {}) {
+  const n = Number(failedCount) || 0;
+  const countLine =
+    n > 0
+      ? `<p>Failed: <strong>${esc(String(n))}</strong> ${n === 1 ? 'city' : 'cities'}.</p>`
+      : '';
+  const createdLine = createdOk
+    ? '<p>Your sites were still created. Only the search lookup failed.</p>'
+    : '';
+  const retryLine = createdOk
+    ? 'In Rover, open <strong>Research</strong>, select these cities, and run <strong>SERP / Volume</strong> again.'
+    : 'In Rover Discovery, run <strong>Light SERP</strong> again.';
+  return `
+    <p>Search data could not run because your DataForSEO account needs credit for SERP.</p>
+    ${createdLine}
+    ${countLine}
+    <ol>
+      <li>Open DataForSEO and add funds (link below).</li>
+      <li>${retryLine}</li>
+    </ol>
+    <p><a href="${DATAFORSEO_API_ACCESS_URL}" target="_blank" rel="noopener noreferrer">Add funds on DataForSEO</a></p>
+  `;
+}
+
 function apiCostMoney(value) {
   return Number.isFinite(Number(value)) ? formatMoney(value) : '—';
 }
@@ -3028,6 +3234,7 @@ async function loadCandidates() {
   refreshVisibilityFilterCounts();
   fillCandidateBatchFilterSelect();
   fillCandidateGroupSelects();
+  fillZoneNumberFilters();
   renderList();
 }
 
@@ -3089,8 +3296,29 @@ function filteredCandidates() {
     } else if (groupF && !(c.groupIds || []).includes(groupF)) {
       return false;
     }
+    const zoneF = state.candidateZoneFilter;
+    if (zoneF) {
+      const zn = Number(c.sgNumber ?? c.shotgunSg);
+      if (!Number.isFinite(zn) || String(zn) !== String(zoneF)) return false;
+    }
+    const clusterF = state.candidateClusterFilter;
+    if (clusterF === '0') {
+      if (rowClusterKey(c)) return false;
+    } else if (clusterF && String(rowClusterKey(c)) !== String(clusterF)) {
+      return false;
+    }
     if (text) {
-      const hay = [c.id, c.niche, c.primaryCity, c.state, c.source?.batchId]
+      const hay = [
+        c.id,
+        c.niche,
+        c.primaryCity,
+        c.state,
+        c.source?.batchId,
+        c.shotgunSg,
+        formatZnDisplay(c.sgNumber ?? c.shotgunSg),
+        shotgunRoleLabel(c.shotgunRole, c),
+        rowClusterKey(c) ? `cluster ${rowClusterKey(c)}` : '',
+      ]
         .filter(Boolean)
         .join(' ')
         .toLowerCase();
@@ -3158,6 +3386,70 @@ function candidateOverallInputs(c) {
   };
 }
 
+const SHOTGUN_ROLE_LABELS = {
+  hub: 'Hub',
+  main: 'Hub',
+  member: 'Member',
+  city: 'Member',
+  unassigned: 'Unassigned',
+};
+
+function isClusterPackType(raw) {
+  const v = String(raw || '').trim().toLowerCase();
+  return v === 'cluster' || v === 'shotgun';
+}
+
+function shotgunIsCityRole(role, member) {
+  const r = String(role || member?.role || '').toLowerCase();
+  if (r === 'hub' || r === 'main') return false;
+  return (
+    r === 'member' ||
+    r === 'city' ||
+    parseClusterKey(member?.clusterKey) >= 1 ||
+    /^wave([1-9]|10)$/.test(r)
+  );
+}
+
+function shotgunRoleLabel(role, member) {
+  const r = String(role || '').trim().toLowerCase();
+  if (r === 'hub' || r === 'main') return 'Hub';
+  const ck = member ? parseClusterKey(member.clusterKey ?? member.shotgunClusterKey) : 0;
+  if (ck >= 1) return `Cluster ${ck}`;
+  if (r === 'member' || r === 'city' || /^wave([1-9]|10)$/.test(r)) return 'Member';
+  return SHOTGUN_ROLE_LABELS[r] || '';
+}
+
+function formatShotgunSgDisplay(n) {
+  const v = Number(n);
+  if (!Number.isFinite(v) || v < 1) {
+    const s = String(n || '').trim();
+    return /^\d{3}$/.test(s) ? s : '';
+  }
+  return String(Math.trunc(v)).padStart(3, '0');
+}
+
+function formatZnDisplay(n) {
+  const sg = formatShotgunSgDisplay(n);
+  return sg ? `ZN ${sg}` : '';
+}
+
+function rowClusterKey(row) {
+  return parseClusterKey(row?.shotgunClusterKey ?? row?.clusterKey);
+}
+
+function clusterRowAttr(row) {
+  const ck = rowClusterKey(row);
+  const fill = clusterColor(ck);
+  if (!fill) return '';
+  return ` data-sg-cluster="${esc(String(ck))}" style="--sg-cluster-color: ${fill}"`;
+}
+
+function shotgunSgHue(n) {
+  const v = Number(n);
+  if (!Number.isFinite(v) || v < 1) return null;
+  return (Math.trunc(v) * 47) % 360;
+}
+
 function candidateSortValue(c, key) {
   if (key === 'proposedScore') {
     return (
@@ -3195,6 +3487,19 @@ function candidateSortValue(c, key) {
   if (key === 'batch') return c.source?.batchId || '';
   if (key === 'notes') return c.decisionNotes || '';
   if (key === 'apiSpend') return candidateApiSpendBreakdown(c).total;
+  if (key === 'shotgunSg') {
+    const n = Number(c.sgNumber ?? c.shotgunSg);
+    return Number.isFinite(n) && n >= 1 ? n : null;
+  }
+  if (key === 'shotgunClusterKey') {
+    const n = rowClusterKey(c);
+    return n >= 1 ? n : null;
+  }
+  if (key === 'shotgunRole') {
+    if (String(c.shotgunRole || '').toLowerCase() === 'hub') return 1;
+    const ck = rowClusterKey(c);
+    return ck >= 1 ? ck + 1 : String(c.shotgunRole || '').toLowerCase() === 'member' ? 2 : null;
+  }
   return c[key];
 }
 
@@ -3238,7 +3543,7 @@ const CANDIDATE_TABLE_COLS = [
   {
     key: 'niche',
     label: 'Niche',
-    tip: 'Service niche',
+    tip: 'Service niche. Double-click to rename. After evaluations, Rover asks you to confirm ripple effects.',
     sortable: true,
     cellClass: 'col-truncate',
     source: 'claude',
@@ -3258,6 +3563,20 @@ const CANDIDATE_TABLE_COLS = [
     sortable: true,
     cellClass: 'col-short',
     source: 'claude',
+  },
+  {
+    key: 'shotgunSg',
+    label: 'ZN',
+    tip: 'Zone number',
+    sortable: true,
+    cellClass: 'col-sg',
+  },
+  {
+    key: 'shotgunClusterKey',
+    label: 'Cl',
+    tip: 'Cluster 1–10 (rental package)',
+    sortable: true,
+    cellClass: 'col-sg-role',
   },
   {
     key: 'proposedScore',
@@ -3310,7 +3629,7 @@ const CANDIDATE_TABLE_COLS = [
   {
     key: 'volume',
     label: 'Search vol.',
-    tip: 'Demand (scored) / month: primary + α×suburb volumes (α=0.25). Bands apply here, not raw cluster sum.',
+    tip: 'Demand (scored) / month: primary + α×suburb volumes (α=0.25). Bands apply here, not raw cluster sum. — if the city has no Ads geo.',
     sortable: true,
     cellClass: 'col-truncate',
     source: 'dfs',
@@ -3499,27 +3818,9 @@ function candidateHighestWebsiteTrack(c) {
   return 0;
 }
 
-/** Website (pursue / site artifacts) or Launched — never permanently deletable in Rover. */
+/** Launched — never permanently deletable in Rover. Unlaunched Website is allowed. */
 function isUndeletableCandidateRow(c) {
-  if (!c) return false;
-  if (c.decision === 'pursue') return true;
-  const m = c.meta || {};
-  if (m.lastLaunchAt || m.lastShipAt) return true;
-  const f = c.stageFlags || {};
-  if (
-    f.hasSiteConfig ||
-    f.hasSiteConfigDraft ||
-    f.hasContent ||
-    f.hasContentDraft ||
-    f.hasContentBrief ||
-    f.hasContentResearch ||
-    f.hasBuildPackage ||
-    f.hasContentOutlinePackage ||
-    f.hasContentStructure
-  ) {
-    return true;
-  }
-  return false;
+  return isCandidateLaunched(c);
 }
 
 function undeletableIdsInSelection(ids = [...state.selectedIds]) {
@@ -3577,12 +3878,12 @@ function updateCandidateSelectionCount() {
     if (blocked.length) {
       setElementTip(
         deleteBtn,
-        'Website/Launched Candidates cannot be permanently deleted from Rover',
+        'Launched Candidates cannot be permanently deleted from Rover',
       );
     } else {
       setElementTip(
         deleteBtn,
-        'Permanently delete Research selection (not Website/Launched) and scrub Discovery anti-dupe / groups / Sites links',
+        'Permanently delete unlaunched selection (Research or Website) and scrub Discovery anti-dupe / groups / Sites / local assembled folder',
       );
     }
   }
@@ -3729,7 +4030,7 @@ function syncPhoneDetailVisibility() {
 
 /** Click empty table/panel chrome to clear row selection (not rows, controls, or thead). */
 const TABLE_DESELECT_IGNORE =
-  'thead, input, select, button, a, label, textarea, .col-resize-handle, .candidate-bulk-details, .discovery-filters-bar, .discovery-flow, .sites-gsc-status, .phone-calls-toolbar, #sa-map-canvas, .sa-map-canvas-host, .leaflet-container';
+  'thead, input, select, button, a, label, textarea, .col-resize-handle, .candidate-bulk-details, .discovery-filters-bar, .sites-filters, .discovery-flow, .sites-gsc-status, .phone-calls-toolbar, #sa-map-canvas, .sa-map-canvas-host, .leaflet-container, .cand-niche, .cand-niche-input';
 const TABLE_DESELECT_ROW =
   'tr[data-id], tr[data-call-id], tr[data-row-idx]';
 
@@ -3808,6 +4109,123 @@ function clearDiscoveryRowSelection() {
   renderDiscoveryTable();
 }
 
+async function beginCandidateNicheEdit(td) {
+  if (!td || td.querySelector('input.cand-niche-input')) return;
+  const id = td.dataset.id;
+  const row = state.candidates.find((c) => c.id === id);
+  if (!row) return;
+  const afterEval = Boolean(row.nicheRenameLocked || td.dataset.nicheLocked === '1');
+  if (afterEval) {
+    const step1 = await showModal({
+      title: 'Niche already evaluated',
+      confirmLabel: 'Continue',
+      cancelLabel: 'Cancel',
+      bodyHtml:
+        '<p>This niche was already used for <strong>SERP / Volume</strong> (and later stages). Scores and photos were measured against the current name.</p><p>You can still change the table name. That does not re-run evaluations.</p>',
+    });
+    if (!step1) return;
+    const step2 = await showModal({
+      title: 'Ripple effects',
+      confirmLabel: 'Change niche',
+      cancelLabel: 'Cancel',
+      bodyHtml:
+        '<p>Changing the niche now updates the <strong>root name</strong> (table, config, meta) only.</p><p>It does <strong>not</strong> re-run SERP, rewrite site copy, or retag photo groups. The live site can still say the old name until you re-run Site-config / Content / Push.</p>',
+    });
+    if (!step2) return;
+  }
+  const liveRow = state.candidates.find((c) => c.id === id) || row;
+  window.setTimeout(() => {
+    const cell =
+      document.querySelector(`#candidate-table td.cand-niche[data-id="${CSS.escape(id)}"]`) ||
+      td;
+    if (!cell?.isConnected) return;
+    startInlineNicheEdit(cell, liveRow, { confirmAfterEval: afterEval });
+  }, 50);
+}
+
+function startInlineNicheEdit(td, row, { confirmAfterEval = false } = {}) {
+  if (!td || td.querySelector('input.cand-niche-input')) return;
+  const id = row.id;
+  const current = String(row.niche || '').trim();
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.className = 'cand-niche-input';
+  input.value = current;
+  input.setAttribute('aria-label', 'Rename niche');
+  td.replaceChildren(input);
+
+  let done = false;
+  let armed = false;
+  const arm = () => {
+    armed = true;
+  };
+  window.setTimeout(arm, 200);
+
+  const finish = async (save) => {
+    if (done) return;
+    done = true;
+    const next = String(input.value || '').replace(/\s+/g, ' ').trim();
+    if (!save || !next || next === current) {
+      renderList();
+      return;
+    }
+    input.disabled = true;
+    try {
+      await api(`/api/candidates/${encodeURIComponent(id)}/niche`, {
+        method: 'POST',
+        body: JSON.stringify({ niche: next, confirmAfterEval: Boolean(confirmAfterEval) }),
+      });
+      row.niche = next;
+      if (row.meta) row.meta.niche = next;
+      const data = await api('/api/candidates');
+      state.candidates = data.candidates || [];
+      state.decisionCounts = data.decisionCounts || {};
+      refreshDecisionFilterCounts();
+      renderList();
+      if (state.detail?.id === id) await loadSelectedCandidateDetail(id);
+      if (state.selectedIds.size > 1) renderMultiDetail();
+      else if (state.selectedId === id && state.detail) renderDetail();
+      notifyCandidatesChanged({ type: 'candidates', ids: [id] });
+    } catch (error) {
+      await showModal({
+        title: error?.code === 'NICHE_LOCKED' || /locked/i.test(error?.message || '')
+          ? 'Niche is locked'
+          : 'Rename failed',
+        confirmLabel: 'OK',
+        hideCancel: true,
+        bodyHtml: `<p>${esc(error.message)}</p>`,
+      });
+      renderList();
+    }
+  };
+
+  input.addEventListener('click', (e) => e.stopPropagation());
+  input.addEventListener('dblclick', (e) => e.stopPropagation());
+  input.addEventListener('input', arm);
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      void finish(true);
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      void finish(false);
+    } else {
+      arm();
+    }
+  });
+  input.addEventListener('blur', () => {
+    if (!armed) {
+      window.setTimeout(() => {
+        if (!done && document.activeElement !== input) input.focus();
+      }, 0);
+      return;
+    }
+    void finish(true);
+  });
+  input.focus();
+  input.select();
+}
+
 async function persistCandidateDecision(id, decision, notes) {
   try {
     const row = state.candidates.find((c) => c.id === id);
@@ -3846,6 +4264,76 @@ async function persistCandidateDecision(id, decision, notes) {
     });
     await loadCandidates();
   }
+}
+
+function clusterRosterRoleRank(role) {
+  return shotgunRoleLabel(role) === 'Hub' ? 0 : 1;
+}
+
+function sortClusterRosterMembers(members) {
+  const sort = state.clusterRosterSort || { key: 'population', dir: -1 };
+  const dir = sort.dir === -1 ? -1 : 1;
+  const key = sort.key || 'population';
+  return [...(members || [])].sort((a, b) => {
+    if (key === 'city') {
+      const al = `${a.city || ''}, ${a.state || ''}`;
+      const bl = `${b.city || ''}, ${b.state || ''}`;
+      return al.localeCompare(bl) * dir;
+    }
+    if (key === 'role') {
+      const cmp = clusterRosterRoleRank(a.role) - clusterRosterRoleRank(b.role);
+      if (cmp) return cmp * dir;
+      return `${a.city || ''}`.localeCompare(`${b.city || ''}`) * dir;
+    }
+    const ap = Number(a.population);
+    const bp = Number(b.population);
+    const aOk = Number.isFinite(ap) && ap > 0;
+    const bOk = Number.isFinite(bp) && bp > 0;
+    if (aOk !== bOk) return aOk ? -1 : 1;
+    if (!aOk) return 0;
+    return (ap - bp) * dir;
+  });
+}
+
+function renderClusterRosterHtml(detail) {
+  const members = detail.shotgunMembers || [];
+  if (!detail.shotgunClusterId) return '';
+  const sort = state.clusterRosterSort || { key: 'population', dir: -1 };
+  const mark = (key) => (sort.key === key ? (sort.dir === 1 ? ' ▲' : ' ▼') : '');
+  const rows = sortClusterRosterMembers(members)
+    .map((m) => {
+      const ck = parseClusterKey(m.clusterKey);
+      const isHub =
+        String(m.role).toLowerCase() === 'hub' ||
+        String(m.role).toLowerCase() === 'main';
+      const remove = isHub
+        ? ''
+        : `<button type="button" class="btn btn-sm cluster-remove-city" data-city="${esc(m.city)}" data-state="${esc(m.state)}">Remove</button>`;
+      const fill = clusterColor(ck);
+      const clStyle = fill ? ` style="color:${fill};font-weight:700"` : '';
+      return `<tr>
+        <td>${esc(cityMapLabel(m.city, ck, { hub: isHub }))}, ${esc(m.state)}</td>
+        <td${clStyle}>${esc(ck ? String(ck) : '—')}</td>
+        <td class="cluster-roster-pop">${esc(formatShotgunPop(m.population))}</td>
+        <td>${remove}</td>
+      </tr>`;
+    })
+    .join('');
+  return `<div class="cluster-roster" data-cluster-id="${esc(detail.shotgunClusterId)}">
+    <h4 class="scores-heading">Zone roster</h4>
+    <table class="scores-table"><thead><tr>
+      <th class="sortable" data-sort="city" data-tip="Sort by city">City${mark('city')}</th>
+      <th class="sortable" data-sort="cluster" data-tip="Sort by cluster">Cl${mark('cluster')}</th>
+      <th class="sortable" data-sort="population" data-tip="Sort by population">Pop${mark('population')}</th>
+      <th></th>
+    </tr></thead>
+    <tbody>${rows}</tbody></table>
+    <p class="cluster-add-row">
+      <input id="cluster-add-city" placeholder="City" />
+      <input id="cluster-add-state" placeholder="ST" maxlength="2" style="width:3.2rem" />
+      <button type="button" class="btn btn-sm" id="cluster-add-btn">Add city</button>
+    </p>
+  </div>`;
 }
 
 function renderList() {
@@ -3921,15 +4409,35 @@ function renderList() {
           )}</td>`;
         }
         if (col.key === 'niche') {
-          return `<td${tdClass} data-tip="${esc(c.id)}"><span class="cell-text">${esc(
-            c.niche || '—',
-          )}</span></td>`;
+          const locked = Boolean(c.nicheRenameLocked);
+          const tip = locked
+            ? 'Double-click to rename (confirm after evaluations)'
+            : 'Double-click to rename (before evaluations)';
+          const nicheClass = col.cellClass ? `${col.cellClass} cand-niche` : 'cand-niche';
+          return `<td class="${esc(nicheClass)}" data-id="${esc(c.id)}" data-niche-locked="${
+            locked ? '1' : '0'
+          }" data-tip="${esc(tip)}"><span class="cell-text">${esc(c.niche || '—')}</span></td>`;
         }
         if (col.key === 'city') {
-          return `<td${tdClass}><span class="cell-text">${esc(c.primaryCity || '—')}</span></td>`;
+          const hub = String(c.shotgunRole || '').toLowerCase() === 'hub';
+          const label = cityMapLabel(c.primaryCity || '—', rowClusterKey(c), { hub });
+          const zoneBtn = c.shotgunClusterId
+            ? ` <button type="button" class="btn btn-sm zone-map-open" data-zone-id="${esc(c.shotgunClusterId)}" data-tip="Open Zone map">Zone</button>`
+            : '';
+          return `<td${tdClass}><span class="cell-text">${esc(label)}</span>${zoneBtn}</td>`;
         }
         if (col.key === 'state') {
           return `<td${tdClass}><span class="cell-text">${esc(c.state || '—')}</span></td>`;
+        }
+        if (col.key === 'shotgunSg') {
+          const sg = formatZnDisplay(c.sgNumber ?? c.shotgunSg);
+          return `<td${tdClass}><span class="cell-text">${esc(sg || '—')}</span></td>`;
+        }
+        if (col.key === 'shotgunClusterKey') {
+          const ck = rowClusterKey(c);
+          const fill = clusterColor(ck);
+          const style = fill ? ` style="color:${fill};font-weight:700"` : '';
+          return `<td${tdClass}><span class="cell-text"${style}>${esc(ck ? String(ck) : '—')}</span></td>`;
         }
         if (col.key === 'population') {
           return `<td${tdClass}>${
@@ -3957,6 +4465,10 @@ function renderList() {
         if (col.key === 'volume') {
           return `<td${tdClass}>${demandVolumeHtml(c.demandVolumeSum ?? c.clusterVolumeSum, {
             alpha: c.suburbOverlapFactor,
+            honesty: adsVolumeHonesty({
+              volumesSkipped: c.volumesSkipped,
+              adsLocationFallback: c.adsLocationFallback,
+            }),
           })}</td>`;
         }
         if (col.key === 'jobCost') {
@@ -4107,7 +4619,8 @@ function renderList() {
         }
         return `<td${tdClass}>—</td>`;
       });
-      return `<tr class="${active}" data-id="${esc(c.id)}">${cells.join('')}</tr>`;
+      const sgAttr = clusterRowAttr(c);
+      return `<tr class="${active}" data-id="${esc(c.id)}"${sgAttr}>${cells.join('')}</tr>`;
     })
     .join('');
 
@@ -4150,7 +4663,7 @@ function renderList() {
     tr.addEventListener('click', (e) => {
       if (
         e.target.closest(
-          'input.cand-check, select.cand-decision, input.cand-notes, button.cand-open-map',
+          'input.cand-check, select.cand-decision, input.cand-notes, input.cand-niche-input, button.cand-open-map',
         )
       )
         return;
@@ -4235,6 +4748,13 @@ function renderList() {
       void persistCandidateDecision(sel.dataset.id, sel.value);
     });
   });
+  tbody.querySelectorAll('td.cand-niche').forEach((td) => {
+    td.addEventListener('dblclick', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      void beginCandidateNicheEdit(td);
+    });
+  });
   tbody.querySelectorAll('input.cand-notes').forEach((inp) => {
     inp.addEventListener('click', (e) => e.stopPropagation());
     inp.addEventListener('blur', () => {
@@ -4248,6 +4768,154 @@ function renderList() {
   renderActions();
   enableTableColumnResize(document.getElementById('candidate-table'), {
     freezeCols: 7,
+  });
+}
+
+async function bindClusterRoster(detail) {
+  const clusterId = detail?.shotgunClusterId;
+  if (!clusterId) return;
+  document.querySelectorAll('.cluster-roster th.sortable').forEach((th) => {
+    th.addEventListener('click', () => {
+      const key = th.dataset.sort;
+      if (!key) return;
+      const cur = state.clusterRosterSort || { key: 'population', dir: -1 };
+      if (cur.key === key) state.clusterRosterSort = { key, dir: cur.dir === 1 ? -1 : 1 };
+      else state.clusterRosterSort = { key, dir: key === 'population' ? -1 : 1 };
+      const wrap = document.querySelector('.cluster-roster');
+      if (!wrap) return;
+      wrap.outerHTML = renderClusterRosterHtml(detail);
+      void bindClusterRoster(detail);
+    });
+  });
+  document.getElementById('cluster-add-btn')?.addEventListener('click', async () => {
+    const city = String(document.getElementById('cluster-add-city')?.value || '').trim();
+    const stateAbbr = String(document.getElementById('cluster-add-state')?.value || '').trim().toUpperCase();
+    if (!city || stateAbbr.length !== 2) {
+      showToast('Enter a city and two-letter state', { tone: 'warn' });
+      return;
+    }
+    try {
+      await api(`/api/shotgun-clusters/${encodeURIComponent(clusterId)}/members`, {
+        method: 'POST',
+        body: JSON.stringify({ city, state: stateAbbr }),
+      });
+      showToast(`Added ${city}, ${stateAbbr} to the cluster`);
+      await loadCandidates();
+      await selectCandidate(detail.id);
+    } catch (error) {
+      if (error.code === 'OUTSIDE_CLUSTER_BAND' || /outside the typical cluster/i.test(error.message || '')) {
+        const ok = await showModal({
+          title: 'Outside typical cluster',
+          confirmLabel: 'Add anyway',
+          bodyHtml: `<p>${esc(error.message)}</p>`,
+        });
+        if (!ok) return;
+        await api(`/api/shotgun-clusters/${encodeURIComponent(clusterId)}/members`, {
+          method: 'POST',
+          body: JSON.stringify({ city, state: stateAbbr, confirmOutside: true }),
+        });
+        showToast(`Added ${city}, ${stateAbbr} to the cluster`);
+        await loadCandidates();
+        await selectCandidate(detail.id);
+        return;
+      }
+      await showModal({
+        title: 'Could not add city',
+        confirmLabel: 'OK',
+        hideCancel: true,
+        bodyHtml: `<p>${esc(error.message)}</p>`,
+      });
+    }
+  });
+  document.querySelectorAll('.cluster-remove-city').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const city = btn.dataset.city;
+      const st = btn.dataset.state;
+      const pick = { archive: false, delete: false };
+      const choice = await showModal({
+        title: `Remove ${city}, ${st}?`,
+        confirmLabel: 'Keep as standalone',
+        cancelLabel: 'Cancel',
+        bodyHtml: `<p>Remove this Cluster City from the cluster. Evaluation data is kept.</p>
+          <p class="muted small">Site-config updates now. Already-launched HTML location pages stay until the next Assemble / Write.</p>
+          <p class="cluster-remove-extra">
+            <button type="button" class="btn" id="cluster-remove-archive">Archive instead</button>
+            <button type="button" class="btn danger" id="cluster-remove-delete">Delete permanently</button>
+          </p>`,
+        afterOpen: (body) => {
+          body.querySelector('#cluster-remove-archive')?.addEventListener('click', () => {
+            pick.archive = true;
+            document.getElementById('modal-confirm')?.click();
+          });
+          body.querySelector('#cluster-remove-delete')?.addEventListener('click', () => {
+            pick.delete = true;
+            document.getElementById('modal-confirm')?.click();
+          });
+        },
+      });
+      if (!choice) return;
+      if (pick.delete) {
+        const typed = await showModal({
+          title: 'Type to confirm permanent delete',
+          confirmLabel: 'Delete permanently',
+          danger: true,
+          requireTypedConfirm: 'DELETE',
+          bodyHtml: `<p>Remove <strong>${esc(city)}, ${esc(st)}</strong> from the cluster and permanently delete its Rover files and local assembled folder. This cannot be undone from the UI.</p>
+            <p class="muted small">Launched cities are blocked. Unlaunched Research and Website Cluster Cities can be deleted.</p>`,
+        });
+        if (!typed) return;
+      }
+      const disposition = pick.delete ? 'delete' : pick.archive ? 'archive' : 'standalone';
+      try {
+        const result = await api(`/api/shotgun-clusters/${encodeURIComponent(clusterId)}/members/remove`, {
+          method: 'POST',
+          body: JSON.stringify({ city, state: st, disposition }),
+        });
+        showToast(
+          pick.delete ? `Deleted ${city}, ${st}` : `Removed ${city}, ${st}`,
+        );
+        await loadCandidates();
+        const removedId = result.removed?.candidateId;
+        const stillHere = state.candidates.some((c) => c.id === detail.id);
+        if (pick.delete && removedId && detail.id === removedId) {
+          const hub = (result.cluster?.members || []).find((m) => {
+            const r = String(m.role || '').toLowerCase();
+            return r === 'hub' || r === 'main';
+          });
+          if (hub?.candidateId) await selectCandidate(hub.candidateId);
+          else {
+            state.selectedId = null;
+            state.detail = null;
+            syncCandidatesDetailVisibility();
+            renderList();
+            renderActions();
+          }
+        } else if (stillHere) {
+          await selectCandidate(detail.id);
+        } else {
+          renderList();
+          renderActions();
+        }
+      } catch (error) {
+        if (error.code === 'UNDELETABLE_CANDIDATE') {
+          await showModal({
+            title: 'Cannot delete Launched',
+            confirmLabel: 'OK',
+            hideCancel: true,
+            bodyHtml: `<p>Launched Candidates cannot be permanently deleted from Rover.</p>
+              <p>${esc(error.message)}</p>
+              <p class="muted">Keep as standalone or Archive instead.</p>`,
+          });
+          return;
+        }
+        await showModal({
+          title: 'Could not remove city',
+          confirmLabel: 'OK',
+          hideCancel: true,
+          bodyHtml: `<p>${esc(error.message)}</p>`,
+        });
+      }
+    });
   });
 }
 
@@ -4310,22 +4978,45 @@ function stopWebsiteLeaseHeartbeat() {
   }
 }
 
-function startWebsiteLeaseHeartbeat(id) {
+function writeSiteInFlightTrack() {
+  const track = state._writeSiteTrack;
+  if (!track?.jobId || !track?.candidateId) return null;
+  if (state._writeSiteHandledJobId === track.jobId) return null;
+  return track;
+}
+
+function leaseIdsToHeartbeat() {
+  const ids = [];
+  if (websiteLeaseNeeded() && state.websiteLease.mine && state.websiteLease.candidateId) {
+    ids.push(String(state.websiteLease.candidateId));
+  }
+  const track = writeSiteInFlightTrack();
+  if (track && writeSiteTrackHoldsLease(track.candidateId, track)) {
+    const tid = String(track.candidateId);
+    if (!ids.includes(tid)) ids.push(tid);
+  }
+  return ids;
+}
+
+function startWebsiteLeaseHeartbeat() {
   stopWebsiteLeaseHeartbeat();
   websiteLeaseTimer = setInterval(() => {
-    if (!websiteLeaseNeeded() || state.websiteLease.candidateId !== id || !state.websiteLease.mine) {
+    const ids = leaseIdsToHeartbeat();
+    if (!ids.length) {
       stopWebsiteLeaseHeartbeat();
       return;
     }
-    api(`/api/candidates/${encodeURIComponent(id)}/website-lease/heartbeat`, {
-      method: 'POST',
-      body: '{}',
-    }).catch((error) => {
-      if (error?.code !== 'WEBSITE_WRITE_LOCKED') return;
-      if (String(state.selectedId || '') !== String(id || '')) return;
-      applyWebsiteLeaseState(id, { mine: false, holderTabId: error.holderTabId });
-      stopWebsiteLeaseHeartbeat();
-    });
+    for (const leaseId of ids) {
+      api(`/api/candidates/${encodeURIComponent(leaseId)}/website-lease/heartbeat`, {
+        method: 'POST',
+        body: '{}',
+        quietLock: true,
+      }).catch((error) => {
+        if (error?.code !== 'WEBSITE_WRITE_LOCKED') return;
+        if (String(state.websiteLease.candidateId || '') !== String(leaseId)) return;
+        applyWebsiteLeaseState(leaseId, { mine: false, holderTabId: error.holderTabId });
+      });
+    }
   }, 5000);
 }
 
@@ -4339,40 +5030,61 @@ async function releaseHeldWebsiteLease(id) {
 }
 
 function releaseWebsiteWriteLeaseOnLeave() {
-  const id = state.websiteLease.candidateId;
-  if (!id || !state.websiteLease.mine) return;
-  try {
-    fetch(`/api/candidates/${encodeURIComponent(id)}/website-lease`, {
-      method: 'DELETE',
-      headers: { 'content-type': 'application/json', 'X-Rover-Tab-Id': ROVER_TAB_ID },
-      keepalive: true,
-    });
-  } catch {
-    /* ignore */
+  const ids = new Set();
+  if (state.websiteLease.candidateId && state.websiteLease.mine) {
+    ids.add(state.websiteLease.candidateId);
+  }
+  const track = writeSiteInFlightTrack();
+  if (track?.candidateId) ids.add(track.candidateId);
+  for (const id of ids) {
+    try {
+      fetch(`/api/candidates/${encodeURIComponent(id)}/website-lease`, {
+        method: 'DELETE',
+        headers: { 'content-type': 'application/json', 'X-Rover-Tab-Id': ROVER_TAB_ID },
+        keepalive: true,
+      });
+    } catch {
+      /* ignore */
+    }
   }
 }
 
 async function refreshWebsiteWriteLease() {
   stopWebsiteLeaseHeartbeat();
   const prev = state.websiteLease.candidateId;
+  const holdTrack = writeSiteInFlightTrack();
   if (!websiteLeaseNeeded()) {
     stopWebsiteLeaseHeartbeat();
     if (prev && state.websiteLease.mine) await releaseHeldWebsiteLease(prev);
+    if (holdTrack?.candidateId && holdTrack.candidateId !== prev) {
+      await releaseHeldWebsiteLease(holdTrack.candidateId);
+    }
     applyWebsiteLeaseState(null, { mine: true, holderTabId: null });
     return;
   }
   const id = state.selectedId;
-  if (prev && prev !== id && state.websiteLease.mine) await releaseHeldWebsiteLease(prev);
+  if (
+    prev &&
+    prev !== id &&
+    state.websiteLease.mine &&
+    !writeSiteTrackHoldsLease(prev, holdTrack)
+  ) {
+    await releaseHeldWebsiteLease(prev);
+  }
   try {
     const claimed = await api(`/api/candidates/${encodeURIComponent(id)}/website-lease`, {
       method: 'POST',
       body: JSON.stringify({ takeover: false }),
     });
     applyWebsiteLeaseState(id, claimed);
-    if (claimed.mine) startWebsiteLeaseHeartbeat(id);
-    else stopWebsiteLeaseHeartbeat();
+    if (claimed.mine || writeSiteTrackHoldsLease(holdTrack?.candidateId, holdTrack)) {
+      startWebsiteLeaseHeartbeat();
+    } else {
+      stopWebsiteLeaseHeartbeat();
+    }
   } catch {
     applyWebsiteLeaseState(id, { mine: true, holderTabId: null });
+    if (writeSiteTrackHoldsLease(holdTrack?.candidateId, holdTrack)) startWebsiteLeaseHeartbeat();
   }
 }
 
@@ -4392,7 +5104,7 @@ async function takeoverWebsiteWriteLease() {
       body: JSON.stringify({ takeover: true }),
     });
     applyWebsiteLeaseState(id, claimed);
-    if (claimed.mine) startWebsiteLeaseHeartbeat(id);
+    if (claimed.mine) startWebsiteLeaseHeartbeat();
   } catch (error) {
     showToast(error.message || 'Could not take over editing.', { tone: 'err' });
   }
@@ -4675,7 +5387,7 @@ function generatePackJobRunning() {
 }
 
 function claudeApiJobRunning() {
-  return writeSiteJobRunning() || generatePackJobRunning() || Boolean(state.claudeBusy);
+  return writeSiteJobRunning() || generatePackJobRunning() || shotgunJobRunning() || Boolean(state.claudeBusy);
 }
 
 function showAppBootLoading(text = 'Loading…') {
@@ -6181,7 +6893,14 @@ function startJobPoll(jobId, act) {
           else if (finishedAct === 'enrich') state.tab = 'enrichment';
           else if (finishedAct === 'prospects') state.tab = 'prospects';
         } else {
-          announceBanner(`${jobActLabel(finishedAct)} failed`, { tone: 'err' });
+          const payErr =
+            isDataForSeoPaymentError(job.error) || isDataForSeoPaymentError(job.logText);
+          announceBanner(
+            payErr
+              ? 'DataForSEO needs funds — add credit, then retry SERP / Volume.'
+              : `${jobActLabel(finishedAct)} failed`,
+            { tone: 'err' },
+          );
           state.tab = 'logs';
         }
         renderDetail();
@@ -6197,15 +6916,24 @@ function startJobPoll(jobId, act) {
             provider: job.costSource || 'dataforseo',
           });
         } else {
-          const tail = String(job.logText || '')
-            .trim()
-            .split(/\r?\n/)
-            .slice(-8)
-            .join('\n');
-          await showModal({
-            title: `${jobActLabel(finishedAct)} failed`,
-            confirmLabel: 'OK',
-            bodyHtml: `
+          const payErr =
+            isDataForSeoPaymentError(job.error) || isDataForSeoPaymentError(job.logText);
+          if (payErr) {
+            await showModal({
+              title: 'DataForSEO needs funds',
+              confirmLabel: 'OK',
+              bodyHtml: dataForSeoPaymentHelpHtml({ failedCount: 1, createdOk: true }),
+            });
+          } else {
+            const tail = String(job.logText || '')
+              .trim()
+              .split(/\r?\n/)
+              .slice(-8)
+              .join('\n');
+            await showModal({
+              title: `${jobActLabel(finishedAct)} failed`,
+              confirmLabel: 'OK',
+              bodyHtml: `
               <p><strong>${esc(job.error || 'Job exited with an error')}</strong></p>
               ${
                 tail
@@ -6214,7 +6942,8 @@ function startJobPoll(jobId, act) {
               }
               <p class="muted">See the Logs tab for the full stream.</p>
             `,
-          });
+            });
+          }
         }
       }
     } catch {
@@ -6311,6 +7040,7 @@ function renderOverview() {
       'Demand (scored)',
       demandVolumeHtml(s.demandVolumeSum ?? s.clusterVolumeSum, {
         alpha: s.suburbOverlapFactor,
+        honesty: adsVolumeHonesty(r?.volumes || s),
       }),
       s.demandVolumeSum != null
         ? `${s.demandVolumeSum} / mo demandVolumeSum (primary ${s.primaryVolumeSum ?? '—'} · cluster ${s.clusterVolumeSum ?? '—'})`
@@ -6423,7 +7153,15 @@ function renderOverview() {
       </label>
       <input id="decision-notes" placeholder="Notes" value="${esc(meta.decisionNotes || '')}" style="min-width:220px" />
       <button type="button" class="btn primary" id="save-decision">Save decision</button>
+      <button type="button" class="btn" id="shotgun-this-metro" data-tip="Lock this city as Cluster Hub and assign Cluster Cities in the same metro">Cluster this metro</button>
     </div>
+    ${
+      state.detail.shotgunClusterId
+        ? `<p class="muted small">Zone: ${esc(state.detail.shotgunClusterName)} · ${esc(shotgunRoleLabel(state.detail.shotgunRole, state.detail) || '')}${state.detail.shotgunSg ? ` · ${esc(formatZnDisplay(state.detail.sgNumber ?? state.detail.shotgunSg))}` : ''}${rowClusterKey(state.detail) ? ` · Cluster ${esc(String(rowClusterKey(state.detail)))}` : ''}
+        <button type="button" class="btn btn-sm zone-map-open" data-zone-id="${esc(state.detail.shotgunClusterId)}">Zone map</button></p>
+        ${renderClusterRosterHtml(state.detail)}`
+        : ''
+    }
     <details class="overview-paths">
       <summary>File paths</summary>
       ${tableHtml(
@@ -6632,6 +7370,13 @@ function fmtCityPop(n) {
 }
 
 function citiesMeasuredHtml(vols) {
+  const honesty = adsVolumeHonesty(vols);
+  if (honesty.mode === 'skipped') {
+    const tip = honesty.staleState
+      ? 'Statewide Ads volume is not local. Re-run SERP / Volume.'
+      : 'No Google Ads geo for this city (and no Ads-listed neighbor).';
+    return `<span class="metric metric-neutral" ${tipAttr(tip)}>No Ads geo — volumes skipped</span>`;
+  }
   const byCity = Array.isArray(vols?.byCity) ? vols.byCity : [];
   const lines = [];
   if (byCity.length) {
@@ -6639,7 +7384,8 @@ function citiesMeasuredHtml(vols) {
       const city = String(row.city || '').trim();
       const state = String(row.state || '').trim();
       if (!city) continue;
-      const label = state ? `${city}, ${state}` : city;
+      const measured = String(row.measuredAs || '').trim();
+      const label = measured || (state ? `${city}, ${state}` : city);
       const pop = fmtCityPop(row.population);
       lines.push(pop ? `${label} · ${pop}` : label);
     }
@@ -6648,6 +7394,9 @@ function citiesMeasuredHtml(vols) {
       const s = String(label || '').trim();
       if (s) lines.push(s);
     }
+  }
+  if (honesty.mode === 'neighbor' && honesty.from && !lines.some((l) => /Ads:/i.test(l))) {
+    lines.unshift(`${honesty.requested || 'Primary'} · Ads ${honesty.from}`);
   }
   if (!lines.length) {
     return `<span class="metric metric-neutral">—</span>`;
@@ -6660,35 +7409,43 @@ function citiesMeasuredHtml(vols) {
 function renderKeywords() {
   const vols = state.detail.research?.volumes;
   if (!vols) return '<p class="muted">No volumes yet — run SERP / Volume (Evaluation 1).</p>';
+  const honesty = adsVolumeHonesty(vols);
   const rows = (vols.keywords || []).map((k) => [
     esc(k.keyword),
-    esc(k.primaryVolume),
-    esc(k.clusterSum),
+    esc(k.primaryVolume ?? '—'),
+    esc(k.clusterSum ?? '—'),
     esc(k.competition ?? '—'),
     esc(k.cpc ?? '—'),
     esc(JSON.stringify(k.perCity || {})),
   ]);
   const headers = [
     thWithTip('Keyword', 'Keyword from related ideas + seeds'),
-    thWithTip('Primary', 'Monthly volume FROM the primary city geo (not “about” the city)'),
+    thWithTip('Primary', 'Monthly volume FROM the Ads geo used for the primary city (neighbor geo if noted)'),
     thWithTip('Cluster', 'Sum of volumes across measured cluster cities'),
     thWithTip('Comp', 'Google Ads auction competition (LOW/MED/HIGH) — not organic SEO difficulty'),
     thWithTip('CPC', 'Ads cost-per-click when available — commercial intent proxy'),
-    thWithTip('Per city', 'Volume broken out by measured city'),
+    thWithTip('Per city', 'Volume broken out by measured geo'),
   ];
+
+  const primarySumHtml =
+    honesty.mode === 'skipped' || vols.primaryVolumeSum == null
+      ? `<span class="metric metric-neutral">—</span>`
+      : `<span class="metric metric-neutral"><strong>${esc(vols.primaryVolumeSum)}</strong><span class="metric-suffix"> /mo</span></span>`;
 
   return `
     <div class="stat-grid">
-      ${statCard('Primary sum', `<span class="metric metric-neutral"><strong>${esc(vols.primaryVolumeSum)}</strong><span class="metric-suffix"> /mo</span></span>`)}
-      ${statCard('Cluster sum', clusterVolumeHtml(vols.clusterVolumeSum))}
+      ${statCard('Primary sum', primarySumHtml)}
+      ${statCard('Cluster sum', clusterVolumeHtml(honesty.mode === 'skipped' ? null : vols.clusterVolumeSum))}
       ${statCard(
         'Demand (scored)',
-        demandVolumeHtml(vols.demandVolumeSum ?? vols.clusterVolumeSum, {
+        demandVolumeHtml(honesty.mode === 'skipped' ? null : vols.demandVolumeSum ?? vols.clusterVolumeSum, {
           alpha: vols.suburbOverlapFactor,
+          honesty,
         }),
       )}
       ${statCard('Cities measured', citiesMeasuredHtml(vols))}
     </div>
+    ${honesty.mode === 'skipped' ? '<p class="muted">Ads volumes skipped — this city is not a Google Ads geo and has no Ads-listed neighbor.</p>' : ''}
     ${tableHtml(headers, rows)}
   `;
 }
@@ -7746,6 +8503,11 @@ function baAddressQueryWithoutSuite(row = {}) {
   return [row.street, row.city, row.state, row.zip].filter(Boolean).join(', ');
 }
 
+function baFoundAtMs(row) {
+  const t = Date.parse(row?.foundAt || '');
+  return Number.isFinite(t) ? t : 0;
+}
+
 function baHasCoords(row = {}) {
   return (
     row.lat != null &&
@@ -8529,10 +9291,12 @@ function renderSiteConfig() {
 
   const primaryShortlist = shortlist
     .map((row, i) => ({ row, i }))
-    .filter(({ row }) => row.tier !== 'secondary');
+    .filter(({ row }) => row.tier !== 'secondary')
+    .sort((a, b) => baFoundAtMs(b.row) - baFoundAtMs(a.row));
   const secondaryShortlist = shortlist
     .map((row, i) => ({ row, i }))
-    .filter(({ row }) => row.tier === 'secondary');
+    .filter(({ row }) => row.tier === 'secondary')
+    .sort((a, b) => baFoundAtMs(b.row) - baFoundAtMs(a.row));
 
   const shortlistHtml = shortlist.length
     ? `<div class="ba-shortlist" style="margin-top:0.75rem">
@@ -8859,9 +9623,19 @@ function renderSiteConfig() {
 
   const domainPick =
     nap.domainPick && typeof nap.domainPick === 'object' ? nap.domainPick : {};
-  const domainSuggestions = Array.isArray(domainPick.suggestions)
+  let domainSuggestions = Array.isArray(domainPick.suggestions)
     ? domainPick.suggestions
     : [];
+  const nicheForDomains = String(
+    pack?.niche || accepted?.niche || d?.summary?.niche || d?.niche || '',
+  ).trim();
+  if (!domainSuggestions.length && addrCity && nicheForDomains) {
+    const local = suggestExactMatchDomains({ city: addrCity, niche: nicheForDomains });
+    if (local.length) {
+      writeDomainPickToNap({ domainPick: { suggestions: local } }, d?.id);
+      domainSuggestions = local;
+    }
+  }
   const selectedDomain = normalizeDomainHostname(domainPick.selectedDomain || '');
   const customDomain = String(domainPick.customDomain || '').trim();
   const domainChoiceReady = Boolean(
@@ -8891,11 +9665,7 @@ function renderSiteConfig() {
           </li>`;
         })
         .join('')}</ul>`
-    : `<p class="muted small">${
-        apiMode
-          ? 'Run Suggest domains to see top Exact Match hosts.'
-          : 'Paste Claude’s reply and Load to see top Exact Match suggestions.'
-      }</p>`;
+        : `<p class="muted small">Need city and niche on the candidate to build Exact Match hosts.</p>`;
 
   const domainBusy = Boolean(state.claudeBusy && state.activeAct === 'domain-pick');
   const domainGateOk = ready || f.hasApproved;
@@ -8936,11 +9706,9 @@ function renderSiteConfig() {
       done: domainDone,
       open: openId === 'domain',
       current: currentId === 'domain' && !domainDone,
-      info: apiMode
-        ? 'Run Suggest domains for Exact Match hosts (primary city first only), pick one (or enter a custom host), buy on Cloudflare if needed, then Continue to Business details.'
-        : 'Copy the Exact Domain Match prompt, paste Claude’s top 10 (primary city first only), pick one (or enter a custom host), buy on Cloudflare if needed, then Continue to Business details.',
+      info: 'Pick a city-first Exact Match host (or enter a custom one), buy on Cloudflare if needed, then Continue to Business details. Claude Suggest is optional extra ideas.',
       bodyHtml: `
-        <p class="disc-tool-blurb">Claude suggests Exact Domain Match hosts that start with the primary city and the niche’s strongest keywords (plus a few city-first suffixes like pros / elite). No other cities. Availability is Claude’s best guess only — confirm when you buy.</p>
+        <p class="disc-tool-blurb">Rover fills Exact Match hosts from the primary city and niche (city slug first — no other cities). Claude Suggest / paste is optional. Confirm availability when you buy.</p>
         ${domainClaudeHtml}
         <div class="sc-domain-pick" style="margin-top:0.65rem">
           <h4>Suggestions</h4>
@@ -9229,10 +9997,10 @@ function renderSiteConfig() {
       open: openId === 'phone',
       current: currentId === 'phone' && !phoneDone,
       locked: !accepted,
-      info: 'Buy a Twilio local DID or Skip (~$1.15/mo). A phone already in site-config from Claude does not complete this step. Whisper uses business name. See docs/PHONE-TRACKING.md.',
+      info: 'Buy a Twilio local DID or Skip (~$1.15/mo). Ranking calls take a voicemail and text you. A phone already in site-config from Claude does not complete this step. See docs/PHONE-TRACKING.md.',
       bodyHtml: accepted
         ? `
-          <p class="disc-tool-blurb">Provision a local ranking number, then continue Content → Website Prepare / Launch.</p>
+          <p class="disc-tool-blurb">Provision a local ranking number (voicemail while ranking; texts you). Then continue Content → Website Prepare / Launch.</p>
           ${phoneTrackingHint}
           <div class="narrative-actions" style="align-items:center;gap:0.5rem;flex-wrap:wrap;margin-top:0.5rem">
             <label class="muted small" style="display:inline-flex;align-items:center;gap:0.35rem">
@@ -10392,70 +11160,141 @@ function shipOverlayHtml() {
 
 function setWriteSiteOverlayVisible(visible) {
   setRoverJobOverlayVisible('content-write-site-overlay', visible);
+  if (!visible) {
+    const overlay = document.getElementById('content-write-site-overlay');
+    if (overlay) delete overlay.dataset.jobId;
+  }
+}
+
+function writeSiteCandidateLabel(id) {
+  const want = String(id || '');
+  const c =
+    (state.detail && String(state.detail.id) === want ? state.detail : null) ||
+    state.candidates.find((x) => String(x.id) === want);
+  if (!c) return want || 'site';
+  const place = [c.primaryCity || c.city, c.state].filter(Boolean).join(', ');
+  const niche = c.niche || 'Site';
+  return place ? `${niche} — ${place}` : niche;
+}
+
+async function lookupTrackedWriteSiteJob(track) {
+  if (!track?.jobId) return;
+  try {
+    const data = await api(`/api/light-jobs/${encodeURIComponent(track.jobId)}`, {
+      quietLock: true,
+    });
+    const job = data?.job;
+    if (!job) return;
+    const jobs = [...(state.lightJobsSnap?.jobs || [])];
+    const i = jobs.findIndex((j) => String(j.id) === String(job.id));
+    if (i >= 0) jobs[i] = job;
+    else jobs.unshift(job);
+    const snap = { ...(state.lightJobsSnap || {}), jobs };
+    state.lightJobsSnap = snap;
+    syncWriteSiteOverlay(snap);
+  } catch {
+    /* still waiting — do not treat missing job as failure */
+  }
+}
+
+async function reloadWriteSiteRow(candidateId, finished) {
+  const cid = String(candidateId || '');
+  if (!cid || String(state.selectedId || '') !== cid) return;
+  await applyCandidatePayload(null, cid);
+  if (String(state.selectedId || '') !== cid) return;
+  if (state.tab !== 'content') return;
+  if (finished?.status === 'done') {
+    const photosOn = contentPhotosEnabled(state.detail);
+    advancePanelStep('content', photosOn ? 'photoGroup' : 'accept');
+  }
+  renderDetail();
+}
+
+function refreshWatchedWriteSiteRow(finished) {
+  const jobId = String(finished?.id || '');
+  const cid = String(finished?.candidateId || state.selectedId || '');
+  if (!jobId || !cid) return;
+  if (state._writeSiteRefreshedSelectedJobId === jobId) return;
+  if (String(state.selectedId || '') !== cid) return;
+  state._writeSiteRefreshedSelectedJobId = jobId;
+  void reloadWriteSiteRow(cid, finished).catch(() => {});
 }
 
 function syncWriteSiteOverlay(snap) {
-  const cid = state.selectedId;
-  const job = findActiveJob(snap, 'write-site', cid);
-  const overlay = document.getElementById('content-write-site-overlay');
-  if (job) {
-    state._writeSiteTrack = { candidateId: job.candidateId, jobId: job.id };
+  const track = state._writeSiteTrack;
+  const jobs = snap?.jobs || [];
+  const resolved = resolveWriteSiteOverlay({
+    jobs,
+    selectedId: state.selectedId,
+    track,
+  });
+  if (resolved.paintJob) {
     paintRoverJobOverlay({
       overlayId: 'content-write-site-overlay',
       detailId: 'ws-overlay-detail',
       barId: 'ws-overlay-bar',
       phasesId: 'ws-overlay-phases',
       stopId: 'ws-overlay-stop',
-      job,
+      job: resolved.paintJob,
     });
+  } else {
+    setWriteSiteOverlayVisible(false);
+  }
+  const watched = selectedWriteSiteNeedsRefresh({
+    jobs,
+    selectedId: state.selectedId,
+    track,
+  });
+  if (watched) refreshWatchedWriteSiteRow(watched);
+  if (!track) return;
+  if (resolved.outcome === 'wait' || !resolved.outcome) {
+    if (resolved.lookupTrackedJob) {
+      const now = Date.now();
+      if (!state._writeSiteLookupAt || now - state._writeSiteLookupAt > 8000) {
+        state._writeSiteLookupAt = now;
+        void lookupTrackedWriteSiteJob(track);
+      }
+    }
     return;
   }
-  setWriteSiteOverlayVisible(false);
-  const track = state._writeSiteTrack;
-  if (!track) return;
-  const finished = (snap?.jobs || []).find((j) => String(j.id) === String(track.jobId));
-  const stillElsewhere =
-    finished && (finished.status === 'running' || finished.status === 'queued');
-  if (stillElsewhere) return;
   if (state._writeSiteHandledJobId === track.jobId) return;
   state._writeSiteHandledJobId = track.jobId;
   state._writeSiteTrack = null;
+  state._writeSiteLookupAt = 0;
+  const finished = resolved.finished;
   const targetId = track.candidateId;
+  const onRow = String(state.selectedId || '') === String(targetId || '');
+  if (!onRow) void releaseHeldWebsiteLease(targetId);
+  if (onRow && finished?.id) state._writeSiteRefreshedSelectedJobId = String(finished.id);
   void (async () => {
-    if (state.selectedId === targetId) {
+    if (onRow) {
       try {
-        await applyCandidatePayload(null, targetId);
-        const candidate = state.detail;
-        if (state.tab === 'content') {
-          if (finished?.status === 'done') {
-            const photosOn = contentPhotosEnabled(candidate);
-            advancePanelStep('content', photosOn ? 'photoGroup' : 'accept');
-          }
-          renderDetail();
-        }
+        await reloadWriteSiteRow(targetId, finished);
       } catch {
         /* ignore */
       }
     }
-    if (finished?.status === 'done') {
-      announceStepComplete('Write site');
-    } else if (finished?.status === 'error' || !finished) {
+    const label = writeSiteCandidateLabel(targetId);
+    const named = onRow ? 'Write site' : `Write site (${label})`;
+    if (resolved.outcome === 'done') {
+      announceStepComplete(named);
+    } else if (resolved.outcome === 'stopped') {
+      announceBanner(
+        onRow
+          ? 'Write site stopped — files written so far are kept.'
+          : `Write site stopped — ${label}. Files written so far are kept.`,
+      );
+    } else if (resolved.outcome === 'error') {
       const msg = finished?.error || 'Write site stopped or failed.';
-      if (/stopped/i.test(msg)) {
-        announceBanner('Write site stopped — files written so far are kept.');
-      } else {
-        announceBanner('Write site failed', { tone: 'err' });
-        await showModal({
-          title: 'Write site failed',
-          confirmLabel: 'OK',
-          hideCancel: true,
-          bodyHtml: `<p>${esc(msg)}</p>${
-            finished?.speechLint
-              ? speechLintFindingsHtml(finished.speechLint)
-              : ''
-          }`,
-        });
-      }
+      announceBanner(onRow ? 'Write site failed' : `Write site failed — ${label}`, { tone: 'err' });
+      await showModal({
+        title: 'Write site failed',
+        confirmLabel: 'OK',
+        hideCancel: true,
+        bodyHtml: `<p>${esc(msg)}</p>${
+          finished?.speechLint ? speechLintFindingsHtml(finished.speechLint) : ''
+        }`,
+      });
     }
   })();
 }
@@ -10487,11 +11326,13 @@ async function startWriteSiteFromUi(id) {
     });
     state._writeSiteHandledJobId = null;
     state._writeSiteTrack = { candidateId: id, jobId: accepted.jobId };
+    startWebsiteLeaseHeartbeat();
     syncWriteSiteOverlay(snapWithOptimisticWriteSite(accepted.jobId, id));
     syncClaudeModeToggle();
   } catch (error) {
     if (error.code === 'WRITE_SITE_RUNNING' && error.jobId) {
       state._writeSiteTrack = { candidateId: id, jobId: error.jobId };
+      startWebsiteLeaseHeartbeat();
       syncWriteSiteOverlay(snapWithOptimisticWriteSite(error.jobId, id));
       return;
     }
@@ -10714,6 +11555,10 @@ async function confirmGeneratePackCost(batchId) {
 }
 
 async function startGeneratePackFromUi(batchId) {
+  if (discoveryBatchIsShotgun()) {
+    await startShotgunGeneratePackFromUi();
+    return;
+  }
   const id = String(batchId || state.discoveryBatchId || '').trim();
   if (!id) {
     await showModal({
@@ -10766,6 +11611,16 @@ function syncDiscoveryApiRerunButton() {
   btn.classList.toggle('hidden', !show);
   if (!show) return;
   const hasRows = (state.discoveryRows?.length || 0) > 0;
+  const shotgun = discoveryBatchIsShotgun();
+  if (shotgun) {
+    const ready = shotgunPackReady();
+    btn.textContent = hasRows ? 'Re-run Generate cluster pack' : 'Generate cluster pack';
+    btn.disabled = generatePackJobRunning() || !ready.ok;
+    setElementTip(btn, ready.ok
+      ? 'Create Discovery rows from the selected hub only (not the other hubs in the list)'
+      : ready.tip);
+    return;
+  }
   btn.textContent = hasRows ? 'Re-run Generate pack' : 'Generate pack';
   btn.disabled = generatePackJobRunning();
 }
@@ -12219,7 +13074,7 @@ function imagesTextMatchesTitle(text, q) {
 }
 
 function imagesSlotTitle(slot) {
-  return String(slot?.label || slot?.key || '');
+  return [slot?.label, slot?.serviceName, slot?.key].filter(Boolean).join(' ');
 }
 
 function reviewBaTitle(pair) {
@@ -12927,6 +13782,10 @@ function imagesSlotCardHtml(slot) {
     ? imagesMatchDotHtml(grade, tip, { cycle: true, slotKey: slot.key })
     : '';
   const sourceLabel = imagesSlotSourceLabel(slot);
+  const serviceSub = reviewSlotServiceSubtitle(slot);
+  const serviceLine = serviceSub
+    ? `<span class="muted slot-service-subtitle">${esc(serviceSub)}</span>`
+    : '';
   const badge = sourceLabel
     ? `<span class="muted" style="font-size:0.75rem">${esc(sourceLabel)}</span>`
     : '';
@@ -12935,6 +13794,7 @@ function imagesSlotCardHtml(slot) {
     <div class="slot-thumb" style="aspect-ratio:16/10;background:#0f172a0d;display:flex;align-items:center;justify-content:center">${thumb}</div>
     <div style="padding:0.45rem 0.55rem;display:flex;flex-direction:column;gap:0.25rem">
       <strong style="font-size:0.85rem;display:flex;align-items:center;gap:0.35rem">${matchDot}${esc(slot.label || slot.key)}</strong>
+      ${serviceLine}
       ${badge}
       ${slotSourceActionsHtml({
         kind: 'photo',
@@ -13442,6 +14302,24 @@ function createSerialQueue() {
     );
     return run;
   };
+}
+
+function paintOpenaiSnapProgress(progress) {
+  const running = Number(progress?.running) || 0;
+  const queued = Number(progress?.queued) || 0;
+  const done = Number(progress?.done) || 0;
+  const total = Math.max(Number(progress?.total) || 0, running + queued + done);
+  const bits = [];
+  if (running) bits.push(`${running} generating`);
+  if (queued) bits.push(`${queued} queued`);
+  const detail = bits.join(', ') || 'Working…';
+  const multi = total > 1;
+  setImagesProgress(true, {
+    label: multi ? `OpenAI photos ${done} / ${total}` : running ? 'Generating OpenAI photo…' : 'OpenAI photo queued…',
+    detail,
+    current: done,
+    total,
+  });
 }
 
 function paintOpenaiBatchProgress(done, total) {
@@ -14522,7 +15400,7 @@ function renderWebsite() {
       num: 1,
       title: 'Logo & Map',
       done: logoMapStepDone,
-      open: openId === 'logoMap',
+      open: contentStepIsOpen('logoMap', openId),
       current: currentId === 'logoMap' && !logoMapStepDone,
       info: 'Accept already generates a Mark + text header logo (and a coverage map when Areas exist). Use these buttons if Accept skipped or to replace them. Coverage map is optional — Areas / Nominatim often skip it.',
       bodyHtml: `
@@ -14605,12 +15483,12 @@ function renderWebsite() {
       num: 2,
       title: 'Review images',
       done: imagesStepDone,
-      open: openId === 'images',
+      open: contentStepIsOpen('images', openId),
       current: currentId === 'images' && !imagesStepDone,
-      freeze: openId === 'images',
+      freeze: contentStepShowsFreeze('images', openId),
       headActionsHtml: `<button type="button" class="btn btn-sm detail-shelf-toggle hidden" id="detail-shelf-toggle" aria-expanded="false" data-tip="Expand sidebar over the table">${detailShelfToggleInnerHtml(false)}</button>`,
       freezeHtml:
-        openId === 'images'
+        contentStepShowsFreeze('images', openId)
           ? imagesReviewChromeHtml({
               spendHtml: openaiSpendLineHtml(state.detail),
               actionsHtml: `<div class="photo-group-menu">
@@ -14651,7 +15529,7 @@ function renderWebsite() {
       num: 3,
       title: 'Prepare preview',
       done: prepareStepDone,
-      open: openId === 'prepare' || openId === 'stage' || openId === 'assemble',
+      open: contentStepIsOpen('prepare', openId),
       current: currentId === 'prepare' && !prepareStepDone,
       info: prepareInfo,
       bodyHtml: `
@@ -14683,7 +15561,7 @@ function renderWebsite() {
       num: 4,
       title: 'Launch',
       done: launchStepDone,
-      open: openId === 'launch',
+      open: contentStepIsOpen('launch', openId),
       current: currentId === 'launch' && !flags.launched,
       info: flags.alreadyLive
         ? 'Already live: Prepare preview first, then Push updates (GitHub + build + Worker). Run launch only when you need to change keys or re-run Cloudflare domain/email.'
@@ -14795,7 +15673,8 @@ function renderWebsite() {
           ${
             flags.alreadyLive
               ? `<button type="button" class="btn primary" id="ca-push-updates" data-tip="Prepare preview first, then push assembled site to GitHub + build + Cloudflare Worker. Skips first-time domain/email setup." ${flags.assembled ? '' : 'disabled'}>Push updates</button>
-          <button type="button" class="btn" id="ca-launch" data-tip="Full launch: patch keys + optional ship + optional CF domain/email" ${flags.assembled ? '' : 'disabled'}>Run launch</button>`
+          <button type="button" class="btn" id="ca-launch" data-tip="Full launch: patch keys + optional ship + optional CF domain/email" ${flags.assembled ? '' : 'disabled'}>Run launch</button>
+          <button type="button" class="btn danger" id="ca-reset-launch" data-tip="Delete the GitHub repo and Cloudflare Worker for the current domain, clear launch flags, then you can Run launch on a different domain.">Relaunch with a different domain</button>`
               : `<button type="button" class="btn primary" id="ca-launch" data-tip="Ship + CF helpers" ${flags.assembled ? '' : 'disabled'}>Run launch</button>`
           }
           <button type="button" class="btn" id="ca-launch-status" data-tip="Status, human leftovers, machine creds">Launch status</button>
@@ -14831,7 +15710,7 @@ function renderWebsite() {
       num: 5,
       title: 'Indexing',
       done: indexingStepDone,
-      open: openId === 'indexing',
+      open: contentStepIsOpen('indexing', openId),
       current: currentId === 'indexing' && !indexingStepDone,
       locked: indexingLocked,
       info: 'After go-live: add the site in Google Search Console, submit the sitemap once, and request indexing on the homepage plus a few money pages. Indexing is not ranking.',
@@ -14895,7 +15774,7 @@ function renderWebsite() {
       id: 'revert',
       title: 'Revert',
       plain: true,
-      open: openId === 'revert',
+      open: contentStepIsOpen('revert', openId),
       locked: !canRevert,
       info: 'Overwrites Rover content, structure, site-config, and images from GitHub origin/main for this site. Does not change the live Cloudflare deploy.',
       bodyHtml: canRevert
@@ -15363,11 +16242,11 @@ function wireContentTab(d) {
     btn.addEventListener('click', () => {
       const step = btn.getAttribute('data-content-toggle');
       if (state.tab === 'website') {
-        state.websiteOpenStep = state.websiteOpenStep === step ? null : step;
+        state.websiteOpenStep = nextAccordionOpenId(state.websiteOpenStep, step);
       } else if (state.tab === 'site-config') {
-        state.siteConfigOpenStep = state.siteConfigOpenStep === step ? null : step;
+        state.siteConfigOpenStep = nextAccordionOpenId(state.siteConfigOpenStep, step);
       } else {
-        state.contentOpenStep = state.contentOpenStep === step ? null : step;
+        state.contentOpenStep = nextAccordionOpenId(state.contentOpenStep, step);
       }
       const openId =
         state.tab === 'website'
@@ -15376,7 +16255,7 @@ function wireContentTab(d) {
             ? state.siteConfigOpenStep
             : state.contentOpenStep;
       document.querySelectorAll('#tab-panels .content-step').forEach((el) => {
-        el.classList.toggle('open', el.dataset.contentStep === openId);
+        el.classList.toggle('open', contentStepIsOpen(el.dataset.contentStep, openId));
       });
       applyDetailShelf();
       if (state.tab === 'website' && openId === 'images') {
@@ -15394,7 +16273,7 @@ function wireContentTab(d) {
   });
   document.getElementById('ws-overlay-stop')?.addEventListener('click', async () => {
     const overlay = document.getElementById('content-write-site-overlay');
-    const jobId = overlay?.dataset.jobId || state._writeSiteTrack?.jobId;
+    const jobId = overlay?.dataset.jobId;
     if (!jobId) return;
     const btn = document.getElementById('ws-overlay-stop');
     if (btn) btn.disabled = true;
@@ -17008,6 +17887,90 @@ function wireContentTab(d) {
     }
   });
 
+  document.getElementById('ca-reset-launch')?.addEventListener('click', async () => {
+    const cfg = effectiveSiteConfigForLaunchClient(
+      state.detail?.siteConfig,
+      state.detail?.siteConfigDraft,
+    );
+    const oldHost =
+      liveSiteHost(state.detail?.meta?.launchDomain || cfg.domain) ||
+      String(cfg.domain || '')
+        .trim()
+        .toLowerCase();
+    const formDomain = String(document.getElementById('ca-launch-domain')?.value || '').trim();
+    const newHost = liveSiteHost(formDomain) || formDomain.toLowerCase();
+    const repo = String(state.detail?.meta?.githubRepo || '').trim();
+    const worker = String(
+      state.detail?.meta?.cfProject || state.detail?.meta?.assembledSiteSlug || '',
+    ).trim();
+    if (!oldHost) {
+      await showModal({
+        title: 'No current domain',
+        confirmLabel: 'OK',
+        hideCancel: true,
+        bodyHtml: '<p>This candidate has no launch domain to confirm.</p>',
+      });
+      return;
+    }
+    const ok = await showModal({
+      title: 'Relaunch with a different domain?',
+      confirmLabel: 'Relaunch',
+      cancelLabel: 'Cancel',
+      danger: true,
+      requireTypedConfirm: oldHost,
+      bodyHtml: `<p>This <strong>deletes</strong> the GitHub repo and Cloudflare Worker for the current launch, then unlocks <strong>Run launch</strong> for a new domain.</p>
+        <ul class="narrative-list">
+          <li>Current domain: <code>${esc(oldHost)}</code> — that live URL will stop</li>
+          ${repo ? `<li>GitHub: <code>${esc(repo)}</code></li>` : ''}
+          ${worker ? `<li>Cloudflare Worker: <code>${esc(worker)}</code></li>` : ''}
+          <li>New domain (from the form): <code>${esc(newHost || '(unchanged)')}</code></li>
+        </ul>
+        <p>Content, photos, logo, and map stay. Type the <strong>current</strong> hostname to confirm.</p>
+        <p class="muted">Type <code>${esc(oldHost)}</code> to enable the button.</p>`,
+    });
+    if (!ok) return;
+    const btn = document.getElementById('ca-reset-launch');
+    if (btn) btn.disabled = true;
+    try {
+      const result = await api(`/api/candidates/${encodeURIComponent(id)}/reset-launch`, {
+        method: 'POST',
+        body: JSON.stringify({
+          confirmResetLaunch: true,
+          confirmDomain: oldHost,
+          domain: newHost && newHost !== oldHost ? newHost : undefined,
+        }),
+      });
+      await refresh(result.candidate || state.detail, 'launch', 'website');
+      const leftover = (result.leftovers || []).filter(Boolean);
+      const lines = (result.human || []).map((h) => `<li>${esc(h)}</li>`).join('');
+      await showModal({
+        title: leftover.length ? 'Relaunch reset finished with leftovers' : 'Launch unlocked',
+        confirmLabel: 'OK',
+        hideCancel: true,
+        bodyHtml: `<p>Rover no longer treats this site as launched. Next: <strong>Prepare preview</strong>, then <strong>Run launch</strong> for <code>${esc(
+          result.newDomain || newHost || oldHost,
+        )}</code>.</p>
+          ${lines ? `<ul class="narrative-list">${lines}</ul>` : ''}
+          ${
+            leftover.length
+              ? `<div class="callout warn"><strong>Finish in the dashboards:</strong><ul class="narrative-list">${leftover
+                  .map((x) => `<li>${esc(x)}</li>`)
+                  .join('')}</ul></div>`
+              : ''
+          }`,
+      });
+    } catch (error) {
+      await showModal({
+        title: 'Relaunch reset failed',
+        confirmLabel: 'OK',
+        hideCancel: true,
+        bodyHtml: `<p>${esc(error.message)}</p>`,
+      });
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  });
+
   document.getElementById('ca-revert-launched')?.addEventListener('click', async () => {
     const btn = document.getElementById('ca-revert-launched');
     const repo = String(state.detail?.meta?.githubRepo || '').trim();
@@ -17125,6 +18088,7 @@ function wireContentTab(d) {
         body: JSON.stringify({}),
       });
       await refresh(result.candidate || state.detail, 'launch', 'website');
+      void loadSites().catch(() => {});
       announceStepComplete('Push updates');
       const human = (result.human || []).map((h) => `<li>${esc(h)}</li>`).join('');
       await showModal({
@@ -17203,6 +18167,7 @@ function wireContentTab(d) {
       el.disabled = true;
     });
     showLaunchOverlayStarting(pendingBody);
+    primeLaunchSuccessSound();
     try {
       const body = { ...pendingBody, allowIncompleteLaunch };
       let jobId = null;
@@ -17229,27 +18194,18 @@ function wireContentTab(d) {
       const result = await waitForHeavyJobResult(jobId);
       hideLaunchOverlay();
       await refresh(result.candidate, 'indexing', 'website');
-      announceStepComplete('Launch');
-      const human = (result.human || []).map((h) => `<li>${esc(h)}</li>`).join('');
-      const shipOk = result.ship?.ok ? 'Ship (GitHub/Worker) ok' : result.ship ? 'Ship partial/failed' : 'Ship skipped';
-      const cfOk = result.cloudflare?.ok ? 'Cloudflare domain/email ran' : 'Cloudflare domain/email skipped or incomplete';
-      await showModal({
-        title: result.ok ? 'Launch updated' : 'Launch incomplete',
-        confirmLabel: 'OK',
-        bodyHtml: `<p>${esc(shipOk)}. ${esc(cfOk)}. Forms key: ${result.formsDone ? 'set' : 'still placeholder'}.</p>
-          <ul class="narrative-list">${human || '<li>No extra notes</li>'}</ul>
-          ${
-            result.assembledConfigPath
-              ? `<p class="muted">Wrote <code>${esc(result.assembledConfigPath)}</code></p>`
-              : ''
-          }
-          ${
-            result.ship?.steps?.github?.repoUrl
-              ? `<p class="muted">Repo: <a href="${esc(result.ship.steps.github.repoUrl)}" target="_blank" rel="noopener">${esc(result.ship.steps.github.fullName)}</a></p>`
-              : ''
-          }
-          <p class="muted"><strong>After launch:</strong> verify Gmail once if Email Routing is new; smoke-test the live form; then use <strong>Website → Indexing</strong> for Search Console + sitemap.</p>`,
-      });
+      await loadSites().catch(() => {});
+      if (result.ok) {
+        await showLaunchSuccessCelebrate(result, id);
+      } else {
+        announceStepComplete('Launch');
+        await showModal({
+          title: 'Launch incomplete',
+          confirmLabel: 'OK',
+          hideCancel: true,
+          bodyHtml: launchResultDetailsHtml(result),
+        });
+      }
     } catch (error) {
       if (await maybeExplainHeavyConcurrency(error)) return;
       const blockerList = (error.details?.blockers || [])
@@ -18859,7 +19815,7 @@ function wireSiteConfigTab(d) {
     const ok = await showModal({
       title: 'Provision Twilio ranking number?',
       confirmLabel: 'Buy number',
-      bodyHtml: `<p>Buys one US local number (~$1.15/mo), writes accepted site-config phone, and sets whisper from business name.</p>
+      bodyHtml: `<p>Buys one US local number (~$1.15/mo), writes accepted site-config phone, and sends ranking calls to voicemail (texts <code>TWILIO_FORWARD_TO</code>).</p>
         <p class="muted small">Area: ${areaCode ? esc(areaCode) : 'locality from site-config city/state'}</p>`,
     });
     if (!ok) return;
@@ -19002,7 +19958,17 @@ function wireSiteConfigTab(d) {
         : Array.isArray(d.narrative?.suggestedSuburbs)
           ? d.narrative.suggestedSuburbs
           : [],
-      onAccept: async ({ radiusMiles, selectedCities, locationPageCities }, { onProgress } = {}) => {
+      blockedPlaceKeys: d.shotgunBlockedLocations || [],
+      confirmPageOverride: async (cityName) => {
+        const result = await showModal({
+          title: 'Cluster location page',
+          confirmLabel: 'Make location page',
+          cancelLabel: 'Cancel',
+          bodyHtml: `<p><strong>${esc(cityName)}</strong> has its own Cluster site. Make a location page on this site anyway?</p>`,
+        });
+        return Boolean(result);
+      },
+      onAccept: async ({ radiusMiles, selectedCities, locationPageCities, clusterLocationPageOverrides }, { onProgress } = {}) => {
         const res = await fetch(
           `/api/candidates/${encodeURIComponent(d.id)}/site-config/service-area`,
           {
@@ -19013,6 +19979,7 @@ function wireSiteConfigTab(d) {
               selectedCities,
               claudeOrder: accepted.targetSuburbs || [],
               locationPageCities: locationPageCities || [],
+              clusterLocationPageOverrides: clusterLocationPageOverrides || [],
             }),
           },
         );
@@ -19299,6 +20266,12 @@ function renderDetail() {
     });
   }
 
+  const shotgunBtn = document.getElementById('shotgun-this-metro');
+  if (shotgunBtn) {
+    shotgunBtn.addEventListener('click', () => shotgunThisMetro(d.id));
+  }
+  void bindClusterRoster(d);
+
   const saveBtn = document.getElementById('save-decision');
   if (saveBtn) {
     saveBtn.addEventListener('click', async () => {
@@ -19369,6 +20342,21 @@ function wireUi() {
     event.stopPropagation();
     loadCandidates();
   });
+  document.getElementById('zone-map-modal-close')?.addEventListener('click', () => closeZoneMapModal());
+  document.getElementById('zone-map-modal')?.addEventListener('click', (e) => {
+    if (e.target?.id === 'zone-map-modal') closeZoneMapModal();
+  });
+  document.addEventListener(
+    'click',
+    (e) => {
+      const btn = e.target?.closest?.('.zone-map-open');
+      if (!btn) return;
+      e.preventDefault();
+      e.stopPropagation();
+      void openZoneMapModal(btn.dataset.zoneId);
+    },
+    true,
+  );
   document.getElementById('candidate-decision-filter')?.addEventListener('change', (e) => {
     state.candidateDecisionFilter = e.target.value;
     renderList();
@@ -19381,6 +20369,16 @@ function wireUi() {
   });
   document.getElementById('candidate-group-filter')?.addEventListener('change', (e) => {
     state.candidateGroupFilter = e.target.value;
+    renderList();
+    renderActions();
+  });
+  document.getElementById('candidate-zone-filter')?.addEventListener('change', (e) => {
+    state.candidateZoneFilter = e.target.value;
+    renderList();
+    renderActions();
+  });
+  document.getElementById('candidate-cluster-filter')?.addEventListener('change', (e) => {
+    state.candidateClusterFilter = e.target.value;
     renderList();
     renderActions();
   });
@@ -19600,7 +20598,10 @@ function setView(view) {
   if (view === 'discovery') {
     syncDiscoveryClaudeModeUi();
     syncGeneratePackOverlay(state.lightJobsSnap);
-  } else {
+    syncShotgunJobOverlay(state.lightJobsSnap);
+    syncDiscoveryPackTypeUi();
+    resumeShotgunMapAfterView();
+  } else if (!document.querySelector('.discovery-table-panel')?.classList.contains('shotgun-hub-on')) {
     closeDiscoveryCitiesMap();
   }
 }
@@ -19609,11 +20610,16 @@ const SITE_TABLE_COLS = [
   { key: 'niche', label: 'Niche' },
   { key: 'city', label: 'City' },
   { key: 'state', label: 'State' },
+  { key: 'shotgunSg', label: 'ZN', tip: 'Zone number', cellClass: 'col-sg' },
+  { key: 'shotgunClusterKey', label: 'Cl', tip: 'Cluster 1–10', cellClass: 'col-sg-role' },
   { key: 'researchMap', label: 'Map', sortable: false },
   { key: 'domain', label: 'Domain' },
   { key: 'status', label: 'Status' },
   { key: 'clicks28d', label: 'Clicks 28d' },
   { key: 'impressions28d', label: 'Impr 28d' },
+  { key: 'pageCount', label: 'Pages' },
+  { key: 'wordCount', label: 'Words' },
+  { key: 'inspectIndexed', label: 'Indexed' },
   { key: 'primaryPosition', label: 'Pos' },
   { key: 'primaryPage', label: 'Page' },
   { key: 'gscLastSyncAt', label: 'GSC sync' },
@@ -19899,12 +20905,14 @@ function setSitesMetricsButtonsDisabled(busy) {
   state.sitesMetricsBusy = Boolean(busy);
   const ids = [
     'sites-gsc-sync-btn',
+    'sites-index-check-btn',
     'sites-rank-sync-btn',
     'sites-add-btn',
     'sites-refresh-btn',
     'sites-kw-add',
     'sites-kw-save',
     'sites-rank-check-one',
+    'sites-index-check-one',
     'sites-gsc-sync-one',
   ];
   for (const id of ids) {
@@ -20156,15 +21164,101 @@ async function checkSitesRanksSequential(siteList) {
   });
 }
 
+async function checkSitesIndexSequential(siteList) {
+  const sites = siteList || sitesMetricsEligible();
+  if (!sites.length) {
+    await showModal({
+      title: 'Index check',
+      confirmLabel: 'OK',
+      hideCancel: true,
+      bodyHtml: `<p>No eligible sites (need status live/listed/rented/building and a domain).</p>`,
+    });
+    return;
+  }
+  let checked = 0;
+  let failed = 0;
+  let cached = 0;
+  let fetched = 0;
+  const errors = [];
+  let authRevoked = null;
+  await withSitesMetricsBusy(
+    {
+      label: 'Checking index…',
+      detail: `0/${sites.length}`,
+      pct: 0,
+    },
+    async ({ setProgress }) => {
+      for (let i = 0; i < sites.length; i += 1) {
+        const s = sites[i];
+        const label = siteMetricsDomainLabel(s);
+        setProgress({
+          label: 'Checking index…',
+          detail: `${i + 1}/${sites.length} · ${label}`,
+          pct: Math.round(((i + 0.5) / sites.length) * 100),
+        });
+        try {
+          const result = await api(`/api/sites/${encodeURIComponent(s.id)}/index-check`, {
+            method: 'POST',
+            body: JSON.stringify({}),
+          });
+          cached += Number(result.inspectCached) || 0;
+          fetched += Number(result.inspectFetched) || 0;
+          if (result.ok) checked += 1;
+          else {
+            failed += 1;
+            errors.push(`${label}: ${result.error || 'finished with errors'}`);
+          }
+        } catch (error) {
+          if (isGscAuthRevokedError(error)) {
+            authRevoked = error;
+            break;
+          }
+          failed += 1;
+          errors.push(`${label}: ${error.message || error}`);
+        }
+        setProgress({
+          label: 'Checking index…',
+          detail: `${i + 1}/${sites.length} · ${label}`,
+          pct: Math.round(((i + 1) / sites.length) * 100),
+        });
+      }
+      await loadSites();
+    },
+  );
+  if (authRevoked) {
+    await showGscReconnectModal(authRevoked);
+    return;
+  }
+  await showModal({
+    title: 'Index check',
+    confirmLabel: 'OK',
+    hideCancel: true,
+    bodyHtml: `<p>Checked ${esc(checked)} · failed ${esc(failed)} · inspected ${esc(fetched)} URLs · skipped ${esc(cached)} cached</p>${
+      errors.length
+        ? `<pre class="muted small" style="white-space:pre-wrap;max-height:160px;overflow:auto">${esc(
+            errors.slice(0, 12).join('\n'),
+          )}</pre>`
+        : ''
+    }`,
+  });
+}
+
 async function loadSites() {
   const data = await api('/api/sites');
   state.sites = data.sites || [];
+  state.launchedGroups = data.groups || [];
+  const knownSiteIds = new Set(state.sites.map((s) => s.id));
+  for (const id of [...state.selectedSiteIds]) {
+    if (!knownSiteIds.has(id)) state.selectedSiteIds.delete(id);
+  }
   state.siteStatuses = data.statuses || [];
   state.sitePaymentMethods = data.paymentMethods || [];
   state.siteBillingCycles = data.billingCycles || [];
   state.gscStatus = data.gsc || null;
   state.sitesPortfolio = data.portfolio || { traffic: [], ranks: [] };
   fillSitesStateFilter();
+  fillLaunchedGroupSelects();
+  fillZoneNumberFilters();
   renderSitesGscStatus();
   renderSitesPortfolioCharts();
   renderSitesTable();
@@ -20192,11 +21286,40 @@ function filteredSites() {
   const st = String(state.siteFilters.state || '')
     .trim()
     .toUpperCase();
+  const groupF = state.siteFilters.group || '';
+  const zoneF = state.siteFilters.zone || '';
+  const clusterF = state.siteFilters.cluster || '';
   let rows = state.sites.filter((s) => {
     if (status && s.status !== status) return false;
     if (st && String(s.state || '').toUpperCase() !== st) return false;
+    if (groupF === '__ungrouped') {
+      if ((s.groupIds || []).length) return false;
+    } else if (groupF && !(s.groupIds || []).includes(groupF)) {
+      return false;
+    }
+    if (zoneF) {
+      const zn = Number(s.sgNumber ?? s.shotgunSg);
+      if (!Number.isFinite(zn) || String(zn) !== String(zoneF)) return false;
+    }
+    if (clusterF === '0') {
+      if (rowClusterKey(s)) return false;
+    } else if (clusterF && String(rowClusterKey(s)) !== String(clusterF)) {
+      return false;
+    }
     if (!text) return true;
-    const hay = [s.niche, s.city, s.state, s.domain, s.businessName, s.candidateId, s.email]
+    const hay = [
+      s.niche,
+      s.city,
+      s.state,
+      s.domain,
+      s.businessName,
+      s.candidateId,
+      s.email,
+      s.shotgunSg,
+      formatZnDisplay(s.sgNumber ?? s.shotgunSg),
+      shotgunRoleLabel(s.shotgunRole, s),
+      rowClusterKey(s) ? `cluster ${rowClusterKey(s)}` : '',
+    ]
       .filter(Boolean)
       .join(' ')
       .toLowerCase();
@@ -20205,8 +21328,8 @@ function filteredSites() {
 
   const { key, dir } = state.siteSort;
   rows = [...rows].sort((a, b) => {
-    const av = a[key];
-    const bv = b[key];
+    const av = siteSortValue(a, key);
+    const bv = siteSortValue(b, key);
     if (av == null && bv == null) return 0;
     if (av == null) return 1;
     if (bv == null) return -1;
@@ -20214,6 +21337,23 @@ function filteredSites() {
     return String(av).localeCompare(String(bv), undefined, { sensitivity: 'base' }) * dir;
   });
   return rows;
+}
+
+function siteSortValue(s, key) {
+  if (key === 'shotgunSg') {
+    const n = Number(s.sgNumber ?? s.shotgunSg);
+    return Number.isFinite(n) && n >= 1 ? n : null;
+  }
+  if (key === 'shotgunClusterKey') {
+    const n = rowClusterKey(s);
+    return n >= 1 ? n : null;
+  }
+  if (key === 'shotgunRole') {
+    if (String(s.shotgunRole || '').toLowerCase() === 'hub') return 1;
+    const ck = rowClusterKey(s);
+    return ck >= 1 ? ck + 1 : null;
+  }
+  return s[key];
 }
 
 function formatSiteMoney(n) {
@@ -20230,6 +21370,125 @@ function formatSiteDate(iso) {
   }
 }
 
+function formatSiteWordCount(n) {
+  if (n == null || n === '') return '—';
+  const num = Number(n);
+  if (!Number.isFinite(num)) return '—';
+  if (num >= 10000) {
+    const k = num / 1000;
+    return `${k >= 100 ? Math.round(k) : k.toFixed(1).replace(/\.0$/, '')}k`;
+  }
+  return String(Math.round(num));
+}
+
+function formatSitemapIndexed(s) {
+  if (s?.inspectIndexed == null && s?.inspectSubmitted == null) return '—';
+  if (s.inspectSubmitted == null) return formatSiteMetricNum(s.inspectIndexed);
+  return `${s.inspectIndexed ?? 0}/${s.inspectSubmitted}`;
+}
+
+function sitemapIndexedTip(s) {
+  if (s?.inspectIndexed == null && s?.inspectSubmitted == null) {
+    const err = s.inspectError ? ` Last error: ${s.inspectError}` : '';
+    return `Run Check index to inspect each sitemap URL in Search Console. Sync GSC does not update this column. Not the GSC Pages report (that counts URL variants). Includes /privacy.${err}`;
+  }
+  const local = s.pageCount == null ? '—' : String(s.pageCount);
+  const when = s.inspectCheckedAt ? formatSiteDate(s.inspectCheckedAt) : '—';
+  const err = s.inspectError ? ` Last error: ${s.inspectError}` : '';
+  return `Sitemap URLs: ${s.inspectIndexed ?? 0} indexed of ${s.inspectSubmitted ?? '—'} (${s.inspectNotIndexed ?? 0} not indexed). Last check ${when}. Pages on site: ${local}. Includes /privacy. This is URL Inspection of the sitemap, not the GSC Pages report.${err}`;
+}
+
+function formatSiteInventoryLine(s) {
+  const pages = s.pageCount == null ? '—' : String(s.pageCount);
+  const words = s.wordCount == null ? '—' : formatSiteWordCount(s.wordCount);
+  const idx =
+    s.inspectIndexed == null && s.inspectSubmitted == null
+      ? 'Indexed —'
+      : `Indexed ${s.inspectIndexed ?? 0} / ${s.inspectSubmitted ?? '—'} sitemap URLs`;
+  const notIdx =
+    s.inspectNotIndexed == null ? '' : ` · ${s.inspectNotIndexed} not indexed`;
+  return `${idx}${notIdx} · ${pages} pages on site · ${words} words`;
+}
+
+function renderGscMetricRowsHtml(rows, keyName) {
+  const list = Array.isArray(rows) ? rows : [];
+  if (!list.length) {
+    return `<tr><td colspan="5" class="muted">No ${keyName === 'query' ? 'queries' : 'pages'} with impressions yet (GSC only reports search traffic).</td></tr>`;
+  }
+  return list
+    .map((row) => {
+      const label = row[keyName] || '—';
+      const ctr = row.ctr == null ? '—' : `${(Number(row.ctr) * 100).toFixed(1)}%`;
+      return `<tr>
+        <td>${esc(label)}</td>
+        <td>${esc(formatSiteMetricNum(row.clicks))}</td>
+        <td>${esc(formatSiteMetricNum(row.impressions))}</td>
+        <td>${esc(ctr)}</td>
+        <td>${esc(formatSiteMetricNum(row.position, 1))}</td>
+      </tr>`;
+    })
+    .join('');
+}
+
+function renderGscQueriesTableHtml(s) {
+  const gsc = s?.metrics?.gsc || {};
+  const queries = gsc.topQueries || [];
+  const pages = gsc.topPages || [];
+  return `
+      <h3 class="sites-kw-heading">GSC queries (28d)</h3>
+      <p class="muted small">Queries that earned impressions. Empty on new domains until Google has search traffic. Coverage / “why not indexed” reasons are GSC UI only. Use <strong>Check index</strong> for sitemap URL status.</p>
+      <div class="sites-gsc-table-wrap">
+        <table class="sites-gsc-table">
+          <thead><tr><th>Query</th><th>Clicks</th><th>Impr</th><th>CTR</th><th>Pos</th></tr></thead>
+          <tbody>${renderGscMetricRowsHtml(queries, 'query')}</tbody>
+        </table>
+      </div>
+      <h3 class="sites-kw-heading">GSC pages (28d)</h3>
+      <div class="sites-gsc-table-wrap">
+        <table class="sites-gsc-table">
+          <thead><tr><th>Page</th><th>Clicks</th><th>Impr</th><th>CTR</th><th>Pos</th></tr></thead>
+          <tbody>${renderGscMetricRowsHtml(pages, 'page')}</tbody>
+        </table>
+      </div>`;
+}
+
+function emptyStateForSitesFilter() {
+  if (!state.sites.length) {
+    return 'No launched sites yet — Run Launch on a Website candidate.';
+  }
+  const groupF = state.siteFilters.group || '';
+  if (groupF === '__ungrouped') return 'No ungrouped launched sites for this filter.';
+  if (groupF) {
+    const g = (state.launchedGroups || []).find((x) => x.id === groupF);
+    return `No launched sites in group “${g?.name || groupF}”.`;
+  }
+  if (state.siteFilters.text || state.siteFilters.status || state.siteFilters.state) {
+    return 'No launched sites match these filters.';
+  }
+  return 'No launched sites match these filters.';
+}
+
+function updateSitesSelectionCount() {
+  const nSelected = state.selectedSiteIds.size;
+  const el = document.getElementById('sites-selection-count');
+  if (el) el.textContent = `${nSelected} selected`;
+  const disable = nSelected === 0;
+  const groupAction = document.getElementById('sites-group-action');
+  const groupAddBtn = document.getElementById('sites-group-add-btn');
+  const groupRemoveBtn = document.getElementById('sites-group-remove-btn');
+  if (groupAction) groupAction.disabled = disable;
+  if (groupAddBtn) groupAddBtn.disabled = disable;
+  if (groupRemoveBtn) groupRemoveBtn.disabled = disable;
+}
+
+function afterSitesCheckboxSelection(rows) {
+  updateSitesSelectionCount();
+  syncHeaderSelectAll(document.getElementById('sites-select-all'), {
+    selectedCount: rows.filter((s) => state.selectedSiteIds.has(s.id)).length,
+    totalCount: rows.length,
+  });
+}
+
 function renderSitesTable() {
   const table = document.getElementById('sites-table');
   if (!table) return;
@@ -20240,22 +21499,31 @@ function renderSitesTable() {
   if (countEl) {
     countEl.textContent = `${rows.length} of ${state.sites.length}`;
   }
+  const colCount = SITE_TABLE_COLS.length + 1;
 
-  thead.innerHTML = `<tr>${SITE_TABLE_COLS.map((col) => {
-    if (col.sortable === false) {
-      return `<th>${esc(col.label)}</th>`;
-    }
-    const active = state.siteSort.key === col.key;
-    const arrow = active ? (state.siteSort.dir > 0 ? ' ↑' : ' ↓') : '';
-    return `<th class="sortable" data-sort="${esc(col.key)}">${esc(col.label)}${arrow}</th>`;
-  }).join('')}</tr>`;
+  thead.innerHTML = `<tr><th class="sites-select-col" data-tip="Select filtered"><input type="checkbox" id="sites-select-all" data-tip="Select filtered" /></th>${SITE_TABLE_COLS.map(
+    (col) => {
+      const tip = col.tip ? ` data-tip="${esc(col.tip)}"` : '';
+      const cls = [col.sortable === false ? '' : 'sortable', col.cellClass || '']
+        .filter(Boolean)
+        .join(' ');
+      const classAttr = cls ? ` class="${esc(cls)}"` : '';
+      if (col.sortable === false) {
+        return `<th${classAttr}${tip}>${esc(col.label)}</th>`;
+      }
+      const active = state.siteSort.key === col.key;
+      const arrow = active ? (state.siteSort.dir > 0 ? ' ↑' : ' ↓') : '';
+      return `<th${classAttr} data-sort="${esc(col.key)}"${tip}>${esc(col.label)}${arrow}</th>`;
+    },
+  ).join('')}</tr>`;
 
   if (!rows.length) {
-    tbody.innerHTML = `<tr><td colspan="${SITE_TABLE_COLS.length}" class="muted">No launched sites yet — Run Launch on a Website candidate.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="${colCount}" class="muted">${esc(emptyStateForSitesFilter())}</td></tr>`;
   } else {
     tbody.innerHTML = rows
       .map((s) => {
         const active = s.id === state.selectedSiteId ? 'active' : '';
+        const checked = state.selectedSiteIds.has(s.id) ? 'checked' : '';
         const domainCell = s.liveUrl
           ? `<a href="${esc(s.liveUrl)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">${esc(
               s.domain || s.liveUrl,
@@ -20271,15 +21539,32 @@ function renderSitesTable() {
               )}" data-state="${esc(st)}" data-tip="Open Map zoomed to ${esc(city)}, ${esc(
                 st,
               )}">Map</button></td>`;
-        return `<tr class="${active}" data-id="${esc(s.id)}">
+        const ck = rowClusterKey(s);
+        const fill = clusterColor(ck);
+        const clStyle = fill ? ` style="color:${fill};font-weight:700"` : '';
+        const hub = String(s.shotgunRole || '').toLowerCase() === 'hub';
+        const cityLabel = cityMapLabel(s.city || '—', rowClusterKey(s), { hub });
+        const zoneBtn = s.shotgunClusterId
+          ? ` <button type="button" class="btn btn-sm zone-map-open" data-zone-id="${esc(s.shotgunClusterId)}">Zone</button>`
+          : '';
+        const sgAttr = clusterRowAttr(s);
+        return `<tr class="${active}" data-id="${esc(s.id)}"${sgAttr}>
+          <td class="sites-select-col"><input type="checkbox" class="sites-check" data-id="${esc(
+            s.id,
+          )}" ${checked} /></td>
           <td>${esc(s.niche || '—')}</td>
-          <td>${esc(s.city || '—')}</td>
+          <td>${esc(cityLabel)}${zoneBtn}</td>
           <td>${esc(s.state || '—')}</td>
+          <td class="col-sg">${esc(formatZnDisplay(s.sgNumber ?? s.shotgunSg) || '—')}</td>
+          <td class="col-sg-role"${clStyle}>${esc(ck ? String(ck) : '—')}</td>
           ${mapCell}
           <td>${domainCell}</td>
           <td><span class="site-status site-status-${esc(s.status || '')}">${esc(s.status || '—')}</span></td>
           <td>${esc(formatSiteMetricNum(s.clicks28d))}</td>
           <td>${esc(formatSiteMetricNum(s.impressions28d))}</td>
+          <td>${esc(formatSiteMetricNum(s.pageCount))}</td>
+          <td>${esc(formatSiteWordCount(s.wordCount))}</td>
+          <td data-tip="${esc(sitemapIndexedTip(s))}">${esc(formatSitemapIndexed(s))}</td>
           <td>${esc(s.primaryPosition == null ? '—' : s.primaryPosition)}</td>
           <td>${esc(s.primaryPage == null ? '—' : s.primaryPage)}</td>
           <td>${esc(formatSiteDate(s.gscLastSyncAt))}</td>
@@ -20292,6 +21577,16 @@ function renderSitesTable() {
       .join('');
   }
 
+  afterSitesCheckboxSelection(rows);
+
+  document.getElementById('sites-select-all')?.addEventListener('change', (e) => {
+    const on = e.target.checked;
+    for (const s of rows) {
+      if (on) state.selectedSiteIds.add(s.id);
+      else state.selectedSiteIds.delete(s.id);
+    }
+    renderSitesTable();
+  });
   thead.querySelectorAll('th.sortable').forEach((th) => {
     th.addEventListener('click', () => {
       const key = th.dataset.sort;
@@ -20302,10 +21597,49 @@ function renderSitesTable() {
   });
   tbody.querySelectorAll('tr[data-id]').forEach((tr) => {
     tr.addEventListener('click', (e) => {
-      if (e.target.closest('button.sites-open-map, a')) return;
+      if (e.target.closest('button.sites-open-map, a, input.sites-check')) return;
       state.selectedSiteId = tr.dataset.id;
       renderSitesTable();
       renderSitesDetail();
+    });
+  });
+  tbody.querySelectorAll('input.sites-check').forEach((cb) => {
+    const applySitesShiftRange = (e) => {
+      const id = cb.dataset.id;
+      return applyShiftRangeCheckboxClick(e, {
+        visibleKeys: rows.map((s) => s.id),
+        clickedKey: id,
+        anchorKey: state.siteCheckAnchor,
+        setAnchor: (key) => {
+          state.siteCheckAnchor = key;
+        },
+        setSelected: (key, on) => {
+          if (on) state.selectedSiteIds.add(key);
+          else state.selectedSiteIds.delete(key);
+        },
+      });
+    };
+    cb.addEventListener('pointerdown', (e) => {
+      e.stopPropagation();
+      if (!e.shiftKey || state.siteCheckAnchor == null) return;
+      blockShiftRangePointerDown(e, state.siteCheckAnchor);
+      if (applySitesShiftRange(e)) afterSitesCheckboxSelection(rows);
+    });
+    cb.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (applySitesShiftRange(e)) afterSitesCheckboxSelection(rows);
+    });
+    cb.addEventListener('change', (e) => {
+      e.stopPropagation();
+      const id = cb.dataset.id;
+      if (consumeShiftRangeChange(cb, id)) {
+        cb.checked = state.selectedSiteIds.has(id);
+        return;
+      }
+      state.siteCheckAnchor = id;
+      if (cb.checked) state.selectedSiteIds.add(id);
+      else state.selectedSiteIds.delete(id);
+      afterSitesCheckboxSelection(rows);
     });
   });
   tbody.querySelectorAll('button.sites-open-map').forEach((btn) => {
@@ -20512,7 +21846,9 @@ function renderSitesDetail() {
       </div>
       ${
         s.candidateId
-          ? `<button type="button" class="btn primary btn-sm" id="sites-visual-edit" data-tip="Operator visual editor — visitors never see this">Edit site</button>`
+          ? `<button type="button" class="btn primary btn-sm" id="sites-visual-edit" data-tip="Operator visual editor — visitors never see this">Edit site</button>
+             <button type="button" class="btn btn-sm" id="sites-shotgun-metro" data-tip="Lock this city as Cluster Hub and assign Cluster Cities">Cluster this metro</button>
+             ${s.shotgunClusterId ? `<button type="button" class="btn btn-sm zone-map-open" data-zone-id="${esc(s.shotgunClusterId)}">Zone map</button>` : ''}`
           : ''
       }
     </div>
@@ -20544,6 +21880,10 @@ function renderSitesDetail() {
         ${s.gscSyncError ? `<br/><span class="sites-metric-err">GSC: ${esc(s.gscSyncError)}</span>` : ''}
       </p>
       <p class="muted small sites-metrics-summary">
+        ${esc(formatSiteInventoryLine(s))}
+        ${s.inspectError ? `<br/><span class="sites-metric-err">Index: ${esc(s.inspectError)}</span>` : ''}
+      </p>
+      <p class="muted small sites-metrics-summary">
         Primary rank: pos ${esc(s.primaryPosition == null ? '—' : s.primaryPosition)} ·
         page ${esc(s.primaryPage == null ? '—' : s.primaryPage)}
         ${s.rankSyncError ? `<br/><span class="sites-metric-err">Ranks: ${esc(s.rankSyncError)}</span>` : ''}
@@ -20558,12 +21898,14 @@ function renderSitesDetail() {
           <div id="sites-detail-chart-ranks" class="sites-chart"></div>
         </div>
       </div>
+      ${renderGscQueriesTableHtml(s)}
       <h3 class="sites-kw-heading">Tracked keywords (≤5)</h3>
       <div id="sites-kw-list"></div>
       <div class="sites-kw-actions">
         <button type="button" class="btn primary btn-sm" id="sites-kw-save">Save keywords</button>
         <button type="button" class="btn btn-sm" id="sites-kw-add">Add keyword</button>
         <button type="button" class="btn btn-sm" id="sites-rank-check-one">Check ranks</button>
+        <button type="button" class="btn btn-sm" id="sites-index-check-one">Check index</button>
         <button type="button" class="btn btn-sm" id="sites-gsc-sync-one">Sync GSC</button>
       </div>
     </div>
@@ -20617,9 +21959,11 @@ function renderSitesDetail() {
             }${
               s.phoneTracking.forwardTo
                 ? ` · → ${esc(s.phoneTracking.forwardTo)}`
-                : ''
+                : s.phoneTracking.phase === 'ranking'
+                  ? ' · voicemail'
+                  : ''
             }</p>`
-          : `<p class="muted small">No ranking DID yet (~$1.15/mo). Forwards to <code>TWILIO_FORWARD_TO</code>.</p>`
+          : `<p class="muted small">No ranking DID yet (~$1.15/mo). Ranking calls take a voicemail and text <code>TWILIO_FORWARD_TO</code>.</p>`
       }
       <div class="sites-phone-actions">
         <label class="sites-phone-area muted small">
@@ -20642,7 +21986,7 @@ function renderSitesDetail() {
           String(s.renter?.phone || '').trim()
             ? ''
             : 'disabled'
-        } data-tip="Keep same DID; dial renter.phone instead of TWILIO_FORWARD_TO">Forward to renter</button>
+        } data-tip="Keep same DID; dial renter.phone instead of ranking voicemail">Forward to renter</button>
         <button type="button" class="btn btn-sm" id="sites-view-calls" ${
           s.phoneTracking?.provider === 'twilio' && s.phoneTracking?.e164 ? '' : 'disabled'
         }>View calls →</button>
@@ -20798,6 +22142,60 @@ function renderSitesDetail() {
     }
   });
 
+  document.getElementById('sites-index-check-one')?.addEventListener('click', async () => {
+    if (state.sitesMetricsBusy) return;
+    let result = null;
+    try {
+      await withSitesMetricsBusy(
+        {
+          label: 'Checking index…',
+          detail: siteMetricsDomainLabel(s),
+          pct: null,
+        },
+        async ({ setProgress }) => {
+          setProgress({
+            label: 'Checking index…',
+            detail: `1/1 · ${siteMetricsDomainLabel(s)}`,
+            pct: 50,
+          });
+          result = await api(`/api/sites/${encodeURIComponent(s.id)}/index-check`, {
+            method: 'POST',
+            body: JSON.stringify({}),
+          });
+          setProgress({
+            label: 'Checking index…',
+            detail: `1/1 · ${siteMetricsDomainLabel(s)}`,
+            pct: 100,
+          });
+          await loadSites();
+        },
+      );
+      if (result) {
+        await showModal({
+          title: result.ok ? 'Index check done' : 'Index check finished with errors',
+          confirmLabel: 'OK',
+          hideCancel: true,
+          bodyHtml: `<p>Indexed ${esc(result.inspectIndexed ?? '—')} / ${esc(
+            result.inspectSubmitted ?? '—',
+          )} sitemap URLs · inspected ${esc(result.inspectFetched ?? 0)} · skipped ${esc(
+            result.inspectCached ?? 0,
+          )} cached${result.error ? `<br/>${esc(result.error)}` : ''}</p>
+            <p class="muted small">URL Inspection of the sitemap (includes /privacy). Not the GSC Pages report.</p>`,
+        });
+      }
+    } catch (error) {
+      if (isGscAuthRevokedError(error)) {
+        await showGscReconnectModal(error);
+        return;
+      }
+      await showModal({
+        title: 'Index check failed',
+        confirmLabel: 'OK',
+        bodyHtml: `<p>${esc(error.message)}</p>`,
+      });
+    }
+  });
+
   document.getElementById('sites-gsc-sync-one')?.addEventListener('click', async () => {
     if (state.sitesMetricsBusy) return;
     let result = null;
@@ -20849,6 +22247,10 @@ function renderSitesDetail() {
 
   if (state.sitesMetricsBusy) setSitesMetricsButtonsDisabled(true);
 
+  document.getElementById('sites-shotgun-metro')?.addEventListener('click', () => {
+    if (s.candidateId) void shotgunThisMetro(s.candidateId);
+  });
+
   document.getElementById('sites-visual-edit')?.addEventListener('click', async () => {
     if (!s.candidateId) return;
     if (s.status === 'paused' || s.status === 'retired') {
@@ -20871,7 +22273,7 @@ function renderSitesDetail() {
     const ok = await showModal({
       title: 'Provision Twilio ranking number?',
       confirmLabel: 'Buy number',
-      bodyHtml: `<p>Buys one US local number (~$1.15/mo + per-minute usage), sets site NAP, and forwards calls to your <code>TWILIO_FORWARD_TO</code> with a whisper.</p>
+      bodyHtml: `<p>Buys one US local number (~$1.15/mo + per-minute usage), sets site NAP, and takes a voicemail while ranking (texts <code>TWILIO_FORWARD_TO</code>). Rented sites still dial the renter.</p>
         <p class="muted small">${esc([s.city, s.state].filter(Boolean).join(', ') || 'geo from site-config')}${
           areaCode ? ` · area ${esc(areaCode)}` : ' · locality search'
         }</p>`,
@@ -21082,6 +22484,7 @@ function formatPhoneWhen(iso) {
 }
 
 function phoneAnsweredLabel(call) {
+  if (call?.kind === 'voicemail') return { text: 'Voicemail', cls: 'voicemail' };
   if (call?.answered === true) return { text: 'Answered', cls: 'answered' };
   if (call?.answered === false) return { text: 'Missed', cls: 'missed' };
   const st = String(call?.status || '').toLowerCase();
@@ -21136,6 +22539,10 @@ function photoLibSlotCardHtml(slot, { selected = false } = {}) {
   const grade = slot.matchGrade;
   const matchDot = grade ? imagesMatchDotHtml(grade, slot.matchTip || grade) : '';
   const sourceLabel = imagesSlotSourceLabel(slot);
+  const serviceSub = reviewSlotServiceSubtitle(slot);
+  const serviceLine = serviceSub
+    ? `<span class="muted slot-service-subtitle">${esc(serviceSub)}</span>`
+    : '';
   const badge = sourceLabel
     ? `<span class="muted" style="font-size:0.75rem">${esc(sourceLabel)}</span>`
     : '';
@@ -21148,6 +22555,7 @@ function photoLibSlotCardHtml(slot, { selected = false } = {}) {
       <strong style="font-size:0.85rem;display:flex;align-items:center;gap:0.35rem">${matchDot}${esc(
         slot.label || slot.key || key,
       )}</strong>
+      ${serviceLine}
       ${badge}
       ${slotSourceActionsHtml({
         kind: 'photo',
@@ -22342,7 +23750,11 @@ function wirePhotoUi() {
   });
 }
 
+let phoneLoadOverlay = 0;
+
 async function loadPhoneView() {
+  phoneLoadOverlay += 1;
+  showAppBootLoading('Loading…');
   const syncStatus = document.getElementById('phone-sync-status');
   if (syncStatus) {
     syncStatus.hidden = false;
@@ -22350,48 +23762,100 @@ async function loadPhoneView() {
   }
   let syncError = null;
   try {
-    const syncBody = {};
-    if (state.phone.selectedSiteId) syncBody.siteId = state.phone.selectedSiteId;
-    const syncRes = await api('/api/phone/sync', {
-      method: 'POST',
-      body: JSON.stringify(syncBody),
-    });
-    if (syncStatus) {
-      const n = Number(syncRes.upserted || 0);
-      const q = Number(syncRes.summarizedQueued || 0);
-      syncStatus.textContent =
-        n || q
-          ? `Synced ${n} call${n === 1 ? '' : 's'} from Twilio${q ? ` · ${q} summar${q === 1 ? 'y' : 'ies'} queued` : ''}`
-          : 'Synced with Twilio — no new calls in range';
+    try {
+      const syncBody = {};
+      if (state.phone.selectedSiteId) syncBody.siteId = state.phone.selectedSiteId;
+      const syncRes = await api('/api/phone/sync', {
+        method: 'POST',
+        body: JSON.stringify(syncBody),
+      });
+      if (syncStatus) {
+        const n = Number(syncRes.upserted || 0);
+        const q = Number(syncRes.summarizedQueued || 0);
+        syncStatus.textContent =
+          n || q
+            ? `Synced ${n} call${n === 1 ? '' : 's'} from Twilio${q ? ` · ${q} summar${q === 1 ? 'y' : 'ies'} queued` : ''}`
+            : 'Synced with Twilio — no new calls in range';
+      }
+    } catch (error) {
+      syncError = error?.message || String(error);
+      if (syncStatus) {
+        syncStatus.textContent = `Sync skipped: ${syncError}`;
+      }
     }
-  } catch (error) {
-    syncError = error?.message || String(error);
-    if (syncStatus) {
-      syncStatus.textContent = `Sync skipped: ${syncError}`;
+
+    try {
+      const sitesRes = await api('/api/phone/sites');
+      state.phone.sites = sitesRes.sites || [];
+      const q = state.phone.selectedSiteId
+        ? `?siteId=${encodeURIComponent(state.phone.selectedSiteId)}`
+        : '';
+      const callsRes = await api(`/api/phone/calls${q}`);
+      state.phone.calls = callsRes.calls || [];
+      state.phone.stats = callsRes.stats || sitesRes.stats || null;
+    } catch (error) {
+      if (syncStatus && !syncError) {
+        syncStatus.hidden = false;
+        syncStatus.textContent = error?.message || 'Failed to load calls';
+      }
+      throw error;
+    }
+
+    renderPhoneSites();
+    renderPhoneStats();
+    renderPhoneCalls();
+    renderPhoneDetail();
+    await loadPhoneGreeting().catch(() => {});
+  } finally {
+    phoneLoadOverlay -= 1;
+    if (phoneLoadOverlay <= 0) {
+      phoneLoadOverlay = 0;
+      hideAppBootLoading();
     }
   }
+}
 
+async function loadPhoneGreeting() {
   try {
-    const sitesRes = await api('/api/phone/sites');
-    state.phone.sites = sitesRes.sites || [];
-    const q = state.phone.selectedSiteId
-      ? `?siteId=${encodeURIComponent(state.phone.selectedSiteId)}`
-      : '';
-    const callsRes = await api(`/api/phone/calls${q}`);
-    state.phone.calls = callsRes.calls || [];
-    state.phone.stats = callsRes.stats || sitesRes.stats || null;
-  } catch (error) {
-    if (syncStatus && !syncError) {
-      syncStatus.hidden = false;
-      syncStatus.textContent = error?.message || 'Failed to load calls';
-    }
-    throw error;
+    const res = await api('/api/phone/greeting');
+    state.phone.greeting = res.greeting || null;
+  } catch {
+    state.phone.greeting = state.phone.greeting || null;
   }
+  renderPhoneGreeting();
+}
 
-  renderPhoneSites();
-  renderPhoneStats();
-  renderPhoneCalls();
-  renderPhoneDetail();
+function renderPhoneGreeting() {
+  const g = state.phone.greeting || {};
+  const status = document.getElementById('phone-greeting-status');
+  const preview = document.getElementById('phone-greeting-preview');
+  const removeBtn = document.getElementById('phone-greeting-remove');
+  const fallback = document.getElementById('phone-greeting-fallback');
+  if (status) {
+    let line = g.usingUploadedGreeting ? 'Using uploaded greeting' : 'Using spoken fallback';
+    const when = g.fallbackUpdatedAt || g.updatedAt;
+    if (when) line += ` · ${String(when).slice(0, 16).replace('T', ' ')}`;
+    if (g.publishError) {
+      const pe = String(g.publishError);
+      line += /less than or equal to 100/i.test(pe)
+        ? ' · not live yet — redeploy /inbound, then Save spoken fallback'
+        : ` · ${pe}`;
+    }
+    status.textContent = line;
+  }
+  if (preview) {
+    if (g.hasAudio) {
+      preview.hidden = false;
+      preview.src = `/api/phone/greeting/audio?t=${encodeURIComponent(g.updatedAt || Date.now())}`;
+    } else {
+      preview.hidden = true;
+      preview.removeAttribute('src');
+    }
+  }
+  if (removeBtn) removeBtn.disabled = !g.hasAudio;
+  if (fallback && document.activeElement !== fallback) {
+    fallback.value = g.fallbackSay || g.defaultFallbackSay || '';
+  }
 }
 
 function filteredPhoneSites() {
@@ -22523,7 +23987,7 @@ function renderPhoneDetail() {
     </div>
     <p><span class="phone-status-chip ${chip.cls}">${esc(chip.text)}</span>
       · ${esc(formatPhoneDuration(call.durationSec || call.recordingDurationSec))}
-      ${call.forwardTo ? ` · forward ${esc(call.forwardTo)}` : ''}</p>
+      ${call.kind === 'voicemail' ? ' · voicemail' : call.forwardTo ? ` · forward ${esc(call.forwardTo)}` : ''}</p>
     ${
       hasRec
         ? `<audio controls preload="metadata" src="/api/phone/calls/${encodeURIComponent(call.id || call.callSid)}/recording"></audio>`
@@ -22589,6 +24053,84 @@ function wirePhoneUi() {
     state.phone.filterPhase = e.target.value;
     renderPhoneSites();
   });
+  document.getElementById('phone-greeting-file')?.addEventListener('change', async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    const status = document.getElementById('phone-greeting-status');
+    if (status) status.textContent = 'Publishing greeting to Twilio…';
+    try {
+      const res = await fetch('/api/phone/greeting/audio', {
+        method: 'POST',
+        headers: {
+          'content-type': file.type || 'audio/mpeg',
+          'X-Rover-Tab-Id': ROVER_TAB_ID,
+          'X-Filename': file.name,
+        },
+        body: file,
+      });
+      const data = await res.json().catch(() => ({}));
+      if (data.greeting || data.meta) state.phone.greeting = data.greeting || data.meta;
+      if (!res.ok) throw new Error(data.error || res.statusText);
+      renderPhoneGreeting();
+      showToast('Greeting uploaded.');
+    } catch (error) {
+      renderPhoneGreeting();
+      await showModal({
+        title: 'Greeting upload failed',
+        confirmLabel: 'OK',
+        hideCancel: true,
+        bodyHtml: `<p>${esc(error.message)}</p>`,
+      });
+    }
+  });
+  document.getElementById('phone-greeting-remove')?.addEventListener('click', async () => {
+    const ok = await showModal({
+      title: 'Remove uploaded greeting?',
+      confirmLabel: 'Remove',
+      bodyHtml: '<p>Callers will hear the spoken fallback until you upload a new file.</p>',
+    });
+    if (!ok) return;
+    try {
+      const result = await api('/api/phone/greeting/audio', { method: 'DELETE' });
+      state.phone.greeting = result.greeting || null;
+      renderPhoneGreeting();
+    } catch (error) {
+      if (error.meta) state.phone.greeting = error.meta;
+      renderPhoneGreeting();
+      await showModal({
+        title: 'Remove greeting failed',
+        confirmLabel: 'OK',
+        hideCancel: true,
+        bodyHtml: `<p>${esc(error.message)}</p>`,
+      });
+    }
+  });
+  document.getElementById('phone-greeting-save-fallback')?.addEventListener('click', async () => {
+    const text = document.getElementById('phone-greeting-fallback')?.value || '';
+    const btn = document.getElementById('phone-greeting-save-fallback');
+    if (btn) btn.disabled = true;
+    try {
+      const result = await api('/api/phone/greeting/fallback', {
+        method: 'PUT',
+        body: JSON.stringify({ fallbackSay: text }),
+      });
+      state.phone.greeting = result.greeting || null;
+      renderPhoneGreeting();
+      showToast('Spoken fallback saved.');
+    } catch (error) {
+      if (error.meta) state.phone.greeting = error.meta;
+      renderPhoneGreeting();
+      await showModal({
+        title: 'Spoken fallback failed',
+        confirmLabel: 'OK',
+        hideCancel: true,
+        bodyHtml: `<p>${esc(error.message)}</p>`,
+      });
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  });
 }
 
 function wireSitesUi() {
@@ -22607,6 +24149,35 @@ function wireSitesUi() {
   document.getElementById('sites-filter-state')?.addEventListener('change', (e) => {
     state.siteFilters.state = e.target.value;
     renderSitesTable();
+  });
+  document.getElementById('sites-filter-group')?.addEventListener('change', (e) => {
+    state.siteFilters.group = e.target.value;
+    renderSitesTable();
+  });
+  document.getElementById('sites-zone-filter')?.addEventListener('change', (e) => {
+    state.siteFilters.zone = e.target.value;
+    renderSitesTable();
+  });
+  document.getElementById('sites-cluster-filter')?.addEventListener('change', (e) => {
+    state.siteFilters.cluster = e.target.value;
+    renderSitesTable();
+  });
+  document.getElementById('sites-select-filtered')?.addEventListener('click', () => {
+    for (const s of filteredSites()) state.selectedSiteIds.add(s.id);
+    renderSitesTable();
+  });
+  document.getElementById('sites-clear-selection')?.addEventListener('click', () => {
+    state.selectedSiteIds.clear();
+    renderSitesTable();
+  });
+  document.getElementById('sites-group-add-btn')?.addEventListener('click', () => {
+    applyGroupMembership('add', { scope: 'launched' });
+  });
+  document.getElementById('sites-group-remove-btn')?.addEventListener('click', () => {
+    applyGroupMembership('remove', { scope: 'launched' });
+  });
+  document.getElementById('sites-group-manage-btn')?.addEventListener('click', () => {
+    manageCandidateGroups({ scope: 'launched' });
   });
   document.getElementById('sites-add-btn')?.addEventListener('click', async () => {
     if (state.sitesMetricsBusy) return;
@@ -22668,6 +24239,29 @@ function wireSitesUi() {
     }
   });
 
+  document.getElementById('sites-index-check-btn')?.addEventListener('click', async () => {
+    if (state.sitesMetricsBusy) return;
+    const go = await showModal({
+      title: 'Check index for all sites?',
+      confirmLabel: 'Check index',
+      bodyHtml: `<p>Inspects each sitemap URL in Search Console (URL Inspection). First run is about 5–30 seconds per site; later runs skip URLs indexed in the last 7 days. This is not the GSC Pages report.</p>`,
+    });
+    if (!go) return;
+    try {
+      await checkSitesIndexSequential();
+    } catch (error) {
+      if (isGscAuthRevokedError(error)) {
+        await showGscReconnectModal(error);
+        return;
+      }
+      await showModal({
+        title: 'Index check failed',
+        confirmLabel: 'OK',
+        bodyHtml: `<p>${esc(error.message)}</p>`,
+      });
+    }
+  });
+
   document.getElementById('sites-rank-sync-btn')?.addEventListener('click', async () => {
     if (state.sitesMetricsBusy) return;
     const go = await showModal({
@@ -22698,26 +24292,37 @@ function downloadText(filename, text, type = 'text/plain') {
   URL.revokeObjectURL(url);
 }
 
-async function loadDiscoveryPresets() {
-  state.discoveryPresets = await api('/api/discovery/presets');
-  const box = document.getElementById('discovery-niches');
-  const niches = state.discoveryPresets?.niches || [];
-  box.innerHTML = niches
-    .map(
-      (n) =>
-        `<label class="check"><input type="checkbox" name="niche" value="${esc(n)}" /> ${esc(n)}</label>`,
-    )
-    .join('');
-  const catBox = document.getElementById('discovery-categories');
-  if (catBox) {
-    const cats = state.discoveryPresets?.categories || [];
-    catBox.innerHTML = cats
-      .map(
-        (c) =>
-          `<label class="check"><input type="checkbox" name="category" value="${esc(c)}" /> ${esc(c)}</label>`,
-      )
-      .join('');
+function sortCheckLabels(list) {
+  return [...list].sort((a, b) =>
+    String(a).localeCompare(String(b), undefined, { sensitivity: 'base' }),
+  );
+}
+
+/** A–Z checkboxes, left column first, then right (`ceil(n / 2)` in the left). */
+function renderCheckColumns(box, items, name) {
+  if (!box) return;
+  const sorted = sortCheckLabels(items);
+  if (!sorted.length) {
+    box.innerHTML = '';
+    return;
   }
+  const checkLabel = (n) =>
+    `<label class="check"><input type="checkbox" name="${name}" value="${esc(n)}" /> ${esc(n)}</label>`;
+  const col = (list) => `<div class="niche-col">${list.map(checkLabel).join('')}</div>`;
+  const mid = Math.ceil(sorted.length / 2);
+  box.innerHTML = col(sorted.slice(0, mid)) + col(sorted.slice(mid));
+}
+
+async function loadDiscoveryPresets() {
+  bindDiscoveryPlaceAutofill();
+  bindDiscoveryUseMap();
+  state.discoveryPresets = await api('/api/discovery/presets');
+  renderCheckColumns(document.getElementById('discovery-niches'), state.discoveryPresets?.niches || [], 'niche');
+  renderCheckColumns(
+    document.getElementById('discovery-categories'),
+    state.discoveryPresets?.categories || [],
+    'category',
+  );
   const census = state.discoveryPresets?.census || {};
   const el = document.getElementById('census-status');
   if (el) {
@@ -22733,8 +24338,6 @@ async function loadDiscoveryPresets() {
       el.classList.add('warn-text');
     }
   }
-  bindDiscoveryPlaceAutofill();
-  bindDiscoveryUseMap();
 }
 
 function normalizeDiscoveryStateInput(raw) {
@@ -22837,22 +24440,39 @@ function selectedSuggestValue(listEl) {
 function bindDiscoveryPlaceAutofill() {
   if (bindDiscoveryPlaceAutofill._done) return;
   bindDiscoveryPlaceAutofill._done = true;
+  const host = document.getElementById('discovery-geo-rows');
+  if (!host) return;
 
-  const stateInput = document.getElementById('discovery-state');
-  const citiesInput = document.getElementById('discovery-cities');
-  const stateSuggest = document.getElementById('discovery-state-suggest');
-  const citySuggest = document.getElementById('discovery-city-suggest');
-  if (!stateInput || !citiesInput || !stateSuggest || !citySuggest) return;
+  ensureDiscoveryGeoRows();
 
-  disableBrowserGeoAutofill(stateInput);
-  disableBrowserGeoAutofill(citiesInput);
+  let cityTimer = null;
+  let cityReq = 0;
 
-  const normalizeStateField = () => {
+  const rowOf = (el) => el?.closest?.('.discovery-geo-row');
+  const stateInputOf = (row) => row?.querySelector?.('.discovery-pack-state');
+  const citiesInputOf = (row) => row?.querySelector?.('.discovery-pack-cities');
+  const stateSuggestOf = (row) => row?.querySelector?.('.discovery-state-suggest');
+  const citySuggestOf = (row) => row?.querySelector?.('.discovery-city-suggest');
+
+  const hideRowSuggests = (row) => {
+    hideSuggestList(stateSuggestOf(row));
+    hideSuggestList(citySuggestOf(row));
+  };
+
+  const hideAllGeoSuggests = () => {
+    host.querySelectorAll('.suggest-list').forEach((list) => hideSuggestList(list));
+  };
+
+  const normalizeStateField = (stateInput) => {
+    if (!stateInput) return;
     const next = normalizeDiscoveryStateInput(stateInput.value);
     if (next !== stateInput.value) stateInput.value = next;
   };
 
-  const refreshStateSuggestions = () => {
+  const refreshStateSuggestions = (stateInput) => {
+    const row = rowOf(stateInput);
+    const stateSuggest = stateSuggestOf(row);
+    if (!stateInput || !stateSuggest) return;
     const q = String(stateInput.value || '').trim().toLowerCase();
     const states = state.discoveryPresets?.states || [];
     const items = states
@@ -22868,57 +24488,24 @@ function bindDiscoveryPlaceAutofill() {
     showSuggestList(stateSuggest, items);
   };
 
-  const pickState = (abbr) => {
-    if (!abbr) return;
+  const pickState = (stateInput, abbr) => {
+    if (!abbr || !stateInput) return;
     stateInput.value = abbr;
-    hideSuggestList(stateSuggest);
-    normalizeStateField();
+    hideSuggestList(stateSuggestOf(rowOf(stateInput)));
+    normalizeStateField(stateInput);
+    ensureDiscoveryGeoRows();
   };
 
-  stateInput.addEventListener('focus', refreshStateSuggestions);
-  stateInput.addEventListener('input', refreshStateSuggestions);
-  stateInput.addEventListener('keydown', (event) => {
-    if (stateSuggest.hidden) return;
-    if (event.key === 'ArrowDown') {
-      event.preventDefault();
-      moveSuggestSelection(stateSuggest, 1);
-    } else if (event.key === 'ArrowUp') {
-      event.preventDefault();
-      moveSuggestSelection(stateSuggest, -1);
-    } else if (event.key === 'Enter') {
-      const v = selectedSuggestValue(stateSuggest);
-      if (v) {
-        event.preventDefault();
-        pickState(v);
-      }
-    } else if (event.key === 'Escape') {
-      hideSuggestList(stateSuggest);
-    }
-  });
-  stateSuggest.addEventListener('mousedown', (event) => {
-    const li = event.target?.closest?.('li[data-value]');
-    if (!li) return;
-    event.preventDefault();
-    pickState(li.getAttribute('data-value'));
-  });
-  stateInput.addEventListener('blur', () => {
-    setTimeout(() => {
-      hideSuggestList(stateSuggest);
-      normalizeStateField();
-    }, 120);
-  });
-
-  let cityTimer = null;
-  let cityReq = 0;
-  let cityPrefix = [];
-
-  const refreshCitySuggestions = async () => {
+  const refreshCitySuggestions = async (citiesInput) => {
+    const row = rowOf(citiesInput);
+    const citySuggest = citySuggestOf(row);
+    const stateInput = stateInputOf(row);
+    if (!citiesInput || !citySuggest) return;
     const raw = citiesInput.value;
     const trailingSep = /[,|]\s*$/.test(raw);
     const parts = splitDiscoveryCities(raw);
     const q = trailingSep ? '' : String(parts[parts.length - 1] || '');
-    cityPrefix = trailingSep ? parts : parts.slice(0, -1);
-    const st = normalizeDiscoveryStateInput(stateInput.value);
+    const st = normalizeDiscoveryStateInput(stateInput?.value || '');
     const reqId = ++cityReq;
     try {
       const qs = new URLSearchParams({ q, state: st, limit: '40' });
@@ -22938,84 +24525,242 @@ function bindDiscoveryPlaceAutofill() {
     }
   };
 
-  const pickCity = (city) => {
-    if (!city) return;
-    citiesInput.value = joinDiscoveryCities([...cityPrefix, city]);
-    hideSuggestList(citySuggest);
+  const pickCity = (citiesInput, city) => {
+    if (!city || !citiesInput) return;
+    const raw = citiesInput.value;
+    const trailingSep = /[,|]\s*$/.test(raw);
+    const parts = splitDiscoveryCities(raw);
+    const prefix = trailingSep ? parts : parts.slice(0, -1);
+    citiesInput.value = joinDiscoveryCities([...prefix, city]);
+    hideSuggestList(citySuggestOf(rowOf(citiesInput)));
     citiesInput.focus();
+    ensureDiscoveryGeoRows();
   };
 
-  citiesInput.addEventListener('focus', () => {
-    refreshCitySuggestions().catch(() => {});
+  host.addEventListener('focusin', (event) => {
+    const stateInput = event.target?.closest?.('.discovery-pack-state');
+    const citiesInput = event.target?.closest?.('.discovery-pack-cities');
+    if (stateInput) refreshStateSuggestions(stateInput);
+    if (citiesInput) refreshCitySuggestions(citiesInput).catch(() => {});
   });
-  citiesInput.addEventListener('input', () => {
-    clearTimeout(cityTimer);
-    cityTimer = setTimeout(() => {
-      refreshCitySuggestions().catch(() => {});
-    }, 200);
+
+  host.addEventListener('input', (event) => {
+    const stateInput = event.target?.closest?.('.discovery-pack-state');
+    const citiesInput = event.target?.closest?.('.discovery-pack-cities');
+    if (stateInput) refreshStateSuggestions(stateInput);
+    if (citiesInput) {
+      clearTimeout(cityTimer);
+      cityTimer = setTimeout(() => {
+        refreshCitySuggestions(citiesInput).catch(() => {});
+      }, 200);
+    }
+    if (stateInput || citiesInput) ensureDiscoveryGeoRows();
   });
-  citiesInput.addEventListener('keydown', (event) => {
-    if (citySuggest.hidden) return;
-    if (event.key === 'ArrowDown') {
-      event.preventDefault();
-      moveSuggestSelection(citySuggest, 1);
-    } else if (event.key === 'ArrowUp') {
-      event.preventDefault();
-      moveSuggestSelection(citySuggest, -1);
-    } else if (event.key === 'Enter') {
-      const v = selectedSuggestValue(citySuggest);
-      if (v) {
+
+  host.addEventListener('keydown', (event) => {
+    const stateInput = event.target?.closest?.('.discovery-pack-state');
+    const citiesInput = event.target?.closest?.('.discovery-pack-cities');
+    if (stateInput) {
+      const stateSuggest = stateSuggestOf(rowOf(stateInput));
+      if (!stateSuggest || stateSuggest.hidden) return;
+      if (event.key === 'ArrowDown') {
         event.preventDefault();
-        pickCity(v);
+        moveSuggestSelection(stateSuggest, 1);
+      } else if (event.key === 'ArrowUp') {
+        event.preventDefault();
+        moveSuggestSelection(stateSuggest, -1);
+      } else if (event.key === 'Enter') {
+        const v = selectedSuggestValue(stateSuggest);
+        if (v) {
+          event.preventDefault();
+          pickState(stateInput, v);
+        }
+      } else if (event.key === 'Escape') {
+        hideSuggestList(stateSuggest);
       }
-    } else if (event.key === 'Escape') {
-      hideSuggestList(citySuggest);
+      return;
+    }
+    if (citiesInput) {
+      const citySuggest = citySuggestOf(rowOf(citiesInput));
+      if (!citySuggest || citySuggest.hidden) return;
+      if (event.key === 'ArrowDown') {
+        event.preventDefault();
+        moveSuggestSelection(citySuggest, 1);
+      } else if (event.key === 'ArrowUp') {
+        event.preventDefault();
+        moveSuggestSelection(citySuggest, -1);
+      } else if (event.key === 'Enter') {
+        const v = selectedSuggestValue(citySuggest);
+        if (v) {
+          event.preventDefault();
+          pickCity(citiesInput, v);
+        }
+      } else if (event.key === 'Escape') {
+        hideSuggestList(citySuggest);
+      }
     }
   });
-  citySuggest.addEventListener('mousedown', (event) => {
+
+  host.addEventListener('mousedown', (event) => {
     const li = event.target?.closest?.('li[data-value]');
     if (!li) return;
+    const row = rowOf(li);
+    if (!row) return;
     event.preventDefault();
-    pickCity(li.getAttribute('data-value'));
+    if (li.closest('.discovery-state-suggest')) {
+      pickState(stateInputOf(row), li.getAttribute('data-value'));
+    } else if (li.closest('.discovery-city-suggest')) {
+      pickCity(citiesInputOf(row), li.getAttribute('data-value'));
+    }
   });
-  citiesInput.addEventListener('blur', () => {
-    setTimeout(() => hideSuggestList(citySuggest), 120);
+
+  host.addEventListener('focusout', (event) => {
+    const row = rowOf(event.target);
+    if (!row) return;
+    setTimeout(() => {
+      if (row.contains(document.activeElement)) return;
+      hideRowSuggests(row);
+      normalizeStateField(stateInputOf(row));
+      ensureDiscoveryGeoRows();
+    }, 120);
   });
 
   document.addEventListener('click', (event) => {
-    if (!event.target?.closest?.('.suggest-wrap')) {
-      hideSuggestList(stateSuggest);
-      hideSuggestList(citySuggest);
+    if (!event.target?.closest?.('#discovery-geo-rows .suggest-wrap')) {
+      hideAllGeoSuggests();
     }
   });
 }
 
-function closeDiscoveryCitiesMap() {
-  if (discoveryCitiesMount) {
-    try {
-      discoveryCitiesMount.destroy();
-    } catch {
-      /* ignore */
-    }
-    discoveryCitiesMount = null;
+function discoveryGeoRowIsEmpty(row) {
+  const st = String(row?.querySelector?.('.discovery-pack-state')?.value || '').trim();
+  const cities = String(row?.querySelector?.('.discovery-pack-cities')?.value || '').trim();
+  return !st && !cities;
+}
+
+function createDiscoveryGeoRow({ showCityTip = false } = {}) {
+  const row = document.createElement('div');
+  row.className = 'form-row form-row-geo discovery-geo-row';
+  const tip = showCityTip
+    ? `<button
+          type="button"
+          class="tip-info"
+          data-tip="Comma-separated. Blank = Claude picks. Use Map to pick from a state map."
+          aria-label="About Cities"
+        >i</button>`
+    : '';
+  row.innerHTML = `
+    <label class="field-state">State
+      <span class="suggest-wrap">
+        <input
+          class="discovery-pack-state"
+          autocomplete="new-password"
+          autocapitalize="off"
+          spellcheck="false"
+          readonly
+          data-lpignore="true"
+          data-1p-ignore="true"
+          data-form-type="other"
+          placeholder="blank = US"
+        />
+        <ul class="suggest-list discovery-state-suggest hidden" role="listbox" hidden></ul>
+      </span>
+    </label>
+    <label class="field-cities label-with-tip">
+      <span class="label-with-tip-head">
+        <span>Cities</span>
+        ${tip}
+        <button type="button" class="btn btn-sm discovery-use-map">Use Map</button>
+        <button type="button" class="btn btn-sm hidden discovery-map-done">Done</button>
+      </span>
+      <span class="suggest-wrap">
+        <input
+          class="discovery-pack-cities"
+          autocomplete="new-password"
+          autocapitalize="off"
+          spellcheck="false"
+          readonly
+          data-lpignore="true"
+          data-1p-ignore="true"
+          data-form-type="other"
+          placeholder="Louisville, Lexington"
+        />
+        <ul class="suggest-list discovery-city-suggest hidden" role="listbox" hidden></ul>
+      </span>
+    </label>
+  `;
+  row.querySelectorAll('.discovery-pack-state, .discovery-pack-cities').forEach((input) => {
+    disableBrowserGeoAutofill(input);
+  });
+  return row;
+}
+
+function ensureDiscoveryGeoRows() {
+  const host = document.getElementById('discovery-geo-rows');
+  if (!host) return;
+  const rows = [...host.querySelectorAll('.discovery-geo-row')];
+  for (let i = rows.length - 2; i >= 0; i -= 1) {
+    if (!discoveryGeoRowIsEmpty(rows[i])) continue;
+    if (discoveryMapGeoRow === rows[i]) closeDiscoveryCitiesMap();
+    rows[i].remove();
   }
+  const next = [...host.querySelectorAll('.discovery-geo-row')];
+  next.forEach((row) => {
+    row.querySelectorAll('.discovery-pack-state, .discovery-pack-cities').forEach((input) => {
+      disableBrowserGeoAutofill(input);
+    });
+  });
+  if (!next.length) {
+    host.appendChild(createDiscoveryGeoRow({ showCityTip: true }));
+    return;
+  }
+  const last = next[next.length - 1];
+  if (!discoveryGeoRowIsEmpty(last)) {
+    host.appendChild(createDiscoveryGeoRow({ showCityTip: false }));
+  }
+}
+
+function collectDiscoveryPackRegions() {
+  const host = document.getElementById('discovery-geo-rows');
+  const regions = [];
+  for (const row of host?.querySelectorAll?.('.discovery-geo-row') || []) {
+    const stateAbbr = normalizeDiscoveryStateInput(row.querySelector('.discovery-pack-state')?.value || '');
+    const cities = splitDiscoveryCities(row.querySelector('.discovery-pack-cities')?.value || '');
+    if (!stateAbbr && !cities.length) continue;
+    regions.push({ state: stateAbbr, cities });
+  }
+  return regions;
+}
+
+function teardownDiscoveryCitiesMapMount() {
+  if (!discoveryCitiesMount) return;
+  try {
+    discoveryCitiesMount.destroy();
+  } catch {
+    /* ignore */
+  }
+  discoveryCitiesMount = null;
+  discoveryMapGeoRow = null;
+}
+
+function closeDiscoveryCitiesMap() {
+  teardownDiscoveryCitiesMapMount();
   setDiscoveryTableMapMode(false);
   const controls = document.getElementById('discovery-map-controls');
-  const useBtn = document.getElementById('discovery-use-map');
-  const doneBtn = document.getElementById('discovery-map-done');
   if (controls) {
     controls.classList.add('hidden');
     controls.innerHTML = '';
   }
-  if (useBtn) useBtn.classList.remove('hidden');
-  if (doneBtn) doneBtn.classList.add('hidden');
+  document.querySelectorAll('.discovery-use-map').forEach((btn) => btn.classList.remove('hidden'));
+  document.querySelectorAll('.discovery-map-done').forEach((btn) => btn.classList.add('hidden'));
 }
 
 function syncDiscoveryCitiesFromMap(selectedCities) {
-  const citiesInput = document.getElementById('discovery-cities');
+  const citiesInput = discoveryMapGeoRow?.querySelector?.('.discovery-pack-cities');
   if (!citiesInput) return;
   const names = (selectedCities || []).map((c) => (typeof c === 'string' ? c : c?.name)).filter(Boolean);
   citiesInput.value = joinDiscoveryCities(names);
+  ensureDiscoveryGeoRows();
 }
 
 function readDiscoveryPackPopRange() {
@@ -23029,14 +24774,14 @@ function readDiscoveryPackPopRange() {
   };
 }
 
-async function openDiscoveryCitiesMap() {
-  const stateInput = document.getElementById('discovery-state');
-  const citiesInput = document.getElementById('discovery-cities');
+async function openDiscoveryCitiesMap(row) {
+  const stateInput = row?.querySelector?.('.discovery-pack-state');
+  const citiesInput = row?.querySelector?.('.discovery-pack-cities');
+  const useBtn = row?.querySelector?.('.discovery-use-map');
+  const doneBtn = row?.querySelector?.('.discovery-map-done');
   const mapHost = document.getElementById('discovery-map-canvas');
   const controlsHost = document.getElementById('discovery-map-controls');
-  const useBtn = document.getElementById('discovery-use-map');
-  const doneBtn = document.getElementById('discovery-map-done');
-  if (!mapHost || !controlsHost) return;
+  if (!row || !mapHost || !controlsHost) return;
 
   const st = normalizeDiscoveryStateInput(stateInput?.value || '');
   if (stateInput && st) stateInput.value = st;
@@ -23050,6 +24795,8 @@ async function openDiscoveryCitiesMap() {
   const { minPop, maxPop } = readDiscoveryPackPopRange();
 
   closeDiscoveryCitiesMap();
+  placeDiscoveryMapCanvas(document.querySelector('.discovery-table-panel'));
+  discoveryMapGeoRow = row;
   setDiscoveryTableMapMode(true);
   controlsHost.classList.remove('hidden');
   if (useBtn) useBtn.classList.add('hidden');
@@ -23082,11 +24829,16 @@ async function openDiscoveryCitiesMap() {
 function bindDiscoveryUseMap() {
   if (bindDiscoveryUseMap._done) return;
   bindDiscoveryUseMap._done = true;
-  document.getElementById('discovery-use-map')?.addEventListener('click', () => {
-    openDiscoveryCitiesMap().catch((e) => showToast(e?.message || 'Map failed', { tone: 'warn' }));
-  });
-  document.getElementById('discovery-map-done')?.addEventListener('click', () => {
-    closeDiscoveryCitiesMap();
+  const host = document.getElementById('discovery-geo-rows');
+  host?.addEventListener('click', (event) => {
+    const useBtn = event.target?.closest?.('.discovery-use-map');
+    const doneBtn = event.target?.closest?.('.discovery-map-done');
+    if (useBtn) {
+      const row = useBtn.closest('.discovery-geo-row');
+      openDiscoveryCitiesMap(row).catch((e) => showToast(e?.message || 'Map failed', { tone: 'warn' }));
+      return;
+    }
+    if (doneBtn) closeDiscoveryCitiesMap();
   });
 
   let popTimer = null;
@@ -23113,9 +24865,10 @@ function shortDiscoveryStage(stage) {
 
 function formatDiscoveryBatchOption(b) {
   const stage = shortDiscoveryStage(b.stage) || 'pack';
-  const rows = `${b.rowCount ?? 0} rows`;
+  const shotgun = isClusterPackType(b.filters?.packType) || String(b.id || '').startsWith('shotgun-') || String(b.id || '').startsWith('cluster-');
+  const count = shotgun ? `${b.hubCount ?? 0} hubs` : `${b.rowCount ?? 0} rows`;
   const processed = b.lastProcess ? ' · processed' : '';
-  return `${b.id} · ${stage} · ${rows}${processed}`;
+  return `${b.id} · ${stage} · ${count}${processed}`;
 }
 
 function discoveryRowProcessStatus(row) {
@@ -23169,7 +24922,9 @@ function updateDiscoveryProcessControls() {
     setElementTip(
       processBtn,
       total === 0
-        ? 'Import a batch and set Decisions first'
+        ? discoveryBatchIsShotgun()
+          ? 'Generate pack from the selected hub and set Decisions first'
+          : 'Import a batch and set Decisions first'
         : !allDecided
           ? `Set Decision on every row (${decided}/${total}) before processing`
           : pendingProcess === 0
@@ -23193,6 +24948,7 @@ function updateDiscoveryProcessControls() {
         : `${decided}/${total} Decisions made, complete decisions to process batch.`;
     }
   }
+  syncDiscoveryLightSerpButton();
 }
 
 /** Sort key for batch dropdowns: createdAt, else trailing stamp in id, else id. */
@@ -23242,45 +24998,81 @@ function fillCandidateBatchFilterSelect() {
   }
 }
 
-function fillCandidateGroupSelects() {
-  const groups = [...(state.candidateGroups || [])].sort((a, b) =>
+function fillZoneNumberFilters() {
+  const nums = new Set();
+  for (const c of state.candidates || []) {
+    const n = Number(c.sgNumber ?? c.shotgunSg);
+    if (Number.isFinite(n) && n >= 1) nums.add(n);
+  }
+  for (const s of state.sites || []) {
+    const n = Number(s.sgNumber ?? s.shotgunSg);
+    if (Number.isFinite(n) && n >= 1) nums.add(n);
+  }
+  const sorted = [...nums].sort((a, b) => a - b);
+  const fill = (selId, prev, onClear) => {
+    const sel = document.getElementById(selId);
+    if (!sel) return;
+    const opts = ['<option value="">Zone: all</option>'];
+    for (const n of sorted) {
+      const selected = String(n) === String(prev) ? ' selected' : '';
+      opts.push(`<option value="${n}"${selected}>ZN ${formatShotgunSgDisplay(n)}</option>`);
+    }
+    sel.innerHTML = opts.join('');
+    if (prev && !sorted.some((n) => String(n) === String(prev))) {
+      onClear();
+      sel.value = '';
+    } else {
+      sel.value = prev || '';
+    }
+  };
+  fill('candidate-zone-filter', state.candidateZoneFilter, () => {
+    state.candidateZoneFilter = '';
+  });
+  fill('sites-zone-filter', state.siteFilters.zone, () => {
+    state.siteFilters.zone = '';
+  });
+}
+
+function namedGroupsForScope(scope) {
+  return scope === 'launched' ? state.launchedGroups || [] : state.candidateGroups || [];
+}
+
+function fillNamedGroupSelects({ groups, filterSelectId, actionSelectId, prevFilter, onFilterChange }) {
+  const sorted = [...(groups || [])].sort((a, b) =>
     String(a.name).localeCompare(String(b.name), undefined, { sensitivity: 'base' }),
   );
-  const filterSel = document.getElementById('candidate-group-filter');
+  const filterSel = document.getElementById(filterSelectId);
   if (filterSel) {
-    const prev = state.candidateGroupFilter || '';
     const opts = [
       '<option value="">Group: all</option>',
       '<option value="__ungrouped">ungrouped</option>',
     ];
-    for (const g of groups) {
+    for (const g of sorted) {
       const n = Array.isArray(g.ids) ? g.ids.length : 0;
-      opts.push(
-        `<option value="${esc(g.id)}">${esc(g.name)} (${n})</option>`,
-      );
+      opts.push(`<option value="${esc(g.id)}">${esc(g.name)} (${n})</option>`);
     }
     filterSel.innerHTML = opts.join('');
-    if (prev === '__ungrouped' || groups.some((g) => g.id === prev) || !prev) {
-      filterSel.value = prev;
-      state.candidateGroupFilter = prev;
+    if (prevFilter === '__ungrouped' || sorted.some((g) => g.id === prevFilter) || !prevFilter) {
+      filterSel.value = prevFilter || '';
+      onFilterChange?.(prevFilter || '');
     } else {
-      state.candidateGroupFilter = '';
+      onFilterChange?.('');
       filterSel.value = '';
     }
   }
 
-  const actionSel = document.getElementById('candidate-group-action');
+  const actionSel = document.getElementById(actionSelectId);
   if (actionSel) {
     const prev = actionSel.value || '';
     const opts = [
       '<option value="">—</option>',
       '<option value="__new">New group…</option>',
     ];
-    for (const g of groups) {
+    for (const g of sorted) {
       opts.push(`<option value="${esc(g.id)}">${esc(g.name)}</option>`);
     }
     actionSel.innerHTML = opts.join('');
-    if (prev === '__new' || groups.some((g) => g.id === prev)) {
+    if (prev === '__new' || sorted.some((g) => g.id === prev)) {
       actionSel.value = prev;
     } else {
       actionSel.value = '';
@@ -23288,8 +25080,32 @@ function fillCandidateGroupSelects() {
   }
 }
 
-async function ensureGroupIdForAction() {
-  const sel = document.getElementById('candidate-group-action');
+function fillCandidateGroupSelects() {
+  fillNamedGroupSelects({
+    groups: state.candidateGroups,
+    filterSelectId: 'candidate-group-filter',
+    actionSelectId: 'candidate-group-action',
+    prevFilter: state.candidateGroupFilter || '',
+    onFilterChange: (v) => {
+      state.candidateGroupFilter = v;
+    },
+  });
+}
+
+function fillLaunchedGroupSelects() {
+  fillNamedGroupSelects({
+    groups: state.launchedGroups,
+    filterSelectId: 'sites-filter-group',
+    actionSelectId: 'sites-group-action',
+    prevFilter: state.siteFilters.group || '',
+    onFilterChange: (v) => {
+      state.siteFilters.group = v;
+    },
+  });
+}
+
+async function ensureGroupIdForAction({ actionSelectId = 'candidate-group-action', scope = 'candidates' } = {}) {
+  const sel = document.getElementById(actionSelectId);
   let groupId = sel?.value || '';
   if (!groupId) {
     await showModal({
@@ -23311,33 +25127,66 @@ async function ensureGroupIdForAction() {
       });
       return null;
     }
+    const body = { name: trimmed };
+    if (scope === 'launched') body.scope = 'launched';
     const data = await api('/api/candidate-groups', {
       method: 'POST',
-      body: JSON.stringify({ name: trimmed }),
+      body: JSON.stringify(body),
     });
-    state.candidateGroups = data.groups || [];
-    fillCandidateGroupSelects();
-    notifyCandidatesChanged({ type: 'candidates' });
+    if (scope === 'launched') {
+      state.launchedGroups = data.groups || [];
+      fillLaunchedGroupSelects();
+    } else {
+      state.candidateGroups = data.groups || [];
+      fillCandidateGroupSelects();
+      notifyCandidatesChanged({ type: 'candidates' });
+    }
     groupId = data.group?.id || null;
     if (sel && groupId) sel.value = groupId;
   }
   return groupId;
 }
 
-async function applyGroupMembership(op) {
-  const ids = [...state.selectedIds];
-  if (!ids.length) return;
+function selectedLaunchedCandidateIds() {
+  const ids = [];
+  const seen = new Set();
+  for (const siteId of state.selectedSiteIds) {
+    const s = state.sites.find((x) => x.id === siteId);
+    const cid = String(s?.candidateId || '').trim();
+    if (!cid || seen.has(cid)) continue;
+    seen.add(cid);
+    ids.push(cid);
+  }
+  return ids;
+}
+
+async function applyGroupMembership(op, { scope = 'candidates' } = {}) {
+  const ids =
+    scope === 'launched' ? selectedLaunchedCandidateIds() : [...state.selectedIds];
+  if (!ids.length) {
+    if (scope === 'launched' && state.selectedSiteIds.size) {
+      await showModal({
+        title: 'No candidate ids',
+        confirmLabel: 'OK',
+        bodyHtml:
+          '<p>Selected rows have no candidate id (manual domain rows cannot join a Launched group).</p>',
+      });
+    }
+    return;
+  }
   try {
-    const groupId = await ensureGroupIdForAction();
+    const actionSelectId = scope === 'launched' ? 'sites-group-action' : 'candidate-group-action';
+    const groupId = await ensureGroupIdForAction({ actionSelectId, scope });
     if (!groupId) return;
-    const group = (state.candidateGroups || []).find((g) => g.id === groupId);
+    const group = namedGroupsForScope(scope).find((g) => g.id === groupId);
     const label = group?.name || groupId;
+    const noun = scope === 'launched' ? 'launched site(s)' : 'selected candidate(s)';
     const ok = await showModal({
       title: op === 'add' ? 'Add to group?' : 'Remove from group?',
       confirmLabel: op === 'add' ? `Add (${ids.length})` : `Remove (${ids.length})`,
       bodyHtml: `<p>${op === 'add' ? 'Add' : 'Remove'} <strong>${esc(
         String(ids.length),
-      )}</strong> selected candidate(s) ${op === 'add' ? 'to' : 'from'} <strong>${esc(
+      )}</strong> ${noun} ${op === 'add' ? 'to' : 'from'} <strong>${esc(
         label,
       )}</strong>.</p>`,
     });
@@ -23346,8 +25195,11 @@ async function applyGroupMembership(op) {
       method: 'POST',
       body: JSON.stringify({ ids, op }),
     });
-    await loadCandidates();
-    notifyCandidatesChanged({ type: 'candidates', ids });
+    if (scope === 'launched') await loadSites();
+    else {
+      await loadCandidates();
+      notifyCandidatesChanged({ type: 'candidates', ids });
+    }
   } catch (error) {
     await showModal({
       title: 'Group update failed',
@@ -23429,11 +25281,11 @@ async function applyCandidatePermanentDelete() {
     const more =
       blocked.length > 8 ? `<li class="muted">…and ${blocked.length - 8} more</li>` : '';
     await showModal({
-      title: 'Cannot delete Website / Launched',
+      title: 'Cannot delete Launched',
       confirmLabel: 'OK',
-      bodyHtml: `<p>Website Candidates and Launched Candidates cannot be permanently deleted from Rover.</p>
+      bodyHtml: `<p>Launched Candidates cannot be permanently deleted from Rover.</p>
         <ul>${sample}${more}</ul>
-        <p class="muted">Deselect them (or use Archive for Research-only cleanup) and try again.</p>`,
+        <p class="muted">Deselect them and try again. Archive still hides rows without deleting files.</p>`,
     });
     return;
   }
@@ -23454,13 +25306,14 @@ async function applyCandidatePermanentDelete() {
     title: 'Delete candidates permanently?',
     confirmLabel: 'Continue',
     danger: true,
-    bodyHtml: `<p>You are about to permanently delete <strong>${esc(String(ids.length))}</strong> Research candidate(s):</p>
+    bodyHtml: `<p>You are about to permanently delete <strong>${esc(String(ids.length))}</strong> unlaunched candidate(s) (Research or Website):</p>
       <ul>${sample}${more}</ul>
       <ul>
-        <li>Wipes all Research artifacts for each id under <code>research/</code> (JSON, drafts, staging/images folders).</li>
+        <li>Wipes all Rover artifacts for each id under <code>research/</code> (JSON, drafts, staging/images folders).</li>
+        <li>Deletes the local assembled folder under <code>rover-sites/</code> when present.</li>
         <li>Removes them from Discovery known / tracked anti-dupe lists so markets can be rediscovered.</li>
         <li>Removes membership in named groups and clears Discovery batch <code>candidateId</code> links.</li>
-        <li>Does <strong>not</strong> delete Website or Launched Candidates (blocked by Rover).</li>
+        <li>Does <strong>not</strong> delete Launched Candidates (blocked by Rover).</li>
         <li>Does <strong>not</strong> release Twilio DIDs or tear down a live host / DNS.</li>
       </ul>
       <p class="muted small">Next step asks you to type <code>DELETE</code> to confirm.</p>`,
@@ -23527,8 +25380,8 @@ async function applyCandidatePermanentDelete() {
   }
 }
 
-async function manageCandidateGroups() {
-  const groups = [...(state.candidateGroups || [])].sort((a, b) =>
+async function manageCandidateGroups({ scope = 'candidates' } = {}) {
+  const groups = [...namedGroupsForScope(scope)].sort((a, b) =>
     String(a.name).localeCompare(String(b.name), undefined, { sensitivity: 'base' }),
   );
   if (!groups.length) {
@@ -23566,8 +25419,11 @@ async function manageCandidateGroups() {
         method: 'PATCH',
         body: JSON.stringify({ name }),
       });
-      await loadCandidates();
-      notifyCandidatesChanged({ type: 'candidates' });
+      if (scope === 'launched') await loadSites();
+      else {
+        await loadCandidates();
+        notifyCandidatesChanged({ type: 'candidates' });
+      }
     } catch (error) {
       await showModal({
         title: 'Rename failed',
@@ -23582,7 +25438,9 @@ async function manageCandidateGroups() {
     title: 'Delete group?',
     confirmLabel: 'Delete',
     danger: true,
-    bodyHtml: `<p>Deletes the named list only — candidates stay. Cancel to leave groups unchanged.</p>
+    bodyHtml: `<p>Deletes the named list only — ${
+      scope === 'launched' ? 'sites' : 'candidates'
+    } stay. Cancel to leave groups unchanged.</p>
       <label>Group <select id="manage-group-delete-select">${options}</select></label>`,
   });
   if (!doDelete) return;
@@ -23592,9 +25450,14 @@ async function manageCandidateGroups() {
     await api(`/api/candidate-groups/${encodeURIComponent(delId)}`, {
       method: 'DELETE',
     });
-    if (state.candidateGroupFilter === delId) state.candidateGroupFilter = '';
-    await loadCandidates();
-    notifyCandidatesChanged({ type: 'candidates' });
+    if (scope === 'launched') {
+      if (state.siteFilters.group === delId) state.siteFilters.group = '';
+      await loadSites();
+    } else {
+      if (state.candidateGroupFilter === delId) state.candidateGroupFilter = '';
+      await loadCandidates();
+      notifyCandidatesChanged({ type: 'candidates' });
+    }
   } catch (error) {
     await showModal({
       title: 'Delete failed',
@@ -23848,6 +25711,17 @@ function discoveryRowMatchesFilters(row) {
     const got = normalizeMapPackFilterValue(row['Map Pack']);
     if (want !== got) return false;
   }
+  if (f.role) {
+    const want = String(f.role).toLowerCase();
+    const got = String(row.shotgun_role || '').toLowerCase();
+    const aliases = {
+      hub: ['hub', 'main'],
+      member: ['member', 'city', 'wave1', 'wave2', 'wave3', 'wave4', 'wave5', 'wave6', 'wave7', 'wave8', 'wave9', 'wave10'],
+      city: ['member', 'city', 'wave1', 'wave2', 'wave3', 'wave4', 'wave5', 'wave6', 'wave7', 'wave8', 'wave9', 'wave10'],
+    };
+    const ok = aliases[want] ? aliases[want].includes(got) : got === want;
+    if (!ok) return false;
+  }
   return true;
 }
 
@@ -23898,7 +25772,7 @@ function getDiscoveryViewRows() {
 function syncDiscoveryFilterInputs() {
   const bar = document.getElementById('discovery-table-filters');
   if (!bar) return;
-  if (!state.discoveryRows.length) {
+  if (!state.discoveryRows.length || (discoveryBatchIsShotgun() && shotgunSurfaceIsHub())) {
     bar.classList.add('hidden');
     return;
   }
@@ -24235,7 +26109,8 @@ function renderDiscoveryTable() {
   const thead = document.querySelector('#discovery-table thead');
   const tbody = document.querySelector('#discovery-table tbody');
   const sort = state.discoverySort;
-  thead.innerHTML = `<tr>${DISCOVERY_TABLE_COLS.map((c) => {
+  const cols = DISCOVERY_TABLE_COLS;
+  thead.innerHTML = `<tr>${cols.map((c) => {
     const tip = c.tip || c.label || '';
     if (c.key === '_select') {
       return `<th data-tip="${esc(tip)}"><input type="checkbox" id="discovery-select-all" data-tip="${esc(tip)}" /></th>`;
@@ -24256,7 +26131,7 @@ function renderDiscoveryTable() {
   const acceptAll = document.getElementById('discovery-accept-all');
 
   if (!state.discoveryRows.length) {
-    tbody.innerHTML = `<tr><td colspan="${DISCOVERY_TABLE_COLS.length}" class="muted">Import a filled CSV or select a batch.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="${cols.length}" class="muted">Import a filled CSV or select a batch.</td></tr>`;
     updateDiscoveryProcessControls();
     syncHeaderSelectAll(document.getElementById('discovery-select-all'), {
       selectedCount: 0,
@@ -24276,7 +26151,7 @@ function renderDiscoveryTable() {
       const processed = Boolean(processStatus);
       const tracked = processStatus === 'tracked';
       const ignored = processStatus === 'ignored';
-      const cells = DISCOVERY_TABLE_COLS.map((col) => {
+      const cells = cols.map((col) => {
         const tdClass = col.cellClass ? ` class="${esc(col.cellClass)}"` : '';
         if (col.key === '_select') {
           return `<td${tdClass}><input type="checkbox" data-disc-idx="${idx}" class="disc-row-check" ${checked} /></td>`;
@@ -24344,6 +26219,11 @@ function renderDiscoveryTable() {
           }
           const val = row.candidateId || '';
           return `<td${tdClass} data-tip="${esc(val)}"><span class="cell-text">${esc(val || '—')}</span></td>`;
+        }
+        if (col.key === 'shotgun_role') {
+          const role = String(row.shotgun_role || '').toLowerCase();
+          const label = shotgunRoleLabel(role) || '—';
+          return `<td${tdClass}><span class="sg-role-${esc(role || 'none')}">${esc(label)}</span></td>`;
         }
         if (col.key === 'suggested_suburbs') {
           const raw = row.suggested_suburbs;
@@ -24496,7 +26376,9 @@ async function selectDiscoveryBatch(id) {
   document.getElementById('discovery-batch-sub').textContent = [
     stage,
     `${data.rows?.length || 0} rows`,
-    data.batch.filters?.state || null,
+    Array.isArray(data.batch.filters?.states) && data.batch.filters.states.length
+      ? data.batch.filters.states.join(', ')
+      : data.batch.filters?.state || null,
     serp
       ? `SERP $${serp.costUsd ?? '?'} · MP ${serp.mapPackYes ?? '?'}/${serp.mapPackNo ?? '?'}`
       : null,
@@ -24548,11 +26430,1222 @@ async function selectDiscoveryBatch(id) {
   }
   renderDiscoveryTable();
   updateDiscoveryStepChecks(data.batch, state.discoveryRows);
+  if (data.batch?.filters?.packType && isClusterPackType(data.batch.filters.packType)) {
+    state.discoveryPackType = 'cluster';
+    syncDiscoveryPackTypeUi();
+    const hasRows = (state.discoveryRows || []).length > 0;
+    applyShotgunSurface(hasRows ? 'table' : 'hub');
+    await loadShotgunWorkspace(data.batch.id);
+    if (effectiveClaudeUiMode() === 'api') renderShotgunApiButtons();
+    else renderShotgunPasteSteps();
+    showDiscoverySidebarStep(hasRows ? 'enrich' : 'pack');
+  } else {
+    state.discoveryPackType = 'single';
+    syncDiscoveryPackTypeUi();
+    state.shotgunWorkspace = null;
+    await renderShotgunWorkspace();
+  }
   if (effectiveClaudeUiMode() === 'api') {
     syncDiscoveryApiRerunButton();
     syncGeneratePackOverlay(state.lightJobsSnap);
   }
   await loadDiscoveryBatches();
+}
+
+function discoveryBatchIsShotgun(batch = null) {
+  const b =
+    batch ||
+    state.discoveryBatches.find((x) => x.id === state.discoveryBatchId) ||
+    state.lastDiscoveryPack?.batch;
+  return isClusterPackType(b?.filters?.packType || state.discoveryPackType);
+}
+
+function shotgunHasPackCities(ws = state.shotgunWorkspace) {
+  return (ws?.draft?.members || []).some((m) => {
+    const r = String(m.role || '').toLowerCase();
+    if (r === 'hub' || r === 'main') return false;
+    return shotgunIsCityRole(m.role, m) || memberClusterKey(m);
+  });
+}
+
+function shotgunNewCityCount(ws = state.shotgunWorkspace) {
+  const n = Number(ws?.summary?.newCount);
+  if (Number.isFinite(n) && n >= 0) return n;
+  return (ws?.draft?.members || []).filter((m) => {
+    const r = String(m.role || '').toLowerCase();
+    const member =
+      r === 'hub' ||
+      r === 'main' ||
+      shotgunIsCityRole(m.role, m) ||
+      memberClusterKey(m);
+    return member && !m.candidateId;
+  }).length;
+}
+
+function shotgunPackReady(ws = state.shotgunWorkspace) {
+  if (!ws?.draft?.hub) return { ok: false, tip: 'Select a hub first' };
+  if (!shotgunHasPackCities(ws)) return { ok: false, tip: 'Paint Clusters (Claude cities still count as pack members)' };
+  if (shotgunNewCityCount(ws) < 1) {
+    return { ok: false, tip: 'All assigned cities are already in the pipeline' };
+  }
+  return { ok: true, tip: '' };
+}
+
+function discoveryLightSerpBusy() {
+  const progress = document.getElementById('discovery-probe-progress');
+  return Boolean(progress && !progress.classList.contains('hidden'));
+}
+
+function syncDiscoveryLightSerpButton() {
+  const btn = document.getElementById('discovery-enrich-pack-btn');
+  if (!btn) return;
+  const hasRows = (state.discoveryRows || []).length > 0;
+  btn.disabled = !hasRows || discoveryLightSerpBusy();
+  setElementTip(
+    btn,
+    !hasRows
+      ? discoveryBatchIsShotgun()
+        ? 'Generate pack from the selected hub first'
+        : 'Generate pack / import Claude CSV first'
+      : 'Probes selected Discovery rows; with none selected, probes the whole batch',
+  );
+}
+
+async function startShotgunGeneratePackFromUi() {
+  const ready = shotgunPackReady();
+  if (!ready.ok) {
+    await showModal({
+      title: 'Cannot generate pack yet',
+      confirmLabel: 'OK',
+      hideCancel: true,
+      bodyHtml: `<p>${esc(ready.tip)}</p>`,
+    });
+    return;
+  }
+  if (effectiveClaudeUiMode() === 'api') {
+    await startShotgunApiStep('shotgun-generate-pack');
+    return;
+  }
+  renderShotgunPasteSteps();
+  showDiscoverySidebarStep('claude');
+  showToast('Copy the Generate pack prompt, then import Claude’s CSV.');
+}
+
+function setDiscoveryPackType(type) {
+  state.discoveryPackType = isClusterPackType(type) ? 'cluster' : 'single';
+  syncDiscoveryPackTypeUi();
+}
+
+function syncDiscoveryPackTypeUi() {
+  const shotgun = isClusterPackType(state.discoveryPackType);
+  document.getElementById('discovery-pack-scout')?.classList.toggle('active', !shotgun);
+  document.getElementById('discovery-pack-shotgun')?.classList.toggle('active', shotgun);
+  document.querySelectorAll('.discovery-shotgun-only').forEach((el) => {
+    el.classList.toggle('hidden', !shotgun);
+  });
+  document.querySelectorAll('.discovery-scout-only').forEach((el) => {
+    el.classList.toggle('hidden', shotgun);
+  });
+  document.querySelectorAll('.discovery-pack-cities').forEach((input) => {
+    input.placeholder = shotgun
+      ? input.dataset.shotgunPlaceholder || 'Hub city (optional)'
+      : input.dataset.scoutPlaceholder || 'Louisville, Lexington';
+  });
+  const roleFilter = document.getElementById('discovery-filter-role');
+  if (roleFilter) roleFilter.classList.toggle('hidden', !shotgun && !discoveryBatchIsShotgun());
+  const submit = document.querySelector('#discovery-form button[type="submit"]');
+  if (submit) submit.textContent = shotgun ? 'Create Cluster pack' : 'Generate Discovery pack';
+}
+
+async function loadShotgunWorkspace(batchId = state.discoveryBatchId) {
+  if (!batchId || !discoveryBatchIsShotgun()) {
+    state.shotgunWorkspace = null;
+    await renderShotgunWorkspace();
+    return null;
+  }
+  try {
+    state.shotgunWorkspace = await api(`/api/discovery/batches/${encodeURIComponent(batchId)}/shotgun`);
+  } catch {
+    state.shotgunWorkspace = null;
+  }
+  await renderShotgunWorkspace();
+  return state.shotgunWorkspace;
+}
+
+function shotgunPickerHubs(draft = {}, workspace = null) {
+  if (Array.isArray(workspace?.claudeHubs) && workspace.claudeHubs.length) {
+    return workspace.claudeHubs;
+  }
+  if ((draft.hubs || []).length) return draft.hubs;
+  return [];
+}
+
+function shotgunCensusExtras(draft = {}, workspace = null) {
+  if (Array.isArray(workspace?.censusExtras)) return workspace.censusExtras;
+  const extras = [...(draft.viableHubs || [])];
+  const seen = new Set(extras.map((h) => shotgunHubKey(h.city, h.state)));
+  for (const h of draft.rejectedHubs || []) {
+    if (!h?.hubInBand) continue;
+    const k = shotgunHubKey(h.city, h.state);
+    if (seen.has(k)) continue;
+    seen.add(k);
+    extras.push(h);
+  }
+  return extras;
+}
+
+function shotgunHubKey(city, state) {
+  return `${String(city || '').trim().toLowerCase()}|${String(state || '').trim().toUpperCase()}`;
+}
+
+function formatShotgunPop(n) {
+  const v = Number(n);
+  if (!Number.isFinite(v) || v <= 0) return '—';
+  return Math.round(v).toLocaleString();
+}
+
+function formatShotgunMiles(n) {
+  const v = Number(n);
+  if (!Number.isFinite(v)) return '—';
+  return `${v} mi`;
+}
+
+function placeDiscoveryMapCanvas(target) {
+  const canvas = document.getElementById('discovery-map-canvas');
+  if (!canvas || !target) return canvas;
+  if (canvas.parentElement !== target) target.appendChild(canvas);
+  return canvas;
+}
+
+function resumeShotgunMapAfterView() {
+  if (!shotgunMapMount || !shotgunSurfaceIsHub()) return;
+  const slot = document.getElementById('discovery-shotgun-map-slot');
+  if (slot) placeDiscoveryMapCanvas(slot);
+  const canvas = document.getElementById('discovery-map-canvas');
+  canvas?.classList.remove('hidden', 'shotgun-map-off');
+  slot?.classList.remove('shotgun-map-off');
+  requestAnimationFrame(() => {
+    shotgunMapMount?.invalidateSize?.();
+    setTimeout(() => shotgunMapMount?.invalidateSize?.(), 200);
+  });
+}
+
+function shotgunMapExpandInnerHtml(expanded) {
+  return expanded
+    ? '<svg class="shotgun-map-expand-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M8 3v3a2 2 0 0 1-2 2H3"/><path d="M21 8h-3a2 2 0 0 1-2-2V3"/><path d="M3 16h3a2 2 0 0 1 2 2v3"/><path d="M16 21v-3a2 2 0 0 1 2-2h3"/></svg>'
+    : '<svg class="shotgun-map-expand-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M16 3h3a2 2 0 0 1 2 2v3"/><path d="M8 21H5a2 2 0 0 1-2-2v-3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/></svg>';
+}
+
+function discoverySidebarToggleInnerHtml(collapsed) {
+  return collapsed
+    ? '<svg class="discovery-sidebar-toggle-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m9 18 6-6-6-6"/></svg>'
+    : '<svg class="discovery-sidebar-toggle-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m15 18-6-6 6-6"/></svg>';
+}
+
+function applyDiscoverySidebarCollapsed() {
+  const on = Boolean(discoverySidebarCollapsed);
+  document.getElementById('view-discovery')?.classList.toggle('discovery-sidebar-collapsed', on);
+  const btn = document.getElementById('discovery-sidebar-toggle');
+  if (btn) {
+    btn.setAttribute('aria-expanded', on ? 'false' : 'true');
+    btn.setAttribute('aria-label', on ? 'Expand sidebar' : 'Collapse sidebar');
+    btn.innerHTML = discoverySidebarToggleInnerHtml(on);
+    setElementTip(btn, on ? 'Expand sidebar' : 'Collapse sidebar');
+  }
+  requestAnimationFrame(() => {
+    shotgunMapMount?.invalidateSize?.();
+    setTimeout(() => shotgunMapMount?.invalidateSize?.(), 200);
+  });
+}
+
+function applyShotgunMapExpanded() {
+  const panel = document.querySelector('.discovery-table-panel');
+  const hasHub = Boolean(panel?.classList.contains('shotgun-hub-on'));
+  const on = Boolean(shotgunMapExpanded && hasHub);
+  document.getElementById('view-discovery')?.classList.toggle('shotgun-map-expanded', on);
+  const btn = document.getElementById('sg-map-expand');
+  if (btn) {
+    btn.setAttribute('aria-expanded', on ? 'true' : 'false');
+    btn.setAttribute('aria-label', on ? 'Collapse map' : 'Expand map');
+    btn.innerHTML = shotgunMapExpandInnerHtml(on);
+    setElementTip(btn, on ? 'Collapse map' : 'Expand map');
+  }
+  requestAnimationFrame(() => {
+    shotgunMapMount?.invalidateSize?.();
+    setTimeout(() => shotgunMapMount?.invalidateSize?.(), 200);
+  });
+}
+
+function shotgunSurfaceIsHub() {
+  if (!discoveryBatchIsShotgun()) return false;
+  if (!(state.discoveryRows || []).length) return true;
+  return state.shotgunSurface !== 'table';
+}
+
+function applyShotgunSurface(surface) {
+  const hasRows = (state.discoveryRows || []).length > 0;
+  state.shotgunSurface = surface === 'table' && hasRows ? 'table' : 'hub';
+}
+
+function syncShotgunDiscoverySurfaces({ hasHub, hasPackRows }) {
+  const wrap = document.querySelector('.discovery-table-wrap');
+  const canvas = document.getElementById('discovery-map-canvas');
+  const mapSlot = document.getElementById('discovery-shotgun-map-slot');
+  const filters = document.getElementById('discovery-table-filters');
+  const panel = document.querySelector('.discovery-table-panel');
+  const shotgunPanel = document.getElementById('discovery-shotgun-panel');
+  const shotgun = discoveryBatchIsShotgun();
+  const showHub = shotgun && shotgunSurfaceIsHub();
+  const showTable = Boolean(hasPackRows && (!shotgun || !showHub));
+  const showHubMap = Boolean(showHub && hasHub);
+  if (shotgunPanel) shotgunPanel.classList.toggle('hidden', !showHub);
+  if (wrap) wrap.classList.toggle('hidden', !showTable);
+  if (filters) filters.classList.toggle('hidden', !showTable);
+  if (showHubMap && mapSlot) placeDiscoveryMapCanvas(mapSlot);
+  else if (showHubMap && shotgunPanel) placeDiscoveryMapCanvas(shotgunPanel);
+  if (canvas) {
+    canvas.classList.toggle('shotgun-map-off', !showHubMap);
+    canvas.classList.toggle('hidden', !showHubMap);
+  }
+  mapSlot?.classList.toggle('shotgun-map-off', !showHubMap);
+  panel?.classList.toggle('shotgun-map-mode', showHubMap);
+  panel?.classList.toggle('shotgun-hub-on', showHubMap);
+  panel?.classList.remove('disc-map-mode');
+  applyShotgunMapExpanded();
+  if (showHubMap) {
+    requestAnimationFrame(() => {
+      shotgunMapMount?.invalidateSize?.();
+      setTimeout(() => shotgunMapMount?.invalidateSize?.(), 200);
+    });
+  }
+}
+
+function shotgunPreferredKeys(h) {
+  const keys = new Set();
+  for (const c of h.wave1Preferred || []) keys.add(shotgunHubKey(c.city, c.state));
+  for (const c of h.wave2Preferred || []) keys.add(shotgunHubKey(c.city, c.state));
+  return keys;
+}
+
+function shotgunCityFocusHtml(city, state, canFocus, { clusterKey = 0, hub = false } = {}) {
+  const label = `${esc(cityMapLabel(city, clusterKey, { hub }))}, ${esc(state)}`;
+  if (!canFocus) return label;
+  return `<button type="button" class="sg-focus-city" data-city="${esc(city)}" data-state="${esc(state)}">${label}</button>`;
+}
+
+function shotgunPackMembers(draft, hub) {
+  const hubKey = hub?.city ? shotgunHubKey(hub.city, hub.state) : '';
+  const list = [];
+  for (const m of draft?.members || []) {
+    const k = shotgunHubKey(m.city, m.state);
+    if (hubKey && k === hubKey) continue;
+    const role = String(m.role || '').toLowerCase();
+    if (role === 'hub' || role === 'main') continue;
+    if (!(shotgunIsCityRole(m.role, m) || memberClusterKey(m))) continue;
+    list.push(m);
+  }
+  list.sort((a, b) => {
+    const ac = memberClusterKey(a) || 0;
+    const bc = memberClusterKey(b) || 0;
+    const aRank = ac || 99;
+    const bRank = bc || 99;
+    if (aRank !== bRank) return aRank - bRank;
+    const am = Number(a.miles);
+    const bm = Number(b.miles);
+    const aOk = Number.isFinite(am);
+    const bOk = Number.isFinite(bm);
+    if (aOk && bOk && am !== bm) return am - bm;
+    if (aOk !== bOk) return aOk ? -1 : 1;
+    return `${a.city || ''}`.localeCompare(`${b.city || ''}`);
+  });
+  return list;
+}
+
+function shotgunPreferredMembers(h) {
+  return [...(h.wave1Preferred || []), ...(h.wave2Preferred || [])];
+}
+
+function renderShotgunMemberRows(cities, { canFocus = false, muted = false, showWhy = false } = {}) {
+  const whyCell = showWhy ? '<td></td>' : '';
+  return (cities || [])
+    .map((c) => {
+      const ck = memberClusterKey(c);
+      const fill = muted ? '' : clusterColor(ck);
+      const cityStyle = fill ? ` style="color:${fill};font-weight:700"` : '';
+      return `<tr class="sg-member-row sg-wave-row${muted ? ' muted' : ''}">
+        <td></td>
+        <td colspan="2"${cityStyle}>${shotgunCityFocusHtml(c.city, c.state, canFocus, { clusterKey: ck })}</td>
+        <td>${esc(formatShotgunPop(c.population))}</td>
+        <td>${esc(formatShotgunMiles(c.miles))}</td>
+        ${whyCell}
+        <td></td>
+      </tr>`;
+    })
+    .join('');
+}
+
+function renderShotgunHubRowsHtml(hubs, draft, { selectedKey = '', showWhy = false } = {}) {
+  const colSpan = showWhy ? 7 : 6;
+  return (hubs || [])
+    .map((h) => {
+      const key = shotgunHubKey(h.city, h.state);
+      const selected = selectedKey && key === selectedKey;
+      const expanded = shotgunExpandedHubs.has(key);
+      const assignedCities = selected ? shotgunPackMembers(draft, h) : shotgunPreferredMembers(h);
+      const hideKeys = new Set(
+        selected
+          ? assignedCities.map((c) => shotgunHubKey(c.city, c.state)).concat([key])
+          : [...shotgunPreferredKeys(h)],
+      );
+      const leftover1 = (h.wave1 || []).filter((c) => !hideKeys.has(shotgunHubKey(c.city, c.state)));
+      const leftover2 = (h.wave2 || []).filter((c) => !hideKeys.has(shotgunHubKey(c.city, c.state)));
+      const leftoverCities = [...leftover1, ...leftover2];
+      const clusterCities = assignedCities;
+      const clusterPop =
+        (Number(h.population) || 0) +
+        clusterCities.reduce((sum, c) => sum + (Number(c.population) || 0), 0);
+      const waveN = selected
+        ? assignedCities.length
+        : assignedCities.length || (Number(h.innerCount) || 0) + (Number(h.outerCount) || 0);
+      const thinMark = h.thinWarning
+        ? ` <span class="muted small" title="${esc(h.thinWarning)}">thin</span>`
+        : '';
+      const whyCell = showWhy ? `<td class="muted small">${esc(h.why || '')}</td>` : '';
+      const action = selected
+        ? `<span class="muted small">Selected</span>`
+        : `<button type="button" class="btn btn-sm sg-pick-hub" data-city="${esc(h.city)}" data-state="${esc(h.state)}">Use hub</button>`;
+      const warn = h.thinWarning
+        ? `<tr class="sg-wave-row"><td></td><td colspan="${colSpan}" class="muted small">${esc(h.thinWarning)}</td></tr>`
+        : '';
+      const unmatched = (h.unmatched || []).length
+        ? `<tr class="sg-wave-row"><td></td><td colspan="${colSpan}" class="muted small">Census unmatched: ${(h.unmatched || [])
+            .map((u) => `${esc(u.city)}${u.state ? `, ${esc(u.state)}` : ''} (${esc(u.reason || '')})`)
+            .join('; ')}</td></tr>`
+        : '';
+      const assignedRows = renderShotgunMemberRows(assignedCities, {
+        canFocus: selected,
+        muted: !selected,
+        showWhy,
+      });
+      const leftoverHead = leftoverCities.length
+        ? `<tr class="sg-wave-row muted"><td></td><td colspan="${colSpan}" class="muted small">Census leftover</td></tr>`
+        : '';
+      const leftoverRows = renderShotgunMemberRows(leftoverCities, {
+        canFocus: selected,
+        muted: true,
+        showWhy,
+      });
+      const childRows = expanded
+        ? `${assignedRows}${leftoverHead}${leftoverRows}${warn}${unmatched}`
+        : '';
+      return `<tr class="sg-hub-row${selected ? ' active' : ''}" data-key="${esc(key)}">
+          <td><button type="button" class="btn btn-sm sg-expand-hub" data-key="${esc(key)}" aria-expanded="${expanded ? 'true' : 'false'}">${expanded ? '−' : '+'}</button></td>
+          <td>${shotgunCityFocusHtml(h.city, h.state, selected)}${thinMark}</td>
+          <td>${esc(formatShotgunPop(h.population))}</td>
+          <td>${esc(formatShotgunPop(clusterPop))}</td>
+          <td>${esc(String(Number(waveN) || '—'))}</td>
+          ${whyCell}
+          <td>${action}</td>
+        </tr>${childRows}`;
+    })
+    .join('');
+}
+
+function renderShotgunClusterTableHtml(
+  hubs,
+  draft,
+  { selectedKey = '', showWhy = false, caption = '', censusExtras = [] } = {},
+) {
+  if (!hubs.length && !censusExtras.length) return '';
+  const claudeRows = renderShotgunHubRowsHtml(hubs, draft, { selectedKey, showWhy });
+  const extraRows = renderShotgunHubRowsHtml(censusExtras, draft, { selectedKey, showWhy });
+  const colSpan = showWhy ? 7 : 6;
+  const groupRow = censusExtras.length
+    ? `<tr class="sg-group-row"><td colspan="${colSpan}" class="muted small">Also in Census (${censusExtras.length})</td></tr>`
+    : '';
+  return `
+      ${caption ? `<p class="muted small">${caption}</p>` : ''}
+      <table class="discovery-shotgun-hubs-table discovery-shotgun-cluster-table">
+        <thead><tr>
+          <th></th>
+          <th>Hub</th>
+          <th>Hub pop</th>
+          <th>Cluster pop</th>
+          <th>Cluster Cities</th>
+          ${showWhy ? '<th>Why</th>' : ''}
+          <th></th>
+        </tr></thead>
+        <tbody>${claudeRows}${groupRow}${extraRows}</tbody>
+      </table>
+    `;
+}
+
+function wireShotgunClusterTable(hubsEl) {
+  hubsEl.querySelectorAll('.sg-pick-hub').forEach((btn) => {
+    btn.addEventListener('click', () => pickShotgunHub(btn.dataset.city, btn.dataset.state));
+  });
+  hubsEl.querySelectorAll('.sg-expand-hub').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const key = btn.dataset.key;
+      if (shotgunExpandedHubs.has(key)) shotgunExpandedHubs.delete(key);
+      else shotgunExpandedHubs.add(key);
+      void renderShotgunWorkspace();
+    });
+  });
+  hubsEl.querySelectorAll('.sg-focus-city').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      shotgunMapMount?.focusCity?.(btn.dataset.city, btn.dataset.state);
+    });
+  });
+}
+
+function shotgunStatesLabel(draft, batch) {
+  const fromScan = (draft?.hubScan?.states || []).filter(Boolean);
+  if (fromScan.length) return fromScan.join(', ');
+  const fromFilters = batch?.filters?.states || [];
+  if (fromFilters.length) return fromFilters.join(', ');
+  return batch?.filters?.state || '';
+}
+
+function renderShotgunEmptyHubsHtml(draft, batch) {
+  const scan = draft.hubScan || {};
+  const states = shotgunStatesLabel(draft, batch) || 'these states';
+  const n = Number(scan.scanned) || 0;
+  const rejected = draft.rejectedHubs || [];
+  const r = rejected.length;
+  const hubMin = Number(scan.hubMin ?? 60000).toLocaleString();
+  const hubMax = scan.hubMax == null || scan.hubMax === '' ? '∞' : Number(scan.hubMax).toLocaleString();
+  const censusNote = scan.error ? `<p class="warn-text">${esc(scan.error)}</p>` : '';
+  const rows = rejected.length
+    ? `<div class="discovery-shotgun-rejected-wrap"><table class="discovery-shotgun-hubs-table">
+        <thead><tr><th>City</th><th>ST</th><th>Why</th></tr></thead>
+        <tbody>${rejected
+          .map(
+            (row) => `<tr>
+              <td>${esc(row.city || '')}</td>
+              <td>${esc(row.state || '')}</td>
+              <td>${esc(row.rejectReason || row.why || '')}</td>
+            </tr>`,
+          )
+          .join('')}</tbody>
+      </table></div>`
+    : '<p class="muted small">No rejected-city detail stored on this pack.</p>';
+  return `
+    <div class="callout warn discovery-shotgun-empty">
+      <p><strong>No cluster hubs in ${esc(states)}</strong></p>
+      <p>Claude returned no Census-matchable hubs, and there are no Hub-band Census places to fall back on.</p>
+      <p><strong>What we tried:</strong> ${esc(String(n))} cities in the Hub band (${esc(hubMin)}–${esc(String(hubMax))}). ${esc(String(r))} failed Census neighbor checks.</p>
+      <p><strong>What to change:</strong> Widen <strong>Miles from Hub</strong>, lower <strong>Cluster Cities min pop</strong>, or raise <strong>Hub max pop</strong> if the metros you want are bigger cores. Then Create pack again.</p>
+      ${censusNote}
+      <p class="muted small"><strong>Detail</strong></p>
+      ${rows}
+    </div>
+  `;
+}
+
+function shotgunMembersSig(draft = {}) {
+  return (draft.members || [])
+    .map((m) => `${shotgunHubKey(m.city, m.state)}:${m.role}:${m.wave || ''}:${m.clusterKey || ''}`)
+    .sort()
+    .join(';');
+}
+
+async function renderShotgunWorkspace() {
+  const panel = document.getElementById('discovery-shotgun-panel');
+  const headEl = document.getElementById('discovery-shotgun-head');
+  const hubsEl = document.getElementById('discovery-shotgun-hubs');
+  const legend = document.getElementById('discovery-shotgun-legend');
+  const mapHost = document.getElementById('discovery-map-canvas');
+  const ws = state.shotgunWorkspace;
+  const shotgun = discoveryBatchIsShotgun() && ws;
+  const draftEarly = ws?.draft || {};
+  const nextHubKey = draftEarly.hub?.city
+    ? shotgunHubKey(draftEarly.hub.city, draftEarly.hub.state)
+    : '';
+  const keepMap = Boolean(
+    shotgun &&
+      nextHubKey &&
+      nextHubKey === shotgunMountedHubKey,
+  );
+  if (!keepMap) {
+    if (shotgunMapMount) {
+      try {
+        shotgunMapMount.destroy();
+      } catch {
+        /* ignore */
+      }
+    }
+    shotgunMapMount = null;
+    shotgunMountedHubKey = '';
+    shotgunMountedMembersSig = '';
+  }
+  if (!panel || !hubsEl) return;
+  if (!shotgun) {
+    panel.classList.add('hidden');
+    legend?.classList.add('hidden');
+    if (headEl) headEl.innerHTML = '';
+    const tablePanel = document.querySelector('.discovery-table-panel');
+    tablePanel?.classList.remove('shotgun-map-mode', 'shotgun-hub-on');
+    placeDiscoveryMapCanvas(tablePanel);
+    const canvas = document.getElementById('discovery-map-canvas');
+    canvas?.classList.add('hidden', 'shotgun-map-off');
+    document.getElementById('discovery-shotgun-map-slot')?.classList.add('shotgun-map-off');
+    const wrap = document.querySelector('.discovery-table-wrap');
+    const filters = document.getElementById('discovery-table-filters');
+    const hasRows = (state.discoveryRows || []).length > 0;
+    wrap?.classList.toggle('hidden', !hasRows);
+    filters?.classList.toggle('hidden', !hasRows);
+    applyShotgunMapExpanded();
+    return;
+  }
+  const draft = ws.draft || {};
+  const hasPackRows = (state.discoveryRows || []).length > 0;
+  if (!shotgunSurfaceIsHub()) {
+    syncShotgunDiscoverySurfaces({ hasHub: Boolean(draft.hub), hasPackRows });
+    return;
+  }
+  panel.classList.remove('hidden');
+  const hubs = shotgunPickerHubs(draft, ws);
+  const censusExtras = shotgunCensusExtras(draft, ws).filter((h) => {
+    const k = shotgunHubKey(h.city, h.state);
+    return !hubs.some((c) => shotgunHubKey(c.city, c.state) === k);
+  });
+  const selectedKey = draft.hub?.city
+    ? shotgunHubKey(draft.hub.city, draft.hub.state)
+    : '';
+  const showWhy = hubs.some((h) => h.why);
+  const finding =
+    !draft.hub &&
+    !hubs.length &&
+    !draft.claudeClustersRan &&
+    (shotgunJobRunning() ||
+      Boolean(state._shotgunJobTrack) ||
+      Boolean(state._shotgunAwaitingClusters));
+  if (finding) {
+    if (headEl) headEl.innerHTML = '';
+    hubsEl.innerHTML = `<p class="muted">Finding clusters…</p>`;
+    legend?.classList.add('hidden');
+    syncShotgunDiscoverySurfaces({ hasHub: false, hasPackRows });
+    return;
+  }
+  if (
+    !draft.hub &&
+    !hubs.length &&
+    draft.claudeClustersRan &&
+    !censusExtras.length
+  ) {
+    if (headEl) headEl.innerHTML = '';
+    hubsEl.innerHTML = renderShotgunEmptyHubsHtml(draft, ws.batch);
+    legend?.classList.add('hidden');
+    syncShotgunDiscoverySurfaces({ hasHub: false, hasPackRows });
+    return;
+  }
+  const members = draft.members || [];
+  const sum = ws.summary || {};
+  const newCount = shotgunNewCityCount(ws);
+  const packReady = shotgunPackReady(ws);
+  const packBtnLabel = hasPackRows
+    ? `Re-run Generate pack from ${esc(draft.hub?.city || 'hub')} (${newCount} cities)`
+    : `Generate pack from ${esc(draft.hub?.city || 'hub')} (${newCount} cities)`;
+  const selectedLine = draft.hub
+    ? `<div class="sg-hub-lock">
+        <p><strong>${esc(draft.hub.city)}, ${esc(draft.hub.state)}</strong> · Hub
+        · ${members.filter((m) => {
+          const r = String(m.role || '').toLowerCase();
+          return r !== 'hub' && r !== 'main' && (shotgunIsCityRole(m.role, m) || memberClusterKey(m));
+        }).length} Cluster Cities
+        ${sum.existingCount ? ` · ${sum.existingCount} already in pipeline` : ''}
+        ${newCount ? ` · ${newCount} new` : ''}
+        <button type="button" class="btn btn-sm" id="sg-change-hub">Change hub</button>
+        <button type="button" class="btn btn-sm primary" id="sg-generate-pack" ${
+          packReady.ok && !generatePackJobRunning() ? '' : 'disabled'
+        }>${packBtnLabel}</button>
+        </p>
+        <p class="muted small sg-hub-lock-note">Pack includes only this hub’s cities (Hub + Cluster Cities). Other hubs in the list are not included.</p>
+      </div>`
+    : '';
+  const waitingCopy =
+    !draft.claudeClustersRan && !hubs.length
+      ? `<p class="muted small">Find hubs with Claude to name Cluster Cities, or paint Clusters on the map.</p>`
+      : '';
+  const clusterTable = renderShotgunClusterTableHtml(hubs, draft, {
+    selectedKey,
+    showWhy,
+    censusExtras,
+    caption: draft.hub
+      ? 'Selected hub Cluster Cities update as you assign on the map. Generate pack uses this hub only — other hubs are not packed.'
+      : hubs.length
+        ? 'Claude clusters — Cluster Cities are Claude’s picks.'
+        : '',
+  });
+  if (headEl) headEl.innerHTML = selectedLine;
+  hubsEl.innerHTML = `${waitingCopy}${clusterTable}`;
+  wireShotgunClusterTable(hubsEl);
+  document.getElementById('sg-change-hub')?.addEventListener('click', () => clearShotgunHubUi());
+  const packBtn = document.getElementById('sg-generate-pack');
+  if (packBtn) {
+    setElementTip(
+      packBtn,
+      packReady.ok
+        ? 'Create Discovery rows from this hub only, then Light SERP'
+        : packReady.tip,
+    );
+    packBtn.addEventListener('click', () => void startShotgunGeneratePackFromUi());
+  }
+  syncDiscoveryLightSerpButton();
+  syncDiscoveryApiRerunButton();
+  if (!draft.hub) {
+    legend?.classList.add('hidden');
+    syncShotgunDiscoverySurfaces({ hasHub: false, hasPackRows });
+    return;
+  }
+  legend?.classList.remove('hidden');
+  teardownDiscoveryCitiesMapMount();
+  syncShotgunDiscoverySurfaces({ hasHub: true, hasPackRows });
+  if (keepMap) {
+    shotgunMapMount?.setMembers?.(ws);
+    requestAnimationFrame(() => shotgunMapMount?.invalidateSize?.());
+    return;
+  }
+  const host = document.getElementById('discovery-map-canvas') || mapHost;
+  if (host) {
+    const gen = ++shotgunRenderGen;
+    shotgunMountedHubKey = selectedKey;
+    shotgunMountedMembersSig = shotgunMembersSig(draft);
+    try {
+      const mounted = await mountShotgunMap({
+        mapHost: host,
+        slot: document.getElementById('discovery-shotgun-map-slot'),
+        api,
+        workspace: ws,
+        onHandle: (h) => {
+          shotgunMapMount = h;
+        },
+        onPaint: async (city, st, payload) => {
+          try {
+            const result = await api(
+              `/api/discovery/batches/${encodeURIComponent(state.discoveryBatchId)}/shotgun/paint`,
+              {
+                method: 'POST',
+                body: JSON.stringify({
+                  city,
+                  state: st,
+                  tool: payload?.tool,
+                  slot: payload?.slot,
+                  minPop: payload?.minPop,
+                  maxPop: payload?.maxPop,
+                  radiusMiles: payload?.radiusMiles,
+                }),
+              },
+            );
+            state.shotgunWorkspace = result.workspace || result;
+            await renderShotgunWorkspace();
+          } catch (error) {
+            showToast(error.message || 'Could not update city', { tone: 'warn' });
+            throw error;
+          }
+        },
+        onZoneMilesChange: async (miles, range) => {
+          if (!state.discoveryBatchId) return;
+          try {
+            const result = await api(
+              `/api/discovery/batches/${encodeURIComponent(state.discoveryBatchId)}/shotgun/radius`,
+              {
+                method: 'POST',
+                body: JSON.stringify({
+                  miles,
+                  minPop: range?.minPop,
+                  maxPop: range?.maxPop,
+                }),
+              },
+            );
+            state.shotgunWorkspace = result.workspace || result;
+            shotgunMapMount?.setMembers?.(state.shotgunWorkspace);
+          } catch (error) {
+            showToast(error.message || 'Could not save Zone radius', { tone: 'warn' });
+          }
+        },
+      });
+      if (gen !== shotgunRenderGen) {
+        try {
+          mounted?.destroy?.();
+        } catch {
+          /* stale */
+        }
+        if (shotgunMapMount === mounted) shotgunMapMount = null;
+        return;
+      }
+      shotgunMapMount = mounted;
+      requestAnimationFrame(() => shotgunMapMount?.invalidateSize?.());
+      setTimeout(() => shotgunMapMount?.invalidateSize?.(), 200);
+    } catch (error) {
+      if (gen === shotgunRenderGen) {
+        showToast(error.message || 'Cluster map failed', { tone: 'warn' });
+      }
+    }
+  }
+}
+
+async function pickShotgunHub(city, st) {
+  try {
+    const result = await api(
+      `/api/discovery/batches/${encodeURIComponent(state.discoveryBatchId)}/shotgun/select-hub`,
+      { method: 'POST', body: JSON.stringify({ city, state: st }) },
+    );
+    state.shotgunWorkspace = result.workspace;
+    shotgunExpandedHubs.add(shotgunHubKey(city, st));
+    await renderShotgunWorkspace();
+    renderShotgunPasteSteps();
+    if (effectiveClaudeUiMode() === 'api') renderShotgunApiButtons();
+  } catch (error) {
+    await showModal({
+      title: 'Hub not viable',
+      confirmLabel: 'OK',
+      hideCancel: true,
+      bodyHtml: `<p>${esc(error.message)}</p>`,
+    });
+  }
+}
+
+async function clearShotgunHubUi() {
+  try {
+    const result = await api(
+      `/api/discovery/batches/${encodeURIComponent(state.discoveryBatchId)}/shotgun/select-hub`,
+      { method: 'POST', body: JSON.stringify({ city: '', state: '' }) },
+    );
+    state.shotgunWorkspace = result.workspace;
+    await renderShotgunWorkspace();
+    renderShotgunPasteSteps();
+    if (effectiveClaudeUiMode() === 'api') renderShotgunApiButtons();
+  } catch (error) {
+    showToast(error.message || 'Could not change hub', { tone: 'warn' });
+  }
+}
+
+function renderShotgunPasteSteps() {
+  const box = document.getElementById('discovery-pack-result');
+  const empty = document.getElementById('discovery-pack-empty');
+  if (!box) return;
+  if (effectiveClaudeUiMode() === 'api' || !discoveryBatchIsShotgun()) return;
+  const ws = state.shotgunWorkspace;
+  const step = ws?.draft?.step || 'hub';
+  empty?.classList.add('hidden');
+  box.classList.remove('hidden');
+  if (step === 'hub' || !ws?.draft?.hub) {
+    box.innerHTML = `
+      <ol class="discovery-pack-next">
+        <li><button type="button" class="btn primary" id="sg-copy-find-hubs">Copy Find clusters prompt</button></li>
+        <li>Optional — Claude names hub + Cluster Cities. Paste JSON, then Import.</li>
+      </ol>
+      <textarea id="sg-import-text" class="narrative-paste-input" rows="3" placeholder="Paste Find clusters JSON…"></textarea>
+      <button type="button" class="btn primary" id="sg-import-find">Import JSON</button>
+    `;
+    document.getElementById('sg-copy-find-hubs')?.addEventListener('click', async () => {
+      const data = await api(
+        `/api/discovery/batches/${encodeURIComponent(state.discoveryBatchId)}/shotgun/prompt?step=hub`,
+      );
+      await navigator.clipboard.writeText(data.prompt || '');
+      showToast('Find clusters prompt copied.');
+    });
+    document.getElementById('sg-import-find')?.addEventListener('click', () =>
+      importShotgunStep('hub', document.getElementById('sg-import-text')?.value || ''),
+    );
+    return;
+  }
+  if (step === 'assign' || !(ws.draft.members || []).some((m) => shotgunIsCityRole(m.role))) {
+    box.innerHTML = `
+      <ol class="discovery-pack-next">
+        <li><button type="button" class="btn primary" id="sg-copy-assign">Copy Assign cluster cities prompt</button></li>
+        <li>Paste in Claude, then Import JSON. You can still click the map.</li>
+      </ol>
+      <textarea id="sg-import-text" class="narrative-paste-input" rows="3" placeholder="Paste Assign cluster cities JSON…"></textarea>
+      <button type="button" class="btn primary" id="sg-import-assign">Import JSON</button>
+    `;
+    document.getElementById('sg-copy-assign')?.addEventListener('click', async () => {
+      const data = await api(
+        `/api/discovery/batches/${encodeURIComponent(state.discoveryBatchId)}/shotgun/prompt?step=assign`,
+      );
+      await navigator.clipboard.writeText(data.prompt || '');
+      showToast('Assign cluster cities prompt copied.');
+    });
+    document.getElementById('sg-import-assign')?.addEventListener('click', () =>
+      importShotgunStep('assign', document.getElementById('sg-import-text')?.value || ''),
+    );
+    return;
+  }
+  box.innerHTML = `
+    <ol class="discovery-pack-next">
+      <li><button type="button" class="btn primary" id="sg-copy-pack">Copy Generate pack prompt</button></li>
+      <li>Claude fills pinned cities only. Then paste CSV.</li>
+    </ol>
+    <textarea id="sg-import-text" class="narrative-paste-input" rows="3" placeholder="Paste Generate pack CSV…"></textarea>
+    <button type="button" class="btn primary" id="sg-import-pack">Import CSV</button>
+  `;
+  document.getElementById('sg-copy-pack')?.addEventListener('click', async () => {
+    const data = await api(
+      `/api/discovery/batches/${encodeURIComponent(state.discoveryBatchId)}/shotgun/prompt?step=pack`,
+    );
+    await navigator.clipboard.writeText(data.prompt || '');
+    showToast('Generate pack prompt copied.');
+  });
+  document.getElementById('sg-import-pack')?.addEventListener('click', () =>
+    importShotgunStep('pack', document.getElementById('sg-import-text')?.value || ''),
+  );
+}
+
+async function importShotgunStep(step, text) {
+  if (!String(text || '').trim()) {
+    await showModal({
+      title: 'Nothing to import',
+      confirmLabel: 'OK',
+      hideCancel: true,
+      bodyHtml: '<p>Paste Claude’s result first.</p>',
+    });
+    return;
+  }
+  try {
+    const result = await api(
+      `/api/discovery/batches/${encodeURIComponent(state.discoveryBatchId)}/shotgun/import`,
+      { method: 'POST', body: JSON.stringify({ step, text }) },
+    );
+    if (result.workspace) state.shotgunWorkspace = result.workspace;
+    else if (result.draft) await loadShotgunWorkspace();
+    else if (result.shotgun) state.shotgunWorkspace = result.shotgun;
+    if (result.rows) state.discoveryRows = result.rows;
+    else if (result.batch) await selectDiscoveryBatch(state.discoveryBatchId);
+    await renderShotgunWorkspace();
+    renderShotgunPasteSteps();
+    renderDiscoveryTable();
+    showToast(step === 'pack' ? 'Cluster pack imported.' : 'Imported.');
+  } catch (error) {
+    await showModal({
+      title: 'Import failed',
+      confirmLabel: 'OK',
+      hideCancel: true,
+      bodyHtml: `<p>${esc(error.message)}</p>`,
+    });
+  }
+}
+
+async function confirmShotgunCost(batchId, act) {
+  const preview = await api(
+    `/api/discovery/batches/${encodeURIComponent(batchId)}/cost-preview?act=${encodeURIComponent(act)}`,
+  );
+  if (preview.error) {
+    await showModal({
+      title: preview.title || 'Cannot run',
+      confirmLabel: 'OK',
+      hideCancel: true,
+      bodyHtml: `<p>${esc(preview.error)}</p>`,
+    });
+    return false;
+  }
+  const sum = state.shotgunWorkspace?.summary;
+  const mergeNote =
+    act === 'shotgun-generate-pack' && sum
+      ? `<p><strong>${esc(String(sum.newCount))} new</strong> · ${esc(String(sum.existingCount))} already in pipeline (merged, not duplicated).</p>`
+      : '';
+  return showModal({
+    title: preview.title,
+    confirmLabel: preview.confirmLabel || 'Run',
+    bodyHtml: `
+      <p>${esc(preview.whatItDoes)}</p>
+      ${mergeNote}
+      <p><strong>Estimated cost:</strong> ${esc(preview.estimateLabel)}</p>
+      <p class="muted">${esc(preview.estimateDetail || '')}</p>
+      ${preview.freeFallback ? `<p class="muted">${esc(preview.freeFallback)}</p>` : ''}
+    `,
+  });
+}
+
+async function startShotgunApiStep(act) {
+  const id = state.discoveryBatchId;
+  if (!id) return;
+  if (!(await confirmShotgunCost(id, act))) {
+    if (act === 'shotgun-find-hubs') {
+      state._shotgunAwaitingClusters = false;
+      void renderShotgunWorkspace();
+    }
+    return;
+  }
+  const path =
+    act === 'shotgun-assign-waves'
+      ? 'assign-waves'
+      : act === 'shotgun-generate-pack'
+        ? 'generate-pack'
+        : 'find-hubs';
+  try {
+    const accepted = await api(`/api/discovery/batches/${encodeURIComponent(id)}/shotgun/${path}`, {
+      method: 'POST',
+      body: '{}',
+    });
+    if (act === 'shotgun-generate-pack') {
+      state._generatePackHandledJobId = null;
+      state._generatePackTrack = { batchId: id, jobId: accepted.jobId };
+      syncGeneratePackOverlay(snapWithOptimisticGeneratePack(accepted.jobId, id));
+    } else {
+      state._shotgunJobTrack = { batchId: id, jobId: accepted.jobId, act };
+      if (act === 'shotgun-find-hubs') state._shotgunAwaitingClusters = true;
+      syncShotgunJobOverlay(state.lightJobsSnap);
+    }
+  } catch (error) {
+    if (act === 'shotgun-find-hubs') {
+      state._shotgunAwaitingClusters = false;
+      void renderShotgunWorkspace();
+    }
+    if (act === 'shotgun-generate-pack' && error.code === 'GENERATE_PACK_RUNNING' && error.jobId) {
+      state._generatePackTrack = { batchId: id, jobId: error.jobId };
+      syncGeneratePackOverlay(snapWithOptimisticGeneratePack(error.jobId, id));
+      return;
+    }
+    if (error.code === 'GENERATE_PACK_BUSY') {
+      await explainConcurrencyLimit({
+        key: 'generatePack',
+        running: error.running,
+        limit: error.limit ?? state.concurrency?.generatePack ?? 5,
+      });
+      return;
+    }
+    await showModal({
+      title: 'Could not start',
+      confirmLabel: 'OK',
+      hideCancel: true,
+      bodyHtml: `<p>${esc(error.message)}</p>`,
+    });
+  }
+}
+
+function shotgunJobRunning() {
+  const jobs = state.lightJobsSnap?.jobs || [];
+  return jobs.some(
+    (j) =>
+      (j.phase === 'shotgun-find-hubs' || j.phase === 'shotgun-assign-waves') &&
+      (j.status === 'running' || j.status === 'queued'),
+  );
+}
+
+function syncShotgunJobOverlay(snap) {
+  const overlay = document.getElementById('discovery-generate-pack-overlay');
+  const title = document.getElementById('gp-overlay-title');
+  const jobs = snap?.jobs || [];
+  const job = jobs.find(
+    (j) =>
+      (j.phase === 'shotgun-find-hubs' || j.phase === 'shotgun-assign-waves') &&
+      (j.status === 'running' || j.status === 'queued') &&
+      String(j.batchId || '') === String(state.discoveryBatchId || ''),
+  );
+  if (job && overlay) {
+    if (title) title.textContent = job.label || 'Cluster';
+    overlay.dataset.jobId = job.id;
+    setGeneratePackOverlayVisible(state.view === 'discovery');
+    const detailEl = document.getElementById('gp-overlay-detail');
+    if (detailEl) detailEl.textContent = job.detail || 'Working…';
+    return;
+  }
+  const track = state._shotgunJobTrack;
+  if (!track) return;
+  const finished = jobs.find((j) => String(j.id) === String(track.jobId));
+  if (finished && (finished.status === 'running' || finished.status === 'queued')) return;
+  state._shotgunJobTrack = null;
+  if (title) title.textContent = 'Generate pack';
+  setGeneratePackOverlayVisible(false);
+  if (finished?.status === 'done') {
+    if (track.act === 'shotgun-find-hubs') state._shotgunAwaitingClusters = false;
+    void loadShotgunWorkspace().then(() => {
+      renderShotgunPasteSteps();
+      if (effectiveClaudeUiMode() === 'api') renderShotgunApiButtons();
+      const draft = state.shotgunWorkspace?.draft || {};
+      const picker = shotgunPickerHubs(draft, state.shotgunWorkspace);
+      const extras = shotgunCensusExtras(draft, state.shotgunWorkspace);
+      if (track.act === 'shotgun-find-hubs' && !draft.hub && !picker.length && !extras.length) {
+        showToast('No cluster hubs — Claude had no matchable hubs');
+      } else {
+        announceStepComplete(track.act === 'shotgun-assign-waves' ? 'Assign cluster cities' : 'Find hubs');
+      }
+      if (track.act === 'shotgun-find-hubs') void loadDiscoveryBatches();
+    });
+  } else if (finished?.status === 'error') {
+    if (track.act === 'shotgun-find-hubs') state._shotgunAwaitingClusters = false;
+    void renderShotgunWorkspace();
+    void showModal({
+      title: 'Cluster step failed',
+      confirmLabel: 'OK',
+      hideCancel: true,
+      bodyHtml: `<p>${esc(finished.error || 'Failed')}</p>`,
+    });
+  }
+}
+
+function renderShotgunApiButtons() {
+  const box = document.getElementById('discovery-pack-result');
+  const empty = document.getElementById('discovery-pack-empty');
+  if (!box || effectiveClaudeUiMode() !== 'api' || !discoveryBatchIsShotgun()) return;
+  empty?.classList.add('hidden');
+  box.classList.remove('hidden');
+  const ws = state.shotgunWorkspace;
+  const hasHub = Boolean(ws?.draft?.hub);
+  const hasPackCities = (ws?.draft?.members || []).some((m) => shotgunIsCityRole(m.role, m));
+  box.innerHTML = `
+    <ol class="discovery-pack-next">
+      ${
+        !hasHub
+          ? `<li><button type="button" class="btn primary" id="sg-api-find">Find hubs with Claude</button></li>`
+          : ''
+      }
+      ${
+        hasHub
+          ? `<li><button type="button" class="btn" id="sg-api-assign">Reshuffle cluster cities with Claude</button></li>`
+          : ''
+      }
+      ${
+        hasPackCities
+          ? `<li><button type="button" class="btn primary" id="sg-api-pack">Generate cluster pack</button></li>`
+          : ''
+      }
+    </ol>
+  `;
+  document.getElementById('sg-api-find')?.addEventListener('click', () =>
+    startShotgunApiStep('shotgun-find-hubs'),
+  );
+  document.getElementById('sg-api-assign')?.addEventListener('click', () =>
+    startShotgunApiStep('shotgun-assign-waves'),
+  );
+  document.getElementById('sg-api-pack')?.addEventListener('click', () =>
+    startShotgunApiStep('shotgun-generate-pack'),
+  );
+}
+
+function closeZoneMapModal() {
+  hideOpsTooltip();
+  const modal = document.getElementById('zone-map-modal');
+  if (modal) {
+    modal.classList.add('hidden');
+    modal.hidden = true;
+  }
+  if (zoneMapMount) {
+    try {
+      zoneMapMount.destroy();
+    } catch {
+      /* ignore */
+    }
+  }
+  zoneMapMount = null;
+  zoneMapId = '';
+}
+
+async function openZoneMapModal(zoneId, { focusCity, focusState } = {}) {
+  const id = String(zoneId || '').trim();
+  if (!id) return;
+  const modal = document.getElementById('zone-map-modal');
+  const slot = document.getElementById('zone-map-slot');
+  const host = document.getElementById('zone-map-canvas');
+  const title = document.getElementById('zone-map-modal-title');
+  if (!modal || !host || !slot) return;
+  closeZoneMapModal();
+  hideOpsTooltip();
+  zoneMapId = id;
+  modal.classList.remove('hidden');
+  modal.hidden = false;
+  try {
+    const ws = await api(`/api/shotgun-clusters/${encodeURIComponent(id)}/workspace`);
+    if (title) {
+      title.textContent = ws?.draft?.name || ws?.draft?.hub?.city ? `Zone · ${ws.draft.hub.city}` : 'Zone map';
+    }
+    const mounted = await mountShotgunMap({
+      mapHost: host,
+      slot,
+      api,
+      workspace: ws,
+      onHandle: (h) => {
+        zoneMapMount = h;
+      },
+      onPaint: async (city, st, payload) => {
+        const prevHubKey = ws?.draft?.hub?.city
+          ? shotgunHubKey(ws.draft.hub.city, ws.draft.hub.state)
+          : '';
+        const result = await api(`/api/shotgun-clusters/${encodeURIComponent(id)}/paint`, {
+          method: 'POST',
+          body: JSON.stringify({
+            city,
+            state: st,
+            tool: payload?.tool,
+            slot: payload?.slot,
+            minPop: payload?.minPop,
+            maxPop: payload?.maxPop,
+            radiusMiles: payload?.radiusMiles,
+          }),
+        });
+        const next = result.workspace || (await api(`/api/shotgun-clusters/${encodeURIComponent(id)}/workspace`));
+        const nextHubKey = next?.draft?.hub?.city
+          ? shotgunHubKey(next.draft.hub.city, next.draft.hub.state)
+          : '';
+        if (state.shotgunWorkspace?.clusterId === id || state.shotgunWorkspace?.draft?.clusterId === id) {
+          state.shotgunWorkspace = { ...state.shotgunWorkspace, ...next, draft: next.draft };
+          void renderShotgunWorkspace();
+        }
+        if (state.selectedId) void loadSelectedCandidateDetail(state.selectedId);
+        void loadCandidates();
+        if (payload?.tool === 'hub' && nextHubKey && nextHubKey !== prevHubKey) {
+          await openZoneMapModal(id);
+          return;
+        }
+        zoneMapMount?.setMembers?.(next);
+      },
+      onZoneMilesChange: async (miles) => {
+        const result = await api(`/api/shotgun-clusters/${encodeURIComponent(id)}/zone-miles`, {
+          method: 'POST',
+          body: JSON.stringify({ miles }),
+        });
+        zoneMapMount?.setMembers?.(result.workspace || result);
+      },
+    });
+    zoneMapMount = mounted;
+    requestAnimationFrame(() => {
+      zoneMapMount?.invalidateSize?.();
+      if (focusCity) zoneMapMount?.focusCity?.(focusCity, focusState);
+    });
+  } catch (error) {
+    showToast(error.message || 'Zone map failed', { tone: 'warn' });
+    closeZoneMapModal();
+  }
+}
+
+async function shotgunThisMetro(candidateId) {
+  try {
+    const result = await api(`/api/candidates/${encodeURIComponent(candidateId)}/shotgun-this-metro`, {
+      method: 'POST',
+      body: '{}',
+    });
+    if (result.existing) {
+      const gid = result.cluster?.groupId;
+      if (gid) {
+        state.candidateGroupFilter = gid;
+        document.getElementById('candidate-group-filter').value = gid;
+        renderList();
+      }
+      showToast(
+        result.cluster?.name
+          ? `Already in ${result.cluster.name}`
+          : 'Already in a cluster for this niche',
+      );
+      if (result.batchId) {
+        setView('discovery');
+        await selectDiscoveryBatch(result.batchId);
+      }
+      return;
+    }
+    setDiscoveryPackType('cluster');
+    setView('discovery');
+    await selectDiscoveryBatch(result.batchId || result.pack?.batch?.id);
+    showToast('Cluster pack created — review the map, then Generate pack.');
+  } catch (error) {
+    await showModal({
+      title: 'Cluster this metro',
+      confirmLabel: 'OK',
+      hideCancel: true,
+      bodyHtml: `<p>${esc(error.message)}</p>`,
+    });
+  }
 }
 
 function updateDiscoveryStepChecks(batch, rows) {
@@ -24601,15 +27694,34 @@ function showDiscoverySidebarStep(step) {
     import: document.getElementById('discovery-import-section'),
     enrich: document.getElementById('discovery-enrich-section'),
   };
-  for (const [key, el] of Object.entries(sections)) {
-    if (!el) continue;
-    const isCurrent = key === step;
-    el.open = isCurrent;
-    el.classList.toggle('current', isCurrent);
+  const nested = shotgunSidebarSurfaceLock;
+  shotgunSidebarSurfaceLock = true;
+  try {
+    for (const [key, el] of Object.entries(sections)) {
+      if (!el) continue;
+      const isCurrent = key === step;
+      el.open = isCurrent;
+      el.classList.toggle('current', isCurrent);
+    }
+    if (nested || !discoveryBatchIsShotgun()) return;
+    if (step === 'pack') applyShotgunSurface('hub');
+    else if (step === 'enrich') applyShotgunSurface('table');
+    else return;
+    void renderShotgunWorkspace();
+  } finally {
+    if (!nested) shotgunSidebarSurfaceLock = false;
   }
 }
 
 function wireDiscoveryUi() {
+  document.getElementById('sg-map-expand')?.addEventListener('click', () => {
+    shotgunMapExpanded = !shotgunMapExpanded;
+    applyShotgunMapExpanded();
+  });
+  document.getElementById('discovery-sidebar-toggle')?.addEventListener('click', () => {
+    discoverySidebarCollapsed = !discoverySidebarCollapsed;
+    applyDiscoverySidebarCollapsed();
+  });
   document.querySelectorAll('.nav-btn').forEach((btn) => {
     btn.addEventListener('click', () => {
       setView(btn.dataset.view);
@@ -24630,6 +27742,17 @@ function wireDiscoveryUi() {
 
   showDiscoverySidebarStep('pack');
   syncDiscoveryClaudeModeUi();
+  syncDiscoveryPackTypeUi();
+  document.getElementById('discovery-new-pack-section')?.addEventListener('toggle', () => {
+    if (!discoveryBatchIsShotgun()) return;
+    const el = document.getElementById('discovery-new-pack-section');
+    if (el?.open) showDiscoverySidebarStep('pack');
+  });
+  document.getElementById('discovery-enrich-section')?.addEventListener('toggle', () => {
+    if (!discoveryBatchIsShotgun()) return;
+    const el = document.getElementById('discovery-enrich-section');
+    if (el?.open) showDiscoverySidebarStep('enrich');
+  });
   document.getElementById('discovery-new-pack-section')?.addEventListener('click', (event) => {
     if (event.target.closest('#discovery-generate-pack')) {
       void startGeneratePackFromUi(state.discoveryBatchId);
@@ -24637,7 +27760,8 @@ function wireDiscoveryUi() {
   });
   document.getElementById('gp-overlay-stop')?.addEventListener('click', async () => {
     const overlay = document.getElementById('discovery-generate-pack-overlay');
-    const jobId = overlay?.dataset.jobId || state._generatePackTrack?.jobId;
+    const jobId =
+      overlay?.dataset.jobId || state._generatePackTrack?.jobId || state._shotgunJobTrack?.jobId;
     if (!jobId) return;
     const btn = document.getElementById('gp-overlay-stop');
     if (btn) btn.disabled = true;
@@ -24666,6 +27790,12 @@ function wireDiscoveryUi() {
     else clearDiscoveryBatch();
   });
 
+  document.getElementById('discovery-pack-scout')?.addEventListener('click', () => {
+    setDiscoveryPackType('single');
+  });
+  document.getElementById('discovery-pack-shotgun')?.addEventListener('click', () => {
+    setDiscoveryPackType('cluster');
+  });
   document.getElementById('discovery-form').addEventListener('submit', async (event) => {
     event.preventDefault();
     const fd = new FormData(event.target);
@@ -24676,12 +27806,29 @@ function wireDiscoveryUi() {
       if (!niches.some((x) => String(x).toLowerCase() === n.toLowerCase())) niches.push(n);
     }
     const requiredNiches = parseDiscoveryNicheList(fd.get('requiredNiches'));
-    const cities = splitDiscoveryCities(fd.get('packCities'));
+    if (isClusterPackType(state.discoveryPackType)) {
+      const niche = String(fd.get('shotgunNiche') || '').trim();
+      if (!niche) {
+        await showModal({
+          title: 'Cluster niche required',
+          confirmLabel: 'OK',
+          hideCancel: true,
+          bodyHtml: '<p>Cluster Cities is one niche × one metro. Enter the niche first.</p>',
+        });
+        return;
+      }
+      requiredNiches.length = 0;
+      requiredNiches.push(niche);
+      niches.length = 0;
+    }
+    const regions = collectDiscoveryPackRegions();
+    const cities = regions.flatMap((r) => r.cities);
     try {
       const pack = await api('/api/discovery/pack', {
         method: 'POST',
         body: JSON.stringify({
-          state: normalizeDiscoveryStateInput(String(fd.get('packState') || '')),
+          state: regions[0]?.state || '',
+          regions,
           niches,
           requiredNiches,
           cities,
@@ -24697,15 +27844,45 @@ function wireDiscoveryUi() {
           ),
           minJobCost: fd.get('minJobCost') ? Number(fd.get('minJobCost')) : null,
           mapPackPreference: String(fd.get('mapPackPreference') || 'prefer_absent'),
+          packType: state.discoveryPackType,
+          shotgunNiche: String(fd.get('shotgunNiche') || requiredNiches[0] || '').trim(),
+          clusterMiles: Number(fd.get('clusterMiles')) || 30,
+          innerMiles: Number(fd.get('clusterMiles')) || 30,
+          outerMiles: Number(fd.get('clusterMiles')) || 30,
+          shotgunBands: {
+            hub: {
+              min: Number(fd.get('hubMinPop')) || 60000,
+              max: Number(fd.get('hubMaxPop')) || 200000,
+            },
+            cities: {
+              min: Number(fd.get('citiesMinPop')) || 2000,
+              max: Number(fd.get('citiesMaxPop')) || 60000,
+            },
+          },
         }),
       });
       state.lastDiscoveryPack = pack;
       state.discoveryBatchId = pack.batch.id;
       state.discoveryClaudeSent = false;
       updateDiscoveryStepChecks(pack.batch, state.discoveryRows);
+      if (isClusterPackType(state.discoveryPackType) && effectiveClaudeUiMode() === 'api') {
+        state._shotgunAwaitingClusters = true;
+      }
       await loadDiscoveryBatches();
       await selectDiscoveryBatch(pack.batch.id);
-      if (effectiveClaudeUiMode() === 'api') {
+      if (isClusterPackType(state.discoveryPackType)) {
+        if (effectiveClaudeUiMode() === 'api') {
+          renderShotgunApiButtons();
+          if (!state.shotgunWorkspace?.draft?.hub) {
+            await startShotgunApiStep('shotgun-find-hubs');
+          } else {
+            state._shotgunAwaitingClusters = false;
+          }
+        } else {
+          renderShotgunPasteSteps();
+          showDiscoverySidebarStep('claude');
+        }
+      } else if (effectiveClaudeUiMode() === 'api') {
         syncDiscoveryApiRerunButton();
         await startGeneratePackFromUi(pack.batch.id);
       } else {
@@ -24805,7 +27982,19 @@ function wireDiscoveryUi() {
       await showModal({
         title: 'No batch',
         confirmLabel: 'OK',
-        bodyHtml: '<p>Select a batch and import Claude CSV first.</p>',
+        bodyHtml: discoveryBatchIsShotgun()
+          ? '<p>Create a Cluster pack, select a hub, then Generate pack.</p>'
+          : '<p>Select a batch and import Claude CSV first.</p>',
+      });
+      return;
+    }
+    if (!(state.discoveryRows || []).length) {
+      await showModal({
+        title: 'No rows yet',
+        confirmLabel: 'OK',
+        bodyHtml: discoveryBatchIsShotgun()
+          ? '<p>Generate pack from the selected hub first. That creates Discovery rows for Light SERP.</p>'
+          : '<p>Import Claude CSV (or Generate pack) first.</p>',
       });
       return;
     }
@@ -24899,29 +28088,48 @@ function wireDiscoveryUi() {
         await selectDiscoveryBatch(job.batchId || state.discoveryBatchId);
         setDeterminateProgress(bar, {});
         if (progress) progress.classList.add('hidden');
-        if (job.status === 'error') {
+        const p = job.probe || job;
+        const payErr =
+          isDataForSeoPaymentError(job.error) ||
+          (Array.isArray(job.results) && job.results.some((r) => isDataForSeoPaymentError(r.error))) ||
+          (Array.isArray(p.results) && p.results.some((r) => isDataForSeoPaymentError(r.error)));
+        if (payErr) {
+          announceBanner('DataForSEO needs funds — add credit, then retry Light SERP.', {
+            tone: 'err',
+          });
+        } else if (job.status === 'error') {
           announceBanner('Light SERP failed', { tone: 'err' });
         } else {
           announceStepComplete('Light SERP');
         }
-        const p = job.probe || job;
-        await showModal({
-          title: 'Light SERP complete',
-          confirmLabel: 'OK',
-          bodyHtml: `<p>Probed <strong>${esc(String(p.probed || job.total || 0))}</strong> · ok ${esc(
-            String(p.ok ?? job.ok ?? 0),
-          )} · errors ${esc(String(p.errors ?? job.errors ?? 0))}</p>
+        if (payErr) {
+          await showModal({
+            title: 'DataForSEO needs funds',
+            confirmLabel: 'OK',
+            bodyHtml: dataForSeoPaymentHelpHtml({
+              failedCount: Number(p.errors ?? job.errors) || 0,
+              createdOk: false,
+            }),
+          });
+        } else {
+          await showModal({
+            title: 'Light SERP complete',
+            confirmLabel: 'OK',
+            bodyHtml: `<p>Probed <strong>${esc(String(p.probed || job.total || 0))}</strong> · ok ${esc(
+              String(p.ok ?? job.ok ?? 0),
+            )} · errors ${esc(String(p.errors ?? job.errors ?? 0))}</p>
           <p>Map Pack Yes ${esc(String(p.mapPackYes ?? job.mapPackYes ?? 0))} · No ${esc(
-            String(p.mapPackNo ?? job.mapPackNo ?? 0),
-          )} · flips to Yes ${esc(String(p.flipsToYes ?? job.flipsToYes ?? 0))} · flips to No ${esc(
-            String(p.flipsToNo ?? job.flipsToNo ?? 0),
-          )}</p>
+              String(p.mapPackNo ?? job.mapPackNo ?? 0),
+            )} · flips to Yes ${esc(String(p.flipsToYes ?? job.flipsToYes ?? 0))} · flips to No ${esc(
+              String(p.flipsToNo ?? job.flipsToNo ?? 0),
+            )}</p>
           <p><strong>Cost:</strong> ${
             (p.costUsd ?? job.costUsd) != null
               ? esc(formatMoney(p.costUsd ?? job.costUsd))
               : '—'
           }</p>`,
-        });
+          });
+        }
         showDiscoverySidebarStep(null);
         await loadDfsBalance();
       });
@@ -24936,14 +28144,19 @@ function wireDiscoveryUi() {
         });
       } else {
         await showModal({
-          title: 'Light SERP failed',
+          title: isDataForSeoPaymentError(error.message)
+            ? 'DataForSEO needs funds'
+            : 'Light SERP failed',
           confirmLabel: 'OK',
-          bodyHtml: `<p>${esc(error.message)}</p>`,
+          bodyHtml: isDataForSeoPaymentError(error.message)
+            ? dataForSeoPaymentHelpHtml({ createdOk: false })
+            : `<p>${esc(error.message)}</p>`,
         });
       }
     } finally {
-      const enrichBtn = document.getElementById('discovery-enrich-pack-btn');
-      if (enrichBtn) enrichBtn.disabled = false;
+      const progress = document.getElementById('discovery-probe-progress');
+      if (progress) progress.classList.add('hidden');
+      syncDiscoveryLightSerpButton();
     }
   }
 
@@ -25081,6 +28294,7 @@ function wireDiscoveryUi() {
   bindFilter('discovery-filter-human', 'human');
   bindFilter('discovery-filter-rec', 'rec');
   bindFilter('discovery-filter-mappack', 'mapPack');
+  bindFilter('discovery-filter-role', 'role');
 
   document.getElementById('discovery-reopen-selected')?.addEventListener('click', async () => {
     const indices = [...state.discoverySelected].filter((idx) =>
@@ -25207,7 +28421,7 @@ function wireDiscoveryUi() {
         bodyHtml: `<p>Keep <strong>${esc(String(p.keepCount ?? 0))}</strong> Active Candidates.</p>
           <ul>
             <li>Permanently delete <strong>${esc(String(p.archivedDeleteCount ?? 0))}</strong> archived / orphan Candidate id(s)</li>
-            <li>Skip <strong>${esc(String(p.archivedProtectedCount ?? 0))}</strong> archived Website/Launched (never deleted)</li>
+            <li>Skip <strong>${esc(String(p.archivedProtectedCount ?? 0))}</strong> archived Launched (never deleted)</li>
             <li>Drop <strong>${esc(String(p.trackedDropCount ?? 0))}</strong> tracked-only pair(s) outside Active</li>
           </ul>
           <p class="muted">After wipe, the editor list shows orphans + Research Eval 1 only. Full anti-dupe CSV for Claude is unchanged.</p>`,
@@ -25408,10 +28622,17 @@ async function pollBatchJob(batchJobId) {
       state.activeAct = null;
       setDeterminateProgress(bar, {});
       if (progress) progress.classList.add('hidden');
+      const failedKids = (batch.children || []).filter((c) => c.status === 'error');
+      const payFail = failedKids.some((c) => isDataForSeoPaymentError(c.error));
       if (batch.status === 'ok' || batch.status === 'done') {
         announceStepComplete(`Batch ${jobActLabel(batch.act)}`);
       } else {
-        announceBanner(`Batch ${jobActLabel(batch.act)} failed`, { tone: 'err' });
+        announceBanner(
+          payFail
+            ? 'DataForSEO needs funds — add credit, then retry SERP / Volume.'
+            : `Batch ${jobActLabel(batch.act)} failed`,
+          { tone: 'err' },
+        );
       }
       await loadCandidates();
       if (state.selectedIds.size > 1) renderMultiDetail();
@@ -25420,20 +28641,32 @@ async function pollBatchJob(batchJobId) {
         renderDetail();
       }
       renderActions();
-      const failList = (batch.children || [])
-        .filter((c) => c.status === 'error')
-        .slice(0, 8)
-        .map((c) => `<li>${esc(c.candidateId)}: ${esc(c.error || 'error')}</li>`)
-        .join('');
-      await showModal({
-        title: 'Batch jobs finished',
-        confirmLabel: 'OK',
-        bodyHtml: `<p>Status: <strong>${esc(batch.status)}</strong> · ok ${esc(
-          String(batch.done),
-        )} · failed ${esc(String(batch.failed))}</p>${
-          failList ? `<ul>${failList}</ul>` : ''
-        }`,
-      });
+      if (payFail) {
+        await showModal({
+          title: 'DataForSEO needs funds',
+          confirmLabel: 'OK',
+          bodyHtml: `<p>Status: <strong>${esc(batch.status)}</strong> · ok ${esc(
+            String(batch.done),
+          )} · failed ${esc(String(batch.failed))}</p>${dataForSeoPaymentHelpHtml({
+            failedCount: failedKids.length,
+            createdOk: true,
+          })}`,
+        });
+      } else {
+        const failList = failedKids
+          .slice(0, 8)
+          .map((c) => `<li>${esc(c.candidateId)}: ${esc(c.error || 'error')}</li>`)
+          .join('');
+        await showModal({
+          title: 'Batch jobs finished',
+          confirmLabel: 'OK',
+          bodyHtml: `<p>Status: <strong>${esc(batch.status)}</strong> · ok ${esc(
+            String(batch.done),
+          )} · failed ${esc(String(batch.failed))}</p>${
+            failList ? `<ul>${failList}</ul>` : ''
+          }`,
+        });
+      }
     } catch (error) {
       state.activeBatchJobId = null;
       setDeterminateProgress(bar, {});

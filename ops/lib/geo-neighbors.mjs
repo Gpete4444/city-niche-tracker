@@ -75,7 +75,7 @@ export function featureCentroid(feature) {
   return [sx / n, sy / n];
 }
 
-function haversineMi(lng1, lat1, lng2, lat2) {
+export function haversineMiles(lng1, lat1, lng2, lat2) {
   const toR = Math.PI / 180;
   const dLat = (lat2 - lat1) * toR;
   const dLng = (lng2 - lng1) * toR;
@@ -137,7 +137,7 @@ export function geometryIntersectsDisk(geometry, lng, lat, radiusMi) {
   let hit = false;
   iterCoords(geometry, (x, y) => {
     if (hit) return;
-    if (haversineMi(lng, lat, x, y) <= radiusMi) hit = true;
+    if (haversineMiles(lng, lat, x, y) <= radiusMi) hit = true;
   });
   if (hit) return true;
 
@@ -276,14 +276,39 @@ export function findPlaceFeatureLocal(city, state) {
   const needle = normalizePlaceName(city);
   if (!needle || !abbr) return null;
   const list = byState.get(abbr) || [];
-  const exact = list.find((f) => normalizePlaceName(f.properties?.name) === needle);
-  if (exact) return exact;
+  const exact = list.filter((f) => normalizePlaceName(f.properties?.name) === needle);
+  if (exact.length === 1) return exact[0];
+  if (exact.length > 1) {
+    return exact.reduce((best, f) => (placeBboxArea(f) > placeBboxArea(best) ? f : best));
+  }
   // Multi-word prefix only (e.g. "Salt Lake" → "Salt Lake City"); never bare "Park" → "Park City"
   if (!needle.includes(' ')) return null;
   const prefixes = list.filter((f) =>
     normalizePlaceName(f.properties?.name).startsWith(`${needle} `),
   );
-  return prefixes.length === 1 ? prefixes[0] : null;
+  if (prefixes.length === 1) return prefixes[0];
+  if (prefixes.length > 1) {
+    return prefixes.reduce((best, f) => (placeBboxArea(f) > placeBboxArea(best) ? f : best));
+  }
+  return null;
+}
+
+function placeBboxArea(feature) {
+  const bb = featureBbox(feature);
+  if (!bb) return 0;
+  return Math.max(0, bb[2] - bb[0]) * Math.max(0, bb[3] - bb[1]);
+}
+
+function placeFeaturesNamed(city, state) {
+  const { byState } = loadPlaces();
+  const abbr = String(state || '').trim().toUpperCase();
+  const needle = normalizePlaceName(city);
+  if (!needle || !abbr) return [];
+  const list = byState.get(abbr) || [];
+  const exact = list.filter((f) => normalizePlaceName(f.properties?.name) === needle);
+  if (exact.length) return exact;
+  const one = findPlaceFeatureLocal(city, state);
+  return one ? [one] : [];
 }
 
 /**
@@ -393,6 +418,106 @@ export function placesIntersectingRadius(primaryCity, state, radiusMiles, { minP
     places,
     features: outFeatures,
     radiusMiles: miles,
+  };
+}
+
+function inPopBand(pop, band = {}) {
+  const n = Number(pop) || 0;
+  const min = Number(band.min);
+  const max = band.max;
+  if (Number.isFinite(min) && n < min) return false;
+  if (max != null && max !== '' && Number.isFinite(Number(max)) && n > Number(max)) return false;
+  return true;
+}
+
+/**
+ * Zone membership around the current hub: polygon intersects the disk, or centroid is within miles + slack.
+ * Independent of Cluster Cities pop bands (those are a separate paint check).
+ */
+export function placeInZoneRadius(city, state, hubCity, hubState, miles, { slack = 0.5 } = {}) {
+  const cap = Number(miles);
+  const hubFeat = findPlaceFeatureLocal(hubCity, hubState);
+  const feats = placeFeaturesNamed(city, state);
+  const feat = feats.reduce((best, f) => (placeBboxArea(f) > placeBboxArea(best) ? f : best), feats[0] || null);
+  if (!hubFeat || !feats.length || !Number.isFinite(cap) || cap <= 0) {
+    return { inZone: false, miles: null, feat, hubFeat };
+  }
+  if (neighborKey(city, state) === neighborKey(hubCity, hubState)) {
+    return { inZone: true, miles: 0, feat: hubFeat, hubFeat };
+  }
+  const center = featureCentroid(hubFeat);
+  if (!center) return { inZone: false, miles: null, feat, hubFeat };
+  const [lng, lat] = center;
+  let inZone = false;
+  let bestDist = null;
+  for (const f of feats) {
+    const c = featureCentroid(f);
+    const dist = c ? haversineMiles(lng, lat, c[0], c[1]) : null;
+    if (geometryIntersectsDisk(f.geometry, lng, lat, cap + slack)) inZone = true;
+    if (Number.isFinite(dist) && dist <= cap + slack) inZone = true;
+    if (Number.isFinite(dist) && (bestDist == null || dist < bestDist)) bestDist = dist;
+  }
+  return {
+    inZone,
+    miles: bestDist == null ? null : Math.round(bestDist * 10) / 10,
+    feat,
+    hubFeat,
+  };
+}
+
+/**
+ * Inner / outer shotgun site pools around a hub (Census places, with miles).
+ * Inner pool uses the Wave 1 pop band; outer pool uses Wave 2 and excludes inner members.
+ */
+export function shotgunRingPools(
+  primaryCity,
+  state,
+  {
+    innerMiles = 15,
+    outerMiles = 30,
+    wave1 = { min: 8000, max: 60000 },
+    wave2 = { min: 2000, max: 8000 },
+  } = {},
+) {
+  const inner = Math.max(1, Math.min(100, Number(innerMiles) || 15));
+  const outer = Math.max(inner, Math.min(100, Number(outerMiles) || 30));
+  const minScan = Math.min(Number(wave1.min) || 0, Number(wave2.min) || 0);
+  const scan = placesIntersectingRadius(primaryCity, state, outer, { minPop: minScan });
+  const [lng, lat] = scan.primary.center || [];
+  const innerPool = [];
+  const outerPool = [];
+  for (const p of scan.places) {
+    if (p.isPrimary) continue;
+    const feat = findPlaceFeatureLocal(p.name, p.state);
+    const c = feat ? featureCentroid(feat) : null;
+    const miles =
+      c && Number.isFinite(lng) && Number.isFinite(lat)
+        ? Math.round(haversineMiles(lng, lat, c[0], c[1]) * 10) / 10
+        : outer;
+    const row = {
+      name: p.name,
+      state: p.state,
+      population: p.population,
+      miles,
+    };
+    if (miles <= inner + 0.15 && inPopBand(p.population, wave1)) {
+      innerPool.push(row);
+      continue;
+    }
+    if (miles <= outer + 0.15 && inPopBand(p.population, wave2)) {
+      outerPool.push(row);
+    }
+  }
+  innerPool.sort((a, b) => b.population - a.population);
+  outerPool.sort((a, b) => b.population - a.population);
+  return {
+    primary: scan.primary,
+    innerMiles: inner,
+    outerMiles: outer,
+    innerPool,
+    outerPool,
+    cityPool: [...innerPool, ...outerPool],
+    viable: innerPool.length + outerPool.length >= 3,
   };
 }
 

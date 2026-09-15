@@ -5,6 +5,7 @@
 import twilio from 'twilio';
 import { loadAcceptedSiteConfig } from './content-markdown.mjs';
 import { patchLaunchSiteConfig } from './launch-site.mjs';
+import { listSites, setSitePhoneTracking } from './sites.mjs';
 
 function env(name) {
   return String(process.env[name] || '').trim();
@@ -106,13 +107,18 @@ export function formatTrackingPhone(e164) {
   return String(e164 || '').trim();
 }
 
-function voiceUrlForSite(businessName, { siteId = '', forwardTo = '' } = {}) {
+function voiceUrlForSite(businessName, { siteId = '', forwardTo = '', mode = '' } = {}) {
   const base = env('TWILIO_VOICE_WEBHOOK_URL').replace(/\?.*$/, '').replace(/\/+$/, '');
   const params = new URLSearchParams();
   params.set('site', String(businessName || 'ranking site').slice(0, 80));
   if (siteId) params.set('siteId', String(siteId));
-  const forward = String(forwardTo || env('TWILIO_FORWARD_TO') || '').trim();
-  if (forward) params.set('forward', forward);
+  const resolvedMode = String(mode || '').trim().toLowerCase();
+  const forward = String(forwardTo || '').trim();
+  if (resolvedMode === 'voicemail' || resolvedMode === 'ranking' || (!forward && resolvedMode !== 'dial')) {
+    params.set('mode', 'voicemail');
+  } else if (forward) {
+    params.set('forward', forward);
+  }
   return `${base}?${params.toString()}`;
 }
 
@@ -145,37 +151,42 @@ export async function releaseTwilioNumber(sid) {
 /**
  * Search available US local numbers by locality/state, optional areaCode override.
  */
+async function listLocalNumbers(client, filters) {
+  const withSms = await client.availablePhoneNumbers('US').local.list({
+    ...filters,
+    voiceEnabled: true,
+    smsEnabled: true,
+    limit: 5,
+  });
+  if (withSms.length) return withSms;
+  return client.availablePhoneNumbers('US').local.list({
+    ...filters,
+    voiceEnabled: true,
+    limit: 5,
+  });
+}
+
 export async function findAvailableLocalNumber({ city, state, areaCode } = {}) {
   const client = twilioClient();
   const area = String(areaCode || '').replace(/\D/g, '').slice(0, 3);
 
   if (area.length === 3) {
-    const byArea = await client.availablePhoneNumbers('US').local.list({
-      areaCode: area,
-      voiceEnabled: true,
-      limit: 5,
-    });
+    const byArea = await listLocalNumbers(client, { areaCode: area });
     if (byArea.length) return byArea[0];
   }
 
   const locality = String(city || '').trim();
   const region = String(state || '').trim().toUpperCase();
   if (locality && region) {
-    const byCity = await client.availablePhoneNumbers('US').local.list({
+    const byCity = await listLocalNumbers(client, {
       inLocality: locality,
       inRegion: region,
-      voiceEnabled: true,
-      limit: 5,
     });
     if (byCity.length) return byCity[0];
   }
 
   if (region) {
-    const byState = await client.availablePhoneNumbers('US').local.list({
-      inRegion: region,
-      voiceEnabled: true,
-      limit: 5,
-    });
+    const byState = await listLocalNumbers(client, { inRegion: region });
     if (byState.length) return byState[0];
   }
 
@@ -246,12 +257,11 @@ export async function provisionRankingNumber({ site, areaCode, force = false } =
   const city = site.city || null;
   const state = site.state || null;
   const businessName = site.businessName || site.niche || site.candidateId;
-  const forwardTo = env('TWILIO_FORWARD_TO');
   const available = await findAvailableLocalNumber({ city, state, areaCode });
   const phoneNumber = available.phoneNumber;
   const voiceUrl = voiceUrlForSite(businessName, {
     siteId: site.id || '',
-    forwardTo,
+    mode: 'voicemail',
   });
 
   const client = twilioClient();
@@ -298,14 +308,14 @@ export async function provisionRankingNumber({ site, areaCode, force = false } =
     phone: displayPhone,
     twilioSid: purchased.sid,
     voiceWebhookUrl: voiceUrl,
-    forwardTo,
+    forwardTo: '',
     phoneTracking: {
       phase: 'ranking',
       provider: 'twilio',
       e164,
       twilioSid: purchased.sid,
       voiceWebhookUrl: voiceUrl,
-      forwardTo,
+      forwardTo: '',
       provisionedAt: new Date().toISOString(),
     },
   };
@@ -375,4 +385,79 @@ export async function setForwardToRenter(site) {
     );
   }
   return updateForwardTarget({ site, forwardTo: e164, phase: 'rented' });
+}
+
+function rankingUrlNeedsVoicemail(url) {
+  const raw = String(url || '');
+  if (!raw) return true;
+  let parsed;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    return true;
+  }
+  const mode = String(parsed.searchParams.get('mode') || '').toLowerCase();
+  const forward = String(parsed.searchParams.get('forward') || '').trim();
+  if (mode === 'voicemail' && !forward) return false;
+  return true;
+}
+
+/**
+ * Rewrite ranking DIDs that still Dial TWILIO_FORWARD_TO (or lack mode=voicemail).
+ * Safe to run on every Phone sync.
+ */
+export async function ensureRankingVoicemailUrls() {
+  assertTwilioEnv();
+  const client = twilioClient();
+  const updated = [];
+  const errors = [];
+  for (const site of listSites()) {
+    const pt = site.phoneTracking || {};
+    if (pt.provider !== 'twilio' || !pt.twilioSid) continue;
+    if (pt.phase !== 'ranking') continue;
+    let liveUrl = '';
+    try {
+      const num = await client.incomingPhoneNumbers(pt.twilioSid).fetch();
+      liveUrl = String(num.voiceUrl || '').trim();
+    } catch (error) {
+      errors.push({ siteId: site.id, error: error.message || String(error) });
+      liveUrl = String(pt.voiceWebhookUrl || '').trim();
+    }
+    const needs =
+      rankingUrlNeedsVoicemail(liveUrl) || rankingUrlNeedsVoicemail(pt.voiceWebhookUrl);
+    if (!needs) {
+      if (pt.forwardTo || (liveUrl && liveUrl !== pt.voiceWebhookUrl)) {
+        try {
+          setSitePhoneTracking(site.id, {
+            ...pt,
+            voiceWebhookUrl: liveUrl || pt.voiceWebhookUrl,
+            forwardTo: '',
+          });
+        } catch (error) {
+          errors.push({ siteId: site.id, error: error.message || String(error) });
+        }
+      }
+      continue;
+    }
+    const businessName = site.businessName || site.niche || site.candidateId || 'ranking site';
+    const voiceUrl = voiceUrlForSite(businessName, {
+      siteId: site.id || '',
+      mode: 'voicemail',
+    });
+    try {
+      await client.incomingPhoneNumbers(pt.twilioSid).update({
+        voiceUrl,
+        voiceMethod: 'POST',
+      });
+      setSitePhoneTracking(site.id, {
+        ...pt,
+        voiceWebhookUrl: voiceUrl,
+        forwardTo: '',
+      });
+      updated.push(site.id);
+    } catch (error) {
+      errors.push({ siteId: site.id, error: error.message || String(error) });
+    }
+  }
+  return { ok: true, updated, errors };
 }

@@ -28,6 +28,7 @@ import {
   getCandidateDetail,
   getCandidateShell,
   listCandidates,
+  renameCandidateNiche,
   rejectNarrative,
   rejectNarratives,
   saveMeta,
@@ -40,8 +41,11 @@ import {
 } from './lib/candidates.mjs';
 import {
   attachGroupIds,
+  attachLaunchedGroupIds,
   createGroup,
   deleteGroup,
+  GROUP_SCOPE_CANDIDATES,
+  GROUP_SCOPE_LAUNCHED,
   listGroups,
   renameGroup,
   updateGroupMembers,
@@ -251,11 +255,45 @@ import {
   getGeneratePackCostPreview,
   runGeneratePackJob,
 } from './lib/discovery-generate-pack.mjs';
+import {
+  buildAssignWavesPrompt,
+  buildFindHubsPrompt,
+  buildGeneratePackPrompt,
+  finalizeShotgunImport,
+  getShotgunCostPreview,
+  getShotgunWorkspace,
+  importAssignWavesText,
+  importFindHubsText,
+  assertFindHubsAllowed,
+  runAssignWavesJob,
+  runFindHubsJob,
+  runShotgunGeneratePackJob,
+  selectShotgunHub,
+  setShotgunMemberPaint,
+  setShotgunRadius,
+  startShotgunThisMetro,
+} from './lib/discovery-shotgun.mjs';
+import {
+  attachShotgunToCandidates,
+  clusterForCandidate,
+  dissolveShotgunCluster,
+  formatShotgunSg,
+  loadShotgunClusters,
+  addClusterCity,
+  removeClusterCity,
+  shotgunBlockedLocationNames,
+  shotgunMembershipByCandidateId,
+  isClusterPack,
+  getZoneWorkspace,
+  paintZoneMember,
+  setZoneMiles,
+} from './lib/shotgun.mjs';
 import { getUserGuidePayload } from './lib/help-markdown.mjs';
 import { assembleSiteInWorker, getAssembleChecklist, planAssembleReplace, finalizePreviousAssembledSite } from './lib/assemble-site.mjs';
 import { assertLaunchedEditAllowed } from './lib/launched-edit-guard.mjs';
 import { restoreLaunchedFromGithub } from './lib/restore-launched-from-github.mjs';
 import { getLaunchStatus, launchSite, listLaunchProgressSteps } from './lib/launch-site.mjs';
+import { resetLaunchForNewDomain } from './lib/reset-launch-for-domain.mjs';
 import {
   BILLING_CYCLES,
   createManualSite,
@@ -286,12 +324,20 @@ import {
   startGscOAuth,
 } from './lib/gsc-oauth.mjs';
 import { syncAllSitesGsc, syncSiteGsc } from './lib/gsc-sync.mjs';
+import { inspectSiteIndex } from './lib/gsc-index-inspect.mjs';
 import { checkAllSiteRanks, checkSiteRanks } from './lib/rank-track.mjs';
 import {
   provisionRankingNumber,
   setForwardToRenter,
   updateForwardTarget,
 } from './lib/phone-tracking-twilio.mjs';
+import {
+  greetingAudioFile,
+  greetingStatus,
+  removeVoicemailGreeting,
+  saveVoicemailFallback,
+  uploadVoicemailGreeting,
+} from './lib/voicemail-greeting.mjs';
 import { getApiCostSnapshot } from './lib/api-cost.mjs';
 import {
   assertPhoneWebhookSecret,
@@ -318,7 +364,7 @@ import {
   restoreVisualEditUndo,
   uploadVisualEditImage,
 } from './lib/visual-edit.mjs';
-import { findPlaceFeature, getMapGeojson, getMapStatus } from './lib/research-map.mjs';
+import { findPlaceFeature, findPlaceFeatures, getMapGeojson, getMapStatus } from './lib/research-map.mjs';
 import { placesIntersectingRadius } from './lib/geo-neighbors.mjs';
 import { getBatchCostPreview, getCostPreview } from './lib/cost-estimates.mjs';
 import {
@@ -342,7 +388,7 @@ import {
   updateBatchDecisions,
 } from './lib/discovery.mjs';
 import { previewSerpProbe, runDiscoverySerpProbe, startDiscoverySerpProbe, getSerpProbeJob, discoveryStepStatus } from './lib/discovery-serp-probe.mjs';
-import { suggestPlaces } from './lib/census.mjs';
+import { suggestPlaces, lookupPopulation } from './lib/census.mjs';
 import { aggregateStageFlags, getBatchJob, startBatchJobs } from './lib/batch-jobs.mjs';
 import { getEvalConcurrency, setEvalConcurrency } from './lib/eval-concurrency.mjs';
 import { concurrencyPayload, setConcurrencySettings } from './lib/rover-concurrency.mjs';
@@ -357,7 +403,7 @@ import {
   assertDeletableIds,
   assertEvalPrerequisite,
 } from './lib/candidate-protection.mjs';
-import { existsSync, writeFileSync, readFileSync } from 'node:fs';
+import { existsSync, writeFileSync, readFileSync, readdirSync } from 'node:fs';
 import { getScoringRubric } from '../scripts/lib/scoring.mjs';
 
 loadEnvFile();
@@ -367,6 +413,12 @@ const HOST = '127.0.0.1';
 const PORT = Number(process.env.OPS_PORT) || 8787;
 
 const app = express();
+app.use((req, res, next) => {
+  if (req.method === 'POST' && req.path === '/api/phone/greeting/audio') {
+    return express.raw({ type: () => true, limit: '6mb' })(req, res, next);
+  }
+  next();
+});
 app.use(express.json({ limit: '16mb' }));
 app.use((req, res, next) => {
   if (req.path === '/' || /\.(?:html?|js|mjs|css|map|json|svg|png|ico)$/i.test(req.path)) {
@@ -376,6 +428,39 @@ app.use((req, res, next) => {
   next();
 });
 app.use(express.static(path.join(__dirname, 'public'), { etag: false, lastModified: false, maxAge: 0 }));
+
+function launchSuccessSoundPath() {
+  const dir = path.join(__dirname, 'sounds', 'Launch Success');
+  const preferred = path.join(dir, 'Final Fantasy VII - Victory Fanfare [HD].mp3');
+  if (existsSync(preferred)) return preferred;
+  if (!existsSync(dir)) return null;
+  const hit = readdirSync(dir).find((f) => /\.mp3$/i.test(f));
+  return hit ? path.join(dir, hit) : null;
+}
+
+app.get('/sounds/launch-success.mp3', (_req, res) => {
+  const file = launchSuccessSoundPath();
+  if (!file) {
+    res.status(404).type('text/plain').send('Launch success sound not found');
+    return;
+  }
+  res.setHeader('Cache-Control', 'no-store');
+  res.type('audio/mpeg');
+  res.sendFile(file);
+});
+
+app.get('/write-site-overlay-track.mjs', (_req, res) => {
+  res.type('application/javascript');
+  res.sendFile(path.join(__dirname, 'lib', 'write-site-overlay-track.mjs'));
+});
+app.get('/openai-jobs-progress.mjs', (_req, res) => {
+  res.type('application/javascript');
+  res.sendFile(path.join(__dirname, 'lib', 'openai-jobs-progress.mjs'));
+});
+app.get('/review-slot-service-subtitle.mjs', (_req, res) => {
+  res.type('application/javascript');
+  res.sendFile(path.join(__dirname, 'lib', 'review-slot-service-subtitle.mjs'));
+});
 
 function sendError(res, error) {
   const status = error.status || 400;
@@ -397,6 +482,7 @@ function sendError(res, error) {
   if (error.twilioSid) payload.twilioSid = error.twilioSid;
   if (error.e164) payload.e164 = error.e164;
   if (error.provisioned) payload.provisioned = error.provisioned;
+  if (error.meta) payload.meta = error.meta;
   if (error.existingId) payload.existingId = error.existingId;
   if (error.holderTabId != null) payload.holderTabId = error.holderTabId;
   res.status(status).json(payload);
@@ -512,7 +598,9 @@ app.get('/api/map/geojson', (req, res) => {
     const minPop = req.query.minPop != null ? Number(req.query.minPop) : undefined;
     const maxPop = req.query.maxPop != null ? Number(req.query.maxPop) : undefined;
     const state = req.query.state ? String(req.query.state) : '';
-    res.json(getMapGeojson({ layer, minPop, maxPop, state }));
+    const states = req.query.states ? String(req.query.states) : '';
+    const bbox = req.query.bbox != null ? String(req.query.bbox) : '';
+    res.json(getMapGeojson({ layer, minPop, maxPop, state, states, bbox }));
   } catch (error) {
     sendError(res, error);
   }
@@ -527,6 +615,15 @@ app.get('/api/map/place', (req, res) => {
       return res.status(404).json({ error: `No place match for ${city}, ${state}` });
     }
     res.json({ feature });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/map/places', (req, res) => {
+  try {
+    const places = Array.isArray(req.body?.places) ? req.body.places : [];
+    res.json(findPlaceFeatures(places, { max: 40 }));
   } catch (error) {
     sendError(res, error);
   }
@@ -582,6 +679,7 @@ app.post('/api/candidates/:id/site-config/service-area', async (req, res) => {
       selectedCities: body.selectedCities,
       claudeOrder: body.claudeOrder,
       locationPageCities: body.locationPageCities,
+      clusterLocationPageOverrides: body.clusterLocationPageOverrides,
     });
 
     writeLine({
@@ -727,6 +825,14 @@ app.get('/api/discovery/batches/:id', (req, res) => {
 
 app.get('/api/discovery/batches/:id/cost-preview', (req, res) => {
   try {
+    const act = String(req.query.act || '').trim();
+    if (act.startsWith('shotgun')) {
+      return res.json(getShotgunCostPreview(req.params.id, act));
+    }
+    const packType = getBatch(req.params.id).batch?.filters?.packType;
+    if (isClusterPack(packType)) {
+      return res.json(getShotgunCostPreview(req.params.id, 'shotgun-generate-pack'));
+    }
     res.json(getGeneratePackCostPreview(req.params.id));
   } catch (error) {
     sendError(res, error);
@@ -741,14 +847,241 @@ app.post('/api/discovery/batches/:id/generate-pack', (req, res) => {
 
     assertGeneratePackStartAllowed(batchId);
 
+    const packType = getBatch(batchId).batch?.filters?.packType;
+    const run =
+      isClusterPack(packType)
+        ? async ({ jobId: jid, signal }) => runShotgunGeneratePackJob(batchId, { jobId: jid, signal })
+        : async ({ jobId: jid, signal }) => runGeneratePackJob(batchId, { jobId: jid, signal });
     const { jobId } = startLightJob({
       batchId,
       phase: 'generate-pack',
-      label: 'Generate pack',
+      label: isClusterPack(packType) ? 'Generate cluster pack' : 'Generate pack',
       progressTotal: 2,
-      run: async ({ jobId: jid, signal }) => runGeneratePackJob(batchId, { jobId: jid, signal }),
+      run,
     });
     res.status(202).json({ jobId, accepted: true, batchId });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.get('/api/discovery/batches/:id/shotgun', (req, res) => {
+  try {
+    res.json(getShotgunWorkspace(req.params.id));
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.get('/api/discovery/batches/:id/shotgun/prompt', (req, res) => {
+  try {
+    const step = String(req.query.step || '').trim();
+    if (step === 'assign') {
+      return res.json(buildAssignWavesPrompt(req.params.id, { api: false }));
+    }
+    if (step === 'pack') {
+      return res.json({ prompt: buildGeneratePackPrompt(req.params.id, { api: false }) });
+    }
+    res.json({ prompt: buildFindHubsPrompt(req.params.id, { api: false }) });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/discovery/batches/:id/shotgun/find-hubs', (req, res) => {
+  try {
+    const batchId = req.params.id;
+    requireAnthropicKey();
+    getBatch(batchId);
+    assertFindHubsAllowed(batchId);
+    const { jobId } = startLightJob({
+      batchId,
+      phase: 'shotgun-find-hubs',
+      label: 'Find clusters',
+      progressTotal: 2,
+      run: async ({ jobId: jid, signal }) => runFindHubsJob(batchId, { jobId: jid, signal }),
+    });
+    res.status(202).json({ jobId, accepted: true, batchId });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/discovery/batches/:id/shotgun/assign-waves', (req, res) => {
+  try {
+    const batchId = req.params.id;
+    requireAnthropicKey();
+    getBatch(batchId);
+    const { jobId } = startLightJob({
+      batchId,
+      phase: 'shotgun-assign-waves',
+      label: 'Assign cluster cities',
+      progressTotal: 2,
+      run: async ({ jobId: jid, signal }) => runAssignWavesJob(batchId, { jobId: jid, signal }),
+    });
+    res.status(202).json({ jobId, accepted: true, batchId });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/discovery/batches/:id/shotgun/generate-pack', (req, res) => {
+  try {
+    const batchId = req.params.id;
+    requireAnthropicKey();
+    getBatch(batchId);
+    assertGeneratePackStartAllowed(batchId);
+    const { jobId } = startLightJob({
+      batchId,
+      phase: 'generate-pack',
+      label: 'Generate cluster pack',
+      progressTotal: 2,
+      run: async ({ jobId: jid, signal }) =>
+        runShotgunGeneratePackJob(batchId, { jobId: jid, signal }),
+    });
+    res.status(202).json({ jobId, accepted: true, batchId });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/discovery/batches/:id/shotgun/import', (req, res) => {
+  try {
+    const step = String(req.body?.step || '').trim();
+    const text = req.body?.text ?? req.body?.json ?? req.body?.csv ?? '';
+    if (step === 'assign') {
+      return res.json({ draft: importAssignWavesText(req.params.id, text) });
+    }
+    if (step === 'pack') {
+      const imported = importDiscoveryCsv(req.params.id, text, { createIfMissing: false });
+      const workspace = finalizeShotgunImport(req.params.id);
+      return res.json({ ...imported, shotgun: workspace });
+    }
+    res.json(importFindHubsText(req.params.id, text));
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/discovery/batches/:id/shotgun/select-hub', (req, res) => {
+  try {
+    const draft = selectShotgunHub(req.params.id, req.body?.city, req.body?.state);
+    res.json({ draft, workspace: getShotgunWorkspace(req.params.id) });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/discovery/batches/:id/shotgun/paint', (req, res) => {
+  try {
+    const draft = setShotgunMemberPaint(req.params.id, req.body?.city, req.body?.state, {
+      tool: req.body?.tool,
+      slot: req.body?.slot,
+      minPop: req.body?.minPop,
+      maxPop: req.body?.maxPop,
+      radiusMiles: req.body?.radiusMiles,
+    });
+    res.json({ draft, workspace: getShotgunWorkspace(req.params.id) });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/discovery/batches/:id/shotgun/radius', (req, res) => {
+  try {
+    const draft = setShotgunRadius(req.params.id, req.body?.miles);
+    res.json({ draft, workspace: getShotgunWorkspace(req.params.id) });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.get('/api/shotgun-clusters', (_req, res) => {
+  try {
+    res.json(loadShotgunClusters());
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.get('/api/shotgun-clusters/:id/workspace', (req, res) => {
+  try {
+    res.json(getZoneWorkspace(req.params.id));
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/shotgun-clusters/:id/paint', (req, res) => {
+  try {
+    res.json(
+      paintZoneMember(req.params.id, {
+        city: req.body?.city,
+        state: req.body?.state,
+        tool: req.body?.tool,
+        slot: req.body?.slot,
+        minPop: req.body?.minPop,
+        maxPop: req.body?.maxPop,
+        radiusMiles: req.body?.radiusMiles,
+      }),
+    );
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/shotgun-clusters/:id/zone-miles', (req, res) => {
+  try {
+    res.json(setZoneMiles(req.params.id, req.body?.miles));
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/shotgun-clusters/:id/members', (req, res) => {
+  try {
+    res.json(
+      addClusterCity(req.params.id, {
+        city: req.body?.city,
+        state: req.body?.state,
+        confirmOutside: Boolean(req.body?.confirmOutside),
+      }),
+    );
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/shotgun-clusters/:id/members/remove', async (req, res) => {
+  try {
+    res.json(
+      await removeClusterCity(req.params.id, {
+        city: req.body?.city,
+        state: req.body?.state,
+        disposition:
+          req.body?.disposition === 'archive'
+            ? 'archive'
+            : req.body?.disposition === 'delete'
+              ? 'delete'
+              : 'standalone',
+      }),
+    );
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/shotgun-clusters/:id/dissolve', (req, res) => {
+  try {
+    res.json(dissolveShotgunCluster(req.params.id));
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/candidates/:id/shotgun-this-metro', (req, res) => {
+  try {
+    res.json(startShotgunThisMetro(req.params.id));
   } catch (error) {
     sendError(res, error);
   }
@@ -775,6 +1108,17 @@ app.post('/api/discovery/pack', (req, res) => {
           .split('|')
           .map((s) => s.trim())
           .filter(Boolean);
+    const regions = Array.isArray(body.regions)
+      ? body.regions.map((r) => ({
+          state: r?.state,
+          cities: Array.isArray(r?.cities)
+            ? r.cities
+            : String(r?.cities || '')
+                .split(/[,|]/)
+                .map((s) => s.trim())
+                .filter(Boolean),
+        }))
+      : undefined;
     const categories = Array.isArray(body.categories)
       ? body.categories
       : String(body.categories || '')
@@ -783,6 +1127,7 @@ app.post('/api/discovery/pack', (req, res) => {
           .filter(Boolean);
     const pack = createDiscoveryPack({
       state: body.state,
+      regions,
       niches,
       requiredNiches,
       cities,
@@ -800,6 +1145,11 @@ app.post('/api/discovery/pack', (req, res) => {
       minTier: body.minTier,
       minJobCost: body.minJobCost,
       mapPackPreference: body.mapPackPreference,
+      packType: body.packType,
+      shotgunNiche: body.shotgunNiche,
+      innerMiles: body.innerMiles,
+      outerMiles: body.outerMiles,
+      shotgunBands: body.shotgunBands,
     });
     res.json(pack);
   } catch (error) {
@@ -1063,8 +1413,8 @@ app.get('/api/rubric', (_req, res) => {
 
 app.get('/api/candidates', (_req, res) => {
   try {
-    const candidates = attachGroupIds(listCandidates());
-    const groups = listGroups();
+    const candidates = attachShotgunToCandidates(attachGroupIds(listCandidates()));
+    const groups = listGroups(GROUP_SCOPE_CANDIDATES);
     const archivedCount = candidates.filter((c) => c.archived).length;
     res.json({
       candidates,
@@ -1080,8 +1430,8 @@ app.get('/api/candidates', (_req, res) => {
 
 app.post('/api/candidate-groups', (req, res) => {
   try {
-    const group = createGroup(req.body?.name);
-    res.status(201).json({ group, groups: listGroups() });
+    const group = createGroup(req.body?.name, { scope: req.body?.scope });
+    res.status(201).json({ group, groups: listGroups(group.scope) });
   } catch (error) {
     sendError(res, error);
   }
@@ -1090,7 +1440,7 @@ app.post('/api/candidate-groups', (req, res) => {
 app.patch('/api/candidate-groups/:id', (req, res) => {
   try {
     const group = renameGroup(req.params.id, req.body?.name);
-    res.json({ group, groups: listGroups() });
+    res.json({ group, groups: listGroups(group.scope) });
   } catch (error) {
     sendError(res, error);
   }
@@ -1099,7 +1449,7 @@ app.patch('/api/candidate-groups/:id', (req, res) => {
 app.delete('/api/candidate-groups/:id', (req, res) => {
   try {
     const group = deleteGroup(req.params.id);
-    res.json({ group, groups: listGroups() });
+    res.json({ group, groups: listGroups(group.scope) });
   } catch (error) {
     sendError(res, error);
   }
@@ -1110,7 +1460,7 @@ app.post('/api/candidate-groups/:id/members', (req, res) => {
     const body = req.body || {};
     const ids = Array.isArray(body.ids) ? body.ids : [];
     const group = updateGroupMembers(req.params.id, ids, body.op || 'add');
-    res.json({ group, groups: listGroups() });
+    res.json({ group, groups: listGroups(group.scope) });
   } catch (error) {
     sendError(res, error);
   }
@@ -1132,7 +1482,42 @@ app.get('/api/candidates/:id', (req, res) => {
   try {
     const raw = req.query.include;
     const include = raw == null || raw === '' ? [] : raw;
-    res.json(getCandidateDetail(req.params.id, { include }));
+    const detail = getCandidateDetail(req.params.id, { include });
+    const shotgun = clusterForCandidate(req.params.id);
+    res.json({
+      ...detail,
+      shotgunClusterId: shotgun?.id || null,
+      shotgunZoneId: shotgun?.id || null,
+      shotgunRole: shotgun
+        ? (shotgun.members || []).find((m) => m.candidateId === req.params.id)?.role || null
+        : null,
+      shotgunClusterKey: shotgun
+        ? (shotgun.members || []).find((m) => m.candidateId === req.params.id)?.clusterKey ?? null
+        : null,
+      shotgunClusterName: shotgun?.name || null,
+      shotgunSg: shotgun ? formatShotgunSg(shotgun.sgNumber) || null : null,
+      sgNumber: shotgun?.sgNumber ?? null,
+      shotgunBlockedLocations: [...shotgunBlockedLocationNames(req.params.id)],
+      shotgunMembers: shotgun
+        ? (shotgun.members || []).map((m) => {
+            const stored = Number(m.population);
+            const population =
+              Number.isFinite(stored) && stored > 0
+                ? stored
+                : lookupPopulation(m.city, m.state) ?? null;
+            return {
+              city: m.city,
+              state: m.state,
+              role: m.role,
+              wave: m.wave ?? null,
+              clusterKey: m.clusterKey ?? null,
+              population,
+              candidateId: m.candidateId || null,
+              pipelineStage: m.pipelineStage || null,
+            };
+          })
+        : [],
+    });
   } catch (error) {
     sendError(res, error);
   }
@@ -1304,6 +1689,20 @@ app.post('/api/candidates/:id/website-lease/heartbeat', (req, res) => {
 app.delete('/api/candidates/:id/website-lease', (req, res) => {
   try {
     res.json(releaseWebsiteWriteLease(req.params.id, roverTabId(req)));
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/candidates/:id/niche', (req, res) => {
+  try {
+    const result = renameCandidateNiche(req.params.id, req.body?.niche, {
+      confirmAfterEval: Boolean(req.body?.confirmAfterEval),
+    });
+    res.json({
+      ...result,
+      candidate: getCandidateShell(req.params.id),
+    });
   } catch (error) {
     sendError(res, error);
   }
@@ -3703,6 +4102,20 @@ app.get('/api/candidates/:id/launch', (req, res) => {
   }
 });
 
+app.post('/api/candidates/:id/reset-launch', async (req, res) => {
+  try {
+    const body = req.body || {};
+    const result = await resetLaunchForNewDomain(req.params.id, {
+      confirmResetLaunch: Boolean(body.confirmResetLaunch),
+      confirmDomain: body.confirmDomain,
+      domain: body.domain,
+    });
+    res.json(result);
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
 app.post('/api/candidates/:id/launch', async (req, res) => {
   try {
     const body = req.body || {};
@@ -3765,9 +4178,26 @@ app.post('/api/candidates/:id/launch', async (req, res) => {
 
 app.get('/api/sites', (_req, res) => {
   try {
-    const sites = attachMetricsToSites(listLaunchedSites());
+    const sites = attachLaunchedGroupIds(attachMetricsToSites(listLaunchedSites()));
+    const shotgunById = shotgunMembershipByCandidateId();
+    const withShotgun = sites.map((s) => {
+      const hit = s.candidateId ? shotgunById.get(s.candidateId) : null;
+      if (!hit) return s;
+      return {
+        ...s,
+        shotgunClusterId: hit.clusterId,
+        shotgunZoneId: hit.clusterId,
+        shotgunRole: hit.role,
+        shotgunClusterKey: hit.clusterKey,
+        shotgunClusterName: hit.clusterName,
+        shotgunSg: hit.shotgunSg,
+        sgNumber: hit.sgNumber,
+        groupIds: [...new Set([...(s.groupIds || []), hit.groupId, hit.packGroupId].filter(Boolean))],
+      };
+    });
     res.json({
-      sites,
+      sites: withShotgun,
+      groups: listGroups(GROUP_SCOPE_LAUNCHED),
       statuses: SITE_STATUSES,
       paymentMethods: PAYMENT_METHODS,
       billingCycles: BILLING_CYCLES,
@@ -3901,6 +4331,15 @@ app.post('/api/sites/:id/rank-check', async (req, res) => {
     const result = await checkSiteRanks(req.params.id, {
       depth: Number(req.body?.depth) > 0 ? Number(req.body.depth) : 20,
     });
+    res.json(result);
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/sites/:id/index-check', async (req, res) => {
+  try {
+    const result = await inspectSiteIndex(req.params.id);
     res.json(result);
   } catch (error) {
     sendError(res, error);
@@ -4224,6 +4663,60 @@ app.post('/api/phone/calls/:id/summarize', async (req, res) => {
   try {
     const call = await summarizePhoneCall(req.params.id);
     res.json({ call });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.get('/api/phone/greeting', (_req, res) => {
+  try {
+    res.json({ greeting: greetingStatus() });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.get('/api/phone/greeting/audio', (req, res) => {
+  try {
+    const file = greetingAudioFile();
+    if (!file) {
+      const err = new Error('No greeting uploaded');
+      err.status = 404;
+      throw err;
+    }
+    res.setHeader('Content-Type', file.contentType || 'audio/mpeg');
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.sendFile(file.path);
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/phone/greeting/audio', async (req, res) => {
+  try {
+    const buffer = Buffer.isBuffer(req.body) ? req.body : Buffer.from(req.body || []);
+    const filename = String(req.get('x-filename') || 'voicemail-greeting.mp3');
+    const contentType = String(req.get('content-type') || '');
+    const greeting = await uploadVoicemailGreeting({ buffer, filename, contentType });
+    res.json({ ok: true, greeting });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.delete('/api/phone/greeting/audio', async (_req, res) => {
+  try {
+    const greeting = await removeVoicemailGreeting();
+    res.json({ ok: true, greeting });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.put('/api/phone/greeting/fallback', async (req, res) => {
+  try {
+    const greeting = await saveVoicemailFallback(req.body?.fallbackSay);
+    res.json({ ok: true, greeting });
   } catch (error) {
     sendError(res, error);
   }

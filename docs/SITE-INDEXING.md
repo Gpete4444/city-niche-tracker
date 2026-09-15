@@ -111,7 +111,8 @@ Once the Domain property is verified under the Google account you connect to Rov
 1. Add `GOOGLE_GSC_CLIENT_ID` + `GOOGLE_GSC_CLIENT_SECRET` to `.env` (Desktop OAuth client; Search Console API enabled). Redirect URI: `http://127.0.0.1:8787/api/gsc/oauth/callback`.
 2. Restart Rover → **Launched Sites → Connect GSC** → approve read-only Search Console access.
 3. **Sync GSC** pulls trailing 28d clicks/impressions (+ daily series for charts).
-4. **Check ranks** (or per-site **Check ranks now**) uses DataForSEO Standard-queue organic SERP for up to 5 keywords (primary auto = `{niche} {city}`). Needs existing `DATAFORSEO_*` credentials.
+4. **Check index** inspects each sitemap URL (Indexed column). First run is slower; later runs skip URLs indexed in the last 7 days.
+5. **Check ranks** (or per-site **Check ranks**) uses DataForSEO Standard-queue organic SERP for up to 5 keywords (primary auto = `{niche} {city}`). Needs existing `DATAFORSEO_*` credentials.
 
 Tokens live in `research/gsc-oauth.json`; per-site series in `research/site-metrics/` (both under gitignored `research/`).
 

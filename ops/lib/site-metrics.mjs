@@ -5,6 +5,7 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { RESEARCH_DIR } from './candidates.mjs';
+import { siteContentInventory } from './site-inventory.mjs';
 import { listLaunchedSites } from './sites.mjs';
 
 export const SITE_METRICS_DIR = path.join(RESEARCH_DIR, 'site-metrics');
@@ -48,6 +49,18 @@ export function emptyGscBlock() {
     lastSyncAt: null,
     syncError: null,
     daily: [],
+    topQueries: [],
+    topPages: [],
+    sitemapPath: null,
+    sitemapSubmitted: null,
+    sitemapIndexed: null,
+    sitemapNotIndexed: null,
+    inspectByUrl: {},
+    inspectIndexed: null,
+    inspectSubmitted: null,
+    inspectNotIndexed: null,
+    inspectCheckedAt: null,
+    inspectError: null,
   };
 }
 
@@ -63,12 +76,16 @@ export function emptyRanksBlock() {
 }
 
 export function defaultMetrics(siteId, partial = {}) {
+  const gsc = { ...emptyGscBlock(), ...(partial.gsc || {}) };
+  if (!gsc.inspectByUrl || typeof gsc.inspectByUrl !== 'object' || Array.isArray(gsc.inspectByUrl)) {
+    gsc.inspectByUrl = {};
+  }
   return {
     version: 1,
     siteId,
     domain: partial.domain || null,
     updatedAt: partial.updatedAt || null,
-    gsc: { ...emptyGscBlock(), ...(partial.gsc || {}) },
+    gsc,
     rankKeywords: Array.isArray(partial.rankKeywords) ? partial.rankKeywords : [],
     ranks: {
       ...emptyRanksBlock(),
@@ -246,6 +263,14 @@ export function metricsSummary(metrics) {
       lastRankCheckAt: null,
       rankSyncError: null,
       rankKeywords: [],
+      sitemapIndexed: null,
+      sitemapSubmitted: null,
+      sitemapNotIndexed: null,
+      inspectIndexed: null,
+      inspectSubmitted: null,
+      inspectNotIndexed: null,
+      inspectCheckedAt: null,
+      inspectError: null,
     };
   }
   return {
@@ -262,6 +287,14 @@ export function metricsSummary(metrics) {
     lastRankCheckAt: metrics.ranks?.lastCheckAt ?? null,
     rankSyncError: metrics.ranks?.syncError ?? null,
     rankKeywords: metrics.rankKeywords || [],
+    sitemapIndexed: metrics.gsc?.sitemapIndexed ?? null,
+    sitemapSubmitted: metrics.gsc?.sitemapSubmitted ?? null,
+    sitemapNotIndexed: metrics.gsc?.sitemapNotIndexed ?? null,
+    inspectIndexed: metrics.gsc?.inspectIndexed ?? null,
+    inspectSubmitted: metrics.gsc?.inspectSubmitted ?? null,
+    inspectNotIndexed: metrics.gsc?.inspectNotIndexed ?? null,
+    inspectCheckedAt: metrics.gsc?.inspectCheckedAt ?? null,
+    inspectError: metrics.gsc?.inspectError ?? null,
   };
 }
 
@@ -269,7 +302,15 @@ export function attachMetricsToSites(sites) {
   return (sites || []).map((site) => {
     const metrics = loadSiteMetrics(site.id);
     const summary = metricsSummary(metrics);
-    return { ...site, ...summary, metrics: metrics || null };
+    const inventory = siteContentInventory(site);
+    return {
+      ...site,
+      ...summary,
+      pageCount: inventory.pageCount,
+      wordCount: inventory.wordCount,
+      inventorySource: inventory.source,
+      metrics: metrics || null,
+    };
   });
 }
 

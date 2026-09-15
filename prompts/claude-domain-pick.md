@@ -18,7 +18,7 @@ Recommend the top 10 Exact Domain Match hostnames for this business.
 Hard rules (every suggestion):
 1. The hostname MUST start with a slug of the Primary city ({{CITY}}) — e.g. everettdrywallrepair.com. City tokens come first, then niche/keyword tokens.
 2. Do NOT use any other city, suburb, county, or metro name in the hostname (no cluster cities, no neighboring towns). Primary city only.
-3. Focus on the highest-ranking commercial keyword combination for this niche: prefer the exact Niche phrase ({{NICHE}}) and close high-intent variants of that same niche (e.g. repair / installation wording that matches how people search). Do not invent unrelated niches.
+3. Focus on the highest-ranking commercial keyword combination for this niche: prefer the exact Niche phrase ({{NICHE}}) and close high-intent variants of that same niche. If Business name already uses Repair (Repair Pros / *repairpros.com) and not Install, keep repair-verb domains — do not switch to an Installation-only hostname. Inverse if the brand is Installation-only. Do not invent unrelated niches.
 4. Prefer .com unless a strong local TLD clearly fits. Avoid trademarked brands, directories, and vague one-word names.
 5. "domain" = hostname only (no https://, no path, no www.).
 

@@ -24,6 +24,20 @@ import {
 import { startBatchJobs } from './batch-jobs.mjs';
 import { isSerpCacheFresh, readSerpCache, serpCachePath } from '../../scripts/lib/serp-cache.mjs';
 import { normalizeCityStateCluster } from './city-state.mjs';
+import {
+  annotateMembersWithPipeline,
+  applyHubScanToDraft,
+  emptyShotgunDraft,
+  ensureLockedHubOnDraft,
+  isClusterPack,
+  listViableHubs,
+  loadShotgunDraft,
+  normalizePackType,
+  normalizeShotgunSettings,
+  saveShotgunDraft,
+  shotgunDraftHubCount,
+  upsertShotgunCluster,
+} from './shotgun.mjs';
 
 const ROOT = process.cwd();
 const BATCHES_DIR = path.join(ROOT, 'research', 'batches');
@@ -61,6 +75,7 @@ export const DISCOVERY_COLUMNS = [
   'recommended_reason',
   'human_decision',
   'decision_notes',
+  'shotgun_role',
   'candidateId',
   'process_status',
   'source_mode',
@@ -288,14 +303,53 @@ function normalizeNicheList(rawList) {
   return out;
 }
 
-function normalizeFilters(filters = {}) {
-  const stateRaw = String(filters.state || '')
+function normalizeStateAbbr(raw) {
+  const s = String(raw || '')
     .trim()
     .toUpperCase();
-  const state = stateRaw.length === 2 ? stateRaw : '';
+  return s.length === 2 ? s : '';
+}
+
+function normalizeCityList(raw) {
+  if (Array.isArray(raw)) return raw.map((c) => String(c).trim()).filter(Boolean);
+  return String(raw || '')
+    .split(/[,|]/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+function mergeDiscoveryRegions(incoming) {
+  const byKey = new Map();
+  const order = [];
+  for (const item of incoming || []) {
+    const state = normalizeStateAbbr(item?.state);
+    const cities = normalizeCityList(item?.cities);
+    if (!state && !cities.length) continue;
+    const key = state || '\0';
+    if (!byKey.has(key)) {
+      byKey.set(key, { state, cities: [] });
+      order.push(key);
+    }
+    const slot = byKey.get(key);
+    for (const city of cities) {
+      if (!slot.cities.some((c) => c.toLowerCase() === city.toLowerCase())) slot.cities.push(city);
+    }
+  }
+  return order.map((k) => byKey.get(k));
+}
+
+export function normalizeFilters(filters = {}) {
+  const rawRegions = Array.isArray(filters.regions) ? filters.regions : null;
+  const regions = mergeDiscoveryRegions(
+    rawRegions && rawRegions.length
+      ? rawRegions
+      : [{ state: filters.state, cities: filters.cities }],
+  );
+  const states = [...new Set(regions.map((r) => r.state).filter(Boolean))];
+  const state = states[0] || '';
+  const cities = regions.flatMap((r) => r.cities);
   const niches = normalizeNicheList(filters.niches);
   const requiredNiches = normalizeNicheList(filters.requiredNiches);
-  const cities = (filters.cities || []).map((c) => String(c).trim()).filter(Boolean);
   const categories = (filters.categories || [])
     .map((c) => String(c).trim())
     .filter(Boolean);
@@ -324,6 +378,8 @@ function normalizeFilters(filters = {}) {
   const minJobCost = Number(filters.minJobCost);
   return {
     state,
+    states,
+    regions,
     niches,
     requiredNiches,
     cities,
@@ -335,11 +391,40 @@ function normalizeFilters(filters = {}) {
     tiers,
     mapPackPreference,
     minJobCost: Number.isFinite(minJobCost) && minJobCost > 0 ? minJobCost : null,
+    packType: normalizePackType(filters.packType),
+    shotgunNiche: String(filters.shotgunNiche || filters.requiredNiches?.[0] || '').trim(),
+    clusterMiles: Number(filters.clusterMiles ?? filters.outerMiles ?? filters.innerMiles) || undefined,
+    innerMiles: Number(filters.innerMiles) || undefined,
+    outerMiles: Number(filters.outerMiles) || undefined,
+    shotgunBands: filters.shotgunBands || null,
   };
 }
 
-function autoLabel(f) {
-  const statePart = f.state || 'us';
+export function emptyDiscoveryRowsHint(batch) {
+  if (isClusterPack(batch?.filters?.packType)) {
+    return 'Batch has no rows — generate the cluster pack from the selected hub first';
+  }
+  return 'Batch has no rows — import Claude CSV first';
+}
+
+export function autoLabel(f) {
+  if (isClusterPack(f.packType)) {
+    const niche = String(f.shotgunNiche || f.requiredNiches?.[0] || 'niche')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '')
+      .slice(0, 40);
+    const hub = String(f.cities?.[0] || 'hub')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '')
+      .slice(0, 24);
+    return `cluster-${niche || 'niche'}-${hub || 'hub'}`;
+  }
+  const statePart =
+    Array.isArray(f.states) && f.states.length
+      ? f.states.map((s) => String(s).toLowerCase()).join('-')
+      : 'us';
   const nicheSource = f.requiredNiches.length
     ? f.requiredNiches
     : f.niches.length
@@ -405,24 +490,55 @@ export function buildFilterBrief(filters = {}) {
   } else {
     nichesLine = `- **Niches:** OPEN — choose **head-term** niches from the High-Ticket catalog; include **at least 3 different niches** when possible`;
   }
+  const marketLines = [];
+  if (isClusterPack(f.packType)) {
+    if (!f.regions.length) {
+      marketLines.push(
+        '- **Hub states:** ANY (nationwide). Rings may cross state lines.',
+      );
+    } else {
+      const statesLabel = f.states.length ? f.states.join(', ') : 'the selected states';
+      marketLines.push(
+        `- **Hubs in ${statesLabel}.** Not Single City OPEN cities — do not invent famous cores outside the Hub population band. Skip cores outside the Hub band. State filter limits hubs; Cluster Cities rings may still cross state lines.`,
+      );
+      for (const r of f.regions) {
+        if (r.cities.length) {
+          marketLines.push(`  - ${r.state || 'ANY'}: ${r.cities.join('; ')}`);
+        }
+      }
+    }
+    marketLines.push(
+      '- **Census Hub-band table is a hint list**, not an allow-list. You may name real municipalities that are missing from it. Rover Census-matches your picks.',
+    );
+  } else if (!f.regions.length) {
+    marketLines.push(`- **State:** ANY (nationwide — pick the best US markets)`);
+    marketLines.push(`- **Cities:** OPEN nationwide — choose the best cities`);
+  } else {
+    marketLines.push('- **Markets:**');
+    for (const r of f.regions) {
+      const label = r.state || 'ANY';
+      const cities =
+        r.cities.length
+          ? r.cities.join('; ')
+          : r.state
+            ? `OPEN within ${r.state} — choose the best cities in that state`
+            : 'OPEN nationwide — choose the best cities';
+      marketLines.push(`  - ${label}: ${cities}`);
+    }
+  }
   const lines = [
     '## Operator filters (from Rover)',
     '',
-    `- **State:** ${f.state || 'ANY (nationwide — pick the best US markets)'}`,
+    ...marketLines,
     nichesLine,
     `- **Catalog categories:** ${
       f.categories.length
         ? f.categories.join('; ')
         : 'ALL categories in the High-Ticket catalog'
     }`,
-    `- **Cities:** ${
-      f.cities.length
-        ? f.cities.join('; ')
-        : f.state
-          ? `OPEN within ${f.state} — choose the best cities in that state`
-          : 'OPEN nationwide — choose the best cities'
-    }`,
-    `- **Population band (prefer):** ${f.minPopulation.toLocaleString()} – ${f.maxPopulation.toLocaleString()} (incorporated place / city proper when known)`,
+    isClusterPack(f.packType)
+      ? null
+      : `- **Population band (prefer):** ${f.minPopulation.toLocaleString()} – ${f.maxPopulation.toLocaleString()} (incorporated place / city proper when known)`,
     `- **Seasonality:** ${seasonalityLabel(f.seasonality)}`,
     f.requiredNiches.length
       ? `- **Ticket tiers allowed:** ${tiersLabel(f.tiers)} — apply when picking cities/services framing; Required niches override catalog tier membership`
@@ -434,9 +550,12 @@ export function buildFilterBrief(filters = {}) {
     }`,
     `- **Map Pack preference:** ${mapPackLabel(f.mapPackPreference)}`,
     `- **Max rows:** ${f.maxRows}`,
+    isClusterPack(f.packType)
+      ? `- **Pack type:** Cluster Cities (one niche × one metro). Hub band ${f.shotgunBands?.hub?.min ?? 60000}–${f.shotgunBands?.hub?.max ?? 200000}; Cluster Cities ${f.clusterMiles || f.outerMiles || 30} mi / ${f.shotgunBands?.cities?.min ?? f.shotgunBands?.wave1?.min ?? 2000}–${f.shotgunBands?.cities?.max ?? f.shotgunBands?.wave1?.max ?? 60000}. State filter limits hubs; rings may cross state lines.`
+      : `- **Pack type:** Single City (independent cities)`,
     '',
     'Respect these constraints. Prefer real municipalities. Do not invent fake cities.',
-  ];
+  ].filter((line) => line != null);
   return lines.join('\n');
 }
 
@@ -597,7 +716,7 @@ export function buildDiscoveryApiPrompt(batchId) {
     DISCOVERY_CSV: csv.trimEnd(),
     HIGH_TICKET_NICHES: buildCompactHighTicketCatalog(f),
     KNOWN_CANDIDATES: formatKnownCandidatesForPrompt({
-      stateFilter: f.state || null,
+      stateFilter: f.states.length ? f.states : null,
       limit: 200,
       compact: true,
     }),
@@ -638,7 +757,7 @@ export function createDiscoveryPack(filters = {}) {
     BATCH_DIR: dir,
     HIGH_TICKET_NICHES: highTicketNiches,
     KNOWN_CANDIDATES: formatKnownCandidatesForPrompt({
-      stateFilter: f.state || null,
+      stateFilter: f.states.length ? f.states : null,
       limit: 500,
     }),
   };
@@ -652,6 +771,8 @@ export function createDiscoveryPack(filters = {}) {
     stage: 'discovery_pack',
     filters: {
       state: f.state || null,
+      states: f.states,
+      regions: f.regions,
       niches: f.niches,
       requiredNiches: f.requiredNiches,
       cities: f.cities,
@@ -663,6 +784,11 @@ export function createDiscoveryPack(filters = {}) {
       tiers: f.tiers,
       minJobCost: f.minJobCost,
       mapPackPreference: f.mapPackPreference,
+      packType: f.packType,
+      shotgunNiche: f.shotgunNiche || null,
+      innerMiles: f.innerMiles || null,
+      outerMiles: f.outerMiles || null,
+      shotgunBands: f.shotgunBands || null,
       label,
     },
     files: {
@@ -676,6 +802,37 @@ export function createDiscoveryPack(filters = {}) {
     census: censusStatus(),
   };
   writeJson(path.join(dir, 'meta.json'), meta);
+
+  if (isClusterPack(f.packType)) {
+    const s = normalizeShotgunSettings({
+      innerMiles: f.innerMiles,
+      outerMiles: f.outerMiles,
+      bands: f.shotgunBands,
+    });
+    const hubCity = f.cities[0] || '';
+    const hubState = f.state || '';
+    let draft = {
+      ...emptyShotgunDraft({
+        shotgunNiche: f.shotgunNiche,
+        requiredNiches: f.requiredNiches,
+        innerMiles: s.innerMiles,
+        outerMiles: s.outerMiles,
+        bands: s.bands,
+      }),
+      niche: f.shotgunNiche,
+      hub: hubCity && hubState ? { city: hubCity, state: hubState } : null,
+      step: hubCity && hubState ? 'assign' : 'hub',
+    };
+    if (!draft.hub) {
+      const scan = listViableHubs(f.states, draft);
+      draft = applyHubScanToDraft(draft, scan);
+    } else {
+      draft = ensureLockedHubOnDraft(draft);
+    }
+    saveShotgunDraft(dir, draft);
+    meta.hubCount = shotgunDraftHubCount(draft);
+    writeJson(path.join(dir, 'meta.json'), meta);
+  }
 
   return {
     batch: meta,
@@ -1010,7 +1167,11 @@ export function importDiscoveryCsv(batchId, csvText, { createIfMissing = true } 
       row['Google Search Link'] = googleSearchLink(row.Niche, row.City, row.State);
     }
     const pop = Number(String(row.Population || '').replace(/,/g, ''));
-    if (Number.isFinite(pop) && (pop < bandMin || pop > bandMax)) {
+    if (
+      !isClusterPack(prev.filters?.packType) &&
+      Number.isFinite(pop) &&
+      (pop < bandMin || pop > bandMax)
+    ) {
       const note = `Outside preferred pop band (${bandMin.toLocaleString()}–${bandMax.toLocaleString()})`;
       popWarnings.push(`${row.City || '?'}, ${row.State || '?'}: ${pop.toLocaleString()}`);
       if (!String(row.decision_notes || '').trim()) row.decision_notes = note;
@@ -1058,7 +1219,15 @@ export function listBatches() {
   ensureBatchesDir();
   return readdirSync(BATCHES_DIR)
     .filter((name) => existsSync(path.join(BATCHES_DIR, name, 'meta.json')))
-    .map((name) => readJson(path.join(BATCHES_DIR, name, 'meta.json')))
+    .map((name) => {
+      const dir = path.join(BATCHES_DIR, name);
+      const meta = readJson(path.join(dir, 'meta.json'));
+      if (!meta) return null;
+      if (isClusterPack(meta.filters?.packType)) {
+        meta.hubCount = shotgunDraftHubCount(loadShotgunDraft(dir));
+      }
+      return meta;
+    })
     .filter(Boolean)
     .sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
 }
@@ -1131,7 +1300,8 @@ export function getBatch(batchId) {
       ? fallbackCsv
       : null;
   const rows = csvPath ? parseCsv(readFileSync(csvPath, 'utf8')) : [];
-  return { batch: meta, rows, dir };
+  const shotgun = loadShotgunDraft(dir);
+  return { batch: meta, rows, dir, shotgun };
 }
 
 export function updateBatchDecisions(batchId, updates = []) {
@@ -1391,6 +1561,46 @@ export function processDiscoveryBatch(
     },
   };
   writeJson(path.join(dir, 'meta.json'), meta);
+
+  if (isClusterPack(batch.filters?.packType)) {
+    try {
+      const draft = loadShotgunDraft(dir);
+      if (draft) {
+        const byGeo = new Map();
+        for (const p of promoted) {
+          if (!p.candidateId) continue;
+          const row = nextRows[p.index];
+          if (!row) continue;
+          byGeo.set(
+            `${String(row.City || '').toLowerCase()}|${String(row.State || '').toUpperCase()}`,
+            p.candidateId,
+          );
+        }
+        const members = annotateMembersWithPipeline(
+          draft.niche || batch.filters?.shotgunNiche,
+          (draft.members || []).map((m) => {
+            const k = `${String(m.city || '').toLowerCase()}|${String(m.state || '').toUpperCase()}`;
+            return byGeo.has(k) ? { ...m, candidateId: byGeo.get(k) } : m;
+          }),
+        );
+        const cluster = upsertShotgunCluster({
+          id: draft.clusterId,
+          niche: draft.niche || batch.filters?.shotgunNiche,
+          hub: draft.hub,
+          innerMiles: draft.innerMiles,
+          outerMiles: draft.outerMiles,
+          clusterMiles: draft.clusterMiles,
+          bands: draft.bands,
+          members,
+          source: 'discovery',
+          batchId,
+        });
+        saveShotgunDraft(dir, { ...draft, members, clusterId: cluster.id, groupId: cluster.groupId });
+      }
+    } catch {
+      /* shotgun attach is best-effort */
+    }
+  }
 
   return {
     batch: meta,

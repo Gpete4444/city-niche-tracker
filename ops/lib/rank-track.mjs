@@ -2,12 +2,14 @@
  * Weekly keyword rank checks via DataForSEO Google Organic SERP (Standard queue).
  */
 import {
-  adsLocationName,
   dataForSeoGet,
   dataForSeoRequest,
   loadEnvFile,
+  loadSerpLocations,
   registrableDomain,
   requireCredentials,
+  resolveSerpTaskLocation,
+  serpLocationPayload,
 } from '../../scripts/lib/dataforseo.mjs';
 import {
   ensurePrimaryKeyword,
@@ -119,7 +121,7 @@ export function findDomainOrganicPosition(items, targetHost) {
   return { position: null, urlMatched: null };
 }
 
-function locationNameForSite(site) {
+async function locationSpecForSite(site) {
   const city = String(site.city || '').trim();
   const state = String(site.state || '').trim().toUpperCase();
   if (!city || !state) {
@@ -128,7 +130,15 @@ function locationNameForSite(site) {
       { status: 400 },
     );
   }
-  return adsLocationName(city, state);
+  const locations = await loadSerpLocations();
+  const spec = resolveSerpTaskLocation(city, state, { locations });
+  if (!spec) {
+    throw Object.assign(
+      new Error(`No SERP location for ${city}, ${state}`),
+      { status: 400 },
+    );
+  }
+  return spec;
 }
 
 /**
@@ -155,7 +165,8 @@ export async function checkSiteRanks(siteId, { depth = DEFAULT_DEPTH } = {}) {
     );
   }
 
-  const locationName = locationNameForSite(site);
+  const locationSpec = await locationSpecForSite(site);
+  const locationName = locationSpec.label;
   const checkedAt = new Date().toISOString();
   const keywordResults = [];
   let totalCost = 0;
@@ -168,7 +179,7 @@ export async function checkSiteRanks(siteId, { depth = DEFAULT_DEPTH } = {}) {
       const { result, cost } = await fetchOrganicViaQueue(
         {
           keyword,
-          location_name: locationName,
+          ...serpLocationPayload(locationSpec),
           language_code: 'en',
           device: 'desktop',
           depth,

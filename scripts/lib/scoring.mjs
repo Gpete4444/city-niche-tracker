@@ -587,7 +587,12 @@ export function applyEnrichmentToScoring(research, enrichment, jobSource = null)
     displaceability,
   });
 
-  if (research.volumes && typeof research.volumes === 'object' && scoring.demandBand?.demandVolumeSum != null) {
+  if (
+    research.volumes &&
+    typeof research.volumes === 'object' &&
+    scoring.demandBand?.demandVolumeSum != null &&
+    !research.volumes.volumesSkipped
+  ) {
     research.volumes.demandVolumeSum = scoring.demandBand.demandVolumeSum;
     research.volumes.suburbOverlapFactor =
       scoring.suburbOverlapFactor ?? research.volumes.suburbOverlapFactor;

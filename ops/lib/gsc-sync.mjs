@@ -24,7 +24,7 @@ function trailingWindow(days) {
   return { startDate: isoDateUTC(start), endDate: isoDateUTC(end) };
 }
 
-function hostFromSite(site) {
+export function hostFromSite(site) {
   const raw = site?.domain || site?.liveUrl || '';
   if (!raw) return null;
   try {
@@ -74,14 +74,21 @@ export function isGscPropertyUnverified(entry) {
   return String(entry?.permissionLevel || '') === 'siteUnverifiedUser';
 }
 
+export const GSC_QUERY_ROW_LIMIT = 100;
+export const GSC_PAGE_ROW_LIMIT = 50;
+
 /** Search Analytics POST body — omit empty dimensions (totals query). */
-export function buildSearchAnalyticsQueryBody({ startDate, endDate, dimensions = [] } = {}) {
+export function buildSearchAnalyticsQueryBody({ startDate, endDate, dimensions = [], rowLimit } = {}) {
   const body = { startDate, endDate };
   if (Array.isArray(dimensions) && dimensions.length) {
     body.dimensions = dimensions;
-    body.rowLimit = dimensions.includes('date') ? 500 : 25;
+    if (rowLimit != null) body.rowLimit = rowLimit;
+    else if (dimensions.includes('date')) body.rowLimit = 500;
+    else if (dimensions.includes('query')) body.rowLimit = GSC_QUERY_ROW_LIMIT;
+    else if (dimensions.includes('page')) body.rowLimit = GSC_PAGE_ROW_LIMIT;
+    else body.rowLimit = 25;
   } else {
-    body.rowLimit = 25;
+    body.rowLimit = rowLimit ?? 25;
   }
   return body;
 }
@@ -119,6 +126,70 @@ function sumRows(rows) {
 }
 
 /**
+ * Map Search Analytics rows (one dimension) into stored query/page rows.
+ * @param {Array<{ keys?: string[], clicks?: number, impressions?: number, ctr?: number, position?: number }>} rows
+ * @param {'query' | 'page'} keyName
+ */
+export function mapAnalyticsDimensionRows(rows, keyName) {
+  const out = [];
+  for (const row of rows || []) {
+    const key = String(row.keys?.[0] || '').trim();
+    if (!key) continue;
+    const clicks = Number(row.clicks) || 0;
+    const impressions = Number(row.impressions) || 0;
+    const position = Number(row.position);
+    out.push({
+      [keyName]: key,
+      clicks,
+      impressions,
+      ctr: impressions > 0 ? clicks / impressions : Number(row.ctr) || 0,
+      position: Number.isFinite(position) ? Math.round(position * 10) / 10 : null,
+    });
+  }
+  return out;
+}
+
+/**
+ * Sum GSC Sitemaps API `contents[].submitted` / `indexed` (web type).
+ * `indexed` is deprecated and always 0 — stored for sync history, not shown as Indexed.
+ */
+export function summarizeSitemapIndex(sitemapsJson) {
+  const list = Array.isArray(sitemapsJson?.sitemap) ? sitemapsJson.sitemap : [];
+  let submitted = 0;
+  let indexed = 0;
+  let sitemapPath = null;
+  for (const sm of list) {
+    if (!sitemapPath && sm?.path) sitemapPath = String(sm.path);
+    const contents = Array.isArray(sm?.contents) ? sm.contents : [];
+    for (const c of contents) {
+      const type = String(c?.type || 'web').toLowerCase();
+      if (type !== 'web') continue;
+      submitted += Number(c.submitted) || 0;
+      indexed += Number(c.indexed) || 0;
+    }
+  }
+  if (!list.length) {
+    return {
+      sitemapPath: null,
+      sitemapSubmitted: null,
+      sitemapIndexed: null,
+      sitemapNotIndexed: null,
+    };
+  }
+  return {
+    sitemapPath,
+    sitemapSubmitted: submitted,
+    sitemapIndexed: indexed,
+    sitemapNotIndexed: Math.max(0, submitted - indexed),
+  };
+}
+
+async function listGscSitemaps(propertyUrl) {
+  const encoded = encodeURIComponent(propertyUrl);
+  return gscFetch(`/sites/${encoded}/sitemaps`);
+}
+
+/**
  * Sync one site. Returns metrics summary fields.
  */
 export async function syncSiteGsc(siteId, { properties = null } = {}) {
@@ -151,9 +222,12 @@ export async function syncSiteGsc(siteId, { properties = null } = {}) {
     const win28 = trailingWindow(28);
     const win90 = trailingWindow(90);
 
-    const [agg28, byDate] = await Promise.all([
+    const [agg28, byDate, byQuery, byPage, sitemaps] = await Promise.all([
       querySearchAnalytics(propertyUrl, { ...win28, dimensions: [] }),
       querySearchAnalytics(propertyUrl, { ...win90, dimensions: ['date'] }),
+      querySearchAnalytics(propertyUrl, { ...win28, dimensions: ['query'] }),
+      querySearchAnalytics(propertyUrl, { ...win28, dimensions: ['page'] }),
+      listGscSitemaps(propertyUrl).catch(() => null),
     ]);
 
     const totals = sumRows(agg28?.rows);
@@ -162,6 +236,7 @@ export async function syncSiteGsc(siteId, { properties = null } = {}) {
       clicks: Number(row.clicks) || 0,
       impressions: Number(row.impressions) || 0,
     }));
+    const sitemap = sitemaps ? summarizeSitemapIndex(sitemaps) : null;
 
     metrics.domain = host;
     metrics.gsc.propertyUrl = propertyUrl;
@@ -171,6 +246,14 @@ export async function syncSiteGsc(siteId, { properties = null } = {}) {
     metrics.gsc.avgPosition28d =
       totals.avgPosition == null ? null : Math.round(totals.avgPosition * 10) / 10;
     metrics.gsc.daily = trimDailySeries(daily);
+    metrics.gsc.topQueries = mapAnalyticsDimensionRows(byQuery?.rows, 'query');
+    metrics.gsc.topPages = mapAnalyticsDimensionRows(byPage?.rows, 'page');
+    if (sitemap) {
+      metrics.gsc.sitemapPath = sitemap.sitemapPath;
+      metrics.gsc.sitemapSubmitted = sitemap.sitemapSubmitted;
+      metrics.gsc.sitemapIndexed = sitemap.sitemapIndexed;
+      metrics.gsc.sitemapNotIndexed = sitemap.sitemapNotIndexed;
+    }
     metrics.gsc.lastSyncAt = new Date().toISOString();
     metrics.gsc.syncError = null;
     saveSiteMetrics(metrics);

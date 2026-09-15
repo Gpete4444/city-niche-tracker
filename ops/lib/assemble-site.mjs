@@ -500,6 +500,46 @@ function writeJson(filePath, data) {
   writeFileSync(filePath, `${JSON.stringify(data, null, 2)}\n`, 'utf8');
 }
 
+const WEB3_PLACEHOLDER_RE = /^(REPLACE_WEB3FORMS_KEY|YOUR_WEB3FORMS_ACCESS_KEY)$/i;
+
+export function isAcceptedWeb3Key(value) {
+  const s = String(value || '').trim();
+  if (!s) return false;
+  if (WEB3_PLACEHOLDER_RE.test(s)) return false;
+  if (/^REPLACE_/i.test(s) || /^YOUR_WEB3FORMS/i.test(s) || /^tbd\b/i.test(s)) return false;
+  return true;
+}
+
+/**
+ * Copy a real accepted Web3Forms key onto assembled/staging site-config
+ * so live pages do not keep YOUR_WEB3FORMS_ACCESS_KEY.
+ */
+export function applyAcceptedWeb3KeyToSiteConfigFile(configPath, acceptedConfig) {
+  const key = String(acceptedConfig?.web3FormsAccessKey || '').trim();
+  if (!isAcceptedWeb3Key(key)) return { copied: false, reason: 'no_accepted_key' };
+  if (!configPath || !existsSync(configPath)) return { copied: false, reason: 'missing_file' };
+  let existing;
+  try {
+    existing = JSON.parse(readFileSync(configPath, 'utf8'));
+  } catch {
+    return { copied: false, reason: 'invalid_json' };
+  }
+  if (!existing || typeof existing !== 'object' || Array.isArray(existing)) {
+    return { copied: false, reason: 'invalid_json' };
+  }
+  const current = String(existing.web3FormsAccessKey || '').trim();
+  if (current === key) return { copied: false, reason: 'already' };
+  existing.web3FormsAccessKey = key;
+  writeJson(configPath, existing);
+  return { copied: true };
+}
+
+export function syncAcceptedWeb3KeyToAssembled(candidateId, siteRoot) {
+  const accepted = loadAcceptedSiteConfig(candidateId)?.config || {};
+  const assembledCfg = path.join(siteRoot, 'src', 'config', 'site-config.json');
+  return applyAcceptedWeb3KeyToSiteConfigFile(assembledCfg, accepted);
+}
+
 function runGit(args, cwd) {
   return execFileSync('git', args, {
     cwd,
@@ -545,10 +585,98 @@ function slugifySiteName(raw) {
     .slice(0, 60) || 'site';
 }
 
-function assembledSitesRoot() {
+export function assembledSitesRoot() {
   const fromEnv = String(process.env.ASSEMBLED_SITES_DIR || '').trim();
   if (fromEnv) return path.resolve(fromEnv);
   return path.join(ROOT, '..', 'rover-sites');
+}
+
+function pathKey(abs) {
+  const resolved = path.resolve(abs);
+  return process.platform === 'win32' ? resolved.toLowerCase() : resolved;
+}
+
+/** Roots whose child folders may be removed on unlaunched candidate delete. */
+export function allowedAssembledSiteRoots() {
+  const roots = [
+    assembledSitesRoot(),
+    path.join(ROOT, '..', 'rover-sites'),
+    path.join(ROOT, '..', 'rank-and-rent-sites'),
+  ];
+  const seen = new Set();
+  const out = [];
+  for (const root of roots) {
+    const abs = path.resolve(root);
+    const key = pathKey(abs);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(abs);
+  }
+  return out;
+}
+
+function isInsideAssembledRoot(childAbs, rootAbs) {
+  const child = pathKey(childAbs);
+  const root = pathKey(rootAbs);
+  if (child === root) return false;
+  const prefix = root.endsWith(path.sep) ? root : `${root}${path.sep}`;
+  return child.startsWith(prefix);
+}
+
+/** True when absPath is a child directory of an allowed assembled-sites root. */
+export function isSafeAssembledChildDir(absPath) {
+  if (!absPath) return false;
+  const abs = path.resolve(absPath);
+  if (!existsSync(abs)) return false;
+  try {
+    if (!statSync(abs).isDirectory()) return false;
+  } catch {
+    return false;
+  }
+  return allowedAssembledSiteRoots().some((root) => isInsideAssembledRoot(abs, root));
+}
+
+/** Assembled dirs for this candidate that are safe to rm (call before wiping meta). */
+export function collectAssembledSiteDirsForDelete(candidateId) {
+  const dirs = [];
+  const seen = new Set();
+  try {
+    const resolved = resolveActiveAssembledRoot(candidateId);
+    for (const candidate of [resolved.activeRoot, resolved.canonicalRoot, resolved.siteRoot]) {
+      if (!candidate) continue;
+      const abs = path.resolve(candidate);
+      const key = pathKey(abs);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      if (isSafeAssembledChildDir(abs)) dirs.push(abs);
+    }
+  } catch {
+    /* ignore — candidate may lack assemble metadata */
+  }
+  return dirs;
+}
+
+/**
+ * Stop preview and remove a local assembled site folder.
+ * No-op when the path is missing or not a safe child of an assembled-sites root.
+ */
+export async function removeLocalAssembledSiteDir(absPath) {
+  if (!absPath) return { removed: false, reason: 'empty' };
+  const abs = path.resolve(absPath);
+  if (!existsSync(abs)) return { removed: false, reason: 'missing' };
+  if (!isSafeAssembledChildDir(abs)) return { removed: false, reason: 'unsafe' };
+  try {
+    await stopAssembledPreview(abs, { forcePoolClear: false });
+  } catch {
+    /* continue */
+  }
+  try {
+    killProcessesHoldingSitePath(abs);
+  } catch {
+    /* continue */
+  }
+  rmSync(abs, { recursive: true, force: true });
+  return { removed: true, path: abs };
 }
 
 function shouldSkipCopy(name) {
@@ -1031,6 +1159,9 @@ export function assembleSite(
   const assembledCfg = path.join(siteRoot, 'src', 'config', 'site-config.json');
   const stagingSeed = ensureSocialProofOnSiteConfigFile(stagingCfg, config);
   const assembledSeed = ensureSocialProofOnSiteConfigFile(assembledCfg, config);
+  const acceptedConfig = loadAcceptedSiteConfig(candidateId)?.config || config;
+  const stagingWeb3 = applyAcceptedWeb3KeyToSiteConfigFile(stagingCfg, acceptedConfig);
+  const assembledWeb3 = applyAcceptedWeb3KeyToSiteConfigFile(assembledCfg, acceptedConfig);
   // Template already copies public/images/review-avatars/; ensure dir exists after overlay
   const avatarsDir = path.join(siteRoot, 'public', 'images', 'review-avatars');
   const templateAvatars = path.join(ROOT, 'public', 'images', 'review-avatars');
@@ -1076,6 +1207,10 @@ export function assembleSite(
       research: researchSeed,
       staging: stagingSeed,
       assembled: assembledSeed,
+    },
+    web3KeySync: {
+      staging: stagingWeb3,
+      assembled: assembledWeb3,
     },
     previousSiteRoot: previousForCleanup,
     nextSteps: [

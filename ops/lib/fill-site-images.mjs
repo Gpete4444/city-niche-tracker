@@ -2508,6 +2508,8 @@ export function displayLabelForSlot(slot) {
   return title || id;
 }
 
+export { reviewSlotServiceSubtitle } from './review-slot-service-subtitle.mjs';
+
 /** Homepage-ish order for Review Images / Structure (hero first). */
 export const IMAGE_SECTION_DEFAULT_ORDER = [
   'hero',

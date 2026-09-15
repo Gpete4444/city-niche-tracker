@@ -1,9 +1,9 @@
 /**
- * Soft-delete / permanent-delete protection for Website + Launched candidates,
+ * Soft-delete / permanent-delete protection for Launched candidates,
  * plus Research Evaluation order prerequisites.
  */
 import { existsSync } from 'node:fs';
-import { deriveStage, loadMeta, pathsFor } from './candidates.mjs';
+import { deriveStage, pathsFor } from './candidates.mjs';
 import { isCandidateLaunched } from './launched-edit-guard.mjs';
 
 /** Highest completed Research Evaluation (0 = none … 4 = Prospects). */
@@ -34,13 +34,17 @@ function hasWebsiteTrackArtifact(id) {
 }
 
 /**
- * Website Candidate (pursue and/or Website Track artifacts) or Launched Candidate.
- * These must never be permanently deleted from Rover records.
+ * Launched Candidates must never be permanently deleted from Rover records.
+ * Unlaunched Research and Website candidates may be wiped.
  */
 export function isUndeletableCandidate(id) {
   if (!id) return false;
-  const meta = loadMeta(id);
-  if (meta?.decision === 'pursue') return true;
+  return isCandidateLaunched(id);
+}
+
+/** Website-track or Launched (not the delete gate — use isUndeletableCandidate). */
+export function isWebsiteOrLaunchedCandidate(id) {
+  if (!id) return false;
   if (isCandidateLaunched(id)) return true;
   if (hasWebsiteTrackArtifact(id)) return true;
   return false;
@@ -72,7 +76,7 @@ export function assertDeletableIds(ids = []) {
   const { allowed, blocked } = partitionDeletableIds(ids);
   if (blocked.length) {
     const err = new Error(
-      `Cannot permanently delete Website or Launched Candidate(s): ${blocked.join(', ')}`,
+      `Cannot permanently delete Launched Candidate(s): ${blocked.join(', ')}`,
     );
     err.status = 409;
     err.code = 'UNDELETABLE_CANDIDATE';

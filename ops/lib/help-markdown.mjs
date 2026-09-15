@@ -1,6 +1,6 @@
 /**
  * Split docs/USER-GUIDE.md into searchable sections for the Help panel.
- * No extra npm dependency. Supports headings, {#id}, lists, tables, bold, code, links.
+ * No extra npm dependency. Supports headings, {#id}, lists, tables, bold, code, links, fenced code.
  */
 
 import { readFileSync } from 'node:fs';
@@ -100,6 +100,7 @@ function mdToHtml(md) {
   const list = [];
   const table = [];
   const para = [];
+  let fence = null;
 
   const flushPara = () => {
     if (!para.length) return;
@@ -107,9 +108,30 @@ function mdToHtml(md) {
     para.length = 0;
   };
 
+  const flushFence = () => {
+    if (!fence) return;
+    html.push(`<pre class="help-pre"><code>${escapeHtml(fence.join('\n'))}</code></pre>`);
+    fence = null;
+  };
+
   for (const raw of lines) {
     const line = raw.trimEnd();
     const trimmed = line.trim();
+    if (fence) {
+      if (trimmed.startsWith('```')) {
+        flushFence();
+        continue;
+      }
+      fence.push(raw);
+      continue;
+    }
+    if (trimmed.startsWith('```')) {
+      flushList(list, html);
+      flushTable(table, html);
+      flushPara();
+      fence = [];
+      continue;
+    }
     if (!trimmed) {
       flushList(list, html);
       flushTable(table, html);
@@ -134,6 +156,7 @@ function mdToHtml(md) {
   flushList(list, html);
   flushTable(table, html);
   flushPara();
+  flushFence();
   return html.join('\n');
 }
 

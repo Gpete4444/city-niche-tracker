@@ -80,7 +80,7 @@ const PAGE_ICON =
  * Claude-first page pick (mirrors ops/lib/geo-neighbors mergeLocationPages).
  * @returns {Set<string>} placeKeys including primary
  */
-function computePageKeys({ selected, claudeOrder, primaryCity, state, max = 8, popByKey }) {
+function computePageKeys({ selected, claudeOrder, primaryCity, state, max = 8, popByKey, blocked = new Set() }) {
   const st = String(state || '').trim().toUpperCase();
   const primaryNorm = normalizePlaceName(primaryCity);
   const keys = new Set();
@@ -98,6 +98,7 @@ function computePageKeys({ selected, claudeOrder, primaryCity, state, max = 8, p
     const hit = cov.find((r) => normalizePlaceName(r.name) === normalizePlaceName(n));
     if (!hit) return;
     const k = placeKey(hit.name, hit.state || st);
+    if (blocked.has(k) || blocked.has(normalizePlaceName(hit.name))) return;
     if (used.has(k)) return;
     used.add(k);
     out.push(k);
@@ -118,6 +119,7 @@ function computePageKeys({ selected, claudeOrder, primaryCity, state, max = 8, p
 
   for (const r of rest) {
     if (out.length >= max) break;
+    if (blocked.has(r.key)) continue;
     used.add(r.key);
     out.push(r.key);
   }
@@ -204,6 +206,8 @@ async function mountGeoSelectMap(opts) {
     initialSelected = [],
     claudeOrder = [],
     researchSuggestedSuburbs = [],
+    blockedPlaceKeys = [],
+    confirmPageOverride = null,
     onAccept,
     onSelectionChange,
   } = opts;
@@ -225,6 +229,10 @@ async function mountGeoSelectMap(opts) {
       : isDiscovery
         ? 200000
         : null;
+
+  const blocked = new Set(
+    (blockedPlaceKeys || []).map((k) => String(k || '').toLowerCase()),
+  );
 
   let primaryCity = String(initialPrimary || '').trim();
   const selected = new Map();
@@ -320,6 +328,7 @@ async function mountGeoSelectMap(opts) {
       <span class="muted small" id="${uid}-status">Loading map…</span>
       ${suggestedPagesBlock}
       <h4 class="sa-list-title">Selected cities <span id="${uid}-count" class="muted"></span></h4>
+      <p class="muted small sa-pop-total" id="${uid}-pop-total"></p>
       ${helpPara}
       <div id="${uid}-list" class="sa-table-wrap"></div>
       ${acceptBlock}
@@ -329,6 +338,7 @@ async function mountGeoSelectMap(opts) {
   const statusEl = controlsHost.querySelector(`#${uid}-status`);
   const listEl = controlsHost.querySelector(`#${uid}-list`);
   const countEl = controlsHost.querySelector(`#${uid}-count`);
+  const popTotalEl = controlsHost.querySelector(`#${uid}-pop-total`);
   const acceptStatus = controlsHost.querySelector(`#${uid}-accept-status`);
   const pagePickerEl = controlsHost.querySelector(`#${uid}-page-picker`);
   const saveProgressEl = controlsHost.querySelector(`#${uid}-save-progress`);
@@ -412,6 +422,7 @@ async function mountGeoSelectMap(opts) {
       state,
       max: PREFER_MAX_SUBURBS,
       popByKey,
+      blocked,
     });
     pagesSeeded = true;
   }
@@ -449,7 +460,7 @@ async function mountGeoSelectMap(opts) {
     return primaryCity ? placeKey(primaryCity, state) : '';
   }
 
-  function togglePageKey(key) {
+  async function togglePageKey(key) {
     if (!showPages || !key) return;
     const pk = primaryKey();
     if (pk && key === pk) {
@@ -467,7 +478,22 @@ async function mountGeoSelectMap(opts) {
         );
         return;
       }
+      const row = selected.get(key);
+      const sibling = blocked.has(key) || blocked.has(normalizePlaceName(row?.name));
+      if (sibling) {
+        const ok = confirmPageOverride
+          ? await confirmPageOverride(row?.name || key)
+          : window.confirm(
+              `This city has its own Cluster site. Make a location page on this site anyway?`,
+            );
+        if (!ok) return;
+      }
       pageKeySet.add(key);
+      setStatus(
+        sibling
+          ? `${row?.name || 'City'} location page overridden — this city has its own Cluster site`
+          : statusLine(),
+      );
     }
     const btn = listEl?.querySelector(`.sa-page-toggle[data-page-key="${CSS.escape(key)}"]`);
     if (btn) {
@@ -600,15 +626,30 @@ async function mountGeoSelectMap(opts) {
     const pk = primaryKey();
     const rows = [...selected.values()].sort((a, b) => compareSelectedRows(a, b, pk));
     if (countEl) countEl.textContent = `(${rows.length})`;
+    let popSum = 0;
+    for (const r of rows) {
+      const n = Number(popByKey.get(placeKey(r.name, r.state)));
+      if (Number.isFinite(n)) popSum += n;
+    }
+    if (popTotalEl) {
+      popTotalEl.textContent = rows.length ? `Population ${Math.round(popSum).toLocaleString()}` : '';
+    }
     if (!listEl) return;
 
-    const pageHead = showPages ? `<th class="sa-th-page" scope="col"></th>` : '';
+    const pageN = pages.size;
+    const pageLabel = `${pageN}/${PREFER_MAX_PAGES}`;
+    const pageHead = showPages
+      ? `<th class="sa-th-page" scope="col"><span class="sa-page-count" title="${esc(
+          `${pageN} of ${PREFER_MAX_PAGES} location pages`,
+        )}" aria-label="${esc(`${pageN} of ${PREFER_MAX_PAGES} location pages`)}">${esc(pageLabel)}</span></th>`
+      : '';
     const body = rows
       .map((r) => {
         const key = placeKey(r.name, r.state);
         const isPrimary = Boolean(pk) && key === pk;
         const hasPage = showPages && pages.has(key);
         const pop = popByKey.get(key);
+        const sibling = blocked.has(key) || blocked.has(normalizePlaceName(r.name));
         const pageCell = showPages
           ? `<td class="sa-td-page"><button type="button" class="sa-page-toggle${hasPage ? ' is-on' : ''}" data-page-key="${esc(
               key,
@@ -616,13 +657,13 @@ async function mountGeoSelectMap(opts) {
               hasPage ? PAGE_ICON : 'Page'
             }</button></td>`
           : '';
-        return `<tr class="sa-list-item${isPrimary ? ' is-primary' : ''}${hasPage ? ' has-page' : ''}" data-key="${esc(key)}">
+        return `<tr class="sa-list-item${isPrimary ? ' is-primary' : ''}${hasPage ? ' has-page' : ''}${sibling ? ' sa-cluster-sibling' : ''}" data-key="${esc(key)}">
           ${pageCell}
           <td class="sa-td-city">
             <button type="button" class="sa-list-btn" ${isPrimary ? 'disabled' : ''} title="${
-              isPrimary ? 'Primary center' : 'Remove from coverage'
+              isPrimary ? 'Primary center' : sibling ? 'Cluster sibling — coverage OK, location page needs override' : 'Remove from coverage'
             }">
-              <span class="sa-list-name">${esc(r.name)}, ${esc(r.state)}</span>
+              <span class="sa-list-name">${esc(r.name)}, ${esc(r.state)}${sibling ? ' · cluster site' : ''}</span>
               <span class="muted">${isPrimary ? 'center' : 'remove'}</span>
             </button>
           </td>
@@ -666,7 +707,7 @@ async function mountGeoSelectMap(opts) {
       btn.addEventListener('click', (ev) => {
         ev.preventDefault();
         ev.stopPropagation();
-        togglePageKey(btn.getAttribute('data-page-key'));
+        void togglePageKey(btn.getAttribute('data-page-key'));
       });
     });
     listEl.querySelectorAll('.sa-list-btn:not([disabled])').forEach((btn) => {
@@ -764,6 +805,15 @@ async function mountGeoSelectMap(opts) {
           selectedCities: [...selected.values()],
           primaryCity,
           locationPageCities: locationPageCitiesPayload(),
+          clusterLocationPageOverrides: [...selected.values()]
+            .filter((row) => {
+              const key = placeKey(row.name, row.state);
+              return (
+                pageKeys().has(key) &&
+                (blocked.has(key) || blocked.has(normalizePlaceName(row.name)))
+              );
+            })
+            .map((row) => row.name),
         },
         {
           onProgress: (p) => {
@@ -946,6 +996,9 @@ async function mountGeoSelectMap(opts) {
     }
 
     if (key === primaryKey()) return;
+    if (blocked.has(key) || blocked.has(normalizePlaceName(name))) {
+      /* Cluster sibling: coverage is allowed; location pages need an override. */
+    }
     if (selected.has(key)) {
       selected.delete(key);
     } else {
@@ -1273,9 +1326,15 @@ export function setDiscoveryTableMapMode(on) {
   const legend = document.getElementById('discovery-source-legend');
   const steps = document.getElementById('discovery-steps');
   const head = panel?.querySelector('.panel-head');
+  const shotgunOn =
+    Boolean(panel?.classList.contains('shotgun-hub-on')) ||
+    Boolean(canvas?.closest('#discovery-shotgun-map-slot'));
   if (panel) panel.classList.toggle('disc-map-mode', Boolean(on));
   if (wrap) wrap.classList.toggle('hidden', Boolean(on));
-  if (canvas) canvas.classList.toggle('hidden', !on);
+  if (canvas && !(shotgunOn && !on)) {
+    canvas.classList.toggle('hidden', !on);
+    if (on) canvas.classList.remove('shotgun-map-off');
+  }
   if (filters) filters.classList.toggle('hidden', Boolean(on));
   if (legend) legend.classList.toggle('hidden', Boolean(on));
   if (steps) steps.classList.toggle('hidden', Boolean(on));

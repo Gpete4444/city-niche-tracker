@@ -11,6 +11,7 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { loadEnvFile } from './lib/dataforseo.mjs';
 import { enrichResearchReport } from './lib/enrich.mjs';
+import { exitAfterNetwork } from './lib/script-exit.mjs';
 
 loadEnvFile();
 
@@ -68,10 +69,13 @@ async function main() {
   );
   console.error(`Decision: ${report.decision?.decision} (${report.decision?.ruleId})`);
   console.error(`Stage 2 DataForSEO cost: $${enrichCost.toFixed(4)}`);
-  process.stdout.write(json);
+  if (!args.out) {
+    process.stdout.write(json);
+  }
+  await exitAfterNetwork(0);
 }
 
-main().catch((error) => {
+main().catch(async (error) => {
   console.error(error.message || error);
-  process.exit(1);
+  await exitAfterNetwork(1);
 });

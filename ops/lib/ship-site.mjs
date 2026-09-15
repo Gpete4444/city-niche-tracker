@@ -11,6 +11,7 @@ import {
   depsHashMarkerMatches,
   getAssembleChecklist,
   hashPackageDeps,
+  syncAcceptedWeb3KeyToAssembled,
   writeDepsHashMarker,
 } from './assemble-site.mjs';
 import { cloudflareConfigured, cfFetch, getCloudflareCredentials } from './cloudflare-launch.mjs';
@@ -366,7 +367,9 @@ export async function shipAssembledSite(candidateId, opts = {}) {
   }
 
   const slug = detail.meta?.assembledSiteSlug || path.basename(assembledRoot);
+  const web3Sync = syncAcceptedWeb3KeyToAssembled(candidateId, assembledRoot);
   const human = [];
+  if (web3Sync.copied) human.push('Copied accepted Web3Forms key onto assembled site-config.');
   const steps = {};
   const onProgress = typeof opts.onProgress === 'function' ? opts.onProgress : null;
   const planned = listShipProgressSteps(opts);

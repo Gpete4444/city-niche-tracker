@@ -835,6 +835,9 @@ function runDraftContentLints(candidateId, files, config) {
     businessName: config.businessName,
     niche: config.niche,
     primaryCity: config.primaryCity,
+    state: config.state,
+    domain: config.domain,
+    tagline: config.tagline,
     services: [
       ...(Array.isArray(config.services) ? config.services : []),
       ...(Array.isArray(config.commercialServices) ? config.commercialServices : []),

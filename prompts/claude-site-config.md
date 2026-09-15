@@ -34,7 +34,7 @@ Also provide:
   - fontTheme: {{FONT_THEME}}
 
 Use from research/narrative when present:
-- niche → niche (exact string; do not synonym-swap)
+- niche → niche (exact string; do not synonym-swap), except: if Domain or Business name is Repair-only (contains repair, not install), set niche to the Repair form of the trade (e.g. Drywall Repair). Inverse if brand/domain is Installation-only. Do not drop commercialServices when the operator wants Both.
 - city / primaryCity → primaryCity
 - state → state
 - suggestedServices → starting labels for services; expand to related residential offers
@@ -62,6 +62,7 @@ Rules:
 10. tagline = ONE sentence used as the homepage hero supporting line (under H1). Pattern: niche/primary offer + primaryCity + 2–3 concrete offer terms + free-estimate cue. Aim ~140–160 characters. Do NOT write soft/generic lines (“specialized … for surrounding communities”). Do NOT make it multiple sentences or a paragraph.
     Example: "Full kitchen and bathroom remodeling in Spanish Fork, UT — cabinetry, tile, walk-in showers. Free estimates."
 11. serviceRadiusMiles = the operator radius above, or **15** if they did not specify. Do not invent a wider default (not 40).
+12. Brand/domain verb lock: if businessName or domain already contains “repair” and not “install” (Repair Pros, *repairpros.com), niche must match — Drywall Repair, not Drywall Installation. Inverse for Installation-only brands. commercialServices is still allowed when the operator wants Residential + Commercial.
 
 JSON shape:
 {

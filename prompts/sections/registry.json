@@ -119,7 +119,7 @@
       "maxImages": 8,
       "astroKey": "services",
       "kind": "services",
-      "writeInstructions": "One short entity-rich paragraph per service card. High-ticket services first. What it is, when needed, outcome."
+      "writeInstructions": "One short entity-rich paragraph per service card. High-ticket services first. What it is, when needed, outcome. Do not repeat “in {city}, {state}” on every card — city belongs once in the homepage intro."
     },
     {
       "id": "process",

@@ -8,6 +8,8 @@ import path from 'node:path';
 import twilio from 'twilio';
 import { RESEARCH_DIR } from './candidates.mjs';
 import { listSites, listSitesWithPhone } from './sites.mjs';
+import { ensureRankingVoicemailUrls } from './phone-tracking-twilio.mjs';
+import { ensureVoiceFunctionsDeployed } from './voicemail-greeting.mjs';
 
 const CALLS_FILE = path.join(RESEARCH_DIR, 'phone-calls.jsonl');
 const OPENAI_CHAT_URL = 'https://api.openai.com/v1/chat/completions';
@@ -150,6 +152,7 @@ function upsertCall( partial ) {
     transcript: partial.transcript ?? prev.transcript ?? '',
     summary: partial.summary ?? prev.summary ?? '',
     summaryAt: partial.summaryAt || prev.summaryAt || null,
+    kind: partial.kind !== undefined ? String(partial.kind || '') : prev.kind || '',
     error: partial.error !== undefined ? partial.error : prev.error || null,
     updatedAt: new Date().toISOString(),
     createdAt: prev.createdAt || new Date().toISOString(),
@@ -218,13 +221,16 @@ export function handleRecordingWebhook(body = {}) {
     siteId: body.siteId || body.SiteId,
     to: body.To || body.to,
   });
+  const mode = String(body.mode || body.Mode || '').toLowerCase();
+  const isVoicemail = mode === 'voicemail' || mode === 'ranking';
   const row = upsertCall({
     callSid,
     siteId,
     from: body.From || body.from || '',
     to: body.To || body.to || '',
     status: body.CallStatus || body.status || 'completed',
-    answered: true,
+    answered: isVoicemail ? duration >= 1 : true,
+    kind: isVoicemail && duration >= 1 ? 'voicemail' : '',
     recordingSid,
     recordingUrl: recordingUrl ? `${recordingUrl}.mp3` : '',
     recordingDurationSec: duration,
@@ -259,6 +265,17 @@ export async function syncCallsFromTwilio({
   const days = Math.max(1, Math.min(90, Number(sinceDays) || 30));
   const limit = Math.max(1, Math.min(200, Number(callLimit) || 100));
   const startTimeAfter = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+
+  try {
+    await ensureVoiceFunctionsDeployed();
+  } catch (error) {
+    console.warn('[phone-calls] voice functions deploy:', error.message);
+  }
+  try {
+    await ensureRankingVoicemailUrls();
+  } catch (error) {
+    console.warn('[phone-calls] ranking voicemail migrate:', error.message);
+  }
 
   let sites = listSitesWithPhone();
   if (siteId) {
@@ -298,9 +315,10 @@ export async function syncCallsFromTwilio({
       const callSid = call.sid;
       if (!callSid) continue;
       const status = String(call.status || '').toLowerCase();
-      const answered = answeredFromDialStatus(status);
+      let answered = answeredFromDialStatus(status);
       const durationSec = Number(call.duration || 0) || 0;
       const forwardTo = site.phoneTracking?.forwardTo || '';
+      const ranking = site.phoneTracking?.phase === 'ranking';
 
       let recordingSid = '';
       let recordingUrl = '';
@@ -319,6 +337,9 @@ export async function syncCallsFromTwilio({
       }
 
       const prev = getPhoneCall(callSid);
+      if (ranking) {
+        answered = recordingDurationSec >= 1;
+      }
       upsertCall({
         callSid,
         siteId: site.id,
@@ -326,6 +347,7 @@ export async function syncCallsFromTwilio({
         to: call.to || e164,
         status: status || 'unknown',
         answered,
+        kind: ranking && recordingDurationSec >= 1 ? 'voicemail' : ranking ? '' : prev?.kind || '',
         durationSec: durationSec || recordingDurationSec,
         startedAt: isoOrNull(call.startTime) || isoOrNull(call.dateCreated),
         endedAt: isoOrNull(call.endTime),

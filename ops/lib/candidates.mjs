@@ -195,6 +195,10 @@ export function clearLaunchedBookkeeping(id, extra = {}) {
     dnsDone: false,
     emailRoutingDone: false,
     formsDone: false,
+    assembledSitePath: null,
+    assembledSiteSlug: null,
+    indexingDone: false,
+    lastAssembleAt: null,
     ...extra,
   });
 }
@@ -244,6 +248,84 @@ export function deriveStage(id, researchOverride = undefined) {
     hasContent,
     enrichmentRecommended: Boolean(research?.scoring?.enrichmentRecommended),
   };
+}
+
+/**
+ * True once Eval 1 (SERP / Volume) or a later stage has run.
+ * A discovery stub with only niche/city/state does not lock.
+ */
+export function isResearchEvalStarted(research, stageFlags = {}) {
+  if (
+    stageFlags.hasEnrichment ||
+    stageFlags.hasNarrative ||
+    stageFlags.hasNarrativeDraft ||
+    stageFlags.hasProspects ||
+    stageFlags.hasSiteConfig ||
+    stageFlags.hasContent
+  ) {
+    return true;
+  }
+  if (!research || typeof research !== 'object') return false;
+  return Boolean(
+    research.serp ||
+      research.volumes ||
+      research.scoring ||
+      research.enrichment,
+  );
+}
+
+export function isCandidateNicheRenameLocked(id) {
+  const flags = deriveStage(id);
+  const research = flags.hasResearch ? readJson(pathsFor(id).research) : null;
+  return isResearchEvalStarted(research, flags);
+}
+
+/**
+ * Root niche rename. Does not change candidate id.
+ * After Eval 1, require confirmAfterEval — label only; SERP/scores/photos/site-config stay.
+ */
+export function renameCandidateNiche(id, rawNiche, { confirmAfterEval = false } = {}) {
+  const niche = String(rawNiche || '').replace(/\s+/g, ' ').trim();
+  if (!niche) {
+    throw Object.assign(new Error('Niche is required'), { status: 400 });
+  }
+  if (niche.length > 80) {
+    throw Object.assign(new Error('Niche must be 80 characters or fewer'), { status: 400 });
+  }
+  const p = pathsFor(id);
+  if (!existsSync(p.config) && !existsSync(p.meta) && !existsSync(p.research)) {
+    throw Object.assign(new Error(`Candidate not found: ${id}`), { status: 404 });
+  }
+  if (isCandidateNicheRenameLocked(id) && !confirmAfterEval) {
+    throw Object.assign(
+      new Error(
+        'Niche is locked after SERP / Volume. Confirm the rename (ripple effects) or change it before Ad volumes on new rows.',
+      ),
+      { status: 400, code: 'NICHE_LOCKED' },
+    );
+  }
+
+  const config = readJson(p.config);
+  if (config && typeof config === 'object') {
+    writeJson(p.config, { ...config, niche });
+  } else {
+    writeJson(p.config, { niche });
+  }
+  saveMeta(id, { niche });
+
+  const research = readJson(p.research);
+  if (research && typeof research === 'object' && !Array.isArray(research)) {
+    writeJson(p.research, { ...research, niche });
+  }
+
+  const seed = readJson(p.discoverySeed);
+  if (seed && typeof seed === 'object' && !Array.isArray(seed)) {
+    const next = { ...seed, niche };
+    writeJson(p.discoverySeed, next);
+  }
+
+  invalidateCandidateListCache();
+  return { ok: true, id: p.id, niche, confirmedAfterEval: Boolean(confirmAfterEval) };
 }
 
 export const CANDIDATE_DECISIONS = [
@@ -352,19 +434,25 @@ function summarizeResearch(research) {
     decision: research.decision?.decision ?? research.scoring?.decision?.decision ?? null,
     proposedScore: recomputed ?? stored,
     overallProvisional: inputs.jobValue == null && recomputed != null,
-    clusterVolumeSum: research.volumes?.clusterVolumeSum ?? null,
-    primaryVolumeSum: research.volumes?.primaryVolumeSum ?? null,
+    clusterVolumeSum: research.volumes?.volumesSkipped || research.volumes?.adsLocationFallback?.kind === 'state'
+      ? null
+      : research.volumes?.clusterVolumeSum ?? null,
+    primaryVolumeSum: research.volumes?.volumesSkipped || research.volumes?.adsLocationFallback?.kind === 'state'
+      ? null
+      : research.volumes?.primaryVolumeSum ?? null,
     demandVolumeSum: (() => {
+      const vols = research.volumes || {};
+      if (vols.volumesSkipped || vols.adsLocationFallback?.kind === 'state') return null;
       const stored =
-        research.volumes?.demandVolumeSum ?? research.scoring?.demandBand?.demandVolumeSum ?? null;
+        vols.demandVolumeSum ?? research.scoring?.demandBand?.demandVolumeSum ?? null;
       if (stored != null && Number.isFinite(Number(stored))) return Number(stored);
       const computed = computeDemandVolumeSum({
-        primaryVolumeSum: research.volumes?.primaryVolumeSum ?? null,
-        clusterVolumeSum: research.volumes?.clusterVolumeSum ?? null,
+        primaryVolumeSum: vols.primaryVolumeSum ?? null,
+        clusterVolumeSum: vols.clusterVolumeSum ?? null,
         suburbOverlapFactor:
-          research.volumes?.suburbOverlapFactor ?? research.scoring?.suburbOverlapFactor ?? null,
+          vols.suburbOverlapFactor ?? research.scoring?.suburbOverlapFactor ?? null,
       });
-      return research.volumes?.clusterVolumeSum != null || research.volumes?.primaryVolumeSum != null
+      return vols.clusterVolumeSum != null || vols.primaryVolumeSum != null
         ? computed.demandVolumeSum
         : null;
     })(),
@@ -372,6 +460,8 @@ function summarizeResearch(research) {
       research.volumes?.suburbOverlapFactor ??
       research.scoring?.suburbOverlapFactor ??
       null,
+    volumesSkipped: Boolean(research.volumes?.volumesSkipped) || research.volumes?.adsLocationFallback?.kind === 'state',
+    adsLocationFallback: research.volumes?.adsLocationFallback ?? null,
     averageCpc: avgCpc,
     mapPackPresent: serp.mapPackPresent ?? null,
     mapPackAvgReviews: mapPackReviews.avgReviews ?? null,
@@ -614,9 +704,12 @@ function buildCandidateListRows() {
         formatJobCostRange(research?.averageJobCostUsd) ||
         null;
       const attached = attachPhoneDone(meta, stageInfo, id, phoneIndex);
+      const displayNiche = String(meta.niche || config?.niche || summary.niche || '').trim();
       const row = {
         id,
         ...summary,
+        ...(displayNiche ? { niche: displayNiche } : {}),
+        nicheRenameLocked: isResearchEvalStarted(research, attached.stageFlags),
         ...prospectSummary,
         population: population != null ? Number(population) : null,
         jobCostText,
@@ -1190,12 +1283,20 @@ export function buildApprovedPackage(id, narrative, research, meta = {}, discove
     researchSummary: research
       ? {
           mapPackPresent: research.serp?.mapPackPresent ?? null,
-          clusterVolumeSum: research.volumes?.clusterVolumeSum ?? null,
-          primaryVolumeSum: research.volumes?.primaryVolumeSum ?? null,
+          clusterVolumeSum:
+            research.volumes?.volumesSkipped || research.volumes?.adsLocationFallback?.kind === 'state'
+              ? null
+              : research.volumes?.clusterVolumeSum ?? null,
+          primaryVolumeSum:
+            research.volumes?.volumesSkipped || research.volumes?.adsLocationFallback?.kind === 'state'
+              ? null
+              : research.volumes?.primaryVolumeSum ?? null,
           demandVolumeSum:
-            research.volumes?.demandVolumeSum ??
-            research.scoring?.demandBand?.demandVolumeSum ??
-            null,
+            research.volumes?.volumesSkipped || research.volumes?.adsLocationFallback?.kind === 'state'
+              ? null
+              : research.volumes?.demandVolumeSum ??
+                research.scoring?.demandBand?.demandVolumeSum ??
+                null,
           suburbOverlapFactor:
             research.volumes?.suburbOverlapFactor ?? research.scoring?.suburbOverlapFactor ?? null,
           averageCpc: research.volumes?.averageCpc ?? null,
@@ -1465,14 +1566,30 @@ function wipeCandidateFiles(id) {
 }
 
 /**
- * Permanently delete Research candidates and scrub Rover-local references
- * (groups, tracked anti-dupe, Sites registry, Discovery batch candidateId links).
+ * Permanently delete unlaunched candidates and scrub Rover-local references
+ * (groups, tracked anti-dupe, Sites registry, Discovery batch candidateId links,
+ * local assembled folder under rover-sites). Launched ids are skipped.
  */
 export async function deleteCandidates(ids = []) {
   const deleted = [];
   const errors = [];
   const geos = [];
   const normalizedIds = [];
+  const assembledDirs = [];
+  const assembledById = new Map();
+
+  let launchedGuard = null;
+  try {
+    launchedGuard = await import('./launched-edit-guard.mjs');
+  } catch {
+    launchedGuard = null;
+  }
+  let assembleMod = null;
+  try {
+    assembleMod = await import('./assemble-site.mjs');
+  } catch (error) {
+    console.warn('[deleteCandidates] assemble-site import failed:', error.message);
+  }
 
   ensureResearchDir();
   for (const raw of ids) {
@@ -1484,6 +1601,13 @@ export async function deleteCandidates(ids = []) {
       continue;
     }
     const id = p.id;
+    if (launchedGuard?.isCandidateLaunched?.(id)) {
+      errors.push({
+        id,
+        error: `Cannot permanently delete Launched Candidate(s): ${id}`,
+      });
+      continue;
+    }
     if (!candidateHasCoreFiles(id) && !existsSync(path.join(RESEARCH_DIR, id))) {
       const orphan = readdirSync(RESEARCH_DIR).some((f) => candidateIdFromResearchFile(f) === id);
       if (!orphan) {
@@ -1491,13 +1615,35 @@ export async function deleteCandidates(ids = []) {
         continue;
       }
     }
+    if (assembleMod) {
+      try {
+        assembledById.set(id, assembleMod.collectAssembledSiteDirsForDelete(id));
+      } catch {
+        /* continue */
+      }
+    }
     normalizedIds.push(id);
     try {
       geos.push(resolveCandidateGeo(id));
       const files = wipeCandidateFiles(id);
       deleted.push({ id, filesRemoved: files.length });
+      assembledDirs.push(...(assembledById.get(id) || []));
     } catch (error) {
       errors.push({ id, error: error.message });
+    }
+  }
+
+  if (assembleMod && assembledDirs.length) {
+    const seen = new Set();
+    for (const dir of assembledDirs) {
+      const key = String(dir || '').toLowerCase();
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      try {
+        await assembleMod.removeLocalAssembledSiteDir(dir);
+      } catch (error) {
+        console.warn('[deleteCandidates] assembled folder rm failed:', error.message);
+      }
     }
   }
 

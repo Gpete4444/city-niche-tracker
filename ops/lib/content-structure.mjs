@@ -12,6 +12,8 @@ import {
   saveMeta,
 } from './candidates.mjs';
 import { loadAcceptedSiteConfig } from './content-markdown.mjs';
+import { persistCoercedAcceptedSiteConfig } from './site-config.mjs';
+import { shotgunDoNotLinkBlock } from './shotgun.mjs';
 import { parseJsonLoose } from './claude.mjs';
 import {
   buildCityContextPackage,
@@ -306,6 +308,7 @@ export function getDefaultStructureSelection() {
 }
 
 export function getContentStructure(candidateId) {
+  persistCoercedAcceptedSiteConfig(candidateId);
   return readJson(structurePath(candidateId));
 }
 
@@ -317,6 +320,7 @@ export function getContentOutlinePackage(candidateId) {
  * Save operator checklist selection (draft structure).
  */
 export function saveContentStructure(candidateId, selection = {}) {
+  persistCoercedAcceptedSiteConfig(candidateId);
   const detail = getCandidateDetail(candidateId);
   if (!detail.siteConfig && !loadAcceptedSiteConfig(candidateId)?.config) {
     throw Object.assign(new Error('Accept site-config first'), { status: 400 });
@@ -495,6 +499,7 @@ function homepageAstroKeys(selection, registry) {
  * Continue: compose outline package from structure selection.
  */
 export function composeContentOutline(candidateId, selectionPatch = null) {
+  persistCoercedAcceptedSiteConfig(candidateId);
   const registry = loadSectionRegistry();
   const config = loadAcceptedSiteConfig(candidateId)?.config;
   if (!config) {
@@ -533,6 +538,8 @@ export function composeContentOutline(candidateId, selectionPatch = null) {
       'Internal links: Home ↔ Services ↔ Locations ↔ Contact.',
       'Use site-config socialProof for trust/reviews — do not invent testimonials. Rover seeds placeholders when empty; operator replaces before launch.',
       'Use City context briefs (Wikipedia + local seed) for climate/neighborhood flavor — paraphrase only; keep each location FILE distinct; name concrete materials/methods.',
+      'Service card bodies must not repeat “in {city}, {ST}” — city once in the homepage intro.',
+      'Brand/domain verb must match niche and homepage H1/title (Repair Pros ≠ Installation identity).',
     ],
     keywords: {
       primary: config.niche || null,
@@ -636,6 +643,7 @@ export async function buildStructurePrompt(candidateId) {
       { status: 400 },
     );
   }
+  persistCoercedAcceptedSiteConfig(candidateId);
   const config = loadAcceptedSiteConfig(candidateId)?.config || {};
   let cityContext = getCachedCityContext(candidateId);
   try {
@@ -851,6 +859,7 @@ export async function buildFullWritePrompt(candidateId) {
   if (briefGate?.status !== 'confirmed') {
     throw Object.assign(new Error('Confirm Content brief before Full write'), { status: 400 });
   }
+  persistCoercedAcceptedSiteConfig(candidateId);
   const config = loadAcceptedSiteConfig(candidateId)?.config || {};
   const fileRules = buildRequiredFileRules(outline, config);
   const requiredCount = fileRules.count || 0;
@@ -884,6 +893,7 @@ Pass 3: vary sentence length across sections; prefer commas over em dashes; hono
 **Bookends:** for every FILE, make the first two and last two body sentences conversational and opinionated (contractor on the phone). Closing bookend should nudge call / free estimate when the page type expects it.
 **NAP:** use site-config phone, email, and businessName literally. Never invent numbers or leave placeholders like +1XXXXXXXXXX / leads@example.com.
 
+${shotgunDoNotLinkBlock(candidateId)}
 ## Site config
 \`\`\`json
 ${JSON.stringify(config, null, 2)}
@@ -958,7 +968,7 @@ heroImage:
 
 ## Frontmatter expectations (each services/*.md)
 - title, description, h1, serviceName
-- \`description\` = ONE meta-length sentence (~140–160 chars): serviceName + primaryCity + 2–3 offer terms + free estimates (hero supporting under H1)
+- \`description\` = ONE meta-length sentence (~140–160 chars): serviceName + 2–3 offer terms + free estimates (hero supporting under H1). Do **not** stuff “in ${config.primaryCity || '{city}'}${config.state ? `, ${config.state}` : ''}” into every service card — city belongs once in the homepage intro. Card body = what it is, when needed, outcome.
 - heroImage / cardImage only as \`{ src, alt }\` objects when files already exist; otherwise omit
 - \`materialsImages: [{ src, alt }]\` is Pull-owned when svcMaterials photos are on — omit or preserve existing; do not invent image paths. Ranking builds pull materials thumbs for compact media rows.
 - \`processImages: [{ src, alt }]\` is Pull-owned when svcProcess photos are on — omit or preserve existing; do not invent image paths
@@ -1011,6 +1021,7 @@ heroImage:
 10. **Company subject:** Always use the full business name (“${config.businessName || 'Business'}”) when the company acts (provides, manages, files, handles, offers). Niche labels (“${config.niche || 'the niche'}”) are for H1s, section titles, and service-type nouns — do **not** shorten “${config.businessName || 'Business'}” to the niche alone in body prose.
 11. **Titles:** Prefer a keyword-led \`title\` ≤~50 characters, or include the business name in \`title\` so the layout does not need a long \`| brand\` suffix. Aim for final browser title ≤~60 characters.
 12. **Required internal links** (include as markdown \`[Label](/path)\`):
+13. **Service cards:** do not repeat “in ${config.primaryCity || '{city}'}${config.state ? `, ${config.state}` : ''}” on every service description. Name the work, when it is needed, and the outcome.
 ${buildLinkChecklistMarkdown(outline, config)}
 
 Return ONLY the ### FILE blocks.`;
@@ -1035,6 +1046,7 @@ export async function buildContinueWritePrompt(candidateId) {
     });
   }
 
+  persistCoercedAcceptedSiteConfig(candidateId);
   const config = loadAcceptedSiteConfig(candidateId)?.config || {};
   const pageIds = resolveStructurePageIds(candidateId);
   const detail = getCandidateDetail(candidateId);
@@ -1100,6 +1112,7 @@ export async function buildContinueWritePrompt(candidateId) {
 ## Goal
 Finish an incomplete Full write. Emit **only** the FILE paths listed below. Rover **merges** them into the existing draft — do not recap files already loaded, and do not invent extra paths.
 
+${shotgunDoNotLinkBlock(candidateId)}
 ## Site config
 \`\`\`json
 ${JSON.stringify(config, null, 2)}
@@ -1170,7 +1183,8 @@ ${
 2. Never invent image \`src\` paths or body \`![](...)\` images.
 3. Use site-config socialProof only — do not invent testimonials or license IDs.
 4. Unique, honest local copy for ${config.primaryCity || 'the city'}, ${config.state || ''}.
-5. Return ONLY the ### FILE blocks for the paths listed above.
+5. Service card \`description\`: do not repeat “in ${config.primaryCity || '{city}'}${config.state ? `, ${config.state}` : ''}” on every card — city once in the homepage intro.
+6. Return ONLY the ### FILE blocks for the paths listed above.
 
 Draft progress: ${Object.keys(files).length} of ${expected.length} required paths already loaded; finish the ${gapCount} gap(s).`;
 

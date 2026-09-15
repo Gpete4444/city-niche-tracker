@@ -17,7 +17,10 @@ import {
   adsLocationName,
   loadAdsLocations,
   loadEnvFile,
+  loadSerpLocations,
   resolveAdsLocation,
+  resolveAdsLocationWithFallback,
+  resolveSerpTaskLocation,
 } from './lib/dataforseo.mjs';
 import { fetchRelatedKeywords, fetchSearchVolumes, normalizeAdsMode } from './lib/ads-volume.mjs';
 import { classifySerpItems, fetchOrganicSerp } from './lib/serp-classify.mjs';
@@ -38,7 +41,9 @@ import {
 } from './lib/scoring.mjs';
 import { enrichResearchReport } from './lib/enrich.mjs';
 import { lookupPopulation } from '../ops/lib/census.mjs';
+import { adjacentPlaces } from '../ops/lib/geo-neighbors.mjs';
 import { normalizeCityStateCluster, parseCityStateToken } from '../ops/lib/city-state.mjs';
+import { exitAfterNetwork } from './lib/script-exit.mjs';
 
 loadEnvFile();
 
@@ -263,9 +268,18 @@ function googleSearchLink(query) {
   return `https://www.google.com/search?q=${encodeURIComponent(query)}`;
 }
 
-async function fetchSerp(keyword, locationName) {
-  console.error(`SERP for "${keyword}" @ ${locationName}`);
-  return fetchOrganicSerp(keyword, locationName);
+async function fetchSerp(keyword, locationSpec) {
+  const label = locationSpec?.label || locationSpec?.location_name || locationSpec;
+  console.error(`SERP for "${keyword}" @ ${label}`);
+  return fetchOrganicSerp(keyword, locationSpec);
+}
+
+function tryAdjacentPlaces(city, state) {
+  try {
+    return adjacentPlaces(city, state, { minPop: 0 });
+  } catch {
+    return [];
+  }
 }
 
 function buildSpreadsheetFields(report) {
@@ -304,7 +318,7 @@ async function main() {
 
   const niche = args.niche.trim();
   const query = `${niche} ${primary.city} ${primary.state}`;
-  const primaryLocation = adsLocationName(primary.city, primary.state);
+  const requestedPrimaryLocation = adsLocationName(primary.city, primary.state);
   const seeds =
     args.seeds.length > 0
       ? args.seeds
@@ -376,14 +390,23 @@ async function main() {
     serpCacheAt = priorResearch.serp.discoverySerpAt || priorResearch.generatedAt || null;
   }
 
+  let serpSpec = null;
   if (!serp) {
     if (args.volumesOnly) {
       throw new Error(
         'volumes-only requires an existing research file with serp (run full Stage 1 once first)',
       );
     }
-    console.error(`SERP: "${query}" @ ${primaryLocation}`);
-    serpRaw = await fetchSerp(query, primaryLocation);
+    const serpLocations = await loadSerpLocations();
+    serpSpec = resolveSerpTaskLocation(primary.city, primary.state, { locations: serpLocations });
+    if (!serpSpec) {
+      throw new Error(`No SERP location for "${primary.city}, ${primary.state}".`);
+    }
+    if (serpSpec.fallback) {
+      console.error(`SERP location fallback (${serpSpec.fallback}): ${serpSpec.label}`);
+    }
+    console.error(`SERP: "${query}" @ ${serpSpec.label}`);
+    serpRaw = await fetchSerp(query, serpSpec);
     totalCost += serpRaw.cost;
     serp = classifySerpItems(serpRaw.items);
   }
@@ -400,15 +423,30 @@ async function main() {
   let keywords = [];
   const volumesByCity = [];
   const unsupportedCities = [];
+  let primaryAds = null;
+  let resolvedPrimary = null;
 
   if (!args.skipVolumes) {
     const adsMode = normalizeAdsMode(args.adsMode);
     console.error(`Ads volume mode: ${adsMode}`);
     const adsLocations = await loadAdsLocations();
-    const resolvedPrimary = resolveAdsLocation(adsLocations, primary.city, primary.state);
-    if (!resolvedPrimary) {
-      throw new Error(
-        `Google Ads has no geo target for "${primary.city}, ${primary.state}". Use a larger city or county for --primary.`,
+    primaryAds = resolveAdsLocationWithFallback(
+      adsLocations,
+      primary.city,
+      primary.state,
+      { neighbors: tryAdjacentPlaces(primary.city, primary.state) },
+    );
+    if (!primaryAds) {
+      console.error(
+        `Skipping volumes for ${primary.city}, ${primary.state}: no Google Ads geo (and no Ads-listed neighbor). SERP kept.`,
+      );
+      unsupportedCities.push(`${primary.city}, ${primary.state}`);
+    } else {
+    resolvedPrimary = primaryAds.location;
+    if (primaryAds.fallback) {
+      console.error(
+        `Ads geo fallback (${primaryAds.fallback}): ${resolvedPrimary.locationName} for ${primaryAds.requested}` +
+          (primaryAds.fallbackFrom ? ` via ${primaryAds.fallbackFrom}` : ''),
       );
     }
 
@@ -440,7 +478,11 @@ async function main() {
     const selected = deduped.slice(0, args.related);
 
     for (const place of allCities) {
-      const resolved = resolveAdsLocation(adsLocations, place.city, place.state);
+      let resolved = resolveAdsLocation(adsLocations, place.city, place.state);
+      const isPrimaryPlace = place.city === primary.city && place.state === primary.state;
+      if (!resolved && isPrimaryPlace) {
+        resolved = resolvedPrimary;
+      }
       if (!resolved) {
         console.error(
           `Skipping ${place.city}, ${place.state}: no Google Ads geo target (too small for Ads targeting).`,
@@ -448,6 +490,11 @@ async function main() {
         unsupportedCities.push(`${place.city}, ${place.state}`);
         continue;
       }
+
+      const viaNeighbor = isPrimaryPlace && primaryAds.fallback === 'neighbor';
+      const measuredAs = viaNeighbor
+        ? `${place.city}, ${place.state} (Ads: ${primaryAds.fallbackFrom})`
+        : `${place.city}, ${place.state}`;
 
       console.error(`Volumes @ ${resolved.locationName} (${selected.length} keywords)`);
       try {
@@ -463,6 +510,8 @@ async function main() {
           population: lookupPopulation(place.city, place.state),
           locationName: resolved.locationName,
           locationCode: resolved.locationCode,
+          measuredAs,
+          adsFallback: viaNeighbor ? 'neighbor' : null,
           keywords: vol.byKeyword,
         });
       } catch (error) {
@@ -478,7 +527,7 @@ async function main() {
       for (const cityBlock of volumesByCity) {
         const row = cityBlock.keywords[idea.keyword.toLowerCase()];
         const volume = row?.searchVolume ?? 0;
-        perCity[`${cityBlock.city}, ${cityBlock.state}`] = volume;
+        perCity[cityBlock.measuredAs || `${cityBlock.city}, ${cityBlock.state}`] = volume;
         clusterSum += volume;
         if (cityBlock.city === primary.city && cityBlock.state === primary.state) {
           primaryVolume = volume;
@@ -493,18 +542,24 @@ async function main() {
         cpc: idea.cpc,
       };
     });
+    }
   }
 
-  const clusterVolumeSum = keywords.reduce((sum, k) => sum + (k.clusterSum ?? 0), 0);
-  const primaryVolumeSum = keywords.reduce((sum, k) => sum + (k.primaryVolume ?? 0), 0);
+  const volumesSkipped = Boolean(!args.skipVolumes && !primaryAds);
+  const clusterVolumeSum = volumesSkipped
+    ? null
+    : keywords.reduce((sum, k) => sum + (k.clusterSum ?? 0), 0);
+  const primaryVolumeSum = volumesSkipped
+    ? null
+    : keywords.reduce((sum, k) => sum + (k.primaryVolume ?? 0), 0);
   const demandVolumes = computeDemandVolumeSum({
-    primaryVolumeSum,
-    clusterVolumeSum,
+    primaryVolumeSum: volumesSkipped ? null : primaryVolumeSum,
+    clusterVolumeSum: volumesSkipped ? null : clusterVolumeSum,
   });
 
   const scoring = buildResearchScoring({
-    clusterVolumeSum,
-    primaryVolumeSum,
+    clusterVolumeSum: clusterVolumeSum ?? 0,
+    primaryVolumeSum: volumesSkipped ? 0 : primaryVolumeSum,
     suburbOverlapFactor: demandVolumes.suburbOverlapFactor,
     mapPackPresent: serp.mapPackPresent,
     classifiedSerp: serp,
@@ -513,6 +568,10 @@ async function main() {
   });
   if (serp.features?.localServicesAds && scoring.scoreInputs) {
     scoring.scoreInputs.notes = `${scoring.scoreInputs.notes || ''} Local Services Ads present on SERP — organic/phone leads may sit below LSAs.`.trim();
+  }
+  if (volumesSkipped && scoring.scoreInputs) {
+    scoring.scoreInputs.notes =
+      `Ads volumes skipped — ${primary.city}, ${primary.state} has no Google Ads geo (no Ads-listed neighbor). Demand not measured. ${scoring.scoreInputs.notes || ''}`.trim();
   }
   const avgCpc = averageKeywordCpc(keywords);
 
@@ -526,6 +585,8 @@ async function main() {
     googleSearchQuery: query,
     googleSearchLink: googleSearchLink(query),
     dataForSeoCheckUrl: serpRaw.checkUrl,
+    serpLocation: serpSpec?.label || priorResearch?.serpLocation || requestedPrimaryLocation,
+    serpLocationFallback: serpSpec?.fallback ?? priorResearch?.serpLocationFallback ?? null,
     serp: classifiedToResearchSerp(serp, {
       itemTypes: serpRaw.itemTypes,
       reusedFrom: serpReused
@@ -538,15 +599,28 @@ async function main() {
     volumes: {
       mode: 'per_city_sum',
       adsMode: normalizeAdsMode(args.adsMode),
-      primaryLocation,
+      volumesSkipped,
+      primaryLocation: resolvedPrimary?.locationName || requestedPrimaryLocation,
+      requestedPrimaryLocation,
+      adsLocationFallback: primaryAds?.fallback
+        ? {
+            kind: primaryAds.fallback,
+            from: primaryAds.fallbackFrom,
+            requested: primaryAds.requested,
+            locationName: resolvedPrimary.locationName,
+            locationCode: resolvedPrimary.locationCode,
+          }
+        : null,
       primaryVolumeSum,
       clusterVolumeSum,
-      demandVolumeSum: demandVolumes.demandVolumeSum,
+      demandVolumeSum: volumesSkipped ? null : demandVolumes.demandVolumeSum,
       suburbOverlapFactor: demandVolumes.suburbOverlapFactor,
       averageCpc: avgCpc,
       relatedIdeasFromPrimary: related.ideas,
       keywords,
-      citiesMeasured: volumesByCity.map((block) => `${block.city}, ${block.state}`),
+      citiesMeasured: volumesByCity.map(
+        (block) => block.measuredAs || `${block.city}, ${block.state}`,
+      ),
       citiesWithoutAdsGeoTarget: unsupportedCities,
       byCity: volumesByCity.map((block) => ({
         city: block.city,
@@ -554,6 +628,8 @@ async function main() {
         population: block.population ?? null,
         locationName: block.locationName,
         locationCode: block.locationCode,
+        measuredAs: block.measuredAs || `${block.city}, ${block.state}`,
+        adsFallback: block.adsFallback || null,
         keywordVolumes: Object.fromEntries(
           Object.entries(block.keywords).map(([k, v]) => [k, v.searchVolume]),
         ),
@@ -616,12 +692,14 @@ async function main() {
     mkdirSync(path.dirname(resolvedOut), { recursive: true });
     writeFileSync(resolvedOut, json, 'utf8');
     console.error(`Wrote ${resolvedOut}`);
+  } else {
+    process.stdout.write(json);
   }
-  process.stdout.write(json);
   console.error(`Estimated DataForSEO cost this run: $${totalCost.toFixed(4)}`);
+  await exitAfterNetwork(0);
 }
 
-main().catch((error) => {
+main().catch(async (error) => {
   console.error(error.message || error);
-  process.exit(1);
+  await exitAfterNetwork(1);
 });

@@ -2,6 +2,31 @@
 
 ## Unreleased
 
+## Version 2.3 (`2.3.0`)
+
+Shotgun Discovery zones, honest Ads/SERP geos, launched inventory, ranking voicemail, and operator recoveries:
+
+- **Shotgun Discovery:** Cluster pack type plans a niche × metro Zone (hub + cities inside the outer radius) on a map. Paint Clusters 1–10, lock a hub, generate/assign packs. Claude hub-find and wave-assign prompts (API + paste). Regression: `scripts/test-shotgun.mjs`.
+- **Permanent delete:** Unlaunched Website Candidates can be deleted (Rover files + local assembled folder). Launched Candidates still 409. Regression: `scripts/test-candidate-delete-protection.mjs`.
+- **Honest Ads volumes:** Stage 1 never uses statewide Ads geo (Circle City is not Arizona). Unlisted primaries use an Ads-listed neighbor, or skip volumes (SERP stays). Keywords / Search vol show the neighbor geo or “not measured”. Regression: `scripts/test-dataforseo-locations.mjs`.
+- **Stage 1 SERP locations + Ads Live RPM:** Unlisted CDPs no longer fail organic SERP with 40501 — geo is resolved against DataForSEO’s SERP list, then a census pin, then the state. Live Ads retry 40202 (~65s) and share a 10/min slot across research children.
+- **Discovery pack regions:** Generate pack can target multiple states in one filter/brief. Regression: `scripts/test-discovery-pack-regions.mjs`.
+- **Launched groups:** Stage 4 has its own named groups (create, filter, add/remove, manage). They never appear on Research/Website. Only launched candidates can be members. Regression: `scripts/test-launched-groups.mjs`.
+- **Launched inventory + GSC report:** Table shows **Pages**, **Words** (local markdown), and **Indexed** (GSC sitemap submitted vs indexed). Sync GSC also stores top queries/pages (28d). Coverage reasons stay UI-only. Regression: `scripts/test-site-inventory.mjs`, `scripts/test-gsc-sync.mjs`.
+- **Rename niche:** Double-click the Niche cell to change the root name (config, meta, discovery seed). After SERP / Volume, two confirms warn about ripple effects, then you can still rename. The cell stays editable after those confirms (confirm click no longer dismisses the editor). Scores, photos, and live copy are not rewritten. Candidate id does not change. Regression: `scripts/test-rename-candidate-niche.mjs`.
+- **Repair / Install identity:** Site-config Accept and Structure load coerce niche to the brand/domain verb (Repair Pros + Drywall Installation → Drywall Repair). Content lint blocks the opposite verb on homepage title/H1/tagline. Commercial lists stay — Residential / Both / Commercial is still an operator choice.
+- **Review location:** Seed + sanitize no longer append state twice (`Boise, ID, ID`).
+- **Service cards:** Write/outline rules and a soft lint when every card repeats `in {city}, {ST}`.
+- **Web3 on Assemble/Ship:** Accepted `web3FormsAccessKey` is copied onto assembled `site-config.json` so live pages do not keep the placeholder.
+- **Exact-match domains:** Site-Config Suggest domains builds city-first names locally (no Claude). Regression: `scripts/test-domain-suggest.mjs`.
+- **Reset launch for new domain:** Tear down GitHub/Cloudflare/Rover launch bookkeeping so Run launch can go-live again. Keeps content, photos, logo, and map. Regression: `scripts/test-reset-launch-for-domain.mjs`.
+- **Ranking voicemail:** Phone uploads a global greeting and spoken fallback to Twilio Assets. Ranking DIDs play voicemail + SMS `TWILIO_FORWARD_TO`; `/voicemail-done` records the message. Rent still forwards the same DID to the renter.
+- **Website accordion:** Only one Website step is open at a time. Regression: `scripts/test-website-step-accordion.mjs`.
+- **Two-tone titles:** Homepage H1 splits a high-confidence geo/keyword accent. Regression: `scripts/test-two-tone.mjs`.
+- **Launch celebrate:** First successful launch plays confetti (and optional local fanfare). Honors reduced motion; third-party audio stays on this machine (`ops/sounds/`).
+- **Windows eval crash:** Research children retry once on libuv `UV_HANDLE_CLOSING`. Regression: `scripts/test-eval-windows-exit.mjs`.
+- **Regression:** `scripts/test-seo-grade-forever.mjs`, `scripts/test-openai-jobs-progress.mjs`, `scripts/test-write-site-overlay-track.mjs`, `scripts/test-review-slot-service-subtitle.mjs`, `scripts/test-address-shortlist-newest.mjs`.
+
 ## Version 2.2 (`2.2.0`)
 
 Concurrency defaults, a Website write lock, Launch that does not freeze other tabs, and a recoverable GSC sync:

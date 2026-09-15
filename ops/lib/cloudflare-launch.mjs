@@ -570,3 +570,77 @@ export async function runCloudflareLaunch(opts) {
     emailRoutingDone: Boolean(steps.leadsRule?.rule && !steps.leadsRule?.error),
   };
 }
+
+/**
+ * Detach Worker custom domains for old hostnames, then delete the Worker script.
+ * Best-effort — token/scope failures are returned, not thrown.
+ */
+export async function teardownWorkerForRelaunch(
+  { workerName, hostnames = [] } = {},
+  { fetchFn } = {},
+) {
+  const worker = String(workerName || '').trim();
+  const hosts = [...new Set((hostnames || []).map((h) => hostnameForWorker(h, { allowWww: true })).filter(Boolean))];
+  const wwwHosts = hosts.flatMap((h) => {
+    const apex = hostnameForWorker(h, { allowWww: false });
+    return apex ? [apex, `www.${apex}`] : [];
+  });
+  const want = new Set(wwwHosts.map((h) => h.toLowerCase()));
+  const human = [];
+  const fetchApi = typeof fetchFn === 'function' ? fetchFn : cfFetch;
+
+  if (!worker && !want.size) {
+    return { ok: true, skipped: true, reason: 'nothing_to_teardown', human };
+  }
+
+  let accountId;
+  try {
+    ({ accountId } = getCloudflareCredentials());
+  } catch (error) {
+    return { ok: false, skipped: true, reason: 'not_configured', error: error.message, human };
+  }
+
+  const detached = [];
+  try {
+    const list = await fetchApi('GET', `/accounts/${accountId}/workers/domains`);
+    const rows = Array.isArray(list) ? list : [];
+    for (const row of rows) {
+      const hostname = String(row?.hostname || '').toLowerCase();
+      const service = String(row?.service || row?.script || '').trim();
+      const id = row?.id || row?.domain_id;
+      const matchHost = want.has(hostname);
+      const matchWorker = worker && service && service === worker;
+      if (!id || (!matchHost && !matchWorker)) continue;
+      if (worker && service && service !== worker && !matchHost) continue;
+      try {
+        await fetchApi('DELETE', `/accounts/${accountId}/workers/domains/${encodeURIComponent(id)}`);
+        detached.push(hostname || id);
+        human.push(`Detached Worker custom domain ${hostname || id}.`);
+      } catch (error) {
+        human.push(`Detach ${hostname || id} failed: ${error.message}`);
+      }
+    }
+  } catch (error) {
+    human.push(`List Worker domains failed: ${error.message}`);
+  }
+
+  let workerDeleted = false;
+  if (worker) {
+    try {
+      await fetchApi('DELETE', `/accounts/${accountId}/workers/scripts/${encodeURIComponent(worker)}`);
+      workerDeleted = true;
+      human.push(`Deleted Worker "${worker}".`);
+    } catch (error) {
+      const msg = String(error.message || error);
+      if (/not found|404/i.test(msg)) {
+        human.push(`Worker "${worker}" already gone.`);
+        workerDeleted = true;
+      } else {
+        human.push(`Delete Worker "${worker}" failed: ${msg}`);
+        return { ok: false, workerDeleted, detached, workerName: worker, error: msg, human };
+      }
+    }
+  }
+
+  return { ok: true, workerDeleted, detached, workerName: worker || null, human };
+}

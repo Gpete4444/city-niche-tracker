@@ -29,20 +29,24 @@ const {
 
 let lead = text;
 let accent: string | null = null;
+let rest = '';
 
 if (mode !== 'plain') {
   if (emphasis && text.includes(emphasis)) {
     const idx = text.indexOf(emphasis);
     lead = text.slice(0, idx).trimEnd();
     accent = emphasis.trim();
+    rest = text.slice(idx + emphasis.length);
   } else if (prefer?.length) {
     const parts = preferAccentPhrase(text, prefer);
     lead = parts.lead;
     accent = parts.accent;
+    rest = parts.rest || '';
   } else {
     const parts = splitTwoToneHeading(text);
     lead = parts.lead;
     accent = parts.accent;
+    rest = parts.rest || '';
   }
 }
 
@@ -67,4 +71,5 @@ const accentClass = 'font-semibold italic text-accent';
       </>
     )
   }
+  {rest}
 </Tag>

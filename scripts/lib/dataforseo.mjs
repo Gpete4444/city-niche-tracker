@@ -1,6 +1,10 @@
 import { readFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { featureCentroid, findPlaceFeatureLocal } from '../../ops/lib/geo-neighbors.mjs';
+import { requestJson } from './http-json.mjs';
 
+export const DATAFORSEO_API_ACCESS_URL = 'https://app.dataforseo.com/api-access';
+export const DATAFORSEO_PAYMENT_ERROR = 'DataForSEO payment required';
 const API_BASE = 'https://api.dataforseo.com/v3';
 
 export const US_STATE_NAMES = {
@@ -63,11 +67,49 @@ export function requireCredentials() {
   return { login, password };
 }
 
-/** SERP endpoints accept plain location names; Google Ads endpoints do not. */
+/** Assembled "City,State,United States" string. Valid only if it exists on the Ads/SERP list. */
 export function adsLocationName(city, stateCode) {
   const state = US_STATE_NAMES[stateCode.toUpperCase()];
   if (!state) throw new Error(`Unknown state code: ${stateCode}`);
   return `${city},${state},United States`;
+}
+
+export function stateLocationName(stateCode) {
+  const state = US_STATE_NAMES[String(stateCode || '').toUpperCase()];
+  return state ? `${state},United States` : null;
+}
+
+/** DataForSEO location_coordinate radius (mm). Min 199, max 199999. */
+export const SERP_COORDINATE_RADIUS_MM = 200;
+
+export const RATE_LIMIT_DFS_CODE = 40202;
+export const TRANSIENT_DFS_CODES = [40101, 40103, 50000, 50401, 50402];
+
+const RETRYABLE_DFS_CODES = new Set([...TRANSIENT_DFS_CODES, RATE_LIMIT_DFS_CODE]);
+
+export function isRetryableDataForSeoCode(code) {
+  return RETRYABLE_DFS_CODES.has(Number(code));
+}
+
+/** 40202 waits ~65–80s; other transients stay 1.5s * attempt. */
+export function dataForSeoRetryWaitMs(code, attempt, random = Math.random) {
+  if (Number(code) === RATE_LIMIT_DFS_CODE) {
+    return 65_000 + Math.round(Number(random()) * 15_000);
+  }
+  return 1500 * Math.max(1, Number(attempt) || 1);
+}
+
+let requestJsonImpl = requestJson;
+let sleepImpl = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+export function setDataForSeoTransportForTests({ requestJson: req, sleep } = {}) {
+  if (req) requestJsonImpl = req;
+  if (sleep) sleepImpl = sleep;
+}
+
+export function resetDataForSeoTransportForTests() {
+  requestJsonImpl = requestJson;
+  sleepImpl = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 export function registrableDomain(urlOrHost) {
@@ -100,11 +142,10 @@ export async function dataForSeoRequest(pathname, body, { retries = 3, label = p
   const { login, password } = requireCredentials();
   const auth = Buffer.from(`${login}:${password}`).toString('base64');
   const payload = JSON.stringify(Array.isArray(body) ? body : [body]);
-  const transient = new Set([40101, 40103, 50000, 50401, 50402]);
 
   let lastError;
   for (let attempt = 1; attempt <= retries; attempt += 1) {
-    const response = await fetch(`${API_BASE}${pathname}`, {
+    const response = await requestJsonImpl(`${API_BASE}${pathname}`, {
       method: 'POST',
       headers: {
         Authorization: `Basic ${auth}`,
@@ -113,14 +154,18 @@ export async function dataForSeoRequest(pathname, body, { retries = 3, label = p
       body: payload,
     });
 
-    const json = await response.json();
+    const json = response.json;
     const task = json.tasks?.[0];
     const taskCode = task?.status_code;
     // 40200 = Payment Required / product not funded — do not retry
     if (json.status_code === 40200 || taskCode === 40200 || response.status === 402) {
-      throw new Error(
-        `${label} payment required (402): enable/fund this DataForSEO API product in your account. ${json.status_message || task?.status_message || ''}`,
+      const detail = json.status_message || task?.status_message || '';
+      console.error(
+        `${label}: DataForSEO payment required (402/40200). ${detail}`.trim(),
       );
+      const err = new Error(DATAFORSEO_PAYMENT_ERROR);
+      err.code = 'DATAFORSEO_PAYMENT_REQUIRED';
+      throw err;
     }
 
     if (!response.ok) {
@@ -130,22 +175,27 @@ export async function dataForSeoRequest(pathname, body, { retries = 3, label = p
     } else if (json.status_code !== 20000) {
       lastError = new Error(`DataForSEO error ${json.status_code}: ${json.status_message}`);
     } else {
-      if (task && taskCode !== 20000 && transient.has(taskCode) && attempt < retries) {
-        const waitMs = 1500 * attempt;
+      if (
+        task &&
+        taskCode !== 20000 &&
+        isRetryableDataForSeoCode(taskCode) &&
+        attempt < retries
+      ) {
+        const waitMs = dataForSeoRetryWaitMs(taskCode, attempt);
         console.error(
           `${label}: transient ${taskCode} (${task.status_message}). Retry ${attempt}/${retries} in ${waitMs}ms…`,
         );
-        await new Promise((resolve) => setTimeout(resolve, waitMs));
+        await sleepImpl(waitMs);
         continue;
       }
       return json;
     }
 
-    const codeMatch = String(lastError.message).match(/\b(40101|40103|50000|50401|50402)\b/);
+    const codeMatch = String(lastError.message).match(/\b(40101|40103|40202|50000|50401|50402)\b/);
     if (codeMatch && attempt < retries) {
-      const waitMs = 1500 * attempt;
+      const waitMs = dataForSeoRetryWaitMs(Number(codeMatch[1]), attempt);
       console.error(`${label}: ${lastError.message}. Retry ${attempt}/${retries} in ${waitMs}ms…`);
-      await new Promise((resolve) => setTimeout(resolve, waitMs));
+      await sleepImpl(waitMs);
       continue;
     }
     throw lastError;
@@ -157,10 +207,10 @@ export async function dataForSeoRequest(pathname, body, { retries = 3, label = p
 export async function dataForSeoGet(pathname) {
   const { login, password } = requireCredentials();
   const auth = Buffer.from(`${login}:${password}`).toString('base64');
-  const response = await fetch(`${API_BASE}${pathname}`, {
+  const response = await requestJsonImpl(`${API_BASE}${pathname}`, {
     headers: { Authorization: `Basic ${auth}` },
   });
-  const json = await response.json();
+  const json = response.json;
   if (!response.ok || json.status_code !== 20000) {
     throw new Error(
       `DataForSEO GET ${pathname} failed: ${json.status_code ?? response.status} ${json.status_message ?? ''}`,
@@ -189,28 +239,8 @@ export async function fetchUserBalance() {
   };
 }
 
-/**
- * Google Ads only accepts its own geo-target list, so city names must be resolved
- * against it rather than assembled from "City,State,United States" strings.
- */
-export async function loadAdsLocations(root = process.cwd()) {
-  const cachePath = path.join(root, '.cache', 'google-ads-locations-us.json');
-  if (existsSync(cachePath)) {
-    try {
-      return JSON.parse(readFileSync(cachePath, 'utf8'));
-    } catch {
-      // fall through and refetch
-    }
-  }
-
-  let json;
-  try {
-    json = await dataForSeoGet('/keywords_data/google_ads/locations/us');
-  } catch {
-    json = await dataForSeoGet('/keywords_data/google_ads/locations');
-  }
-
-  const rows = (json.tasks?.[0]?.result ?? [])
+function mapLocationRows(json) {
+  return (json.tasks?.[0]?.result ?? [])
     .filter((row) => row?.location_name && row?.location_code)
     .map((row) => ({
       locationName: row.location_name,
@@ -218,30 +248,207 @@ export async function loadAdsLocations(root = process.cwd()) {
       locationType: row.location_type ?? null,
       countryIsoCode: row.country_iso_code ?? null,
     }));
+}
 
+async function loadCachedLocationList(cacheFile, fetchJson, root = process.cwd()) {
+  const cachePath = path.join(root, '.cache', cacheFile);
+  if (existsSync(cachePath)) {
+    try {
+      return JSON.parse(readFileSync(cachePath, 'utf8'));
+    } catch {
+      // fall through and refetch
+    }
+  }
+  const json = await fetchJson();
+  const rows = mapLocationRows(json);
   mkdirSync(path.dirname(cachePath), { recursive: true });
   writeFileSync(cachePath, JSON.stringify(rows), 'utf8');
   return rows;
 }
 
-export function resolveAdsLocation(locations, city, stateCode) {
-  const state = US_STATE_NAMES[stateCode.toUpperCase()];
-  if (!state) return null;
+/**
+ * Google Ads only accepts its own geo-target list, so city names must be resolved
+ * against it rather than assembled from "City,State,United States" strings.
+ */
+export async function loadAdsLocations(root = process.cwd()) {
+  return loadCachedLocationList(
+    'google-ads-locations-us.json',
+    async () => {
+      try {
+        return await dataForSeoGet('/keywords_data/google_ads/locations/us');
+      } catch {
+        return dataForSeoGet('/keywords_data/google_ads/locations');
+      }
+    },
+    root,
+  );
+}
+
+/** SERP Google locations (distinct from Ads geo targets). */
+export async function loadSerpLocations(root = process.cwd()) {
+  return loadCachedLocationList(
+    'google-serp-locations-us.json',
+    async () => {
+      try {
+        return await dataForSeoGet('/serp/google/locations/us');
+      } catch {
+        return dataForSeoGet('/serp/google/locations');
+      }
+    },
+    root,
+  );
+}
+
+export function resolveNamedLocation(locations, city, stateCode) {
+  const state = US_STATE_NAMES[String(stateCode || '').toUpperCase()];
+  if (!state || !city) return null;
+  const list = Array.isArray(locations) ? locations : [];
 
   const wanted = `${city},${state},United States`.toLowerCase();
-  const exact = locations.find((row) => row.locationName.toLowerCase() === wanted);
+  const exact = list.find((row) => String(row.locationName || '').toLowerCase() === wanted);
   if (exact) return exact;
 
-  const normalizedCity = city.toLowerCase().replace(/\./g, '').replace(/\s+/g, ' ').trim();
+  const normalizedCity = String(city)
+    .toLowerCase()
+    .replace(/\./g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
   const suffix = `,${state},United States`.toLowerCase();
   return (
-    locations.find((row) => {
-      const name = row.locationName.toLowerCase();
+    list.find((row) => {
+      const name = String(row.locationName || '').toLowerCase();
       if (!name.endsWith(suffix)) return false;
       const namedCity = name.slice(0, name.length - suffix.length);
       return namedCity.replace(/\./g, '').replace(/\s+/g, ' ').trim() === normalizedCity;
     }) ?? null
   );
+}
+
+export function resolveAdsLocation(locations, city, stateCode) {
+  return resolveNamedLocation(locations, city, stateCode);
+}
+
+export function resolveAdsStateLocation(locations, stateCode) {
+  const wanted = stateLocationName(stateCode);
+  if (!wanted) return null;
+  const needle = wanted.toLowerCase();
+  return (
+    (Array.isArray(locations) ? locations : []).find(
+      (row) => String(row.locationName || '').toLowerCase() === needle,
+    ) ?? null
+  );
+}
+
+/**
+ * Primary Ads geo: exact city, then largest neighbor on the Ads list.
+ * Never uses state-level Ads (statewide volume is not the town).
+ * @returns {{ location: object, fallback: null|'neighbor', fallbackFrom: string|null, requested: string } | null}
+ */
+export function resolveAdsLocationWithFallback(locations, city, stateCode, { neighbors = [] } = {}) {
+  const requested = `${city}, ${String(stateCode || '').toUpperCase()}`;
+  const exact = resolveAdsLocation(locations, city, stateCode);
+  if (exact) {
+    return { location: exact, fallback: null, fallbackFrom: null, requested };
+  }
+
+  const sorted = [...(neighbors || [])].sort(
+    (a, b) => (Number(b.population) || 0) - (Number(a.population) || 0),
+  );
+  for (const n of sorted) {
+    const name = n.name || n.city;
+    const st = n.state || stateCode;
+    const hit = resolveAdsLocation(locations, name, st);
+    if (hit) {
+      return {
+        location: hit,
+        fallback: 'neighbor',
+        fallbackFrom: `${name}, ${String(st).toUpperCase()}`,
+        requested,
+      };
+    }
+  }
+
+  return null;
+}
+
+export function formatSerpCoordinate(lat, lng, radiusMm = SERP_COORDINATE_RADIUS_MM) {
+  return `${lat},${lng},${radiusMm}`;
+}
+
+export function defaultLookupCentroid(city, stateCode) {
+  try {
+    const feat = findPlaceFeatureLocal(city, stateCode);
+    if (!feat) return null;
+    const pair = featureCentroid(feat);
+    if (!pair) return null;
+    const [lng, lat] = pair;
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+    return { lat: Number(lat.toFixed(6)), lng: Number(lng.toFixed(6)) };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * SERP task geo: listed name/code, else census centroid pin, else state.
+ * @returns {{
+ *   kind: 'named'|'coordinate'|'state',
+ *   fallback: null|'coordinate'|'state',
+ *   label: string,
+ *   location_name?: string,
+ *   location_code?: number,
+ *   location_coordinate?: string,
+ * } | null}
+ */
+export function resolveSerpTaskLocation(city, stateCode, {
+  locations = [],
+  lookupCentroid = defaultLookupCentroid,
+} = {}) {
+  const named = resolveNamedLocation(locations, city, stateCode);
+  if (named) {
+    return {
+      kind: 'named',
+      fallback: null,
+      label: named.locationName,
+      location_name: named.locationName,
+      location_code: named.locationCode,
+    };
+  }
+
+  const coord = lookupCentroid?.(city, stateCode) || null;
+  if (coord && Number.isFinite(coord.lat) && Number.isFinite(coord.lng)) {
+    const location_coordinate = formatSerpCoordinate(coord.lat, coord.lng);
+    return {
+      kind: 'coordinate',
+      fallback: 'coordinate',
+      label: location_coordinate,
+      location_coordinate,
+    };
+  }
+
+  const stateName = stateLocationName(stateCode);
+  if (stateName) {
+    return {
+      kind: 'state',
+      fallback: 'state',
+      label: stateName,
+      location_name: stateName,
+    };
+  }
+  return null;
+}
+
+/** One of location_name / location_code / location_coordinate for a SERP POST body. */
+export function serpLocationPayload(spec) {
+  if (spec == null) return {};
+  if (typeof spec === 'string') {
+    const trimmed = spec.trim();
+    return trimmed ? { location_name: trimmed } : {};
+  }
+  if (spec.location_coordinate) return { location_coordinate: spec.location_coordinate };
+  if (spec.location_name) return { location_name: spec.location_name };
+  if (spec.location_code != null) return { location_code: spec.location_code };
+  return {};
 }
 
 export function taskResult(json, label = 'task') {

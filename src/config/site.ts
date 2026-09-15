@@ -109,12 +109,22 @@ export function defaultSeedSocialProof(
   const locList: string[] = [];
   const seen = new Set<string>();
   const push = (c: string) => {
-    const name = String(c || '').trim();
+    let name = String(c || '').trim();
     if (!name) return;
-    const key = name.toLowerCase();
+    name = name.replace(/,\s*([A-Za-z]{2})\s*,\s*\1\s*$/i, (_, st) => `, ${String(st).toUpperCase()}`);
+    const st = String(state || '').trim();
+    const already = st
+      ? new RegExp(`,\\s*${st.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*$`, 'i')
+      : null;
+    const label = st
+      ? already && already.test(name)
+        ? name.replace(already, `, ${st}`)
+        : `${name}, ${st}`
+      : name;
+    const key = label.toLowerCase();
     if (seen.has(key)) return;
     seen.add(key);
-    locList.push(state ? `${name}, ${state}` : name);
+    locList.push(label);
   };
   push(primary);
   for (const s of suburbs) {

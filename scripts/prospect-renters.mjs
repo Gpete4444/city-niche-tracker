@@ -10,13 +10,16 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import {
-  adsLocationName,
   dataForSeoRequest,
   isDirectoryDomain,
   loadEnvFile,
+  loadSerpLocations,
   registrableDomain,
+  resolveSerpTaskLocation,
+  serpLocationPayload,
   taskResult,
 } from './lib/dataforseo.mjs';
+import { exitAfterNetwork } from './lib/script-exit.mjs';
 
 loadEnvFile();
 
@@ -138,12 +141,12 @@ function scoreProspect(p, context) {
   return { outreachScore: score, outreachPriority: priority, reasons };
 }
 
-async function fetchMapsSerp(keyword, locationName, depth = 20) {
+async function fetchMapsSerp(keyword, locationSpec, depth = 20) {
   const json = await dataForSeoRequest(
     '/serp/google/maps/live/advanced',
     {
       keyword,
-      location_name: locationName,
+      ...serpLocationPayload(locationSpec),
       language_code: 'en',
       device: 'desktop',
       depth,
@@ -190,9 +193,14 @@ async function main() {
       path.join(path.dirname(researchPath), 'prospects.json'),
   );
 
-  const locationName =
-    research.volumes?.primaryLocation ||
-    adsLocationName(research.primaryCity, research.state);
+  const serpLocations = await loadSerpLocations();
+  const locationSpec = resolveSerpTaskLocation(research.primaryCity, research.state, {
+    locations: serpLocations,
+  });
+  if (!locationSpec) {
+    throw new Error(`No SERP location for "${research.primaryCity}, ${research.state}".`);
+  }
+  const locationName = locationSpec.label;
   const queries = args.queries.length > 0 ? args.queries : defaultQueries(research);
   const nicheTokens = String(research.niche || '')
     .toLowerCase()
@@ -215,7 +223,7 @@ async function main() {
   for (const query of queries) {
     console.error(`Maps SERP: "${query}" @ ${locationName}`);
     try {
-      const maps = await fetchMapsSerp(query, locationName, Math.min(args.limit, 20));
+      const maps = await fetchMapsSerp(query, locationSpec, Math.min(args.limit, 20));
       totalCost += maps.cost;
       for (const item of maps.items) {
         if (item.type && item.type !== 'maps_search' && item.type !== 'local_pack') {
@@ -329,9 +337,10 @@ async function main() {
     `Prospects: ${report.prospectCount} (high ${report.summary.highPriority} / mid ${report.summary.mediumPriority} / low ${report.summary.lowPriority})`,
   );
   console.error(`Estimated DataForSEO cost: $${totalCost.toFixed(4)}`);
+  await exitAfterNetwork(0);
 }
 
-main().catch((error) => {
+main().catch(async (error) => {
   console.error(error.message || error);
-  process.exit(1);
+  await exitAfterNetwork(1);
 });

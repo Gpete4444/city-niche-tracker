@@ -3,6 +3,17 @@
  * Supports Live (fast) and Standard queue (cheaper, slower) modes.
  */
 
+import {
+  closeSync,
+  existsSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  statSync,
+  unlinkSync,
+  writeFileSync,
+} from 'node:fs';
+import path from 'node:path';
 import { dataForSeoGet, dataForSeoRequest, taskResult } from './dataforseo.mjs';
 
 /** Live search_volume / keywords_for_keywords estimate per task. */
@@ -12,6 +23,11 @@ export const ADS_SEARCH_VOLUME_STANDARD_USD = 0.055;
 
 /** @deprecated use ADS_SEARCH_VOLUME_LIVE_USD */
 export const ADS_SEARCH_VOLUME_ESTIMATE_USD = ADS_SEARCH_VOLUME_LIVE_USD;
+
+/** Stay under DataForSEO's 12 Live Google Ads requests/minute. */
+export const ADS_LIVE_RPM_MAX = 10;
+const ADS_LIVE_WINDOW_MS = 60_000;
+const ADS_LIVE_LOCK_STALE_MS = 8_000;
 
 const MAX_QUEUE_WAIT_MS = 2 * 60 * 60 * 1000; // 2h overnight batches
 const POLL_START_MS = 5000;
@@ -26,6 +42,96 @@ export function normalizeAdsMode(raw) {
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function acquireFileLock(lockPath, { sleepFn, nowFn, staleMs = ADS_LIVE_LOCK_STALE_MS }) {
+  mkdirSync(path.dirname(lockPath), { recursive: true });
+  for (;;) {
+    try {
+      return openSync(lockPath, 'wx');
+    } catch (err) {
+      if (err.code !== 'EEXIST') throw err;
+      try {
+        const st = statSync(lockPath);
+        if (nowFn() - st.mtimeMs > staleMs) unlinkSync(lockPath);
+      } catch {
+        // lock disappeared
+      }
+      await sleepFn(40 + Math.random() * 80);
+    }
+  }
+}
+
+/**
+ * Cross-process Live Ads slot (kfk + search_volume share 12 RPM).
+ * Holds ~10 timestamps in a 60s window so parallel research children do not stampede.
+ */
+export async function acquireAdsLiveSlot({
+  maxPerWindow = ADS_LIVE_RPM_MAX,
+  windowMs = ADS_LIVE_WINDOW_MS,
+  cacheDir = path.join(process.cwd(), '.cache'),
+  now = Date.now,
+  sleep: sleepFn = sleep,
+} = {}) {
+  const cachePath = path.join(cacheDir, 'dataforseo-ads-live-rpm.json');
+  const lockPath = path.join(cacheDir, 'dataforseo-ads-live-rpm.lock');
+  mkdirSync(cacheDir, { recursive: true });
+
+  for (;;) {
+    let fd = null;
+    let released = false;
+    const release = () => {
+      if (fd == null) return;
+      try {
+        closeSync(fd);
+      } catch {
+        /* ignore */
+      }
+      fd = null;
+      try {
+        unlinkSync(lockPath);
+      } catch {
+        /* ignore */
+      }
+      released = true;
+    };
+    try {
+      fd = await acquireFileLock(lockPath, { sleepFn, nowFn: now });
+      const nowMs = now();
+      let stamps = [];
+      if (existsSync(cachePath)) {
+        try {
+          const raw = JSON.parse(readFileSync(cachePath, 'utf8'));
+          stamps = Array.isArray(raw?.at) ? raw.at.map(Number).filter(Number.isFinite) : [];
+        } catch {
+          stamps = [];
+        }
+      }
+      stamps = stamps.filter((t) => nowMs - t < windowMs).sort((a, b) => a - b);
+      if (stamps.length >= maxPerWindow) {
+        const waitMs = Math.max(50, windowMs - (nowMs - stamps[0]) + 25);
+        release();
+        await sleepFn(waitMs);
+        continue;
+      }
+      stamps.push(nowMs);
+      writeFileSync(cachePath, JSON.stringify({ at: stamps }), 'utf8');
+      return { count: stamps.length, windowMs };
+    } finally {
+      if (!released) {
+        try {
+          if (fd != null) closeSync(fd);
+        } catch {
+          /* ignore */
+        }
+        try {
+          unlinkSync(lockPath);
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+  }
 }
 
 /**
@@ -89,7 +195,8 @@ async function fetchAdsEndpoint(basePath, body, { mode = 'live', label = basePat
   if (adsMode === 'standard') {
     return fetchAdsViaQueue(basePath, body, label);
   }
-  const json = await dataForSeoRequest(`${basePath}/live`, body, { label });
+  await acquireAdsLiveSlot();
+  const json = await dataForSeoRequest(`${basePath}/live`, body, { label, retries: 4 });
   const { result, cost } = taskResult(json, label);
   return { result: result ?? [], cost };
 }

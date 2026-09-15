@@ -52,7 +52,7 @@ Promotion: **pursue** moves a Research Candidate into Website’s working set.
 
 ## Phone tracking
 
-Once in **Website**, a ranking number is expected. Preferred path: **provision after Site-Config Accept** (business name + geo real), then Prepare / Launch. Rent cutover keeps the same Twilio DID and sets forward to `renter.phone`. Review answered/missed calls, recordings, and AI summaries on the **Phone** tab. See [PHONE-TRACKING.md](PHONE-TRACKING.md).
+Once in **Website**, a ranking number is expected. Preferred path: **provision after Site-Config Accept** (business name + geo real), then Prepare / Launch. Ranking calls take a voicemail (and text you). Rent cutover keeps the same Twilio DID and sets forward to `renter.phone`. Review voicemail/answered/missed calls, recordings, and AI summaries on the **Phone** tab. See [PHONE-TRACKING.md](PHONE-TRACKING.md).
 
 Do **not** buy Twilio numbers in Discovery or Research. CallRail is not used.
 

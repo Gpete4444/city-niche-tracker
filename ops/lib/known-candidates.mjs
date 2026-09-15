@@ -245,6 +245,27 @@ export function indexKnownForPrompt() {
       tracked: true,
     });
   }
+  try {
+    const claimedPath = path.join(RESEARCH_DIR, 'shotgun-claimed.json');
+    if (existsSync(claimedPath)) {
+      const claimed = JSON.parse(readFileSync(claimedPath, 'utf8'));
+      for (const g of claimed.geos || []) {
+        const key = candidateGeoKey(g);
+        if (!key || map.has(key)) continue;
+        map.set(key, {
+          id: '',
+          niche: g.niche,
+          city: g.city,
+          state: g.state,
+          decision: 'shotgun',
+          updatedAt: claimed.updatedAt || '',
+          tracked: true,
+        });
+      }
+    }
+  } catch {
+    /* optional shotgun claimed file */
+  }
   return map;
 }
 
@@ -384,7 +405,7 @@ export async function pruneKnownToActiveCandidates() {
 
 /**
  * Remove known entries by Niche×City×State. Candidate → permanent delete; tracked-only → untrack.
- * Refuses any key that maps to an undeletable (Website/Launched) candidate (no partial wipe).
+ * Refuses any key that maps to an undeletable (Launched) candidate (no partial wipe).
  */
 export async function removeKnownEntries(keys = []) {
   const list = Array.isArray(keys) ? keys : [];
@@ -417,7 +438,7 @@ export async function removeKnownEntries(keys = []) {
 
   if (blockedKeys.length) {
     const err = new Error(
-      `Cannot remove Website or Launched Candidate(s) from do-not-repropose: ${blockedKeys
+      `Cannot remove Launched Candidate(s) from do-not-repropose: ${blockedKeys
         .map((k) => k.candidateId)
         .join(', ')}`,
     );
@@ -458,17 +479,41 @@ function compactKnownCell(value) {
 }
 
 /**
+ * Coerce stateFilter (string or array) to unique 2-letter abbrs, or null for nationwide.
+ * @param {string|string[]|null|undefined} stateFilter
+ * @returns {string[]|null}
+ */
+export function knownStateFilterList(stateFilter) {
+  if (stateFilter == null || stateFilter === '') return null;
+  const list = Array.isArray(stateFilter) ? stateFilter : [stateFilter];
+  const out = [];
+  const seen = new Set();
+  for (const item of list) {
+    const st = String(item || '')
+      .trim()
+      .toUpperCase();
+    if (st.length !== 2 || seen.has(st)) continue;
+    seen.add(st);
+    out.push(st);
+  }
+  return out.length ? out : null;
+}
+
+/**
  * Markdown/CSV block for Discovery Claude prompt.
- * @param {{ stateFilter?: string|null, limit?: number, compact?: boolean }} opts
+ * @param {{ stateFilter?: string|string[]|null, limit?: number, compact?: boolean }} opts
  */
 export function formatKnownCandidatesForPrompt({
   stateFilter = null,
   limit = 500,
   compact = false,
 } = {}) {
-  const st = stateFilter ? String(stateFilter).trim().toUpperCase() : null;
+  const states = knownStateFilterList(stateFilter);
   let rows = [...indexKnownForPrompt().values()];
-  if (st) rows = rows.filter((r) => r.state === st);
+  if (states) {
+    const allow = new Set(states);
+    rows = rows.filter((r) => allow.has(r.state));
+  }
   rows.sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)));
   const total = rows.length;
   rows = rows.slice(0, Math.max(0, limit));
@@ -477,8 +522,13 @@ export function formatKnownCandidatesForPrompt({
     return '_No known candidates yet — you may propose any city×niche that fits the filters._';
   }
 
-  const header = st
-    ? `Known markets already in Rover (state ${st}; showing ${rows.length} of ${total}). Do **not** re-propose these Niche×City×State pairs — they are Candidates or previously tracked (pass/etc.).`
+  const stateLabel = states
+    ? states.length === 1
+      ? `state ${states[0]}`
+      : `states ${states.join(', ')}`
+    : null;
+  const header = stateLabel
+    ? `Known markets already in Rover (${stateLabel}; showing ${rows.length} of ${total}). Do **not** re-propose these Niche×City×State pairs — they are Candidates or previously tracked (pass/etc.).`
     : `Known markets already in Rover (showing ${rows.length} of ${total}). Do **not** re-propose these Niche×City×State pairs — they are Candidates or previously tracked (pass/etc.).`;
 
   if (compact) {

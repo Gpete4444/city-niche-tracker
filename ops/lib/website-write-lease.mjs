@@ -76,22 +76,32 @@ export function claimWebsiteWriteLease(candidateId, tabId, { takeover = false } 
 export function heartbeatWebsiteWriteLease(candidateId, tabId) {
   const id = normId(candidateId);
   const tab = normTab(tabId);
+  if (!id) {
+    throw Object.assign(new Error('candidateId required'), { status: 400 });
+  }
+  if (!tab) {
+    throw Object.assign(new Error('Tab id required'), { status: 400, code: 'WEBSITE_WRITE_TAB' });
+  }
   prune(id);
   const cur = leases.get(id);
-  if (!cur || cur.tabId !== tab) {
+  if (cur && cur.tabId !== tab) {
     throw Object.assign(new Error('Could not save — this business is open for editing in another tab.'), {
       status: 409,
       code: 'WEBSITE_WRITE_LOCKED',
-      holderTabId: cur?.tabId || null,
+      holderTabId: cur.tabId,
       candidateId: id,
     });
   }
-  cur.expiresAt = Date.now() + LEASE_MS;
+  const next = cur || { tabId: tab, heldAt: Date.now(), expiresAt: 0 };
+  next.tabId = tab;
+  next.expiresAt = Date.now() + LEASE_MS;
+  if (!cur) next.heldAt = Date.now();
+  leases.set(id, next);
   return {
     ok: true,
     mine: true,
     holderTabId: tab,
-    expiresAt: cur.expiresAt,
+    expiresAt: next.expiresAt,
     candidateId: id,
   };
 }
@@ -140,6 +150,12 @@ export function websiteWriteLockApplies({ selectedId, leaseCandidateId, mine } =
   const selected = String(selectedId || '').trim();
   const lease = String(leaseCandidateId || '').trim();
   return Boolean(selected && lease && selected === lease && mine === false);
+}
+
+export function expireWebsiteWriteLeaseForTests(candidateId) {
+  const id = normId(candidateId);
+  const cur = leases.get(id);
+  if (cur) cur.expiresAt = 0;
 }
 
 export function resetWebsiteWriteLeasesForTests() {

@@ -72,7 +72,7 @@ When a bug shows on one candidate:
 
 **API:** `/api/discovery/presets`, batches, places, `serp-probe`.
 
-**Connects:** Process creates Research candidates via [`createCandidate`](../ops/lib/candidates.mjs). Do-not-repropose uses known + tracked pairs (Website/Launched never wiped from Advanced).
+**Connects:** Process creates Research candidates via [`createCandidate`](../ops/lib/candidates.mjs). Do-not-repropose uses known + tracked pairs (Launched never wiped from Advanced). Unlaunched Website Candidates can be permanently deleted.
 
 **Do not:** Patch a single imported CSV as the product fix; change pack prompt or Process rules.
 
@@ -158,9 +158,9 @@ When a bug shows on one candidate:
 
 ## Phone {#phone}
 
-**What:** Twilio ranking DID, forward on rent, call log, recordings, summaries.
+**What:** Twilio ranking DID, ranking voicemail + SMS, greeting upload, forward on rent, call log, recordings, summaries.
 
-**Where:** [`ops/lib/phone-tracking-twilio.mjs`](../ops/lib/phone-tracking-twilio.mjs), [`ops/lib/phone-calls.mjs`](../ops/lib/phone-calls.mjs), [`ops/twilio-functions/`](../ops/twilio-functions/).
+**Where:** [`ops/lib/phone-tracking-twilio.mjs`](../ops/lib/phone-tracking-twilio.mjs), [`ops/lib/voicemail-greeting.mjs`](../ops/lib/voicemail-greeting.mjs), [`ops/lib/phone-calls.mjs`](../ops/lib/phone-calls.mjs), [`ops/twilio-functions/`](../ops/twilio-functions/).
 
 **API:** `/api/phone/*`, `POST .../phone/provision-twilio`, skip. Doc: [PHONE-TRACKING.md](PHONE-TRACKING.md).
 

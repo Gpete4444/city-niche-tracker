@@ -14,6 +14,7 @@ import {
 } from './candidates.mjs';
 import { normalizeStateAbbr } from './census.mjs';
 import { placesIntersectingRadius } from './geo-neighbors.mjs';
+import { shotgunNapTooClose } from './shotgun.mjs';
 import { recordRoverApiSpend } from './rover-api-spend.mjs';
 
 const ROOT = process.cwd();
@@ -1011,6 +1012,8 @@ export function selectBusinessAddress(candidateId, selection, { skipped = false 
       zip,
       source: selection.source || 'manual',
       screenedAt: selection.screenedAt || nowIso(),
+      lat: Number.isFinite(Number(selection.lat)) ? Number(selection.lat) : undefined,
+      lng: Number.isFinite(Number(selection.lng)) ? Number(selection.lng) : undefined,
       mapsUrl: mapsUrl(
         { street: streetBase, city: c, state: st, zip },
         { lat: selection.lat, lng: selection.lng },
@@ -1020,6 +1023,15 @@ export function selectBusinessAddress(candidateId, selection, { skipped = false 
         { lat: selection.lat, lng: selection.lng },
       ),
     };
+    const tooClose = shotgunNapTooClose(candidateId, sel.lat, sel.lng);
+    if (tooClose) {
+      throw Object.assign(
+        new Error(
+          `Address is ${tooClose.miles} mi from cluster sibling ${tooClose.city}, ${tooClose.state} (min ${tooClose.minMiles} mi). Pick another street.`,
+        ),
+        { status: 400, code: 'SHOTGUN_NAP_TOO_CLOSE' },
+      );
+    }
   }
 
   let cityCache = null;
@@ -2696,6 +2708,9 @@ export function mergeAccumulatedShortlist(prior, fresh, { foundAt, cap = SHORTLI
     const ta = a.tier === 'secondary' ? 1 : 0;
     const tb = b.tier === 'secondary' ? 1 : 0;
     if (ta !== tb) return ta - tb;
+    const fa = Date.parse(a.foundAt) || 0;
+    const fb = Date.parse(b.foundAt) || 0;
+    if (fb !== fa) return fb - fa;
     const sa = Number(a.score);
     const sb = Number(b.score);
     if (Number.isFinite(sa) && Number.isFinite(sb) && sb !== sa) return sb - sa;

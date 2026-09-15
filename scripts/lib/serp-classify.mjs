@@ -8,6 +8,7 @@ import {
   isDirectoryDomain,
   isHomepageUrl,
   registrableDomain,
+  serpLocationPayload,
   taskResult,
 } from './dataforseo.mjs';
 
@@ -106,10 +107,24 @@ export function classifySerpItems(items = []) {
 }
 
 /**
+ * POST body for Google organic SERP. `locationSpec` is a name string or
+ * `{ location_name } | { location_code } | { location_coordinate }`.
+ */
+export function organicSerpTaskBody(keyword, locationSpec, extra = {}) {
+  return {
+    keyword,
+    ...serpLocationPayload(locationSpec),
+    language_code: 'en',
+    device: extra.device || 'desktop',
+    depth: extra.depth ?? 10,
+  };
+}
+
+/**
  * Live Google organic SERP (depth 10). ~$0.002 typical live cost.
  * @returns {Promise<{ cost: number, checkUrl: string|null, itemTypes: any[], items: any[], endpoint: string }>}
  */
-export async function fetchOrganicSerp(keyword, locationName) {
+export async function fetchOrganicSerp(keyword, locationSpec) {
   const tryEndpoints = [
     '/serp/google/organic/live/advanced',
     '/serp/google/organic/live/regular',
@@ -120,13 +135,7 @@ export async function fetchOrganicSerp(keyword, locationName) {
     try {
       const json = await dataForSeoRequest(
         endpoint,
-        {
-          keyword,
-          location_name: locationName,
-          language_code: 'en',
-          device: 'desktop',
-          depth: 10,
-        },
+        organicSerpTaskBody(keyword, locationSpec),
         { retries: 4, label: endpoint },
       );
       const { result, cost } = taskResult(json, 'serp');

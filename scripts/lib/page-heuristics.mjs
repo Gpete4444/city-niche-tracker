@@ -3,6 +3,8 @@
  * Not a guarantee of ranking outcomes — displaceability signal only.
  */
 
+import { requestText } from './http-json.mjs';
+
 const LOCATION_PATH_HINTS = [
   /\/locations?\//i,
   /\/service-areas?\//i,
@@ -126,12 +128,9 @@ export async function fetchPageSignals(url, { niche = '', timeoutMs = 12000, ret
     if (attempt > 0) {
       await new Promise((r) => setTimeout(r, 400 * attempt));
     }
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
-      const response = await fetch(url, {
-        signal: controller.signal,
-        redirect: 'follow',
+      const response = await requestText(url, {
+        timeoutMs,
         headers: {
           'User-Agent': 'RankAndRentResearchBot/1.0 (+local research; contact via project owner)',
           Accept: 'text/html,application/xhtml+xml',
@@ -139,10 +138,9 @@ export async function fetchPageSignals(url, { niche = '', timeoutMs = 12000, ret
       });
       if (!response.ok) {
         lastError = `HTTP ${response.status}`;
-        clearTimeout(timer);
         continue;
       }
-      const html = await response.text();
+      const html = response.text;
       const title = firstMatch(html, /<title[^>]*>([\s\S]*?)<\/title>/i);
       const h1 = firstMatch(html, /<h1[^>]*>([\s\S]*?)<\/h1>/i);
       const bodyText = stripTags(html);
@@ -168,7 +166,6 @@ export async function fetchPageSignals(url, { niche = '', timeoutMs = 12000, ret
         MULTI_CITY_HINTS.some((re) => re.test(bodyText)) ||
         (hrefs.filter((h) => /location|service-area|cities/i.test(h)).length >= 8);
 
-      clearTimeout(timer);
       return {
         ...base,
         fetched: true,
@@ -183,9 +180,10 @@ export async function fetchPageSignals(url, { niche = '', timeoutMs = 12000, ret
         looksMultiLocation,
       };
     } catch (error) {
-      lastError = error.name === 'AbortError' ? 'timeout' : String(error.message || error);
-    } finally {
-      clearTimeout(timer);
+      lastError =
+        error.name === 'TimeoutError' || /timeout/i.test(String(error.message || ''))
+          ? 'timeout'
+          : String(error.message || error);
     }
   }
 

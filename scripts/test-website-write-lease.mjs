@@ -1,6 +1,7 @@
 import {
   assertWebsiteWriteAllowed,
   claimWebsiteWriteLease,
+  expireWebsiteWriteLeaseForTests,
   heartbeatWebsiteWriteLease,
   peekWebsiteWriteLease,
   releaseWebsiteWriteLease,
@@ -72,6 +73,27 @@ assertEqual(
   true,
   'same-row lock applies',
 );
+
+resetWebsiteWriteLeasesForTests();
+claimWebsiteWriteLease('dan', 'tab-1');
+expireWebsiteWriteLeaseForTests('dan');
+assertEqual(peekWebsiteWriteLease('dan'), null, 'expired lease pruned');
+const revived = heartbeatWebsiteWriteLease('dan', 'tab-1');
+assertEqual(revived.ok, true, 'expired heartbeat re-claims');
+assertEqual(revived.mine, true, 'expired heartbeat mine');
+assertEqual(peekWebsiteWriteLease('dan')?.holderTabId, 'tab-1', 'same tab after expiry');
+
+heartbeatWebsiteWriteLease('dan', 'tab-1');
+assertThrows(
+  () => heartbeatWebsiteWriteLease('dan', 'tab-2'),
+  'WEBSITE_WRITE_LOCKED',
+  'other-tab heartbeat still locked while live',
+);
+
+expireWebsiteWriteLeaseForTests('dan');
+const otherAfterExpiry = heartbeatWebsiteWriteLease('dan', 'tab-2');
+assertEqual(otherAfterExpiry.ok, true, 'expired lease is free for another tab');
+assertEqual(peekWebsiteWriteLease('dan')?.holderTabId, 'tab-2', 'tab-2 re-claimed after expiry');
 
 resetWebsiteWriteLeasesForTests();
 console.log('test-website-write-lease: ok');

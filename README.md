@@ -1,6 +1,6 @@
 # Rover
 
-**Version 2.2** (`2.2.0`)
+**Version 2.3** (`2.3.0`)
 
 Clone-per-site Astro template and local Rover dashboard for local lead-gen websites. Swap `site-config.json` + Markdown content, ship a new repo, attach Cloudflare Workers.
 
@@ -188,7 +188,7 @@ Or with flags — use `|` between cluster cities, never `;`:
 npm run research-candidate -- --niche "Trenchless Sewer Pipe Lining" --primary "Louisville,KY" --cluster "Jeffersontown,KY|St. Matthews,KY|Shively,KY" --related 10 --out research/louisville-trenchless.json
 ```
 
-Cluster cities are matched against Google Ads geo targets before volumes are requested. Small suburbs (e.g. St. Matthews, KY) have no geo target, so they are skipped and listed under `volumes.citiesWithoutAdsGeoTarget` instead of failing the run — their demand is already folded into the nearest targetable city.
+Cluster cities are matched against Google Ads geo targets before volumes are requested. Small suburbs (e.g. St. Matthews, KY) have no geo target, so they are skipped and listed under `volumes.citiesWithoutAdsGeoTarget` instead of failing the run. The **primary** city uses an Ads-listed neighbor if needed; it never uses statewide Ads volume. If neither the city nor a neighbor is in Ads, volumes are skipped (SERP still writes) so demand is not inflated.
 
 Each research JSON includes a `scoring` block from [`scripts/lib/scoring-rubric.json`](scripts/lib/scoring-rubric.json): demand band, SERP softness, specialty/high-ticket decision rules, and score inputs. Human-readable guide: [`prompts/scoring-rubric.md`](prompts/scoring-rubric.md). `jobValue` / `proposedScore` stay null until Claude fills average job cost.
 

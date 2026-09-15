@@ -98,18 +98,33 @@ function nicheKeywords(niche = '', services = []) {
  * @param {{ primaryCity?: string, state?: string, targetSuburbs?: any[], coverageAreas?: any[] }} config
  * @returns {string[]} up to 3 "City, ST" labels
  */
+/**
+ * "City, ST" without doubling when the name already ends with the state
+ * (e.g. suburb "Boise, ID" + state ID → "Boise, ID", not "Boise, ID, ID").
+ */
+export function formatCityStateLabel(cityRaw, state) {
+  let city = String(cityRaw || '').trim();
+  if (!city) return '';
+  city = city.replace(/,\s*([A-Za-z]{2})\s*,\s*\1\s*$/i, (_, st) => `, ${String(st).toUpperCase()}`);
+  const st = String(state || '').trim();
+  if (!st) return city;
+  const already = new RegExp(`,\\s*${String(st).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*$`, 'i');
+  if (already.test(city)) return city.replace(already, `, ${st}`);
+  return `${city}, ${st}`;
+}
+
 export function topReviewLocations(config = {}) {
   const state = String(config.state || '').trim();
   const out = [];
   const seen = new Set();
 
   const pushCity = (cityRaw) => {
-    const city = String(cityRaw || '').trim();
-    if (!city) return;
-    const key = city.toLowerCase();
+    const label = formatCityStateLabel(cityRaw, state);
+    if (!label) return;
+    const key = label.toLowerCase();
     if (seen.has(key)) return;
     seen.add(key);
-    out.push(state ? `${city}, ${state}` : city);
+    out.push(label);
   };
 
   pushCity(config.primaryCity);

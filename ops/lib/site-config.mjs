@@ -27,6 +27,8 @@ import {
   SITE_FONT_THEMES,
 } from '../../scripts/lib/site-fonts.mjs';
 import { mergeLocationPages, toCoverageAreas } from './geo-neighbors.mjs';
+import { shotgunBlockedLocationNames } from './shotgun.mjs';
+import { normalizePlaceName } from './census.mjs';
 import { getBusinessAddressPackage } from './address-screen.mjs';
 import { claudeMessages } from './claude.mjs';
 
@@ -276,6 +278,140 @@ export function ensureBusinessNameNotNiche(config) {
     c.businessName = /pros$/i.test(niche) ? niche : `${niche} Pros`;
   }
   return c;
+}
+
+/**
+ * Brand/domain verb: repair-only, install-only, or mixed/unknown (no coerce).
+ * Substring match — springfielddrywallrepairpros.com counts as repair.
+ */
+export function brandVerbIdentity(businessName, domain) {
+  const hay = `${businessName || ''} ${domain || ''}`.toLowerCase();
+  const hasRepair = hay.includes('repair');
+  const hasInstall = hay.includes('install');
+  if (hasRepair && !hasInstall) return 'repair';
+  if (hasInstall && !hasRepair) return 'install';
+  return null;
+}
+
+function swapNicheVerb(niche, targetVerb) {
+  const n = String(niche || '').trim();
+  if (!n || /^tbd\b/i.test(n)) return n;
+  if (targetVerb === 'repair') {
+    if (/\binstall(ation|ations|ing|s)?\b/i.test(n)) {
+      return n
+        .replace(/\bInstallations\b/g, 'Repairs')
+        .replace(/\bInstallation\b/g, 'Repair')
+        .replace(/\bInstalling\b/g, 'Repairing')
+        .replace(/\bInstalls\b/g, 'Repairs')
+        .replace(/\bInstall\b/g, 'Repair')
+        .replace(/\binstallations\b/gi, 'repairs')
+        .replace(/\binstallation\b/gi, 'repair')
+        .replace(/\binstalling\b/gi, 'repairing')
+        .replace(/\binstalls\b/gi, 'repairs')
+        .replace(/\binstall\b/gi, 'repair');
+    }
+    if (!/\brepair/i.test(n)) return `${n} Repair`;
+    return n;
+  }
+  if (targetVerb === 'install') {
+    if (/\brepair(s|ing)?\b/i.test(n)) {
+      return n
+        .replace(/\bRepairing\b/g, 'Installing')
+        .replace(/\bRepairs\b/g, 'Installation')
+        .replace(/\bRepair\b/g, 'Installation')
+        .replace(/\brepairing\b/gi, 'installing')
+        .replace(/\brepairs\b/gi, 'installation')
+        .replace(/\brepair\b/gi, 'installation');
+    }
+    if (!/\binstall/i.test(n)) return `${n} Installation`;
+    return n;
+  }
+  return n;
+}
+
+/**
+ * If brand/domain is Repair-only, niche must be the Repair form of the trade
+ * (Drywall Installation → Drywall Repair). Inverse for Installation-only brands.
+ * Does not touch commercialServices — operator chooses Residential / Both / Commercial.
+ */
+export function coerceNicheToBrandVerb(config) {
+  const c = { ...(config && typeof config === 'object' ? config : {}) };
+  const verb = brandVerbIdentity(c.businessName, c.domain);
+  if (!verb) return c;
+  const next = swapNicheVerb(c.niche, verb);
+  if (next && next !== c.niche) c.niche = next;
+  return c;
+}
+
+function escapeLocRe(s) {
+  return String(s || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * Collapse "Boise, ID, ID" and skip appending state when the label already ends with it.
+ */
+export function normalizeReviewLocation(location, state) {
+  let loc = String(location || '').trim();
+  if (!loc) return loc;
+  loc = loc.replace(/,\s*([A-Za-z]{2})\s*,\s*\1\s*$/i, (_, st) => `, ${String(st).toUpperCase()}`);
+  const st = String(state || '').trim();
+  if (!st) return loc;
+  const already = new RegExp(`,\\s*${escapeLocRe(st)}\\s*$`, 'i');
+  if (already.test(loc)) {
+    return loc.replace(already, `, ${st}`);
+  }
+  return loc;
+}
+
+export function normalizeSocialProofLocations(config) {
+  const c = { ...(config && typeof config === 'object' ? config : {}) };
+  const proof = c.socialProof;
+  if (!proof || typeof proof !== 'object' || !Array.isArray(proof.reviews)) return c;
+  const st = String(c.state || '').trim();
+  const reviews = proof.reviews.map((r) => {
+    if (!r || typeof r !== 'object') return r;
+    const loc = String(r.location || '').trim();
+    if (!loc) return r;
+    const next = normalizeReviewLocation(loc, st);
+    return next === loc ? r : { ...r, location: next };
+  });
+  c.socialProof = { ...proof, reviews };
+  return c;
+}
+
+/**
+ * Identity sanitize on Accept / Structure load: brand-verb niche + review City, ST.
+ * Never strips commercialServices.
+ */
+export function sanitizeSiteConfigIdentity(config) {
+  return normalizeSocialProofLocations(coerceNicheToBrandVerb(config));
+}
+
+/**
+ * Re-apply identity sanitize to an already-accepted site-config (Structure load).
+ * Persists when niche or review locations change. Leaves commercial lists intact.
+ */
+export function persistCoercedAcceptedSiteConfig(candidateId) {
+  const p = pathsFor(candidateId);
+  const raw = readJson(p.siteConfig);
+  if (!raw || typeof raw !== 'object') return { changed: false, config: null };
+  const { _ops, ...clean } = raw;
+  const next = sanitizeSiteConfigIdentity(clean);
+  const before = JSON.stringify(clean);
+  const after = JSON.stringify(next);
+  if (before === after) return { changed: false, config: next };
+  writeJson(p.siteConfig, {
+    ...next,
+    _ops: {
+      ...(_ops && typeof _ops === 'object' ? _ops : {}),
+      identityCoercedAt: new Date().toISOString(),
+    },
+  });
+  const meta = readJson(p.meta) || {};
+  if (meta.siteConfigPath === 'src/config/site-config.json') {
+    writeJson(SITE_CONFIG_PATH, next);
+  }
+  return { changed: true, config: next };
 }
 
 /**
@@ -1100,7 +1236,9 @@ export function withSiteConfigPlaceholders(config, nap = {}, pack = null) {
     base.socialProof = rest;
   }
 
-  const configOut = ensureBusinessNameNotNiche(applyArchetypeDefaults(base));
+  const configOut = sanitizeSiteConfigIdentity(
+    ensureBusinessNameNotNiche(applyArchetypeDefaults(base)),
+  );
   if (!isBlank(configOut.domain)) {
     configOut.email = publicLeadsEmail(configOut.email, configOut.domain);
   }
@@ -1301,8 +1439,10 @@ export function acceptSiteConfig(
   }
   const { _ops, ...cleanRaw } = draft;
   const pack = getApprovedPackage(candidateId);
-  const clean = applyNormalizedAddress(
-    ensureBusinessNameNotNiche(applyArchetypeDefaults(cleanRaw)),
+  const clean = sanitizeSiteConfigIdentity(
+    applyNormalizedAddress(
+      ensureBusinessNameNotNiche(applyArchetypeDefaults(cleanRaw)),
+    ),
   );
   clean.targetSuburbs = normalizeTargetSuburbs(clean.targetSuburbs, {
     primaryCity: clean.primaryCity,
@@ -1375,6 +1515,7 @@ export function acceptServiceArea(
     selectedCities = [],
     claudeOrder = null,
     locationPageCities = null,
+    clusterLocationPageOverrides = null,
   } = {},
 ) {
   const p = pathsFor(candidateId);
@@ -1407,8 +1548,31 @@ export function acceptServiceArea(
     throw err;
   }
 
+  const blocked = shotgunBlockedLocationNames(candidateId);
   const coverageAreas = toCoverageAreas(selected, primaryCity, state);
   const primaryNorm = String(primaryCity).trim().toLowerCase();
+  const overrideNames = [];
+  const seenOverride = new Set();
+  const addOverride = (raw) => {
+    const name = String(typeof raw === 'string' ? raw : raw?.name || '').trim();
+    const key = normalizePlaceName(name);
+    if (!name || !key || seenOverride.has(key)) return;
+    if (!blocked.has(key)) return;
+    seenOverride.add(key);
+    overrideNames.push(name);
+  };
+  for (const raw of clusterLocationPageOverrides || accepted.clusterLocationPageOverrides || []) {
+    addOverride(raw);
+  }
+  if (Array.isArray(locationPageCities)) {
+    for (const raw of locationPageCities) addOverride(raw);
+  }
+  const overrideKeys = new Set(overrideNames.map((n) => normalizePlaceName(n)));
+
+  const pageBlocked = (name) => {
+    const key = normalizePlaceName(name);
+    return blocked.has(key) && !overrideKeys.has(key);
+  };
 
   let targetSuburbs;
   if (Array.isArray(locationPageCities) && locationPageCities.length) {
@@ -1424,6 +1588,7 @@ export function acceptServiceArea(
       if (key === primaryNorm) continue;
       if (!covNames.has(key)) continue;
       if (seen.has(key)) continue;
+      if (pageBlocked(name)) continue;
       seen.add(key);
       targetSuburbs.push(name);
       if (targetSuburbs.length >= 8) break;
@@ -1441,7 +1606,7 @@ export function acceptServiceArea(
       primaryCity,
       state,
       max: 5,
-    });
+    }).filter((name) => !pageBlocked(name));
   }
 
   const pageCount = 1 + targetSuburbs.length;
@@ -1460,6 +1625,7 @@ export function acceptServiceArea(
     serviceRadiusMiles,
     coverageAreas,
     targetSuburbs,
+    clusterLocationPageOverrides: overrideNames,
   };
 
   const suburbCheck = validateSuburbsForSiteConfig(next);

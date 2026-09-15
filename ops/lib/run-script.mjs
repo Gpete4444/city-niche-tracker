@@ -152,10 +152,13 @@ function pruneScriptJobs() {
   }
 }
 
-function lastJobErrorLine(job, code) {
-  const fromLogs = [...(job.logs || [])]
+export function lastJobErrorLine(job, code) {
+  const stderr = [...(job.logs || [])]
     .filter((e) => e.stream === 'stderr')
-    .flatMap((e) => String(e.text || '').split(/\r?\n/))
+    .map((e) => String(e.text || ''))
+    .join('');
+  const fromLogs = stderr
+    .split(/\r?\n/)
     .map((s) => s.trim())
     .filter(Boolean);
   const last = fromLogs.length ? fromLogs[fromLogs.length - 1] : '';
@@ -167,6 +170,11 @@ function lastJobErrorLine(job, code) {
   const lastText = fromText.length ? fromText[fromText.length - 1] : '';
   if (lastText) return lastText.slice(0, 400);
   return `Exit code ${code}`;
+}
+
+export function isUvHandleClosingCrash(text) {
+  const s = String(text || '');
+  return /UV_HANDLE_CLOSING/i.test(s) || /src[/\\]win[/\\]async\.c/i.test(s);
 }
 
 function parseCostFromLog(logText) {
@@ -219,6 +227,13 @@ function recordJobCost(job) {
   }
 }
 
+function argValue(args, flag) {
+  const i = (args || []).indexOf(flag);
+  if (i < 0) return null;
+  const next = args[i + 1];
+  return next && !String(next).startsWith('--') ? String(next) : null;
+}
+
 function prospectsOutputComplete(job) {
   if (job.label !== 'prospects') return false;
   const prospects = readJsonSafe(pathsFor(job.candidateId).prospects);
@@ -232,43 +247,50 @@ function prospectsOutputComplete(job) {
   return true;
 }
 
-/**
- * Spawn a node script relative to repo root. Returns job record immediately.
- */
-export function startJob({
-  candidateId,
-  label,
-  script,
-  args = [],
-  onSuccess = null,
-}) {
-  assertScriptJobStartAllowed(candidateId, label);
-  const jobId = randomUUID();
-  const scriptPath = path.join(ROOT, script);
-  const job = {
-    id: jobId,
-    candidateId,
-    label,
-    script,
-    args,
-    status: 'running',
-    startedAt: new Date().toISOString(),
-    finishedAt: null,
-    exitCode: null,
-    logs: [],
-    logText: '',
-    error: null,
-    costUsd: null,
-    costSource: null,
-  };
-  jobs.set(jobId, job);
-  saveMeta(candidateId, { lastJobId: jobId });
-  attachScriptLightJob(job);
+function scriptOutputComplete(job) {
+  if (prospectsOutputComplete(job)) return true;
+  const outPath = argValue(job.args, '--out');
+  if (!outPath) return false;
+  const data = readJsonSafe(outPath);
+  if (!data || typeof data !== 'object') return false;
+  const generatedAt = Date.parse(data.generatedAt);
+  const started = Date.parse(job.startedAt);
+  if (Number.isFinite(generatedAt) && Number.isFinite(started) && generatedAt + 2000 < started) {
+    return false;
+  }
+  return Boolean(data.generatedAt || data.serp || data.enrichment || data.prospectCount != null);
+}
 
-  const child = spawn(process.execPath, [scriptPath, ...args], {
+const WIN_SPAWN_STAGGER_MS = 150;
+let evalSpawnStaggerMs = process.platform === 'win32' ? WIN_SPAWN_STAGGER_MS : 0;
+let nextEvalSpawnAt = 0;
+
+export function setEvalSpawnStaggerMsForTests(ms) {
+  evalSpawnStaggerMs = Math.max(0, Number(ms) || 0);
+  nextEvalSpawnAt = 0;
+}
+
+function scheduleEvalSpawn(fn) {
+  const now = Date.now();
+  const wait = Math.max(0, nextEvalSpawnAt - now);
+  nextEvalSpawnAt = now + wait + evalSpawnStaggerMs;
+  if (wait > 0) setTimeout(fn, wait);
+  else fn();
+}
+
+function finishScriptJob(job) {
+  closeScriptLightJob(job);
+  trimFinishedScriptJob(job);
+  pruneScriptJobs();
+}
+
+function spawnJobChild(job) {
+  const scriptPath = path.join(ROOT, job.script);
+  const child = spawn(process.execPath, [scriptPath, ...job.args], {
     cwd: ROOT,
     env: { ...process.env },
     windowsHide: true,
+    stdio: ['ignore', 'pipe', 'pipe'],
   });
 
   job.pid = child.pid;
@@ -283,37 +305,45 @@ export function startJob({
   });
 
   child.on('error', (error) => {
+    if (job.status !== 'running') return;
     job.status = 'error';
     job.error = error.message;
     job.finishedAt = new Date().toISOString();
     appendLog(job, `${error.message}\n`, 'stderr');
-    closeScriptLightJob(job);
-    trimFinishedScriptJob(job);
-    pruneScriptJobs();
+    finishScriptJob(job);
   });
 
   child.on('close', async (code) => {
+    if (job.status !== 'running') return;
+    const outputOk = code === 0 || scriptOutputComplete(job);
+    if (!outputOk && isUvHandleClosingCrash(job.logText) && !job._uvRetry) {
+      job._uvRetry = true;
+      appendLog(
+        job,
+        'Retrying after Windows libuv handle crash (UV_HANDLE_CLOSING)…\n',
+        'stderr',
+      );
+      scheduleEvalSpawn(() => spawnJobChild(job));
+      return;
+    }
     job.exitCode = code;
     job.finishedAt = new Date().toISOString();
-    const outputOk = code === 0 || prospectsOutputComplete(job);
     if (!outputOk) {
       job.status = 'error';
       job.error = lastJobErrorLine(job, code);
-      closeScriptLightJob(job);
-      trimFinishedScriptJob(job);
-      pruneScriptJobs();
+      finishScriptJob(job);
       return;
     }
     try {
       recordJobCost(job);
-      if (typeof onSuccess === 'function') {
-        await onSuccess(job);
+      if (typeof job.onSuccess === 'function') {
+        await job.onSuccess(job);
       }
       job.status = 'ok';
       if (code !== 0) {
         appendLog(
           job,
-          `Exit ${code} but prospects file is complete — marked ok.\n`,
+          `Exit ${code} but output file is complete — marked ok.\n`,
           'stderr',
         );
       }
@@ -322,11 +352,44 @@ export function startJob({
       job.error = error.message;
       appendLog(job, `onSuccess: ${error.message}\n`, 'stderr');
     }
-    closeScriptLightJob(job);
-    trimFinishedScriptJob(job);
-    pruneScriptJobs();
+    finishScriptJob(job);
   });
+}
 
+/**
+ * Spawn a node script relative to repo root. Returns job record immediately.
+ */
+export function startJob({
+  candidateId,
+  label,
+  script,
+  args = [],
+  onSuccess = null,
+}) {
+  assertScriptJobStartAllowed(candidateId, label);
+  const jobId = randomUUID();
+  const job = {
+    id: jobId,
+    candidateId,
+    label,
+    script,
+    args,
+    onSuccess,
+    status: 'running',
+    startedAt: new Date().toISOString(),
+    finishedAt: null,
+    exitCode: null,
+    logs: [],
+    logText: '',
+    error: null,
+    costUsd: null,
+    costSource: null,
+    _uvRetry: false,
+  };
+  jobs.set(jobId, job);
+  saveMeta(candidateId, { lastJobId: jobId });
+  attachScriptLightJob(job);
+  scheduleEvalSpawn(() => spawnJobChild(job));
   return job;
 }
 
