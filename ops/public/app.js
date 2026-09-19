@@ -32,14 +32,20 @@ import {
   mountDiscoveryCitiesMap,
   setServiceAreaTableMode,
   setDiscoveryTableMapMode,
-} from './service-area-map.js?v=20260911bootFix';
-import { mountShotgunMap } from './shotgun-map.js?v=20260915nowave2';
+} from './service-area-map.js?v=20260918saSib';
+import {
+  remoteRefreshTouchesZone,
+  serviceAreaClaimMaps,
+  zoneServiceAreaBroadcastIds,
+  zoneServiceAreaClusterId,
+} from './zone-service-area-sync.mjs?v=20260917saLive';
+import { mountShotgunMap } from './shotgun-map.js?v=20260915touch';
 import {
   clusterColor,
   cityMapLabel,
   memberClusterKey,
   parseClusterKey,
-} from './shotgun-waves.js?v=20260915nowave';
+} from './shotgun-clusters.js?v=20260917saRing';
 import { suggestExactMatchDomains } from './domain-suggest.mjs?v=20260908domSug';
 import {
   enableResizableTablesIn,
@@ -50,18 +56,25 @@ import {
   launchedCountStats,
   playLaunchSuccessSound,
   primeLaunchSuccessSound,
-} from './launch-celebrate.js?v=20260909launch';
+} from './launch-celebrate.js?v=20260918launchCount';
 import {
   resolveWriteSiteOverlay,
   selectedWriteSiteNeedsRefresh,
   writeSiteTrackHoldsLease,
 } from '/write-site-overlay-track.mjs?v=20260908wsLive';
 import {
+  openaiBatchPendingInSnap,
+  openaiBusyKeysStillActive,
+  openaiJobIdsMissingFromSnap,
   openaiJobsNeedingWatch,
   openaiJobsProgressFromSnap,
   openaiSlotOverlayCaption,
-} from '/openai-jobs-progress.mjs?v=20260908oaProg';
+} from '/openai-jobs-progress.mjs?v=20260916oaMiss';
 import { reviewSlotServiceSubtitle } from '/review-slot-service-subtitle.mjs?v=20260908svcSub';
+import {
+  mergeCandidateDetail,
+  photoGroupsLoadedOnDetail,
+} from '/candidate-detail-client.mjs?v=20260918seeMore';
 import {
   contentStepIsOpen,
   contentStepShowsFreeze,
@@ -281,6 +294,31 @@ const FALLBACK_PALETTES = [
     label: 'Charcoal & Lime',
     brand: { primary: '#2A2E32', accent: '#B8D43D', ink: '#111314' },
   },
+  {
+    id: 'midnight-teal',
+    label: 'Midnight & Teal',
+    brand: { primary: '#0E2433', accent: '#2A9D8F', ink: '#07141C' },
+  },
+  {
+    id: 'graphite-ember',
+    label: 'Graphite & Ember',
+    brand: { primary: '#2B2F33', accent: '#E4572E', ink: '#121416' },
+  },
+  {
+    id: 'espresso-brass',
+    label: 'Espresso & Brass',
+    brand: { primary: '#3B2A1A', accent: '#C9A227', ink: '#1A120C' },
+  },
+  {
+    id: 'wine-stone',
+    label: 'Wine & Stone',
+    brand: { primary: '#5C2430', accent: '#D4C4A8', ink: '#1A1012' },
+  },
+  {
+    id: 'denim-rust',
+    label: 'Denim & Rust',
+    brand: { primary: '#2B4C6F', accent: '#C65D2E', ink: '#101820' },
+  },
 ];
 
 /** Keep in sync with scripts/lib/site-fonts.mjs */
@@ -439,7 +477,10 @@ function fontThemeCardsHtml(brand = {}, businessName = '') {
   </div>`;
 }
 
+let opsTooltipActiveEl = null;
+
 function hideOpsTooltip() {
+  opsTooltipActiveEl = null;
   const tip = document.getElementById('ops-tooltip');
   if (!tip) return;
   tip.classList.add('hidden');
@@ -490,36 +531,33 @@ function showOpsTooltip(anchorEl, clientX, clientY) {
 }
 
 function wireOpsTooltips() {
-  let activeEl = null;
   const onMove = (event) => {
-    if (!activeEl) return;
-    showOpsTooltip(activeEl, event.clientX, event.clientY);
+    if (!opsTooltipActiveEl) return;
+    showOpsTooltip(opsTooltipActiveEl, event.clientX, event.clientY);
   };
   document.addEventListener('pointerover', (event) => {
     const el = event.target?.closest?.('[data-tip]');
     if (!el || !el.getAttribute('data-tip')) return;
-    activeEl = el;
+    opsTooltipActiveEl = el;
     showOpsTooltip(el, event.clientX, event.clientY);
   });
   document.addEventListener('pointerout', (event) => {
     const el = event.target?.closest?.('[data-tip]');
-    if (!el || el !== activeEl) return;
+    if (!el || el !== opsTooltipActiveEl) return;
     const next = event.relatedTarget?.closest?.('[data-tip]');
-    if (next === activeEl) return;
-    activeEl = null;
+    if (next === opsTooltipActiveEl) return;
     hideOpsTooltip();
   });
   document.addEventListener('pointermove', onMove, { passive: true });
   document.addEventListener('focusin', (event) => {
     const el = event.target?.closest?.('[data-tip]');
     if (!el) return;
-    activeEl = el;
+    opsTooltipActiveEl = el;
     showOpsTooltip(el);
   });
   document.addEventListener('focusout', (event) => {
     const el = event.target?.closest?.('[data-tip]');
-    if (!el || el !== activeEl) return;
-    activeEl = null;
+    if (!el || el !== opsTooltipActiveEl) return;
     hideOpsTooltip();
   });
   window.addEventListener('scroll', hideOpsTooltip, true);
@@ -565,9 +603,9 @@ const state = {
     assembledPreviews: 5,
   },
   concurrencyMax: {
-    lightSerp: 50,
+    lightSerp: 100,
     generatePack: 10,
-    evaluations: 50,
+    evaluations: 100,
     writeSite: 50,
     openaiPhotos: 50,
     openaiBeforeAfter: 20,
@@ -786,18 +824,6 @@ function slicesForTab(tab) {
     default:
       return [];
   }
-}
-
-function mergeCandidateDetail(prev, next) {
-  if (!next) return prev;
-  if (!prev || prev.id !== next.id) return { ...next };
-  return {
-    ...prev,
-    ...next,
-    _slices: { ...(prev._slices || {}), ...(next._slices || {}) },
-    stageFlags: { ...(prev.stageFlags || {}), ...(next.stageFlags || {}) },
-    meta: next.meta ? { ...(prev.meta || {}), ...next.meta } : prev.meta,
-  };
 }
 
 function candidateDetailUrl(id, slices = []) {
@@ -1049,6 +1075,12 @@ function showToast(message, { tone = 'ok', ms } = {}) {
   showCompleteBanner(message, ms != null ? { tone, ms } : { tone });
 }
 
+window.addEventListener('rover-toast', (ev) => {
+  const message = ev.detail?.message;
+  if (!message) return;
+  showToast(message, { tone: ev.detail?.tone || 'warn' });
+});
+
 function prefersReducedMotion() {
   try {
     return Boolean(window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches);
@@ -1133,6 +1165,37 @@ function announceStepComplete(stepLabel) {
   announceBanner(`${label} complete`);
 }
 
+/** Web3Forms Recipient Emails: leads@domain — never the account Gmail. */
+function launchWeb3FormsRecipient(email, domain) {
+  const d = String(domain || '')
+    .trim()
+    .toLowerCase()
+    .replace(/^https?:\/\//, '')
+    .replace(/^www\./, '')
+    .replace(/\/.*$/, '');
+  const e = String(email || '').trim();
+  const lower = e.toLowerCase();
+  if (
+    d &&
+    (!e ||
+      /@(gmail|googlemail|yahoo|ymail|hotmail|outlook|live|msn|icloud|me|mac|aol)\./i.test(lower) ||
+      /@example\.com$/i.test(lower))
+  ) {
+    return `leads@${d}`;
+  }
+  return e || (d ? `leads@${d}` : '');
+}
+
+function syncLaunchWeb3Recipient() {
+  const el = document.getElementById('ca-launch-w3-recipient');
+  if (!el) return '';
+  const domain = document.getElementById('ca-launch-domain')?.value || '';
+  const email = document.getElementById('ca-launch-email')?.value || '';
+  const recipient = launchWeb3FormsRecipient(email, domain);
+  el.textContent = recipient || 'leads@yourdomain.com';
+  return recipient;
+}
+
 function launchResultDetailsHtml(result) {
   const human = (result.human || []).map((h) => `<li>${esc(h)}</li>`).join('');
   const shipOk = result.ship?.ok ? 'Ship (GitHub/Worker) ok' : result.ship ? 'Ship partial/failed' : 'Ship skipped';
@@ -1151,7 +1214,7 @@ function launchResultDetailsHtml(result) {
               ? `<p class="muted">Repo: <a href="${esc(result.ship.steps.github.repoUrl)}" target="_blank" rel="noopener">${esc(result.ship.steps.github.fullName)}</a></p>`
               : ''
           }
-          <p class="muted"><strong>After launch:</strong> verify Gmail once if Email Routing is new; smoke-test the live form; then use <strong>Website → Indexing</strong> for Search Console + sitemap.</p>`;
+          <p class="muted"><strong>After launch:</strong> verify Gmail once if Email Routing is new; click the Web3Forms verify link for leads@ if you just changed Recipient Emails; smoke-test the live form; then use <strong>Website → Indexing</strong> for Search Console + sitemap.</p>`;
 }
 
 function launchSiteDisplayName(result) {
@@ -1170,7 +1233,10 @@ function launchSiteDisplayName(result) {
 async function showLaunchSuccessCelebrate(result, fallbackId) {
   const candidateId =
     result.candidateId || result.candidate?.id || result.site?.candidateId || fallbackId || '';
-  const { ordinal, total } = launchedCountStats(state.sites, candidateId);
+  const { ordinal, total } = launchedCountStats(state.sites, candidateId, {
+    lastLaunchAt: result.meta?.lastLaunchAt || result.site?.lastLaunchAt,
+    lastShipAt: result.meta?.lastShipAt || result.site?.lastShipAt,
+  });
   const name = launchSiteDisplayName(result);
   const domain = String(result.site?.domain || result.candidate?.meta?.launchDomain || '').trim();
   const liveUrl = result.site?.liveUrl || (domain ? `https://${domain}` : '');
@@ -1275,6 +1341,75 @@ function watchOpenaiJobList(jobs, { candidateId, groupId } = {}) {
   return ids;
 }
 
+async function resolveMissingOpenaiJob(id) {
+  const jobId = String(id || '').trim();
+  if (!jobId) return;
+  const meta = openaiJobWatch.get(jobId);
+  try {
+    const packed = await api(`/api/light-jobs/${encodeURIComponent(jobId)}`);
+    const job = packed?.job;
+    if (job && (job.status === 'running' || job.status === 'queued')) {
+      openaiJobHandled.delete(jobId);
+      return;
+    }
+    if (job && (job.status === 'done' || job.status === 'error')) {
+      if (job.status === 'error') {
+        const batch = openaiBatches.find((b) => b.jobIds.includes(jobId));
+        const key = job.slotKey || job.matchKey || meta?.slotKey || jobId;
+        if (batch) batch.failures.push(`${key}: ${job.error || 'Generate failed'}`);
+      }
+      await consumeOpenaiJobFinish({ ...job, id: jobId });
+      return;
+    }
+  } catch {
+    /* pruned / 404 */
+  }
+  if (meta) {
+    await consumeOpenaiJobFinish({
+      id: jobId,
+      status: 'done',
+      slotKey: meta.slotKey,
+      matchKey: meta.slotKey,
+    });
+    return;
+  }
+  openaiJobWatch.delete(jobId);
+}
+
+function sweepStaleOpenaiGenerateChrome(snap = state.lightJobsSnap) {
+  const jobs = snap?.jobs || [];
+  const cid = state.selectedId;
+  const pgId = photoLibCurrent()?.groupId || '';
+  const pgKey = pgId ? `photo-group:${pgId}` : '';
+  const openai = jobs.filter((j) => j.phase === 'openai-photo' || j.phase === 'openai-ba');
+  const snapProgress = openaiJobsProgressFromSnap(openai, {
+    selectedId: cid,
+    photoGroupKey: pgKey,
+  });
+  const pending = openaiBatches.reduce((n, batch) => {
+    if (batch.announced) return n;
+    return (
+      n +
+      openaiBatchPendingInSnap(batch.jobIds, {
+        handled: openaiJobHandled,
+        snapJobs: openai,
+      }).length
+    );
+  }, 0);
+  if (snapProgress.active || pending) return false;
+  jobSyncedBarOn.openai = false;
+  setImagesProgress(false);
+  if (reviewImagesWorkDepth > 0) return true;
+  const leftover = openaiBusyKeysStillActive(slotBusyKeyList(), openai, {
+    selectedId: cid,
+    photoGroupKey: pgKey,
+  });
+  for (const key of leftover) {
+    enqueueOpenaiCommit(() => settleSlotBusy(key));
+  }
+  return true;
+}
+
 async function consumeOpenaiJobFinish(job) {
   const id = String(job?.id || '');
   const meta = openaiJobWatch.get(id);
@@ -1362,11 +1497,23 @@ function syncOpenaiGenerateFromSnap(snap) {
     }
     enqueueOpenaiCommit(() => consumeOpenaiJobFinish(j));
   }
+  const batchIds = openaiBatches.flatMap((b) => b.jobIds);
+  const missing = openaiJobIdsMissingFromSnap(
+    batchIds.filter((id) => !openaiJobHandled.has(id)),
+    openai,
+  );
+  for (const id of missing) {
+    openaiJobHandled.add(id);
+    enqueueOpenaiCommit(() => resolveMissingOpenaiJob(id));
+  }
   let pending = 0;
   let total = 0;
   for (const batch of openaiBatches) {
     if (batch.announced) continue;
-    const remaining = batch.jobIds.filter((id) => !openaiJobHandled.has(id));
+    const remaining = openaiBatchPendingInSnap(batch.jobIds, {
+      handled: openaiJobHandled,
+      snapJobs: openai,
+    });
     pending += remaining.length;
     total += batch.jobIds.length;
     if (!remaining.length) {
@@ -1400,9 +1547,8 @@ function syncOpenaiGenerateFromSnap(snap) {
   } else if (pending) {
     jobSyncedBarOn.openai = true;
     paintOpenaiBatchProgress(Math.max(0, total - pending), total);
-  } else if (jobSyncedBarOn.openai) {
-    jobSyncedBarOn.openai = false;
-    setImagesProgress(false);
+  } else {
+    sweepStaleOpenaiGenerateChrome(snap);
   }
 }
 
@@ -2165,6 +2311,7 @@ function syncLightInPageBars(snap) {
   syncGeneratePackOverlay(snap);
   syncShotgunJobOverlay(snap);
   syncAcceptOverlay(snap);
+  syncExpandLocationsOverlay(snap);
   const cid = state.selectedId;
   if (!cid) return;
   const logo = findActiveJob(snap, 'logo', cid);
@@ -3089,6 +3236,11 @@ async function confirmPaidAction(act) {
                 : ''
             }
             ${
+              act === 'expand-locations' || act === 'expandLocations'
+                ? '<li>Usually 1–3 minutes. Only thin location pages are rewritten.</li>'
+                : ''
+            }
+            ${
               act === 'generate-pack' || act === 'generatePack'
                 ? '<li>Usually a few minutes. Stop cancels; retry re-imports.</li>'
                 : ''
@@ -3151,7 +3303,12 @@ function getCandidatesBroadcast() {
   return candidatesBc;
 }
 
-function notifyCandidatesChanged({ type = 'candidates', ids = null, batchId = null } = {}) {
+function notifyCandidatesChanged({
+  type = 'candidates',
+  ids = null,
+  batchId = null,
+  clusterId = null,
+} = {}) {
   const bc = getCandidatesBroadcast();
   if (!bc) return;
   try {
@@ -3160,11 +3317,20 @@ function notifyCandidatesChanged({ type = 'candidates', ids = null, batchId = nu
       type,
       ids: ids ? [...ids] : null,
       batchId: batchId || null,
+      clusterId: clusterId || null,
       at: Date.now(),
     });
   } catch {
     /* ignore */
   }
+}
+
+function notifyZoneServiceAreaChanged(detail) {
+  notifyCandidatesChanged({
+    type: 'service-area',
+    ids: zoneServiceAreaBroadcastIds(detail),
+    clusterId: zoneServiceAreaClusterId(detail),
+  });
 }
 
 function remoteRefreshNeedsDetailRender(data) {
@@ -3175,10 +3341,54 @@ function remoteRefreshNeedsDetailRender(data) {
   return false;
 }
 
+function mergeServiceAreaClaimsIntoDetail(claims) {
+  if (!claims || state.detail?.id !== state.selectedId) return;
+  state.detail = {
+    ...state.detail,
+    shotgunClusterId: claims.shotgunClusterId ?? state.detail.shotgunClusterId,
+    shotgunZoneId: claims.shotgunZoneId ?? state.detail.shotgunZoneId,
+    shotgunBlockedLocations: claims.shotgunBlockedLocations || [],
+    shotgunClaimedSuburbs: claims.shotgunClaimedSuburbs || [],
+    shotgunZonePrimaries: claims.shotgunZonePrimaries || state.detail.shotgunZonePrimaries,
+    shotgunMembers: claims.shotgunMembers || state.detail.shotgunMembers,
+  };
+}
+
+async function fetchServiceAreaClaims(id) {
+  try {
+    return await api(
+      `/api/candidates/${encodeURIComponent(id)}/site-config/service-area/claims`,
+    );
+  } catch {
+    return fetchCandidateDetail(id, slicesForTab('site-config'));
+  }
+}
+
+async function applyRemoteServiceAreaClaims(id) {
+  const claims = await fetchServiceAreaClaims(id);
+  if (state.selectedId !== id) return;
+  mergeServiceAreaClaimsIntoDetail(claims);
+  if (serviceAreaLiveFor(id) && typeof serviceAreaMount?.applyClaims === 'function') {
+    serviceAreaMount.applyClaims(serviceAreaClaimMaps(claims.shotgunClaimedSuburbs));
+  }
+}
+
 async function applyRemoteCandidatesRefresh(data) {
   await loadCandidates();
   const ids = Array.isArray(data?.ids) ? data.ids.map(String) : null;
-  if (
+  const type = String(data?.type || '');
+  const zoneTouch = remoteRefreshTouchesZone(data, {
+    selectedId: state.selectedId,
+    clusterId: zoneServiceAreaClusterId(state.detail || {}),
+    memberIds: (state.detail?.shotgunMembers || []).map((m) => m.candidateId),
+  });
+  if (type === 'service-area' && zoneTouch && state.selectedId) {
+    try {
+      await applyRemoteServiceAreaClaims(state.selectedId);
+    } catch {
+      /* ignore */
+    }
+  } else if (
     state.selectedId &&
     (!ids || ids.includes(String(state.selectedId))) &&
     remoteRefreshNeedsDetailRender(data)
@@ -3187,6 +3397,12 @@ async function applyRemoteCandidatesRefresh(data) {
       await loadSelectedCandidateDetail(state.selectedId);
       if (state.selectedIds.size > 1) renderMultiDetail();
       else if (state.detail) renderDetail();
+    } catch {
+      /* ignore */
+    }
+  } else if (zoneTouch && state.selectedId) {
+    try {
+      await applyRemoteServiceAreaClaims(state.selectedId);
     } catch {
       /* ignore */
     }
@@ -3354,6 +3570,7 @@ function aggregateSelectedFlags() {
   const totals = {
     count: ids.size,
     hasResearch: 0,
+    hasVolumes: 0,
     hasEnrichment: 0,
     hasNarrativeDraft: 0,
     hasNarrative: 0,
@@ -3363,6 +3580,7 @@ function aggregateSelectedFlags() {
     if (!ids.has(c.id)) continue;
     const f = c.stageFlags || {};
     if (f.hasResearch) totals.hasResearch += 1;
+    if (f.hasVolumes) totals.hasVolumes += 1;
     if (f.hasEnrichment) totals.hasEnrichment += 1;
     if (f.hasNarrativeDraft) totals.hasNarrativeDraft += 1;
     if (f.hasNarrative) totals.hasNarrative += 1;
@@ -3379,6 +3597,7 @@ function candidateOverallInputs(c) {
       : c.narrativeJobValue ?? null;
   return {
     demand: inputs.demand ?? null,
+    demandSource: inputs.demandSource ?? c.demandSource ?? null,
     competition: inputs.competition ?? null,
     jobValue,
     mapPackGap: inputs.mapPackGap ?? null,
@@ -3574,7 +3793,7 @@ const CANDIDATE_TABLE_COLS = [
   {
     key: 'shotgunClusterKey',
     label: 'Cl',
-    tip: 'Cluster 1–10 (rental package)',
+    tip: 'Cluster 1–20 (rental package)',
     sortable: true,
     cellClass: 'col-sg-role',
   },
@@ -3783,7 +4002,7 @@ function candidateHighestStageStep(c) {
   if (f.hasProspects) return 4;
   if (f.hasNarrative) return 3;
   if (f.hasEnrichment) return 2;
-  if (f.hasResearch) return 1;
+  if (f.hasVolumes) return 1;
   return 0;
 }
 
@@ -4463,13 +4682,21 @@ function renderList() {
           })}</td>`;
         }
         if (col.key === 'volume') {
-          return `<td${tdClass}>${demandVolumeHtml(c.demandVolumeSum ?? c.clusterVolumeSum, {
-            alpha: c.suburbOverlapFactor,
-            honesty: adsVolumeHonesty({
-              volumesSkipped: c.volumesSkipped,
-              adsLocationFallback: c.adsLocationFallback,
-            }),
-          })}</td>`;
+          const honesty = adsVolumeHonesty({
+            volumesSkipped: c.volumesSkipped,
+            adsLocationFallback: c.adsLocationFallback,
+            estimatedMonthlySearchVolume: c.estimatedMonthlySearchVolume,
+            estimatedMonthlySearchVolumeRaw: c.estimatedMonthlySearchVolumeRaw,
+          });
+          return `<td${tdClass}>${demandVolumeHtml(
+            honesty.mode === 'estimate'
+              ? c.estimatedMonthlySearchVolume
+              : c.demandVolumeSum ?? c.clusterVolumeSum,
+            {
+              alpha: c.suburbOverlapFactor,
+              honesty,
+            },
+          )}</td>`;
         }
         if (col.key === 'jobCost') {
           return `<td${tdClass}><span class="cell-text">${esc(
@@ -4511,6 +4738,7 @@ function renderList() {
         }
         if (col.key === 'demand') {
           const v = overallInputs.demand;
+          const estimated = overallInputs.demandSource === 'claude_estimate';
           return `<td${tdClass}>${
             v == null
               ? '—'
@@ -4519,7 +4747,10 @@ function renderList() {
                   max: 10,
                   polarity: 'higher-better',
                   label: 'Demand',
-                  extraTip: SCORE_INPUT_TIPS.demand,
+                  extraTip: estimated
+                    ? `${SCORE_INPUT_TIPS.demand}\nThis row: Claude Discovery estimate, not Ads.`
+                    : SCORE_INPUT_TIPS.demand,
+                  suffix: estimated ? 'est.' : '',
                 })
           }</td>`;
         }
@@ -5263,7 +5494,8 @@ function updateTabCompletion() {
     const base = labels[key] || tab.textContent.replace(/[✓·].*$/, '').trim();
     let done = false;
     let draft = false;
-    if (key === 'serp' || key === 'keywords') done = Boolean(f.hasResearch);
+    if (key === 'serp') done = Boolean(f.hasResearch);
+    if (key === 'keywords') done = Boolean(f.hasVolumes);
     if (key === 'enrichment') done = Boolean(f.hasEnrichment);
     if (key === 'narrative') {
       done = Boolean(f.hasNarrative);
@@ -5313,6 +5545,25 @@ function setAdsMode(mode) {
   const next = mode === 'standard' ? 'standard' : 'live';
   try {
     localStorage.setItem('ops.adsMode', next);
+  } catch {
+    /* ignore */
+  }
+  return next;
+}
+
+function getEvalRunMode() {
+  try {
+    const v = localStorage.getItem('ops.evalRunMode');
+    return v === 'all' ? 'all' : 'required';
+  } catch {
+    return 'required';
+  }
+}
+
+function setEvalRunMode(mode) {
+  const next = mode === 'all' ? 'all' : 'required';
+  try {
+    localStorage.setItem('ops.evalRunMode', next);
   } catch {
     /* ignore */
   }
@@ -5373,7 +5624,7 @@ function writeSiteJobRunning(candidateId = null) {
   const cid = candidateId != null ? String(candidateId) : null;
   return jobs.some(
     (j) =>
-      j.phase === 'write-site' &&
+      (j.phase === 'write-site' || j.phase === 'expand-locations') &&
       (j.status === 'running' || j.status === 'queued') &&
       (!cid || String(j.candidateId) === cid),
   );
@@ -5567,6 +5818,71 @@ function setBaViewpoint(stepKey, viewpoint) {
   return next;
 }
 
+const NO_PEOPLE_RULES =
+  'No people, no faces, no hands, no crew, no customers, no silhouettes. Empty rooms, installs, tools, and materials only. No text, no logos, no watermarks, no UI, no phone screens.';
+const PEOPLE_RULES =
+  'Show 1–2 trade workers actively doing the described job — natural documentary pose, not a smiling stock crew. Faces and hands may be visible. No customers, no lifestyle extras. No text, no logos, no watermarks, no UI, no phone screens.';
+
+function normalizeOccupancy(raw) {
+  return String(raw || '').trim().toLowerCase() === 'people' ? 'people' : 'none';
+}
+
+function applyOccupancyToPrompt(text, occupancy) {
+  const src = String(text || '').trim();
+  if (!src) return src;
+  const people = normalizeOccupancy(occupancy) === 'people';
+  const noPeople = [
+    /No people, no faces, no hands, no crew, no customers, no silhouettes\.\s*Empty rooms, installs, tools, and materials only\.\s*No text, no logos, no watermarks, no UI, no phone screens\./gi,
+    /No people, no faces, no hands, no crew, no customers, no silhouettes\./gi,
+    /No people, no faces, no hands, no crew, no customers\./gi,
+    /No people, no faces, no hands, no crew\./gi,
+    /\bNo people\./gi,
+    /Unoccupied interior\/exterior:[^.]*\./gi,
+  ];
+  const peopleRe = [
+    /Show 1[-–]2 trade workers actively doing the described job[^.]*\./gi,
+    /One or two trade workers actively doing the described job[^.]*\./gi,
+  ];
+  if (people) {
+    let next = src;
+    for (const re of noPeople) next = next.replace(re, PEOPLE_RULES);
+    if (next === src && !/trade workers/i.test(src)) next = `${src} ${PEOPLE_RULES}`;
+    return next;
+  }
+  let next = src;
+  for (const re of peopleRe) next = next.replace(re, NO_PEOPLE_RULES);
+  return next;
+}
+
+function readBaOccupancyMap() {
+  try {
+    const raw = localStorage.getItem('ops.baOccupancy');
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function getBaOccupancy(stepKey = 'home') {
+  const key = String(stepKey || 'home').trim() || 'home';
+  const map = readBaOccupancyMap();
+  return map[key] === 'people' ? 'people' : 'none';
+}
+
+function setBaOccupancy(stepKey, occupancy) {
+  const key = String(stepKey || 'home').trim() || 'home';
+  const next = occupancy === 'people' ? 'people' : 'none';
+  const map = { ...readBaOccupancyMap(), [key]: next };
+  try {
+    localStorage.setItem('ops.baOccupancy', JSON.stringify(map));
+  } catch {
+    /* ignore */
+  }
+  return next;
+}
+
 function cacheBaCardPrompts(matchKey, pair = {}) {
   const key = String(matchKey || '').trim();
   if (!key) return;
@@ -5582,14 +5898,16 @@ function pickBaDisplayPrompts(matchKey) {
   const key = String(matchKey || '').trim();
   const cache = state.baPromptCache?.[key] || {};
   const vp = getBaViewpoint(key);
+  const occ = getBaOccupancy(key);
   const gen = cache.promptsForGenerate?.[vp];
   if (gen?.before && gen?.after) {
     return {
-      before: gen.before,
-      after: gen.after,
+      before: applyOccupancyToPrompt(gen.before, occ),
+      after: applyOccupancyToPrompt(gen.after, occ),
       originalBefore: gen.originalBefore || gen.before,
       originalAfter: gen.originalAfter || gen.after,
       viewpoint: vp,
+      occupancy: occ,
       room: gen.room || null,
       setting: gen.setting || null,
       label:
@@ -5603,11 +5921,12 @@ function pickBaDisplayPrompts(matchKey) {
   const plan = cache.promptPlan?.[vp];
   if (plan?.before && plan?.after) {
     return {
-      before: plan.before,
-      after: plan.after,
+      before: applyOccupancyToPrompt(plan.before, occ),
+      after: applyOccupancyToPrompt(plan.after, occ),
       originalBefore: plan.before,
       originalAfter: plan.after,
       viewpoint: vp,
+      occupancy: occ,
       room: cache.promptPlan?.room || null,
       label: 'From Image queries',
     };
@@ -5620,8 +5939,8 @@ function promptDraftStore() {
   return state.openaiPromptDrafts;
 }
 
-function promptDraftId(scope, kind, key, vp) {
-  return `${scope}|${kind}|${key}|${vp}`;
+function promptDraftId(scope, kind, key, vp, occ) {
+  return `${scope}|${kind}|${key}|${vp}|${occ || 'none'}`;
 }
 
 function slotPromptScope(card) {
@@ -5671,10 +5990,11 @@ function stashSlotPromptDraft(card) {
   const key = panel.getAttribute('data-prompt-key') || '';
   const kind = panel.getAttribute('data-prompt-kind') || 'photo';
   const vp = panel.dataset.loadedViewpoint || getBaViewpoint(key);
+  const occ = panel.dataset.loadedOccupancy || getBaOccupancy(key);
   const fields = readSlotPromptFields(panel);
   const has = kind === 'ba' ? Boolean(fields.before || fields.after) : Boolean(fields.prompt);
   if (!has) return;
-  promptDraftStore()[promptDraftId(slotPromptScope(card), kind, key, vp)] = fields;
+  promptDraftStore()[promptDraftId(slotPromptScope(card), kind, key, vp, occ)] = fields;
 }
 
 function promptBodyFromCard(card, { pair = false } = {}) {
@@ -5685,21 +6005,26 @@ function promptBodyFromCard(card, { pair = false } = {}) {
     card?.getAttribute('data-match-key') ||
     '';
   const viewpoint = getBaViewpoint(key);
-  if (!panel) return { viewpoint };
+  const occupancy = getBaOccupancy(key);
+  if (!panel) return { viewpoint, occupancy };
   const loaded = panel.dataset.loadedViewpoint;
-  if (loaded && loaded !== viewpoint) return { viewpoint };
+  const loadedOcc = panel.dataset.loadedOccupancy;
+  if ((loaded && loaded !== viewpoint) || (loadedOcc && loadedOcc !== occupancy)) {
+    return { viewpoint, occupancy };
+  }
   const fields = readSlotPromptFields(panel);
   if (pair || fields.kind === 'ba') {
     const before = String(fields.before || '').trim();
     const after = String(fields.after || '').trim();
     return {
       viewpoint,
+      occupancy,
       ...(before ? { before } : {}),
       ...(after ? { after } : {}),
     };
   }
   const prompt = String(fields.prompt || '').trim();
-  return { viewpoint, ...(prompt ? { prompt } : {}) };
+  return { viewpoint, occupancy, ...(prompt ? { prompt } : {}) };
 }
 
 function slotPromptApiUrls(card) {
@@ -5707,12 +6032,13 @@ function slotPromptApiUrls(card) {
   const key = panel?.getAttribute('data-prompt-key') || '';
   const kind = panel?.getAttribute('data-prompt-kind') || 'photo';
   const vp = getBaViewpoint(key);
+  const occ = getBaOccupancy(key);
   const photo = Boolean(card?.closest('#view-photo'));
   if (photo) {
     const gid = photoLibCurrent()?.groupId;
     if (!gid) return null;
     if (kind === 'ba') {
-      const params = new URLSearchParams({ matchKey: key, viewpoint: vp });
+      const params = new URLSearchParams({ matchKey: key, viewpoint: vp, occupancy: occ });
       return {
         get: `/api/photo-groups/${encodeURIComponent(gid)}/before-after-prompts?${params}`,
         save: `/api/photo-groups/${encodeURIComponent(gid)}/before-after/openai-prompt`,
@@ -5721,22 +6047,24 @@ function slotPromptApiUrls(card) {
           return {
             matchKey: key,
             viewpoint: vp,
+            occupancy: occ,
             before: fields.before,
             after: fields.after,
           };
         },
-        restoreBody: { matchKey: key, viewpoint: vp, restore: true },
+        restoreBody: { matchKey: key, viewpoint: vp, occupancy: occ, restore: true },
       };
     }
-    const params = new URLSearchParams({ viewpoint: vp });
+    const params = new URLSearchParams({ viewpoint: vp, occupancy: occ });
     return {
       get: `/api/photo-groups/${encodeURIComponent(gid)}/slots/${encodeURIComponent(key)}/chatgpt-prompt?${params}`,
       save: `/api/photo-groups/${encodeURIComponent(gid)}/slots/${encodeURIComponent(key)}/openai-prompt`,
       saveBody: () => ({
         viewpoint: vp,
+        occupancy: occ,
         prompt: readSlotPromptFields(panel).prompt,
       }),
-      restoreBody: { viewpoint: vp, restore: true },
+      restoreBody: { viewpoint: vp, occupancy: occ, restore: true },
     };
   }
   const candidateId = state.detail?.id || state.selectedId;
@@ -5745,6 +6073,7 @@ function slotPromptApiUrls(card) {
     const { serviceSlug: slug, pairIndex } = baTargetFromGenerateEl(card);
     const params = new URLSearchParams({
       viewpoint: vp,
+      occupancy: occ,
       pairIndex: String(pairIndex || 1),
     });
     if (slug) params.set('service', slug);
@@ -5755,24 +6084,26 @@ function slotPromptApiUrls(card) {
         const fields = readSlotPromptFields(panel);
         return {
           viewpoint: vp,
+          occupancy: occ,
           serviceSlug: slug,
           pairIndex,
           before: fields.before,
           after: fields.after,
         };
       },
-      restoreBody: { viewpoint: vp, serviceSlug: slug, pairIndex, restore: true },
+      restoreBody: { viewpoint: vp, occupancy: occ, serviceSlug: slug, pairIndex, restore: true },
     };
   }
-  const params = new URLSearchParams({ viewpoint: vp });
+  const params = new URLSearchParams({ viewpoint: vp, occupancy: occ });
   return {
     get: `/api/candidates/${encodeURIComponent(candidateId)}/images/slots/${encodeURIComponent(key)}/chatgpt-prompt?${params}`,
     save: `/api/candidates/${encodeURIComponent(candidateId)}/images/slots/${encodeURIComponent(key)}/openai-prompt`,
     saveBody: () => ({
       viewpoint: vp,
+      occupancy: occ,
       prompt: readSlotPromptFields(panel).prompt,
     }),
-    restoreBody: { viewpoint: vp, restore: true },
+    restoreBody: { viewpoint: vp, occupancy: occ, restore: true },
   };
 }
 
@@ -5800,9 +6131,11 @@ async function fetchAndFillPromptPanel(card) {
   const kind = panel.getAttribute('data-prompt-kind') || 'photo';
   const key = panel.getAttribute('data-prompt-key') || '';
   const vp = getBaViewpoint(key);
+  const occ = getBaOccupancy(key);
   const data = await api(urls.get);
   applyFetchedPrompt(panel, data, kind);
   panel.dataset.loadedViewpoint = vp;
+  panel.dataset.loadedOccupancy = occ;
 }
 
 async function loadSlotPromptForViewpoint(card) {
@@ -5811,10 +6144,12 @@ async function loadSlotPromptForViewpoint(card) {
   const key = panel.getAttribute('data-prompt-key') || '';
   const kind = panel.getAttribute('data-prompt-kind') || 'photo';
   const vp = getBaViewpoint(key);
-  const draft = promptDraftStore()[promptDraftId(slotPromptScope(card), kind, key, vp)];
+  const occ = getBaOccupancy(key);
+  const draft = promptDraftStore()[promptDraftId(slotPromptScope(card), kind, key, vp, occ)];
   if (draft) {
     applySlotPromptFields(panel, draft);
     panel.dataset.loadedViewpoint = vp;
+    panel.dataset.loadedOccupancy = occ;
     return;
   }
   if (kind === 'ba') {
@@ -5828,6 +6163,7 @@ async function loadSlotPromptForViewpoint(card) {
         }`;
       }
       panel.dataset.loadedViewpoint = vp;
+      panel.dataset.loadedOccupancy = occ;
     }
   }
   if (panel.open) {
@@ -5838,6 +6174,7 @@ async function loadSlotPromptForViewpoint(card) {
     }
   } else {
     panel.dataset.loadedViewpoint = vp;
+    panel.dataset.loadedOccupancy = occ;
   }
 }
 
@@ -5857,6 +6194,9 @@ async function persistSlotPromptPanel(card) {
       body: JSON.stringify(urls.saveBody()),
     });
     applyFetchedPrompt(panel, data, fields.kind);
+    const key = panel.getAttribute('data-prompt-key') || '';
+    panel.dataset.loadedViewpoint = getBaViewpoint(key);
+    panel.dataset.loadedOccupancy = getBaOccupancy(key);
   } catch (error) {
     showToast(error.message || 'Could not save prompt');
   }
@@ -5870,13 +6210,15 @@ async function restoreSlotPromptPanel(card) {
   const key = panel.getAttribute('data-prompt-key') || '';
   const kind = panel.getAttribute('data-prompt-kind') || 'photo';
   const vp = getBaViewpoint(key);
-  delete promptDraftStore()[promptDraftId(slotPromptScope(card), kind, key, vp)];
+  const occ = getBaOccupancy(key);
+  delete promptDraftStore()[promptDraftId(slotPromptScope(card), kind, key, vp, occ)];
   const data = await api(urls.save, {
     method: 'POST',
     body: JSON.stringify(urls.restoreBody),
   });
   applyFetchedPrompt(panel, data, kind);
   panel.dataset.loadedViewpoint = vp;
+  panel.dataset.loadedOccupancy = occ;
 }
 
 function fillBaPromptsPanel(card) {
@@ -5886,15 +6228,16 @@ function fillBaPromptsPanel(card) {
 function slotPromptPanelHtml({ kind = 'photo', key, pair = null } = {}) {
   const tip = 'Copy prompt and OpenAI generate both use this text.';
   const vp = getBaViewpoint(key);
+  const occ = getBaOccupancy(key);
   if (kind === 'ba') {
     cacheBaCardPrompts(key, pair);
     const picked = pickBaDisplayPrompts(key);
     const meta = picked
       ? `${esc(picked.label)} · ${esc(picked.viewpoint)}${picked.room ? ` · ${esc(picked.room)}` : ''}`
-      : 'Opens with the current Inside/Outside prompt.';
+      : 'Opens with the current Inside/Outside and No People/People prompt.';
     return `<details class="slot-prompt-panel ba-prompts" data-prompt-kind="ba" data-prompt-key="${esc(
       key,
-    )}" data-loaded-viewpoint="${esc(vp)}">
+    )}" data-loaded-viewpoint="${esc(vp)}" data-loaded-occupancy="${esc(occ)}">
       <summary class="slot-prompt-summary">
         <span>Prompt</span>
         <button type="button" class="btn btn-sm slot-prompt-restore" data-tip="Restore the original prompt">Restore</button>
@@ -5909,13 +6252,13 @@ function slotPromptPanelHtml({ kind = 'photo', key, pair = null } = {}) {
   }
   return `<details class="slot-prompt-panel" data-prompt-kind="photo" data-prompt-key="${esc(
     key,
-  )}" data-loaded-viewpoint="${esc(vp)}">
+  )}" data-loaded-viewpoint="${esc(vp)}" data-loaded-occupancy="${esc(occ)}">
     <summary class="slot-prompt-summary">
       <span>Prompt</span>
       <button type="button" class="btn btn-sm slot-prompt-restore" data-tip="Restore the original prompt">Restore</button>
     </summary>
     <p class="muted slot-prompt-tip">${esc(tip)}</p>
-    <textarea class="slot-prompt-text" spellcheck="false" placeholder="Opens with the current Inside/Outside prompt."></textarea>
+    <textarea class="slot-prompt-text" spellcheck="false" placeholder="Opens with the current Inside/Outside and No People/People prompt."></textarea>
   </details>`;
 }
 
@@ -5973,6 +6316,23 @@ function baViewpointSegmentHtml(stepKey = 'home') {
   </div>`;
 }
 
+function baOccupancySegmentHtml(stepKey = 'home') {
+  const key = String(stepKey || 'home').trim() || 'home';
+  const mode = getBaOccupancy(key);
+  const tip =
+    'No People = empty rooms, tools, and materials only · People = 1–2 workers doing the job described for this photo. Default No People.';
+  return `<div class="ads-mode-segment ba-occupancy-segment" role="group" aria-label="Photo occupancy" data-ba-occupancy-step="${esc(
+    key,
+  )}" ${tipAttr(tip)}>
+    <button type="button" class="ads-mode-seg${
+      mode === 'none' ? ' active' : ''
+    }" data-ba-occupancy="none">No People</button>
+    <button type="button" class="ads-mode-seg${
+      mode === 'people' ? ' active' : ''
+    }" data-ba-occupancy="people">People</button>
+  </div>`;
+}
+
 function baTargetFromGenerateEl(el) {
   const card = el?.closest?.('.photo-ba-card') || el?.closest?.('.image-slot-card');
   const raw = String(
@@ -6026,6 +6386,22 @@ function adsModeSegmentHtml(disabled = false) {
   </div>`;
 }
 
+function evalRunModeSegmentHtml(disabled = false) {
+  const mode = getEvalRunMode();
+  return `<div class="ads-mode-segment eval-run-mode-segment" role="group" aria-label="Run all mode">
+    <button type="button" class="ads-mode-seg${
+      mode === 'required' ? ' active' : ''
+    }" data-eval-run-mode="required" ${disabled ? 'disabled' : ''} ${tipAttr(
+      'Cheapest Research path. SERP seeds from Discovery cache or one ~$0.002 fetch, then Narrative. Skips Ads volumes, Enrich, and Prospects. Enough to Accept, set pursue, and build. Website Write still has its own Claude cost later.',
+    )}>Run all required</button>
+    <button type="button" class="ads-mode-seg${
+      mode === 'all' ? ' active' : ''
+    }" data-eval-run-mode="all" ${disabled ? 'disabled' : ''} ${tipAttr(
+      'Expensive Research path. Fills missing Evaluations 1–4 (Ads volumes, Enrich, Narrative, Prospects). Typical ~$0.40–$3.20 per candidate; Ads volumes scale with cluster size.',
+    )}>Run all</button>
+  </div>`;
+}
+
 function forceSerpCheckboxHtml(disabled = false) {
   const on = getForceSerp();
   return `<label class="research-force-serp" ${tipAttr(
@@ -6048,10 +6424,13 @@ function jobActLabel(act) {
       outreach: 'Outreach',
       'write-site': 'Write site',
       writeSite: 'Write site',
+      'expand-locations': 'Expand location pages',
+      expandLocations: 'Expand location pages',
       'generate-pack': 'Generate pack',
       generatePack: 'Generate pack',
-      'evaluate-all': 'Run all',
-      evaluateAll: 'Run all',
+      'evaluate-all': getEvalRunMode() === 'required' ? 'Run all required' : 'Run all',
+      evaluateAll: getEvalRunMode() === 'required' ? 'Run all required' : 'Run all',
+      'serp-seeds': 'SERP seeds',
     }[act] || act || 'job'
   );
 }
@@ -6096,7 +6475,11 @@ async function confirmBatchPaidAction(act, ids) {
   try {
     preview = await api('/api/jobs/batch/cost-preview', {
       method: 'POST',
-      body: JSON.stringify({ act, candidateIds: ids }),
+      body: JSON.stringify({
+        act,
+        candidateIds: ids,
+        evalRunMode: act === 'evaluate-all' || act === 'evaluateAll' ? getEvalRunMode() : undefined,
+      }),
     });
   } catch (error) {
     await showModal({
@@ -6129,7 +6512,10 @@ async function confirmBatchPaidAction(act, ids) {
     : '';
   const adsNote =
     act === 'evaluate-all' || act === 'evaluateAll'
-      ? `<p><strong>Ads volumes:</strong> Live (~$0.075–0.09/task, seconds). Force new SERP is off.</p>
+      ? getEvalRunMode() === 'required'
+        ? `<p><strong>Cheapest Research path:</strong> SERP seeds (cache or ~$0.002) then Narrative. Skips Ads volumes, Enrich, and Prospects.</p>
+        <p class="muted">Website Write still has its own Claude cost later.</p>`
+        : `<p><strong>Ads volumes:</strong> Live (~$0.075–0.09/task, seconds). Force new SERP is off.</p>
         <p class="muted">Skips steps that already have data. Narrative uses the Anthropic API.</p>`
       : act === 'research'
         ? `<p><strong>Ads volumes:</strong> ${
@@ -6179,6 +6565,12 @@ function renderActions() {
       : detailMatches
         ? d.stageFlags || {}
         : listRow?.stageFlags || d?.stageFlags || {};
+  const volumesDone =
+    targetCount === 0
+      ? false
+      : targetCount > 1
+        ? (agg.hasVolumes || 0) === agg.count && agg.count > 0
+        : Boolean(f.hasVolumes);
   const researchDone =
     targetCount === 0
       ? false
@@ -6214,16 +6606,16 @@ function renderActions() {
       ? null
       : !researchDone
         ? 'research'
-        : !enrichDone
-          ? 'enrich'
-          : !narrAccepted
-            ? 'narrative'
+        : !narrAccepted
+          ? 'narrative'
+          : !enrichDone
+            ? 'enrich'
             : null;
   const busy = Boolean(state.activeJobId || state.activeBatchJobId || state.claudeBusy);
   const runningAct = state.activeAct;
   const batchLabel = targetCount > 1 ? ` (${targetCount})` : '';
   const enrichGateOk = researchDone;
-  const narrGateOk = enrichDone;
+  const narrGateOk = targetCount > 0;
   const prospectsGateOk = narrAccepted;
   const stageBusyAttr = (act, gateOk = true) => {
     if (targetCount === 0) return 'disabled';
@@ -6260,42 +6652,57 @@ function renderActions() {
     ? 'Complete Evaluation 1 (SERP / Volume) first'
     : 'Evaluation 2 — page fetch, Domain Rank, thinness / displaceability';
   const narrTip = !narrGateOk
-    ? 'Complete Evaluation 2 (Enrich) first'
+    ? 'Select a candidate first'
     : effectiveClaudeUiMode() === 'api'
-      ? 'Run Narrative via the Anthropic API (confirm cost first)'
-      : 'Copy Claude.ai prompt, then paste the JSON result on the Narrative tab (default — no API cost)';
+      ? 'Run Narrative via the Anthropic API (confirm cost first). Enrich is optional.'
+      : 'Copy Claude.ai prompt, then paste the JSON result on the Narrative tab (default — no API cost). Hydrates cheap SERP seeds if needed.';
   const prospectsTip = !prospectsGateOk
     ? 'Complete Evaluation 3 (Narrative) first'
     : 'Find local businesses via Maps SERP (optional)';
+  const evalRunMode = getEvalRunMode();
+  const requiredDone =
+    targetCount === 0
+      ? false
+      : targetCount > 1
+        ? agg.hasResearch === agg.count && agg.hasNarrative === agg.count && agg.count > 0
+        : Boolean(f.hasResearch && f.hasNarrative);
   const allFourDone =
     targetCount === 0
       ? false
       : targetCount > 1
-        ? agg.hasResearch === agg.count &&
+        ? (agg.hasVolumes || 0) === agg.count &&
           agg.hasEnrichment === agg.count &&
           agg.hasNarrative === agg.count &&
           agg.hasProspects === agg.count &&
           agg.count > 0
-        : Boolean(f.hasResearch && f.hasEnrichment && f.hasNarrative && f.hasProspects);
+        : Boolean(f.hasVolumes && f.hasEnrichment && f.hasNarrative && f.hasProspects);
+  const allBoxDone = evalRunMode === 'required' ? requiredDone : allFourDone;
   const showRunAll = effectiveClaudeUiMode() === 'api';
-  const runAllTip = allFourDone
-    ? 'Evaluations 1–4 are already complete'
-    : 'Fill missing Evaluations 1–4 in order. Ad volumes: Live, no Force new SERP.';
+  const runAllTip =
+    evalRunMode === 'required'
+      ? allBoxDone
+        ? 'Required Research steps are already complete (SERP seeds + Narrative)'
+        : 'Cheapest Research path. SERP seeds from Discovery cache or one ~$0.002 fetch, then Narrative. Skips Ads volumes, Enrich, and Prospects. Enough to Accept, set pursue, and build. Website Write still has its own Claude cost later.'
+      : allBoxDone
+        ? 'Evaluations 1–4 are already complete'
+        : 'Expensive Research path. Fills missing Evaluations 1–4 (Ads volumes, Enrich, Narrative, Prospects). Typical ~$0.40–$3.20 per candidate; Ads volumes scale with cluster size.';
 
   el.innerHTML = `
     <div
       class="actions-toolbar"
       data-tip="✓ = stage has data. Select rows to batch Evaluations 1–4. Narrative Accept/Reject is on the Narrative tab (or multi-queue when several drafts)."
     >
-      <div class="action-group stage-1${researchDone ? ' action-done' : ''}${
-        runningAct === 'research' ? ' action-running' : ''
+      <div class="action-group stage-1${volumesDone ? ' action-done' : ''}${
+        runningAct === 'research' || runningAct === 'serp-seeds' ? ' action-running' : ''
       }${currentStage === 'research' ? ' current' : ''}">
         <span class="action-group-head"><span class="action-group-title">SERP / Volume</span><span class="action-group-num">1${
-          researchDone
+          volumesDone
             ? ` ${stageCheckMark()}`
             : targetCount > 1
-              ? aggMark(agg.hasResearch, agg.count)
-              : ''
+              ? aggMark(agg.hasVolumes || 0, agg.count)
+              : researchDone
+                ? ' seeds'
+                : ''
         }</span></span>
         <div class="action-group-btns research-stage-btns">
           <button type="button" class="btn btn-sm primary" data-act="research" data-tip="Ads search volume + CPC (~$0.50+ with several cities). Reuses Map Pack/organic unless Force new SERP is checked." ${stageBusyAttr(
@@ -6314,7 +6721,7 @@ function renderActions() {
       <div class="action-group stage-2${enrichDone ? ' action-done' : ''}${
         runningAct === 'enrich' ? ' action-running' : ''
       }${currentStage === 'enrich' ? ' current' : ''}">
-        <span class="action-group-head"><span class="action-group-title">Enrich</span><span class="action-group-num">2${
+        <span class="action-group-head"><span class="action-group-title">Enrich (optional)</span><span class="action-group-num">2${
           enrichDone
             ? ` ${stageCheckMark()}`
             : targetCount > 1
@@ -6375,7 +6782,7 @@ function renderActions() {
       <div class="action-group stage-4${prospectsDone ? ' action-done' : ''}${
         runningAct === 'prospects' || runningAct === 'outreach' ? ' action-running' : ''
       }">
-        <span class="action-group-head"><span class="action-group-title">Prospects</span><span class="action-group-num">4${
+        <span class="action-group-head"><span class="action-group-title">Prospects (optional)</span><span class="action-group-num">4${
           prospectsDone
             ? ` ${stageCheckMark()}`
             : targetCount > 1
@@ -6399,33 +6806,42 @@ function renderActions() {
       ${
         showRunAll
           ? `<span class="stage-rail-sep stage-rail-sep-wide" aria-hidden="true"></span>
-      <div class="action-group stage-all${allFourDone ? ' action-done' : ''}${
+      <div class="action-group stage-all${allBoxDone ? ' action-done' : ''}${
         runningAct === 'evaluate-all' ? ' action-running' : ''
       }">
-        <span class="action-group-head"><span class="action-group-title">All</span><span class="action-group-num">1–4${
-          allFourDone
+        <span class="action-group-head"><span class="action-group-title">All</span><span class="action-group-num">${
+          evalRunMode === 'required' ? 'req' : '1–4'
+        }${
+          allBoxDone
             ? ` ${stageCheckMark()}`
             : targetCount > 1
               ? aggMark(
-                  Math.min(
-                    agg.hasResearch,
-                    agg.hasEnrichment,
-                    agg.hasNarrative,
-                    agg.hasProspects,
-                  ),
+                  evalRunMode === 'required'
+                    ? Math.min(agg.hasResearch, agg.hasNarrative)
+                    : Math.min(
+                        agg.hasVolumes || 0,
+                        agg.hasEnrichment,
+                        agg.hasNarrative,
+                        agg.hasProspects,
+                      ),
                   agg.count,
                 )
               : ''
         }</span></span>
         <div class="action-group-btns">
+          ${evalRunModeSegmentHtml(busy)}
           <button type="button" class="btn btn-sm primary" data-act="evaluate-all" data-tip="${esc(
             runAllTip,
-          )}" ${stageBusyAttr('evaluate-all', targetCount > 0 && !allFourDone)}>${
+          )}" ${stageBusyAttr('evaluate-all', targetCount > 0 && !allBoxDone)}>${
             runningAct === 'evaluate-all'
               ? 'Running…'
-              : targetCount > 1
-                ? `Run all${batchLabel}`
-                : 'Run all'
+              : evalRunMode === 'required'
+                ? targetCount > 1
+                  ? `Run all required${batchLabel}`
+                  : 'Run all required'
+                : targetCount > 1
+                  ? `Run all${batchLabel}`
+                  : 'Run all'
           }</button>
         </div>
       </div>`
@@ -6454,6 +6870,12 @@ function renderActions() {
   el.querySelectorAll('[data-ads-mode]').forEach((btn) => {
     btn.addEventListener('click', () => {
       setAdsMode(btn.dataset.adsMode);
+      renderActions();
+    });
+  });
+  el.querySelectorAll('[data-eval-run-mode]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      setEvalRunMode(btn.dataset.evalRunMode);
       renderActions();
     });
   });
@@ -6608,6 +7030,42 @@ async function assertEvalConcurrencyAllows(ids) {
   return false;
 }
 
+async function waitForScriptJob(jobId) {
+  for (;;) {
+    const job = await api(`/api/jobs/${encodeURIComponent(jobId)}`);
+    if (job.status !== 'running') return job;
+    await new Promise((resolve) => setTimeout(resolve, 400));
+  }
+}
+
+async function ensureSerpSeedsForCandidate(id) {
+  const ensure = await api(`/api/candidates/${encodeURIComponent(id)}/ensure-serp-seeds`, {
+    method: 'POST',
+    body: '{}',
+  });
+  if (ensure.ready) return true;
+  const jobId = ensure.job?.id;
+  if (!jobId) {
+    announceBanner('Could not hydrate SERP seeds', { tone: 'err' });
+    return false;
+  }
+  state.activeJobId = jobId;
+  state.activeAct = 'serp-seeds';
+  state.jobStatusLine = 'Hydrating SERP seeds…';
+  renderActions();
+  const job = await waitForScriptJob(jobId);
+  clearJobBusy();
+  if (job.status !== 'ok') {
+    announceBanner(job.error || 'SERP seeds failed', { tone: 'err' });
+    state.tab = 'logs';
+    renderDetail();
+    return false;
+  }
+  if (state.selectedId === id) await loadSelectedCandidateDetail(id);
+  await loadCandidates();
+  return true;
+}
+
 async function handleAction(act, btn) {
   // Batch only when multi-selected; single path always uses the open detail
   const ids =
@@ -6633,6 +7091,7 @@ async function handleAction(act, btn) {
           candidateIds: ids,
           adsMode: 'live',
           forceSerp: false,
+          evalRunMode: getEvalRunMode(),
         }),
       });
       state.activeBatchJobId = batch.id;
@@ -6652,6 +7111,8 @@ async function handleAction(act, btn) {
       if (!(await assertEvalConcurrencyAllows(ids))) return;
 
       if (act === 'narrative' && ids.length === 1) {
+        const seeded = await ensureSerpSeedsForCandidate(ids[0]);
+        if (!seeded) return;
         const ok = await confirmPaidAction('narrative');
         if (!ok) return;
         state.claudeBusy = true;
@@ -6741,6 +7202,8 @@ async function handleAction(act, btn) {
 
     if (act === 'copy-prompt') {
       if (!id) return;
+      const seeded = await ensureSerpSeedsForCandidate(id);
+      if (!seeded) return;
       const data = await api(`/api/candidates/${encodeURIComponent(id)}/copy-prompt`);
       await navigator.clipboard.writeText(data.prompt || '');
       state.tab = 'narrative';
@@ -6992,8 +7455,16 @@ function renderOverview() {
     hint: dispSource.hint ?? null,
   });
 
+  const demandSource = s.demandSource ?? inputs.demandSource ?? null;
+  const demandScore =
+    s.scoreInputs && 'demand' in s.scoreInputs
+      ? s.scoreInputs.demand
+      : s.volumesSkipped && demandSource !== 'claude_estimate'
+        ? null
+        : inputs.demand ?? null;
   const overallInputs = {
-    demand: inputs.demand ?? null,
+    demand: demandScore ?? null,
+    demandSource,
     competition: inputs.competition ?? null,
     jobValue: resolvedJobValue,
     mapPackGap: inputs.mapPackGap ?? null,
@@ -7025,6 +7496,15 @@ function renderOverview() {
     hard: 'Crowded SERP (pack + strong locals and/or many niche domains)',
   };
   const dfsCosts = dfsCostBreakdown(state.detail);
+  const volumeHonesty = adsVolumeHonesty({
+    ...(r?.volumes || {}),
+    volumesSkipped: s.volumesSkipped ?? r?.volumes?.volumesSkipped,
+    adsLocationFallback: s.adsLocationFallback ?? r?.volumes?.adsLocationFallback,
+    estimatedMonthlySearchVolume:
+      s.estimatedMonthlySearchVolume ?? r?.volumes?.estimatedMonthlySearchVolume,
+    estimatedMonthlySearchVolumeRaw:
+      s.estimatedMonthlySearchVolumeRaw ?? r?.volumes?.estimatedMonthlySearchVolumeRaw,
+  });
 
   const scoreRows = [
     [
@@ -7033,20 +7513,29 @@ function renderOverview() {
       overallProvisional
         ? 'Provisional — job value not set yet'
         : overallScore != null
-          ? 'Weighted blend of available inputs'
-          : 'Needs SERP / Volume',
+          ? demandSource === 'claude_estimate'
+            ? 'Weighted blend — Demand is a Claude estimate'
+            : 'Weighted blend of available inputs'
+          : 'Needs Demand (Ads volumes or Claude estimate) + SERP',
     ],
     [
       'Demand (scored)',
-      demandVolumeHtml(s.demandVolumeSum ?? s.clusterVolumeSum, {
-        alpha: s.suburbOverlapFactor,
-        honesty: adsVolumeHonesty(r?.volumes || s),
-      }),
-      s.demandVolumeSum != null
-        ? `${s.demandVolumeSum} / mo demandVolumeSum (primary ${s.primaryVolumeSum ?? '—'} · cluster ${s.clusterVolumeSum ?? '—'})`
-        : s.clusterVolumeSum != null
-          ? `${s.clusterVolumeSum} searches / mo cluster (legacy — rescore to get demandVolumeSum)`
-          : '—',
+      demandVolumeHtml(
+        volumeHonesty.mode === 'estimate'
+          ? s.estimatedMonthlySearchVolume
+          : s.demandVolumeSum ?? s.clusterVolumeSum,
+        {
+          alpha: s.suburbOverlapFactor,
+          honesty: volumeHonesty,
+        },
+      ),
+      volumeHonesty.mode === 'estimate'
+        ? `${s.estimatedMonthlySearchVolume} / mo est. (Claude Discovery, primary city)`
+        : s.demandVolumeSum != null
+          ? `${s.demandVolumeSum} / mo demandVolumeSum (primary ${s.primaryVolumeSum ?? '—'} · cluster ${s.clusterVolumeSum ?? '—'})`
+          : s.clusterVolumeSum != null
+            ? `${s.clusterVolumeSum} searches / mo cluster (legacy — rescore to get demandVolumeSum)`
+            : '—',
     ],
     [
       'Map Pack',
@@ -7066,12 +7555,20 @@ function renderOverview() {
     [
       'Demand',
       metricHtml({
-        value: inputs.demand,
+        value: overallInputs.demand,
         max: 10,
         label: 'Demand',
-        extraTip: SCORE_INPUT_TIPS.demand,
+        extraTip:
+          demandSource === 'claude_estimate'
+            ? `${SCORE_INPUT_TIPS.demand}\nThis row: Claude Discovery estimate, not Ads.`
+            : SCORE_INPUT_TIPS.demand,
+        suffix: demandSource === 'claude_estimate' ? 'est.' : '',
       }),
-      'From cluster search volume band',
+      demandSource === 'claude_estimate'
+        ? 'From Claude Discovery Est. Monthly Search Volume (primary city)'
+        : s.volumesSkipped
+          ? 'Ads volumes skipped — Demand not measured'
+          : 'From cluster search volume band',
     ],
     [
       'Organic openness',
@@ -7428,24 +7925,34 @@ function renderKeywords() {
   ];
 
   const primarySumHtml =
-    honesty.mode === 'skipped' || vols.primaryVolumeSum == null
+    honesty.mode === 'skipped' || honesty.mode === 'estimate' || vols.primaryVolumeSum == null
       ? `<span class="metric metric-neutral">—</span>`
       : `<span class="metric metric-neutral"><strong>${esc(vols.primaryVolumeSum)}</strong><span class="metric-suffix"> /mo</span></span>`;
+  const clusterSumForDisplay =
+    honesty.mode === 'skipped' || honesty.mode === 'estimate' ? null : vols.clusterVolumeSum;
 
   return `
     <div class="stat-grid">
       ${statCard('Primary sum', primarySumHtml)}
-      ${statCard('Cluster sum', clusterVolumeHtml(honesty.mode === 'skipped' ? null : vols.clusterVolumeSum))}
+      ${statCard('Cluster sum', clusterVolumeHtml(clusterSumForDisplay))}
       ${statCard(
         'Demand (scored)',
-        demandVolumeHtml(honesty.mode === 'skipped' ? null : vols.demandVolumeSum ?? vols.clusterVolumeSum, {
-          alpha: vols.suburbOverlapFactor,
-          honesty,
-        }),
+        demandVolumeHtml(
+          honesty.mode === 'estimate'
+            ? vols.estimatedMonthlySearchVolume
+            : honesty.mode === 'skipped'
+              ? null
+              : vols.demandVolumeSum ?? vols.clusterVolumeSum,
+          {
+            alpha: vols.suburbOverlapFactor,
+            honesty,
+          },
+        ),
       )}
       ${statCard('Cities measured', citiesMeasuredHtml(vols))}
     </div>
-    ${honesty.mode === 'skipped' ? '<p class="muted">Ads volumes skipped — this city is not a Google Ads geo and has no Ads-listed neighbor.</p>' : ''}
+    ${honesty.mode === 'estimate' ? '<p class="muted">Ads volumes skipped. Search vol shown is Claude’s Discovery estimate (primary city), not Ads Planner.</p>' : ''}
+    ${honesty.mode === 'skipped' ? '<p class="muted">Ads volumes skipped — Demand not measured.</p>' : ''}
     ${tableHtml(headers, rows)}
   `;
 }
@@ -7838,6 +8345,11 @@ function saveSiteConfigNapFromForm(candidateId) {
       prev.addressStreet ||
       ba?.street ||
       '',
+    addressSuite:
+      document.getElementById('sc-suite')?.value?.trim() ||
+      prev.addressSuite ||
+      ba?.suite ||
+      '',
     addressCity:
       document.getElementById('sc-addr-city')?.value?.trim() ||
       prev.addressCity ||
@@ -7862,6 +8374,12 @@ function saveSiteConfigNapFromForm(candidateId) {
       'multi_service',
     domainPick: prev.domainPick || null,
   };
+  const streetSplit = baSplitNapStreet(nap.addressStreet);
+  const peeledCity = baSplitSuiteFromCity(nap.addressCity);
+  nap.addressStreet = streetSplit.street;
+  nap.addressSuite =
+    baSanitizeListedSuite(nap.addressSuite) || streetSplit.suite || peeledCity.suite || '';
+  nap.addressCity = peeledCity.city || nap.addressCity;
   writeSiteConfigNapLocal(nap, id);
   return nap;
 }
@@ -8501,6 +9019,56 @@ function baListingPortalLinksHtml(row) {
 /** Live-rebuild Maps/Street View hrefs from lat/lng so old shortlists pick up URL fixes. */
 function baAddressQueryWithoutSuite(row = {}) {
   return [row.street, row.city, row.state, row.zip].filter(Boolean).join(', ');
+}
+
+function baSanitizeListedSuite(raw) {
+  const s = String(raw || '').trim();
+  if (!s || /^STE-\d+$/i.test(s)) return '';
+  const m = s.match(/\b(?:ste|suite|unit|#)\.?\s*([a-z0-9][a-z0-9-]*)\b/i);
+  if (!m || /^(?:floor|fl|ground|retail|shell|build)$/i.test(m[1])) return '';
+  return `Ste ${m[1]}`;
+}
+
+function baComposeNapStreet(street, suite) {
+  const base = String(street || '')
+    .replace(/,?\s*STE-\d+\s*$/i, '')
+    .replace(/,?\s*((?:Ste|Suite|Unit)\s+[a-z0-9-]+)\s*$/i, '')
+    .trim();
+  const unit = baSanitizeListedSuite(suite);
+  if (!unit) return base;
+  return `${base}, ${unit}`;
+}
+
+function baSplitNapStreet(street) {
+  const raw = String(street || '')
+    .replace(/,?\s*STE-\d+\s*$/i, '')
+    .trim();
+  const m = raw.match(/^(.*?),?\s*((?:Ste|Suite|Unit)\s+[a-z0-9-]+)\s*$/i);
+  if (m) {
+    return {
+      street: String(m[1] || '').replace(/[,\s]+$/, '').trim(),
+      suite: baSanitizeListedSuite(m[2]),
+    };
+  }
+  return { street: raw, suite: '' };
+}
+
+function baSplitSuiteFromCity(raw) {
+  const s = String(raw || '').trim();
+  if (/^(?:ste|suite|unit)\.?\s+[a-z0-9-]+$/i.test(s)) {
+    return { suite: baSanitizeListedSuite(s), city: '' };
+  }
+  const m = s.match(/^((?:ste|suite|unit)\.?\s+[a-z0-9-]+)\s+(.+)$/i);
+  if (m) {
+    const suite = baSanitizeListedSuite(m[1]);
+    const city = String(m[2] || '').trim();
+    if (suite && city) return { suite, city };
+  }
+  return { suite: '', city: s };
+}
+
+function baRowDisplayStreet(row = {}) {
+  return baComposeNapStreet(row.street, row.suite);
 }
 
 function baFoundAtMs(row) {
@@ -9223,9 +9791,6 @@ function renderSiteConfig() {
             pass: true,
             label: 'Places — no active OPERATIONAL Maps listing at this street+ZIP',
           },
-          ...(row.suite
-            ? [{ pass: null, label: `Suggested suite ${row.suite} (NAP-friendly stub)` }]
-            : []),
           {
             pass: null,
             label: `Shortlist rank #${i + 1} of up to 25 (accumulated recommendations)`,
@@ -9261,7 +9826,7 @@ function renderSiteConfig() {
     }">
       <div style="display:flex;flex-wrap:wrap;gap:0.5rem;align-items:flex-start;justify-content:space-between">
         <div>
-          <strong>${esc(row.street)}${row.suite ? `, ${esc(row.suite)}` : ''}</strong>
+          <strong>${esc(baRowDisplayStreet(row))}</strong>
           ${secondary ? ` <span class="muted small">Secondary</span>` : ''}
           <div class="muted small">${esc(row.city)}, ${esc(row.state)} ${esc(row.zip)}${
             row.propertyType ? ` · ${esc(row.propertyType)}` : ''
@@ -9402,7 +9967,7 @@ function renderSiteConfig() {
     return `<div class="callout" style="margin:0;padding:0.55rem 0.7rem">
       <div style="display:flex;flex-wrap:wrap;gap:0.5rem;align-items:flex-start;justify-content:space-between">
         <div>
-          <strong>${esc(row.street)}${row.suite ? `, ${esc(row.suite)}` : ''}</strong>
+          <strong>${esc(baRowDisplayStreet(row))}</strong>
           ${row.tier === 'secondary' ? ` <span class="muted small">Secondary</span>` : ''}
           <div class="muted small">${esc(row.city)}, ${esc(row.state)} ${esc(row.zip)}${
             row.propertyType ? ` · ${esc(row.propertyType)}` : ''
@@ -9566,7 +10131,7 @@ function renderSiteConfig() {
         ${selectedBanner}
         ${sourceToggleHtml}
         <div class="narrative-actions" style="flex-wrap:wrap;gap:0.5rem;align-items:center;margin-top:0.5rem">
-          <button type="button" class="btn${baCacheExhausted ? '' : ' primary'}" id="ba-find-addresses" data-tip="Pull and screen checked sources. Use Find for a first Crexi/LoopNet pull or when that source still has streets left. Cache hits skip Apify." ${
+          <button type="button" class="btn${baCacheExhausted ? '' : ' primary'}" id="ba-find-addresses" data-tip="Pull and screen checked sources. Skips unbuilt and coming-soon listings. Use Find for a first Crexi/LoopNet pull or when that source still has streets left. Cache hits skip Apify." ${
             baBusy || !(ready || f.hasApproved) ? 'disabled' : ''
           }${baBusy ? ' aria-busy="true"' : ''}>Find addresses</button>
           <button type="button" class="btn${baCacheExhausted ? ' primary' : ''}" id="ba-refresh-loopnet" data-tip="${
@@ -9615,10 +10180,20 @@ function renderSiteConfig() {
     }),
   );
 
-  const preStreet = baSel?.street || nap.addressStreet || '';
+  const peeledSelCity = baSplitSuiteFromCity(baSel?.city || '');
+  const peeledNapCity = baSplitSuiteFromCity(nap.addressCity || '');
+  const streetSplit = baSplitNapStreet(baSel?.street || nap.addressStreet || '');
+  const preStreet = streetSplit.street;
+  const preSuite =
+    baSanitizeListedSuite(baSel?.suite) ||
+    baSanitizeListedSuite(nap.addressSuite) ||
+    streetSplit.suite ||
+    peeledSelCity.suite ||
+    peeledNapCity.suite ||
+    '';
   const preZip = baSel?.zip || nap.addressZip || '';
   // Form prefills may use per-candidate NAP; city/state fall back to finder geography.
-  const preCity = baSel?.city || nap.addressCity || addrCity;
+  const preCity = peeledSelCity.city || peeledNapCity.city || baSel?.city || nap.addressCity || addrCity;
   const preState = baSel?.state || nap.addressState || addrState;
 
   const domainPick =
@@ -9874,9 +10449,16 @@ function renderSiteConfig() {
           <label class="site-config-span2">
             <span class="label-with-tip-head">
               <span>Street</span>
-              <button type="button" class="tip-info" data-tip="From Address step — edit only if needed. Leave blank to omit LocalBusiness street." aria-label="About Street">i</button>
+              <button type="button" class="tip-info" data-tip="GBP Address Line 1 — street only, no suite. Leave blank to omit LocalBusiness street." aria-label="About Street">i</button>
             </span>
-            <input id="sc-street" type="text" value="${esc(preStreet)}" placeholder="From Address step or blank" />
+            <input id="sc-street" type="text" value="${esc(preStreet)}" placeholder="1221 E University Dr" />
+          </label>
+          <label class="site-config-span2">
+            <span class="label-with-tip-head">
+              <span>Address line 2</span>
+              <button type="button" class="tip-info" data-tip="GBP Address Line 2 — listed suite only (Ste 3). Leave blank when the listing has no suite." aria-label="About Address line 2">i</button>
+            </span>
+            <input id="sc-suite" type="text" value="${esc(preSuite)}" placeholder="Ste 3" />
           </label>
           <label>
             <span>City</span>
@@ -9967,10 +10549,16 @@ function renderSiteConfig() {
       open: openId === 'service-area',
       current: currentId === 'service-area' && !serviceAreaDone,
       locked: !accepted,
-      info: 'Set radius on the map, toggle coverage cities, then save. Claude-seeded suburbs alone do not complete this step. Blue Page = SEO location pages (prefer 4–6 including primary).',
+      info: d.shotgunClusterId
+        ? 'Zone map: click a city to add or remove coverage (reversible). No radius ring — seed is location pages plus Also serving leftovers within 5 miles (up to 6 pages / 10 leftovers). Also serving leftovers may overlap, including towns another Zone site already pages. Use Page in the table to steal a leftover page (confirm). Zone sibling cities stay Also serving only.'
+        : 'Click a city to add or remove coverage (reversible). Seed is location pages plus Also serving leftovers within 5 miles (up to 6 pages / 10 leftovers). Blue Page = SEO location pages (prefer 4–6 including primary). A leftover already paged by another Zone site needs confirm.',
       bodyHtml: accepted
         ? `
-          <p class="disc-tool-blurb">Coverage can be wide. Blue Page = location page (prefer 4–6 including primary). Click Page to toggle without removing coverage.</p>
+          <p class="disc-tool-blurb">${
+            d.shotgunClusterId
+              ? 'Click a city boundary to add or remove coverage. No radius ring or slider — the Zone is the geography. Seed starts as nearest leftover location pages plus Also serving towns within 5 miles. Also serving leftovers may overlap, including towns another Zone site already pages. Use Page in the table to steal a leftover page (confirm). Zone sibling cities cannot be pages — they stay in Also serving.'
+              : 'Click a city boundary to add or remove coverage. Seed starts as location pages plus Also serving leftovers within 5 miles. Use Page in the table to toggle a location page (prefer 4–6 including primary). A leftover already paged by another Zone site needs confirm.'
+          }</p>
           ${
             serviceAreaDone
               ? `<p class="muted small">Saved · ${esc(String(covN))} coverage · ${esc(String(pageN))} location pages · ${esc(
@@ -9978,6 +10566,7 @@ function renderSiteConfig() {
                 )} mi — reopen to edit.</p>`
               : ''
           }
+          <p class="sa-refresh-row"><button type="button" class="btn" id="sa-refresh-claims">Refresh</button> <span class="muted small">Check Zone duplicates and refill location pages.</span></p>
           <div id="sa-host" class="sa-host"></div>
         `
         : lockedUntilAccept,
@@ -10253,8 +10842,6 @@ function photoGroupRankOrdinal(n) {
   return `${n}${suffix}`;
 }
 
-const PHOTO_GROUP_RANK_MAX = 6;
-
 function photoGroupLibraryCount(d) {
   return Array.isArray(d?.photoGroups) ? d.photoGroups.length : 0;
 }
@@ -10307,22 +10894,33 @@ function photoGroupSelectOptionsHtml(
   return opts.join('');
 }
 
+function photoGroupRankEmptyLabel(i) {
+  return i === 0 ? 'Select a saved photo group…' : 'None';
+}
+
+function photoGroupRankTip(rank) {
+  return `Priority ${rank}. All saved groups, A–Z`;
+}
+
 function photoGroupRankRowHtml(idPrefix, i, selectedId, excludeIds) {
   const rank = i + 1;
-  const emptyLabel = i === 0 ? 'Select a saved photo group…' : 'None';
   return `<label class="pg-rank-row"><span class="pg-rank-label">${esc(photoGroupRankOrdinal(rank))}</span>
-      <select class="pg-select" id="${esc(idPrefix)}-${rank}" data-pg-rank="${rank}" data-tip="Priority ${rank}. All saved groups, A–Z">
-        ${photoGroupSelectOptionsHtml(state.detail, { selectedId, excludeIds, emptyLabel })}
+      <select class="pg-select" id="${esc(idPrefix)}-${rank}" data-pg-rank="${rank}" data-tip="${esc(photoGroupRankTip(rank))}">
+        ${photoGroupSelectOptionsHtml(state.detail, {
+          selectedId,
+          excludeIds,
+          emptyLabel: photoGroupRankEmptyLabel(i),
+        })}
       </select></label>`;
 }
 
 function photoGroupRankRowsFromIds(idPrefix, ids) {
-  const chosen = compactPhotoGroupRankIds(ids).slice(0, PHOTO_GROUP_RANK_MAX);
+  const chosen = compactPhotoGroupRankIds(ids);
   const lib = photoGroupLibraryCount(state.detail);
-  const addEmpty = chosen.length < PHOTO_GROUP_RANK_MAX && (chosen.length === 0 || chosen.length < lib);
+  const addEmpty = chosen.length === 0 || chosen.length < lib;
   const rows = [];
   for (let i = 0; i < chosen.length; i += 1) {
-    rows.push(photoGroupRankRowHtml(idPrefix, i, chosen[i], chosen.slice(0, i)));
+    rows.push(photoGroupRankRowHtml(idPrefix, i, chosen[i], chosen));
   }
   if (addEmpty) rows.push(photoGroupRankRowHtml(idPrefix, chosen.length, '', chosen));
   return rows.join('');
@@ -10356,7 +10954,21 @@ function renumberPhotoGroupRankRows(stack, idPrefix) {
     if (sel) {
       sel.id = `${idPrefix}-${rank}`;
       sel.setAttribute('data-pg-rank', String(rank));
+      sel.setAttribute('data-tip', photoGroupRankTip(rank));
     }
+  });
+}
+
+function syncPhotoGroupRankSelectOptions(stack, idPrefix) {
+  const selects = [...stack.querySelectorAll('select[data-pg-rank]')];
+  const chosen = compactPhotoGroupRankIds(selects.map((sel) => sel.value || ''));
+  selects.forEach((sel, i) => {
+    const selectedId = String(sel.value || '').trim();
+    sel.innerHTML = photoGroupSelectOptionsHtml(state.detail, {
+      selectedId,
+      excludeIds: chosen,
+      emptyLabel: photoGroupRankEmptyLabel(i),
+    });
   });
 }
 
@@ -10366,7 +10978,7 @@ function ensurePhotoGroupTrailingEmpty(stack, idPrefix) {
   const last = selects[selects.length - 1];
   const lastEmpty = last && !String(last.value || '').trim();
   const lib = photoGroupLibraryCount(state.detail);
-  const canAdd = ids.length < PHOTO_GROUP_RANK_MAX && ids.length < lib;
+  const canAdd = ids.length < lib;
   if (canAdd && !lastEmpty) {
     stack.insertAdjacentHTML('beforeend', photoGroupRankRowHtml(idPrefix, selects.length, '', ids));
   }
@@ -10393,6 +11005,7 @@ function patchPhotoGroupRankSelects(idPrefix, changedSelect) {
     }
   }
   ensurePhotoGroupTrailingEmpty(stack, idPrefix);
+  syncPhotoGroupRankSelectOptions(stack, idPrefix);
   setPhotoGroupRankLoadDisabled(idPrefix, readPhotoGroupRankIds(idPrefix).length === 0);
 }
 
@@ -11091,6 +11704,21 @@ function acceptOverlayHtml() {
   });
 }
 
+function expandLocationsOverlayHtml() {
+  return roverJobOverlayHtml({
+    overlayId: 'content-expand-loc-overlay',
+    title: 'Expand location pages',
+    titleId: 'ex-overlay-title',
+    phases: ['Expand'],
+    phaseAttr: 'data-ex-phase',
+    phasesId: 'ex-overlay-phases',
+    barId: 'ex-overlay-bar',
+    detailId: 'ex-overlay-detail',
+    stopId: 'ex-overlay-stop',
+    ariaLabel: 'Expanding location pages',
+  });
+}
+
 function shortenLaunchPhase(step) {
   const s = String(step || '');
   if (/keys|site-config/i.test(s)) return 'Keys';
@@ -11361,6 +11989,85 @@ async function startWriteSiteFromUi(id) {
       hideCancel: true,
       bodyHtml: `<p>${esc(error.message)}</p>`,
     });
+  }
+}
+
+function syncExpandLocationsOverlay(snap) {
+  const cid = state.selectedId;
+  const job = findActiveJob(snap, 'expand-locations', cid);
+  const overlay = document.getElementById('content-expand-loc-overlay');
+  if (job) {
+    paintRoverJobOverlay({
+      overlayId: 'content-expand-loc-overlay',
+      detailId: 'ex-overlay-detail',
+      barId: 'ex-overlay-bar',
+      phasesId: 'ex-overlay-phases',
+      stopId: 'ex-overlay-stop',
+      job,
+    });
+    if (overlay) overlay.dataset.jobId = job.id;
+    return;
+  }
+  if (overlay) overlay.dataset.jobId = '';
+  setRoverJobOverlayVisible('content-expand-loc-overlay', false);
+}
+
+async function startExpandLocationsFromUi(id) {
+  if (!(await confirmPaidAction('expand-locations'))) return;
+  if (!(await confirmLaunchedSiteChange('Expand location pages'))) return;
+  const btn = document.getElementById('content-expand-loc-btn');
+  if (btn) btn.disabled = true;
+  try {
+    const accepted = await api(`/api/candidates/${encodeURIComponent(id)}/content/expand-locations`, {
+      method: 'POST',
+      body: JSON.stringify(withLaunchedConfirmBody({})),
+    });
+    syncExpandLocationsOverlay({
+      ...(state.lightJobsSnap || {}),
+      jobs: [
+        {
+          id: accepted.jobId,
+          candidateId: id,
+          phase: 'expand-locations',
+          label: 'Expand location pages',
+          status: 'running',
+          detail: 'Starting…',
+          progressDone: 0,
+          progressTotal: 2,
+        },
+        ...(state.lightJobsSnap?.jobs || []),
+      ],
+    });
+    const result = await waitForLightJobResult(accepted.jobId);
+    await applyCandidatePayload(null, id);
+    renderDetail();
+    announceStepComplete('Expand location pages');
+    if (result?.spentUsd != null) {
+      await showActualCostModal({
+        title: 'Expand location pages',
+        costUsd: result.spentUsd,
+        provider: 'anthropic',
+      });
+    }
+  } catch (error) {
+    setRoverJobOverlayVisible('content-expand-loc-overlay', false);
+    if (error.code === 'WRITE_SITE_RUNNING' || error.code === 'EXPAND_LOCATIONS_RUNNING') {
+      await showModal({
+        title: 'Already running',
+        confirmLabel: 'OK',
+        hideCancel: true,
+        bodyHtml: `<p>${esc(error.message)}</p>`,
+      });
+      return;
+    }
+    await showModal({
+      title: 'Expand location pages failed',
+      confirmLabel: 'OK',
+      hideCancel: true,
+      bodyHtml: `<p>${esc(error.message)}</p>`,
+    });
+  } finally {
+    if (btn) btn.disabled = false;
   }
 }
 
@@ -11829,7 +12536,8 @@ function napCsvFromSiteConfig(cfg = {}) {
     businessName: cfg.businessName || '',
     phone: cfg.phone || '',
     email: cfg.email || '',
-    street: cfg.address?.street || '',
+    street: baSplitNapStreet(cfg.address?.street || '').street,
+    suite: baSanitizeListedSuite(cfg.address?.suite) || baSplitNapStreet(cfg.address?.street || '').suite,
     city: cfg.address?.city || cfg.primaryCity || '',
     state: cfg.address?.state || cfg.state || '',
     zip: cfg.address?.zip || '',
@@ -11844,7 +12552,7 @@ function napCsvFromSiteConfig(cfg = {}) {
 
 function citationsChecklistHtml(cfg = {}) {
   const items = [
-    'Google Business Profile — website URL + NAP match site-config',
+    'Google Business Profile — website URL + NAP match site-config (Line 1 street, Line 2 suite when present)',
     'Apple Business Connect',
     'Bing Places',
     'Yelp Business',
@@ -12208,6 +12916,10 @@ function renderContent() {
   // After Accept, draft is deleted — still treat Speech/SEO as done (clean publish).
   // Soft progress: speech findings must clear. Critical SEO can use Accept override.
   const editorClear = Boolean(speechChecked && editorNeeds.speechN === 0);
+  const apiMode = effectiveClaudeUiMode() === 'api';
+  const editorPhaseDone = apiMode
+    ? Boolean(speechChecked) || (contentAcceptedLive && !draft)
+    : editorClear || (contentAcceptedLive && !draft);
   const fieldResearch = d?.contentFieldResearch;
   const fieldOk = Boolean(fieldResearch?.status === 'loaded' || f.hasContentFieldResearch);
   const briefOk = brief?.status === 'confirmed' || Boolean(f.hasContentBriefConfirmed);
@@ -12253,7 +12965,7 @@ function renderContent() {
     brief: briefOk,
     outline: outlineConfirmed,
     write: writeOk,
-    editor: editorClear || (contentAcceptedLive && !draft),
+    editor: editorPhaseDone,
     finalCheck: finalOk || (contentAcceptedLive && !draft),
     imageQueries: !photosOn || queriesLoaded,
     photoGroup: photoGroupAttached || photoGroupSkipped,
@@ -12264,7 +12976,7 @@ function renderContent() {
     outlineLegacy: Boolean(outline) || Boolean(f.hasContentOutline),
   };
   // Open draft with speech leftovers: stay on Humanize (copy/paste lives here)
-  if (draft && speechChecked && editorNeeds.speechN > 0) {
+  if (!apiMode && draft && speechChecked && editorNeeds.speechN > 0) {
     if (
       state.contentSoftCurrent === 'accept' ||
       state.contentSoftCurrent === 'finalCheck' ||
@@ -12303,7 +13015,6 @@ function renderContent() {
     delete nextSoft.accept;
     state.contentSoftDone = nextSoft;
   }
-  const apiMode = effectiveClaudeUiMode() === 'api';
   const writeSiteDone =
     Boolean(fieldOk) &&
     Boolean(briefOk) &&
@@ -12430,8 +13141,10 @@ function renderContent() {
               : `<p class="disc-tool-blurb">Anthropic API writes the site from Structure. Confirm cost, then wait on the overlay (or watch Light).</p>`
           }
           ${
-            leftoverN
-              ? `<div class="callout warn"><strong>Speech leftovers (${esc(String(leftoverN))})</strong> — Retry Write site (resume) or switch to Copy &amp; paste Humanize.</div>
+            writeSiteDone && leftoverN
+              ? `<div class="callout"><strong>${esc(String(leftoverN))} speech note${
+                  leftoverN === 1 ? '' : 's'
+                }</strong> — Rover continued. Optional: switch to Copy &amp; paste Humanize if you want them gone.</div>
                  ${speechLintFindingsHtml(draft?._ops?.speechLint)}
                  ${seoLintFindingsHtml(draft?._ops?.seoLint)}`
               : ''
@@ -12439,7 +13152,7 @@ function renderContent() {
           <div class="narrative-actions" style="flex-wrap:wrap;gap:0.4rem">
             <button type="button" class="btn primary" id="cs-write-site" ${
               structureDone && ready && !wsBusy ? '' : 'disabled'
-            }>${writeSiteDone ? 'Re-run Write site' : leftoverN ? 'Retry Write site' : 'Write site with Claude'}</button>
+            }>${writeSiteDone ? 'Re-run Write site' : 'Write site with Claude'}</button>
           </div>`,
       }),
     );
@@ -12895,7 +13608,7 @@ function renderContent() {
     fieldOk &&
     briefOk &&
     writeOk &&
-    editorNeeds.speechN === 0 &&
+    (apiMode || editorNeeds.speechN === 0) &&
     finalOk &&
     photosReady;
   parts.push(
@@ -12923,10 +13636,36 @@ function renderContent() {
         }
         ${
           seoCritical.length
-            ? `<div class="callout warn"><strong>Critical SEO:</strong> ${esc(
-                seoCritical.map((f) => f.excerpt || f.rule).join('; '),
-              )}. Use Copy editor prompt on the Humanize step, or check override below.</div>
-              <label class="check"><input type="checkbox" id="content-accept-seo-override" /> Accept with SEO warnings</label>`
+            ? (() => {
+                const thinLoc = seoCritical.filter((f) => f.rule === 'location_body_thin');
+                const lines = seoCritical
+                  .map((f) => {
+                    const file = String(f.file || '')
+                      .replace(/^src\/content\//, '')
+                      .trim();
+                    const excerpt = f.excerpt || f.rule;
+                    return file ? `${file} · ${excerpt}` : excerpt;
+                  })
+                  .join('; ');
+                const hint = thinLoc.length
+                  ? apiMode
+                    ? 'Use Expand location pages to add local copy. Ship anyway below does not fix the pages.'
+                    : 'Use Expand location pages, or Copy editor prompt on Humanize. Ship anyway below does not fix the pages.'
+                  : apiMode
+                    ? 'Re-run Write site to retry polish, or ship anyway below (does not fix the pages).'
+                    : 'Use Copy editor prompt on the Humanize step, or ship anyway below.';
+                return `<div class="callout warn"><strong>Critical SEO:</strong> ${esc(
+                  lines,
+                )}. ${esc(hint)}</div>
+              ${
+                thinLoc.length
+                  ? `<div class="narrative-actions" style="justify-content:flex-start;margin-bottom:0.5rem">
+              <button type="button" class="btn" id="content-expand-loc-btn" data-tip="Send only the thin location files back to Claude">Expand location pages</button>
+            </div>`
+                  : ''
+              }
+              <label class="check"><input type="checkbox" id="content-accept-seo-override" /> Ship anyway (SEO warnings)</label>`;
+              })()
             : ''
         }
         <div class="narrative-actions" style="justify-content:flex-end">
@@ -12938,7 +13677,7 @@ function renderContent() {
         ${
           check?.warnings?.length || contract?.warnings?.length
             ? `<div class="callout warn"><strong>Warnings:</strong> ${esc(
-                [...(check?.warnings || []), ...(contract?.warnings || [])].join('; '),
+                [...new Set([...(check?.warnings || []), ...(contract?.warnings || [])])].join('; '),
               )}</div>`
             : ''
         }
@@ -12970,7 +13709,7 @@ function renderContent() {
     }),
   );
 
-  return `<div class="content-panel-wrap">${writeSiteOverlayHtml(photosOn)}${acceptOverlayHtml()}${parts.join('')}</div>`;
+  return `<div class="content-panel-wrap">${writeSiteOverlayHtml(photosOn)}${acceptOverlayHtml()}${expandLocationsOverlayHtml()}${parts.join('')}</div>`;
 }
 
 function imagesStatusLine(d, { withTime = true } = {}) {
@@ -13074,7 +13813,13 @@ function imagesTextMatchesTitle(text, q) {
 }
 
 function imagesSlotTitle(slot) {
-  return [slot?.label, slot?.serviceName, slot?.key].filter(Boolean).join(' ');
+  return [slot?.label, slot?.serviceName, slot?.slotDescription, slot?.key].filter(Boolean).join(' ');
+}
+
+function slotPhotoBriefLineHtml(slotOrPair) {
+  const desc = String(slotOrPair?.slotDescription || '').trim();
+  if (!desc) return '';
+  return `<span class="muted slot-photo-brief">${esc(desc)}</span>`;
 }
 
 function reviewBaTitle(pair) {
@@ -13303,10 +14048,7 @@ function chatgptOpenBtnHtml() {
 }
 
 function photoGroupsAttachedOnDetail() {
-  const doc = state.detail?.photoGroupAttached;
-  if (!doc || doc.skipped) return false;
-  if (Array.isArray(doc.groupIds) && doc.groupIds.length) return true;
-  return Boolean(doc.groupId);
+  return photoGroupsLoadedOnDetail(state.detail);
 }
 
 function variantTrayHtml(variants, { ba = false, seeMore = false, slotKey = '' } = {}) {
@@ -13657,10 +14399,10 @@ function openaiGenerateBtnHtml({ pair = false, extra = '', bulk = false, flux } 
   const label = pair ? 'OpenAI pair' : 'OpenAI';
   const tip = configured
     ? bulk
-      ? 'GPT Image 2: generate each selected photo slot (~$0.04) and Before & after pair (~$0.09). Replaces live files; previous go to the tray. Tray keeps 8; oldest is removed. Uses Inside/Outside.'
+      ? 'GPT Image 2: generate each selected photo slot (~$0.04) and Before & after pair (~$0.09). Replaces live files; previous go to the tray. Tray keeps 8; oldest is removed. Uses Inside/Outside and No People/People.'
       : pair
-      ? 'GPT Image 2 medium. ChatGPT-style prompts for the current Inside/Outside. Generate Before, then edit After. ~$0.09. Replaces live pair; previous goes to the tray. Tray keeps 8; oldest is removed.'
-      : 'GPT Image 2 medium. ChatGPT-style prompt for the current Inside/Outside. ~$0.04. Replaces the live slot; previous photo goes to the tray. Tray keeps 8; oldest is removed.'
+      ? 'GPT Image 2 medium. ChatGPT-style prompts for the current Inside/Outside and No People/People. Generate Before, then edit After. ~$0.09. Replaces live pair; previous goes to the tray. Tray keeps 8; oldest is removed.'
+      : 'GPT Image 2 medium. ChatGPT-style prompt for the current Inside/Outside and No People/People. ~$0.04. Replaces the live slot; previous photo goes to the tray. Tray keeps 8; oldest is removed.'
     : 'Set OPENAI_API_KEY in .env (same key as Phone), then restart Rover.';
   const disabled = configured ? '' : ' disabled';
   const bulkClass = bulk ? ' slot-generate-selected-openai' : '';
@@ -13684,6 +14426,7 @@ function slotSourceActionsHtml({
   return `<div class="slot-source-actions">
     <div class="slot-ai-group">
       ${baViewpointSegmentHtml(viewpointKey)}
+      ${baOccupancySegmentHtml(viewpointKey)}
       <div class="slot-ai-group-btns">${generate}${copyHtml}${chatgptOpenBtnHtml()}</div>
     </div>
     ${files}
@@ -13700,10 +14443,9 @@ function selectedGenerateCostLine(nSlots, nPairs) {
   return bits.length ? `${bits.join(' · ')} (about $${total.toFixed(2)})` : '';
 }
 
-function countSelectedBySource(slots, checks) {
+function countSlotsBySource(slots) {
   const out = { stock: 0, openai: 0 };
   for (const s of slots || []) {
-    if (!checks?.[s.key]) continue;
     const k = imagesSlotSourceKind(s);
     if (k === 'stock' || k === 'openai') out[k] += 1;
   }
@@ -13794,13 +14536,14 @@ function imagesSlotCardHtml(slot) {
     <div class="slot-thumb" style="aspect-ratio:16/10;background:#0f172a0d;display:flex;align-items:center;justify-content:center">${thumb}</div>
     <div style="padding:0.45rem 0.55rem;display:flex;flex-direction:column;gap:0.25rem">
       <strong style="font-size:0.85rem;display:flex;align-items:center;gap:0.35rem">${matchDot}${esc(slot.label || slot.key)}</strong>
+      ${slotPhotoBriefLineHtml(slot)}
       ${serviceLine}
       ${badge}
       ${slotSourceActionsHtml({
         kind: 'photo',
         viewpointKey: slot.key,
         generateExtra: ` data-slot-key="${esc(slot.key)}"`,
-        copyHtml: `<button type="button" class="btn btn-sm ca-slot-chatgpt-prompt" data-slot-key="${esc(slot.key)}" data-tip="Copy a ChatGPT image prompt for this slot (uses Inside/Outside), then generate and Upload">Copy prompt</button>`,
+        copyHtml: `<button type="button" class="btn btn-sm ca-slot-chatgpt-prompt" data-slot-key="${esc(slot.key)}" data-tip="Copy a ChatGPT image prompt for this slot (uses Inside/Outside and No People/People), then generate and Upload">Copy prompt</button>`,
         filesHtml: `<button type="button" class="btn btn-sm ca-slot-repull" data-slot-key="${esc(slot.key)}" data-tip="Fetch a different stock photo for this slot">Re-pull</button>
         <label class="btn btn-sm" style="cursor:pointer;margin:0" data-tip="Upload a local image for this slot">
           Upload
@@ -13841,13 +14584,14 @@ function reviewBaCardHtml(candidateId, pair) {
     </div>
     <div style="padding:0.45rem 0.55rem;display:flex;flex-direction:column;gap:0.25rem">
       <strong style="font-size:0.85rem;display:flex;align-items:center;gap:0.35rem">${matchDot}${esc(label)}</strong>
+      ${slotPhotoBriefLineHtml(pair)}
       ${badge}
       ${slotSourceActionsHtml({
         kind: 'ba',
         viewpointKey: key,
         generateExtra: ` data-match-key="${esc(key)}"`,
-        copyHtml: `<button type="button" class="btn btn-sm ca-ba-card-copy" data-ba-kind="before" data-service-slug="${esc(pair.slug || '')}" data-tip="Copy the current Inside/Outside BEFORE prompt (same text OpenAI pair uses)">Copy before</button>
-        <button type="button" class="btn btn-sm ca-ba-card-copy" data-ba-kind="after" data-service-slug="${esc(pair.slug || '')}" data-tip="Copy the current Inside/Outside AFTER prompt (same text OpenAI pair uses)">Copy after</button>`,
+        copyHtml: `<button type="button" class="btn btn-sm ca-ba-card-copy" data-ba-kind="before" data-service-slug="${esc(pair.slug || '')}" data-tip="Copy the current Inside/Outside and No People/People BEFORE prompt (same text OpenAI pair uses)">Copy before</button>
+        <button type="button" class="btn btn-sm ca-ba-card-copy" data-ba-kind="after" data-service-slug="${esc(pair.slug || '')}" data-tip="Copy the current Inside/Outside and No People/People AFTER prompt (same text OpenAI pair uses)">Copy after</button>`,
         filesHtml: `<label class="btn btn-sm" style="cursor:pointer;margin:0" data-tip="Replaces the live pair; previous goes to the tray. Tray keeps 8; oldest is removed.">
           Import pair
           <input type="file" class="ca-ba-card-import" data-service-slug="${esc(pair.slug || '')}" data-pair-index="${esc(String(pair.pairIndex || 1))}" accept="image/jpeg,image/png,image/webp" multiple hidden />
@@ -14012,7 +14756,7 @@ function reviewBaCardsHtml(
       return (
         imagesSlotMatchesFilter(slot, filter) &&
         imagesSlotMatchesSource(slot, sourceFilter) &&
-        imagesTextMatchesTitle(reviewBaTitle(p), titleQ)
+        imagesTextMatchesTitle([reviewBaTitle(p), p.slotDescription].filter(Boolean).join(' '), titleQ)
       );
     })
     .map((p) => reviewBaCardHtml(candidateId, p))
@@ -14040,13 +14784,10 @@ function renderReviewFluxToolbar() {
   const el = document.getElementById('ca-flux-toolbar');
   if (!el) return;
   const { nSlots, nPairs } = countReviewChecks();
-  const sourceCounts = countSelectedBySource(
-    [
-      ...(state.reviewImageSlots || []),
-      ...listReviewBaPairs(state.reviewBa).map(baPairAsReviewSlot),
-    ],
-    state.imageSlotChecks,
-  );
+  const sourceCounts = countSlotsBySource([
+    ...(state.reviewImageSlots || []),
+    ...listReviewBaPairs(state.reviewBa).map(baPairAsReviewSlot),
+  ]);
   el.outerHTML = fluxToolbarHtml({
     nSlots,
     nPairs,
@@ -14080,6 +14821,7 @@ function baPairAsReviewSlot(pair) {
   return {
     key: `ba:${matchKey}`,
     label: reviewBaTitle(pair),
+    slotDescription: pair?.slotDescription || '',
     missing: Boolean(pair?.missing) || !pair?.complete,
     source: pair?.source || null,
     matchGrade: pair?.matchGrade || null,
@@ -14638,7 +15380,8 @@ async function refreshImageSlotsGrid(candidateId) {
 /** After slot Re-pull/Upload/generate: keep Review images open; patch one card when possible. */
 async function commitReviewSlot(candidateId, { candidate, slotKey, slot, baPair, status } = {}) {
   if (candidate) {
-    state.detail = candidate;
+    const prev = state.detail?.id === candidate?.id ? state.detail : null;
+    state.detail = mergeCandidateDetail(prev, candidate);
     patchListLastCosts(candidate);
   }
   state.websiteOpenStep = 'images';
@@ -14647,13 +15390,17 @@ async function commitReviewSlot(candidateId, { candidate, slotKey, slot, baPair,
   const statusEl = document.getElementById('ca-images-status');
   paintImagesStatusEl(statusEl, state.detail);
   renderOpenaiSpendLine();
-  const mappedSlot = slot || status?.slot || null;
+  const mappedSlot = status?.slot || slot || null;
   const mappedPair = baPair || status?.pair || null;
-  const patched = patchReviewImageCard(candidateId, {
-    slotKey,
-    slot: mappedSlot,
-    baPair: mappedPair,
-  });
+  const slotNeedsFullRefresh =
+    mappedSlot?.filename && (!mappedSlot.sectionGroup || !mappedSlot.previewUrl);
+  const patched =
+    !slotNeedsFullRefresh &&
+    patchReviewImageCard(candidateId, {
+      slotKey,
+      slot: mappedSlot,
+      baPair: mappedPair,
+    });
   if (!patched) await refreshImageSlotsGrid(candidateId);
   if (slotKey) await settleSlotBusy(slotKey);
 }
@@ -14923,6 +15670,22 @@ function wireImageSlotActions(candidateId, _refreshFn) {
       fillBaPromptsPanel(card);
       return;
     }
+    const occBtn = ev.target.closest('[data-ba-occupancy]');
+    if (occBtn && root.contains(occBtn)) {
+      const group = occBtn.closest('[data-ba-occupancy-step]');
+      if (!group || !root.contains(group)) return;
+      ev.preventDefault();
+      const stepKey = group.dataset?.baOccupancyStep || '';
+      if (!stepKey) return;
+      const card = group.closest('.photo-ba-card') || group.closest('.image-slot-card');
+      stashSlotPromptDraft(card);
+      const next = setBaOccupancy(stepKey, occBtn.dataset.baOccupancy);
+      group.querySelectorAll('[data-ba-occupancy]').forEach((b) => {
+        b.classList.toggle('active', b.dataset.baOccupancy === next);
+      });
+      fillBaPromptsPanel(card);
+      return;
+    }
     const openaiBulk = ev.target.closest('.slot-generate-selected-openai');
     if (openaiBulk && root.contains(openaiBulk)) {
       ev.preventDefault();
@@ -15089,6 +15852,7 @@ function wireImageSlotActions(candidateId, _refreshFn) {
         if (!text) {
           const params = new URLSearchParams({
             viewpoint: fromPanel.viewpoint || getBaViewpoint(matchKey),
+            occupancy: fromPanel.occupancy || getBaOccupancy(matchKey),
             pairIndex: String(pairIndex || 1),
           });
           if (slug) params.set('service', slug);
@@ -15117,7 +15881,10 @@ function wireImageSlotActions(candidateId, _refreshFn) {
         let label = slotKey;
         let viewpoint = fromPanel.viewpoint || getBaViewpoint(slotKey);
         if (!text) {
-          const params = new URLSearchParams({ viewpoint });
+          const params = new URLSearchParams({
+            viewpoint,
+            occupancy: fromPanel.occupancy || getBaOccupancy(slotKey),
+          });
           const data = await api(
             `/api/candidates/${encodeURIComponent(candidateId)}/images/slots/${encodeURIComponent(slotKey)}/chatgpt-prompt?${params}`,
           );
@@ -15565,7 +16332,7 @@ function renderWebsite() {
       current: currentId === 'launch' && !flags.launched,
       info: flags.alreadyLive
         ? 'Already live: Prepare preview first, then Push updates (GitHub + build + Worker). Run launch only when you need to change keys or re-run Cloudflare domain/email.'
-        : 'Before Run launch: buy/point domain NS at Cloudflare (zone must exist), paste Web3Forms key, set Gmail destination for leads@. Then Run launch. After: verify Gmail once if the destination is new. Auto ship + Cloudflare on by default.',
+        : 'Before Run launch: buy/point domain NS at Cloudflare, set Email Routing destination so leads@ exists, then create the Web3Forms form with Recipient Emails = leads@yourdomain (not the account Gmail). After: verify Gmail once if new.',
       bodyHtml: `
         ${
           assembleStale
@@ -15578,10 +16345,10 @@ function renderWebsite() {
             : `<div class="callout"><strong>Before Run launch</strong>
           <ol class="narrative-list">
             <li>Buy the domain and point nameservers to Cloudflare (zone must exist in this account)</li>
-            <li>Create a form at <a href="https://web3forms.com" target="_blank" rel="noopener">web3forms.com</a> and paste the access key below</li>
-            <li>Set Email Routing destination (Gmail) below</li>
+            <li>Set Email Routing destination (Gmail) below. Run launch with Auto ship off first if you still need to create the form — that creates <code>leads@</code> forwarding</li>
+            <li>Create a form at <a href="https://web3forms.com" target="_blank" rel="noopener">web3forms.com</a>. Set Recipient Emails to the Web3Forms recipient below (<code>leads@</code> this domain), not the Web3Forms account Gmail. Paste the access key</li>
           </ol>
-          <p class="muted" style="margin:0.35rem 0 0">Then Run launch. After: click Cloudflare’s verify link in Gmail once if the destination is new; smoke-test the live form.</p>
+          <p class="muted" style="margin:0.35rem 0 0">Then Run launch with Auto ship on. After: click Cloudflare’s verify link in Gmail once if the destination is new; click the Web3Forms verify link for <code>leads@</code>; smoke-test the live form.</p>
         </div>`
         }
         ${launchPreflightHtml(launchIssues)}
@@ -15612,22 +16379,33 @@ function renderWebsite() {
           <label>
             <span class="label-with-tip-head">
               <span>Web3Forms access key</span>
-              <button type="button" class="tip-info" data-tip="Form access key from web3forms.com — delivers lead form submissions." aria-label="About Web3Forms access key">i</button>
+              <button type="button" class="tip-info" data-tip="Form access key from web3forms.com — delivers lead form submissions. Recipient Emails on that form must be the Web3Forms recipient below (leads@), not the account Gmail." aria-label="About Web3Forms access key">i</button>
               <a href="https://web3forms.com/" target="_blank" rel="noopener">Get key</a>
             </span>
             <input id="ca-launch-web3" type="text" value="${esc(cfg.web3FormsAccessKey || '')}" placeholder="Paste from web3forms.com" />
           </label>
+          <div class="ca-launch-w3-recipient-row">
+            <span class="label-with-tip-head">
+              <span>Web3Forms recipient</span>
+              <button type="button" class="tip-info" data-tip="Paste this into Web3Forms → Settings → Recipient Emails. Not the account Gmail. Cloudflare then forwards leads@ to the Email Routing destination." aria-label="About Web3Forms recipient">i</button>
+            </span>
+            <p class="muted" style="margin:0.25rem 0 0">
+              <code id="ca-launch-w3-recipient">${esc(launchWeb3FormsRecipient(cfg.email, cfg.domain) || 'leads@yourdomain.com')}</code>
+              <button type="button" class="btn btn-sm" id="ca-launch-w3-copy">Copy</button>
+              Set Recipient Emails to this address — not the Web3Forms account Gmail.
+            </p>
+          </div>
           <label>
             <span class="label-with-tip-head">
               <span>Leads email</span>
-              <button type="button" class="tip-info" data-tip="Public site leads address (usually leads@yourdomain.com) — shown in footer, contact, and schema. Not your personal Gmail." aria-label="About Leads email">i</button>
+              <button type="button" class="tip-info" data-tip="Public site leads address (usually leads@yourdomain.com) — shown in footer, contact, and schema. Same address as Web3Forms Recipient Emails. Not your personal Gmail." aria-label="About Leads email">i</button>
             </span>
             <input id="ca-launch-email" type="email" value="${esc(cfg.email || '')}" placeholder="leads@yourdomain.com" />
           </label>
           <label>
             <span class="label-with-tip-head">
               <span>Email Routing destination</span>
-              <button type="button" class="tip-info" data-tip="Where Cloudflare forwards leads@ (usually your Gmail). Not the address printed on the website — that is Config → Email / Leads email." aria-label="About Email Routing destination">i</button>
+              <button type="button" class="tip-info" data-tip="Where Cloudflare forwards leads@ (usually your Gmail). Does not change Web3Forms Recipient Emails — those must be leads@ this domain." aria-label="About Email Routing destination">i</button>
             </span>
             <input id="ca-launch-dest" type="email" value="" placeholder="your@gmail.com" />
           </label>
@@ -15694,7 +16472,7 @@ function renderWebsite() {
         <p class="muted">${
           flags.alreadyLive
             ? 'Push updates = ship only (GitHub + build + Worker). Re-assemble via Prepare preview when template/content changed.'
-            : 'Create key at <a href="https://web3forms.com" target="_blank" rel="noopener">web3forms.com</a> · before Run launch: domain NS at Cloudflare · after: verify Gmail once if new'
+            : 'Create the form at <a href="https://web3forms.com" target="_blank" rel="noopener">web3forms.com</a> with Recipient Emails = leads@ this domain · Email Routing destination is Cloudflare only · after: verify Gmail once if new'
         }</p>
         </div>`,
     }),
@@ -16241,6 +17019,7 @@ function wireContentTab(d) {
   document.querySelectorAll('[data-content-toggle]').forEach((btn) => {
     btn.addEventListener('click', () => {
       const step = btn.getAttribute('data-content-toggle');
+      const prevSiteConfigOpen = state.tab === 'site-config' ? state.siteConfigOpenStep : null;
       if (state.tab === 'website') {
         state.websiteOpenStep = nextAccordionOpenId(state.websiteOpenStep, step);
       } else if (state.tab === 'site-config') {
@@ -16258,18 +17037,52 @@ function wireContentTab(d) {
         el.classList.toggle('open', contentStepIsOpen(el.dataset.contentStep, openId));
       });
       applyDetailShelf();
+      if (
+        state.tab === 'site-config' &&
+        (step === 'service-area' || prevSiteConfigOpen === 'service-area')
+      ) {
+        renderDetail();
+        requestAnimationFrame(() => {
+          applyDetailShelf();
+          syncCandidatesDetailVisibility();
+          serviceAreaMount?.invalidateSize?.();
+        });
+        return;
+      }
       if (state.tab === 'website' && openId === 'images') {
         const needsPaint =
           !document.querySelector('#tab-panels .review-images-chrome') ||
           !document.getElementById('ca-image-slots-grid');
         if (needsPaint) renderDetail();
         else void refreshImageSlotsGrid(id);
+        syncOpenaiGenerateFromSnap(state.lightJobsSnap || { jobs: [] });
       }
     });
   });
 
   document.getElementById('cs-write-site')?.addEventListener('click', () => {
     void startWriteSiteFromUi(id);
+  });
+  document.getElementById('content-expand-loc-btn')?.addEventListener('click', () => {
+    void startExpandLocationsFromUi(id);
+  });
+  document.getElementById('ex-overlay-stop')?.addEventListener('click', async () => {
+    const overlay = document.getElementById('content-expand-loc-overlay');
+    const jobId = overlay?.dataset.jobId;
+    if (!jobId) return;
+    const stopBtn = document.getElementById('ex-overlay-stop');
+    if (stopBtn) stopBtn.disabled = true;
+    try {
+      await api(`/api/light-jobs/${encodeURIComponent(jobId)}/cancel`, { method: 'POST' });
+    } catch (error) {
+      if (stopBtn) stopBtn.disabled = false;
+      await showModal({
+        title: 'Could not stop',
+        confirmLabel: 'OK',
+        hideCancel: true,
+        bodyHtml: `<p>${esc(error.message)}</p>`,
+      });
+    }
   });
   document.getElementById('ws-overlay-stop')?.addEventListener('click', async () => {
     const overlay = document.getElementById('content-write-site-overlay');
@@ -16294,6 +17107,7 @@ function wireContentTab(d) {
   if (state.tab === 'content') {
     syncWriteSiteOverlay(state.lightJobsSnap);
     syncAcceptOverlay(state.lightJobsSnap);
+    syncExpandLocationsOverlay(state.lightJobsSnap);
   }
   if (state.tab === 'website') syncLaunchOverlay(state.heavyJobsSnap);
 
@@ -17761,12 +18575,29 @@ function wireContentTab(d) {
       const st = await api(`/api/candidates/${encodeURIComponent(id)}/launch`);
       const dest = document.getElementById('ca-launch-dest');
       if (dest && !dest.value && st.defaultNotifyEmail) dest.value = st.defaultNotifyEmail;
+      if (st.web3FormsRecipient) {
+        const rec = document.getElementById('ca-launch-w3-recipient');
+        if (rec) rec.textContent = st.web3FormsRecipient;
+      } else {
+        syncLaunchWeb3Recipient();
+      }
       return st;
     } catch {
       return null;
     }
   };
   fillLaunchDefaults();
+  document.getElementById('ca-launch-domain')?.addEventListener('input', syncLaunchWeb3Recipient);
+  document.getElementById('ca-launch-email')?.addEventListener('input', syncLaunchWeb3Recipient);
+  document.getElementById('ca-launch-w3-copy')?.addEventListener('click', async () => {
+    const text = syncLaunchWeb3Recipient();
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      /* ignore */
+    }
+  });
   loadShipFreshness(id);
 
   document.getElementById('ca-ship-diff-refresh')?.addEventListener('click', async () => {
@@ -18053,7 +18884,7 @@ function wireContentTab(d) {
         bodyHtml: `<ul class="narrative-list">${flags}</ul>
           <p class="muted">Slug: <code>${esc(st.assembledSiteSlug || '—')}</code>
           · path: <code>${esc(st.assembledSitePath || '—')}</code></p>
-          <p class="muted">Human leftovers: before CF attach — buy/point domain NS → Cloudflare; paste Web3Forms key; after — verify Email Routing destination once. One-time machine: <code>gh auth login</code> + <code>GITHUB_OWNER</code> + <code>CLOUDFLARE_*</code>.</p>`,
+          <p class="muted">Human leftovers: buy/point domain NS → Cloudflare; run Email Routing so leads@ exists; create Web3Forms form with Recipient Emails = leads@ this domain (not the account Gmail); after — verify Email Routing destination once and the Web3Forms leads@ verify link. One-time machine: <code>gh auth login</code> + <code>GITHUB_OWNER</code> + <code>CLOUDFLARE_*</code>.</p>`,
       });
     } catch (error) {
       await showModal({ title: 'Failed', confirmLabel: 'OK', bodyHtml: `<p>${esc(error.message)}</p>` });
@@ -19187,7 +20018,7 @@ function wireSiteConfigTab(d) {
           title: 'Use Secondary address?',
           confirmLabel: 'Use Secondary',
           cancelLabel: 'Cancel',
-          bodyHtml: `<p><strong>${esc(row.street)}</strong>, ${esc(row.city)}, ${esc(row.state)} ${esc(
+          bodyHtml: `<p><strong>${esc(baRowDisplayStreet(row))}</strong>, ${esc(row.city)}, ${esc(row.state)} ${esc(
             row.zip,
           )}</p>
             <p class="muted">Places-clean, but Google Maps locality is <strong>${esc(
@@ -19204,7 +20035,7 @@ function wireSiteConfigTab(d) {
           body: JSON.stringify({
             selection: {
               street: row.street,
-              suite: row.suite,
+              suite: row.suite || '',
               city: row.city,
               state: row.state,
               zip: row.zip,
@@ -19212,6 +20043,8 @@ function wireSiteConfigTab(d) {
               lat: row.lat,
               lng: row.lng,
               listingSource: row.source || undefined,
+              listingUrl: row.listingUrl || undefined,
+              listingUrls: row.listingUrls || undefined,
             },
           }),
         });
@@ -19239,7 +20072,7 @@ function wireSiteConfigTab(d) {
         title: 'Use anyway?',
         confirmLabel: 'Use anyway',
         cancelLabel: 'Cancel',
-        bodyHtml: `<p><strong>${esc(row.street)}</strong>, ${esc(row.city)}, ${esc(row.state)} ${esc(
+        bodyHtml: `<p><strong>${esc(baRowDisplayStreet(row))}</strong>, ${esc(row.city)}, ${esc(row.state)} ${esc(
           row.zip,
         )}</p>
           <p class="muted">Places previously found a Maps business at this street number${
@@ -19258,7 +20091,7 @@ function wireSiteConfigTab(d) {
         title: 'Use Secondary address?',
         confirmLabel: 'Use Secondary',
         cancelLabel: 'Cancel',
-        bodyHtml: `<p><strong>${esc(row.street)}</strong>, ${esc(row.city)}, ${esc(row.state)} ${esc(
+        bodyHtml: `<p><strong>${esc(baRowDisplayStreet(row))}</strong>, ${esc(row.city)}, ${esc(row.state)} ${esc(
           row.zip,
         )}</p>
           <p class="muted">Maps locality is <strong>${esc(
@@ -19323,6 +20156,7 @@ function wireSiteConfigTab(d) {
           paletteId: nap.paletteId || 'slate-gold',
           fontTheme: nap.fontTheme || 'archivo-source',
           addressStreet: nap.addressStreet || '',
+          addressSuite: nap.addressSuite || '',
           addressCity: nap.addressCity || '',
           addressState: nap.addressState || '',
           addressZip: nap.addressZip || '',
@@ -19373,6 +20207,7 @@ function wireSiteConfigTab(d) {
           paletteId: nap.paletteId || 'slate-gold',
           fontTheme: nap.fontTheme || 'archivo-source',
           addressStreet: nap.addressStreet || '',
+          addressSuite: nap.addressSuite || '',
           addressCity: nap.addressCity || '',
           addressState: nap.addressState || '',
           addressZip: nap.addressZip || '',
@@ -19406,7 +20241,7 @@ function wireSiteConfigTab(d) {
         notes.length
           ? `Draft loaded — Accept in Review services. ${notes.join(' · ')}`
           : 'Draft loaded — continue to Review services to Accept.',
-        { tone: notes.length ? 'warn' : 'ok' },
+        { tone: 'ok' },
       );
       advancePanelStep('site-config', 'services');
       renderDetail();
@@ -19771,7 +20606,7 @@ function wireSiteConfigTab(d) {
           notes.length
             ? `Draft loaded — edit fields if needed, then Accept in Review services. ${notes.join(' · ')}`
             : 'Draft loaded — continue to Review services to Accept.',
-          { tone: notes.length ? 'warn' : 'ok' },
+          { tone: 'ok' },
         );
         advancePanelStep('site-config', 'services');
         renderDetail();
@@ -19915,6 +20750,26 @@ function wireSiteConfigTab(d) {
     }
   })();
 
+  document.getElementById('sa-refresh-claims')?.addEventListener('click', async () => {
+    if (!(await confirmLaunchedSiteChange('Refresh service area'))) return;
+    const btn = document.getElementById('sa-refresh-claims');
+    if (btn) btn.disabled = true;
+    try {
+      const result = await api(
+        `/api/candidates/${encodeURIComponent(d.id)}/site-config/service-area/refresh`,
+        { method: 'POST' },
+      );
+      await applyCandidatePayload(result.candidate, d.id);
+      state.siteConfigOpenStep = 'service-area';
+      showToast(result.status || 'Refreshed', { tone: 'ok' });
+      renderDetail();
+      notifyZoneServiceAreaChanged(state.detail || d);
+    } catch (error) {
+      showToast(error.message || 'Refresh failed', { tone: 'warn' });
+      if (btn) btn.disabled = false;
+    }
+  });
+
   const saHost = document.getElementById('sa-host');
   const saMapCanvas = document.getElementById('sa-map-canvas');
   const serviceAreaOpen =
@@ -19939,6 +20794,7 @@ function wireSiteConfigTab(d) {
     setServiceAreaLoading(true);
     syncCandidatesDetailVisibility();
     const accepted = d.siteConfig;
+    const inZone = Boolean(d.shotgunClusterId);
     void mountServiceAreaMap({
       mapHost: saMapCanvas,
       controlsHost: saHost,
@@ -19949,22 +20805,46 @@ function wireSiteConfigTab(d) {
       radiusMiles: d.meta?.lastServiceAreaAt
         ? accepted.serviceRadiusMiles || 15
         : 15,
+      minPop: inZone ? 0 : undefined,
+      zoneAware: inZone,
+      zonePagesLocked: inZone && Boolean(d.meta?.lastServiceAreaAt),
+      clusterKey: d.shotgunClusterKey ?? null,
+      zoneMembers: d.shotgunMembers || [],
       initialSelected: Array.isArray(accepted.coverageAreas)
         ? accepted.coverageAreas
         : (accepted.targetSuburbs || []).map((name) => ({ name, state: accepted.state })),
-      claudeOrder: Array.isArray(accepted.targetSuburbs) ? accepted.targetSuburbs : [],
-      researchSuggestedSuburbs: Array.isArray(d.approved?.suggestedSuburbs)
-        ? d.approved.suggestedSuburbs
-        : Array.isArray(d.narrative?.suggestedSuburbs)
-          ? d.narrative.suggestedSuburbs
+      claudeOrder: inZone
+        ? []
+        : Array.isArray(accepted.targetSuburbs)
+          ? accepted.targetSuburbs
           : [],
+      researchSuggestedSuburbs: inZone
+        ? []
+        : Array.isArray(d.approved?.suggestedSuburbs)
+          ? d.approved.suggestedSuburbs
+          : Array.isArray(d.narrative?.suggestedSuburbs)
+            ? d.narrative.suggestedSuburbs
+            : [],
       blockedPlaceKeys: d.shotgunBlockedLocations || [],
-      confirmPageOverride: async (cityName) => {
+      ...serviceAreaClaimMaps(d.shotgunClaimedSuburbs),
+      zonePrimaries: d.shotgunZonePrimaries || [],
+      keepPageNames:
+        d.meta?.lastServiceAreaAt && Array.isArray(accepted.targetSuburbs)
+          ? accepted.targetSuburbs
+          : [],
+      confirmPageOverride: async (info) => {
+        const cityName = typeof info === 'string' ? info : info?.name || '';
+        const reason = typeof info === 'object' && info?.reason === 'claimed' ? 'claimed' : 'sibling';
+        const ownerCity = typeof info === 'object' ? info?.ownerCity || '' : '';
+        const bodyHtml =
+          reason === 'claimed'
+            ? `<p><strong>${esc(ownerCity || 'Another Zone site')}</strong> already has a ${esc(cityName)} location page. Make one on this site anyway? That removes the ${esc(cityName)} page from ${esc(ownerCity || 'the other site')}.</p>`
+            : `<p><strong>${esc(cityName)}</strong> has its own Cluster site. Make a location page on this site anyway?</p>`;
         const result = await showModal({
           title: 'Cluster location page',
           confirmLabel: 'Make location page',
           cancelLabel: 'Cancel',
-          bodyHtml: `<p><strong>${esc(cityName)}</strong> has its own Cluster site. Make a location page on this site anyway?</p>`,
+          bodyHtml,
         });
         return Boolean(result);
       },
@@ -19977,7 +20857,7 @@ function wireSiteConfigTab(d) {
             body: JSON.stringify({
               radiusMiles,
               selectedCities,
-              claudeOrder: accepted.targetSuburbs || [],
+              claudeOrder: inZone ? [] : accepted.targetSuburbs || [],
               locationPageCities: locationPageCities || [],
               clusterLocationPageOverrides: clusterLocationPageOverrides || [],
             }),
@@ -20051,7 +20931,7 @@ function wireSiteConfigTab(d) {
         );
         advancePanelStep('site-config', 'phone');
         renderDetail();
-        notifyCandidatesChanged({ type: 'candidates', ids: [d.id] });
+        notifyZoneServiceAreaChanged(state.detail || d);
       },
     })
       .then(async (m) => {
@@ -20611,7 +21491,7 @@ const SITE_TABLE_COLS = [
   { key: 'city', label: 'City' },
   { key: 'state', label: 'State' },
   { key: 'shotgunSg', label: 'ZN', tip: 'Zone number', cellClass: 'col-sg' },
-  { key: 'shotgunClusterKey', label: 'Cl', tip: 'Cluster 1–10', cellClass: 'col-sg-role' },
+  { key: 'shotgunClusterKey', label: 'Cl', tip: 'Cluster 1–20', cellClass: 'col-sg-role' },
   { key: 'researchMap', label: 'Map', sortable: false },
   { key: 'domain', label: 'Domain' },
   { key: 'status', label: 'Status' },
@@ -20878,6 +21758,13 @@ function sitesMetricsEligible() {
     if (!['live', 'listed', 'rented', 'building'].includes(String(s.status || ''))) return false;
     return Boolean(s.domain || s.liveUrl);
   });
+}
+
+/** Checkbox-selected sites that are eligible for GSC/rank bulk jobs. */
+function selectedSitesForMetrics() {
+  const ids = state.selectedSiteIds;
+  if (!ids.size) return [];
+  return sitesMetricsEligible().filter((s) => ids.has(s.id));
 }
 
 function siteMetricsDomainLabel(s) {
@@ -21864,6 +22751,13 @@ function renderSitesDetail() {
       }
     </div>
     ${
+      s.web3FormsRecipient
+        ? `<p class="muted small">Web3Forms recipient: <code id="sites-w3-recipient">${esc(s.web3FormsRecipient)}</code>
+           <button type="button" class="btn btn-sm" id="sites-w3-copy">Copy</button>
+           Set Recipient Emails to this address — not the Web3Forms account Gmail. Cloudflare then forwards to the Email Routing destination.</p>`
+        : ''
+    }
+    ${
       s.candidateId && (s.status === 'paused' || s.status === 'retired')
         ? `<p class="muted small sites-detail-status-note">Site is ${esc(s.status)} — visual edits still go to candidate source, then Publish to ship.</p>`
         : !s.candidateId
@@ -22251,6 +23145,16 @@ function renderSitesDetail() {
     if (s.candidateId) void shotgunThisMetro(s.candidateId);
   });
 
+  document.getElementById('sites-w3-copy')?.addEventListener('click', async () => {
+    const text = String(s.web3FormsRecipient || '').trim();
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      /* ignore */
+    }
+  });
+
   document.getElementById('sites-visual-edit')?.addEventListener('click', async () => {
     if (!s.candidateId) return;
     if (s.status === 'paused' || s.status === 'retired') {
@@ -22555,6 +23459,7 @@ function photoLibSlotCardHtml(slot, { selected = false } = {}) {
       <strong style="font-size:0.85rem;display:flex;align-items:center;gap:0.35rem">${matchDot}${esc(
         slot.label || slot.key || key,
       )}</strong>
+      ${slotPhotoBriefLineHtml(slot)}
       ${serviceLine}
       ${badge}
       ${slotSourceActionsHtml({
@@ -22610,12 +23515,13 @@ function photoLibBaCardHtml(pair, { selected = false } = {}) {
     </div>
     <div style="padding:0.55rem;display:flex;flex-direction:column;gap:0.35rem">
       <strong style="font-size:0.85rem;display:flex;align-items:center;gap:0.35rem">${matchDot}${esc(label)}</strong>
+      ${slotPhotoBriefLineHtml(pair)}
       ${badge}
       ${slotSourceActionsHtml({
         kind: 'ba',
         viewpointKey: key,
         generateExtra: ` data-match-key="${esc(key)}"`,
-        copyHtml: `<button type="button" class="btn btn-sm photo-ba-copy" data-match-key="${esc(key)}" data-ba-kind="before" data-tip="Copy the current Inside/Outside BEFORE prompt">Copy before</button>
+        copyHtml: `<button type="button" class="btn btn-sm photo-ba-copy" data-match-key="${esc(key)}" data-ba-kind="before" data-tip="Copy the current Inside/Outside and No People/People BEFORE prompt">Copy before</button>
         <button type="button" class="btn btn-sm photo-ba-copy" data-match-key="${esc(key)}" data-ba-kind="after">Copy after</button>`,
         filesHtml: `<label class="btn btn-sm" style="cursor:pointer;margin:0" data-tip="Replaces the live pair; previous goes to the tray. Tray keeps 8; oldest is removed.">
           Import pair
@@ -23279,6 +24185,21 @@ function wirePhotoUi() {
       fillBaPromptsPanel(card);
       return;
     }
+    const occBtn = ev.target.closest('[data-ba-occupancy]');
+    if (occBtn && root.contains(occBtn)) {
+      const group = occBtn.closest('[data-ba-occupancy-step]');
+      if (!group) return;
+      ev.preventDefault();
+      const stepKey = group.dataset?.baOccupancyStep || '';
+      const card = group.closest('.photo-ba-card') || group.closest('.image-slot-card');
+      stashSlotPromptDraft(card);
+      const next = setBaOccupancy(stepKey, occBtn.dataset.baOccupancy);
+      group.querySelectorAll('[data-ba-occupancy]').forEach((b) => {
+        b.classList.toggle('active', b.dataset.baOccupancy === next);
+      });
+      fillBaPromptsPanel(card);
+      return;
+    }
 
     const openaiBulk = ev.target.closest('.slot-generate-selected-openai');
     if (openaiBulk && root.contains(openaiBulk)) {
@@ -23614,10 +24535,12 @@ function wirePhotoUi() {
         let text = fromPanel.prompt || '';
         if (!text) {
           const viewpoint = fromPanel.viewpoint || getBaViewpoint(matchKey);
+          const occupancy = fromPanel.occupancy || getBaOccupancy(matchKey);
+          const params = new URLSearchParams({ viewpoint, occupancy });
           const data = await api(
             `/api/photo-groups/${encodeURIComponent(lib.groupId)}/slots/${encodeURIComponent(
               matchKey,
-            )}/chatgpt-prompt?viewpoint=${encodeURIComponent(viewpoint)}`,
+            )}/chatgpt-prompt?${params}`,
           );
           text = data.prompt || '';
         }
@@ -23648,6 +24571,7 @@ function wirePhotoUi() {
           const params = new URLSearchParams({
             matchKey: key,
             viewpoint: fromPanel.viewpoint || getBaViewpoint(key),
+            occupancy: fromPanel.occupancy || getBaOccupancy(key),
           });
           const prompts = await api(
             `/api/photo-groups/${encodeURIComponent(lib.groupId)}/before-after-prompts?${params}`,
@@ -24133,7 +25057,45 @@ function wirePhoneUi() {
   });
 }
 
+async function showWeb3FormsInboxList() {
+  const rows = (state.sites || [])
+    .filter((s) => s.web3FormsRecipient || s.domain)
+    .map((s) => {
+      const recipient = s.web3FormsRecipient || launchWeb3FormsRecipient(s.email, s.domain);
+      return {
+        name: s.businessName || s.domain || s.candidateId || 'Site',
+        recipient,
+        dash: s.web3FormsDashboardUrl || 'https://web3forms.com/',
+      };
+    });
+  const list = rows
+    .map(
+      (r) =>
+        `<li><strong>${esc(r.name)}</strong> — <code>${esc(r.recipient)}</code></li>`,
+    )
+    .join('');
+  const text = rows.map((r) => `${r.name}\t${r.recipient}`).join('\n');
+  await showModal({
+    title: 'Web3Forms form inboxes',
+    confirmLabel: 'Copy list',
+    cancelLabel: 'Close',
+    bodyHtml: `<p>Set each form’s Recipient Emails to <code>leads@</code> that domain — not the Web3Forms account Gmail. Cloudflare then forwards to the Email Routing destination.</p>
+      <p class="muted"><a href="https://app.web3forms.com/" target="_blank" rel="noopener">Open Web3Forms dashboard</a></p>
+      <ol class="narrative-list">${list || '<li>No launched sites with a domain yet.</li>'}</ol>`,
+  }).then(async (ok) => {
+    if (!ok || !text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      /* ignore */
+    }
+  });
+}
+
 function wireSitesUi() {
+  document.getElementById('sites-w3-inboxes-btn')?.addEventListener('click', () => {
+    void showWeb3FormsInboxList();
+  });
   document.getElementById('sites-refresh-btn')?.addEventListener('click', () => {
     if (state.sitesMetricsBusy) return;
     loadSites().catch(() => {});
@@ -24228,8 +25190,12 @@ function wireSitesUi() {
 
   document.getElementById('sites-gsc-sync-btn')?.addEventListener('click', async () => {
     if (state.sitesMetricsBusy) return;
+    if (!state.selectedSiteIds.size) {
+      showToast('Select one or more rows first.', { tone: 'warn' });
+      return;
+    }
     try {
-      await syncSitesGscSequential();
+      await syncSitesGscSequential(selectedSitesForMetrics());
     } catch (error) {
       await showModal({
         title: 'GSC sync failed',
@@ -24241,14 +25207,19 @@ function wireSitesUi() {
 
   document.getElementById('sites-index-check-btn')?.addEventListener('click', async () => {
     if (state.sitesMetricsBusy) return;
+    if (!state.selectedSiteIds.size) {
+      showToast('Select one or more rows first.', { tone: 'warn' });
+      return;
+    }
+    const n = state.selectedSiteIds.size;
     const go = await showModal({
-      title: 'Check index for all sites?',
+      title: `Check index for ${n} selected site${n === 1 ? '' : 's'}?`,
       confirmLabel: 'Check index',
       bodyHtml: `<p>Inspects each sitemap URL in Search Console (URL Inspection). First run is about 5–30 seconds per site; later runs skip URLs indexed in the last 7 days. This is not the GSC Pages report.</p>`,
     });
     if (!go) return;
     try {
-      await checkSitesIndexSequential();
+      await checkSitesIndexSequential(selectedSitesForMetrics());
     } catch (error) {
       if (isGscAuthRevokedError(error)) {
         await showGscReconnectModal(error);
@@ -24264,14 +25235,19 @@ function wireSitesUi() {
 
   document.getElementById('sites-rank-sync-btn')?.addEventListener('click', async () => {
     if (state.sitesMetricsBusy) return;
+    if (!state.selectedSiteIds.size) {
+      showToast('Select one or more rows first.', { tone: 'warn' });
+      return;
+    }
+    const n = state.selectedSiteIds.size;
     const go = await showModal({
-      title: 'Check ranks for all sites?',
+      title: `Check ranks for ${n} selected site${n === 1 ? '' : 's'}?`,
       confirmLabel: 'Run Standard queue',
       bodyHtml: `<p>Uses DataForSEO <strong>Standard</strong> organic SERP (depth 20) for up to 5 keywords per live/building site. Progress shows each site; can take several minutes.</p>`,
     });
     if (!go) return;
     try {
-      await checkSitesRanksSequential();
+      await checkSitesRanksSequential(selectedSitesForMetrics());
     } catch (error) {
       await showModal({
         title: 'Rank sync failed',
@@ -26722,8 +27698,10 @@ function syncShotgunDiscoverySurfaces({ hasHub, hasPackRows }) {
 
 function shotgunPreferredKeys(h) {
   const keys = new Set();
-  for (const c of h.wave1Preferred || []) keys.add(shotgunHubKey(c.city, c.state));
-  for (const c of h.wave2Preferred || []) keys.add(shotgunHubKey(c.city, c.state));
+  const preferred = h.citiesPreferred?.length
+    ? h.citiesPreferred
+    : [...(h.wave1Preferred || []), ...(h.wave2Preferred || [])];
+  for (const c of preferred) keys.add(shotgunHubKey(c.city, c.state));
   return keys;
 }
 
@@ -26762,6 +27740,7 @@ function shotgunPackMembers(draft, hub) {
 }
 
 function shotgunPreferredMembers(h) {
+  if (h.citiesPreferred?.length) return h.citiesPreferred;
   return [...(h.wave1Preferred || []), ...(h.wave2Preferred || [])];
 }
 
@@ -26797,8 +27776,8 @@ function renderShotgunHubRowsHtml(hubs, draft, { selectedKey = '', showWhy = fal
           ? assignedCities.map((c) => shotgunHubKey(c.city, c.state)).concat([key])
           : [...shotgunPreferredKeys(h)],
       );
-      const leftover1 = (h.wave1 || []).filter((c) => !hideKeys.has(shotgunHubKey(c.city, c.state)));
-      const leftover2 = (h.wave2 || []).filter((c) => !hideKeys.has(shotgunHubKey(c.city, c.state)));
+      const leftover1 = (h.innerCities || h.wave1 || []).filter((c) => !hideKeys.has(shotgunHubKey(c.city, c.state)));
+      const leftover2 = (h.outerCities || h.wave2 || []).filter((c) => !hideKeys.has(shotgunHubKey(c.city, c.state)));
       const leftoverCities = [...leftover1, ...leftover2];
       const clusterCities = assignedCities;
       const clusterPop =
@@ -27145,6 +28124,26 @@ async function renderShotgunWorkspace() {
             throw error;
           }
         },
+        onPaintMany: async (cities, payload) => {
+          try {
+            const result = await api(
+              `/api/discovery/batches/${encodeURIComponent(state.discoveryBatchId)}/shotgun/paint-many`,
+              {
+                method: 'POST',
+                body: JSON.stringify({
+                  cities,
+                  slot: payload?.slot,
+                  radiusMiles: payload?.radiusMiles,
+                }),
+              },
+            );
+            state.shotgunWorkspace = result.workspace || result;
+            await renderShotgunWorkspace();
+          } catch (error) {
+            showToast(error.message || 'Could not update cities', { tone: 'warn' });
+            throw error;
+          }
+        },
         onZoneMilesChange: async (miles, range) => {
           if (!state.discoveryBatchId) return;
           try {
@@ -27369,8 +28368,8 @@ async function startShotgunApiStep(act) {
     return;
   }
   const path =
-    act === 'shotgun-assign-waves'
-      ? 'assign-waves'
+    act === 'shotgun-assign-cities' || act === 'shotgun-assign-waves'
+      ? 'assign-cities'
       : act === 'shotgun-generate-pack'
         ? 'generate-pack'
         : 'find-hubs';
@@ -27419,7 +28418,9 @@ function shotgunJobRunning() {
   const jobs = state.lightJobsSnap?.jobs || [];
   return jobs.some(
     (j) =>
-      (j.phase === 'shotgun-find-hubs' || j.phase === 'shotgun-assign-waves') &&
+      (j.phase === 'shotgun-find-hubs' ||
+        j.phase === 'shotgun-assign-cities' ||
+        j.phase === 'shotgun-assign-waves') &&
       (j.status === 'running' || j.status === 'queued'),
   );
 }
@@ -27430,7 +28431,9 @@ function syncShotgunJobOverlay(snap) {
   const jobs = snap?.jobs || [];
   const job = jobs.find(
     (j) =>
-      (j.phase === 'shotgun-find-hubs' || j.phase === 'shotgun-assign-waves') &&
+      (j.phase === 'shotgun-find-hubs' ||
+        j.phase === 'shotgun-assign-cities' ||
+        j.phase === 'shotgun-assign-waves') &&
       (j.status === 'running' || j.status === 'queued') &&
       String(j.batchId || '') === String(state.discoveryBatchId || ''),
   );
@@ -27460,7 +28463,11 @@ function syncShotgunJobOverlay(snap) {
       if (track.act === 'shotgun-find-hubs' && !draft.hub && !picker.length && !extras.length) {
         showToast('No cluster hubs — Claude had no matchable hubs');
       } else {
-        announceStepComplete(track.act === 'shotgun-assign-waves' ? 'Assign cluster cities' : 'Find hubs');
+        announceStepComplete(
+          track.act === 'shotgun-assign-cities' || track.act === 'shotgun-assign-waves'
+            ? 'Assign cluster cities'
+            : 'Find hubs',
+        );
       }
       if (track.act === 'shotgun-find-hubs') void loadDiscoveryBatches();
     });
@@ -27508,7 +28515,7 @@ function renderShotgunApiButtons() {
     startShotgunApiStep('shotgun-find-hubs'),
   );
   document.getElementById('sg-api-assign')?.addEventListener('click', () =>
-    startShotgunApiStep('shotgun-assign-waves'),
+    startShotgunApiStep('shotgun-assign-cities'),
   );
   document.getElementById('sg-api-pack')?.addEventListener('click', () =>
     startShotgunApiStep('shotgun-generate-pack'),
@@ -27591,6 +28598,24 @@ async function openZoneMapModal(zoneId, { focusCity, focusState } = {}) {
         }
         zoneMapMount?.setMembers?.(next);
       },
+      onPaintMany: async (cities, payload) => {
+        const result = await api(`/api/shotgun-clusters/${encodeURIComponent(id)}/paint-many`, {
+          method: 'POST',
+          body: JSON.stringify({
+            cities,
+            slot: payload?.slot,
+            radiusMiles: payload?.radiusMiles,
+          }),
+        });
+        const next = result.workspace || (await api(`/api/shotgun-clusters/${encodeURIComponent(id)}/workspace`));
+        if (state.shotgunWorkspace?.clusterId === id || state.shotgunWorkspace?.draft?.clusterId === id) {
+          state.shotgunWorkspace = { ...state.shotgunWorkspace, ...next, draft: next.draft };
+          void renderShotgunWorkspace();
+        }
+        if (state.selectedId) void loadSelectedCandidateDetail(state.selectedId);
+        void loadCandidates();
+        zoneMapMount?.setMembers?.(next);
+      },
       onZoneMilesChange: async (miles) => {
         const result = await api(`/api/shotgun-clusters/${encodeURIComponent(id)}/zone-miles`, {
           method: 'POST',
@@ -27602,7 +28627,10 @@ async function openZoneMapModal(zoneId, { focusCity, focusState } = {}) {
     zoneMapMount = mounted;
     requestAnimationFrame(() => {
       zoneMapMount?.invalidateSize?.();
-      if (focusCity) zoneMapMount?.focusCity?.(focusCity, focusState);
+      requestAnimationFrame(() => {
+        zoneMapMount?.invalidateSize?.();
+        if (focusCity) zoneMapMount?.focusCity?.(focusCity, focusState);
+      });
     });
   } catch (error) {
     showToast(error.message || 'Zone map failed', { tone: 'warn' });
@@ -28486,28 +29514,38 @@ function wireDiscoveryUi() {
       });
       return;
     }
+    const evalRunMode = getEvalRunMode();
     const estLow = (pursueCount * 0.2).toFixed(2);
     const estHigh = (pursueCount * 1.5).toFixed(2);
     const adsMode = getAdsMode();
     const adsLine =
-      pursueCount > 0
+      pursueCount > 0 && evalRunMode === 'all'
         ? `<p><strong>SERP / Volume Ads mode:</strong> ${
             adsMode === 'standard'
               ? 'Standard queue (cheaper, slower — overnight OK)'
               : 'Live (faster)'
           }. Change on Research → Ad volumes.</p>`
-        : '';
+        : pursueCount > 0
+          ? `<p><strong>Run all required:</strong> Process does not auto-run Ads volumes. Hydrate SERP seeds + Narrative from Research (cheapest path).</p>`
+          : '';
     const ok = await showModal({
       title: 'Process discovery batch?',
-      confirmLabel: pursueCount
-        ? `Process + SERP / Volume (${pursueCount} pursue)`
-        : 'Process',
+      confirmLabel:
+        pursueCount && evalRunMode === 'all'
+          ? `Process + SERP / Volume (${pursueCount} pursue)`
+          : 'Process',
       bodyHtml: `<p><strong>${esc(String(promoteCount))}</strong> → Candidates · <strong>${esc(
         String(trackCount),
       )}</strong> tracked (pass) · <strong>${esc(String(ignoreCount))}</strong> ignored · already done ${esc(
         String(alreadyCount),
       )}.</p>
-        <p><strong>Pursue → SERP / Volume:</strong> ${esc(String(pursueCount))} · est. $${esc(estLow)}–$${esc(estHigh)} DFS</p>
+        ${
+          pursueCount && evalRunMode === 'all'
+            ? `<p><strong>Pursue → SERP / Volume:</strong> ${esc(String(pursueCount))} · est. $${esc(estLow)}–$${esc(estHigh)} DFS</p>`
+            : pursueCount
+              ? `<p><strong>Pursue → Research Candidates:</strong> ${esc(String(pursueCount))} (no auto Ads)</p>`
+              : ''
+        }
         ${adsLine}
         <p class="muted">Ignore skips this batch without blocking rediscovery. Pass tracks (anti-dupe) without Candidates.</p>`,
     });
@@ -28519,10 +29557,11 @@ function wireDiscoveryUi() {
         {
           method: 'POST',
           body: JSON.stringify({
-            runStage1ForPursue: true,
-            concurrency: 1,
-            adsMode,
-          }),
+          runStage1ForPursue: getEvalRunMode() === 'all',
+          evalRunMode: getEvalRunMode(),
+          concurrency: 1,
+          adsMode,
+        }),
         },
       );
       state.discoveryRows = result.rows;

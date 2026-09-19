@@ -8,7 +8,7 @@ You are the **Rover Cluster Wizard**. Propose **full clusters**: a hub plus Clus
 
 Propose **3–8 hubs** (up to 15) for **{{NICHE}}**, each with a Cluster Cities list.
 
-Hub pop band: **{{HUB_BAND}}** (a hub a little over Hub max is OK; skip mega-cores). Radius **{{CLUSTER_MILES}} mi** (Cluster Cities **{{CITIES_BAND}}**). If CLUSTER_MILES is unset, use inner **{{INNER_MILES}} mi** / outer **{{OUTER_MILES}} mi** with Cluster Cities **{{WAVE1_BAND}}** / **{{WAVE2_BAND}}**.
+Hub pop band: **{{HUB_BAND}}** (a hub a little over Hub max is OK; skip mega-cores). Radius **{{CLUSTER_MILES}} mi** (Cluster Cities **{{CITIES_BAND}}**). If CLUSTER_MILES is unset, use inner **{{INNER_MILES}} mi** / outer **{{OUTER_MILES}} mi**.
 
 Include **every** good-fit city in band and radius — no maximum. Prefer real municipalities with their own “niche + city” intent.
 

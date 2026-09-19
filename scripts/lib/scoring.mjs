@@ -447,6 +447,8 @@ export function buildResearchScoring({
   clusterVolumeSum,
   primaryVolumeSum = null,
   suburbOverlapFactor = null,
+  volumesSkipped = false,
+  estimatedDemandVolume = null,
   mapPackPresent,
   classifiedSerp = null,
   softnessUniqueOrganicDomainCount,
@@ -455,13 +457,59 @@ export function buildResearchScoring({
   averageJobUsd = null,
   displaceability = null,
 }) {
-  const volumeMetric = computeDemandVolumeSum({
-    primaryVolumeSum,
-    clusterVolumeSum,
-    suburbOverlapFactor,
-  });
-  const demandBand = classifyDemandBand(volumeMetric.demandVolumeSum);
-  const demand = scoreDemand(volumeMetric.demandVolumeSum);
+  const skipped = Boolean(volumesSkipped);
+  const estimate =
+    estimatedDemandVolume != null && Number.isFinite(Number(estimatedDemandVolume))
+      ? Number(estimatedDemandVolume)
+      : null;
+
+  let volumeMetric;
+  let demandBand;
+  let demand;
+  let demandSource = null;
+  let demandVolumeNote;
+
+  if (skipped) {
+    volumeMetric = {
+      demandVolumeSum: null,
+      suburbOverlapFactor:
+        suburbOverlapFactor != null
+          ? Number(suburbOverlapFactor)
+          : rubric.volumeMetric?.suburbOverlapFactor ?? 0.25,
+      usedPrimaryFallback: false,
+      primaryVolumeSum: null,
+      clusterVolumeSum: null,
+      suburbVolumeSum: null,
+    };
+    if (estimate != null) {
+      demandBand = classifyDemandBand(estimate);
+      demand = scoreDemand(estimate);
+      demandSource = 'claude_estimate';
+      demandVolumeNote = `Demand scored on Claude Discovery Est. Monthly Search Volume=${estimate} (primary-city guess, not Ads Planner). Run SERP / Volume for Ads truth.`;
+    } else {
+      demandBand = {
+        id: null,
+        label: 'Unmeasured',
+        demandVolumeSum: null,
+        howToTreat: 'Ads volumes skipped and no Claude estimate — Demand not measured.',
+      };
+      demand = null;
+      demandVolumeNote = 'Ads volumes skipped. Demand not measured.';
+    }
+  } else {
+    volumeMetric = computeDemandVolumeSum({
+      primaryVolumeSum,
+      clusterVolumeSum,
+      suburbOverlapFactor,
+    });
+    demandBand = classifyDemandBand(volumeMetric.demandVolumeSum);
+    demand = scoreDemand(volumeMetric.demandVolumeSum);
+    demandSource = 'ads';
+    demandVolumeNote = volumeMetric.usedPrimaryFallback
+      ? `Demand scored on clusterVolumeSum=${volumeMetric.demandVolumeSum} (primary missing; no de-overlap).`
+      : `Demand scored on demandVolumeSum=${volumeMetric.demandVolumeSum} (primary ${volumeMetric.primaryVolumeSum} + α=${volumeMetric.suburbOverlapFactor} × suburb ${volumeMetric.suburbVolumeSum}; cluster display ${volumeMetric.clusterVolumeSum}).`;
+  }
+
   const competition =
     preservedCompetition !== undefined
       ? {
@@ -488,12 +536,9 @@ export function buildResearchScoring({
     displaceabilityBandId: displaceabilityBand?.id ?? null,
   });
 
-  const demandVolumeNote = volumeMetric.usedPrimaryFallback
-    ? `Demand scored on clusterVolumeSum=${volumeMetric.demandVolumeSum} (primary missing; no de-overlap).`
-    : `Demand scored on demandVolumeSum=${volumeMetric.demandVolumeSum} (primary ${volumeMetric.primaryVolumeSum} + α=${volumeMetric.suburbOverlapFactor} × suburb ${volumeMetric.suburbVolumeSum}; cluster display ${volumeMetric.clusterVolumeSum}).`;
-
   const inputs = {
     demand,
+    demandSource,
     competition: competition.score,
     jobValue: jobValue.score,
     mapPackGap: mapPackGap.score,
@@ -525,7 +570,9 @@ export function buildResearchScoring({
     demandBand: {
       id: demandBand.id,
       label: demandBand.label,
-      demandVolumeSum: demandBand.demandVolumeSum,
+      demandVolumeSum: skipped ? null : demandBand.demandVolumeSum,
+      estimatedDemandVolume: skipped ? estimate : null,
+      demandSource,
       clusterVolumeSum: volumeMetric.clusterVolumeSum,
       primaryVolumeSum: volumeMetric.primaryVolumeSum,
       howToTreat: demandBand.howToTreat,
@@ -547,10 +594,12 @@ export function buildResearchScoring({
     decision,
     scoreInputs: inputs,
     proposedScore: proposedScore(inputs),
-    enrichmentRecommended: shouldAutoEnrich({
-      demandBand,
-      decision,
-    }),
+    enrichmentRecommended: skipped
+      ? false
+      : shouldAutoEnrich({
+          demandBand,
+          decision,
+        }),
     definitions: {
       demandBands: rubric.demandBands,
       displaceability: rubric.displaceability,
@@ -575,11 +624,21 @@ export function applyEnrichmentToScoring(research, enrichment, jobSource = null)
   const displaceability = enrichment.displaceability;
   const stageOneCompetition =
     research.scoring?.scoreInputs?.competition ?? research.scoreInputs?.competition ?? null;
+  const volumesSkipped = Boolean(
+    research.volumes?.volumesSkipped || research.volumes?.adsLocationFallback?.kind === 'state',
+  );
+  const estimatedDemandVolume = volumesSkipped
+    ? research.volumes?.estimatedMonthlySearchVolume ??
+      research.scoring?.demandBand?.estimatedDemandVolume ??
+      null
+    : null;
   const scoring = buildResearchScoring({
-    clusterVolumeSum: research.volumes?.clusterVolumeSum ?? 0,
-    primaryVolumeSum: research.volumes?.primaryVolumeSum ?? null,
+    clusterVolumeSum: volumesSkipped ? null : research.volumes?.clusterVolumeSum ?? 0,
+    primaryVolumeSum: volumesSkipped ? null : research.volumes?.primaryVolumeSum ?? null,
     suburbOverlapFactor:
       research.volumes?.suburbOverlapFactor ?? research.scoring?.suburbOverlapFactor ?? null,
+    volumesSkipped,
+    estimatedDemandVolume,
     mapPackPresent: Boolean(research.serp?.mapPackPresent),
     softnessUniqueOrganicDomainCount: research.serp?.uniqueOrganicDomains?.length ?? 0,
     softnessOrganicHomePageCount: research.serp?.organicHomePages?.count ?? 0,
@@ -614,7 +673,7 @@ export function applyEnrichmentToScoring(research, enrichment, jobSource = null)
         ticketClass: scoring.ticketClass,
         displaceabilityBandId: scoring.displaceability?.band?.id ?? null,
       });
-      scoring.enrichmentRecommended = shouldAutoEnrich(scoring);
+      scoring.enrichmentRecommended = volumesSkipped ? false : shouldAutoEnrich(scoring);
       scoring.scoreInputs.notes = [
         scoring.scoreInputs.notes,
         `Preserved prior jobValue=${jobValue} from research/narrative.`,

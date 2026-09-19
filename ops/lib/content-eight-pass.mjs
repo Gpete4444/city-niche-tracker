@@ -34,6 +34,7 @@ import {
 } from './fill-site-images.mjs';
 import { listBaPromptSlots } from './chatgpt-before-after.mjs';
 import { slotSettingKind } from './image-setting.mjs';
+import { normalizeLocalConditions } from './location-angles.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
@@ -215,6 +216,7 @@ export function saveContentFieldResearch(candidateId, raw, { operatorNotes = '' 
   }
   const record = {
     ...parsed,
+    localConditions: normalizeLocalConditions(parsed.localConditions),
     operatorNotes: String(operatorNotes || parsed.operatorNotes || '').trim() || '',
     status: 'loaded',
     loadedAt: new Date().toISOString(),
@@ -341,7 +343,7 @@ export function injectEightPassContext(candidateId) {
   };
 }
 
-export async function buildBatchedFullWritePrompt(candidateId, batch = 'all') {
+export async function buildBatchedFullWritePrompt(candidateId, batch = 'all', opts = {}) {
   const base = await buildFullWritePrompt(candidateId);
   const normalized = String(batch || 'all').toLowerCase();
   if (!['home', 'services', 'locations', 'all'].includes(normalized)) {
@@ -353,7 +355,7 @@ export async function buildBatchedFullWritePrompt(candidateId, batch = 'all') {
 - This is the **${normalized}** batch. Write ONLY the FILE paths for this batch (listed below if filtered).
 - Write each H2 section with a slightly fresh voice — do not match the cadence of a previous batch.
 - Vary sentence length (long, short, fragment). Prefer commas over em dashes.
-- Bookends on every FILE: first two + last two body sentences conversational; closing nudge to call / free estimate where natural.
+- Bookends: honor outline.bookendPolicy per FILE. Do not punch-open and free-estimate-close every page. When closer=skip, no second estimate nudge.
 `;
 
   const pagePack =
@@ -364,15 +366,16 @@ export async function buildBatchedFullWritePrompt(candidateId, batch = 'all') {
 - Conversion: clear call / free-estimate CTA near the close; use site-config phone when mentioning a number.
 - Educational sections: specific methods, cost drivers, timelines — not generic filler.
 - About/contact: trust + NAP honesty from site-config only — never +1XXXXXXXXXX or @example.com placeholders.
-- Burstiness: open with a short punch (problem or question), then longer specifics.
+- Burstiness: mix a short punch with longer specifics. Follow that FILE’s bookend opener (not every page opens as a problem).
 `
       : normalized === 'services'
         ? `
 ## Page-type pack — SERVICES
 - Each service FILE = one offer entity. Service is the central entity; city is secondary (one natural mention OK).
-- Dual-source: process/FAQs/cost live in body ## sections (not homepage FM arrays).
+- Dual-source: process/FAQs/cost live in body ## sections (not homepage FM arrays) **only when that FILE is assigned that band**.
+- Honor outline.serviceBandAssignments — do not reprint the homepage encyclopedia on every service URL.
 - Conversion: closing CTA per service page; link back to home and related locations.
-- Bookends: do not open with a flat “{Service} covers…” template — lead with a homeowner-visible problem or decision.
+- Bookends: honor that FILE’s opener in bookendPolicy — do not open with a flat “{Service} covers…” template.
 - Burstiness: mix short steps/punch lines with longer method paragraphs; avoid identical cadence across every service FILE.
 - Do not invent services beyond site-config.
 `
@@ -381,15 +384,15 @@ export async function buildBatchedFullWritePrompt(candidateId, batch = 'all') {
 ## Page-type pack — LOCATIONS
 - Geo proof only for real primary + suburb cities from site-config. No landmark page factories.
 - Primary city page must not cannibalize homepage H1/title (neighborhoods angle, niche still present).
-- Local conditions from city-context; weave landmarks only as flavor inside existing pages.
-- Link to home + relevant services; avoid thin duplicate suburb bodies.
+- Local conditions from city-context and locationAngles only; weave landmarks only as flavor inside existing pages.
+- Link to home + relevant services; avoid thin duplicate suburb bodies and do not stitch two other cities together.
 - Burstiness: break long location essays — short local cues + longer climate/housing notes; do not copy-paste one paragraph rhythm for every suburb.
-- Bookends: first lines feel place-specific; last lines CTA without repeating the same stock closer on every location FILE.
+- Bookends: first lines follow that FILE’s opener (place-specific when opener=local_cue). Last lines follow closer — routing note or skip when locCta already exists. Honor locationSectionPolicy (not Why-choose + 4 FAQs on every suburb).
 `
           : `
 ## Page-type pack — ALL
 - Apply home / service / location rules per FILE path. Keep entity matching: home = niche+city, services = offers, locations = geo proof.
-- Burstiness + bookends on every FILE; NAP only from site-config.
+- Burstiness on every FILE; bookends follow outline.bookendPolicy. NAP only from site-config.
 `;
 
   let prompt = `${tone}\n${pagePack}\n\n${base.prompt}`;
@@ -397,7 +400,7 @@ export async function buildBatchedFullWritePrompt(candidateId, batch = 'all') {
   if (normalized !== 'all') {
     const outline = base.outline || {};
     const config = base.config || {};
-    const keep = filterFileRulesForBatch(outline, config, normalized);
+    const keep = filterFileRulesForBatch(outline, config, normalized, opts.onlyFiles);
     prompt += `\n\n## BATCH FILTER (${normalized})\nEmit ONLY these FILE paths this turn:\n${keep.markdown}\nDo not emit other site FILEs in this reply.\n`;
     return {
       prompt,
@@ -463,7 +466,7 @@ function slugifyBatchName(name) {
     .replace(/^-|-$/g, '');
 }
 
-function filterFileRulesForBatch(outline, config, batch) {
+function filterFileRulesForBatch(outline, config, batch, onlyFiles) {
   const pageIds = new Set(outlinePageIds(outline));
   const paths = [];
   const lines = [];
@@ -490,13 +493,26 @@ function filterFileRulesForBatch(outline, config, batch) {
     }
   }
 
-  if (!paths.length) {
+  let nextPaths = paths;
+  let nextLines = lines;
+  if (Array.isArray(onlyFiles) && onlyFiles.length) {
+    const allow = new Set(onlyFiles.map((p) => String(p || '').replace(/\\/g, '/')));
+    nextPaths = [];
+    nextLines = [];
+    for (let i = 0; i < paths.length; i += 1) {
+      if (!allow.has(paths[i])) continue;
+      nextPaths.push(paths[i]);
+      nextLines.push(lines[i]);
+    }
+  }
+
+  if (!nextPaths.length) {
     throw Object.assign(
       new Error(`No files for batch "${batch}" — enable those pages in Structure / site-config`),
       { status: 400 },
     );
   }
-  return { paths, count: paths.length, markdown: lines.join('\n') };
+  return { paths: nextPaths, count: nextPaths.length, markdown: nextLines.join('\n') };
 }
 
 export function markWriteBatchComplete(candidateId, batch) {
@@ -646,6 +662,7 @@ export function buildImageQueriesPrompt(candidateId, { slotKeys = null, baKeys =
     service: s.serviceName || null,
     processStep: s.processTitle || null,
     material: s.materialTitle || null,
+    description: s.slotDescription || null,
     setting: slotSettingKind({
       serviceName: s.serviceName,
       serviceSlug: s.serviceSlug,

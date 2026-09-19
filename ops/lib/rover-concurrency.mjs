@@ -35,9 +35,9 @@ export const CONCURRENCY_DEFAULTS = {
 };
 
 export const CONCURRENCY_MAX = {
-  lightSerp: 50,
+  lightSerp: 100,
   generatePack: 10,
-  evaluations: 50,
+  evaluations: 100,
   writeSite: 50,
   openaiPhotos: 50,
   openaiBeforeAfter: 20,

@@ -9,7 +9,12 @@ import {
   statSync,
 } from 'node:fs';
 import path from 'node:path';
-import { computeDemandVolumeSum, proposedScore as computeProposedScore } from '../../scripts/lib/scoring.mjs';
+import {
+  computeDemandVolumeSum,
+  proposedScore as computeProposedScore,
+  scoreDemand,
+} from '../../scripts/lib/scoring.mjs';
+import { resolveEstimatedVolumeForSeed } from '../../scripts/lib/estimated-volume.mjs';
 import { recommendCandidate } from './discovery-recommend.mjs';
 import {
   annotateSerpNicheRelevance,
@@ -22,6 +27,10 @@ import { recordRoverApiSpend } from './rover-api-spend.mjs';
 import { logoPromptDefaultsForConfig } from './logo-prompt.mjs';
 import { normalizeCityStateCluster } from './city-state.mjs';
 import { loadTwilioProvisionIndex } from './site-phone-index.mjs';
+import {
+  applyHomepageDesignedSectionLiftToFiles,
+  stampHomepageLiftOnDraftOps,
+} from './content-auto-fix.mjs';
 
 const ROOT = process.cwd();
 export const RESEARCH_DIR = path.join(ROOT, 'research');
@@ -215,12 +224,26 @@ export function addLastCost(id, key, deltaUsd) {
   return saveMeta(id, { lastCosts: { [name]: next } });
 }
 
+/** True when Ads Planner volumes were measured (not the cheap SERP-seed hydrate). */
+export function researchHasAdsVolumes(research) {
+  const vols = research?.volumes;
+  if (!vols || typeof vols !== 'object') return false;
+  if (vols.volumesSkipped) return false;
+  if (vols.adsLocationFallback?.kind === 'state') return false;
+  if (vols.primaryVolumeSum != null && Number.isFinite(Number(vols.primaryVolumeSum))) return true;
+  if (vols.demandVolumeSum != null && Number.isFinite(Number(vols.demandVolumeSum))) return true;
+  if (vols.clusterVolumeSum != null && Number.isFinite(Number(vols.clusterVolumeSum))) return true;
+  return Array.isArray(vols.keywords) && vols.keywords.length > 0;
+}
+
 export function deriveStage(id, researchOverride = undefined) {
   const p = pathsFor(id);
-  const hasResearch =
+  const hasResearchFile =
     researchOverride !== undefined ? Boolean(researchOverride) : existsSync(p.research);
   const research =
-    researchOverride !== undefined ? researchOverride : hasResearch ? readJson(p.research) : null;
+    researchOverride !== undefined ? researchOverride : hasResearchFile ? readJson(p.research) : null;
+  const hasResearch = Boolean(research);
+  const hasVolumes = researchHasAdsVolumes(research);
   const hasEnrichment = Boolean(research?.enrichment);
   const hasNarrative = existsSync(p.narrative);
   const hasDraft = existsSync(p.narrativeDraft);
@@ -240,6 +263,7 @@ export function deriveStage(id, researchOverride = undefined) {
     stage,
     hasConfig: existsSync(p.config),
     hasResearch,
+    hasVolumes,
     hasEnrichment,
     hasNarrativeDraft: hasDraft,
     hasNarrative,
@@ -418,6 +442,36 @@ function summarizeResearch(research) {
 
   const avgCpc =
     research.volumes?.averageCpc ?? averageKeywordCpc(research.volumes?.keywords || []);
+  const volumesSkipped =
+    Boolean(research.volumes?.volumesSkipped) ||
+    research.volumes?.adsLocationFallback?.kind === 'state';
+  const demandSource = inputs.demandSource ?? research.scoring?.demandBand?.demandSource ?? null;
+  const estimatedFromResearch =
+    research.volumes?.estimatedMonthlySearchVolume != null &&
+    Number.isFinite(Number(research.volumes.estimatedMonthlySearchVolume))
+      ? Number(research.volumes.estimatedMonthlySearchVolume)
+      : research.scoring?.demandBand?.estimatedDemandVolume ?? null;
+  let demand = inputs.demand ?? null;
+  let resolvedDemandSource = demandSource;
+  if (volumesSkipped) {
+    if (demandSource === 'claude_estimate' && demand != null) {
+      /* keep scored estimate */
+    } else if (estimatedFromResearch != null) {
+      demand = scoreDemand(estimatedFromResearch);
+      resolvedDemandSource = 'claude_estimate';
+    } else {
+      demand = null;
+      resolvedDemandSource = null;
+    }
+  }
+  const nextProposed =
+    computeProposedScore({
+      demand,
+      competition: inputs.competition,
+      jobValue: inputs.jobValue,
+      mapPackGap: inputs.mapPackGap,
+      displaceability,
+    }) ?? (volumesSkipped && demand == null ? null : recomputed ?? stored);
 
   return {
     niche: research.niche ?? null,
@@ -432,8 +486,8 @@ function summarizeResearch(research) {
     strongNichePageShare: disp.strongNichePageShare ?? null,
     medianDomainRank: disp.medianDomainRank ?? null,
     decision: research.decision?.decision ?? research.scoring?.decision?.decision ?? null,
-    proposedScore: recomputed ?? stored,
-    overallProvisional: inputs.jobValue == null && recomputed != null,
+    proposedScore: nextProposed,
+    overallProvisional: inputs.jobValue == null && nextProposed != null,
     clusterVolumeSum: research.volumes?.volumesSkipped || research.volumes?.adsLocationFallback?.kind === 'state'
       ? null
       : research.volumes?.clusterVolumeSum ?? null,
@@ -460,8 +514,12 @@ function summarizeResearch(research) {
       research.volumes?.suburbOverlapFactor ??
       research.scoring?.suburbOverlapFactor ??
       null,
-    volumesSkipped: Boolean(research.volumes?.volumesSkipped) || research.volumes?.adsLocationFallback?.kind === 'state',
+    volumesSkipped,
     adsLocationFallback: research.volumes?.adsLocationFallback ?? null,
+    estimatedMonthlySearchVolume: estimatedFromResearch,
+    estimatedMonthlySearchVolumeRaw: research.volumes?.estimatedMonthlySearchVolumeRaw ?? null,
+    estimatedVolumeSource: research.volumes?.estimatedVolumeSource ?? null,
+    demandSource: resolvedDemandSource,
     averageCpc: avgCpc,
     mapPackPresent: serp.mapPackPresent ?? null,
     mapPackAvgReviews: mapPackReviews.avgReviews ?? null,
@@ -483,12 +541,56 @@ function summarizeResearch(research) {
       research.scoring?.estTimeToRankMonths ??
       null,
     scoreInputs: {
-      demand: inputs.demand ?? null,
+      demand,
+      demandSource: resolvedDemandSource,
       competition: inputs.competition ?? null,
       jobValue: inputs.jobValue ?? null,
       mapPackGap: inputs.mapPackGap ?? null,
       displaceability,
     },
+  };
+}
+
+function applySkippedVolumeEstimate(summary, research, discoverySeed) {
+  if (!summary || typeof summary !== 'object') return summary;
+  const volumesSkipped = Boolean(
+    summary.volumesSkipped ||
+      research?.volumes?.volumesSkipped ||
+      research?.volumes?.adsLocationFallback?.kind === 'state',
+  );
+  if (!volumesSkipped || researchHasAdsVolumes(research)) return summary;
+  const estimate = resolveEstimatedVolumeForSeed({
+    estimatedMonthlySearchVolume:
+      summary.estimatedMonthlySearchVolume ?? discoverySeed?.estimatedMonthlySearchVolume,
+    estimatedMonthlySearchVolumeRaw:
+      summary.estimatedMonthlySearchVolumeRaw ?? discoverySeed?.estimatedMonthlySearchVolumeRaw,
+    estimatedVolumeSource:
+      summary.estimatedVolumeSource ?? discoverySeed?.estimatedVolumeSource,
+    batchId: discoverySeed?.batchId,
+    rowIndex: discoverySeed?.rowIndex,
+  });
+  if (estimate.value == null) return summary;
+  const demand = scoreDemand(estimate.value);
+  const scoreInputs = {
+    ...(summary.scoreInputs || {}),
+    demand,
+    demandSource: 'claude_estimate',
+  };
+  return {
+    ...summary,
+    estimatedMonthlySearchVolume: estimate.value,
+    estimatedMonthlySearchVolumeRaw: estimate.raw,
+    estimatedVolumeSource: estimate.source || 'discovery_claude',
+    demandSource: 'claude_estimate',
+    scoreInputs,
+    proposedScore:
+      computeProposedScore({
+        demand,
+        competition: scoreInputs.competition,
+        jobValue: scoreInputs.jobValue,
+        mapPackGap: scoreInputs.mapPackGap,
+        displaceability: scoreInputs.displaceability ?? summary.displaceability,
+      }) ?? summary.proposedScore,
   };
 }
 
@@ -669,6 +771,7 @@ function buildCandidateListRows() {
           };
         }
       }
+      summary = applySkippedVolumeEstimate(summary, research, discoverySeed);
       const narrJob =
         narrative?.scoring?.scoreInputs?.jobValue ?? narrative?.scoreInputs?.jobValue;
       if (
@@ -882,7 +985,21 @@ export function getCandidateDetail(id, opts = undefined) {
   const loadAddress = wantSlice(include, 'address');
   const loadProspects = wantSlice(include, 'prospects');
 
-  const contentDraft = loadContent ? readJson(p.contentDraft) : null;
+  let contentDraft = loadContent ? readJson(p.contentDraft) : null;
+  if (loadContent && contentDraft?.files && typeof contentDraft.files === 'object') {
+    const lifted = applyHomepageDesignedSectionLiftToFiles(contentDraft.files, {
+      config: siteConfigAccepted || siteConfigDraft || config || {},
+      outline: contentOutlinePackage || {},
+    });
+    if (lifted.changed) {
+      contentDraft = {
+        ...contentDraft,
+        files: lifted.files,
+        _ops: stampHomepageLiftOnDraftOps(contentDraft._ops, lifted),
+      };
+      writeJson(p.contentDraft, contentDraft);
+    }
+  }
   const contentAccepted = loadContent ? readJson(p.content) : null;
   const contentResearch = loadContent ? readJson(p.contentResearch) : null;
   const contentOutline = loadContent ? readJson(p.contentOutline) : null;
@@ -983,7 +1100,7 @@ export function getCandidateDetail(id, opts = undefined) {
     logoPromptDefaults: logoPromptDefaultsForConfig(siteConfigAccepted || siteConfigDraft || {}),
     logoVariants: Array.isArray(meta.logoVariants) ? meta.logoVariants : [],
     coverageMapVariants: Array.isArray(meta.coverageMapVariants) ? meta.coverageMapVariants : [],
-    summary: summarizeResearch(research),
+    summary: applySkippedVolumeEstimate(summarizeResearch(research), research, discoverySeed),
     archived: Boolean(meta.archivedAt),
     archivedAt: meta.archivedAt ?? null,
     photoGroupNiche,
@@ -1149,6 +1266,7 @@ export function mergeNarrativeIntoResearch(research, narrative) {
     localPainPoints: narrative.localPainPoints ?? research.localPainPoints ?? null,
     suggestedServices: narrative.suggestedServices ?? research.suggestedServices ?? null,
     suggestedSuburbs: narrative.suggestedSuburbs ?? research.suggestedSuburbs ?? null,
+    suggestedKeywords: narrative.suggestedKeywords ?? research.suggestedKeywords ?? null,
     estTimeToRankMonths: narrative.estTimeToRankMonths ?? research.estTimeToRankMonths ?? null,
   };
 }
@@ -1201,7 +1319,7 @@ function jobCostMidpoint(avg) {
  * Validate narrative draft before Accept.
  * @returns {{ ok: true } | { ok: false, error: string, code?: string, details?: object }}
  */
-export function validateNarrativeAccept(draft, discoverySeed = null, { allowJobCostOverride = false } = {}) {
+export function validateNarrativeAccept(draft, discoverySeed = null, { allowJobCostOverride = false, research = null } = {}) {
   if (!draft || typeof draft !== 'object') {
     return { ok: false, error: 'Draft is empty or invalid', code: 'empty' };
   }
@@ -1252,7 +1370,25 @@ export function validateNarrativeAccept(draft, discoverySeed = null, { allowJobC
     }
   }
 
-  return { ok: true, mid, seedBand };
+  const suggestedKeywords = Array.isArray(draft.suggestedKeywords)
+    ? draft.suggestedKeywords
+        .map((row) =>
+          typeof row === 'string'
+            ? row.trim()
+            : String(row?.keyword || row?.phrase || '').trim(),
+        )
+        .filter(Boolean)
+    : [];
+  const volumesSkipped = Boolean(
+    research?.volumes?.volumesSkipped || discoverySeed?.volumesSkipped,
+  );
+  let warning = null;
+  if (volumesSkipped && suggestedKeywords.length === 0) {
+    warning =
+      'No suggestedKeywords — Website supporting keywords will be thin. Re-run Narrative or add phrases.';
+  }
+
+  return { ok: true, mid, seedBand, warning, suggestedKeywords };
 }
 
 export function buildApprovedPackage(id, narrative, research, meta = {}, discoverySeed = null) {
@@ -1271,6 +1407,7 @@ export function buildApprovedPackage(id, narrative, research, meta = {}, discove
     localPainPoints: narrative?.localPainPoints ?? null,
     suggestedServices: narrative?.suggestedServices ?? null,
     suggestedSuburbs: narrative?.suggestedSuburbs ?? null,
+    suggestedKeywords: narrative?.suggestedKeywords ?? research?.suggestedKeywords ?? null,
     scoring: narrative?.scoring ?? null,
     proposedScore: narrative?.scoring?.proposedScore ?? research?.proposedScore ?? null,
     discoverySeed: discoverySeed
@@ -1359,7 +1496,8 @@ export function acceptNarrative(id, { allowJobCostOverride = false } = {}) {
   const draft = readJson(p.narrativeDraft);
   if (!draft) throw Object.assign(new Error('No narrative draft to accept'), { status: 400 });
   const discoverySeed = readJson(p.discoverySeed);
-  const check = validateNarrativeAccept(draft, discoverySeed, { allowJobCostOverride });
+  const research = readJson(p.research);
+  const check = validateNarrativeAccept(draft, discoverySeed, { allowJobCostOverride, research });
   if (!check.ok) {
     throw Object.assign(new Error(check.error), {
       status: 400,
@@ -1383,7 +1521,6 @@ export function acceptNarrative(id, { allowJobCostOverride = false } = {}) {
   });
   if (existsSync(p.narrativeDraft)) unlinkSync(p.narrativeDraft);
 
-  const research = readJson(p.research);
   if (research) {
     writeJson(p.research, mergeNarrativeIntoResearch(research, clean));
   }
@@ -1401,7 +1538,7 @@ export function acceptNarrative(id, { allowJobCostOverride = false } = {}) {
   writeJson(p.approved, pack);
   saveMeta(id, { lastApprovedAt: new Date().toISOString() });
 
-  return { narrative: readJson(p.narrative), approved: pack };
+  return { narrative: readJson(p.narrative), approved: pack, warning: check.warning || null };
 }
 
 export function rejectNarrative(id) {

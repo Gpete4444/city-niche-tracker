@@ -44,6 +44,36 @@ export const SITE_PALETTES: SitePalette[] = [
     tip: 'Charcoal with chartreuse accent',
     brand: { primary: '#2A2E32', accent: '#B8D43D', ink: '#111314' },
   },
+  {
+    id: 'midnight-teal',
+    label: 'Midnight & Teal',
+    tip: 'Deep navy with teal accent',
+    brand: { primary: '#0E2433', accent: '#2A9D8F', ink: '#07141C' },
+  },
+  {
+    id: 'graphite-ember',
+    label: 'Graphite & Ember',
+    tip: 'Graphite with safety orange accent',
+    brand: { primary: '#2B2F33', accent: '#E4572E', ink: '#121416' },
+  },
+  {
+    id: 'espresso-brass',
+    label: 'Espresso & Brass',
+    tip: 'Brown-black with brass accent',
+    brand: { primary: '#3B2A1A', accent: '#C9A227', ink: '#1A120C' },
+  },
+  {
+    id: 'wine-stone',
+    label: 'Wine & Stone',
+    tip: 'Burgundy with warm stone accent',
+    brand: { primary: '#5C2430', accent: '#D4C4A8', ink: '#1A1012' },
+  },
+  {
+    id: 'denim-rust',
+    label: 'Denim & Rust',
+    tip: 'Workwear blue with rust accent',
+    brand: { primary: '#2B4C6F', accent: '#C65D2E', ink: '#101820' },
+  },
 ];
 
 export const DEFAULT_PALETTE_ID = 'slate-gold';

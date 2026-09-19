@@ -5,6 +5,7 @@
 
 import { normTitle, simpleProseToHtml, stripLeadingTitleEcho } from './content-body';
 import { isProcessHeading } from './is-process-heading.mjs';
+import { isMaterialsHeading } from './is-materials-heading.mjs';
 
 export type ServiceSectionKind =
   | 'intro'
@@ -51,7 +52,7 @@ function classifyHeading(heading: string): ServiceSectionKind {
   if (/what'?s included|what is included|\bscope\b|typically included/.test(t)) return 'scope';
   if (isProcessHeading(t)) return 'process';
   if (/\bcost\b|pricing|what does .+ cost|how much/.test(t)) return 'cost';
-  if (/materials|methods/.test(t)) return 'materials';
+  if (isMaterialsHeading(t)) return 'materials';
   if (/how long|timeline|duration/.test(t)) return 'timeline';
   // "schedule" alone is too broad (matches process step lines); require timeline-ish phrasing
   if (/\bschedule\b/.test(t) && /how long|timeline|duration|take\?/.test(t)) return 'timeline';

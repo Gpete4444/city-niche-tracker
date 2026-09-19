@@ -101,8 +101,8 @@ If install fails with `npm ci` / lockfile out of sync, regenerate `package-lock.
 
 After Assemble, use Rover → Content → **Launch**:
 
-1. Paste **Web3Forms** access key ([web3forms.com](https://web3forms.com) — create form manually; no public create-form API)
-2. Set domain / `leads@` / Email Routing destination (Gmail)
+1. Set domain / `leads@` / Email Routing destination (Gmail). Run Cloudflare so `leads@` exists
+2. Create a **Web3Forms** form ([web3forms.com](https://web3forms.com) — no public create-form API). Set **Recipient Emails** to `leads@{domain}`, not the account Gmail. Paste the access key
 3. Leave **Auto ship** and **Run Cloudflare domain / email API** checked
 4. **Run launch**
 
@@ -137,7 +137,7 @@ npm run launch-site -- <candidateId> --turnstile --destination=you@gmail.com
 
 1. **Buy the domain** / point nameservers at Cloudflare (zone must exist in your account)
 2. **Verify** Email Routing destination once (click link in Gmail) when the destination is new
-3. **Create** the Web3Forms form and paste the key (semi-automation)
+3. **Create** the Web3Forms form with Recipient Emails = `leads@{domain}` (not the account Gmail) and paste the key
 4. **One-time** machine setup: `gh auth login` + `.env` (`GITHUB_OWNER`, `CLOUDFLARE_*`) — not per site
 
 ### Cost

@@ -150,7 +150,10 @@ export function lintContentSeo(files, opts = {}) {
     if (!isHome && !isContact && !isService) continue;
     const body = stripFrontmatter(raw);
     if (!body.trim()) continue;
-    if (!ctaRe.test(body)) {
+    const hasCtaHeading = extractHeadings(raw).some((h) =>
+      /\b(free estimate|get a .{0,24}estimate|request a quote|get a quote)\b/i.test(h),
+    );
+    if (!ctaRe.test(body) && !hasCtaHeading) {
       findings.push({
         severity: 'soft',
         file: rel,
@@ -332,6 +335,14 @@ export function lintContentSeo(files, opts = {}) {
   });
   lintServiceCardCityStuffing(files, findings, { primaryCity, state });
 
+  lintEducationalCoverage(files, findings, {
+    homeRel,
+    homeBody,
+    sectionIds: opts.sectionIds || [],
+    homepageSections: opts.homepageSections || [],
+    serviceBandAssignments: opts.serviceBandAssignments || {},
+    services: opts.services || [],
+  });
   lintLocationDepth(files, findings, {
     minWords: Number(opts.locationMinWords) > 0 ? Number(opts.locationMinWords) : 450,
     strict: opts.strictLocationDepth !== false,
@@ -349,6 +360,69 @@ export function lintContentSeo(files, opts = {}) {
  * @param {Array} findings
  * @param {{ minWords?: number, strict?: boolean }} opts
  */
+function headingLooksLike(raw, re) {
+  return extractHeadings(raw).some((h) => re.test(h)) || re.test(stripFrontmatter(raw).slice(0, 4000));
+}
+
+function serviceRelForName(files, name) {
+  const slug = slugify(name);
+  return (
+    Object.keys(files || {}).find((p) =>
+      new RegExp(`(^|/)services/${escapeRegExp(slug)}\\.md$`, 'i').test(p),
+    ) || `src/content/services/${slug}.md`
+  );
+}
+
+function lintEducationalCoverage(files, findings, opts = {}) {
+  const sectionIds = new Set((opts.sectionIds || []).map(String));
+  const homeKeys = new Set((opts.homepageSections || []).map(String));
+  const homeOn = (id, astro) => sectionIds.has(id) || homeKeys.has(astro || id);
+  const homeRel = opts.homeRel || 'src/content/pages/index.md';
+  const homeBody = opts.homeBody || files?.[homeRel] || '';
+  const services = (opts.services || []).map((s) => String(s || '').trim()).filter(Boolean);
+  const serviceCount = services.length;
+  const minSvc = serviceCount < 1 ? 0 : Math.min(2, serviceCount);
+
+  const homeChecks = [
+    { id: 'cost', astro: 'cost', label: 'cost', re: /\b(cost|pric|how much)\b/i },
+    { id: 'diyVsPro', astro: 'diyVsPro', label: 'DIY vs pro', re: /\bdiy\b|hire a pro/i },
+    { id: 'codes', astro: 'codes', label: 'permits', re: /\bpermit|building code/i },
+  ];
+  for (const row of homeChecks) {
+    if (!homeOn(row.id, row.astro) || !homeBody) continue;
+    if (headingLooksLike(homeBody, row.re)) continue;
+    findings.push({
+      severity: 'critical',
+      file: homeRel,
+      rule: 'homepage_educational_missing',
+      excerpt: `Homepage missing ${row.label} band`,
+      suggestion: `Keep ${row.label} on the homepage encyclopedia (H2 + ranges or columns).`,
+    });
+  }
+
+  const svcChecks = [
+    { band: 'svcCost', label: 'cost', re: /\b(cost|pric|how much)\b/i },
+    { band: 'svcDiyVsPro', label: 'DIY vs pro', re: /\bdiy\b|hire a pro/i },
+    { band: 'svcCodes', label: 'permits', re: /\bpermit|usually needs a permit/i },
+  ];
+  for (const row of svcChecks) {
+    if (!sectionIds.has(row.band) || !minSvc) continue;
+    const hits = services.filter((name) => {
+      const rel = serviceRelForName(files, name);
+      const raw = files?.[rel];
+      return raw && headingLooksLike(raw, row.re);
+    });
+    if (hits.length >= minSvc) continue;
+    findings.push({
+      severity: 'critical',
+      file: serviceRelForName(files, hits[0] || services[0]),
+      rule: 'service_educational_coverage',
+      excerpt: `Only ${hits.length}/${minSvc} service page(s) cover ${row.label}`,
+      suggestion: `Keep ${row.label} on the homepage plus at least ${minSvc} service URL(s) (rotated — not every service).`,
+    });
+  }
+}
+
 function lintLocationDepth(files, findings, opts = {}) {
   const minWords = opts.minWords || 450;
   const strict = opts.strict !== false;
@@ -357,7 +431,19 @@ function lintLocationDepth(files, findings, opts = {}) {
 
   const bodies = locEntries.map(([rel, raw]) => {
     const body = stripFrontmatter(raw);
-    return { rel, body, words: countWords(body), tokens: tokenSet(body) };
+    const paras = body
+      .split(/\n{2,}/)
+      .map((p) => p.trim())
+      .filter((p) => p && !p.startsWith('#'));
+    const lead = paras.slice(0, 2).join('\n\n');
+    return {
+      rel,
+      body,
+      words: countWords(body),
+      tokens: tokenSet(body),
+      leadTokens: tokenSet(lead),
+      faqs: extractFaqQuestions(raw),
+    };
   });
 
   for (const row of bodies) {
@@ -373,24 +459,58 @@ function lintLocationDepth(files, findings, opts = {}) {
     }
   }
 
+  const pairHits = new Map();
+  const bump = (rel) => pairHits.set(rel, (pairHits.get(rel) || 0) + 1);
+
   for (let i = 0; i < bodies.length; i += 1) {
     for (let j = i + 1; j < bodies.length; j += 1) {
       const a = bodies[i];
       const b = bodies[j];
       if (a.words < 80 || b.words < 80) continue;
       const sim = jaccard(a.tokens, b.tokens);
-      if (sim >= 0.72) {
+      const leadSim = jaccard(a.leadTokens, b.leadTokens);
+      const faqOverlap = overlappingFaqCount(a.faqs, b.faqs);
+      if (sim >= 0.72 || leadSim >= 0.55 || faqOverlap >= 2) {
         findings.push({
           severity: strict ? 'critical' : 'soft',
           file: a.rel,
           rule: 'location_bodies_near_duplicate',
-          excerpt: `Near-duplicate of ${b.rel} (similarity ~${Math.round(sim * 100)}%)`,
+          excerpt:
+            sim >= 0.72
+              ? `Near-duplicate of ${b.rel} (similarity ~${Math.round(sim * 100)}%)`
+              : leadSim >= 0.55
+                ? `Opening paragraphs too similar to ${b.rel}`
+                : `FAQ questions overlap ${b.rel} (${faqOverlap} shared)`,
           suggestion:
-            'Rewrite local notes/proof so each location FILE has distinct housing, climate, or neighborhood cues — do not swap only the city name.',
+            'Rewrite local notes/proof so each location FILE has distinct housing, climate, or neighborhood cues — do not swap only the city name or stitch two other suburbs together.',
         });
+        bump(a.rel);
+        bump(b.rel);
       }
     }
   }
+
+  for (const row of bodies) {
+    if ((pairHits.get(row.rel) || 0) < 2) continue;
+    if (findings.some((f) => f.file === row.rel && f.rule === 'location_bodies_stitched')) continue;
+    findings.push({
+      severity: strict ? 'critical' : 'soft',
+      file: row.rel,
+      rule: 'location_bodies_stitched',
+      excerpt: `Location page overlaps two or more other suburbs`,
+      suggestion:
+        'Give this city its own housing/climate/job angle. Do not summarize other location pages.',
+    });
+  }
+}
+
+function overlappingFaqCount(a = [], b = []) {
+  let n = 0;
+  for (const qa of a) {
+    const ta = tokenSet(qa);
+    if (b.some((qb) => jaccard(ta, tokenSet(qb)) >= 0.7)) n += 1;
+  }
+  return n;
 }
 
 /**

@@ -3,6 +3,7 @@
  * Copy prompt and OpenAI generate share this text (override if set).
  */
 import { fluxSlotPromptForCandidate } from './flux-prompts.mjs';
+import { applyOccupancyToPrompt, normalizeOccupancy } from './image-occupancy.mjs';
 import {
   getSlotPromptOverride,
   loadCandidateOpenaiPrompts,
@@ -22,29 +23,41 @@ import {
  *   niche: string,
  *   queryHint: string|null,
  *   viewpoint: string,
+ *   occupancy: string,
  *   setting: string,
  *   overridden: boolean,
  * }}
  */
-export function buildSlotImagePrompt(candidateId, slotKey, { viewpoint: viewpointRaw, prompt: bodyPrompt } = {}) {
+export function buildSlotImagePrompt(
+  candidateId,
+  slotKey,
+  { viewpoint: viewpointRaw, occupancy: occupancyRaw, prompt: bodyPrompt } = {},
+) {
+  const occupancy = normalizeOccupancy(occupancyRaw);
   const built = fluxSlotPromptForCandidate(candidateId, slotKey, {
     viewpoint: viewpointRaw,
+    occupancy,
     forChatGpt: true,
   });
   const doc = loadCandidateOpenaiPrompts(candidateId);
   const override = getSlotPromptOverride(doc, slotKey, built.viewpoint);
-  const prompt = pickPromptText(built.prompt, override, bodyPrompt);
+  const fromBody = Boolean(String(bodyPrompt || '').trim());
+  const picked = pickPromptText(built.prompt, override, bodyPrompt);
+  const prompt = fromBody ? picked : applyOccupancyToPrompt(picked, occupancy);
   return {
     ...built,
+    occupancy,
     original: built.prompt,
     prompt,
     overridden: prompt !== built.prompt,
   };
 }
 
-export function saveSlotOpenaiPrompt(candidateId, slotKey, { viewpoint, prompt, restore } = {}) {
+export function saveSlotOpenaiPrompt(candidateId, slotKey, { viewpoint, occupancy, prompt, restore } = {}) {
+  const occ = normalizeOccupancy(occupancy);
   const built = fluxSlotPromptForCandidate(candidateId, slotKey, {
     viewpoint,
+    occupancy: occ,
     forChatGpt: true,
   });
   let doc = loadCandidateOpenaiPrompts(candidateId);
@@ -55,5 +68,5 @@ export function saveSlotOpenaiPrompt(candidateId, slotKey, { viewpoint, prompt, 
     doc = setSlotPromptOverride(doc, slotKey, built.viewpoint, text);
   }
   saveCandidateOpenaiPrompts(candidateId, doc);
-  return buildSlotImagePrompt(candidateId, slotKey, { viewpoint: built.viewpoint });
+  return buildSlotImagePrompt(candidateId, slotKey, { viewpoint: built.viewpoint, occupancy: occ });
 }

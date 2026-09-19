@@ -27,18 +27,16 @@ export const AUTO_DECISIONS = ['pursue', 'maybe', 'pass', 'review'];
  */
 export function recommendFromScoreAndStages(input = {}) {
   const hasResearch = Boolean(input.hasResearch);
-  const hasEnrichment = Boolean(input.hasEnrichment);
   const hasNarrative = Boolean(input.hasNarrative);
-  const incomplete = !hasResearch || !hasEnrichment || !hasNarrative;
+  const incomplete = !hasResearch || !hasNarrative;
 
   if (incomplete) {
     const missing = [];
-    if (!hasResearch) missing.push('1 Research');
-    if (!hasEnrichment) missing.push('2 Enrich');
+    if (!hasResearch) missing.push('SERP seeds');
     if (!hasNarrative) missing.push('3 Narrative');
     return {
       recommended_decision: 'review',
-      recommended_reason: `Research stages incomplete (${missing.join(', ')}) — run stages before score-based decide`,
+      recommended_reason: `Research stages incomplete (${missing.join(', ')}) — run required steps before score-based decide`,
     };
   }
 
@@ -77,7 +75,7 @@ export function recommendDiscoveryRow(_row = {}) {
   return {
     recommended_decision: 'review',
     recommended_reason:
-      'Discovery has no Overall score yet — Process into Research and complete stages 1–3 for score-based recommend',
+      'Discovery has no Overall score yet — Process into Research and complete SERP seeds + Narrative for score-based recommend',
   };
 }
 

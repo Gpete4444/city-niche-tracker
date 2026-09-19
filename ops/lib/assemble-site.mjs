@@ -540,12 +540,15 @@ export function syncAcceptedWeb3KeyToAssembled(candidateId, siteRoot) {
   return applyAcceptedWeb3KeyToSiteConfigFile(assembledCfg, accepted);
 }
 
-function runGit(args, cwd) {
-  return execFileSync('git', args, {
+function runGit(args, cwd, { ignoreStdout = false } = {}) {
+  const out = execFileSync('git', args, {
     cwd,
     encoding: 'utf8',
-    stdio: ['ignore', 'pipe', 'pipe'],
-  }).trim();
+    stdio: ['ignore', ignoreStdout ? 'ignore' : 'pipe', 'pipe'],
+    windowsHide: true,
+    maxBuffer: 64 * 1024 * 1024,
+  });
+  return String(out || '').trim();
 }
 
 /** @returns {{ url: string|null, nameWithOwner: string|null, source: string|null }} */
@@ -685,28 +688,62 @@ function shouldSkipCopy(name) {
   return false;
 }
 
-/** Recursive copy of template → site dir (Astro site only; skips ops/research). */
-export function copyTemplateTree(destRoot) {
+/** Stat that returns null when the path is gone or unreadable (dangling BA tray, race). */
+export function safeStat(abs) {
+  if (!abs) return null;
+  try {
+    if (!existsSync(abs)) return null;
+    return statSync(abs);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Recursive copy that skips names `stat` cannot read so one missing image
+ * cannot abort Assemble / Prepare preview.
+ * @param {string} srcRoot
+ * @param {string} destRoot
+ * @param {{ skipName?: (name: string, rel: string) => boolean }} [opts]
+ */
+export function copyTreeSkippingGaps(srcRoot, destRoot, { skipName = null } = {}) {
   mkdirSync(destRoot, { recursive: true });
   const walk = (rel = '') => {
-    const abs = rel ? path.join(ROOT, rel) : ROOT;
-    for (const name of readdirSync(abs)) {
-      if (!rel && shouldSkipCopy(name)) continue;
-      if (rel && shouldSkipCopy(name)) continue;
+    const abs = rel ? path.join(srcRoot, rel) : srcRoot;
+    let names;
+    try {
+      names = readdirSync(abs);
+    } catch {
+      return;
+    }
+    for (const name of names) {
+      if (skipName && skipName(name, rel)) continue;
       const from = path.join(abs, name);
       const toRel = rel ? path.join(rel, name) : name;
       const to = path.join(destRoot, toRel);
-      const st = statSync(from);
+      const st = safeStat(from);
+      if (!st) continue;
       if (st.isDirectory()) {
         mkdirSync(to, { recursive: true });
         walk(toRel);
       } else if (st.isFile()) {
         mkdirSync(path.dirname(to), { recursive: true });
-        cpSync(from, to);
+        try {
+          cpSync(from, to);
+        } catch {
+          /* skip vanished / unreadable file */
+        }
       }
     }
   };
   walk('');
+}
+
+/** Recursive copy of template → site dir (Astro site only; skips ops/research). */
+export function copyTemplateTree(destRoot) {
+  copyTreeSkippingGaps(ROOT, destRoot, {
+    skipName: (name) => shouldSkipCopy(name),
+  });
 }
 
 /**
@@ -726,11 +763,19 @@ const TEMPLATE_LAYOUT_WATCH = [
   'src/pages',
   'src/lib',
   'src/styles',
+  'src/config',
+  'astro.config.mjs',
 ];
 
 function newestMtimeUnder(absDir) {
   let max = 0;
   if (!existsSync(absDir)) return 0;
+  try {
+    const rootSt = statSync(absDir);
+    if (rootSt.isFile()) return rootSt.mtimeMs;
+  } catch {
+    return 0;
+  }
   const walk = (dir) => {
     let entries;
     try {
@@ -755,7 +800,7 @@ function newestMtimeUnder(absDir) {
 }
 
 /**
- * True when Rover template layout/code under src/ is newer than the assembled copy.
+ * True when Rover template layout/code (src/ + astro.config.mjs) is newer than the assembled copy.
  * Refresh injects content only — stale components need a full assemble.
  * @param {string} siteRoot
  */
@@ -791,20 +836,25 @@ export function injectStagingIntoSite(siteRoot, stagingRoot) {
       const from = path.join(fromDir, name);
       const toRel = path.join(relDir, name);
       const to = path.join(siteRoot, toRel);
-      const st = statSync(from);
+      const st = safeStat(from);
+      if (!st) continue;
       if (st.isDirectory()) {
         mkdirSync(to, { recursive: true });
         overlay(toRel);
       } else {
         mkdirSync(path.dirname(to), { recursive: true });
         let nextBuf;
-        if (name.endsWith('.md')) {
-          const raw = readFileSync(from, 'utf8');
-          const cleaned = healStagedMarkdown(sanitizeMarkdownImageFrontmatter(raw)).markdown;
-          const text = cleaned.endsWith('\n') ? cleaned : `${cleaned}\n`;
-          nextBuf = Buffer.from(text, 'utf8');
-        } else {
-          nextBuf = readFileSync(from);
+        try {
+          if (name.endsWith('.md')) {
+            const raw = readFileSync(from, 'utf8');
+            const cleaned = healStagedMarkdown(sanitizeMarkdownImageFrontmatter(raw)).markdown;
+            const text = cleaned.endsWith('\n') ? cleaned : `${cleaned}\n`;
+            nextBuf = Buffer.from(text, 'utf8');
+          } else {
+            nextBuf = readFileSync(from);
+          }
+        } catch {
+          continue;
         }
         if (existsSync(to)) {
           try {
@@ -956,7 +1006,7 @@ function initGitRepo(siteRoot, { commitMessage }) {
     runGit(['init'], siteRoot);
     runGit(['branch', '-M', 'main'], siteRoot);
   }
-  runGit(['add', '-A'], siteRoot);
+  runGit(['add', '-A'], siteRoot, { ignoreStdout: true });
   try {
     runGit(['-c', 'user.email=rover@local', '-c', 'user.name=Rover', 'commit', '-m', commitMessage], siteRoot);
   } catch (err) {
@@ -1166,16 +1216,20 @@ export function assembleSite(
   const avatarsDir = path.join(siteRoot, 'public', 'images', 'review-avatars');
   const templateAvatars = path.join(ROOT, 'public', 'images', 'review-avatars');
   if (existsSync(templateAvatars) && !existsSync(avatarsDir)) {
-    mkdirSync(path.dirname(avatarsDir), { recursive: true });
-    cpSync(templateAvatars, avatarsDir, { recursive: true });
+    copyTreeSkippingGaps(templateAvatars, avatarsDir);
   } else if (existsSync(templateAvatars)) {
     // Gap-fill any missing avatar files
     for (const name of readdirSync(templateAvatars)) {
       const from = path.join(templateAvatars, name);
       const to = path.join(avatarsDir, name);
-      if (!existsSync(to) && statSync(from).isFile()) {
+      const st = safeStat(from);
+      if (!existsSync(to) && st?.isFile()) {
         mkdirSync(avatarsDir, { recursive: true });
-        cpSync(from, to);
+        try {
+          cpSync(from, to);
+        } catch {
+          /* skip vanished avatar */
+        }
       }
     }
   }

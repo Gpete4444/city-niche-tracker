@@ -4,7 +4,9 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Rover</title>
-  <link rel="icon" type="image/svg+xml" href="/brand/rover-favicon.svg" />
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=20260918" />
+  <link rel="icon" type="image/png" sizes="48x48" href="/brand/rover-favicon.png?v=20260918" />
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png?v=20260918" />
   <script>
     try {
       var SCHEMA = '2';
@@ -35,7 +37,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/styles.css?v=20260915nowave" />
+  <link rel="stylesheet" href="/styles.css?v=20260917saCover" />
   <link rel="stylesheet" href="/brand/rover-loader.css" />
 </head>
 <body>
@@ -63,7 +65,7 @@
         <img class="top-brand-logo top-brand-logo--light" src="/brand/rover-logo-light.png" alt="" width="800" height="168" decoding="async" />
         <img class="top-brand-logo top-brand-logo--dark" src="/brand/rover-logo-dark.png" alt="" width="800" height="168" decoding="async" />
       </span>
-      <span class="top-version muted small" title="Rover product version">v2.3</span>
+      <span class="top-version muted small" title="Rover product version">v2.4</span>
       <div class="claude-mode-segment" role="group" aria-label="Claude pipeline mode">
         <button type="button" class="claude-mode-seg active" data-claude-mode="paste" id="claude-mode-paste" aria-label="Copy and paste">
           <span class="claude-mode-seg-full">Copy &amp; paste</span>
@@ -190,7 +192,7 @@
             <div class="settings-concurrency-head" id="settings-concurrency-label">Concurrent Limit</div>
             <label class="settings-concurrency-row" for="conc-light-serp">
               <span class="settings-concurrency-name"><span class="settings-concurrency-stage" aria-hidden="true" data-tip="Discovery">D</span> Light SERP</span>
-              <input id="conc-light-serp" type="number" min="1" max="50" step="1" inputmode="numeric" data-conc-key="lightSerp" data-tip="Maximum 50" />
+              <input id="conc-light-serp" type="number" min="1" max="100" step="1" inputmode="numeric" data-conc-key="lightSerp" data-tip="Maximum 100" />
             </label>
             <label class="settings-concurrency-row" for="conc-generate-pack">
               <span class="settings-concurrency-name"><span class="settings-concurrency-stage" aria-hidden="true" data-tip="Discovery">D</span> Generate pack</span>
@@ -198,7 +200,7 @@
             </label>
             <label class="settings-concurrency-row" for="conc-evaluations">
               <span class="settings-concurrency-name"><span class="settings-concurrency-stage" aria-hidden="true" data-tip="Research">R</span> Evaluations</span>
-              <input id="conc-evaluations" type="number" min="1" max="50" step="1" inputmode="numeric" data-conc-key="evaluations" data-tip="Maximum 50" />
+              <input id="conc-evaluations" type="number" min="1" max="100" step="1" inputmode="numeric" data-conc-key="evaluations" data-tip="Maximum 100" />
             </label>
             <label class="settings-concurrency-row" for="conc-write-site">
               <span class="settings-concurrency-name"><span class="settings-concurrency-stage" aria-hidden="true" data-tip="Website">W</span> Write site</span>
@@ -293,7 +295,7 @@
             <select id="candidate-zone-filter" data-tip="Filter by Zone (ZN)">
               <option value="">Zone: all</option>
             </select>
-            <select id="candidate-cluster-filter" data-tip="Filter by Cluster 1–10">
+            <select id="candidate-cluster-filter" data-tip="Filter by Cluster 1–20">
               <option value="">Cluster: all</option>
               <option value="0">unassigned</option>
               <option value="1">Cluster 1</option>
@@ -306,6 +308,16 @@
               <option value="8">Cluster 8</option>
               <option value="9">Cluster 9</option>
               <option value="10">Cluster 10</option>
+              <option value="11">Cluster 11</option>
+              <option value="12">Cluster 12</option>
+              <option value="13">Cluster 13</option>
+              <option value="14">Cluster 14</option>
+              <option value="15">Cluster 15</option>
+              <option value="16">Cluster 16</option>
+              <option value="17">Cluster 17</option>
+              <option value="18">Cluster 18</option>
+              <option value="19">Cluster 19</option>
+              <option value="20">Cluster 20</option>
             </select>
             <select id="candidate-visibility-filter" data-tip="Active = not archived (default)">
               <option value="active">Active</option>
@@ -950,7 +962,7 @@
         <div class="discovery-shotgun-split">
           <div class="discovery-shotgun-left">
             <div id="discovery-shotgun-hubs"></div>
-            <p id="discovery-shotgun-legend" class="muted small hidden">Colors = Clusters 1–10. Labels prefix the Cluster number (hub is ★). Sticky palette: pick a Cluster, then click cities. × clears. Hub keeps a blue outline; fill follows Cluster if assigned. Zone slider is the outer radius. Pink = outside min/max pop. Dotted rings = every 20 mi out to 100.</p>
+            <p id="discovery-shotgun-legend" class="muted small hidden">Colors = Clusters 1–20. Labels prefix the Cluster number (hub is ★). Sticky palette: pick a Cluster, then click cities or right-drag a circle. × clears. Hub keeps a blue outline; fill follows Cluster if assigned. Zone slider is the outer radius. Pink = outside min/max pop. Dotted rings = every 20 mi out to 100.</p>
           </div>
           <div id="discovery-shotgun-map-slot">
             <div id="discovery-shotgun-map-pick" class="shotgun-map-pick">
@@ -960,7 +972,7 @@
                 <label data-tip="Hide out of range cities"><input id="sg-map-hide-oor" data-sg="hide-oor" type="checkbox" /> <span class="sg-map-pick-lbl">Hide</span></label>
                 <label class="sg-map-radius" data-tip="Zone outer radius (miles)"><span class="sg-map-pick-lbl">Zone</span>
                   <input id="sg-map-zone-miles" data-sg="zone-miles" type="range" min="1" max="100" step="1" value="30" aria-label="Zone radius miles" />
-                  <span id="sg-map-zone-mi" data-sg="zone-mi" class="sg-map-wave-mi">30 mi</span>
+                  <span id="sg-map-zone-mi" data-sg="zone-mi" class="sg-map-zone-mi">30 mi</span>
                 </label>
                 <span class="sg-map-radius"><span class="sg-map-pick-lbl">Label</span>
                   <input
@@ -983,7 +995,6 @@
               <span id="discovery-shotgun-map-pick-label" class="sg-map-pick-status hidden" data-sg="pick-label" hidden></span>
               <span class="sg-map-pick-right">
                 <span class="sg-map-tool-toggle" role="group" aria-label="Paint tool">
-                  <button type="button" class="btn btn-sm sg-map-tool active" data-sg-tool="cluster" aria-label="Clusters" data-tip="Clusters">Cl</button>
                   <button type="button" class="btn btn-sm sg-map-tool" data-sg-tool="hub" aria-label="Set hub" data-tip="Set hub">★</button>
                 </span>
                 <span id="sg-map-palette" class="sg-map-palette" data-sg="palette"></span>
@@ -1084,10 +1095,11 @@
         </div>
         <div class="candidates-head-actions">
           <button type="button" id="sites-gsc-connect-btn" class="btn" data-tip="Connect Google Search Console (OAuth)">Connect GSC</button>
-          <button type="button" id="sites-gsc-sync-btn" class="btn" data-tip="Pull 28d clicks, top queries, and sitemap submitted counts from Search Console">Sync GSC</button>
-          <button type="button" id="sites-index-check-btn" class="btn" data-tip="Inspect each sitemap URL in Search Console (not the Pages report)">Check index</button>
-          <button type="button" id="sites-rank-sync-btn" class="btn" data-tip="Weekly DataForSEO SERP rank check (Standard queue)">Check ranks</button>
+          <button type="button" id="sites-gsc-sync-btn" class="btn" data-tip="Pull 28d clicks, top queries, and sitemap submitted counts from Search Console for selected rows">Sync GSC</button>
+          <button type="button" id="sites-index-check-btn" class="btn" data-tip="Inspect each sitemap URL in Search Console for selected rows (not the Pages report)">Check index</button>
+          <button type="button" id="sites-rank-sync-btn" class="btn" data-tip="Weekly DataForSEO SERP rank check (Standard queue) for selected rows">Check ranks</button>
           <button type="button" id="sites-add-btn" class="btn primary" data-tip="Add a launched candidate by id (Run Launch first)">Add from candidate</button>
+          <button type="button" id="sites-w3-inboxes-btn" class="btn" data-tip="Web3Forms Recipient Emails must be leads@ this domain — copy the list">Form inboxes</button>
           <button type="button" id="sites-refresh-btn" class="btn">Refresh</button>
         </div>
       </div>
@@ -1131,7 +1143,7 @@
           <select id="sites-zone-filter" data-tip="Filter by Zone (ZN)">
             <option value="">Zone: all</option>
           </select>
-          <select id="sites-cluster-filter" data-tip="Filter by Cluster 1–10">
+          <select id="sites-cluster-filter" data-tip="Filter by Cluster 1–20">
             <option value="">Cluster: all</option>
             <option value="0">unassigned</option>
             <option value="1">Cluster 1</option>
@@ -1144,6 +1156,16 @@
             <option value="8">Cluster 8</option>
             <option value="9">Cluster 9</option>
             <option value="10">Cluster 10</option>
+            <option value="11">Cluster 11</option>
+            <option value="12">Cluster 12</option>
+            <option value="13">Cluster 13</option>
+            <option value="14">Cluster 14</option>
+            <option value="15">Cluster 15</option>
+            <option value="16">Cluster 16</option>
+            <option value="17">Cluster 17</option>
+            <option value="18">Cluster 18</option>
+            <option value="19">Cluster 19</option>
+            <option value="20">Cluster 20</option>
           </select>
           <span id="sites-filter-count" class="muted"></span>
         </div>
@@ -1407,7 +1429,7 @@
             <label data-tip="Hide out of range cities"><input data-sg="hide-oor" type="checkbox" /> <span class="sg-map-pick-lbl">Hide</span></label>
             <label class="sg-map-radius" data-tip="Zone outer radius (miles)"><span class="sg-map-pick-lbl">Zone</span>
               <input data-sg="zone-miles" type="range" min="1" max="100" step="1" value="30" aria-label="Zone radius miles" />
-              <span data-sg="zone-mi" class="sg-map-wave-mi">30 mi</span>
+              <span data-sg="zone-mi" class="sg-map-zone-mi">30 mi</span>
             </label>
             <span class="sg-map-radius"><span class="sg-map-pick-lbl">Label</span>
               <input data-sg="label-size" type="number" min="8" max="18" step="1" value="12" inputmode="numeric" aria-label="City label size" />
@@ -1420,7 +1442,6 @@
           <span class="sg-map-pick-status hidden" data-sg="pick-label" hidden></span>
           <span class="sg-map-pick-right">
             <span class="sg-map-tool-toggle" role="group" aria-label="Paint tool">
-              <button type="button" class="btn btn-sm sg-map-tool active" data-sg-tool="cluster" aria-label="Clusters" data-tip="Clusters">Cl</button>
               <button type="button" class="btn btn-sm sg-map-tool" data-sg-tool="hub" aria-label="Set hub" data-tip="Set hub">★</button>
             </span>
             <span class="sg-map-palette" data-sg="palette"></span>
@@ -1434,6 +1455,6 @@
     </div>
   </div>
 
-  <script src="/app.js?v=20260915nowave3" type="module"></script>
+  <script src="/app.js?v=20260918seeMore" type="module"></script>
 </body>
 </html>

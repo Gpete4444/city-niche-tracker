@@ -228,6 +228,8 @@ Pulls commercial listing candidates for the address finder from **LoopNet** and/
 ```env
 APIFY_TOKEN=
 APIFY_LOOPNET_ACTOR_ID=
+# Optional. Listing URL → Space Availability suites. Default one-api~loopnet-scraper.
+# APIFY_LOOPNET_DETAILS_ACTOR_ID=one-api~loopnet-scraper
 APIFY_CREXI_ACTOR_ID=
 # Optional: maxItems per search URL on first pull (LoopNet default 20, Crexi 40; absolute max 2000).
 # ADDRESS_SEARCH_MAX_LISTINGS=20
@@ -241,7 +243,8 @@ APIFY_CREXI_ACTOR_ID=
 4. Open the [Apify Store](https://apify.com/store). Prefer actors around ~$1.20–$1.50 per 1K results.
 5. **LoopNet:** open a LoopNet actor page (e.g. Solidcode). Copy the id under the title (`username/actor-name`) and paste into `APIFY_LOOPNET_ACTOR_ID` using the `~` form (`username~actor-name`).
 6. **Crexi (optional):** open [Solidcode Crexi scraper](https://apify.com/solidcode/crexi-scraper). Copy `solidcode/crexi-scraper` → set `APIFY_CREXI_ACTOR_ID=solidcode~crexi-scraper`.
-7. Save `.env`, restart Rover.
+7. **Listing details (optional):** suite backfill / Find space tables use `APIFY_LOOPNET_DETAILS_ACTOR_ID` (default `one-api~loopnet-scraper`). Override only if you use a different details actor.
+8. Save `.env`, restart Rover.
 
 Rover’s Address step can run LoopNet, Crexi, or both. Each **Find** / **Fetch deeper** targets **~40 listings total** and **≤40 Places** checks (~$1.28 Places list worst case). LoopNet Solidcode uses two URLs (office + retail) at **20 maxItems/URL**; Crexi uses one search at **40**. Fetch deeper adds **+20/URL** (LoopNet) or **+40** (Crexi). Each city/source starts with a **500**/URL ceiling that **doubles on confirm** (absolute **2000**/URL). Fetch deeper re-scrapes from the top at the new max — not “new listings only.”
 
@@ -256,6 +259,7 @@ Rover’s Address step can run LoopNet, Crexi, or both. Each **Find** / **Fetch 
 ```env
 APIFY_TOKEN=apify_api_…
 APIFY_LOOPNET_ACTOR_ID=username~loopnet-actor-name
+# APIFY_LOOPNET_DETAILS_ACTOR_ID=one-api~loopnet-scraper
 APIFY_CREXI_ACTOR_ID=solidcode~crexi-scraper
 ```
 
@@ -516,7 +520,7 @@ CLOUDFLARE_API_TOKEN=…
 
 #### What it’s for
 
-Default inbox for Cloudflare Email Routing destination hints and Web3Forms notify suggestions during Launch.
+Default Gmail (or inbox) for Cloudflare Email Routing — where `leads@{domain}` is forwarded. Does **not** set Web3Forms Recipient Emails. Those must be `leads@{domain}` on each form; Cloudflare then forwards to this address.
 
 #### Required?
 

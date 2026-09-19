@@ -467,7 +467,7 @@ export function placeInZoneRadius(city, state, hubCity, hubState, miles, { slack
 
 /**
  * Inner / outer shotgun site pools around a hub (Census places, with miles).
- * Inner pool uses the Wave 1 pop band; outer pool uses Wave 2 and excludes inner members.
+ * Inner / outer pools use the Cluster Cities pop band.
  */
 export function shotgunRingPools(
   primaryCity,
@@ -475,13 +475,16 @@ export function shotgunRingPools(
   {
     innerMiles = 15,
     outerMiles = 30,
-    wave1 = { min: 8000, max: 60000 },
-    wave2 = { min: 2000, max: 8000 },
+    citiesBand,
+    wave1,
+    wave2,
   } = {},
 ) {
+  const band = citiesBand || wave1 || { min: 8000, max: 60000 };
+  const outerBand = citiesBand || wave2 || band;
   const inner = Math.max(1, Math.min(100, Number(innerMiles) || 15));
   const outer = Math.max(inner, Math.min(100, Number(outerMiles) || 30));
-  const minScan = Math.min(Number(wave1.min) || 0, Number(wave2.min) || 0);
+  const minScan = Math.min(Number(band.min) || 0, Number(outerBand.min) || 0);
   const scan = placesIntersectingRadius(primaryCity, state, outer, { minPop: minScan });
   const [lng, lat] = scan.primary.center || [];
   const innerPool = [];
@@ -500,11 +503,11 @@ export function shotgunRingPools(
       population: p.population,
       miles,
     };
-    if (miles <= inner + 0.15 && inPopBand(p.population, wave1)) {
+    if (miles <= inner + 0.15 && inPopBand(p.population, band)) {
       innerPool.push(row);
       continue;
     }
-    if (miles <= outer + 0.15 && inPopBand(p.population, wave2)) {
+    if (miles <= outer + 0.15 && inPopBand(p.population, outerBand)) {
       outerPool.push(row);
     }
   }
@@ -534,8 +537,12 @@ function coverageState(entry, fallback) {
 }
 
 /**
- * Claude-first location page pick from Accept'd coverage.
- * @param {{ coverage: Array<string|{name:string,state?:string}>, claudeOrder: string[], primaryCity: string, state: string, max?: number }} opts
+ * Location page pick from Accept'd coverage.
+ * Default: Claude-first, then highest population.
+ * Zone: ignoreClaudeOrder + sortBy distance (nearest leftover).
+ * `maxMiles` limits AUTO rest-fill only; `claudeOrder` / kept pages still win.
+ * When `minPages` (including primary) is still short after the mile cap, promote
+ * already-covered leftovers nearest-first up to `max` (skipName still applies).
  * @returns {string[]} suburb names (excludes primary)
  */
 export function mergeLocationPages({
@@ -544,6 +551,12 @@ export function mergeLocationPages({
   primaryCity = '',
   state = '',
   max = 8,
+  minPages = 0,
+  skipName = null,
+  ignoreClaudeOrder = false,
+  sortBy = 'population',
+  distanceMiles = null,
+  maxMiles = null,
 } = {}) {
   const primaryNorm = normalizePlaceName(primaryCity);
   const st = String(state || '').trim().toUpperCase();
@@ -563,6 +576,7 @@ export function mergeLocationPages({
     const n = String(name || '').trim();
     if (!n) return;
     if (normalizePlaceName(n) === primaryNorm) return;
+    if (typeof skipName === 'function' && skipName(n, st)) return;
     let display = preferLabel || n;
     let matchedKey = null;
     for (const [ck, cn] of covKeys) {
@@ -580,22 +594,47 @@ export function mergeLocationPages({
     out.push(display);
   };
 
-  for (const c of claudeOrder || []) {
-    if (out.length >= max) break;
-    pushName(c, { preferLabel: String(c || '').trim() });
+  if (!ignoreClaudeOrder) {
+    for (const c of claudeOrder || []) {
+      if (out.length >= max) break;
+      pushName(c, { preferLabel: String(c || '').trim() });
+    }
   }
 
   const rest = [...covKeys.entries()]
     .filter(([k]) => !used.has(k))
     .map(([, name]) => {
       const f = findPlaceFeatureLocal(name, st);
-      return { name, population: Number(f?.properties?.population) || 0 };
+      const miles = typeof distanceMiles === 'function' ? Number(distanceMiles(name, st)) : NaN;
+      return {
+        name,
+        population: Number(f?.properties?.population) || 0,
+        miles: Number.isFinite(miles) ? miles : Number.POSITIVE_INFINITY,
+      };
     })
-    .sort((a, b) => b.population - a.population);
+    .sort((a, b) => {
+      if (sortBy === 'distance') {
+        if (a.miles !== b.miles) return a.miles - b.miles;
+      }
+      return b.population - a.population;
+    });
+
+  const autoCap = Number(maxMiles);
+  const applyAutoMiles =
+    maxMiles != null && maxMiles !== '' && Number.isFinite(autoCap) && autoCap >= 0;
 
   for (const r of rest) {
     if (out.length >= max) break;
+    if (applyAutoMiles && !(Number.isFinite(r.miles) && r.miles <= autoCap)) continue;
     pushName(r.name);
+  }
+
+  const wantPages = Number(minPages);
+  if (Number.isFinite(wantPages) && wantPages > 0 && 1 + out.length < wantPages) {
+    for (const r of rest) {
+      if (out.length >= max) break;
+      pushName(r.name);
+    }
   }
 
   return out.slice(0, max);

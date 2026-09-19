@@ -4,10 +4,18 @@ import { sitePath } from '../lib/site-path';
 
 const addressSchema = z.object({
   street: z.string().min(1),
+  suite: z.string().min(1).optional(),
   city: z.string().min(1),
   state: z.string().min(1),
   zip: z.string().min(1),
 });
+
+function peelSuiteFromCity(city: string, suite: string): { city: string; suite: string } {
+  const m = String(city || '').match(/^((?:ste|suite|unit)\.?\s+[a-z0-9-]+)\s+(.+)$/i);
+  if (!m) return { city, suite };
+  const id = m[1].replace(/^(?:ste|suite|unit)\.?\s+/i, '');
+  return { city: String(m[2] || '').trim(), suite: suite || (id ? `Ste ${id}` : '') };
+}
 
 /** Empty / partial address objects (common after optional NAP fields) → omit. */
 function preprocessAddress(value: unknown): unknown {
@@ -15,11 +23,24 @@ function preprocessAddress(value: unknown): unknown {
   if (typeof value !== 'object' || Array.isArray(value)) return undefined;
   const o = value as Record<string, unknown>;
   const street = String(o.street ?? '').trim();
-  const city = String(o.city ?? '').trim();
+  const peeled = peelSuiteFromCity(String(o.city ?? '').trim(), String(o.suite ?? '').trim());
+  const city = peeled.city;
+  const suite = peeled.suite;
   const state = String(o.state ?? '').trim();
   const zip = String(o.zip ?? '').trim();
   if (!street || !city || !state || !zip) return undefined;
-  return { street, city, state, zip };
+  return suite ? { street, suite, city, state, zip } : { street, city, state, zip };
+}
+
+/** Line 1 + Line 2 for footer/schema. Existing composed streets stay as-is. */
+export function formatSiteStreet(address?: { street?: string; suite?: string } | null): string {
+  const street = String(address?.street || '').trim();
+  const suite = String(address?.suite || '').trim();
+  if (!street) return '';
+  if (!suite) return street;
+  const escaped = suite.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  if (new RegExp(`,\\s*${escaped}\\s*$`, 'i').test(street)) return street;
+  return `${street}, ${suite}`;
 }
 
 const geoSchema = z.object({
@@ -208,7 +229,9 @@ export const siteConfigSchema = z.object({
   niche: z.string().min(1),
   primaryCity: z.string().min(1),
   state: z.string().min(1),
-  targetSuburbs: z.array(z.string().min(1)).min(1),
+  targetSuburbs: z.array(z.string().min(1)).default([]),
+  /** Leftover coverage cities listed on the homepage (max 10, nearest when Zone). */
+  alsoServing: z.array(z.string().min(1)).max(10).optional(),
   coverageAreas: z
     .array(
       z.object({

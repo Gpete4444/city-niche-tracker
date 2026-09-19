@@ -23,6 +23,15 @@ import {
 } from './candidates.mjs';
 import { assertEvalPrerequisite } from './candidate-protection.mjs';
 import { getEvalConcurrency } from './eval-concurrency.mjs';
+import {
+  EVAL_ALL_STEPS_ALL,
+  EVAL_RUN_MODE_ALL,
+  EVAL_RUN_MODE_REQUIRED,
+  missingEvalAllSteps as missingEvalAllStepsForMode,
+  nextEvalAllStep as nextEvalAllStepForMode,
+  normalizeEvalRunMode,
+} from './eval-run-mode.mjs';
+import { ensureResearchSerpSeeds } from './serp-seeds.mjs';
 
 const batchJobs = new Map();
 const JOBS_DIR = path.join(RESEARCH_DIR, '_jobs');
@@ -35,20 +44,14 @@ const STARTERS = {
 };
 
 export const EVAL_ALL_ACT = 'evaluate-all';
-export const EVAL_ALL_STEPS = ['research', 'enrich', 'narrative', 'prospects'];
+export const EVAL_ALL_STEPS = EVAL_ALL_STEPS_ALL;
 
-export function missingEvalAllSteps(candidateId) {
-  const f = deriveStage(candidateId);
-  const missing = [];
-  if (!f.hasResearch) missing.push('research');
-  if (!f.hasEnrichment) missing.push('enrich');
-  if (!f.hasNarrative) missing.push('narrative');
-  if (!f.hasProspects) missing.push('prospects');
-  return missing;
+export function missingEvalAllSteps(candidateId, mode = EVAL_RUN_MODE_REQUIRED) {
+  return missingEvalAllStepsForMode(candidateId, mode);
 }
 
-export function nextEvalAllStep(candidateId) {
-  return missingEvalAllSteps(candidateId)[0] || null;
+export function nextEvalAllStep(candidateId, mode = EVAL_RUN_MODE_REQUIRED) {
+  return nextEvalAllStepForMode(candidateId, mode);
 }
 
 function addCost(a, b) {
@@ -68,6 +71,7 @@ function runResearchPrepared(candidateId, opts = {}) {
     adsMode: opts.adsMode,
     forceSerp: Boolean(opts.forceSerp),
     volumesOnly: Boolean(opts.volumesOnly),
+    skipVolumes: Boolean(opts.skipVolumes),
   });
 }
 
@@ -82,6 +86,7 @@ function runProspectsPrepared(candidateId) {
 }
 
 function runNarrativePrepared(candidateId) {
+  ensureResearchSerpSeeds(candidateId);
   assertEvalPrerequisite(candidateId, 'narrative');
   return runNarrativeJob(candidateId);
 }
@@ -97,6 +102,8 @@ function persistBatch(batch) {
       startedAt: batch.startedAt,
       finishedAt: batch.finishedAt,
       error: batch.error,
+      evalRunMode: batch.evalRunMode || null,
+      skipVolumes: batch.skipVolumes || false,
       done: batch.done,
       failed: batch.failed,
       running: batch.running,
@@ -167,12 +174,14 @@ function advanceEvalAllChild(batch, child, job) {
     child.error = job.error || child.error || `${lastStep || 'step'} failed`;
     return;
   }
-  const next = nextEvalAllStep(child.candidateId);
+  const next = nextEvalAllStep(child.candidateId, batch.evalRunMode);
   if (next && next === lastStep) {
     child.status = 'error';
     child.error =
       lastStep === 'narrative'
-        ? 'Narrative draft needs review — Accept before Prospects'
+        ? batch.evalRunMode === EVAL_RUN_MODE_REQUIRED
+          ? 'Narrative draft needs review — Accept to finish Run all required'
+          : 'Narrative draft needs review — Accept before Prospects'
         : `${lastStep} finished but the stage is still incomplete`;
     return;
   }
@@ -190,7 +199,7 @@ function pumpEvalAll(batch) {
   if (batch.status !== 'running') return;
 
   for (const child of batch.children.filter((c) => c.status === 'queued')) {
-    if (nextEvalAllStep(child.candidateId)) continue;
+    if (nextEvalAllStep(child.candidateId, batch.evalRunMode)) continue;
     child.status = 'ok';
     child.step = null;
     child.jobId = null;
@@ -204,7 +213,14 @@ function pumpEvalAll(batch) {
   for (let i = 0; i < slots && i < queued.length; i += 1) {
     const child = queued[i];
     try {
-      const step = nextEvalAllStep(child.candidateId);
+      let step = nextEvalAllStep(child.candidateId, batch.evalRunMode);
+      const required = batch.evalRunMode === EVAL_RUN_MODE_REQUIRED;
+      if (step === 'research' && required) {
+        const hydrated = ensureResearchSerpSeeds(child.candidateId);
+        if (hydrated.ready) {
+          step = nextEvalAllStep(child.candidateId, batch.evalRunMode);
+        }
+      }
       if (!step) {
         child.status = 'ok';
         child.step = null;
@@ -217,10 +233,12 @@ function pumpEvalAll(batch) {
         child.error = `Unknown step: ${step}`;
         continue;
       }
+      const flags = deriveStage(child.candidateId);
       const job = start(child.candidateId, {
         adsMode: 'live',
         forceSerp: false,
-        volumesOnly: false,
+        volumesOnly: !required && Boolean(flags.hasResearch) && !flags.hasVolumes,
+        skipVolumes: required && step === 'research',
       });
       child.step = step;
       child.jobId = job.id;
@@ -301,6 +319,7 @@ function pump(batch) {
         adsMode: batch.adsMode,
         forceSerp: batch.forceSerp,
         volumesOnly: batch.volumesOnly,
+        skipVolumes: batch.skipVolumes,
       });
       child.jobId = job.id;
       child.status = 'running';
@@ -328,6 +347,8 @@ function pump(batch) {
  *   adsMode?: 'live'|'standard',
  *   forceSerp?: boolean,
  *   volumesOnly?: boolean,
+ *   skipVolumes?: boolean,
+ *   evalRunMode?: 'required'|'all',
  *   requireWithinLimit?: boolean,
  * }} opts
  */
@@ -337,6 +358,8 @@ export function startBatchJobs({
   adsMode = 'live',
   forceSerp = false,
   volumesOnly = false,
+  skipVolumes = false,
+  evalRunMode = EVAL_RUN_MODE_REQUIRED,
   requireWithinLimit = false,
 } = {}) {
   const ids = [...new Set(candidateIds.map((id) => String(id || '').trim()).filter(Boolean))];
@@ -371,16 +394,22 @@ export function startBatchJobs({
     : String(adsMode || 'live').toLowerCase() === 'standard'
       ? 'standard'
       : 'live';
-  const volOnly = evalAll ? false : Boolean(volumesOnly);
+  const runMode = evalAll ? normalizeEvalRunMode(evalRunMode) : EVAL_RUN_MODE_ALL;
+  const skipVol = evalAll
+    ? runMode === EVAL_RUN_MODE_REQUIRED
+    : Boolean(skipVolumes);
+  const volOnly = evalAll ? false : Boolean(volumesOnly) && !skipVol;
   const force = evalAll ? false : Boolean(forceSerp) && !volOnly;
 
   const batchJobId = randomUUID();
   const batch = {
     id: batchJobId,
     act: resolvedAct,
+    evalRunMode: evalAll ? runMode : undefined,
     adsMode: evalAll || resolvedAct === 'research' ? mode : undefined,
     forceSerp: evalAll || resolvedAct === 'research' ? force : undefined,
     volumesOnly: evalAll || resolvedAct === 'research' ? volOnly : undefined,
+    skipVolumes: evalAll || resolvedAct === 'research' ? skipVol : undefined,
     status: 'running',
     concurrency: conc,
     startedAt: new Date().toISOString(),
@@ -410,6 +439,7 @@ export function aggregateStageFlags(candidateIds = []) {
   const totals = {
     count: 0,
     hasResearch: 0,
+    hasVolumes: 0,
     hasEnrichment: 0,
     hasNarrativeDraft: 0,
     hasNarrative: 0,
@@ -421,6 +451,7 @@ export function aggregateStageFlags(candidateIds = []) {
       const f = d.stageFlags || {};
       totals.count += 1;
       if (f.hasResearch) totals.hasResearch += 1;
+      if (f.hasVolumes) totals.hasVolumes += 1;
       if (f.hasEnrichment) totals.hasEnrichment += 1;
       if (f.hasNarrativeDraft) totals.hasNarrativeDraft += 1;
       if (f.hasNarrative) totals.hasNarrative += 1;

@@ -7,6 +7,12 @@ import {
 } from '../ops/lib/image-setting.mjs';
 import { roomHint } from '../ops/lib/chatgpt-before-after.mjs';
 import { buildFluxSlotPrompt, buildFluxBaPrompts } from '../ops/lib/flux-prompts.mjs';
+import {
+  applyOccupancyToPrompt,
+  normalizeOccupancy,
+  NO_PEOPLE_RULES,
+  PEOPLE_RULES,
+} from '../ops/lib/image-occupancy.mjs';
 
 function assert(cond, msg) {
   if (!cond) throw new Error(msg);
@@ -88,5 +94,59 @@ const ba = buildFluxBaPrompts({
 });
 assert(!/lived-in ordinary house|living room|residential architecture/i.test(`${ba.before} ${ba.after}`), 'commercial BA not home');
 assert(/commercial architecture|commercial interior|commercial building/i.test(ba.before), 'commercial BA architecture');
+
+assert(normalizeOccupancy(undefined) === 'none', 'occupancy default none');
+assert(normalizeOccupancy('people') === 'people', 'occupancy people');
+assert(normalizeOccupancy('PEOPLE') === 'people', 'occupancy PEOPLE');
+assert(normalizeOccupancy('none') === 'none', 'occupancy none');
+
+const emptyScene = buildFluxSlotPrompt({
+  niche: 'drywall',
+  city: 'Austin',
+  state: 'TX',
+  viewpoint: 'inside',
+  setting: 'residential',
+  slot: { serviceName: 'Drywall repair', key: 'hero-1', kind: 'hero' },
+  forChatGpt: true,
+});
+assert(/No people, no faces/i.test(emptyScene), 'default occupancy no people');
+assert(!/trade workers actively doing the described job/i.test(emptyScene), 'default occupancy no workers');
+
+const peopleScene = buildFluxSlotPrompt({
+  niche: 'drywall',
+  city: 'Austin',
+  state: 'TX',
+  viewpoint: 'inside',
+  occupancy: 'people',
+  setting: 'residential',
+  slot: { serviceName: 'Drywall repair', key: 'hero-1', kind: 'hero' },
+  forChatGpt: true,
+});
+assert(/trade workers actively doing the described job/i.test(peopleScene), 'people occupancy workers');
+assert(!/Empty rooms, installs, tools, and materials only/i.test(peopleScene), 'people occupancy not empty-room');
+
+const peopleBa = buildFluxBaPrompts({
+  niche: 'drywall',
+  city: 'Austin',
+  state: 'TX',
+  serviceName: 'Drywall repair',
+  viewpoint: 'inside',
+  occupancy: 'people',
+  setting: 'residential',
+  forChatGpt: true,
+});
+assert(/trade workers/i.test(peopleBa.before), 'people BA before workers');
+assert(/trade workers/i.test(peopleBa.after), 'people BA after workers');
+
+const claude = 'Documentary contractor photo. No people, no faces, no hands, no crew, no customers, no silhouettes. No text, logos, or watermarks.';
+const withPeople = applyOccupancyToPrompt(claude, 'people');
+assert(withPeople.includes(PEOPLE_RULES), 'apply occupancy people replaces no-people');
+assert(!/No people, no faces/i.test(withPeople), 'apply occupancy people removes no-people');
+const back = applyOccupancyToPrompt(withPeople, 'none');
+assert(back.includes(NO_PEOPLE_RULES), 'apply occupancy none restores no-people');
+assert(!/trade workers actively doing the described job/i.test(back), 'apply occupancy none removes workers');
+
+const appended = applyOccupancyToPrompt('Photoreal documentary still of a finished drywall patch.', 'people');
+assert(appended.includes(PEOPLE_RULES), 'apply occupancy people appends when no clause');
 
 console.log('test-image-setting: ok');

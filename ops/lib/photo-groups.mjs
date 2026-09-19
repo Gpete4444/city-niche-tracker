@@ -649,6 +649,7 @@ export function mergeStructureOntoSlot(slot, struct = {}) {
     serviceName: slot.serviceName || struct.serviceName || null,
     processTitle: slot.processTitle || struct.processTitle || null,
     materialTitle: slot.materialTitle || struct.materialTitle || null,
+    slotDescription: slot.slotDescription || struct.slotDescription || null,
     serviceSlug: slot.serviceSlug || struct.serviceSlug || null,
     label: labelFromSlot || struct.label || slot.label || null,
     sectionId: slot.sectionId || struct.sectionId || slot.sectionId,
@@ -1348,6 +1349,14 @@ export function previewPhotoGroup(candidateId, groupIdOrBody) {
   };
 }
 
+/** Both copies must land — never persist a half BA tray row (missing pgN-after). */
+export function baTrayEntryFromCopies(beforeName, afterName, extra = {}) {
+  const beforeFilename = String(beforeName || '').trim();
+  const afterFilename = String(afterName || '').trim();
+  if (!beforeFilename || !afterFilename) return null;
+  return { beforeFilename, afterFilename, ...extra };
+}
+
 function deleteMatching(dir, re) {
   if (!dir || !existsSync(dir)) return;
   for (const name of readdirSync(dir)) {
@@ -1661,13 +1670,12 @@ export async function applyPhotoGroups(candidateId, groupIds) {
       `${prefix}-pg${row.rank}-after.${row.pair.after.ext || 'jpg'}`,
       { unique: true, yieldCounter },
     );
-    noteBaTray(key, {
-      beforeFilename: beforeName,
-      afterFilename: afterName,
+    const trayEntry = baTrayEntryFromCopies(beforeName, afterName, {
       source: 'photo-group',
       serviceSlug: row.kind === 'service' ? row.serviceSlug : '',
       pairIndex: row.pairIndex || 1,
     });
+    if (trayEntry) noteBaTray(key, trayEntry);
   }
 
   const baKeysWritten = new Set();

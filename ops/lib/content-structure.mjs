@@ -22,6 +22,17 @@ import {
   getCachedCityContext,
 } from './city-context.mjs';
 import { listLaunchContentGaps, resolveStructurePageIds } from './preview-fidelity.mjs';
+import {
+  assignServiceBands,
+  formatServiceBandRulesMarkdown,
+} from './service-band-assign.mjs';
+import { buildLocationAngles, formatLocationAnglesMarkdown } from './location-angles.mjs';
+import {
+  assignBookendPolicy,
+  assignLocationSectionPolicy,
+  formatBookendPolicyMarkdown,
+  formatLocationSectionPolicyMarkdown,
+} from './bookend-policy.mjs';
 
 // Mirror content-markdown slugifyContentName (avoid circular import)
 function slugifyContentName(name) {
@@ -140,6 +151,47 @@ function configuredServiceNames(config = {}) {
     }
   }
   return names;
+}
+
+function readFieldResearchRecord(candidateId) {
+  return readJson(pathsFor(candidateId).contentFieldResearch);
+}
+
+/**
+ * Deterministic service-band rotation + per-suburb local angles on the outline.
+ */
+export function attachRankingOutlineExtras(outline, config = {}, extras = {}) {
+  if (!outline || typeof outline !== 'object') return outline;
+  const enabledSectionIds = Array.isArray(outline.sectionIds)
+    ? outline.sectionIds
+    : (outline.sections || []).map((s) => (typeof s === 'string' ? s : s?.id)).filter(Boolean);
+  const services = configuredServiceNames(config);
+  const suburbs = configuredSuburbNames(config);
+  const fieldResearch = extras.fieldResearch || null;
+  const cityContext = extras.cityContext || null;
+  outline.serviceBandAssignments = assignServiceBands({
+    services,
+    enabledSectionIds,
+    keywordTargets: outline.keywordTargets || [],
+    faqSeeds: outline.faqSeeds || [],
+    volumeHints: outline.keywords?.volumeHints || [],
+  });
+  outline.locationAngles = buildLocationAngles({
+    suburbs,
+    cityContext,
+    fieldResearch,
+  });
+  const fileRules = buildRequiredFileRules(outline, config);
+  outline.bookendPolicy = assignBookendPolicy({
+    candidateId: extras.candidateId || outline.candidateId || '',
+    filePaths: fileRules.paths,
+    enabledSectionIds,
+  });
+  outline.locationSectionPolicy = assignLocationSectionPolicy({
+    suburbs,
+    enabledSectionIds,
+  });
+  return outline;
 }
 
 function configuredSuburbNames(config = {}) {
@@ -538,6 +590,7 @@ export function composeContentOutline(candidateId, selectionPatch = null) {
       'Internal links: Home ↔ Services ↔ Locations ↔ Contact.',
       'Use site-config socialProof for trust/reviews — do not invent testimonials. Rover seeds placeholders when empty; operator replaces before launch.',
       'Use City context briefs (Wikipedia + local seed) for climate/neighborhood flavor — paraphrase only; keep each location FILE distinct; name concrete materials/methods.',
+      'Service educational bands rotate per FILE (cost/DIY/permits stay on the homepage plus a subset of services). Location pages use sourced locationAngles — no Facebook groups.',
       'Service card bodies must not repeat “in {city}, {ST}” — city once in the homepage intro.',
       'Brand/domain verb must match niche and homepage H1/title (Repair Pros ≠ Installation identity).',
     ],
@@ -555,6 +608,10 @@ export function composeContentOutline(candidateId, selectionPatch = null) {
   };
 
   applyResearchSeoSeeds(outline, getCandidateDetail(candidateId), selection);
+  attachRankingOutlineExtras(outline, config, {
+    candidateId,
+    cityContext: getCachedCityContext(candidateId),
+  });
 
   // Warm city-context cache for Outline refine / Full write (non-blocking)
   void buildCityContextPackage(candidateId).catch(() => {});
@@ -629,7 +686,61 @@ export function composeContentOutline(candidateId, selectionPatch = null) {
   };
 }
 
-export async function buildStructurePrompt(candidateId) {
+/** home | services | locations — used to split a too-large Outline refine. */
+export function outlineSectionKind(id) {
+  const s = String(id || '');
+  if (/^svc/i.test(s)) return 'services';
+  if (/^loc/i.test(s)) return 'locations';
+  return 'home';
+}
+
+/** Non-empty home / services / locations groups, in that order. */
+export function outlineRefineGroups(outline) {
+  const sections = Array.isArray(outline?.sections) ? outline.sections : [];
+  const buckets = { home: [], services: [], locations: [] };
+  for (const sec of sections) {
+    buckets[outlineSectionKind(sec?.id)].push(sec);
+  }
+  return ['home', 'services', 'locations']
+    .filter((key) => buckets[key].length)
+    .map((key) => ({
+      key,
+      label: key,
+      sections: buckets[key],
+      sectionIds: buckets[key].map((s) => s.id).filter(Boolean),
+    }));
+}
+
+const OUTLINE_SLICE_SEO_KEYS = ['keywordTargets', 'faqSeeds', 'organicTitleHints', 'keywords'];
+
+/** Replace matching section ids; keep pages / ranking extras from the composed base. */
+export function mergeOutlineSectionChunks(base, chunks) {
+  const root = base && typeof base === 'object' ? base : {};
+  const next = {
+    ...root,
+    sections: Array.isArray(root.sections) ? [...root.sections] : [],
+  };
+  const byId = new Map(next.sections.map((s, i) => [s?.id, i]));
+  for (const chunk of chunks || []) {
+    if (!chunk || typeof chunk !== 'object') continue;
+    for (const key of OUTLINE_SLICE_SEO_KEYS) {
+      if (chunk[key] == null) continue;
+      if (Array.isArray(chunk[key]) && !chunk[key].length) continue;
+      next[key] = chunk[key];
+    }
+    for (const sec of chunk.sections || []) {
+      if (!sec?.id) continue;
+      if (byId.has(sec.id)) next.sections[byId.get(sec.id)] = sec;
+      else {
+        byId.set(sec.id, next.sections.length);
+        next.sections.push(sec);
+      }
+    }
+  }
+  return next;
+}
+
+export async function buildStructurePrompt(candidateId, opts = {}) {
   const outline = getContentOutlinePackage(candidateId);
   if (!outline?.sections?.length) {
     throw Object.assign(new Error('Compose an outline first (Continue from Structure)'), {
@@ -659,12 +770,30 @@ export async function buildStructurePrompt(candidateId) {
   } catch {
     // soft
   }
+  const wantIds = Array.isArray(opts.sectionIds) && opts.sectionIds.length
+    ? new Set(opts.sectionIds.map(String))
+    : null;
+  const sliceSections = wantIds
+    ? (outline.sections || []).filter((s) => wantIds.has(String(s.id)))
+    : outline.sections;
+  const outlineForPrompt = wantIds
+    ? { ...outline, sections: sliceSections, sectionIds: sliceSections.map((s) => s.id) }
+    : outline;
+  const sliceNote = wantIds
+    ? `This call is a SLICE. Return a JSON object with \`sections\` covering only these ids: ${[...wantIds].join(', ')}. Include keywordTargets and faqSeeds when refining home/shared sections. Do not return other sections.\n\n`
+    : '';
+  const returnRule = wantIds
+    ? '9. Return ONLY a JSON object with a `sections` array for the listed ids (plus keywordTargets / faqSeeds on the home slice). No markdown fences unless needed.'
+    : '9. Return ONLY the full updated outline JSON object (same shape) in one response. No markdown fences unless needed.';
+  const returnLine = wantIds
+    ? 'Return the slice JSON (`sections` only, plus SEO maps when asked).'
+    : 'Return the complete JSON outline.';
   const prompt = `${eightPrefix}You are an SEO content strategist for a local rank-and-rent website.
 
 ## Goal
 Refine the site OUTLINE only (headings, instructions, keyword map, image alts). Do NOT write full page body copy yet.
 Pass 2: for every section, set a clear H2 angle and job-to-be-done in \`instructions\` (what the section must accomplish and how it connects to the next).
-
+${sliceNote}
 ## Business
 ${JSON.stringify(
   {
@@ -702,7 +831,7 @@ ${JSON.stringify(cityCompact || { note: 'unavailable — use site-config suburbs
 
 ## Current outline JSON
 \`\`\`json
-${JSON.stringify(outline, null, 2)}
+${JSON.stringify(outlineForPrompt, null, 2)}
 \`\`\`
 
 ## Instructions
@@ -714,11 +843,11 @@ ${JSON.stringify(outline, null, 2)}
 6. Use organicTitleHints to sound competitive in titles/H2s without copying brand names.
 7. Keep every section \`id\`, page list, and image path — refine headings, instructions, alts, and keyword/FAQ maps only.
 8. Honor the Confirmed content brief questions, local details, and competitor angles.
-9. Return ONLY the full updated outline JSON object (same shape) in one response. No markdown fences unless needed.
+${returnRule}
 
-Return the complete JSON outline.`;
+${returnLine}`;
 
-  return { prompt, outline, cityContext: cityCompact };
+  return { prompt, outline, cityContext: cityCompact, sectionIds: wantIds ? [...wantIds] : null };
 }
 
 export function pasteContentOutlinePackage(candidateId, raw) {
@@ -796,11 +925,18 @@ export async function confirmContentOutline(candidateId) {
   } catch {
     // non-fatal — Full write still runs with soft rules
   }
+  persistCoercedAcceptedSiteConfig(candidateId);
+  const config = loadAcceptedSiteConfig(candidateId)?.config || {};
   const confirmed = {
     ...outline,
     status: 'confirmed',
     confirmedAt: nowIso(),
   };
+  attachRankingOutlineExtras(confirmed, config, {
+    candidateId,
+    cityContext: getCachedCityContext(candidateId),
+    fieldResearch: readFieldResearchRecord(candidateId),
+  });
   writeJson(outlinePath(candidateId), confirmed);
 
   const briefPath = pathsFor(candidateId).contentBrief;
@@ -861,6 +997,12 @@ export async function buildFullWritePrompt(candidateId) {
   }
   persistCoercedAcceptedSiteConfig(candidateId);
   const config = loadAcceptedSiteConfig(candidateId)?.config || {};
+  attachRankingOutlineExtras(outline, config, {
+    candidateId,
+    cityContext: getCachedCityContext(candidateId),
+    fieldResearch: readFieldResearchRecord(candidateId),
+  });
+  writeJson(outlinePath(candidateId), outline);
   const fileRules = buildRequiredFileRules(outline, config);
   const requiredCount = fileRules.count || 0;
   const servicesLimit = Number(config.homepageServicesLimit) || 6;
@@ -890,7 +1032,7 @@ Write FULL page content that follows the confirmed OUTLINE. Prioritize helpful, 
 Pass 3: vary sentence length across sections; prefer commas over em dashes; honor the Confirmed content brief.
 **Burstiness:** mix short punchy lines with longer ones — location and service pages must not share one uniform long-sentence cadence.
 **Paragraphs:** 1–3 short sentences each (about, locations, and service bodies too). Rover flags blocks over ~80 words.
-**Bookends:** for every FILE, make the first two and last two body sentences conversational and opinionated (contractor on the phone). Closing bookend should nudge call / free estimate when the page type expects it.
+**Bookends:** honor outline.bookendPolicy per FILE (mixed openers). Do not punch-open and free-estimate-close every page. When closer=skip, do not add a second estimate nudge — the CTA section is enough.
 **NAP:** use site-config phone, email, and businessName literally. Never invent numbers or leave placeholders like +1XXXXXXXXXX / leads@example.com.
 
 ${shotgunDoNotLinkBlock(candidateId)}
@@ -930,19 +1072,24 @@ ${fileRules.markdown || '- Home: `### FILE: src/content/pages/index.md`\n- About
 ## Shared templates
 ${
   svcSections.length
-    ? `- **Service pages:** Apply the svc* outline sections (${svcSections.map((s) => s.id).join(', ')}) to EVERY service FILE. Substitute the real service name for \`{serviceName}\` in headings and body. **svcIntro is unmarked** — 2 paragraphs before the first \`##\`; do **not** emit \`##\` for svcIntro (outline heading is a content hint, not an H2).`
+    ? `${formatServiceBandRulesMarkdown(outline.serviceBandAssignments || {}, configuredServiceNames(config))}
+- Substitute the real service name for \`{serviceName}\` in headings and body. **svcIntro is unmarked** — 2 paragraphs before the first \`##\`; do **not** emit \`##\` for svcIntro.
+- Homepage still carries the full educational encyclopedia (cost, DIY, permits, and other enabled home bands) even when a service FILE omits that band.`
     : '- No service-page sections enabled.'
 }
 ${
   locSections.length
-    ? `- **Location pages:** Apply the loc* outline sections (${locSections.map((s) => s.id).join(', ')}) to EVERY location FILE. Substitute the suburb name for \`{suburb}\`.`
+    ? `${formatLocationAnglesMarkdown(outline.locationAngles || {}, configuredSuburbNames(config))}
+${formatLocationSectionPolicyMarkdown(outline.locationSectionPolicy || {}, configuredSuburbNames(config))}
+- Apply loc* outline sections that are enabled, but skip Why-choose / FAQ clones when this suburb’s angle already lives in the intro or locationSectionPolicy omits them. Substitute the suburb name for \`{suburb}\`.`
     : '- No location-page sections enabled.'
 }
+${formatBookendPolicyMarkdown(outline.bookendPolicy || {})}
 
 ## Dual-source contract (home vs service)
 - **Homepage:** \`whyChooseUs[]\`, \`process[]\`, \`faqs[]\`, and \`gallery\` live in **frontmatter only**. Do NOT dump process steps, FAQ Q&As, or why-reasons into the homepage body.
 - **Homepage body:** intro (~2 paras) + \`##\` sections for enabled **educational** bands only (cost, materials, timeline, codes, diyVsPro, whenToCall).
-- **Service pages:** there are **no** \`process\` / \`faqs\` / \`whyChooseUs\` frontmatter arrays. After a short unmarked intro (no \`##\` for svcIntro), every **other** enabled service band is a body \`##\` (What's included, process, cost, materials, timeline, codes, DIY, whenToCall, FAQs, before/after, CTA).
+- **Service pages:** there are **no** \`process\` / \`faqs\` / \`whyChooseUs\` frontmatter arrays. After a short unmarked intro (no \`##\` for svcIntro), emit a body \`##\` only for bands listed on that FILE in serviceBandAssignments (not every enabled svc* section).
 - Do **not** invent service-page \`process:\` or \`faqs:\` YAML arrays.
 
 ## Frontmatter expectations (homepage index.md)
@@ -975,16 +1122,16 @@ heroImage:
 - **No** \`process:\` / \`faqs:\` / \`whyChooseUs:\` / \`gallery:\` frontmatter on service pages
 - Body:
   1. Unmarked intro: max ~2 concise paragraphs (service-first; one natural city mention OK). **Do not emit \`##\` for svcIntro.**
-  2. A \`##\` heading for **each enabled** service section **except svcIntro** (svcWhatsIncluded, svcProcess, svcCost, svcMaterials, svcTimeline, svcCodes, svcDiyVsPro, svcWhenToCall, svcFaqs, svcBeforeAfter, svcCta, etc.)
+  2. A \`##\` heading only for bands assigned to this FILE in serviceBandAssignments (except svcIntro). Do **not** emit cost / DIY / permits / timeline / materials / when-to-call unless that FILE was assigned that band.
 - Process (when enabled): prefer **4, 6, or 8** steps; each step its own markdown list line \`- **Title** — short description\` (description ~8–14 words; timing cue OK). Never concatenate multiple steps into one paragraph. No body images — thumbs come from Pull \`processImages\` frontmatter (one per step, same compact cards as homepage)
 - What’s included / Scope (when enabled): **at least 3 real scope bullets specific to this serviceName** (methods, materials, verification — e.g. CIPP = candidacy camera + liner cure + post-CCTV; camera inspection = full pass + findings write-up). Do **not** use the same generic “labor/materials/cleanup” trio on every service. Optional add-ons and Customer prep may follow as extra bullets — never leave the section with only Optional / Customer prep lines
 - FAQs (when enabled): question line ending with \`?\`, then answer paragraph(s) before the next question
-- Cost (when enabled): 3–5 bullets \`**Tier** — $low–$high — what’s included\` (ballparks, not a fixed quote)
+- Cost (when enabled): 3–5 bullets \`**Tier** — $low–$high, what’s included\` (one em dash, then a comma; ballparks, not a fixed quote)
 - Codes (when enabled): \`### Usually needs a permit\` then \`### Usually no permit\`, one bullet per item
 - DIY vs pro (when enabled): \`### DIY\` first, then \`### Hire a pro\`, each with balanced bullets
-- Timeline (when enabled): stage bullets \`**Stage title** — duration\` where duration is a complete phrase (\`same day\`, \`1–2 days\`, \`3–7 days\`). Keep en-dashes in ranges. Never write hedges like \"or next day\" / \"usually\" / \"in most cases\" / \"varies by city\" that can drop mid-phrase
+- Timeline (when enabled): stage bullets \`**Stage title**: duration\` where duration is a complete phrase (\`same day\`, \`1–2 days\`, \`3–7 days\`). Keep en-dashes in ranges. Never write hedges like \"or next day\" / \"usually\" / \"in most cases\" / \"varies by city\" that can drop mid-phrase
 - Before/after (when enabled): short problem → solution text lines only; photos live on the **homepage** gallery — do not invent image paths; optionally link to \`/\` for photo examples
-- Materials (when enabled): short intro + **exactly 3 or 6** option bullets (choose **6** when research/entities support six distinct products/methods; otherwise **3**; never 4, 5, 7, or 8); each bullet \`**Product/system name** —\` then **1–2 sentences** (why it matters, climate/use cue from City context when available, durable outcome). Concrete product/system/method titles (not “professional grade” alone). No body images — Pull supplies \`materialsImages\` thumbs for compact text+photo rows
+- Materials (when enabled): short intro + **exactly 3 or 6** option bullets (choose **6** when research/entities support six distinct products/methods; otherwise **3**; never 4, 5, 7, or 8); each bullet \`**Product/system name**:\` then **1–2 sentences** (why it matters, climate/use cue from City context when available, durable outcome). Concrete product/system/method titles (not “professional grade” alone). No body images — Pull supplies \`materialsImages\` thumbs for compact text+photo rows
 
 ## Frontmatter expectations (about.md)
 - title, description, h1
@@ -1000,8 +1147,8 @@ heroImage:
 - Filename slug = city kebab only (e.g. \`riverton.md\` → \`/locations/riverton\`); never append state (\`riverton-ut\` is wrong)
 - title, description, h1, city, state
 - **Target ~600+ words** of useful local copy (intro + local notes + proof + FAQs + CTA when those sections are enabled) — not a thin stub. Accept rejects bodies under ~450 words and near-duplicate location pages.
-- Use City context for **this** city: climate/housing/neighborhood hints when present; paraphrase into niche work (access, moisture, finish durability, common jobs) — never invent neighborhoods not listed.
-- **Every location FILE must differ** in local notes and examples (do not swap only the city name).
+- Use City context **and locationAngles** for **this** city: climate/housing/neighborhood hints when present; paraphrase into niche work — never invent neighborhoods not listed. Prefer cues that have a sourceUrl.
+- **Every location FILE must differ** in local notes and examples (do not swap only the city name, and do not stitch two other suburb pages together).
 - **Primary city** (\`${config.primaryCity || 'primary'}\`): do **not** reuse the homepage head pattern (“${config.niche || 'niche'} in ${config.primaryCity || 'city'}, ST”). Prefer “${config.niche || 'Niche'} for ${config.primaryCity || 'City'}, ${config.state || 'ST'} homeowners” (or “${config.businessName || 'Business'} serving ${config.primaryCity || 'City'}”). Always include the **niche** and **city**; never geo-only (“{City} Service Areas & Neighborhoods”) and avoid awkward “{niche} in {city} neighborhoods” as the sole H1. Emphasize local conditions in the body; link up to \`/\` plus out to suburb / service pages.
 - **Suburb cities:** keep “${config.niche || 'niche'} in {suburb}, ${config.state || 'ST'}”
 - heroImage only as \`{ src, alt }\` or omit
@@ -1230,18 +1377,34 @@ function buildLinkChecklistMarkdown(outline, config) {
 /**
  * Seed keywords / faqSeeds / organic titles from research + optional content-research pack.
  */
-function applyResearchSeoSeeds(outline, detail, selection) {
+export function applyResearchSeoSeeds(outline, detail, selection) {
   const research = detail?.research || {};
   const approved = detail?.approved || {};
   const serp = research.serp || {};
   const volumeRows = Array.isArray(research.volumes?.keywords) ? research.volumes.keywords : [];
-  const volumeHints = volumeRows
+  let volumeHints = volumeRows
     .map((row) => ({
       keyword: row.keyword || row.Keyword || '',
       volume: row.searchVolume ?? row.search_volume ?? row.volume ?? null,
     }))
     .filter((r) => r.keyword)
     .slice(0, 12);
+  if (!volumeHints.length) {
+    const suggested = [
+      ...(Array.isArray(approved?.suggestedKeywords) ? approved.suggestedKeywords : []),
+      ...(Array.isArray(research.suggestedKeywords) ? research.suggestedKeywords : []),
+      ...(Array.isArray(detail?.narrative?.suggestedKeywords)
+        ? detail.narrative.suggestedKeywords
+        : []),
+    ];
+    volumeHints = suggested
+      .map((row) => ({
+        keyword: typeof row === 'string' ? row : row?.keyword || row?.phrase || '',
+        volume: null,
+      }))
+      .filter((r) => r.keyword)
+      .slice(0, 12);
+  }
 
   const supporting = volumeHints
     .map((r) => r.keyword)

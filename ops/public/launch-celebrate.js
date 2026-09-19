@@ -19,26 +19,35 @@ function siteLaunched(row) {
 }
 
 function siteTime(row) {
-  const t = Date.parse(row?.createdAt || row?.lastLaunchAt || row?.lastShipAt || 0);
+  const t = Date.parse(row?.lastLaunchAt || row?.lastShipAt || row?.createdAt || 0);
   return Number.isFinite(t) ? t : 0;
 }
 
+function rowMatchesId(row, id) {
+  if (!id) return false;
+  return String(row?.candidateId || '') === id || String(row?.id || '') === id;
+}
+
 /** 1-based ordinal among launched sites (stable on re-launch) plus portfolio total. */
-export function launchedCountStats(sites, candidateId) {
+export function launchedCountStats(sites, candidateId, current = {}) {
+  const id = String(candidateId || '');
   const launched = (sites || []).filter(siteLaunched);
+  if (id && !launched.some((s) => rowMatchesId(s, id))) {
+    launched.push({
+      candidateId: id,
+      lastLaunchAt: current.lastLaunchAt || current.lastShipAt || new Date().toISOString(),
+    });
+  }
   const sorted = [...launched].sort((a, b) => {
     const dt = siteTime(a) - siteTime(b);
     if (dt) return dt;
     return String(a.candidateId || a.id || '').localeCompare(String(b.candidateId || b.id || ''));
   });
-  const total = sorted.length;
-  const id = String(candidateId || '');
-  const idx = sorted.findIndex(
-    (s) => String(s.candidateId || '') === id || String(s.id || '') === id,
-  );
+  const total = Math.max(1, sorted.length);
+  const idx = sorted.findIndex((s) => rowMatchesId(s, id));
   return {
-    ordinal: idx >= 0 ? idx + 1 : Math.max(1, total),
-    total: Math.max(1, total),
+    ordinal: idx >= 0 ? idx + 1 : total,
+    total,
   };
 }
 

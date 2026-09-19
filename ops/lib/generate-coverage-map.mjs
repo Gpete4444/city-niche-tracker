@@ -7,6 +7,7 @@ import path from 'node:path';
 import { pathsFor, getCandidateDetail, getCandidateShell, loadMeta, saveMeta } from './candidates.mjs';
 import { syncSiteImagesToPublic } from './fill-site-images.mjs';
 import { findPlaceFeatureLocal } from './geo-neighbors.mjs';
+import { ensureAlsoServingOnSiteConfig } from './also-serving.mjs';
 
 const ROOT = process.cwd();
 const MAP_VARIANT_CAP = 2;
@@ -984,6 +985,7 @@ export async function generateCoverageMapForCandidate(
   { onProgress, labelPlacement } = {},
 ) {
   const p = pathsFor(candidateId);
+  ensureAlsoServingOnSiteConfig(candidateId);
   const config =
     readJson(p.siteConfig) ||
     readJson(p.siteConfigDraft) ||

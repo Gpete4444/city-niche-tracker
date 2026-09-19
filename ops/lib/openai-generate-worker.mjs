@@ -24,8 +24,9 @@ async function run(payload = {}) {
 }
 
 process.on('message', async (msg) => {
+  if (!msg || typeof msg !== 'object' || msg.type || !msg.payload) return;
   try {
-    const result = await run(msg?.payload || {});
+    const result = await run(msg.payload);
     process.send({ ok: true, result });
   } catch (error) {
     process.send({

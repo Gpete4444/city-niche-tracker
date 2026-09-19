@@ -32,7 +32,9 @@ Using your knowledge of how homeowners search and discuss this niche (and web br
   "state": "...",
   "homeownerQuestions": ["real questions people ask — Reddit/forum/PAA style", "..."],
   "competitorAngles": ["H2 / angle competitors likely cover that we must beat", "..."],
-  "localConditions": ["housing stock, climate, codes, or infrastructure cues for this market", "..."],
+  "localConditions": [
+    { "text": "housing stock, climate, codes, or infrastructure cue", "place": "city name this cue belongs to", "sourceUrl": "https://public-source.example/page" }
+  ],
   "landmarkHints": ["optional place names to weave lightly into location copy — not new page titles", "..."],
   "supportingTopics": ["optional topical article ideas beyond core services — cost, DIY vs hire, timeline — not weekly blogs", "..."],
   "notes": "short synthesis for the brief writer"
@@ -40,6 +42,7 @@ Using your knowledge of how homeowners search and discuss this niche (and web br
 
 Rules:
 - Prefer concrete local cues over generic “we serve the area.”
+- localConditions must be public and citable: Wikipedia, census, city/county building pages, local news, or a public Reddit thread URL. Each item needs text + place + sourceUrl. Drop the cue if you cannot cite it. Do **not** use Facebook groups or Nextdoor.
 - Do not invent competitor domain names unless you are confident.
 - landmarkHints are for weaving into existing location pages only — do NOT propose a landmark page farm.
 - supportingTopics are ideas only — Rover decides later whether to add pages.

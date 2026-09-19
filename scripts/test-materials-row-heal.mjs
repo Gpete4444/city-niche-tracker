@@ -70,4 +70,22 @@ if (sixN !== 6 || sixOut.markdown.includes('**G**')) {
   process.exit(1);
 }
 
+const seo = `---
+title: T
+---
+
+## Foam Concrete Lifting Near Me: Materials and Methods We Use
+
+- **A** — a.
+- **B** — b.
+- **C** — c.
+- **D** — leftover.
+`;
+const seoOut = healMaterialsCompleteRows(seo);
+const seoN = (seoOut.markdown.match(/^- \*\*/gm) || []).length;
+if (!seoOut.healed || seoN !== 3 || seoOut.markdown.includes('leftover')) {
+  console.error({ seoN, healed: seoOut.healed, md: seoOut.markdown });
+  process.exit(1);
+}
+
 console.log('PASS');

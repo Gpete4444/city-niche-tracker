@@ -46,8 +46,8 @@ const popcorn = fixed.files['src/content/services/commercial-popcorn-ceiling-rem
 const leftovers = lintContentSpeech(fixed.files).findings.filter((f) => f.rule === 'em_dash');
 
 assert(office.includes('quick, nail holes'), 'lowercase follow-on becomes comma');
-assert(office.includes('- **Inspect** — find the hole'), 'structured Inspect bullet kept');
-assert(office.includes('- **Patch** — mud and sand'), 'structured Patch bullet kept');
+assert(/- \*\*Inspect\*\* — /u.test(office), 'structured Inspect bullet kept');
+assert(/- \*\*Patch\*\* — /u.test(office), 'structured Patch bullet kept');
 assert(popcorn.includes('choice, many businesses'), 'FAQ lowercase follow-on becomes comma');
 assert(popcorn.includes('$300–$1,200'), 'money range becomes en dash');
 assert(popcorn.includes('24–48'), 'hour range becomes en dash');

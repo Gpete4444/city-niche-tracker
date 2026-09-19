@@ -22,13 +22,8 @@ import {
 } from './fill-site-images.mjs';
 import { IMAGE_TRAY_CAP, pushBaTrayEntry, pushSlotTrayEntry, trimTrayVariants } from './image-tray.mjs';
 import { buildSlotImagePrompt } from './chatgpt-slot-image.mjs';
-import {
-  persistSlotOverrideIfBody,
-  persistBaOverrideIfBody,
-  getBaPromptOverride,
-  loadCandidateOpenaiPrompts,
-  pickBaPromptPair,
-} from './openai-prompt-overrides.mjs';
+import { persistSlotOverrideIfBody, persistBaOverrideIfBody } from './openai-prompt-overrides.mjs';
+import { applyOccupancyToPrompt } from './image-occupancy.mjs';
 import {
   archiveLiveBaPairToTray,
   findLiveBaFiles,
@@ -39,7 +34,7 @@ import {
   saveBaVariantsDoc,
   writeGeneratedBaPair,
   listConfiguredServiceTargets,
-  resolveBaChatgptPrompts,
+  resolveBaPromptsWithOverride,
   saveLastBaPrompts,
 } from './chatgpt-before-after.mjs';
 import {
@@ -81,7 +76,7 @@ export function baStatusPayload(candidateId, { serviceSlug = '', pairIndex = 1 }
   return { openai: status.openai, pair, matchKey: pair?.matchKey || null };
 }
 
-export async function generateImageSlotOpenai(candidateId, slotKey, { viewpoint, prompt } = {}) {
+export async function generateImageSlotOpenai(candidateId, slotKey, { viewpoint, occupancy, prompt } = {}) {
   if (!openaiImageKeySet()) throw openaiUnconfiguredError();
   const slots = listImageSlots(candidateId);
   const slot = slots.find((s) => s.key === slotKey);
@@ -89,7 +84,7 @@ export async function generateImageSlotOpenai(candidateId, slotKey, { viewpoint,
   if (slot.sectionId === 'beforeAfter' || slot.sectionId === 'svcBeforeAfter') {
     throw Object.assign(new Error('Use OpenAI pair for before/after'), { status: 400 });
   }
-  const built = buildSlotImagePrompt(candidateId, slotKey, { viewpoint, prompt });
+  const built = buildSlotImagePrompt(candidateId, slotKey, { viewpoint, occupancy, prompt });
   if (String(prompt || '').trim()) {
     persistSlotOverrideIfBody(
       pathsFor(candidateId).openaiPrompts,
@@ -269,7 +264,7 @@ export function useImageSlotVariant(candidateId, slotKey, { filename } = {}) {
 
 export async function generateCandidateBaPairOpenai(
   candidateId,
-  { viewpoint, serviceSlug = '', pairIndex = 1, before, after } = {},
+  { viewpoint, occupancy, serviceSlug = '', pairIndex = 1, before, after } = {},
 ) {
   if (!openaiImageKeySet()) {
     throw Object.assign(
@@ -283,25 +278,28 @@ export async function generateCandidateBaPairOpenai(
     const hit = listConfiguredServiceTargets(candidateId).find((s) => s.slug === slug);
     serviceName = hit?.serviceName || slug;
   }
-  const resolved = resolveBaChatgptPrompts(candidateId, {
+  const resolved = resolveBaPromptsWithOverride(candidateId, {
     serviceSlug: slug,
     pairIndex,
     viewpoint,
+    occupancy,
+    before,
+    after,
   });
-  const doc = loadCandidateOpenaiPrompts(candidateId);
-  const ov = getBaPromptOverride(doc, resolved.key, resolved.viewpoint);
-  const used = pickBaPromptPair(resolved, ov, { before, after });
   if (String(before || '').trim() || String(after || '').trim()) {
     persistBaOverrideIfBody(
       pathsFor(candidateId).openaiPrompts,
       resolved.key,
       resolved.viewpoint,
-      resolved,
-      used,
+      {
+        before: applyOccupancyToPrompt(resolved.originalBefore, occupancy),
+        after: applyOccupancyToPrompt(resolved.originalAfter, occupancy),
+      },
+      { before: resolved.before, after: resolved.after },
     );
   }
-  const beforePrompt = used.before;
-  const afterPrompt = used.after;
+  const beforePrompt = resolved.before;
+  const afterPrompt = resolved.after;
   const beforeImg = await generateOpenaiImage({ prompt: beforePrompt });
   const afterImg = await editOpenaiImage({ prompt: afterPrompt, imageBuffer: beforeImg.buffer });
   archiveLiveBaPairToTray(candidateId, { serviceSlug: slug, pairIndex });

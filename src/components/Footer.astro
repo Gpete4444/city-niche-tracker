@@ -1,5 +1,5 @@
 ---
-import { site, formatPhoneDisplay, phoneHref } from '../config/site';
+import { site, formatPhoneDisplay, formatSiteStreet, phoneHref } from '../config/site';
 import { sitePath } from '../lib/site-path';
 import FooterSocial from './FooterSocial.astro';
 import PhoneIcon from './PhoneIcon.astro';
@@ -23,7 +23,7 @@ import PhoneIcon from './PhoneIcon.astro';
       {
         site.address && (
           <p class="mt-2 text-sm text-white/70">
-            {site.address.street}, {site.address.city}, {site.address.state} {site.address.zip}
+            {formatSiteStreet(site.address)}, {site.address.city}, {site.address.state} {site.address.zip}
           </p>
         )
       }

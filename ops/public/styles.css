@@ -3388,6 +3388,9 @@ table.table-cols-resized #candidate-table .col-batch .cell-text {
 #ca-launch-form .ca-launch-nap {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
+#ca-launch-form .ca-launch-w3-recipient-row {
+  grid-column: 1 / -1;
+}
 #ca-launch-form .ca-launch-opts {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -6665,6 +6668,9 @@ h4.ca-image-slot-section-title {
   min-height: 0;
   position: relative;
 }
+.sa-map-canvas .leaflet-interactive {
+  cursor: pointer;
+}
 .sa-host { margin-top: 0.35rem; }
 .sa-controls { display: flex; flex-direction: column; gap: 0.45rem; }
 .sa-radius-label {
@@ -6752,6 +6758,35 @@ h4.ca-image-slot-section-title {
 }
 .sa-suggested-pages-seed {
   margin: 0.35rem 0 0;
+}
+.sa-zone-columns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.45rem;
+  margin: 0.15rem 0 0;
+}
+.sa-zone-col {
+  padding: 0.35rem 0.45rem;
+  border: 1px solid var(--border, #d8dee6);
+  border-radius: 6px;
+  background: var(--surface-2, #f7f8fa);
+  min-width: 0;
+}
+.sa-zone-col .sa-list-title {
+  margin: 0 0 0.25rem;
+}
+.sa-zone-col-list {
+  margin: 0;
+  padding-left: 1.1rem;
+  font-size: 0.75rem;
+  line-height: 1.4;
+  list-style: disc;
+}
+.sa-zone-col-list li {
+  margin: 0.08rem 0;
+}
+#sa-host .sa-zone-col-list {
+  font-size: 0.75rem;
 }
 .sa-table-wrap {
   margin: 0;
@@ -6891,6 +6926,23 @@ h4.ca-image-slot-section-title {
   text-shadow: 0 0 2px #fff, 0 1px 1px #fff;
   opacity: 0.9;
 }
+.sa-place-label-claimed {
+  opacity: 0.72;
+}
+.leaflet-tooltip.sa-place-label-page,
+.leaflet-tooltip.sa-place-label-serving {
+  background: rgba(255, 255, 255, 0.92);
+  padding: 0.08rem 0.28rem;
+  border-radius: 3px;
+  box-shadow: none;
+  text-shadow: none;
+}
+.leaflet-tooltip.sa-place-label-page {
+  border: 2px solid #1e3a8a;
+}
+.leaflet-tooltip.sa-place-label-serving {
+  border: 2px solid var(--sa-serving-color, #d97706);
+}
 .sa-place-label .sa-label-pop {
   font-weight: 500;
   opacity: 0.75;
@@ -6942,16 +6994,19 @@ h4.ca-image-slot-section-title {
   border-radius: 6px;
   background: color-mix(in srgb, var(--panel, #fff) 78%, transparent);
 }
-.slot-ai-group .ba-viewpoint-segment {
+.slot-ai-group .ba-viewpoint-segment,
+.slot-ai-group .ba-occupancy-segment {
   display: flex;
   flex-direction: row;
   width: 100%;
 }
-.slot-ai-group .ba-viewpoint-segment .ads-mode-seg {
+.slot-ai-group .ba-viewpoint-segment .ads-mode-seg,
+.slot-ai-group .ba-occupancy-segment .ads-mode-seg {
   flex: 1;
   width: auto;
 }
-.slot-ai-group .ba-viewpoint-segment .ads-mode-seg + .ads-mode-seg {
+.slot-ai-group .ba-viewpoint-segment .ads-mode-seg + .ads-mode-seg,
+.slot-ai-group .ba-occupancy-segment .ads-mode-seg + .ads-mode-seg {
   border-top: 0;
   border-left: 1px solid var(--line, #d6d3d1);
 }
@@ -7078,6 +7133,14 @@ h4.ca-image-slot-section-title {
 .slot-service-subtitle {
   font-size: 0.75rem;
   line-height: 1.25;
+}
+.slot-photo-brief {
+  font-size: 0.75rem;
+  line-height: 1.3;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 .slot-generate-overlay .rover-loader--mark-only {
   gap: 0;
@@ -7561,25 +7624,7 @@ h4.ca-image-slot-section-title {
   flex-wrap: wrap;
   gap: 0.35rem;
 }
-#sg-map-wave-actions {
-  align-items: flex-end;
-}
-.sg-map-wave-col {
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  gap: 0.12rem;
-  min-width: 5.4rem;
-}
-.sg-map-wave-col .sg-map-wave {
-  width: 100%;
-}
-.sg-map-wave-col input[type="range"] {
-  width: 5.4rem;
-  margin: 0;
-  accent-color: #059669;
-}
-.sg-map-wave-mi {
+.sg-map-zone-mi {
   font-size: 0.7rem;
   color: var(--muted);
   text-align: left;
@@ -7816,17 +7861,7 @@ h4.ca-image-slot-section-title {
   font-size: 0.85em;
 }
 .sg-role-main { color: #1d4ed8; font-weight: 600; }
-.sg-role-city,
-.sg-role-wave1 { color: #059669; }
-.sg-role-wave2 { color: #d97706; }
-.sg-role-wave3 { color: #7c3aed; }
-.sg-role-wave4 { color: #0284c7; }
-.sg-role-wave5 { color: #e11d48; }
-.sg-role-wave6 { color: #0d9488; }
-.sg-role-wave7 { color: #c026d3; }
-.sg-role-wave8 { color: #65a30d; }
-.sg-role-wave9 { color: #ea580c; }
-.sg-role-wave10 { color: #4f46e5; }
+.sg-role-city { color: #059669; }
 .sg-mile-label {
   background: transparent !important;
   border: none !important;
@@ -7863,17 +7898,17 @@ h4.ca-image-slot-section-title {
 }
 .sg-map-palette-grid {
   display: grid;
-  grid-template-columns: repeat(5, 1.7rem);
+  grid-template-columns: repeat(10, 1.85rem);
   grid-template-rows: repeat(2, 1.7rem);
   gap: 0.16rem;
 }
 .sg-map-slot {
-  min-width: 1.7rem;
+  min-width: 1.85rem;
   height: 1.7rem;
   padding: 0;
   line-height: 1;
   font-weight: 700;
-  font-size: 0.75rem;
+  font-size: 0.68rem;
 }
 .sg-map-slot.active {
   outline: 2px solid #0f172a;
@@ -7881,7 +7916,7 @@ h4.ca-image-slot-section-title {
   box-shadow: 0 0 0 2px #fff;
 }
 .sg-map-slot-none {
-  min-width: 1.7rem;
+  min-width: 1.85rem;
   height: 1.7rem;
   background: #e2e8f0;
   color: #334155;
@@ -7893,7 +7928,7 @@ h4.ca-image-slot-section-title {
 .zone-map-modal {
   position: fixed;
   inset: 0;
-  z-index: 80;
+  z-index: 1300;
   background: rgba(15, 23, 42, 0.45);
   display: flex;
   align-items: stretch;
@@ -7907,6 +7942,10 @@ h4.ca-image-slot-section-title {
   background: var(--bg);
   border-radius: 10px;
   width: min(1200px, 100%);
+  flex: 1 1 auto;
+  height: 100%;
+  max-height: 100%;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -7919,6 +7958,7 @@ h4.ca-image-slot-section-title {
   gap: 0.75rem;
   padding: 0.65rem 0.85rem;
   border-bottom: 1px solid var(--line);
+  flex: 0 0 auto;
 }
 .zone-map-modal-head h3 {
   margin: 0;
@@ -7928,7 +7968,8 @@ h4.ca-image-slot-section-title {
   position: relative;
   display: flex;
   flex-direction: column;
-  min-height: 70vh;
+  flex: 1 1 auto;
+  min-height: 0;
 }
 .zone-map-slot .shotgun-map-pick {
   position: relative;
@@ -7937,7 +7978,7 @@ h4.ca-image-slot-section-title {
 }
 .zone-map-slot .sa-map-canvas-host {
   flex: 1 1 auto;
-  min-height: 28rem;
+  min-height: 0;
 }
 .discovery-shotgun-empty p { margin: 0 0 0.55rem; }
 .discovery-shotgun-empty p:last-child { margin-bottom: 0; }

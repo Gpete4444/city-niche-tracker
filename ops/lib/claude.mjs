@@ -216,9 +216,24 @@ function attachClaudeCost(usage, model, costKey) {
 }
 
 /**
+ * Prefer opts.messages (multi-turn). Otherwise a single user turn from opts.user.
+ * @param {{ user?: string, messages?: { role?: string, content?: string }[] }} opts
+ */
+export function resolveClaudeMessages(opts = {}) {
+  if (Array.isArray(opts.messages) && opts.messages.length) {
+    return opts.messages.map((m) => ({
+      role: m?.role === 'assistant' ? 'assistant' : 'user',
+      content: String(m?.content ?? ''),
+    }));
+  }
+  return [{ role: 'user', content: String(opts.user || '') }];
+}
+
+/**
  * Shared Anthropic Messages call. AbortError becomes Stopped.
  * @param {{
- *   user: string,
+ *   user?: string,
+ *   messages?: { role?: string, content?: string }[],
  *   system?: string,
  *   cacheSystem?: boolean,
  *   maxTokens?: number,
@@ -231,8 +246,8 @@ function attachClaudeCost(usage, model, costKey) {
  * }} opts
  */
 export async function claudeMessages(opts = {}) {
-  const user = String(opts.user || '');
-  if (!user.trim()) {
+  const messages = resolveClaudeMessages(opts);
+  if (!messages.some((m) => m.role === 'user' && String(m.content).trim())) {
     throw Object.assign(new Error('claudeMessages needs a user prompt'), { status: 400 });
   }
   if (opts.signal?.aborted) {
@@ -255,7 +270,7 @@ export async function claudeMessages(opts = {}) {
   const body = {
     model,
     max_tokens: Number(opts.maxTokens) > 0 ? Number(opts.maxTokens) : 8192,
-    messages: [{ role: 'user', content: user }],
+    messages,
     output_config: { effort: resolveEffort(opts.effort) },
   };
   if (!isSonnet5(model)) {
@@ -322,9 +337,11 @@ export async function claudeMessages(opts = {}) {
  * Writes a draft and auto-accepts when validation passes.
  */
 export async function generateNarrativeDraft(candidateId) {
+  const { ensureResearchSerpSeeds } = await import('./serp-seeds.mjs');
+  ensureResearchSerpSeeds(candidateId);
   const detail = getCandidateDetail(candidateId);
   if (!detail.research) {
-    throw new Error('No research JSON — run Stage 1 (and ideally Stage 2 enrich) first');
+    throw new Error('No research JSON — add SERP seeds (Run all required or Ad volumes) first');
   }
 
   const model = defaultModel();

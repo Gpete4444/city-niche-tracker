@@ -1,8 +1,8 @@
 # Claude prompt: candidate narrative (after DataForSEO)
 
-Use **after** Stage 1 (`npm run research-candidate`) and ideally **after** Stage 2 (`npm run enrich-candidate` or `--enrich`) when `enrichmentRecommended` is true.
+Use **after** SERP seeds exist (full Stage 1 Ads volumes, or the cheap hydrate / `--skip-volumes` path). Stage 2 Enrich is optional.
 
-Claude fills soft fields only — pain points, suburbs, services, job-cost estimates, and **jobValue / proposedScore polish**.
+Claude fills soft fields only — pain points, suburbs, services, keyword phrases when volumes were skipped, job-cost estimates, and **jobValue / proposedScore polish**.
 
 Scoring definitions: [`scoring-rubric.md`](scoring-rubric.md) / [`scripts/lib/scoring-rubric.json`](../scripts/lib/scoring-rubric.json).
 
@@ -30,6 +30,10 @@ I will paste a DataForSEO research JSON. It already contains:
 - Optionally an `enrichment` block (DataForSEO Rank — NOT Moz DA — page thinness, displaceability)
 
 Your job: add narrative and finish scoring ONLY.
+
+If `volumes.volumesSkipped` is true (or keywords/volumes are empty):
+- Emit `suggestedKeywords`: 8–12 search phrases from the niche, organic titles, and People Also Ask. Phrases only — do not invent monthly volumes or cluster sums (leave those null).
+- Copy PAA questions and organic titles from the research JSON; do not invent SERP facts.
 
 If a Discovery narrative seed is provided below, treat it as a draft starting point for:
 - averageJobCostUsd / Average Job Cost text
@@ -82,6 +86,7 @@ Return ONE JSON object (no markdown fences) with this shape:
   "localPainPoints": ["string", "string", "string"],
   "suggestedServices": ["string", "string", "string"],
   "suggestedSuburbs": ["string", "string", "string", "string"],
+  "suggestedKeywords": ["phrase when volumes skipped", "phrase"],
   "scoring": {
     "rubricVersion": 2,
     "demandBand": "copy",

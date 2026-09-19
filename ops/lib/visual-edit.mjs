@@ -696,6 +696,9 @@ export async function publishVisualEdit(candidateId, { ignoreSeoWarnings = false
       ...(Array.isArray(config.services) ? config.services : []),
       ...(Array.isArray(config.commercialServices) ? config.commercialServices : []),
     ],
+    sectionIds: outline?.sectionIds || (outline?.sections || []).map((s) => s.id).filter(Boolean),
+    homepageSections: outline?.homepageSections || config.homepageSections || [],
+    serviceBandAssignments: outline?.serviceBandAssignments || {},
   });
   const criticalSeo = (seoLint?.findings || []).filter((f) => f.severity === 'critical');
   if (criticalSeo.length && !ignoreSeoWarnings) {

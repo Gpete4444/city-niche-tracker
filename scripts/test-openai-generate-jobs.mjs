@@ -9,8 +9,11 @@ import {
   countQueuedLightJobs,
   countRunningLightJobs,
   findActiveOpenaiJob,
+  finishLightJob,
   getLightJob,
+  LIGHT_JOBS_RECENT_KEEP,
   listLightJobsSnapshot,
+  openLightJob,
   resetLightJobsForTests,
 } from '../ops/lib/rover-light-jobs.mjs';
 import { setCpuPoolRunnerForTests } from '../ops/lib/rover-cpu-pool.mjs';
@@ -138,5 +141,61 @@ try {
   resetLightJobsForTests();
   setConcurrencySettings(prev);
 }
+
+resetLightJobsForTests();
+for (let i = 0; i < 50; i += 1) {
+  const { jobId } = openLightJob({
+    candidateId: 'snap-keep',
+    phase: 'openai-photo',
+    label: `done-${i}`,
+    slotKey: `s${i}`,
+  });
+  finishLightJob(jobId, { result: { i } });
+}
+const runningIds = [];
+for (let i = 0; i < 5; i += 1) {
+  runningIds.push(
+    openLightJob({
+      candidateId: 'snap-keep',
+      phase: 'openai-photo',
+      label: `run-${i}`,
+      slotKey: `r${i}`,
+    }).jobId,
+  );
+}
+const mixed = listLightJobsSnapshot();
+assertEqual(
+  mixed.jobs.filter((j) => j.status === 'running').length,
+  5,
+  '5 running stay in snapshot',
+);
+assert(
+  runningIds.every((id) => mixed.jobs.some((j) => j.id === id)),
+  'no running job dropped from 40-cap',
+);
+assertEqual(
+  mixed.jobs.filter((j) => j.status === 'done').length,
+  LIGHT_JOBS_RECENT_KEEP,
+  '40 finished kept beside active',
+);
+assertEqual(mixed.jobs.length, 5 + LIGHT_JOBS_RECENT_KEEP, 'active + 40 finished');
+
+resetLightJobsForTests();
+for (let i = 0; i < 41; i += 1) {
+  const { jobId } = openLightJob({
+    candidateId: 'snap-done',
+    phase: 'openai-photo',
+    label: `only-done-${i}`,
+    slotKey: `d${i}`,
+  });
+  finishLightJob(jobId, { result: { i } });
+}
+const doneOnly = listLightJobsSnapshot();
+assertEqual(doneOnly.jobs.length, LIGHT_JOBS_RECENT_KEEP, '41 done prunes to 40 in snapshot');
+assert(
+  doneOnly.jobs.every((j) => j.status === 'done'),
+  'done-only snapshot has no phantom running',
+);
+resetLightJobsForTests();
 
 console.log('test-openai-generate-jobs: ok');

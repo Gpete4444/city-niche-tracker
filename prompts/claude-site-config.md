@@ -19,11 +19,12 @@ Also provide:
 - Email: {{EMAIL}}
 - Service radius miles (optional, default 15): {{RADIUS_MILES}}
 - Street NAP (operator-approved — use exactly; never invent a different street or ZIP):
-  - street: {{ADDRESS_STREET}}
+  - street (GBP Address Line 1): {{ADDRESS_STREET}}
+  - suite (GBP Address Line 2): {{ADDRESS_SUITE}}
   - city: {{ADDRESS_CITY}}
   - state: {{ADDRESS_STATE}}
   - zip: {{ADDRESS_ZIP}}
-  (If street is blank / "omit", omit the entire "address" object from JSON.)
+  (If street is blank / "omit", omit the entire "address" object from JSON. If suite is "omit", omit address.suite. Never put the suite in city or merge it into street.)
 - Website type / siteArchetype: {{SITE_ARCHETYPE}}
   (multi_service = Type A multi-service local; single_service = Type B single-offer specialty)
 - Operator brand look (Colors & fonts in Rover) — use these brand hexes and fontTheme:
@@ -50,7 +51,7 @@ Return ONLY valid JSON matching this schema. No markdown fences, no commentary b
 
 Rules:
 1. Treat SERP / competitor claims as draft research, not verified facts beyond what DataForSEO already measured.
-2. Include "address" (street + city + state + zip) only when Street NAP above provides a real street — copy those fields exactly. Never invent a street or postal code. Omit "geo" unless I provide coordinates. If street is blank / omit, omit "address" entirely.
+2. Include "address" (street + optional suite + city + state + zip) only when Street NAP above provides a real street — copy those fields exactly. street = Line 1, suite = Line 2 (Ste N). Never invent a street or postal code. Never put suite in city. Omit "geo" unless I provide coordinates. If street is blank / omit, omit "address" entirely.
 3. Omit "socialProof" unless I provide owner rating/licenses/reviews — Rover will seed defaults when empty. Do not invent review counts from SERP competitors.
 4. Prefer real municipalities for suburbs from suggestedSuburbs. Never copy schema keys ("string", "ID", "XX"), never ids, never duplicates, never primaryCity.
 5. "brand" hex colors: use the operator Colors & fonts values above (primary/accent/ink + paletteId). Avoid purple gradients and cream+terracotta clichés.

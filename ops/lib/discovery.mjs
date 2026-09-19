@@ -23,6 +23,13 @@ import {
 } from './known-candidates.mjs';
 import { startBatchJobs } from './batch-jobs.mjs';
 import { isSerpCacheFresh, readSerpCache, serpCachePath } from '../../scripts/lib/serp-cache.mjs';
+import {
+  estimatedVolumeFields,
+  parseEstimatedMonthlySearchVolume,
+  resolveEstimatedVolumeForSeed,
+} from '../../scripts/lib/estimated-volume.mjs';
+
+export { resolveEstimatedVolumeForSeed };
 import { normalizeCityStateCluster } from './city-state.mjs';
 import {
   annotateMembersWithPipeline,
@@ -950,6 +957,11 @@ export function discoveryLightSerpFromRow(row = {}) {
   };
 }
 
+function estimatedVolumeFromDiscoveryRow(row) {
+  const raw = row?.['Est. Monthly Search Volume'];
+  return estimatedVolumeFields(parseEstimatedMonthlySearchVolume(raw));
+}
+
 /** Soft fields from Discovery Claude — seed Stage 3 instead of reinventing. */
 export function discoveryNarrativeSeedFromRow(row, { batchId = null, rowIndex = null } = {}) {
   const lightSerp = discoveryLightSerpFromRow(row);
@@ -966,6 +978,7 @@ export function discoveryNarrativeSeedFromRow(row, { batchId = null, rowIndex = 
     averageJobCostText: row['Average Job Cost'] || null,
     estTimeToRankWithGbp: row['Est. time to rank with GBP'] || null,
     estTimeToRankWithoutGbp: row['Est. time to rank without GBP'] || null,
+    ...estimatedVolumeFromDiscoveryRow(row),
     localPainPoints: row.pain_points || null,
     suggestedServices: row.suggested_services || null,
     suggestedSuburbs: row.suggested_suburbs || null,
@@ -1069,9 +1082,11 @@ export function backfillLightSerpFromBatch(batchId) {
     if (!seed || typeof seed !== 'object') {
       seed = discoveryNarrativeSeedFromRow(row, { batchId: batch.id, rowIndex: i });
     } else {
+      const est = estimatedVolumeFromDiscoveryRow(row);
       seed = {
         ...seed,
         lightSerp,
+        ...(est.estimatedMonthlySearchVolume != null ? est : {}),
         batchId: seed.batchId || batch.id,
         rowIndex: seed.rowIndex != null ? seed.rowIndex : i,
         rowKey: seed.rowKey || rowKey(row),
@@ -1348,7 +1363,7 @@ function parseSuburbsCluster(text, state) {
  */
 export function processDiscoveryBatch(
   batchId,
-  { runStage1ForPursue = true, decisions = null, concurrency = 1, adsMode = 'live' } = {},
+  { runStage1ForPursue = false, decisions = null, concurrency = 1, adsMode = 'live' } = {},
 ) {
   const { batch, rows, dir } = getBatch(batchId);
   if (!rows.length) {

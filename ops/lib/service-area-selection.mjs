@@ -1,0 +1,29 @@
+/**
+ * Node entry for Service area coverage toggle / seed rules.
+ * Browser map imports the public module directly (ops/public is the static root).
+ */
+export {
+  ALSO_SERVING_CAP,
+  AUTO_SEED_MAX_MILES,
+  PREFER_MIN_PAGES,
+  PREFER_MAX_PAGES,
+  PREFER_MIN_SUBURBS,
+  PREFER_MAX_SUBURBS,
+  withinMaxMiles,
+  addCoverage,
+  removeCoverage,
+  nearestLeftoverKeys,
+  seedCoverageFromRadius,
+  coverageClickHint,
+  leftoverAlsoServingHint,
+  leftoverAlsoServingAddedStatus,
+  siblingAlsoServingAddedStatus,
+  serviceRadiusMilesFromCoverage,
+  normalizeMapPlaceName,
+  censusLikePlaceName,
+  placeNameAliases,
+  placeNameKeySet,
+  placeNameSetHas,
+  setPlaceNameAliases,
+  getPlaceNameAlias,
+} from '../public/service-area-selection.mjs';

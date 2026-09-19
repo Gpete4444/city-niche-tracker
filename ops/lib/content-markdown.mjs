@@ -28,11 +28,17 @@ import {
   outlineRequiresFullContent,
   resolveStructurePageIds,
 } from './preview-fidelity.mjs';
+import { isMaterialsHeading } from '../../src/lib/is-materials-heading.mjs';
 import { buildRequiredLinksByFile, lintContentSeo } from './content-seo-lint.mjs';
 import {
   extractSocialProofSidecar,
   ensureRoverSocialProofSeed,
 } from './content-social-proof.mjs';
+import {
+  HOMEPAGE_DESIGNED_SECTIONS_WARNING,
+  applyHomepageDesignedSectionLiftToFiles,
+  stampHomepageLiftOnDraftOps,
+} from './content-auto-fix.mjs';
 
 const ROOT = process.cwd();
 const CONTENT_ROOT = path.join(ROOT, 'src', 'content');
@@ -371,10 +377,61 @@ function tryParseYamlMapping(fm) {
   }
 }
 
+function stripDanglingYamlScalar(raw) {
+  let value = String(raw ?? '');
+  const doubleOpen = value.startsWith('"');
+  const singleOpen = value.startsWith("'");
+  const doubleClosed = doubleOpen && /(?:^"|[^\\])"$/.test(value);
+  const singleClosed = singleOpen && value.length >= 2 && value.endsWith("'");
+  if (doubleOpen && !doubleClosed) {
+    value = value.slice(1);
+  } else if (singleOpen && !singleClosed) {
+    value = value.slice(1);
+  } else if (doubleOpen && doubleClosed) {
+    value = value.slice(1, -1).replace(/\\"/g, '"').replace(/\\\\/g, '\\');
+  } else if (singleOpen && singleClosed) {
+    value = value.slice(1, -1).replace(/''/g, "'");
+  }
+  return value;
+}
+
+/** Re-quote top-level scalars Claude left unclosed or with inner quotes. */
+export function healYamlScalarQuotes(fm) {
+  if (tryParseYamlMapping(fm).ok) return String(fm || '');
+  const lines = String(fm || '').split('\n');
+  const out = [];
+  let changed = false;
+  for (const line of lines) {
+    if (/^[ \t]/.test(line)) {
+      out.push(line);
+      continue;
+    }
+    const m = line.match(/^([A-Za-z_][\w]*)\s*:\s*(.*)$/);
+    if (!m) {
+      out.push(line);
+      continue;
+    }
+    const key = m[1];
+    const rest = m[2];
+    if (!rest || rest === '|' || rest === '>' || rest.startsWith('{') || rest.startsWith('[')) {
+      out.push(line);
+      continue;
+    }
+    if (tryParseYamlMapping(`${key}: ${rest}`).ok) {
+      out.push(line);
+      continue;
+    }
+    out.push(`${key}: ${yamlDoubleQuote(stripDanglingYamlScalar(rest))}`);
+    changed = true;
+  }
+  return changed ? out.join('\n') : String(fm || '');
+}
+
 /**
  * Tabs → 2 spaces, then indent process/whyChooseUs/faqs (and similar) list items
  * that Claude left at column 0, and pull over-indented image/src/alt back to the
- * dash’s sibling column. Returns healed markdown even if parse still fails.
+ * dash’s sibling column. Re-quotes broken title/description scalars. Returns
+ * healed markdown even if parse still fails.
  */
 export function healYamlFrontmatter(markdown) {
   const split = splitFrontmatter(markdown);
@@ -382,6 +439,7 @@ export function healYamlFrontmatter(markdown) {
   const original = split.frontmatter;
   let fm = String(original).replace(/\t/g, '  ');
   fm = healYamlListIndent(fm);
+  if (!tryParseYamlMapping(fm).ok) fm = healYamlScalarQuotes(fm);
   const parsed = tryParseYamlMapping(fm);
   return {
     markdown: fm === original ? markdown : rebuildMarkdownFromParts(fm, split.body),
@@ -389,6 +447,34 @@ export function healYamlFrontmatter(markdown) {
     parseOk: parsed.ok,
     error: parsed.ok ? null : parsed.error,
   };
+}
+
+export function yamlFrontmatterErrorRels(check) {
+  const out = [];
+  for (const raw of check?.errors || []) {
+    const m = String(raw).match(/^([^:]+):\s*invalid YAML frontmatter/i);
+    if (m) out.push(m[1].replace(/\\/g, '/'));
+  }
+  return out;
+}
+
+/**
+ * After heal, drop leftover invalid YAML FILEs from this paste (keep prior draft).
+ * Throw-or-skip is decided by the caller when every pasted FILE is still invalid.
+ */
+export function revertInvalidYamlPasteFiles(files, priorFiles, pastedRels, check) {
+  const pasted = new Set((pastedRels || []).map((rel) => String(rel).replace(/\\/g, '/')));
+  const bad = yamlFrontmatterErrorRels(check).filter((rel) => !pasted.size || pasted.has(rel));
+  const next = { ...(files && typeof files === 'object' ? files : {}) };
+  const skipped = [];
+  for (const rel of bad) {
+    const key = String(rel || '').replace(/\\/g, '/');
+    if (!key) continue;
+    if (priorFiles && priorFiles[key] != null) next[key] = priorFiles[key];
+    else delete next[key];
+    skipped.push(key);
+  }
+  return { files: next, skipped };
 }
 
 /**
@@ -404,7 +490,7 @@ export function keepMaterialsRowCount(n) {
 function isMaterialsMethodsHeading(line) {
   const m = String(line || '').match(/^#{1,2}\s+(.+)$/);
   if (!m) return false;
-  return /^(materials|methods)\b/i.test(m[1].trim());
+  return isMaterialsHeading(m[1]);
 }
 
 function isMaterialsOptionBullet(line) {
@@ -1520,7 +1606,7 @@ function healMisnestedMaterialsImages(fm) {
 
 /**
  * Restore parent key when `- src:` list items lost theirs.
- * Never steal a list already under materialsImages / process / etc.
+ * Never steal a list already under processImages / materialsImages / etc.
  */
 function healOrphanImageListFrontmatter(fm) {
   let text = String(fm || '');
@@ -1548,7 +1634,11 @@ function healOrphanImageListFrontmatter(fm) {
   let prev = start - 1;
   while (prev >= 0 && !String(lines[prev]).trim()) prev -= 1;
   const prevLine = prev >= 0 ? lines[prev] : '';
-  if (/^(materialsImages|serviceCardImages|gallery|process|whyChooseUs|faqs|heroImage|featureImage|cardImage|coverageMap)[ \t]*:/i.test(prevLine)) {
+  if (
+    /^(processImages|beforeAfterImages|materialsImages|serviceCardImages|gallery|process|whyChooseUs|faqs|heroImage|featureImage|cardImage|coverageMap)[ \t]*:/i.test(
+      prevLine,
+    )
+  ) {
     return text;
   }
 
@@ -2117,9 +2207,8 @@ export function validateContentBundle(files, siteConfig, { mode = 'full', pageId
 
     if (rel.includes('/pages/')) {
       if (rel.endsWith('/index.md')) {
-        for (const key of ['whyChooseUs', 'process', 'faqs']) {
-          if (!fmHasKey(fm, key)) warnings.push(`${rel}: homepage usually needs "${key}"`);
-        }
+        const missingDesigned = ['whyChooseUs', 'process', 'faqs'].filter((key) => !fmHasKey(fm, key));
+        if (missingDesigned.length) warnings.push(HOMEPAGE_DESIGNED_SECTIONS_WARNING);
       }
     } else if (rel.includes('/services/')) {
       if (!fmHasKey(fm, 'serviceName')) errors.push(`${rel}: missing serviceName`);
@@ -2587,6 +2676,17 @@ export async function acceptContent(
     }
   }
 
+  const outlineForLift = readJson(path.join(RESEARCH_DIR, `${p.id}-content-outline-package.json`));
+  const lifted = applyHomepageDesignedSectionLiftToFiles(draft.files, {
+    config,
+    outline: outlineForLift || {},
+  });
+  if (lifted.changed) {
+    draft.files = lifted.files;
+    draft._ops = stampHomepageLiftOnDraftOps(draft._ops, lifted);
+    writeJson(p.contentDraft, draft);
+  }
+
   const files = pruneFilesToStructure(normalizeContentFilesMap(draft.files, config), {
     pageIds: resolveStructurePageIds(candidateId),
     siteConfig: config,
@@ -2664,6 +2764,9 @@ export async function acceptContent(
     locationMinWords: 450,
     strictLocationDepth: true,
     materialsEnabled,
+    sectionIds,
+    homepageSections: outline?.homepageSections || config.homepageSections || [],
+    serviceBandAssignments: outline?.serviceBandAssignments || {},
   });
   const criticalSeo = (seoLint?.findings || []).filter((f) => f.severity === 'critical');
   if (criticalSeo.length && !ignoreSeoWarnings) {

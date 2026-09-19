@@ -1,5 +1,5 @@
 ---
-import { site } from '../config/site';
+import { formatSiteStreet, site } from '../config/site';
 
 interface Props {
   pageTitle?: string;
@@ -33,7 +33,7 @@ const address: Record<string, string> = {
   addressRegion: site.address?.state || site.state,
   addressCountry: 'US',
 };
-if (site.address?.street) address.streetAddress = site.address.street;
+if (site.address?.street) address.streetAddress = formatSiteStreet(site.address);
 if (site.address?.zip) address.postalCode = site.address.zip;
 
 const baseBusiness = {

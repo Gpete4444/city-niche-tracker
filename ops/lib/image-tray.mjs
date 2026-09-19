@@ -52,6 +52,14 @@ export function baEntryFingerprint(dir, entry) {
   return `${b || ''}|${a || ''}`;
 }
 
+/** True when both BA filenames are set and both files exist in dir. */
+export function baEntryFilesOnDisk(dir, entry) {
+  const b = baseName(entry?.beforeFilename);
+  const a = baseName(entry?.afterFilename);
+  if (!b || !a || !dir) return false;
+  return existsSync(path.join(dir, b)) && existsSync(path.join(dir, a));
+}
+
 function slotIdentities(dir, entry) {
   const ids = new Set();
   if (entry?.photoId) ids.add(`id:${entry.photoId}`);
@@ -156,6 +164,10 @@ export function compactBaTray(
   const seen = new Set();
   const kept = [];
   for (const v of variants || []) {
+    if (!baEntryFilesOnDisk(dir, v)) {
+      unlinkTrayFiles(dir, v, protect);
+      continue;
+    }
     const ids = baIdentities(dir, v);
     if (liveIds.size && identitiesOverlap(ids, liveIds)) {
       unlinkTrayFiles(dir, v, protect);

@@ -25,7 +25,7 @@ Items intentionally deferred. Do not block shipping on these.
 - **SERP** (Stage 1 + Discovery probe): primary city only — no UI choice for multi-city SERP
 - **Volumes** (Stage 1): multi-geo — primary + config `cluster` (from Discovery `suggested_suburbs`); Ads Planner volumes summed across those geos
 - **Discovery Pack:** no distance/radius filter in New pack (state, pop, seasonality, tiers, Map Pack preference, niches/cities)
-- **Website Builder Service area:** radius slider + map selects **coverageAreas** (customer trust / Areas SVG); **targetSuburbs** stay Claude-first ≤8 SEO location pages. Requires `npm run build-research-map`. Radius shrink drops cities outside the circle (center kept).
+- **Website Builder Service area:** map clicks select **coverageAreas** (customer trust / Areas SVG). Non-Zone keeps a radius slider + ring and Claude-first **targetSuburbs** ≤8 SEO location pages. Zone candidates ignore research seed, hide the radius ring, auto-page nearest leftover (non-site) towns, and derive `serviceRadiusMiles` from the farthest selected city. Requires `npm run build-research-map`.
 - **Discovery Pack Use Map:** same shared map beside Cities (`Use Map` / `Done`) fills the pack Cities field from the discovery table panel.
 - **Site Config `radiusMiles` / `serviceRadiusMiles`:** set on the Service area map (NAP field is a default seed only)
 

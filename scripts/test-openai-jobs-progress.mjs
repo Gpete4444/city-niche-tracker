@@ -1,5 +1,8 @@
 import {
+  openaiBatchPendingInSnap,
+  openaiBusyKeysStillActive,
   openaiJobBelongsHere,
+  openaiJobIdsMissingFromSnap,
   openaiJobsNeedingWatch,
   openaiJobsProgressFromSnap,
   openaiSlotOverlayCaption,
@@ -51,7 +54,17 @@ assertEqual(need.length, 1, 'one unwached active');
 assertEqual(need[0].id, 'a2', 'queued not yet watched');
 
 assertEqual(openaiSlotOverlayCaption({ status: 'queued' }).label, 'Queued', 'queued caption');
+assertEqual(
+  openaiSlotOverlayCaption({ status: 'queued', detail: 'Waiting for rate limit…' }).label,
+  'Waiting',
+  'queued waiting caption',
+);
 assertEqual(openaiSlotOverlayCaption({ status: 'running' }).label, 'Generating', 'running caption');
+assertEqual(
+  openaiSlotOverlayCaption({ status: 'running', detail: 'Waiting…' }).label,
+  'Waiting',
+  'running waiting caption',
+);
 assertEqual(
   openaiSlotOverlayCaption(
     { status: 'running', startedAt: new Date(100_000).toISOString() },
@@ -59,6 +72,31 @@ assertEqual(
   ).elapsedMs,
   12_000,
   'elapsed from startedAt',
+);
+
+const batchIds = Array.from({ length: 41 }, (_, i) => `j${i + 1}`);
+const snap40 = batchIds.slice(0, 40).map((id) => ({
+  id,
+  phase: 'openai-photo',
+  candidateId: 'pearland',
+  status: 'done',
+  slotKey: id,
+}));
+const missing = openaiJobIdsMissingFromSnap(batchIds, snap40);
+assertEqual(missing.length, 1, 'one id missing from 40-job snap');
+assertEqual(missing[0], 'j41', 'missing is the 41st');
+const handled = new Set(batchIds.slice(0, 40));
+const pending = openaiBatchPendingInSnap(batchIds, { handled, snapJobs: snap40 });
+assertEqual(pending.length, 0, 'missing id is not pending-in-snap');
+assertEqual(
+  openaiBusyKeysStillActive(['s1', 'gone'], jobs, { selectedId: 'pearland' }).join(','),
+  'gone',
+  'busy key without active job is leftover',
+);
+assertEqual(
+  openaiBusyKeysStillActive(['s1'], jobs, { selectedId: 'pearland' }).length,
+  0,
+  'running slot stays busy',
 );
 
 console.log('test-openai-jobs-progress: ok');

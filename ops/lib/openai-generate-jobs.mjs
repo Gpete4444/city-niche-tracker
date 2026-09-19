@@ -46,6 +46,7 @@ function parseBaItem(raw, extra = {}) {
       serviceSlug,
       pairIndex,
       viewpoint: raw.viewpoint || extra.viewpoint,
+      occupancy: raw.occupancy || extra.occupancy,
       before: raw.before,
       after: raw.after,
     };
@@ -59,6 +60,7 @@ function parseBaItem(raw, extra = {}) {
       serviceSlug,
       pairIndex: 1,
       viewpoint: extra.viewpoint,
+      occupancy: extra.occupancy,
       before: extra.before,
       after: extra.after,
     };
@@ -70,6 +72,7 @@ function parseBaItem(raw, extra = {}) {
     serviceSlug: '',
     pairIndex,
     viewpoint: extra.viewpoint,
+    occupancy: extra.occupancy,
     before: extra.before,
     after: extra.after,
   };
@@ -119,8 +122,9 @@ function enqueueOrReuse({
  *   baKeys?: unknown[],
  *   baItems?: unknown[],
  *   viewpoint?: string,
+ *   occupancy?: string,
  *   prompt?: string,
- *   prompts?: Record<string, { viewpoint?: string, prompt?: string, before?: string, after?: string }>,
+ *   prompts?: Record<string, { viewpoint?: string, occupancy?: string, prompt?: string, before?: string, after?: string }>,
  *   onConflict?: 'reuse' | 'throw',
  * }} body
  */
@@ -130,6 +134,7 @@ export function enqueueCandidateOpenaiJobs(candidateId, body = {}) {
   if (!cid) throw Object.assign(new Error('candidateId required'), { status: 400 });
   const onConflict = body.onConflict === 'throw' ? 'throw' : 'reuse';
   const viewpoint = body.viewpoint || 'inside';
+  const occupancy = body.occupancy || 'none';
   const prompts = body.prompts && typeof body.prompts === 'object' ? body.prompts : {};
   const slotKeys = [...new Set((Array.isArray(body.slotKeys) ? body.slotKeys : []).map((k) => String(k || '').trim()).filter(Boolean))];
   const baRaw = Array.isArray(body.baItems) && body.baItems.length ? body.baItems : body.baKeys || [];
@@ -146,7 +151,7 @@ export function enqueueCandidateOpenaiJobs(candidateId, body = {}) {
         matchKey: slotKey,
         kind: 'photo',
         onConflict,
-        run: ({ signal }) =>
+        run: ({ signal, jobId }) =>
           runCpuTask(
             {
               kind: 'candidate-slot',
@@ -154,10 +159,11 @@ export function enqueueCandidateOpenaiJobs(candidateId, body = {}) {
               slotKey,
               opts: {
                 viewpoint: card.viewpoint || viewpoint,
+                occupancy: card.occupancy || occupancy,
                 prompt: card.prompt != null ? card.prompt : body.prompt,
               },
             },
-            { signal },
+            { signal, jobId },
           ),
       }),
     );
@@ -166,6 +172,7 @@ export function enqueueCandidateOpenaiJobs(candidateId, body = {}) {
   for (const raw of baRaw) {
     const item = parseBaItem(raw, {
       viewpoint,
+      occupancy,
       before: body.before,
       after: body.after,
     });
@@ -179,20 +186,21 @@ export function enqueueCandidateOpenaiJobs(candidateId, body = {}) {
         matchKey: item.matchKey,
         kind: 'pair',
         onConflict,
-        run: ({ signal }) =>
+        run: ({ signal, jobId }) =>
           runCpuTask(
             {
               kind: 'candidate-ba',
               candidateId: cid,
               opts: {
                 viewpoint: card.viewpoint || item.viewpoint || viewpoint,
+                occupancy: card.occupancy || item.occupancy || occupancy,
                 serviceSlug: item.serviceSlug,
                 pairIndex: item.pairIndex,
                 before: card.before != null ? card.before : item.before,
                 after: card.after != null ? card.after : item.after,
               },
             },
-            { signal },
+            { signal, jobId },
           ),
       }),
     );
@@ -212,6 +220,7 @@ export function enqueueCandidateOpenaiJobs(candidateId, body = {}) {
  *   baItems?: unknown[],
  *   matchKey?: string,
  *   viewpoint?: string,
+ *   occupancy?: string,
  *   prompt?: string,
  *   prompts?: Record<string, object>,
  *   onConflict?: 'reuse' | 'throw',
@@ -230,6 +239,7 @@ export function enqueuePhotoGroupOpenaiJobs(groupId, body = {}) {
   const candidateId = photoGroupJobCandidateId(gid);
   const onConflict = body.onConflict === 'throw' ? 'throw' : 'reuse';
   const viewpoint = body.viewpoint || 'inside';
+  const occupancy = body.occupancy || 'none';
   const prompts = body.prompts && typeof body.prompts === 'object' ? body.prompts : {};
   let slotKeys = [...new Set((Array.isArray(body.slotKeys) ? body.slotKeys : []).map((k) => String(k || '').trim()).filter(Boolean))];
   if (!slotKeys.length && body.matchKey && body.kind !== 'pair' && !String(body.matchKey).startsWith('ba:')) {
@@ -243,6 +253,7 @@ export function enqueuePhotoGroupOpenaiJobs(groupId, body = {}) {
         serviceSlug: body.serviceSlug,
         pairIndex: body.pairIndex,
         viewpoint,
+        occupancy,
         before: body.before,
         after: body.after,
       },
@@ -261,7 +272,7 @@ export function enqueuePhotoGroupOpenaiJobs(groupId, body = {}) {
         matchKey,
         kind: 'photo',
         onConflict,
-        run: ({ signal }) =>
+        run: ({ signal, jobId }) =>
           runCpuTask(
             {
               kind: 'photo-group-slot',
@@ -269,10 +280,11 @@ export function enqueuePhotoGroupOpenaiJobs(groupId, body = {}) {
               opts: {
                 matchKey,
                 viewpoint: card.viewpoint || viewpoint,
+                occupancy: card.occupancy || occupancy,
                 prompt: card.prompt != null ? card.prompt : body.prompt,
               },
             },
-            { signal },
+            { signal, jobId },
           ),
       }),
     );
@@ -281,6 +293,7 @@ export function enqueuePhotoGroupOpenaiJobs(groupId, body = {}) {
   for (const raw of baRaw) {
     const item = parseBaItem(raw, {
       viewpoint,
+      occupancy,
       before: body.before,
       after: body.after,
       serviceSlug: body.serviceSlug,
@@ -296,7 +309,7 @@ export function enqueuePhotoGroupOpenaiJobs(groupId, body = {}) {
         matchKey: item.matchKey,
         kind: 'pair',
         onConflict,
-        run: ({ signal }) =>
+        run: ({ signal, jobId }) =>
           runCpuTask(
             {
               kind: 'photo-group-ba',
@@ -304,6 +317,7 @@ export function enqueuePhotoGroupOpenaiJobs(groupId, body = {}) {
               opts: {
                 matchKey: item.matchKey,
                 viewpoint: card.viewpoint || item.viewpoint || viewpoint,
+                occupancy: card.occupancy || item.occupancy || occupancy,
                 kind: 'pair',
                 pairIndex: item.pairIndex,
                 serviceSlug: item.serviceSlug || body.serviceSlug,
@@ -312,7 +326,7 @@ export function enqueuePhotoGroupOpenaiJobs(groupId, body = {}) {
                 after: card.after != null ? card.after : item.after,
               },
             },
-            { signal },
+            { signal, jobId },
           ),
       }),
     );

@@ -26,10 +26,35 @@ import {
   getFontTheme,
   SITE_FONT_THEMES,
 } from '../../scripts/lib/site-fonts.mjs';
-import { mergeLocationPages, toCoverageAreas } from './geo-neighbors.mjs';
-import { shotgunBlockedLocationNames } from './shotgun.mjs';
+import {   mergeLocationPages, toCoverageAreas } from './geo-neighbors.mjs';
+import {
+  AUTO_SEED_MAX_MILES,
+  PREFER_MIN_PAGES,
+  PREFER_MAX_PAGES,
+  PREFER_MAX_SUBURBS,
+  serviceRadiusMilesFromCoverage,
+} from './service-area-selection.mjs';
+import {
+  coverageAreasForPlan,
+  deriveAlsoServingNames,
+  ensureAlsoServingOnSiteConfig,
+} from './also-serving.mjs';
+import {
+  clusterForCandidate,
+  leftoverMilesFromPrimary,
+  leftoverNearerToOtherPrimary,
+  resyncClusterSiteConfigs,
+  shotgunBlockedLocationNames,
+  shotgunClaimedSuburbEntries,
+  shotgunClaimedSuburbNames,
+} from './shotgun.mjs';
 import { normalizePlaceName } from './census.mjs';
-import { getBusinessAddressPackage } from './address-screen.mjs';
+import {
+  getBusinessAddressPackage,
+  sanitizeListedSuite,
+  splitNapStreet,
+  splitSuiteFromCity,
+} from './address-screen.mjs';
 import { claudeMessages } from './claude.mjs';
 
 const ROOT = process.cwd();
@@ -62,14 +87,17 @@ export const SITE_CONFIG_PLACEHOLDERS = {
 export function normalizeSiteAddress(addr, { primaryCity, state } = {}) {
   if (addr == null) return undefined;
   if (typeof addr !== 'object' || Array.isArray(addr)) return undefined;
-  const street = String(addr.street || '').trim();
+  const split = splitNapStreet(addr.street);
+  const peeled = splitSuiteFromCity(addr.city || primaryCity || '');
+  const street = split.street;
+  const suite = sanitizeListedSuite(addr.suite) || split.suite || peeled.suite;
   const zip = String(addr.zip || '').trim();
-  const city = String(addr.city || primaryCity || '').trim();
+  const city = peeled.city || String(addr.city || primaryCity || '').trim();
   const st = String(addr.state || state || '')
     .trim()
     .toUpperCase();
   if (!street || !zip || !city || !st) return undefined;
-  return { street, city, state: st, zip };
+  return suite ? { street, suite, city, state: st, zip } : { street, city, state: st, zip };
 }
 
 function applyNormalizedAddress(config) {
@@ -991,21 +1019,33 @@ export function buildSiteConfigPrompt(candidateId, nap = {}) {
   const md = readPromptFile('prompts/claude-site-config.md');
   const template = extractPromptTemplate(md);
 
-  let addrStreet = String(nap.addressStreet || nap.street || '').trim();
+  let addrStreet = splitNapStreet(nap.addressStreet || nap.street || '').street;
+  let addrSuite = sanitizeListedSuite(nap.addressSuite || nap.suite || splitNapStreet(nap.addressStreet || nap.street || '').suite);
   let addrCity = String(nap.addressCity || '').trim();
   let addrState = String(nap.addressState || '')
     .trim()
     .toUpperCase();
   let addrZip = String(nap.addressZip || nap.zip || '').trim();
+  const peeledNapCity = splitSuiteFromCity(addrCity);
+  if (peeledNapCity.suite) {
+    addrSuite = addrSuite || peeledNapCity.suite;
+    addrCity = peeledNapCity.city;
+  }
   const addrPkg = getBusinessAddressPackage(candidateId);
   if (addrPkg?.skipped) {
     addrStreet = '';
+    addrSuite = '';
     addrCity = '';
     addrState = '';
     addrZip = '';
   } else if (!addrStreet && addrPkg?.selection) {
-    addrStreet = String(addrPkg.selection.street || '').trim();
-    addrCity = String(addrPkg.selection.city || '').trim();
+    addrStreet = splitNapStreet(addrPkg.selection.street).street;
+    addrSuite =
+      sanitizeListedSuite(addrPkg.selection.suite) ||
+      addrSuite ||
+      splitSuiteFromCity(addrPkg.selection.city).suite;
+    const peeledSel = splitSuiteFromCity(addrPkg.selection.city);
+    addrCity = peeledSel.city || String(addrPkg.selection.city || '').trim();
     addrState = String(addrPkg.selection.state || '')
       .trim()
       .toUpperCase();
@@ -1026,6 +1066,7 @@ export function buildSiteConfigPrompt(candidateId, nap = {}) {
       nap.radiusMiles != null && nap.radiusMiles !== '' ? String(nap.radiusMiles) : '15',
     )
     .replace('{{ADDRESS_STREET}}', addrStreet || 'omit')
+    .replace('{{ADDRESS_SUITE}}', addrSuite || 'omit')
     .replace(
       '{{ADDRESS_CITY}}',
       addrCity || String(pack.primaryCity || pack.city || '').trim() || 'omit',
@@ -1050,7 +1091,13 @@ export function buildSiteConfigPrompt(candidateId, nap = {}) {
     paletteId: palette.id,
     fontTheme: fontTheme.id,
     address: addrStreet
-      ? { street: addrStreet, city: addrCity, state: addrState, zip: addrZip }
+      ? {
+          street: addrStreet,
+          ...(addrSuite ? { suite: addrSuite } : {}),
+          city: addrCity,
+          state: addrState,
+          zip: addrZip,
+        }
       : null,
   };
 }
@@ -1536,7 +1583,7 @@ export function acceptServiceArea(
   }
 
   const miles = Number(radiusMiles);
-  const serviceRadiusMiles =
+  let serviceRadiusMiles =
     Number.isFinite(miles) && miles > 0
       ? Math.min(100, Math.max(1, miles))
       : Number(accepted.serviceRadiusMiles) || 15;
@@ -1548,7 +1595,26 @@ export function acceptServiceArea(
     throw err;
   }
 
-  const blocked = shotgunBlockedLocationNames(candidateId);
+  const cluster = clusterForCandidate(candidateId);
+  const inZone = Boolean(cluster);
+  if (inZone) {
+    const distances = selected
+      .map((row) => {
+        const name = typeof row === 'string' ? row : row?.name;
+        const st = typeof row === 'string' ? state : row?.state || state;
+        return leftoverMilesFromPrimary(name, st, candidateId);
+      })
+      .filter((d) => Number.isFinite(d) && d < 1e6);
+    serviceRadiusMiles = serviceRadiusMilesFromCoverage({
+      distances,
+      fallback: serviceRadiusMiles,
+    });
+  }
+  const siblingBlocked = shotgunBlockedLocationNames(candidateId);
+  const blocked = new Set([
+    ...siblingBlocked,
+    ...shotgunClaimedSuburbNames(candidateId),
+  ]);
   const coverageAreas = toCoverageAreas(selected, primaryCity, state);
   const primaryNorm = String(primaryCity).trim().toLowerCase();
   const overrideNames = [];
@@ -1557,6 +1623,7 @@ export function acceptServiceArea(
     const name = String(typeof raw === 'string' ? raw : raw?.name || '').trim();
     const key = normalizePlaceName(name);
     if (!name || !key || seenOverride.has(key)) return;
+    if (inZone && siblingBlocked.has(key)) return;
     if (!blocked.has(key)) return;
     seenOverride.add(key);
     overrideNames.push(name);
@@ -1571,11 +1638,13 @@ export function acceptServiceArea(
 
   const pageBlocked = (name) => {
     const key = normalizePlaceName(name);
+    if (inZone && siblingBlocked.has(key)) return true;
     return blocked.has(key) && !overrideKeys.has(key);
   };
 
   let targetSuburbs;
-  if (Array.isArray(locationPageCities) && locationPageCities.length) {
+  const useExplicitPages = Array.isArray(locationPageCities) && (inZone || locationPageCities.length);
+  if (useExplicitPages) {
     const covNames = new Set(
       coverageAreas.map((a) => String(a.name || '').trim().toLowerCase()).filter(Boolean),
     );
@@ -1602,17 +1671,27 @@ export function acceptServiceArea(
           : [];
     targetSuburbs = mergeLocationPages({
       coverage: coverageAreas,
-      claudeOrder: claude,
+      claudeOrder: inZone ? [] : claude,
+      ignoreClaudeOrder: inZone,
+      sortBy: inZone ? 'distance' : 'population',
+      distanceMiles: inZone
+        ? (name, st) => leftoverMilesFromPrimary(name, st, candidateId)
+        : null,
+      maxMiles: inZone ? AUTO_SEED_MAX_MILES : null,
+      minPages: inZone ? PREFER_MIN_PAGES : 0,
       primaryCity,
       state,
-      max: 5,
+      max: PREFER_MAX_SUBURBS,
+      skipName: (name, st) =>
+        pageBlocked(name) ||
+        (!inZone && leftoverNearerToOtherPrimary(name, st, candidateId)),
     }).filter((name) => !pageBlocked(name));
   }
 
   const pageCount = 1 + targetSuburbs.length;
-  if (pageCount > 6) {
+  if (pageCount > PREFER_MAX_PAGES) {
     const err = new Error(
-      `Too many location pages (${pageCount}). Pick up to 6 cities for pages (others stay as coverage only).`,
+      `Too many location pages (${pageCount}). Pick up to ${PREFER_MAX_PAGES} cities for pages (others stay as coverage only).`,
     );
     err.status = 400;
     err.code = 'LOCATION_PAGES_OVER_CAP';
@@ -1620,11 +1699,28 @@ export function acceptServiceArea(
     throw err;
   }
 
+  const alsoServing = deriveAlsoServingNames({
+    coverageAreas,
+    primaryCity,
+    targetSuburbs,
+    state,
+    distanceMiles: inZone
+      ? (name, st) => leftoverMilesFromPrimary(name, st, candidateId)
+      : null,
+  });
+  const plannedCoverage = coverageAreasForPlan({
+    primaryCity,
+    state,
+    targetSuburbs,
+    alsoServing,
+  });
+
   const next = {
     ...accepted,
     serviceRadiusMiles,
-    coverageAreas,
+    coverageAreas: plannedCoverage,
     targetSuburbs,
+    alsoServing,
     clusterLocationPageOverrides: overrideNames,
   };
 
@@ -1645,16 +1741,224 @@ export function acceptServiceArea(
   saveMeta(candidateId, {
     lastServiceAreaAt: new Date().toISOString(),
     serviceRadiusMiles,
-    coverageCount: coverageAreas.length,
+    coverageCount: plannedCoverage.length,
     locationPageCount: targetSuburbs.length,
   });
 
+  if (cluster) resyncClusterSiteConfigs(cluster);
+  const refreshed = ensureAlsoServingOnSiteConfig(candidateId);
+  const configOut = refreshed.config || next;
+
   return {
     ok: true,
-    config: next,
+    config: configOut,
     suburbCheck,
-    coverageAreas,
+    coverageAreas: configOut.coverageAreas || plannedCoverage,
+    targetSuburbs: configOut.targetSuburbs || targetSuburbs,
+    alsoServing: refreshed.alsoServing || alsoServing,
+    serviceRadiusMiles,
+    candidate: getCandidateShell(candidateId),
+  };
+}
+
+/** Prefer 6 location pages (primary + up to 5 leftovers). */
+export const SERVICE_AREA_PAGE_SUBURB_MAX = 5;
+
+function displayNameOf(raw) {
+  return String(typeof raw === 'string' ? raw : raw?.name || '').trim();
+}
+
+export function formatServiceAreaRefreshStatus({ dropped = [], added = [] } = {}) {
+  if (!dropped.length && !added.length) return 'No Zone duplicates.';
+  const bits = [];
+  if (dropped.length) {
+    bits.push(
+      `dropped ${dropped
+        .map((d) => {
+          const owner = String(d.ownerCity || '').trim();
+          const kind = d.kind === 'alsoServing' ? 'Also serving' : d.kind === 'sibling' ? 'Zone city' : 'page';
+          return owner ? `${d.name} (${owner} ${kind})` : d.name;
+        })
+        .join(', ')}`,
+    );
+  }
+  if (added.length) {
+    bits.push(`added ${added.map((a) => a.name || a).join(', ')}`);
+  }
+  return `Refreshed — ${bits.join('; ')}.`;
+}
+
+/**
+ * Re-read Zone leftover page claims, drop leftover pages another member owns, refill
+ * pages to prefer 6. Also serving leftovers may overlap. Does not steal
+ * (never writes clusterLocationPageOverrides).
+ */
+export function refreshServiceAreaClaims(candidateId) {
+  const p = pathsFor(candidateId);
+  const acceptedRaw = readJson(p.siteConfig);
+  const accepted = stripSiteConfigOps(acceptedRaw);
+  if (!accepted) {
+    throw Object.assign(new Error('Accept Site config first, then set Service area'), { status: 400 });
+  }
+  const primaryCity = String(accepted.primaryCity || '').trim();
+  const state = String(accepted.state || '').trim().toUpperCase();
+  if (!primaryCity || !state) {
+    throw Object.assign(new Error('Site config needs primaryCity and state'), { status: 400 });
+  }
+
+  const cluster = clusterForCandidate(candidateId);
+  if (cluster) resyncClusterSiteConfigs(cluster);
+
+  const afterRaw = readJson(p.siteConfig) || acceptedRaw;
+  const after = stripSiteConfigOps(afterRaw) || accepted;
+  const inZone = Boolean(cluster);
+  const siblingBlocked = shotgunBlockedLocationNames(candidateId);
+  const claimedEntries = shotgunClaimedSuburbEntries(candidateId);
+  const claimed = new Set(claimedEntries.map((e) => normalizePlaceName(e.name)));
+  const claimedMeta = new Map(claimedEntries.map((e) => [normalizePlaceName(e.name), e]));
+  const primaryKey = normalizePlaceName(primaryCity);
+
+  const keptPages = [];
+  const seenPages = new Set();
+  for (const raw of after.targetSuburbs || []) {
+    const name = displayNameOf(raw);
+    const key = normalizePlaceName(name);
+    if (!name || !key || key === primaryKey) continue;
+    if (siblingBlocked.has(key) || claimed.has(key)) continue;
+    if (seenPages.has(key)) continue;
+    seenPages.add(key);
+    keptPages.push(name);
+  }
+
+  const pool = [];
+  const poolSeen = new Set();
+  const addPool = (raw) => {
+    const name = displayNameOf(raw);
+    const st = String(typeof raw === 'object' && raw?.state ? raw.state : state).trim().toUpperCase();
+    const key = normalizePlaceName(name);
+    if (!name || !key || poolSeen.has(key)) return;
+    poolSeen.add(key);
+    pool.push({ name, state: st || state });
+  };
+  for (const a of accepted.coverageAreas || []) addPool(a);
+  for (const n of accepted.alsoServing || []) addPool(n);
+  for (const a of after.coverageAreas || []) addPool(a);
+  for (const n of after.alsoServing || []) addPool(n);
+  for (const n of keptPages) addPool(n);
+
+  const pageBlocked = (name) => {
+    const key = normalizePlaceName(name);
+    return siblingBlocked.has(key) || claimed.has(key);
+  };
+
+  const targetSuburbs = mergeLocationPages({
+    coverage: pool,
+    claudeOrder: keptPages,
+    ignoreClaudeOrder: false,
+    sortBy: inZone ? 'distance' : 'population',
+    distanceMiles: inZone
+      ? (name, st) => leftoverMilesFromPrimary(name, st, candidateId)
+      : null,
+    maxMiles: inZone ? AUTO_SEED_MAX_MILES : null,
+    minPages: inZone ? PREFER_MIN_PAGES : 0,
+    primaryCity,
+    state,
+    max: SERVICE_AREA_PAGE_SUBURB_MAX,
+    skipName: (name) => pageBlocked(name),
+  });
+
+  const alsoServing = deriveAlsoServingNames({
+    coverageAreas: pool.length ? toCoverageAreas(pool, primaryCity, state) : after.coverageAreas,
+    primaryCity,
     targetSuburbs,
+    state,
+    distanceMiles: inZone
+      ? (name, st) => leftoverMilesFromPrimary(name, st, candidateId)
+      : null,
+  });
+
+  const finalPageKeys = new Set(targetSuburbs.map((n) => normalizePlaceName(n)));
+  const finalAlsoKeys = new Set(alsoServing.map((n) => normalizePlaceName(n)));
+  const dropped = [];
+  const seenDrop = new Set();
+  const noteDrop = (name, key, fallbackKind) => {
+    if (!key || seenDrop.has(key) || key === primaryKey) return;
+    seenDrop.add(key);
+    const meta = claimedMeta.get(key);
+    dropped.push({
+      name,
+      ownerCity: meta?.ownerCity || '',
+      kind: siblingBlocked.has(key) ? 'sibling' : meta?.kind || fallbackKind,
+    });
+  };
+  for (const raw of accepted.targetSuburbs || []) {
+    const name = displayNameOf(raw);
+    const key = normalizePlaceName(name);
+    if (!finalPageKeys.has(key)) noteDrop(name, key, 'page');
+  }
+  for (const raw of accepted.alsoServing || []) {
+    const name = displayNameOf(raw);
+    const key = normalizePlaceName(name);
+    if (siblingBlocked.has(key)) continue;
+    if (!finalAlsoKeys.has(key) && !finalPageKeys.has(key)) noteDrop(name, key, 'alsoServing');
+  }
+  const beforePageKeys = new Set(
+    (accepted.targetSuburbs || []).map((n) => normalizePlaceName(displayNameOf(n))),
+  );
+  const added = targetSuburbs
+    .filter((n) => !beforePageKeys.has(normalizePlaceName(n)))
+    .map((name) => ({ name }));
+
+  const plannedCoverage = coverageAreasForPlan({
+    primaryCity,
+    state,
+    targetSuburbs,
+    alsoServing,
+  });
+
+  const next = {
+    ...after,
+    coverageAreas: plannedCoverage,
+    targetSuburbs,
+    alsoServing,
+  };
+
+  const suburbCheck = validateSuburbsForSiteConfig(next);
+  writeJson(p.siteConfig, {
+    ...next,
+    _ops: {
+      ...(afterRaw?._ops && typeof afterRaw._ops === 'object' ? afterRaw._ops : {}),
+      serviceAreaRefreshedAt: new Date().toISOString(),
+      suburbCheck,
+    },
+  });
+
+  mkdirSync(path.dirname(SITE_CONFIG_PATH), { recursive: true });
+  writeJson(SITE_CONFIG_PATH, next);
+
+  const serviceRadiusMiles = Number(next.serviceRadiusMiles) || 15;
+  saveMeta(candidateId, {
+    lastServiceAreaAt: new Date().toISOString(),
+    serviceRadiusMiles,
+    coverageCount: plannedCoverage.length,
+    locationPageCount: targetSuburbs.length,
+  });
+
+  if (cluster) resyncClusterSiteConfigs(cluster);
+  const ensured = ensureAlsoServingOnSiteConfig(candidateId);
+  const configOut = ensured.config || next;
+
+  return {
+    ok: true,
+    refreshed: true,
+    status: formatServiceAreaRefreshStatus({ dropped, added }),
+    dropped,
+    added,
+    config: configOut,
+    suburbCheck,
+    coverageAreas: configOut.coverageAreas || plannedCoverage,
+    targetSuburbs: configOut.targetSuburbs || targetSuburbs,
+    alsoServing: ensured.alsoServing || alsoServing,
     serviceRadiusMiles,
     candidate: getCandidateShell(candidateId),
   };
@@ -1801,3 +2105,4 @@ export function applySiteConfigBrand(candidateId, paletteId, nap = {}) {
 }
 
 export { listArchetypes, suggestArchetype, normalizeArchetype };
+export { ensureAlsoServingOnSiteConfig } from './also-serving.mjs';

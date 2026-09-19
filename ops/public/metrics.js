@@ -189,9 +189,22 @@ export function metricHtml({
 /** How Ads volumes should display so statewide/neighbor geos are not implied as the town. */
 export function adsVolumeHonesty(vols) {
   if (!vols || typeof vols !== 'object') return { mode: 'none' };
-  if (vols.volumesSkipped) return { mode: 'skipped' };
-  if (vols.adsLocationFallback?.kind === 'state') {
-    return { mode: 'skipped', staleState: true };
+  const skipped =
+    Boolean(vols.volumesSkipped) || vols.adsLocationFallback?.kind === 'state';
+  if (skipped) {
+    const est = Number(vols.estimatedMonthlySearchVolume);
+    if (Number.isFinite(est)) {
+      return {
+        mode: 'estimate',
+        estimatedMonthlySearchVolume: est,
+        raw: vols.estimatedMonthlySearchVolumeRaw ?? null,
+        staleState: vols.adsLocationFallback?.kind === 'state',
+      };
+    }
+    return {
+      mode: 'skipped',
+      staleState: vols.adsLocationFallback?.kind === 'state',
+    };
   }
   if (vols.adsLocationFallback?.kind === 'neighbor') {
     return {
@@ -219,10 +232,29 @@ export function clusterVolumeHtml(volume) {
 
 /** Debiased demand volume used for scoring bands. */
 export function demandVolumeHtml(volume, { alpha = null, honesty = null } = {}) {
+  if (honesty?.mode === 'estimate') {
+    const estimate = Number(volume ?? honesty.estimatedMonthlySearchVolume);
+    if (!Number.isFinite(estimate)) {
+      return `<span class="metric metric-neutral">—</span>`;
+    }
+    const tip = [
+      'Claude Discovery Est. Monthly Search Volume — primary city guess, not Ads Keyword Planner.',
+      honesty.raw ? `Claude wrote: ${honesty.raw}` : '',
+      `Current: ${estimate}/mo est.`,
+      honesty.staleState
+        ? 'Statewide Ads geo is not local. This estimate is not Ads truth.'
+        : 'Ads volumes were skipped. Run SERP / Volume for Ads Planner numbers.',
+      '',
+      'Scored as a single-geo volume (no suburb overlap). Higher = more estimated demand.',
+    ]
+      .filter(Boolean)
+      .join('\n');
+    return `<span class="metric metric-neutral" ${tipAttr(tip)}><strong>${esc(estimate)}</strong><span class="metric-suffix"> /mo est.</span></span>`;
+  }
   if (honesty?.mode === 'skipped') {
     const tip = honesty.staleState
       ? 'Statewide Ads volume is not local to this city. Re-run SERP / Volume.'
-      : 'No Google Ads geo for this city (and no Ads-listed neighbor). Demand not measured.';
+      : 'Ads volumes skipped. Demand not measured.';
     return `<span class="metric metric-neutral" ${tipAttr(tip)}>—</span>`;
   }
   const band = classifyClusterVolume(volume);
@@ -431,6 +463,7 @@ export const SCORE_INPUT_TIPS = {
   demand: [
     '1–10 from demandVolumeSum = primary + α × suburb volumes (α default 0.25). Higher = better opportunity.',
     'Bands apply to demandVolumeSum, not raw clusterVolumeSum (cluster is display-only).',
+    'When Ads volumes are skipped, Demand is blank unless Claude’s Discovery Est. Monthly Search Volume is present — then the same scale is used and labeled est. (not Ads Planner).',
     'Scale:',
     '<30 → 2',
     '30–59 → 4',
@@ -623,6 +656,9 @@ export function overallScoreTip(inputs = {}, score = null) {
     'Overall score — weighted blend of available opportunity inputs (1 decimal).',
     'Higher = better opportunity for you.',
     score != null ? `Shown: ${score}/10.` : '',
+    inputs.demandSource === 'claude_estimate'
+      ? 'Demand is Claude’s Discovery estimate (primary city), not Ads Keyword Planner.'
+      : '',
     provisional ? 'Provisional — job value not set yet (Claude/human).' : 'Includes job value.',
     inputs.displaceability == null || inputs.displaceability === ''
       ? 'Before Stage 2 enrich: displaceability omitted and weights renormalized.'

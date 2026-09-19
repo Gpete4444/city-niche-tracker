@@ -45,6 +45,8 @@ import {
 } from './image-tray.mjs';
 import { isCandidateLaunched } from './launched-edit-guard.mjs';
 import { isProcessHeading } from '../../src/lib/is-process-heading.mjs';
+import { isMaterialsHeading } from '../../src/lib/is-materials-heading.mjs';
+import { withSlotDescriptions } from './slot-photo-brief.mjs';
 
 const ROOT = process.cwd();
 
@@ -101,20 +103,34 @@ function countProcessStepsInMarkdown(md) {
   return items ? items.length : 0;
 }
 
-/** Step titles from homepage `process:` frontmatter (`title:` on each item). */
-function listProcessStepTitlesFromFrontmatter(md) {
+function yamlScalar(match) {
+  return String(match?.[1] || match?.[2] || match?.[3] || '').trim();
+}
+
+/** Step title + description from homepage `process:` frontmatter. */
+export function listProcessStepsFromFrontmatter(md) {
   const m = String(md || '').match(/^process:\s*\n((?:(?:[ \t]+.*|-(?!-).*)\n)*)/m);
   if (!m) return [];
-  const titles = [];
-  // YAML uses `  - title: "..."` (title on the dash line) or indented `title:` under `-`
-  const re =
-    /^[ \t]*(?:-[ \t]+)?title:\s*(?:"([^"]*)"|'([^']*)'|(.+?))\s*$/gm;
-  let match;
-  while ((match = re.exec(m[1]))) {
-    const t = (match[1] || match[2] || match[3] || '').trim();
-    if (t) titles.push(t);
+  const chunks = m[1]
+    .split(/^[ \t]*-(?!-)[ \t]*/m)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const out = [];
+  for (const chunk of chunks) {
+    const titleM = chunk.match(/(?:^|\n)[ \t]*title:\s*(?:"([^"]*)"|'([^']*)'|(.+?))\s*(?:\n|$)/);
+    const descM = chunk.match(
+      /(?:^|\n)[ \t]*description:\s*(?:"([^"]*)"|'([^']*)'|(.+?))\s*(?:\n|$)/,
+    );
+    const title = stripMaterialBold(yamlScalar(titleM));
+    const detail = stripMaterialBold(yamlScalar(descM));
+    if (title) out.push({ title, detail });
   }
-  return titles;
+  return out;
+}
+
+/** Step titles from homepage `process:` frontmatter (`title:` on each item). */
+function listProcessStepTitlesFromFrontmatter(md) {
+  return listProcessStepsFromFrontmatter(md).map((s) => s.title);
 }
 
 function processSectionBody(md) {
@@ -129,8 +145,8 @@ function processSectionBody(md) {
   return section || '';
 }
 
-/** Title from a process step line (same shapes as parseProcessSteps). */
-function parseProcessTitleFromLine(raw) {
+/** Title + detail from a process step line (same shapes as parseProcessSteps). */
+function parseProcessOptionFromLine(raw) {
   const cleaned = stripMaterialBold(
     String(raw || '')
       .replace(/^[-*•]\s+/, '')
@@ -138,22 +154,33 @@ function parseProcessTitleFromLine(raw) {
       .trim(),
   );
   const em = cleaned.match(/^(.+?)\s+[—–-]\s+(.+)$/);
-  if (em) return em[1].trim();
+  if (em) return { title: em[1].trim(), detail: em[2].trim() };
   const colon = cleaned.match(/^(.+?):\s+(.+)$/);
-  if (colon && colon[1].split(/\s+/).length <= 8) return colon[1].trim();
-  return '';
+  if (colon && colon[1].split(/\s+/).length <= 8) {
+    return { title: colon[1].trim(), detail: colon[2].trim() };
+  }
+  return { title: '', detail: '' };
 }
 
-/** Process step titles from a service-page body `##`. */
-export function listProcessStepTitlesFromBody(md) {
+function parseProcessTitleFromLine(raw) {
+  return parseProcessOptionFromLine(raw).title;
+}
+
+/** Process step title + detail from a service-page body `##`. */
+export function listProcessStepsFromBody(md) {
   const section = processSectionBody(md);
   if (!section) return [];
   return section
     .split('\n')
     .map((l) => l.trim())
     .filter(Boolean)
-    .map(parseProcessTitleFromLine)
-    .filter(Boolean);
+    .map(parseProcessOptionFromLine)
+    .filter((row) => row.title);
+}
+
+/** Process step titles from a service-page body `##`. */
+export function listProcessStepTitlesFromBody(md) {
+  return listProcessStepsFromBody(md).map((s) => s.title);
 }
 
 function stripMaterialBold(s) {
@@ -188,20 +215,26 @@ function stockImageAlt(description, label, niche = '') {
   return (alt || fallback || 'Service photo').slice(0, 120);
 }
 
-/** Title from a materials option bullet (same shapes as parseOptionRows). */
-function parseMaterialTitleFromBullet(raw) {
+/** Title + detail from a materials option bullet (same shapes as parseOptionRows). */
+function parseMaterialOptionFromBullet(raw) {
   const b = String(raw || '')
     .replace(/^[-*•]\s+/, '')
     .replace(/^\d+[.)]\s+/, '')
     .trim();
   const cleaned = stripMaterialBold(b);
   const em = cleaned.match(/^(.+?)\s+[—–-]\s+(.+)$/);
-  if (em) return em[1].trim();
+  if (em) return { title: em[1].trim(), detail: em[2].trim() };
   const colon = cleaned.match(/^(.+?):\s+(.+)$/);
-  if (colon && colon[1].split(/\s+/).length <= 8) return colon[1].trim();
-  const bold = b.match(/^\*\*(.+?)\*\*/);
-  if (bold) return bold[1].trim();
-  return cleaned;
+  if (colon && colon[1].split(/\s+/).length <= 8) {
+    return { title: colon[1].trim(), detail: colon[2].trim() };
+  }
+  const bold = b.match(/^\*\*(.+?)\*\*\s*[—–:-]?\s*(.*)$/);
+  if (bold) return { title: bold[1].trim(), detail: stripMaterialBold(bold[2]).trim() };
+  return { title: cleaned, detail: '' };
+}
+
+function parseMaterialTitleFromBullet(raw) {
+  return parseMaterialOptionFromBullet(raw).title;
 }
 
 function materialsSectionBody(md) {
@@ -209,21 +242,56 @@ function materialsSectionBody(md) {
   const body = text.includes('\n---\n')
     ? text.slice(text.indexOf('\n---\n', 3) + 5)
     : text.replace(/^---[\s\S]*?---\n?/, '');
-  const section = body.split(/^#{1,2}\s+/m).find((chunk) =>
-    /^(materials|methods)\b/i.test(chunk.trim()),
-  );
+  const section = body.split(/^#{1,2}\s+/m).find((chunk) => {
+    const heading = (chunk.trim().split('\n')[0] || '').trim();
+    return isMaterialsHeading(heading);
+  });
   return section || '';
 }
 
-/** Material option titles from a page body (homepage or service). */
-function listMaterialOptionTitles(md) {
+function firstSentence(text) {
+  const t = stripMaterialBold(text).replace(/\s+/g, ' ').trim();
+  if (!t) return '';
+  const m = t.match(/^(.{12,220}?[.!?])(?:\s|$)/);
+  return (m?.[1] || t).slice(0, 240).trim();
+}
+
+function serviceBlurbFromMarkdown(md) {
+  const text = String(md || '').replace(/\r\n/g, '\n');
+  const fmDesc = text.match(/^description:\s*["']?([^"'\n]+)/m);
+  const body = text.includes('\n---\n')
+    ? text.slice(text.indexOf('\n---\n', 3) + 5)
+    : text.replace(/^---[\s\S]*?---\n?/, '');
+  const intro = (body.split(/^#{1,2}\s+/m)[0] || '').trim();
+  const firstPara = (intro.split(/\n\n/)[0] || '').replace(/^[-*•]\s+/, '');
+  return firstSentence(firstPara) || firstSentence(fmDesc?.[1] || '');
+}
+
+function serviceBlurbsByName(contentFiles) {
+  const byName = new Map();
+  for (const [rel, md] of Object.entries(contentFiles || {})) {
+    if (!/content\/services\/[^/]+\.md$/i.test(rel)) continue;
+    const name = serviceNameFromMarkdown(md, rel);
+    const blurb = serviceBlurbFromMarkdown(md);
+    if (name && blurb) byName.set(name.toLowerCase(), blurb);
+  }
+  return byName;
+}
+
+/** Material option title + detail from a page body (homepage or service). */
+export function listMaterialOptions(md) {
   const section = materialsSectionBody(md);
   if (!section) return [];
   const bullets = section
     .split('\n')
     .map((l) => l.trim())
     .filter((l) => /^[-*•]\s+/.test(l) || /^\d+[.)]\s+/.test(l));
-  return bullets.map(parseMaterialTitleFromBullet).filter(Boolean);
+  return bullets.map(parseMaterialOptionFromBullet).filter((row) => row.title);
+}
+
+/** Material option titles from a page body (homepage or service). */
+function listMaterialOptionTitles(md) {
+  return listMaterialOptions(md).map((row) => row.title);
 }
 
 function loadCandidateContentFiles(candidateId) {
@@ -287,8 +355,9 @@ export function listImageSlots(candidateId) {
   }
   const homepageMd = loadHomepageMarkdown(candidateId);
   const processStepCount = countProcessStepsInMarkdown(homepageMd);
-  const homeProcessTitles = listProcessStepTitlesFromFrontmatter(homepageMd);
-  const homeMaterialTitles = listMaterialOptionTitles(homepageMd);
+  const homeProcessSteps = listProcessStepsFromFrontmatter(homepageMd);
+  const homeMaterialOptions = listMaterialOptions(homepageMd);
+  const briefCtx = { niche, city };
 
   const slots = [];
   const photos = structure?.photos || {};
@@ -304,25 +373,28 @@ export function listImageSlots(candidateId) {
     const def = sectionById.get(sectionId);
     const max = def?.maxImages || 6;
     let count = Math.min(Math.max(Number(photo.count) || 1, 1), max);
-    let materialTitles = [];
-    let processTitles = [];
+    let materialOptions = [];
+    let processSteps = [];
     // Match photo slots to content boxes
     if (sectionId === 'process' || sectionId === 'offerProcess') {
-      processTitles = homeProcessTitles.slice(0, max);
-      if (processTitles.length) count = processTitles.length;
+      processSteps = homeProcessSteps.slice(0, max);
+      if (processSteps.length) count = processSteps.length;
       else if (processStepCount > 0) count = Math.min(Math.max(processStepCount, 1), max);
     }
-    if (sectionId === 'materials' && homeMaterialTitles.length > 0) {
-      materialTitles = homeMaterialTitles.slice(0, max);
-      const keep = keepMaterialsRowCount(materialTitles.length);
-      materialTitles = materialTitles.slice(0, keep);
-      count = materialTitles.length;
+    if (sectionId === 'materials' && homeMaterialOptions.length > 0) {
+      materialOptions = homeMaterialOptions.slice(0, max);
+      const keep = keepMaterialsRowCount(materialOptions.length);
+      materialOptions = materialOptions.slice(0, keep);
+      count = materialOptions.length;
     }
     const outlineSec = (outline?.sections || []).find((s) => s.id === sectionId);
     for (let n = 1; n <= count; n += 1) {
       const outlineImg = outlineSec?.images?.[n - 1];
-      const materialTitle = stripMaterialBold(materialTitles[n - 1] || '');
-      const processTitle = stripMaterialBold(processTitles[n - 1] || '');
+      const materialTitle = stripMaterialBold(materialOptions[n - 1]?.title || '');
+      const processTitle = stripMaterialBold(processSteps[n - 1]?.title || '');
+      const slotDescription = stripMaterialBold(
+        materialOptions[n - 1]?.detail || processSteps[n - 1]?.detail || '',
+      );
       slots.push({
         key: `${sectionId}-${n}`,
         sectionId,
@@ -332,6 +404,7 @@ export function listImageSlots(candidateId) {
         pages: def?.pages || ['home'],
         materialTitle: materialTitle || null,
         processTitle: processTitle || null,
+        slotDescription: slotDescription || null,
         queryHint: buildQuery({
           niche,
           city,
@@ -357,15 +430,16 @@ export function listImageSlots(candidateId) {
       .sort();
     for (const rel of serviceRels) {
       const md = contentFiles[rel];
-      const titles = listMaterialOptionTitles(md).slice(0, max);
-      const keep = keepMaterialsRowCount(titles.length);
-      const keptTitles = titles.slice(0, keep);
-      if (!keptTitles.length) continue;
+      const options = listMaterialOptions(md).slice(0, max);
+      const keep = keepMaterialsRowCount(options.length);
+      const kept = options.slice(0, keep);
+      if (!kept.length) continue;
       const serviceName = serviceNameFromMarkdown(md, rel);
       const serviceSlug = serviceSlugFromRel(rel);
-      keptTitles.forEach((materialTitleRaw, i) => {
+      kept.forEach((option, i) => {
         const n = i + 1;
-        const materialTitle = stripMaterialBold(materialTitleRaw);
+        const materialTitle = stripMaterialBold(option.title);
+        const slotDescription = stripMaterialBold(option.detail || '');
         slots.push({
           key: `svcMaterials-${serviceSlug}-${n}`,
           sectionId: 'svcMaterials',
@@ -376,6 +450,7 @@ export function listImageSlots(candidateId) {
           serviceName,
           serviceSlug,
           materialTitle,
+          slotDescription: slotDescription || null,
           queryHint: buildQuery({
             niche,
             city,
@@ -402,13 +477,14 @@ export function listImageSlots(candidateId) {
       .sort();
     for (const rel of serviceRels) {
       const md = contentFiles[rel];
-      const titles = listProcessStepTitlesFromBody(md).slice(0, max);
-      if (!titles.length) continue;
+      const steps = listProcessStepsFromBody(md).slice(0, max);
+      if (!steps.length) continue;
       const serviceName = serviceNameFromMarkdown(md, rel);
       const serviceSlug = serviceSlugFromRel(rel);
-      titles.forEach((processTitleRaw, i) => {
+      steps.forEach((step, i) => {
         const n = i + 1;
-        const processTitle = stripMaterialBold(processTitleRaw);
+        const processTitle = stripMaterialBold(step.title);
+        const slotDescription = stripMaterialBold(step.detail || '');
         slots.push({
           key: `svcProcess-${serviceSlug}-${n}`,
           sectionId: 'svcProcess',
@@ -419,6 +495,7 @@ export function listImageSlots(candidateId) {
           serviceName,
           serviceSlug,
           processTitle,
+          slotDescription: slotDescription || null,
           queryHint: buildQuery({
             niche,
             city,
@@ -449,8 +526,10 @@ export function listImageSlots(candidateId) {
     );
     const svcHeroSlots = [];
     const max = Math.min(svcHeroServiceNames.length, 24);
+    const blurbs = serviceBlurbsByName(loadCandidateContentFiles(candidateId));
     for (let i = 0; i < max; i += 1) {
       const name = svcHeroServiceNames[i];
+      const slotDescription = blurbs.get(name.toLowerCase()) || '';
       svcHeroSlots.push({
         key: `svcHero-${i + 1}`,
         sectionId: 'svcHero',
@@ -459,6 +538,7 @@ export function listImageSlots(candidateId) {
         kind: 'hero',
         pages: ['services'],
         serviceName: name,
+        slotDescription: slotDescription || null,
         queryHint: buildQuery({
           niche,
           city,
@@ -474,7 +554,10 @@ export function listImageSlots(candidateId) {
     }
     const heads = without.filter((s) => s.sectionId === 'hero' || s.sectionId === 'intro');
     const rest = without.filter((s) => s.sectionId !== 'hero' && s.sectionId !== 'intro');
-    return overlayImagesPlanQueries(candidateId, [...heads, ...svcHeroSlots, ...rest]);
+    return overlayImagesPlanQueries(
+      candidateId,
+      withSlotDescriptions([...heads, ...svcHeroSlots, ...rest], briefCtx),
+    );
   }
 
   // What we do cards without Service pages: one slot per configured service name
@@ -506,7 +589,7 @@ export function listImageSlots(candidateId) {
     }
   }
 
-  return overlayImagesPlanQueries(candidateId, slots);
+  return overlayImagesPlanQueries(candidateId, withSlotDescriptions(slots, briefCtx));
 }
 
 /** Cap Unsplash/Pexels/Pixabay searches per slot (rate-limit). */
@@ -2537,12 +2620,14 @@ export const IMAGE_SECTION_DEFAULT_ORDER = [
 ];
 
 /** Collapse related photo sectionIds into one Review Images group. */
-export function sectionGroupKey(sectionId) {
+export function sectionGroupKey(sectionId, slot) {
   const id = String(sectionId || '');
   if (id === 'svcHero' || id === 'services') return 'services';
   if (id === 'beforeAfter' || id === 'svcBeforeAfter' || id === 'gallery') return 'gallery';
-  if (id === 'svcMaterials') return 'svcMaterials';
-  if (id === 'svcProcess') return 'svcProcess';
+  if (id === 'svcMaterials' || id === 'svcProcess') {
+    const slug = String(slot?.serviceSlug || '').trim();
+    return slug ? `${id}:${slug}` : id;
+  }
   return id;
 }
 
@@ -2591,22 +2676,58 @@ function resolveImageSectionOrder(candidateId) {
   return expanded;
 }
 
-export function sectionLabelForGroup(groupKey, registry) {
+const HOMEPAGE_REVIEW_SECTION_IDS = new Set([
+  'hero',
+  'intro',
+  'materials',
+  'process',
+  'offerProcess',
+  'cost',
+  'timeline',
+  'beforeAfter',
+  'faqs',
+  'reviews',
+  'codes',
+  'diyVsPro',
+  'whenToCall',
+  'cta',
+  'whyChooseUs',
+  'areas',
+  'trust',
+]);
+
+export function sectionLabelForGroup(groupKey, registry, slot) {
+  const key = String(groupKey || '');
+  const serviceName = String(slot?.serviceName || '').trim();
+  if ((key === 'svcProcess' || key.startsWith('svcProcess:')) && serviceName) {
+    return `Services · ${serviceName}`;
+  }
+  if ((key === 'svcMaterials' || key.startsWith('svcMaterials:')) && serviceName) {
+    return `Services · Materials & methods · ${serviceName}`;
+  }
   const sections = registry?.sections || [];
   const byId = (id) => sections.find((s) => s.id === id);
-  if (groupKey === 'services') {
-    return byId('services')?.label || 'What we do (services grid)';
+  const registryId = key.startsWith('svcProcess:')
+    ? 'svcProcess'
+    : key.startsWith('svcMaterials:')
+      ? 'svcMaterials'
+      : key;
+  let base = '';
+  if (registryId === 'services') {
+    base = byId('services')?.label || 'What we do (services grid)';
+  } else if (registryId === 'gallery') {
+    base = byId('beforeAfter')?.label || byId('gallery')?.label || 'Before & after';
+  } else if (registryId === 'process') {
+    base = byId('process')?.label || 'Process / how we work';
+  } else if (registryId === 'offerProcess') {
+    base = byId('offerProcess')?.label || 'Deep offer process (single-offer)';
+  } else {
+    base = byId(registryId)?.label || registryId;
   }
-  if (groupKey === 'gallery') {
-    return byId('beforeAfter')?.label || byId('gallery')?.label || 'Before & after';
-  }
-  if (groupKey === 'process') {
-    return byId('process')?.label || 'Process / how we work';
-  }
-  if (groupKey === 'offerProcess') {
-    return byId('offerProcess')?.label || 'Deep offer process (single-offer)';
-  }
-  return byId(groupKey)?.label || groupKey;
+  if (registryId === 'services' || registryId === 'gallery' || registryId === 'leftover') return base;
+  if (HOMEPAGE_REVIEW_SECTION_IDS.has(registryId)) return `Homepage · ${base}`;
+  if (registryId.startsWith('svc')) return `Services · ${base}`;
+  return base;
 }
 
 function mapImageSlotCard(candidateId, slot, entry, p, registry) {
@@ -2623,18 +2744,24 @@ function mapImageSlotCard(candidateId, slot, entry, p, registry) {
           query,
           missing: !onDisk,
         });
-  const groupKey = sectionGroupKey(slot.sectionId);
+  const groupKey = sectionGroupKey(slot.sectionId, slot);
   return {
     key: slot.key,
     sectionId: slot.sectionId,
     sectionGroup: groupKey,
-    sectionLabel: sectionLabelForGroup(groupKey === 'services' ? 'services' : slot.sectionId, registry),
+    sectionLabel: sectionLabelForGroup(
+      groupKey === 'services' ? 'services' : groupKey,
+      registry,
+      slot,
+    ),
     index: slot.index,
     label: displayLabelForSlot(slot),
     kind: slot.kind,
     serviceName: slot.serviceName || null,
+    serviceSlug: slot.serviceSlug || null,
     processTitle: slot.processTitle || null,
     materialTitle: slot.materialTitle || null,
+    slotDescription: slot.slotDescription || null,
     queryHint: slot.queryHint ? stripMaterialBold(slot.queryHint) : slot.queryHint,
     query,
     score: entry?.score ?? null,
@@ -2769,11 +2896,21 @@ export function listImageSlotStatus(candidateId) {
     else matchTotals.poor += 1;
     return {
       ...card,
-      _order: orderIndex(slot.sectionId) * 1000 + (Number(slot.index) || 0),
+      _order: orderIndex(slot.sectionId),
+      _serviceSlug: String(slot.serviceSlug || '').toLowerCase(),
     };
   });
-  mapped.sort((a, b) => a._order - b._order || String(a.key).localeCompare(String(b.key)));
-  for (const s of mapped) delete s._order;
+  mapped.sort(
+    (a, b) =>
+      a._order - b._order ||
+      String(a._serviceSlug || '').localeCompare(String(b._serviceSlug || '')) ||
+      (Number(a.index) || 0) - (Number(b.index) || 0) ||
+      String(a.key).localeCompare(String(b.key)),
+  );
+  for (const s of mapped) {
+    delete s._order;
+    delete s._serviceSlug;
+  }
   return {
     photosEnabled: structureHasPhotosEnabled(candidateId),
     providerStatus: imageProvidersStatus(),
@@ -3066,6 +3203,7 @@ export async function repullImageSlot(candidateId, slotKey) {
     synced,
     contentUpdate,
     manifest: nextManifest,
+    status: { slot: imageSlotCardStatus(candidateId, slot.key) },
     human: [
       softFill
         ? `Re-pulled ${slot.key} via ${providerUsed} (best available, Poor — review/replace).`
@@ -3188,6 +3326,7 @@ export function uploadImageSlot(candidateId, slotKey, body = {}) {
     synced,
     contentUpdate,
     manifest: nextManifest,
+    status: { slot: imageSlotCardStatus(candidateId, slot.key) },
     human: [`Uploaded ${filename} for ${slot.key}.`],
     candidate: getCandidateShell(candidateId),
   };

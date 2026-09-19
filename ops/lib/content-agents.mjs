@@ -22,6 +22,7 @@ import {
   validateContentBundle,
   normalizeContentFilesMap,
   assertValidYamlFrontmatter,
+  revertInvalidYamlPasteFiles,
 } from './content-markdown.mjs';
 import {
   extractSocialProofSidecar,
@@ -842,6 +843,9 @@ function runDraftContentLints(candidateId, files, config) {
       ...(Array.isArray(config.services) ? config.services : []),
       ...(Array.isArray(config.commercialServices) ? config.commercialServices : []),
     ],
+    sectionIds: outline.sectionIds || (outline.sections || []).map((s) => s.id).filter(Boolean),
+    homepageSections: outline.homepageSections || config.homepageSections || [],
+    serviceBandAssignments: outline.serviceBandAssignments || {},
   });
   return { speechLint, seoLint };
 }
@@ -854,11 +858,13 @@ export function pasteAgentContentDraft(candidateId, raw, { mode = 'homepage_firs
   const pageIds = resolveStructurePageIds(candidateId);
   const extracted = extractSocialProofSidecar(raw);
   const parsed = parseContentFileBlocks(extracted.textWithoutSidecar);
+  const pastedRels = Object.keys(parsed || {});
   const p = pathsFor(candidateId);
   const priorDraft = readJson(p.contentDraft);
+  const priorFiles = priorDraft?.files && typeof priorDraft.files === 'object' ? priorDraft.files : {};
   const mergedFiles = pruneFilesToStructure(
     {
-      ...(priorDraft?.files && typeof priorDraft.files === 'object' ? priorDraft.files : {}),
+      ...priorFiles,
       ...parsed,
     },
     {
@@ -867,12 +873,24 @@ export function pasteAgentContentDraft(candidateId, raw, { mode = 'homepage_firs
       siteArchetype: config.siteArchetype,
     },
   );
-  const { files, speechLint, seoLint, autoFix } = autoFixAndLintDraft(
+  let { files, speechLint, seoLint, autoFix } = autoFixAndLintDraft(
     candidateId,
     mergedFiles,
     config,
   );
-  const check = validateContentBundle(files, config, { mode, pageIds });
+  let check = validateContentBundle(files, config, { mode, pageIds });
+  let skippedYaml = [];
+  const yamlSkip = revertInvalidYamlPasteFiles(files, priorFiles, pastedRels, check);
+  if (yamlSkip.skipped.length) {
+    const pastedSet = new Set(pastedRels.map((rel) => String(rel).replace(/\\/g, '/')));
+    const pastedBad = yamlSkip.skipped.filter((rel) => pastedSet.has(rel));
+    if (pastedRels.length && pastedBad.length === pastedRels.length) {
+      assertValidYamlFrontmatter(check);
+    }
+    files = yamlSkip.files;
+    skippedYaml = yamlSkip.skipped;
+    check = validateContentBundle(files, config, { mode, pageIds });
+  }
   assertValidYamlFrontmatter(check);
   const contract = runTemplateContract(files, config, { mode, pageIds });
   const socialProofMerge = ensureRoverSocialProofSeed(candidateId, config);
@@ -896,6 +914,7 @@ export function pasteAgentContentDraft(candidateId, raw, { mode = 'homepage_firs
       lastFinalCheckAt: priorDraft?._ops?.lastFinalCheckAt || null,
       lastFinalCheckOk: priorDraft?._ops?.lastFinalCheckOk,
       lastFinalCheckSummary: priorDraft?._ops?.lastFinalCheckSummary,
+      skippedYaml,
     },
   });
   // Infer write batches from files (avoid circular import with content-eight-pass)
@@ -928,6 +947,7 @@ export function pasteAgentContentDraft(candidateId, raw, { mode = 'homepage_firs
     seoLint,
     autoFix,
     socialProofMerge,
+    skippedYaml,
     candidate: getCandidateShell(candidateId),
   };
 }

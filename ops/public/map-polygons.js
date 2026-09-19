@@ -2,7 +2,11 @@
  * Leaflet 1.9 draws a MultiPolygon as one evenodd path, so overlapping
  * islands cancel fill (Fuquay-Varina-style annexations look like outlines).
  * Split each MultiPolygon into Polygon features so each island fills.
+ * Service area paints largest first so smaller cities stay clickable.
  */
+
+/** Non-largest MultiPolygon parts below this share of the main body are slivers. */
+export const SLIVER_AREA_FRACTION = 0.02;
 
 function ringArea(ring) {
   if (!Array.isArray(ring) || ring.length < 3) return 0;
@@ -58,6 +62,7 @@ function explodeOne(feature) {
     }
   }
 
+  const mainArea = polygonArea(parts[best]);
   return parts.map((coords, i) => ({
     type: 'Feature',
     properties: {
@@ -65,6 +70,8 @@ function explodeOne(feature) {
       _largestPart: i === best,
       _partIndex: i,
       _partCount: parts.length,
+      _partArea: polygonArea(coords),
+      _mainPartArea: mainArea,
     },
     geometry: { type: 'Polygon', coordinates: coords },
   }));
@@ -92,4 +99,39 @@ export function explodePlaceFeatures(input) {
 /** True for the main body (or an unexploded feature). Satellites are false. */
 export function isLargestPart(feature) {
   return feature?.properties?._largestPart !== false;
+}
+
+export function featurePolygonArea(feature) {
+  const tagged = Number(feature?.properties?._partArea);
+  if (Number.isFinite(tagged) && tagged > 0) return tagged;
+  const geom = feature?.geometry;
+  if (geom?.type === 'Polygon') return polygonArea(geom.coordinates);
+  if (geom?.type === 'MultiPolygon') {
+    return (geom.coordinates || []).reduce((sum, coords) => sum + polygonArea(coords), 0);
+  }
+  return 0;
+}
+
+/** Largest area first — Leaflet last-added sits on top, so add this order. */
+export function sortPlaceFeaturesLargestFirst(features) {
+  return [...(features || [])].sort((a, b) => featurePolygonArea(b) - featurePolygonArea(a));
+}
+
+/** Tiny annexation leftovers: not the main body and under SLIVER_AREA_FRACTION of it. */
+export function isSliverPart(feature) {
+  const p = feature?.properties || {};
+  if (p._largestPart !== false) return false;
+  const part = Number(p._partArea);
+  const main = Number(p._mainPartArea);
+  if (!Number.isFinite(part) || !Number.isFinite(main) || main <= 0) return false;
+  return part / main < SLIVER_AREA_FRACTION;
+}
+
+/** Explode MultiPolygons, then largest-first for paint / click order. */
+export function explodeAndSortPlaceFeatures(input) {
+  const exploded = explodePlaceFeatures(input);
+  return {
+    ...exploded,
+    features: sortPlaceFeaturesLargestFirst(exploded.features || []),
+  };
 }

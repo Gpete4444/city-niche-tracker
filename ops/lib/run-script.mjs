@@ -17,6 +17,7 @@ const SCRIPT_LOG_LINES = 200;
 
 const SCRIPT_LIGHT_LABEL = {
   research: 'SERP / Volume',
+  'serp-seeds': 'SERP seeds',
   enrich: 'Enrich',
   prospects: 'Prospects',
 };
@@ -393,22 +394,24 @@ export function startJob({
   return job;
 }
 
-export function runResearch(candidateId, { adsMode = 'live', forceSerp = false, volumesOnly = false } = {}) {
+export function runResearch(candidateId, { adsMode = 'live', forceSerp = false, volumesOnly = false, skipVolumes = false } = {}) {
   const p = pathsFor(candidateId);
   const mode = String(adsMode || 'live').toLowerCase() === 'standard' ? 'standard' : 'live';
+  const skip = Boolean(skipVolumes);
   const args = ['--config', p.config, '--out', p.research, '--ads-mode', mode];
   if (forceSerp) args.push('--force-serp');
-  if (volumesOnly) args.push('--volumes-only');
+  if (volumesOnly && !skip) args.push('--volumes-only');
+  if (skip) args.push('--skip-volumes');
   return startJob({
     candidateId,
-    label: 'research',
+    label: skip ? 'serp-seeds' : 'research',
     script: 'scripts/research-candidate.mjs',
     args,
     onSuccess: () => {
       saveMeta(candidateId, {
         lastResearchAt: new Date().toISOString(),
         lastAdsMode: mode,
-        lastResearchMode: forceSerp ? 'force_serp' : 'default',
+        lastResearchMode: skip ? 'skip_volumes' : forceSerp ? 'force_serp' : 'default',
       });
     },
   });

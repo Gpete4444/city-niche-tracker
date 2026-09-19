@@ -18,6 +18,7 @@ import { syncSiteImagesToPublic } from './fill-site-images.mjs';
 import {
   IMAGE_TRAY_CAP,
   baSourceIsDuplicate,
+  baEntryFilesOnDisk,
   compactBaTray,
   pushBaTrayEntry,
   trimTrayVariants,
@@ -32,6 +33,8 @@ import {
   setBaPromptOverride,
   clearBaPromptOverride,
 } from './openai-prompt-overrides.mjs';
+import { applyOccupancyToPrompt, normalizeOccupancy } from './image-occupancy.mjs';
+import { defaultSlotDescription } from './slot-photo-brief.mjs';
 
 const ROOT = process.cwd();
 
@@ -189,6 +192,7 @@ export function listBaPromptSlots(candidateId) {
   const servicesPageOn = !pages.length || pages.includes('services');
   const svcOn =
     servicesPageOn && (sections.includes('svcBeforeAfter') || Boolean(photos.svcBeforeAfter?.enabled));
+  const niche = String(loadConfig(candidateId).niche || '').trim();
   const out = [];
   if (homeOn) {
     out.push({
@@ -197,6 +201,10 @@ export function listBaPromptSlots(candidateId) {
       label: 'Homepage gallery before/after',
       serviceName: null,
       slug: null,
+      description: defaultSlotDescription(
+        { sectionId: 'beforeAfter', kind: 'gallery', key: 'home:1' },
+        { niche },
+      ),
     });
   }
   if (svcOn) {
@@ -207,6 +215,15 @@ export function listBaPromptSlots(candidateId) {
         label: `Service page before/after — ${t.serviceName}`,
         serviceName: t.serviceName,
         slug: t.slug,
+        description: defaultSlotDescription(
+          {
+            sectionId: 'svcBeforeAfter',
+            kind: 'gallery',
+            key: `svc:${t.slug}`,
+            serviceName: t.serviceName,
+          },
+          { niche },
+        ),
       });
     }
   }
@@ -397,6 +414,7 @@ export function baPromptsForCard(candidateId, { serviceSlug = '', pairIndex = 1 
 }
 
 export function resolveBaPromptsWithOverride(candidateId, opts = {}) {
+  const occupancy = normalizeOccupancy(opts.occupancy);
   const resolved = resolveBaChatgptPrompts(candidateId, opts);
   const ov = getBaPromptOverride(
     loadCandidateOpenaiPrompts(candidateId),
@@ -407,28 +425,36 @@ export function resolveBaPromptsWithOverride(candidateId, opts = {}) {
     before: opts.before,
     after: opts.after,
   });
+  const fromBodyBefore = Boolean(String(opts.before || '').trim());
+  const fromBodyAfter = Boolean(String(opts.after || '').trim());
+  const before = fromBodyBefore ? used.before : applyOccupancyToPrompt(used.before, occupancy);
+  const after = fromBodyAfter ? used.after : applyOccupancyToPrompt(used.after, occupancy);
+  const canonBefore = applyOccupancyToPrompt(resolved.before, occupancy);
+  const canonAfter = applyOccupancyToPrompt(resolved.after, occupancy);
   return {
     ...resolved,
+    occupancy,
     originalBefore: resolved.before,
     originalAfter: resolved.after,
-    before: used.before,
-    after: used.after,
-    overridden: used.before !== resolved.before || used.after !== resolved.after,
+    before,
+    after,
+    overridden: before !== canonBefore || after !== canonAfter,
     chatgptUrl: 'https://chatgpt.com/',
   };
 }
 
 export function saveBaOpenaiPrompt(
   candidateId,
-  { serviceSlug = '', pairIndex = 1, viewpoint, before, after, restore } = {},
+  { serviceSlug = '', pairIndex = 1, viewpoint, occupancy, before, after, restore } = {},
 ) {
+  const occ = normalizeOccupancy(occupancy);
   const resolved = resolveBaChatgptPrompts(candidateId, { serviceSlug, pairIndex, viewpoint });
   let doc = loadCandidateOpenaiPrompts(candidateId);
   const beforeText = String(before || '').trim();
   const afterText = String(after || '').trim();
-  const same =
-    beforeText === String(resolved.before || '').trim() &&
-    afterText === String(resolved.after || '').trim();
+  const canonBefore = applyOccupancyToPrompt(resolved.before, occ);
+  const canonAfter = applyOccupancyToPrompt(resolved.after, occ);
+  const same = beforeText === canonBefore && afterText === canonAfter;
   if (restore || same) {
     doc = clearBaPromptOverride(doc, resolved.key, resolved.viewpoint);
   } else if (beforeText || afterText) {
@@ -442,6 +468,7 @@ export function saveBaOpenaiPrompt(
     serviceSlug,
     pairIndex,
     viewpoint: resolved.viewpoint,
+    occupancy: occ,
   });
 }
 
@@ -1490,6 +1517,15 @@ export function listBeforeAfterStatus(candidateId) {
     return {
       ...row,
       matchKey: key,
+      slotDescription: defaultSlotDescription(
+        {
+          sectionId: row.serviceName || row.slug ? 'svcBeforeAfter' : 'beforeAfter',
+          kind: 'gallery',
+          key,
+          serviceName: row.serviceName || '',
+        },
+        { niche },
+      ),
       beforeUrl: stampPreview(row.before?.filename),
       afterUrl: stampPreview(row.after?.filename),
       complete: graded.complete,
@@ -1781,7 +1817,8 @@ export function setBaTrayEntries(candidateId, { serviceSlug = '', pairIndex = 1,
   for (const e of entries || []) {
     const b = e?.beforeFilename ? path.basename(String(e.beforeFilename)) : '';
     const a = e?.afterFilename ? path.basename(String(e.afterFilename)) : '';
-    if (!b && !a) continue;
+    if (!b || !a) continue;
+    if (!baEntryFilesOnDisk(p.siteImages, { beforeFilename: b, afterFilename: a })) continue;
     list.push({
       id: e.id || `var-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
       beforeFilename: b || null,

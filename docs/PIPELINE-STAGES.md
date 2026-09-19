@@ -41,12 +41,14 @@ flowchart LR
 
 | Research Evaluations | Website Tracks |
 |----------------------|----------------|
-| 1 · SERP / Volume (+ Keywords) | 1 · Site-Config |
-| 2 · Enrich | 2 · Content |
-| 3 · Narrative | 3 · Launch |
-| 4 · Prospects | |
+| 1 · SERP / Volume (+ Keywords) — Ads volumes optional | 1 · Site-Config |
+| 2 · Enrich (optional) | 2 · Content |
+| 3 · Narrative (required to build) | 3 · Launch |
+| 4 · Prospects (optional) | |
 
-**Light SERP** = Discovery-only cheap Map Pack/organic probe (not Evaluation 1).
+**Run all required** = SERP seeds + Narrative. **Run all** = Evaluations 1–4.
+
+**Light SERP** = Discovery-only cheap Map Pack/organic probe (not paid Ads volumes). Process does not auto-run Ads unless the All box is set to **Run all**.
 
 Promotion: **pursue** moves a Research Candidate into Website’s working set.
 

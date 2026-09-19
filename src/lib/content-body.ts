@@ -2,6 +2,7 @@
  * Homepage / content body helpers for Astro pages.
  */
 import { sitePath } from './site-path';
+import { isMaterialsHeading } from './is-materials-heading.mjs';
 
 /** Normalize for title comparison. */
 export function normTitle(s: string): string {
@@ -109,7 +110,7 @@ function classifyProseHeading(heading: string): HomepageProseSectionId | null {
     return 'diyVsPro';
   }
   if (/\bcost\b|pricing|what does .+ cost|how much|estimate range/.test(t)) return 'cost';
-  if (/^materials\b|materials and|methods we|\bmethods\b/.test(t)) return 'materials';
+  if (isMaterialsHeading(heading)) return 'materials';
   if (/^how long\b|\btimeline\b|duration|schedule/.test(t)) return 'timeline';
   if (/when to call|when to book|warning signs/.test(t)) return 'whenToCall';
   if (/\bpermit|\bcodes?\b|compliance/.test(t)) return 'codes';

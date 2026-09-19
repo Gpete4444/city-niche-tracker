@@ -6,6 +6,7 @@ import { readFileSync, existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { getArchetype, normalizeArchetype } from '../../scripts/lib/site-archetypes.mjs';
+import { HOMEPAGE_DESIGNED_SECTIONS_WARNING } from './content-auto-fix.mjs';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const CONTRACT_PATH = path.join(ROOT, 'scripts', 'lib', 'template-contract.json');
@@ -62,8 +63,13 @@ export function runTemplateContract(files, siteConfig, { mode = 'full', pageIds 
       for (const key of contract.homepageFrontmatter || []) {
         if (!fmHasKey(split.frontmatter, key)) errors.push(`index.md: missing "${key}"`);
       }
-      for (const key of contract.homepageRecommended || []) {
-        if (!fmHasKey(split.frontmatter, key)) warnings.push(`index.md: usually needs "${key}"`);
+      const missingRecommended = (contract.homepageRecommended || []).filter(
+        (key) => !fmHasKey(split.frontmatter, key),
+      );
+      if (missingRecommended.some((key) => ['whyChooseUs', 'process', 'faqs'].includes(key))) {
+        warnings.push(HOMEPAGE_DESIGNED_SECTIONS_WARNING);
+      } else if (missingRecommended.includes('sectionHeading')) {
+        warnings.push('Homepage intro heading is missing. Re-run Write site.');
       }
     }
   }

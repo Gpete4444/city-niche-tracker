@@ -5,6 +5,8 @@
 import { fork } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
+import { acquireOpenaiImageToken } from './openai-image-rpm.mjs';
+import { updateLightJobProgress } from './rover-light-jobs.mjs';
 
 const WORKER = fileURLToPath(new URL('./openai-generate-worker.mjs', import.meta.url));
 
@@ -57,7 +59,7 @@ function serializeErr(err) {
  * @param {object} payload
  * @param {{ signal?: AbortSignal }} [opts]
  */
-export function runCpuTask(payload, { signal } = {}) {
+export function runCpuTask(payload, { signal, jobId } = {}) {
   if (typeof testRunner === 'function') {
     return testRunner(payload, { signal });
   }
@@ -102,6 +104,23 @@ export function runCpuTask(payload, { signal } = {}) {
 
     child.on('message', (msg) => {
       if (!msg || typeof msg !== 'object') return;
+      if (msg.type === 'acquire-rpm') {
+        if (jobId) updateLightJobProgress(jobId, { detail: 'Waiting…' });
+        void acquireOpenaiImageToken({ weight: msg.weight }).then(() => {
+          if (settled) return;
+          if (jobId) updateLightJobProgress(jobId, { detail: 'Generating…' });
+          try {
+            child.send({ type: 'acquire-rpm-ok', id: msg.id });
+          } catch {
+            /* child gone */
+          }
+        });
+        return;
+      }
+      if (msg.type === 'job-detail') {
+        if (jobId && msg.detail) updateLightJobProgress(jobId, { detail: String(msg.detail) });
+        return;
+      }
       if (msg.ok) finish(null, msg.result);
       else finish(serializeErr(msg.error));
       try {

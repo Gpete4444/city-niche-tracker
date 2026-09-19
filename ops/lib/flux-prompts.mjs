@@ -1,23 +1,29 @@
 /**
- * Shared Flux / ChatGPT image prompts. No people in generated images.
+ * Shared Flux / ChatGPT image prompts. Occupancy (no people / people) is a generate-time option.
  */
 import { getCandidateDetail } from './candidates.mjs';
 import { loadAcceptedSiteConfig } from './content-markdown.mjs';
 import { listImageSlots } from './fill-site-images.mjs';
 import { normalizeBaViewpoint, roomHint } from './chatgpt-before-after.mjs';
 import { slotSettingKind } from './image-setting.mjs';
+import {
+  FLUX_UNOCCUPIED_SCENE,
+  NO_PEOPLE_RULES,
+  PEOPLE_RULES,
+  applyOccupancyToPrompt,
+  occupancyLine,
+  normalizeOccupancy,
+} from './image-occupancy.mjs';
+import { defaultSlotDescription, slotPhotoBrief } from './slot-photo-brief.mjs';
 
-/** ChatGPT Copy prompt — explicit negatives are fine for the operator. */
-export const NO_PEOPLE_RULES =
-  'No people, no faces, no hands, no crew, no customers, no silhouettes. Empty rooms, installs, tools, and materials only. No text, no logos, no watermarks, no UI, no phone screens.';
-
-/** Flux API — positive empty-scene language (Flux 2 has no negative prompts; fal flags “no people/faces/hands”). */
-export const FLUX_UNOCCUPIED_SCENE =
-  'Unoccupied interior/exterior: empty room, tools, materials, and the service feature only. Photoreal documentary still of the trade.';
-
-function occupancyLine(forChatGpt) {
-  return forChatGpt ? NO_PEOPLE_RULES : FLUX_UNOCCUPIED_SCENE;
-}
+export {
+  FLUX_UNOCCUPIED_SCENE,
+  NO_PEOPLE_RULES,
+  PEOPLE_RULES,
+  applyOccupancyToPrompt,
+  occupancyLine,
+  normalizeOccupancy,
+};
 
 function stripMdBold(s) {
   return String(s || '')
@@ -40,24 +46,23 @@ export function slotRoleLine(slot, setting = 'residential') {
   const kind = String(slot.kind || '').toLowerCase();
   const sectionId = String(slot.sectionId || '');
   const commercial = setting === 'commercial';
+  let role = `Slot role: ${stripMdBold(slot.label || sectionId || 'service')} website photo.`;
   if (slot.materialTitle) {
-    return `Slot role: materials / product detail — show ${stripMdBold(slot.materialTitle)}.`;
-  }
-  if (slot.processTitle) {
-    return `Slot role: process step — illustrate “${stripMdBold(slot.processTitle)}” as the work product or mid-work result (illustrative, not a named real job).`;
-  }
-  if (kind === 'hero' || sectionId === 'hero' || sectionId === 'svcHero') {
-    return 'Slot role: hero / service card — strong wide establishing photo of the service subject.';
-  }
-  if (kind === 'intro' || sectionId === 'intro') {
-    return commercial
+    role = `Slot role: materials / product detail — show ${stripMdBold(slot.materialTitle)}.`;
+  } else if (slot.processTitle) {
+    role = `Slot role: process step — illustrate “${stripMdBold(slot.processTitle)}” as the work product or mid-work result (illustrative, not a named real job).`;
+  } else if (kind === 'hero' || sectionId === 'hero' || sectionId === 'svcHero') {
+    role = 'Slot role: hero / service card — strong wide establishing photo of the service subject.';
+  } else if (kind === 'intro' || sectionId === 'intro') {
+    role = commercial
       ? 'Slot role: intro section — clean supporting photo of the trade in a commercial building.'
       : 'Slot role: intro section — clean supporting photo of the trade in a residential setting.';
+  } else if (kind === 'gallery' || /gallery/i.test(sectionId)) {
+    role = 'Slot role: gallery — documentary-style trade photo suitable for a contractor site.';
   }
-  if (kind === 'gallery' || /gallery/i.test(sectionId)) {
-    return 'Slot role: gallery — documentary-style trade photo suitable for a contractor site.';
-  }
-  return `Slot role: ${stripMdBold(slot.label || sectionId || 'service')} website photo.`;
+  const brief = slotPhotoBrief(slot, { setting }).description;
+  if (brief) return `${role} What to show: ${stripMdBold(brief)}`;
+  return role;
 }
 
 /**
@@ -66,6 +71,7 @@ export function slotRoleLine(slot, setting = 'residential') {
  *   city?: string,
  *   state?: string,
  *   viewpoint?: string,
+ *   occupancy?: string,
  *   slot?: object,
  *   forChatGpt?: boolean,
  * }} ctx
@@ -73,6 +79,7 @@ export function slotRoleLine(slot, setting = 'residential') {
 export function buildFluxSlotPrompt(ctx = {}) {
   const slot = ctx.slot || {};
   const viewpoint = normalizeBaViewpoint(ctx.viewpoint);
+  const occupancy = normalizeOccupancy(ctx.occupancy);
   const niche = String(ctx.niche || 'home service').trim();
   const city = String(ctx.city || '').trim();
   const state = String(ctx.state || '').trim();
@@ -98,6 +105,7 @@ export function buildFluxSlotPrompt(ctx = {}) {
     queryHint,
     slot.materialTitle ? stripMdBold(slot.materialTitle) : '',
     slot.processTitle ? stripMdBold(slot.processTitle) : '',
+    slot.slotDescription ? stripMdBold(slot.slotDescription) : '',
     serviceName,
   ].filter(Boolean);
   const subject = [...new Set(subjectBits)].slice(0, 4).join('; ');
@@ -118,7 +126,7 @@ export function buildFluxSlotPrompt(ctx = {}) {
     `Primary subject: ${subject || niche}.`,
     illustrativeLine,
     'Photoreal documentary look, natural light, horizontal landscape framing (~16:10).',
-    occupancyLine(ctx.forChatGpt),
+    occupancyLine(ctx.forChatGpt, occupancy),
     ctx.forChatGpt
       ? 'Avoid CGI / illustration look, stock-cliché smiling crews, and off-niche lifestyle scenes.'
       : 'Photoreal materials and light; documentary still of the service feature.',
@@ -127,7 +135,7 @@ export function buildFluxSlotPrompt(ctx = {}) {
   return parts.filter(Boolean).join(' ');
 }
 
-export function fluxSlotPromptForCandidate(candidateId, slotKey, { viewpoint, forChatGpt = false } = {}) {
+export function fluxSlotPromptForCandidate(candidateId, slotKey, { viewpoint, occupancy, forChatGpt = false } = {}) {
   const key = String(slotKey || '').trim();
   if (!key) throw Object.assign(new Error('slotKey required'), { status: 400 });
   const slots = listImageSlots(candidateId);
@@ -136,6 +144,7 @@ export function fluxSlotPromptForCandidate(candidateId, slotKey, { viewpoint, fo
   const config = loadCandidateConfig(candidateId);
   const detail = getCandidateDetail(candidateId);
   const vp = normalizeBaViewpoint(viewpoint);
+  const occ = normalizeOccupancy(occupancy);
   const niche = String(config.niche || detail.config?.niche || 'home service').trim();
   const setting = slotSettingKind({
     serviceName: slot.serviceName,
@@ -148,6 +157,7 @@ export function fluxSlotPromptForCandidate(candidateId, slotKey, { viewpoint, fo
     state: config.state,
     services: config.services,
     viewpoint: vp,
+    occupancy: occ,
     slot,
     setting,
     forChatGpt,
@@ -159,6 +169,7 @@ export function fluxSlotPromptForCandidate(candidateId, slotKey, { viewpoint, fo
     niche,
     queryHint: stripMdBold(slot.queryHint || slot.label || '') || null,
     viewpoint: vp,
+    occupancy: occ,
     setting,
     chatgptUrl: 'https://chatgpt.com/',
   };
@@ -171,11 +182,13 @@ export function fluxSlotPromptFromMeta({
   services,
   slot,
   viewpoint,
+  occupancy,
   setting,
   config,
   forChatGpt = false,
 } = {}) {
   const vp = normalizeBaViewpoint(viewpoint);
+  const occ = normalizeOccupancy(occupancy);
   const slotObj = slot || {};
   const kind =
     setting === 'commercial' || setting === 'residential'
@@ -191,6 +204,7 @@ export function fluxSlotPromptFromMeta({
     state,
     services,
     viewpoint: vp,
+    occupancy: occ,
     slot: slotObj,
     setting: kind,
     forChatGpt,
@@ -202,6 +216,7 @@ export function fluxSlotPromptFromMeta({
     niche: String(niche || 'home service').trim(),
     queryHint: stripMdBold(slotObj.queryHint || slotObj.query || slotObj.label || '') || null,
     viewpoint: vp,
+    occupancy: occ,
     setting: kind,
     chatgptUrl: 'https://chatgpt.com/',
   };
@@ -215,11 +230,13 @@ export function buildFluxBaPrompts({
   serviceName,
   services,
   viewpoint,
+  occupancy,
   setting,
   config,
   forChatGpt = false,
 } = {}) {
   const vp = normalizeBaViewpoint(viewpoint);
+  const occ = normalizeOccupancy(occupancy);
   const n = String(niche || 'home service').trim();
   const c = String(city || 'the local area').trim();
   const st = String(state || '').trim();
@@ -244,11 +261,20 @@ export function buildFluxBaPrompts({
     : svcList.length
       ? `Focus on ${svcList.slice(0, 2).join(' and ')}.`
       : `Focus on typical ${n.toLowerCase()} work.`;
+  const baBrief = defaultSlotDescription(
+    {
+      sectionId: serviceName ? 'svcBeforeAfter' : 'beforeAfter',
+      kind: 'gallery',
+      serviceName: focusName,
+    },
+    { niche: n, setting: kind },
+  );
+  const baShowLine = baBrief ? `What to show: ${baBrief}` : '';
   const cameraLine =
     vp === 'outside'
       ? `Camera viewpoint: OUTSIDE — photoreal exterior shot of the ${room} in ${place}, looking at the ${focusName} feature from outdoors.`
       : `Camera viewpoint: INSIDE — photoreal interior shot of the ${room} in ${place}, looking at the ${focusName} feature from indoors.`;
-  const occupy = occupancyLine(forChatGpt);
+  const occupy = occupancyLine(forChatGpt, occ);
   const sceneHint = /egress|window.?well|basement.?window/i.test(`${focusName} ${n}`)
     ? 'an undersized or unfinished basement window'
     : 'an unfinished or damaged service element — irregular, modest, and believable';
@@ -281,6 +307,7 @@ export function buildFluxBaPrompts({
     `Create a single documentary BEFORE photo for a local ${n} business website.`,
     cameraLine,
     serviceLine,
+    baShowLine,
     livedIn,
     surgicalRules,
     `Straight-on documentary photo, available indoor light, 4:3. No golden hour, no cinematic bokeh, no blown-out windows. ${occupy}`,
@@ -290,17 +317,19 @@ export function buildFluxBaPrompts({
     .filter(Boolean)
     .join(' ');
   const afterBody = forChatGpt
-    ? [
+      ? [
         cameraLine,
         serviceLine,
+        baShowLine,
         `Update only the ${focusName} result. Keep walls, floor, ceiling, other trim, furniture, and lighting mood the same.`,
         surgicalRules,
         'The rest of the room stays as it was — only the service element is finished. Not a white blob, not a new wall, not a remodel.',
         `Photoreal, 4:3. ${occupy}`,
       ].join(' ')
-    : [
+      : [
         cameraLine,
         serviceLine,
+        baShowLine,
         `Same camera angle, framing, lens, lighting, and room layout as a matching BEFORE of this ${room}. The ${focusName} work is finished.`,
         `The story is only the ${focusName} element. Keep flooring, wall paint, ceiling, furniture, and layout the same as the BEFORE. Only the service feature is finished.`,
         commercial
@@ -313,6 +342,7 @@ export function buildFluxBaPrompts({
     'I need a matched BEFORE and AFTER pair for a contractor website (two separate images).',
     `Niche: ${n}. Service focus: ${focusName}. Location vibe: ${place}. Setting: ${room}. Viewpoint: ${vp}.`,
     serviceLine,
+    baShowLine,
     cameraLine,
     beforeLine,
     `2) AFTER: same camera and room; only the ${focusName} work is finished.`,
@@ -324,6 +354,7 @@ export function buildFluxBaPrompts({
     after: afterBody,
     pair,
     viewpoint: vp,
+    occupancy: occ,
     room,
     niche: n,
     serviceName: focusName,

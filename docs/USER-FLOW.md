@@ -84,7 +84,7 @@ Assumptions: you know the product, reuse defaults / Preset C, trust Claude after
 | 3 · Prepare preview (Stage + Assemble)                   | ~5–10 sec    | ~2–4 min                | ~3 min          |
 | 3 · QA preview (spot-check key URLs)                     | ~1–2 min     | —                       | ~2 min          |
 | Buy domain + point NS at Cloudflare                      | ~3–5 min     | —                       | ~5 min          |
-| Create Web3Forms form + paste key                        | ~30–60 sec   | —                       | ~1 min          |
+| Create Web3Forms form (Recipient = leads@) + paste key    | ~30–60 sec   | —                       | ~1 min          |
 | 3 · Run launch (paste keys + Auto ship)                  | ~30–60 sec   | ~3–5 min                | ~5 min          |
 | Verify Gmail + smoke-test form                           | ~1 min       | *(email may lag)*       | ~1–2 min        |
 | **Website / Launch subtotal**                            | **~8 min**   | **~7 min**              | **~15 min**     |
@@ -173,7 +173,7 @@ Almost every in-app **button / paste / Accept** step is **~5–30 seconds** of y
 
 | What you do                           | Why                                        |
 | ------------------------------------- | ------------------------------------------ |
-| **1 · New Discovery Pack**            | Creates a Claude-only CSV template + prompt (filtered compact High-Ticket catalog, not the full guide). **Required** Niche text stays exact; **Suggested**/OPEN prefer **head terms** (e.g. Drywall → Drywall Repair). Claude also estimates **Est. Monthly Search Volume** (Niche+City) for Discovery triage only. |
+| **1 · New Discovery Pack**            | Creates a Claude-only CSV template + prompt (filtered compact High-Ticket catalog, not the full guide). **Required** Niche text stays exact; **Suggested**/OPEN prefer **head terms** (e.g. Drywall → Drywall Repair). Claude also estimates **Est. Monthly Search Volume** (Niche+City). That guess is not Ads truth; when Ads volumes are skipped it can seed Research Demand as **est.** |
 | **2 · Send to Claude**                | Claude fills candidate rows for the pack   |
 | **3 · Import Claude CSV**             | Rows appear in the batch table             |
 | **4 · Light SERP**                    | Light competition signal before Research   |
@@ -231,13 +231,13 @@ Optional group organizer (not a Stage). Skipping Photo does not block Content, A
 | Panel               | Steps                                                                             |
 | ------------------- | --------------------------------------------------------------------------------- |
 | **1 · Site-Config** | Colors → Address → Details → Paste draft → Accept services → Service Area → Phone |
-| **2 · Content**     | Structure → Site research → Brief → Outline → batched Full write → Humanize → Final check → Image queries → Load photo group (optional) → Accept |
+| **2 · Content**     | Structure → Site research → Brief → Outline → batched Full write → Humanize → Final check → Image queries → Load photo group (optional) → Accept. API: Write site polish expands thin location pages; Accept can **Expand location pages** if a finished draft is still under 450 words. |
 | **3 · Launch**     | Logo & Map (regenerate logo/map if Accept skipped) → Review images (save/load photo groups; niche master first in the dropdown) → Prepare preview (upserts niche master) → Launch |
 
 
 **Site-Config · Address (step 2)**
 
-- **Find addresses** — LoopNet and/or **Crexi** (checkboxes; both on when both actors are configured) → shared city cache + Places. **Clean target** (default **10**, stop Places after that many cleans) and **Pull size** (default **40** listings per source; LoopNet ~half per office/retail URL) are set on the Address step and remembered in the browser. A street is rejected only for an **active OPERATIONAL Maps listing** locked to street number + ZIP (temp/permanent closed do not block). Same-state / metro streets screen first; outside-metro drops. Numeric street ranges expand to **start + end** only. Places budget stays env/default (`PLACES_BUDGET_PER_RUN`, default **40**). Crexi targets For Lease + Retail + Traditional Office (falls back to Office+Retail if subtype URLs return nothing). **Use Find** for a first pull of a checked source or when that source still has streets left.
+- **Find addresses** — LoopNet and/or **Crexi** (checkboxes; both on when both actors are configured) → shared city cache + Places. Before Places, Find scrapes that listing’s LoopNet/Crexi URL for Space Availability suites (same details actor as launched-site backfill) and shows the first unused unit on the recommended card (`1221 E University Dr, Ste 1`). **Clean target** (default **10**, stop Places after that many cleans) and **Pull size** (default **40** listings per source; LoopNet ~half per office/retail URL) are set on the Address step and remembered in the browser. When the listing publishes Ste/Suite/Unit rows, Places checks those units in order and persists the first unused (`Ste 1`, not invented `STE-100`). Floor-only labels (1st Floor / Retail / Shell) are not suites — those stay street-only and still fail if an **active OPERATIONAL Maps listing** locks to street number + ZIP. Same-state / metro streets screen first; outside-metro drops. Numeric street ranges expand to **start + end** only. Places budget stays env/default (`PLACES_BUDGET_PER_RUN`, default **40**). Crexi targets For Lease + Retail + Traditional Office (falls back to Office+Retail if subtype URLs return nothing). **Use Find** for a first pull of a checked source or when that source still has streets left.
 - **Recommended vs Secondary** — Places-clean streets are **Recommended** when Google Maps locality **and** the listing city both match the target city. Places-clean but Maps locality outside the target (e.g. Kearns vs Salt Lake City), or listing city outside the target even when Maps matches (e.g. Taylorsville listing geocoded as Salt Lake City), are **Secondary** when still inside the metro radius (lower priority; confirm before use).
 - **Refresh listings / Fetch deeper** — paid Apify re-scrape for **checked** sources only (not delta-only). Pull size follows the Address-step control; deepen steps stay +20/URL LoopNet / +40 Crexi (ceiling **500**→double up to **2000**/URL). **Fetch deeper** only when every checked source is at **0 left** (never-pulled Crexi is not “exhausted” — use Find). LoopNet Solidcode uses 2 URLs (office+retail); Crexi typically 1 startUrl.
 - **Manual commercial** — paste any single commercial street + ZIP and claim it (`source: manual`).
@@ -245,7 +245,11 @@ Optional group organizer (not a Stage). Skipping Photo does not block Content, A
 - **Home paste / Skip** — residential NAP or leave street blank.
 - **Inventory line** — per-source listings · reviewed · left · **Pull target** (no fill bar). Last search shows Result + Cost; a closed **Cost** dropdown has the estimate footnote and Apify prepaid. Claimed count is city-wide.
 
-**Before Run launch (outside Rover):** buy/point domain NS · Web3Forms key · Gmail routing destination.
+**Site-Config · Business details (step 4)** — Street is GBP **Address Line 1** (no suite). **Address line 2** is the listed suite (`Ste 3`). City stays the city only — never `Ste 3 Prosper`. Fill site-config and live footer/schema follow the same split.
+
+**Site-Config · Service area** — Click a city on the map to add or remove coverage (reversible; remove also drops its Page). Non-Zone still uses the research-seed suburb list and a radius slider. Zone candidates have no radius ring: **Suggested location pages** = this primary plus the closest leftover (non-site) towns (one site each); **Also serving** = other coverage including Zone sibling cities and leftover towns another Zone site already Also-serves or already pages (overlap is allowed). Sibling cities cannot be pages. Turning **Page** on a leftover that already has a location page on another Zone site stays exclusive (confirm steals that page). Min pop defaults to 0 so leftover CDPs appear. Use the table **Page** button to turn a location page on or off.
+
+**Before Run launch (outside Rover):** buy/point domain NS · Email Routing so `leads@` exists · Web3Forms Recipient Emails = `leads@{domain}` · Gmail routing destination.
 
 **Already live?** Prepare preview → **Push updates**.
 
@@ -266,7 +270,7 @@ Twilio calls — answered/missed, recordings, AI summaries. Numbers are provisio
 ## Still done by hand
 
 - Buy domain + point NS at Cloudflare  
-- Create Web3Forms form + paste key  
+- Create Web3Forms form (Recipient Emails = `leads@{domain}`) + paste key  
 - Verify Email Routing in Gmail once  
 - One-time machine setup (`gh auth`, Cloudflare tokens in `.env`)
 

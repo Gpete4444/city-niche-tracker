@@ -11,6 +11,8 @@ export default defineConfig({
   trailingSlash: 'always',
   vite: {
     plugins: [tailwindcss()],
+    preview: { strictPort: true },
+    server: { strictPort: true },
   },
   integrations: [sitemap(), ensureSitemapXml()],
 });

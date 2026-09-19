@@ -24,6 +24,18 @@ const AI_STOCK_PHRASES = [
 const STIFF_LEAD_RE =
   /^(typical stages for|these .+ ballparks|when it comes to|in today'?s world|looking for .+ in .+ projects)/i;
 
+/** Construction tells — one per FILE is allowed; ≥2 is a closer stack. */
+const CONTRAST_CLOSER_PATTERNS = [
+  /\bnot just\b[\s\S]{0,80}?\b(?:but|rather|instead)\b/gi,
+  /\bthis isn['’]?t\b[\s\S]{0,60}?\bit['’]s\b/gi,
+  /\bisn['’]?t\b[\s\S]{0,50}?\bit['’]s\b/gi,
+  /\bfix(?:ing)? the cause\b/gi,
+  /\bnot the symptom\b/gi,
+  /\brather than\b[\s\S]{0,80}?\b(?:as|being|just)\b/gi,
+];
+
+const EM_DASH_CHARS = /[—\u2014]/g;
+
 /**
  * @param {Record<string, string>} files - relative path → markdown body
  * @param {{ primaryCity?: string, niche?: string, businessName?: string }} [site]
@@ -133,9 +145,35 @@ export function lintContentSpeech(files, site = {}) {
           rule: 'em_dash',
           excerpt: clip(m?.[0] || '—', 100),
           suggestion:
-            'Replace prose em dashes (—) with commas or periods (en-dash OK in numeric ranges). Keep required **Label** — process/cost/timeline/materials bullets.',
+            'Replace prose em dashes (—) with commas or periods (en-dash OK in numeric ranges). Keep process/cost Label-dash rows only.',
         });
       }
+    }
+
+    const contrastHits = countContrastHits(body);
+    if (contrastHits >= 2) {
+      findings.push({
+        file,
+        section: '(page)',
+        rule: 'contrast_closer',
+        excerpt: `${contrastHits} contrast closers on this page`,
+        suggestion:
+          'Keep at most one contrast closer. Say the mechanism once (re-secure the fastener, then fill) instead of stacked “not just / isn’t X, it’s Y / fix the cause” punchlines.',
+      });
+    }
+
+    const structuredDashes = countStructuredEmDashes(body);
+    const proseDashes = countEmDashes(stripStructuredLabelDashLines(body));
+    const budget = resolveEmDashBudget(file, body, site);
+    if (structuredDashes + proseDashes > budget) {
+      findings.push({
+        file,
+        section: '(page)',
+        rule: 'em_dash_density',
+        excerpt: `${structuredDashes + proseDashes} em dashes (budget ${budget})`,
+        suggestion:
+          'Keep em dashes for process steps and cost rows only. Use a colon or period for materials, timeline, and other lists.',
+      });
     }
   }
 
@@ -232,6 +270,63 @@ export function isStructuredLabelDashLine(line) {
   const t = String(line || '');
   // Optional list marker, bold label (may include a markdown link), then em/en dash
   return /^\s*(?:[-*+]\s+)?\*\*.+?\*\*\s+[—–\u2013\u2014]\s+/.test(t);
+}
+
+function countEmDashes(text) {
+  return (String(text || '').match(EM_DASH_CHARS) || []).length;
+}
+
+function countStructuredEmDashes(body) {
+  return String(body || '')
+    .split('\n')
+    .filter((line) => isStructuredLabelDashLine(line))
+    .reduce((sum, line) => sum + countEmDashes(line), 0);
+}
+
+function isCardedHeading(heading) {
+  return /\b(process|how we work|what happens|cost|pric|how much)\b/i.test(String(heading || ''));
+}
+
+export function computeEmDashBudget(body) {
+  const sections = splitByHeadings(body);
+  let carded = 0;
+  for (const sec of sections) {
+    const cardedSec = isCardedHeading(sec.heading);
+    for (const line of String(sec.body || '').split('\n')) {
+      if (!isStructuredLabelDashLine(line)) continue;
+      if (cardedSec || /\$/.test(line)) carded += 1;
+    }
+  }
+  return carded + 2;
+}
+
+function resolveEmDashBudget(file, body, site = {}) {
+  const override = site?.emDashBudget;
+  if (override && typeof override === 'object' && Number.isFinite(Number(override[file]))) {
+    return Number(override[file]);
+  }
+  if (Number.isFinite(Number(site?.emDashBudgetFlat))) return Number(site.emDashBudgetFlat);
+  return computeEmDashBudget(body);
+}
+
+/** Distinct contrast closers (hits within ~80 chars collapse to one). */
+export function countContrastHits(body) {
+  const text = String(body || '');
+  const starts = [];
+  for (const re of CONTRAST_CLOSER_PATTERNS) {
+    const copy = new RegExp(re.source, re.flags.includes('g') ? re.flags : `${re.flags}g`);
+    let m;
+    while ((m = copy.exec(text))) {
+      starts.push(m.index);
+    }
+  }
+  starts.sort((a, b) => a - b);
+  const merged = [];
+  for (const start of starts) {
+    if (merged.some((s) => Math.abs(s - start) < 80)) continue;
+    merged.push(start);
+  }
+  return merged.length;
 }
 
 function clip(s, n) {

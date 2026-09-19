@@ -109,14 +109,14 @@ Open on GitHub or [mermaid.live](https://mermaid.live) to view the rendered boxe
 | **6 · Stage preview** | Stage **full** site (all Structure-selected pages including every service/location FILE) into `site-staging/`, then Assemble + open **every** preview sitemap URL on :4322. Re-Assemble after every Stage (stale warning if skipped). | Catch wrong market/content before Launch — preview must match what ships. |
 | **7 · Assemble** | Copy template + inject staging into `rover-sites/{slug}`. | Isolate each domain in its own folder/repo (clone-per-site). |
 | **8 · GitHub + CF Worker** | First go-live: Launch Auto ship. Later updates: **Push updates** (ship only) after Prepare preview. | Cheap global hosting with one Worker project per site — no per-site terminal. |
-| **9 · Launch** | Paste Web3Forms key; Rover Launch ships + attaches domain + Email Routing (API). Full button reference: [LAUNCH.md](LAUNCH.md). | Go live on the real domain with working form and `leads@` inbox. |
+| **9 · Launch** | Email Routing (`leads@` → Gmail); create Web3Forms form with Recipient Emails = `leads@{domain}`; paste key; Rover ships + attaches domain. Full button reference: [LAUNCH.md](LAUNCH.md). | Go live on the real domain with working form and `leads@` inbox. |
 | **10 · Live / rent** | Leads hit inbox/form; hand site or leads to a local renter. Track inventory on the **Sites** tab (rent status, pricing, payment method, CF/Web3Forms links). Day-one indexing (GSC, sitemap, Request indexing): [SITE-INDEXING.md](SITE-INDEXING.md). | The business model: ranked site → rented asset. |
 
 ### Still human (API cannot fully automate)
 
 - **Buy the domain** and point nameservers at Cloudflare (step 9).
-- **Create** a Web3Forms form and paste the access key (step 9).
-- **Verify** Email Routing destination once (click link in Gmail) (step 9).
+- **Create** a Web3Forms form with Recipient Emails = `leads@{domain}` (not the account Gmail) and paste the access key (step 9).
+- **Verify** Email Routing destination once, then the Web3Forms `leads@` verify link (step 9).
 - **One-time machine setup:** `gh auth login` + `.env` (`GITHUB_OWNER`, `CLOUDFLARE_*`) — not per site.
 
 Detailed runbook: [ASSEMBLE-AND-LAUNCH.md](ASSEMBLE-AND-LAUNCH.md). **Run launch** button reference: [LAUNCH.md](LAUNCH.md). After go-live indexing: [SITE-INDEXING.md](SITE-INDEXING.md).
@@ -139,7 +139,7 @@ Detailed runbook: [ASSEMBLE-AND-LAUNCH.md](ASSEMBLE-AND-LAUNCH.md). **Run launch
 | Cloudflare Turnstile | Optional form spam protection |
 | Web3Forms | Contact form → email |
 | Domain registrar | Buy/point domain nameservers |
-| Gmail (or inbox) | Receive routed mail + form notify |
+| Gmail (or inbox) | Receive forwarded `leads@` mail (forms + mailto) |
 | Wrangler / CF Builds | `npx wrangler deploy` in CI |
 
 ---
@@ -178,10 +178,10 @@ Estimates align with Rover pre-run modals ([`ops/lib/cost-estimates.mjs`](../ops
 | Stage | Primary tools | Typical cost / site (USD) | Notes |
 | --- | --- | --- | --- |
 | 1 Discover | Rover, Census CSV, Claude (pick rows), DataForSEO SERP probe | ~$0.002/row probe + small Claude | Probe is cheap; Claude for pack narrative varies by tokens |
-| 2 Research | DataForSEO Stage 1 | ~$0.20–$1.50 | Ads volumes × cities/keywords; lower if SERP cache reused |
-| 2b Enrich | DataForSEO Stage 2 | ~$0.05–$0.80 | ~$0.05/URL clamped; only when recommended |
+| 2 Research | DataForSEO Stage 1 | $0–$0.002 seeds, or ~$0.20–$1.50 Ads | Cheap path reuses Discovery SERP; Ads volumes optional |
+| 2b Enrich | DataForSEO Stage 2 | ~$0.05–$0.80 | Optional; does not block Narrative / Website |
 | 2c Prospects | DataForSEO Stage 4 | ~$0.05–$0.40 | Optional; does not block build |
-| 3 Decide | Claude narrative | ~$0.05–$0.50 est. | Sonnet list ~$3/$15 per MTok; not an invoice |
+| 3 Decide | Claude narrative | ~$0.05–$0.50 est. | Sonnet list ~$2/$10 per MTok; required to build |
 | 4 Site config | Claude draft | ~$0.02–$0.20 est. | One JSON draft |
 | 5 Content | Claude researcher / outline / writer | ~$0.20–$2.00 est. | Largest Claude spend; homepage-first is cheaper than full suite |
 | 6–7 Stage / Assemble | Rover, Astro, local machine | $0 | No paid API |

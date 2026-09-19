@@ -61,4 +61,33 @@ console.log('---hoover---\n' + hooverSanitized);
 console.log(hooverChecks);
 if (!Object.values(hooverChecks).every(Boolean)) process.exit(1);
 
+const processWithSeeMaterials = `---
+title: "Slab Foundation Void-Fill Stabilization"
+serviceName: "Slab Foundation Void-Fill Stabilization"
+processImages:
+  - src: "https://example.com/images/pg1-svcProcess-commercial-foundation-void-filling-2-openai-mu4vk74m.jpg"
+    alt: "Void mapping photo"
+  - src: "https://example.com/images/see-materials-1-openai-mu4vjias.jpg"
+    alt: "Foam expansion"
+  - src: "https://example.com/images/svcProcess-slab-foundation-void-fill-stabilizati-openai-mu6evcgg.jpg"
+    alt: "Patch and seal photo"
+---
+## How Our Slab Foundation Void-Fill Stabilization Process Works
+
+- **Void mapping** — Locate and measure the gap along the foundation.
+`;
+const processSanitized = sanitizeMarkdownImageFrontmatter(processWithSeeMaterials);
+const processHealed = healStagedMarkdown(processSanitized).markdown;
+const processChecks = {
+  sanitizeKeptProcess: /^processImages:/m.test(processSanitized),
+  sanitizeKeptSeeMaterials: /see-materials-1-openai-mu4vjias/.test(processSanitized),
+  sanitizeNoMaterialsKey: !/^materialsImages:/m.test(processSanitized),
+  healKeptProcess: /^processImages:/m.test(processHealed),
+  healKeptSeeMaterials: /see-materials-1-openai-mu4vjias/.test(processHealed),
+  healNoMaterialsKey: !/^materialsImages:/m.test(processHealed),
+};
+console.log('---process-see-materials---\n' + processHealed);
+console.log(processChecks);
+if (!Object.values(processChecks).every(Boolean)) process.exit(1);
+
 console.log('PASS');

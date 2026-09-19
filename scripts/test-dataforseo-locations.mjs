@@ -267,5 +267,22 @@ assert.ok(
   demandVolumeHtml(7430, { honesty: { mode: 'skipped', staleState: true } }).includes('—'),
   'statewide 7430 does not render as Very high',
 );
+assert.equal(
+  adsVolumeHonesty({
+    volumesSkipped: true,
+    estimatedMonthlySearchVolume: 2400,
+    estimatedMonthlySearchVolumeRaw: '1800-3200',
+  }).mode,
+  'estimate',
+  'skipped + Claude estimate is estimate mode',
+);
+assert.ok(
+  demandVolumeHtml(2400, { honesty: { mode: 'estimate', raw: '1800-3200' } }).includes('est.'),
+  'estimate volume shows est. suffix',
+);
+assert.ok(
+  !demandVolumeHtml(2400, { honesty: { mode: 'estimate' } }).includes('Very high'),
+  'estimate volume is not labeled as Ads Very high',
+);
 
 console.log('test-dataforseo-locations: ok');

@@ -2,6 +2,7 @@
  * GPT Image 2 (OpenAI) for BA pairs and per-slot OpenAI generate. Same OPENAI_API_KEY as Phone.
  */
 import { compressSiteJpeg } from '../image-jpeg.mjs';
+import { acquireOpenaiImageToken, parseOpenaiRetryAfterMs } from '../openai-image-rpm.mjs';
 
 export const OPENAI_IMAGE_MODEL = 'gpt-image-2';
 export const OPENAI_IMAGE_QUALITY = 'medium';
@@ -18,7 +19,6 @@ const GEN_URL = 'https://api.openai.com/v1/images/generations';
 const EDIT_URL = 'https://api.openai.com/v1/images/edits';
 const REQUEST_MS = 180_000;
 const RATE_LIMIT_ATTEMPTS = 6;
-const RATE_LIMIT_WAIT_MS = [15_000, 30_000, 60_000, 60_000, 60_000];
 
 export function openaiImageKeySet() {
   return Boolean(String(process.env.OPENAI_API_KEY || '').trim());
@@ -71,11 +71,44 @@ function waitMs(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function retryAfterMs(res, attempt) {
+export function retryAfterMs(res, attempt, rawText = '', json = {}) {
   const header = res?.headers?.get?.('retry-after');
-  const sec = Number(header);
-  if (Number.isFinite(sec) && sec >= 0) return Math.min(120_000, Math.max(1_000, sec * 1000));
-  return RATE_LIMIT_WAIT_MS[Math.min(attempt, RATE_LIMIT_WAIT_MS.length - 1)];
+  const body = rawText || json?.error?.message || '';
+  return parseOpenaiRetryAfterMs(header, body, attempt);
+}
+
+function acquireViaParent(weight = 1) {
+  return new Promise((resolve, reject) => {
+    if (typeof process.send !== 'function' || !process.connected) {
+      reject(new Error('no ipc'));
+      return;
+    }
+    const id = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    const onMsg = (msg) => {
+      if (!msg || msg.type !== 'acquire-rpm-ok' || msg.id !== id) return;
+      process.off('message', onMsg);
+      resolve();
+    };
+    process.on('message', onMsg);
+    try {
+      process.send({ type: 'acquire-rpm', id, weight });
+    } catch (error) {
+      process.off('message', onMsg);
+      reject(error);
+    }
+  });
+}
+
+async function acquireImageSlot(weight = 1) {
+  if (typeof process.send === 'function' && process.connected) {
+    try {
+      await acquireViaParent(weight);
+      return;
+    } catch {
+      /* fall through to local bucket */
+    }
+  }
+  await acquireOpenaiImageToken({ weight });
 }
 
 async function parseOpenaiResponse(res) {
@@ -93,6 +126,7 @@ async function parseOpenaiResponse(res) {
 async function fetchOpenaiImageJson(url, init) {
   let lastError = null;
   for (let attempt = 0; attempt < RATE_LIMIT_ATTEMPTS; attempt += 1) {
+    await acquireImageSlot(1);
     const res = await fetch(url, {
       ...init,
       signal: AbortSignal.timeout(REQUEST_MS),
@@ -107,7 +141,7 @@ async function fetchOpenaiImageJson(url, init) {
     }
     lastError = openaiError(429, json, rawText);
     if (attempt === RATE_LIMIT_ATTEMPTS - 1) throw lastError;
-    await waitMs(retryAfterMs(res, attempt));
+    await waitMs(retryAfterMs(res, attempt, rawText, json));
   }
   throw lastError || openaiError(429, {}, '');
 }

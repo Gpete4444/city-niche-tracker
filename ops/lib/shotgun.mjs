@@ -1,6 +1,6 @@
 /**
  * Zone (product): one niche × one metro. Hub + cities inside the outer radius.
- * Cluster: rental package / build schedule 1–10 inside a Zone (clusterKey).
+ * Cluster: rental package / build schedule 1–20 inside a Zone (clusterKey).
  * Batch draft: research/batches/{id}/shotgun.json
  * Pipeline registry: research/shotgun-clusters.json (Zone records).
  * Stored packType: cluster | single (aliases: shotgun, scout).
@@ -9,7 +9,13 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { loadCensusIndex, normalizePlaceName, ABBR_TO_NAME, lookupPopulation } from './census.mjs';
-import { shotgunRingPools, findPlaceFeatureLocal, placeInZoneRadius } from './geo-neighbors.mjs';
+import {
+  shotgunRingPools,
+  findPlaceFeatureLocal,
+  featureCentroid,
+  placeInZoneRadius,
+  toCoverageAreas,
+} from './geo-neighbors.mjs';
 import { RESEARCH_DIR, createCandidate, setArchived, pathsFor, deleteCandidates } from './candidates.mjs';
 import { candidateGeoKey, findCandidateByGeo, indexCandidatesByGeo } from './known-candidates.mjs';
 import {
@@ -23,10 +29,9 @@ import { isCandidateLaunched } from './launched-edit-guard.mjs';
 import { isUndeletableCandidate } from './candidate-protection.mjs';
 
 export const SHOTGUN_ROLES = ['hub', 'member', 'unassigned'];
-export const WAVE_DEFAULT_COUNT = 3;
-export const WAVE_MAX = 10;
-export const CLUSTER_MAX = 10;
-export const WAVE_COLORS = [
+export const CLUSTER_MAX = 20;
+/** Cluster 1–20 fills. */
+export const CLUSTER_COLORS = [
   '#059669',
   '#d97706',
   '#7c3aed',
@@ -37,25 +42,29 @@ export const WAVE_COLORS = [
   '#65a30d',
   '#ea580c',
   '#4f46e5',
+  '#0ea5e9',
+  '#a21caf',
+  '#ca8a04',
+  '#be185d',
+  '#047857',
+  '#4338ca',
+  '#c2410c',
+  '#0f766e',
+  '#5b21b6',
+  '#b45309',
 ];
-/** Same palette as Waves used to use — now Cluster fills. */
-export const CLUSTER_COLORS = WAVE_COLORS;
 
-export function parseWaveNumber(role) {
-  const r = String(role || '').trim().toLowerCase();
+/** Read-only: old drafts used wave1…wave10 roles. Not a product cap. */
+function legacyWaveIndex(roleOrMember) {
+  if (roleOrMember && typeof roleOrMember === 'object') {
+    const n = Math.round(Number(roleOrMember.wave));
+    if (Number.isFinite(n) && n >= 1 && n <= 10) return n;
+    roleOrMember = roleOrMember.role;
+  }
+  const r = String(roleOrMember || '').trim().toLowerCase();
   if (r === 'city') return 1;
   const m = /^wave([1-9]|10)$/.exec(r);
   return m ? Number(m[1]) : 0;
-}
-
-export function waveRole(n) {
-  const i = Math.round(Number(n));
-  if (!Number.isFinite(i) || i < 1 || i > WAVE_MAX) return '';
-  return `wave${i}`;
-}
-
-export function isWaveRole(role) {
-  return parseWaveNumber(role) >= 1;
 }
 
 export function parseClusterKey(raw) {
@@ -70,12 +79,6 @@ export function clusterColor(n) {
   return CLUSTER_COLORS[i - 1] || CLUSTER_COLORS[0];
 }
 
-export function memberWave(m) {
-  const n = Math.round(Number(m?.wave));
-  if (Number.isFinite(n) && n >= 1 && n <= WAVE_MAX) return n;
-  return parseWaveNumber(m?.role);
-}
-
 export function memberClusterKey(m) {
   return parseClusterKey(m?.clusterKey);
 }
@@ -84,7 +87,7 @@ export function normalizeMember(m) {
   if (!m || typeof m !== 'object') return m;
   const roleNorm = normalizeClusterRole(m.role);
   const isHub = roleNorm === 'hub';
-  const wave = memberWave(m);
+  const wave = legacyWaveIndex(m);
   let clusterKey = memberClusterKey(m);
   if (!isHub && !clusterKey && wave >= 1) clusterKey = wave;
   const keepMember =
@@ -119,7 +122,7 @@ export function nextPaintSlot(current, slot) {
 export function applyMemberPaint(
   members,
   hub,
-  { city, state, tool = 'cluster', slot = 0, population, miles, name, featState } = {},
+  { city, state, tool = 'cluster', slot = 0, population, miles, name, featState, mode = 'toggle' } = {},
 ) {
   const k = placeKey(city, state);
   if (!k) return (members || []).map(normalizeMember);
@@ -154,7 +157,13 @@ export function applyMemberPaint(
           source: 'manual',
         });
   if (isHub) row.role = 'hub';
-  row.clusterKey = nextPaintSlot(memberClusterKey(row), slot) || null;
+  row.clusterKey =
+    mode === 'set'
+      ? parseClusterKey(slot) || null
+      : nextPaintSlot(memberClusterKey(row), slot) || null;
+  if (!isHub && !row.clusterKey && mode === 'set' && String(row.source || '') !== 'claude') {
+    return idx >= 0 ? list.filter((_, i) => i !== idx).map(normalizeMember) : list.map(normalizeMember);
+  }
   row = normalizeMember(row);
   if (population != null && row.population == null) row.population = population;
   if (miles != null && row.miles == null) row.miles = miles;
@@ -168,6 +177,70 @@ export function applyMemberPaint(
   if (idx >= 0) list[idx] = row;
   else list.push(row);
   return list.map(normalizeMember);
+}
+
+export function applyMemberPaintMany(members, hub, { cities = [], slot = 0, mode = 'set' } = {}) {
+  let list = members || [];
+  for (const c of cities) {
+    if (!c?.city || !c?.state) continue;
+    list = applyMemberPaint(list, hub, {
+      city: c.city,
+      state: c.state,
+      tool: 'cluster',
+      slot,
+      mode,
+      population: c.population,
+      miles: c.miles,
+      name: c.name || c.city,
+      featState: c.featState || c.state,
+    });
+  }
+  return list;
+}
+
+function memberPaintSignature(members) {
+  return (members || [])
+    .map((m) => `${placeKey(m?.city, m?.state)}:${memberClusterKey(m) || 0}`)
+    .sort()
+    .join('|');
+}
+
+/** Same slack as the Zone map ring (`_sgMiles` vs outerMiles + 0.5). */
+export const ZONE_RADIUS_SLACK = 0.5;
+
+/** Centroid miles vs the circle — not polygon intersection. */
+export function centroidInsideZone(zone, miles) {
+  const cap = clampClusterMiles(miles);
+  const dist = Number(zone?.miles);
+  if (Number.isFinite(dist)) return dist <= cap + ZONE_RADIUS_SLACK;
+  return Boolean(zone?.inZone);
+}
+
+/** Drop Cluster paints that fall outside the Zone radius. Hub stays. Unknown geos stay. */
+export function pruneMembersOutsideZone(hub, members, miles) {
+  const cap = clampClusterMiles(miles);
+  if (!hub?.city || !hub?.state) return (members || []).map(normalizeMember);
+  const hubKey = placeKey(hub.city, hub.state);
+  let next = (members || []).map(normalizeMember);
+  for (const m of [...next]) {
+    if (!m) continue;
+    if (m.role === 'hub' || placeKey(m.city, m.state) === hubKey) continue;
+    if (!memberClusterKey(m)) continue;
+    const zone = placeInZoneRadius(m.city, m.state, hub.city, hub.state, cap);
+    if (centroidInsideZone(zone, cap)) continue;
+    if (!zone.hubFeat || (!zone.feat && zone.miles == null)) continue;
+    next = applyMemberPaint(next, hub, {
+      city: m.city,
+      state: m.state,
+      tool: 'cluster',
+      slot: 0,
+      population: m.population,
+      miles: zone.miles,
+      name: m.city,
+      featState: m.state,
+    });
+  }
+  return next;
 }
 
 /** Move Hub to another city; keep Cluster paints. Clicking the current hub is a no-op. */
@@ -216,98 +289,8 @@ export function setZoneHub(
   return list.map(normalizeMember);
 }
 
-export function clampWaveCount(raw) {
-  const n = Math.round(Number(raw));
-  if (!Number.isFinite(n)) return WAVE_DEFAULT_COUNT;
-  return Math.max(WAVE_DEFAULT_COUNT, Math.min(WAVE_MAX, n));
-}
-
-/** Nested outer radii, non-decreasing, length = waveCount. */
-export function normalizeWaveMiles(raw, { waveCount, clusterMiles } = {}) {
-  const count = clampWaveCount(waveCount);
-  const fallback = clampClusterMiles(clusterMiles);
-  const src = Array.isArray(raw) ? raw : [];
-  const out = [];
-  for (let i = 0; i < count; i += 1) {
-    const prev = i === 0 ? 1 : out[i - 1];
-    const rawVal = src[i] ?? (i === 0 ? fallback : out[i - 1]);
-    out.push(Math.max(prev, clampClusterMiles(rawVal)));
-  }
-  return out;
-}
-
-export function withWaveMiles(draft = {}) {
-  const waveCount = clampWaveCount(draft.waveCount);
-  const waveMiles = normalizeWaveMiles(draft.waveMiles, {
-    waveCount,
-    clusterMiles: draft.clusterMiles ?? draft.outerMiles ?? draft.innerMiles,
-  });
-  const last = waveMiles[waveMiles.length - 1];
-  return {
-    ...draft,
-    waveCount,
-    waveMiles,
-    clusterMiles: last,
-    innerMiles: last,
-    outerMiles: last,
-  };
-}
-
-export function waveMilesForRadius(waveCount, miles) {
-  const cap = clampClusterMiles(miles);
-  const count = clampWaveCount(waveCount);
-  return normalizeWaveMiles(
-    Array.from({ length: count }, () => cap),
-    { waveCount: count, clusterMiles: cap },
-  );
-}
-
-export function setWaveMilesAt(waveMiles, index, miles) {
-  const next = [...(waveMiles || [])];
-  if (!next.length) return next;
-  const i = Math.max(0, Math.min(next.length - 1, Math.round(Number(index))));
-  const min = i === 0 ? 1 : next[i - 1];
-  next[i] = Math.max(min, clampClusterMiles(miles));
-  for (let j = i + 1; j < next.length; j += 1) {
-    next[j] = Math.max(next[j], next[j - 1]);
-  }
-  return next.map((n) => clampClusterMiles(n));
-}
-
-export function extendWaveMiles(waveMiles, waveCount, clusterMiles) {
-  const count = clampWaveCount(waveCount);
-  const next = normalizeWaveMiles(waveMiles, { waveCount: Math.max(WAVE_DEFAULT_COUNT, waveMiles?.length || 0), clusterMiles });
-  while (next.length < count) {
-    const last = next[next.length - 1] || clampClusterMiles(clusterMiles);
-    next.push(Math.min(100, last + 10));
-  }
-  return next.slice(0, count);
-}
-
-/** 1-based wave for miles, or 0 if outside every band. Boundary stays in the inner wave. */
-export function waveForMiles(miles, waveMiles) {
-  const m = Number(miles);
-  if (!Number.isFinite(m) || m <= 0) return 0;
-  const list = Array.isArray(waveMiles) ? waveMiles : [];
-  for (let i = 0; i < list.length; i += 1) {
-    const prev = i === 0 ? 0 : Number(list[i - 1]) || 0;
-    const outer = Number(list[i]) || 0;
-    if (outer <= prev) continue;
-    if (m > prev && m <= outer + 0.05) return i + 1;
-  }
-  return 0;
-}
-
 export function isPinnedMember(m) {
   return Boolean(m?.pinned) || String(m?.source || '') === 'manual';
-}
-
-export function rebalanceMembersByWaveMiles(draft, { minPop, maxPop } = {}) {
-  const next = withWaveMiles(draft);
-  const members = (next.members || []).map((m) => normalizeMember(m));
-  void minPop;
-  void maxPop;
-  return { ...next, members, step: next.step || 'pack' };
 }
 
 export const SHOTGUN_ROLE_LABELS = {
@@ -323,7 +306,7 @@ export function normalizeClusterRole(role) {
   const r = String(role || '').trim().toLowerCase();
   if (r === 'hub' || r === 'main') return 'hub';
   if (r === 'unassigned') return 'unassigned';
-  if (r === 'member' || r === 'city' || parseWaveNumber(r) >= 1) return 'member';
+  if (r === 'member' || r === 'city' || legacyWaveIndex(r) >= 1) return 'member';
   return '';
 }
 
@@ -388,15 +371,10 @@ export function ensureShotgunSgNumbers(registry) {
 
 /** Thin/viable mins only. Cluster city maximums are not enforced. */
 export const CLUSTER_CITY_CAP = { min: 3, max: 99 };
-export const WAVE1_CAP = CLUSTER_CITY_CAP;
-export const WAVE2_CAP = { min: 0, max: 99 };
-export const MAIN_PLUS_WAVE1_MAX = 99;
 
 export const DEFAULT_SHOTGUN_BANDS = {
   hub: { min: 60000, max: 200000 },
   cities: { min: 2000, max: 60000 },
-  wave1: { min: 2000, max: 60000 },
-  wave2: { min: 2000, max: 60000 },
 };
 
 export const HUB_MAX_SLACK = 0.1;
@@ -494,8 +472,6 @@ export function normalizeShotgunSettings(raw = {}) {
     bands: {
       hub: normalizeBand(raw.bands?.hub, DEFAULT_SHOTGUN_BANDS.hub),
       cities,
-      wave1: cities,
-      wave2: cities,
     },
   };
 }
@@ -576,7 +552,87 @@ export function shotgunPathForBatch(batchDir) {
   return path.join(batchDir, 'shotgun.json');
 }
 
-/** Copy Wave → clusterKey when Cluster is empty, then drop product Wave fields. */
+function cityListOf(rows) {
+  return Array.isArray(rows) ? rows.filter(Boolean) : [];
+}
+
+export function hubInnerCities(h) {
+  const next = cityListOf(h?.innerCities);
+  if (next.length) return next;
+  return cityListOf(h?.wave1);
+}
+
+export function hubOuterCities(h) {
+  const next = cityListOf(h?.outerCities);
+  if (next.length) return next;
+  return cityListOf(h?.wave2);
+}
+
+export function hubCitiesPreferred(h) {
+  const next = cityListOf(h?.citiesPreferred);
+  if (next.length) return next;
+  return [...cityListOf(h?.wave1Preferred), ...cityListOf(h?.wave2Preferred)];
+}
+
+function scrubHubRow(h) {
+  if (!h || typeof h !== 'object') return { hub: h, dirty: false };
+  const hub = { ...h };
+  let dirty = false;
+  if (!Array.isArray(hub.innerCities) && Array.isArray(hub.wave1)) {
+    hub.innerCities = hub.wave1;
+    dirty = true;
+  }
+  if (!Array.isArray(hub.outerCities) && Array.isArray(hub.wave2)) {
+    hub.outerCities = hub.wave2;
+    dirty = true;
+  }
+  if (!Array.isArray(hub.citiesPreferred)) {
+    const pref = [...cityListOf(hub.wave1Preferred), ...cityListOf(hub.wave2Preferred)];
+    if (pref.length) {
+      hub.citiesPreferred = pref;
+      dirty = true;
+    }
+  }
+  for (const key of ['wave1', 'wave2', 'wave1Preferred', 'wave2Preferred']) {
+    if (key in hub) {
+      delete hub[key];
+      dirty = true;
+    }
+  }
+  return { hub, dirty };
+}
+
+function scrubHubList(list) {
+  if (!Array.isArray(list)) return { list, dirty: false };
+  let dirty = false;
+  const next = list.map((h) => {
+    const { hub, dirty: rowDirty } = scrubHubRow(h);
+    if (rowDirty) dirty = true;
+    return hub;
+  });
+  return { list: next, dirty };
+}
+
+function scrubBands(bands) {
+  if (!bands || typeof bands !== 'object') return { bands, dirty: false };
+  const next = { ...bands };
+  let dirty = false;
+  if (!next.cities && (next.wave1 || next.wave2)) {
+    next.cities = mergeLegacyCityBand(bands);
+    dirty = true;
+  }
+  if ('wave1' in next) {
+    delete next.wave1;
+    dirty = true;
+  }
+  if ('wave2' in next) {
+    delete next.wave2;
+    dirty = true;
+  }
+  return { bands: next, dirty };
+}
+
+/** Copy legacy Wave roles/lists → Cluster / Zone fields, then drop Wave keys. */
 export function scrubShotgunRecord(raw) {
   if (!raw || typeof raw !== 'object') return { record: raw, dirty: false };
   const record = { ...raw };
@@ -595,6 +651,25 @@ export function scrubShotgunRecord(raw) {
   if ('waveMiles' in record) {
     delete record.waveMiles;
     dirty = true;
+  }
+  const bands = scrubBands(record.bands);
+  if (bands.dirty) {
+    record.bands = bands.bands;
+    dirty = true;
+  }
+  for (const key of ['hubs', 'viableHubs', 'rejectedHubs']) {
+    const { list, dirty: listDirty } = scrubHubList(record[key]);
+    if (listDirty) {
+      record[key] = list;
+      dirty = true;
+    }
+  }
+  if (record.hub && typeof record.hub === 'object') {
+    const { hub, dirty: hubDirty } = scrubHubRow(record.hub);
+    if (hubDirty) {
+      record.hub = hub;
+      dirty = true;
+    }
   }
   if (Array.isArray(record.members)) {
     record.members = record.members.map((m) => {
@@ -653,9 +728,12 @@ function migrateClusterRecord(cluster) {
       ...(cluster.bands || {}),
       hub: settings.bands.hub,
       cities: settings.bands.cities,
-      wave1: settings.bands.cities,
-      wave2: settings.bands.cities,
     };
+    dirty = true;
+  }
+  if (cluster.bands && ('wave1' in cluster.bands || 'wave2' in cluster.bands)) {
+    delete cluster.bands.wave1;
+    delete cluster.bands.wave2;
     dirty = true;
   }
   if ('waveCount' in cluster) {
@@ -792,8 +870,7 @@ export function scoreHubCity(city, state, settings = {}) {
   const rings = shotgunRingPools(city, state, {
     innerMiles: s.clusterMiles,
     outerMiles: s.clusterMiles,
-    wave1: s.bands.cities,
-    wave2: s.bands.cities,
+    citiesBand: s.bands.cities,
   });
   const hubPop = Number(rings.primary?.population) || 0;
   const hubInBand = hubPopAllowed(hubPop, s.bands.hub);
@@ -818,7 +895,7 @@ export function scoreHubCity(city, state, settings = {}) {
   };
 }
 
-function compactWaveCity(p) {
+function compactCity(p) {
   if (!p) return null;
   const city = String(p.city || p.name || '').trim();
   const state = String(p.state || '').trim().toUpperCase();
@@ -831,43 +908,45 @@ function compactWaveCity(p) {
   };
 }
 
-function compactWaveList(rows) {
-  return (rows || []).map(compactWaveCity).filter(Boolean);
+function compactCityList(rows) {
+  return (rows || []).map(compactCity).filter(Boolean);
 }
 
 export function compactHubScore(scored) {
   if (!scored) return null;
-  const wave1 = compactWaveList(scored.wave1 || scored.innerPool);
-  const wave2 = compactWaveList(scored.wave2 || scored.outerPool);
-  const pref1 = compactWaveList(scored.wave1Preferred);
-  const pref2 = compactWaveList(scored.wave2Preferred);
+  const innerCities = compactCityList(scored.innerCities || scored.wave1 || scored.innerPool);
+  const outerCities = compactCityList(scored.outerCities || scored.wave2 || scored.outerPool);
+  const citiesPreferred = compactCityList(
+    scored.citiesPreferred?.length
+      ? scored.citiesPreferred
+      : [...(scored.wave1Preferred || []), ...(scored.wave2Preferred || [])],
+  );
   const hubPop = Number(scored.population) || 0;
   const clusterPop =
-    hubPop + [...pref1, ...pref2].reduce((sum, c) => sum + (Number(c.population) || 0), 0);
+    hubPop + citiesPreferred.reduce((sum, c) => sum + (Number(c.population) || 0), 0);
   return {
     city: scored.city,
     state: scored.state,
     population: scored.population ?? null,
-    innerCount: wave1.length || scored.innerCount || 0,
-    outerCount: wave2.length || scored.outerCount || 0,
-    innerSample: scored.innerSample || wave1.slice(0, 6).map((c) => c.city),
-    outerSample: scored.outerSample || wave2.slice(0, 6).map((c) => c.city),
-    wave1,
-    wave2,
+    innerCount: innerCities.length || scored.innerCount || 0,
+    outerCount: outerCities.length || scored.outerCount || 0,
+    innerSample: scored.innerSample || innerCities.slice(0, 6).map((c) => c.city),
+    outerSample: scored.outerSample || outerCities.slice(0, 6).map((c) => c.city),
+    innerCities,
+    outerCities,
     clusterPop,
     hubInBand: scored.hubInBand,
     viable: Boolean(scored.viable),
     rejectReason: scored.rejectReason || null,
     why: scored.why || '',
     source: scored.source || '',
-    wave1Preferred: pref1,
-    wave2Preferred: pref2,
+    citiesPreferred,
     unmatched: scored.unmatched || [],
     thinWarning: scored.thinWarning || '',
   };
 }
 
-/** All in-range Census cities, nearest first, seeded as Wave 1 only. */
+/** All in-range Census cities, nearest first. */
 export function seedMembersFromRings(scored) {
   const byMiles = (a, b) => (Number(a.miles) || 0) - (Number(b.miles) || 0);
   const innerSrc = scored.innerPool?.length ? scored.innerPool : scored.wave1 || [];
@@ -896,7 +975,7 @@ export function seedMembersFromRings(scored) {
   const all = [...inner, ...outer].map((p) => ({
     city: p.name || p.city,
     state: p.state,
-    role: 'wave1',
+    role: 'member',
     population: p.population,
     miles: p.miles,
   }));
@@ -910,9 +989,8 @@ export function seedMembersFromRings(scored) {
 }
 
 export function seedMembersFromPreferred(hubRow, scored) {
-  const w1 = compactWaveList(hubRow?.wave1Preferred);
-  const w2 = compactWaveList(hubRow?.wave2Preferred);
-  if (!w1.length && !w2.length) return seedMembersFromRings(scored);
+  const preferred = compactCityList(hubCitiesPreferred(hubRow));
+  if (!preferred.length) return seedMembersFromRings(scored);
   const rings = {
     primary: {
       name: scored.city || hubRow.city,
@@ -932,7 +1010,7 @@ export function seedMembersFromPreferred(hubRow, scored) {
       miles: p.miles,
     })),
   };
-  const extra = [...w1, ...w2].map((c) => ({
+  const extra = preferred.map((c) => ({
     name: c.city,
     state: c.state,
     population: c.population,
@@ -945,10 +1023,9 @@ export function seedMembersFromPreferred(hubRow, scored) {
       rings.outerPool.push(row);
     }
   }
-  const capped = applyWaveCaps({
+  const capped = applyCityCaps({
     main: { city: scored.city || hubRow.city, state: scored.state || hubRow.state },
-    wave1: w1.map((c) => ({ ...c, role: 'wave1' })),
-    wave2: w2.map((c) => ({ ...c, role: 'wave1' })),
+    cities: preferred.map((c) => ({ ...c, role: 'member' })),
   });
   return membersFromAssign(capped, rings);
 }
@@ -994,8 +1071,7 @@ export function mergeClaudeHub(proposal, settings = {}) {
     wide = shotgunRingPools(scored.city, scored.state, {
       innerMiles: s.innerMiles,
       outerMiles: s.outerMiles,
-      wave1: { min: 0, max: 5e7 },
-      wave2: { min: 0, max: 5e7 },
+      citiesBand: { min: 0, max: 5e7 },
     });
   } catch {
     wide = {
@@ -1004,11 +1080,10 @@ export function mergeClaudeHub(proposal, settings = {}) {
     };
   }
   const unmatched = [];
-  const wave1Preferred = [];
-  const wave2Preferred = [];
+  const citiesPreferred = [];
   const seen = new Set([placeKey(scored.city, scored.state)]);
-  const assignPreferred = (raw, wantRole) => {
-    const c = compactWaveCity(raw);
+  const assignPreferred = (raw) => {
+    const c = compactCity(raw);
     if (!c) return;
     const k = placeKey(c.city, c.state);
     if (seen.has(k)) return;
@@ -1033,37 +1108,28 @@ export function mergeClaudeHub(proposal, settings = {}) {
       unmatched.push({ city: row.city, state: row.state, reason: 'rival hub' });
       return;
     }
-    let role = wantRole;
-    if (wantRole === 'wave1' && Number.isFinite(miles) && miles > s.innerMiles + 0.15) {
-      role = 'wave2';
-    }
-    if (role === 'wave1') wave1Preferred.push(row);
-    else wave2Preferred.push(row);
+    citiesPreferred.push(row);
   };
-  for (const row of proposal.cities || proposal.clusterCities || []) assignPreferred(row, 'wave1');
-  for (const row of proposal.wave1 || []) assignPreferred(row, 'wave1');
-  for (const row of proposal.wave2 || []) assignPreferred(row, 'wave2');
-  const capped = applyWaveCaps({
+  for (const row of proposal.cities || proposal.clusterCities || []) assignPreferred(row);
+  for (const row of proposal.wave1 || []) assignPreferred(row);
+  for (const row of proposal.wave2 || []) assignPreferred(row);
+  const capped = applyCityCaps({
     main: { city: scored.city, state: scored.state },
-    wave1: wave1Preferred,
-    wave2: wave2Preferred,
+    cities: citiesPreferred,
   });
-  const pref1 = capped.wave1;
-  const pref2 = capped.wave2;
+  const preferred = capped.cities;
   const compact = compactHubScore({
     ...scored,
     why: proposal.why || '',
     source: 'claude',
-    wave1Preferred: pref1,
-    wave2Preferred: pref2,
+    citiesPreferred: preferred,
     unmatched,
     thinWarning:
       scored.viable
         ? ''
         : scored.rejectReason || `Census pool thin (inner ${scored.innerCount}, outer ${scored.outerCount})`,
   });
-  compact.wave1Preferred = pref1;
-  compact.wave2Preferred = pref2;
+  compact.citiesPreferred = preferred;
   compact.unmatched = unmatched;
   compact.source = 'claude';
   compact.why = String(proposal.why || '').trim();
@@ -1097,8 +1163,8 @@ export function mergePickerHubs(viable, claudeHubs, rejected = []) {
   return { claude, censusExtras: extras };
 }
 
-function hubHasWaveLists(h) {
-  return Array.isArray(h?.wave1);
+function hubHasCityLists(h) {
+  return Array.isArray(h?.innerCities) || Array.isArray(h?.wave1);
 }
 
 /**
@@ -1112,7 +1178,7 @@ export function ensureLockedHubOnDraft(draft) {
   const k = placeKey(city, state);
   const inHubs = (draft.hubs || []).find((h) => placeKey(h.city, h.state) === k);
   const inViable = (draft.viableHubs || []).find((h) => placeKey(h.city, h.state) === k);
-  if ((inHubs && hubHasWaveLists(inHubs)) || (inViable && hubHasWaveLists(inViable))) {
+  if ((inHubs && hubHasCityLists(inHubs)) || (inViable && hubHasCityLists(inViable))) {
     return draft;
   }
   let compact;
@@ -1125,8 +1191,8 @@ export function ensureLockedHubOnDraft(draft) {
       population: null,
       innerCount: 0,
       outerCount: 0,
-      wave1: [],
-      wave2: [],
+      innerCities: [],
+      outerCities: [],
       viable: false,
       hubInBand: false,
       rejectReason: error.message || 'No Census place match',
@@ -1241,7 +1307,7 @@ export function formatViableHubsTable(viable) {
 }
 
 export function hubScanSummary(scan, settings = {}) {
-  const s = scan?.settings || normalizeShotgunSettings(settings);
+  const s = normalizeShotgunSettings(scan?.settings || settings);
   const states = (scan?.states || []).filter(Boolean);
   return {
     scanned: Number(scan?.scanned) || 0,
@@ -1252,8 +1318,7 @@ export function hubScanSummary(scan, settings = {}) {
     hubMax: s.bands.hub.max,
     innerMiles: s.innerMiles,
     outerMiles: s.outerMiles,
-    wave1Min: s.bands.wave1.min,
-    wave2Min: s.bands.wave2.min,
+    citiesMin: s.bands.cities.min,
   };
 }
 
@@ -1272,8 +1337,7 @@ export function applyHubScanToDraft(draft, scan) {
       hubMax: summary.hubMax,
       innerMiles: summary.innerMiles,
       outerMiles: summary.outerMiles,
-      wave1Min: summary.wave1Min,
-      wave2Min: summary.wave2Min,
+      citiesMin: summary.citiesMin,
       error: scan?.error || null,
     },
   };
@@ -1350,9 +1414,8 @@ function normalizeHubEntry(raw) {
     state,
     why: String(raw.why || raw.reason || '').trim(),
     population: Number(raw.population) || null,
-    wave1: asCityList(raw.wave1).map((r) => normalizeAssignCity(r, 'city')).filter(Boolean),
-    wave2: asCityList(raw.wave2).map((r) => normalizeAssignCity(r, 'city')).filter(Boolean),
-    cities: asCityList(raw.cities || raw.clusterCities)
+    cities: asCityList(raw.cities || raw.clusterCities || raw.wave1)
+      .concat(asCityList(raw.wave2))
       .map((r) => normalizeAssignCity(r, 'city'))
       .filter(Boolean),
   };
@@ -1386,15 +1449,17 @@ function normalizeAssignCity(raw, role) {
   };
 }
 
-export function parseAssignWavesJson(text) {
+export function parseAssignCitiesJson(text) {
   const data = extractJsonObject(text);
   const hub = normalizeAssignCity(data.main || data.hub, 'hub');
   const fromCities = asCityList(data.cities || data.clusterCities || [])
     .map((r) => normalizeAssignCity(r, 'city'))
     .filter(Boolean);
-  const wave1 = asCityList(data.wave1).map((r) => normalizeAssignCity(r, 'city')).filter(Boolean);
-  const wave2 = asCityList(data.wave2).map((r) => normalizeAssignCity(r, 'city')).filter(Boolean);
-  const cities = fromCities.length ? fromCities : [...wave1, ...wave2];
+  const legacy = [
+    ...asCityList(data.wave1).map((r) => normalizeAssignCity(r, 'city')).filter(Boolean),
+    ...asCityList(data.wave2).map((r) => normalizeAssignCity(r, 'city')).filter(Boolean),
+  ];
+  const cities = fromCities.length ? fromCities : legacy;
   const skipped = asCityList(data.skipped).map((r) => ({
     city: String(r.city || r.name || '').trim(),
     state: String(r.state || '').trim().toUpperCase(),
@@ -1403,15 +1468,15 @@ export function parseAssignWavesJson(text) {
   if (!hub) {
     throw Object.assign(new Error('Assign cluster JSON missing hub'), { status: 400 });
   }
-  return { main: hub, hub, cities, wave1: cities, wave2: [], skipped, raw: data };
+  return { main: hub, hub, cities, skipped, raw: data };
 }
 
-export function applyWaveCaps({ main, hub, wave1, wave2, cities }) {
+export function applyCityCaps({ main, hub, wave1, wave2, cities }) {
   const h = main || hub;
   const cityList = Array.isArray(cities) && cities.length
     ? cities
     : [...(wave1 || []), ...(wave2 || [])];
-  return { main: h, hub: h, cities: cityList, wave1: cityList, wave2: [] };
+  return { main: h, hub: h, cities: cityList };
 }
 
 export function membersFromAssign({ main, hub, wave1, wave2, cities }, rings = null) {
@@ -1700,6 +1765,110 @@ export function shotgunBlockedLocationNames(candidateId) {
   );
 }
 
+function memberSiteConfig(candidateId) {
+  if (!candidateId) return null;
+  const cfg = readJson(pathsFor(candidateId).siteConfig, null);
+  return cfg && typeof cfg === 'object' ? cfg : null;
+}
+
+function zoneMemberPrimaries(cluster) {
+  return new Set(
+    (cluster?.members || []).map((m) => normalizePlaceName(m.city)).filter(Boolean),
+  );
+}
+
+/** Leftover towns another Zone member already has a location page for. Also serving may overlap. */
+export function shotgunClaimedSuburbEntries(candidateId) {
+  const cluster = clusterForCandidate(candidateId);
+  if (!cluster) return [];
+  const primaries = zoneMemberPrimaries(cluster);
+  const out = [];
+  const seen = new Set();
+  for (const m of shotgunSiblingMembers(candidateId)) {
+    const cfg = memberSiteConfig(m.candidateId);
+    if (!cfg) continue;
+    for (const raw of cfg.targetSuburbs || []) {
+      const name = nameOf(raw);
+      const key = normalizePlaceName(name);
+      if (!key || primaries.has(key) || seen.has(key)) continue;
+      seen.add(key);
+      out.push({
+        name,
+        ownerCity: m.city,
+        ownerCandidateId: m.candidateId,
+        kind: 'page',
+      });
+    }
+  }
+  return out;
+}
+
+export function shotgunClaimedSuburbNames(candidateId) {
+  return new Set(shotgunClaimedSuburbEntries(candidateId).map((e) => normalizePlaceName(e.name)));
+}
+
+export function shotgunZonePrimaryGeos(candidateId) {
+  const cluster = clusterForCandidate(candidateId);
+  if (!cluster) return [];
+  const out = [];
+  for (const m of cluster.members || []) {
+    if (!m.candidateId || !isPackMember(m)) continue;
+    const feat = findPlaceFeatureLocal(m.city, m.state);
+    const c = feat && featureCentroid(feat);
+    if (!c) continue;
+    out.push({
+      candidateId: m.candidateId,
+      city: m.city,
+      state: m.state,
+      lng: c[0],
+      lat: c[1],
+      clusterKey: m.clusterKey ?? null,
+      role: m.role || null,
+    });
+  }
+  return out;
+}
+
+function milesPlaceToPrimary(placeName, placeState, member) {
+  const placeFeat = findPlaceFeatureLocal(placeName, placeState);
+  const memberFeat = findPlaceFeatureLocal(member.city, member.state);
+  const pc = placeFeat && featureCentroid(placeFeat);
+  const mc = memberFeat && featureCentroid(memberFeat);
+  if (!pc || !mc) return Number.POSITIVE_INFINITY;
+  return haversineMi(pc[0], pc[1], mc[0], mc[1]);
+}
+
+/** Miles from this leftover town to the candidate's Zone primary. */
+export function leftoverMilesFromPrimary(name, state, candidateId) {
+  const geos = shotgunZonePrimaryGeos(candidateId);
+  const self = geos.find((g) => g.candidateId === candidateId);
+  if (!self) return Number.POSITIVE_INFINITY;
+  const feat = findPlaceFeatureLocal(name, state);
+  const c = feat && featureCentroid(feat);
+  if (!c) return Number.POSITIVE_INFINITY;
+  return haversineMi(c[0], c[1], self.lng, self.lat);
+}
+
+/** True when another Zone primary is strictly closer to this leftover town. */
+export function leftoverNearerToOtherPrimary(name, state, candidateId) {
+  const key = normalizePlaceName(name);
+  if (!key || !candidateId) return false;
+  const geos = shotgunZonePrimaryGeos(candidateId);
+  const self = geos.find((g) => g.candidateId === candidateId);
+  if (!self) return false;
+  if (geos.some((g) => normalizePlaceName(g.city) === key)) return false;
+  const feat = findPlaceFeatureLocal(name, state);
+  const c = feat && featureCentroid(feat);
+  if (!c) return false;
+  const selfDist = haversineMi(c[0], c[1], self.lng, self.lat);
+  for (const g of geos) {
+    if (g.candidateId === candidateId) continue;
+    const d = haversineMi(c[0], c[1], g.lng, g.lat);
+    if (d < selfDist) return true;
+  }
+  return false;
+}
+
 export function shotgunDoNotLinkBlock(candidateId) {
   const cluster = clusterForCandidate(candidateId);
   if (!cluster) return '';
@@ -1794,11 +1963,37 @@ function nameOf(n) {
   return typeof n === 'string' ? n : n?.name || '';
 }
 
+function leftoverPlaceState(cfg, name) {
+  const key = normalizePlaceName(name);
+  for (const a of cfg?.coverageAreas || []) {
+    if (normalizePlaceName(nameOf(a)) === key && a?.state) {
+      return String(a.state).trim().toUpperCase();
+    }
+  }
+  return String(cfg?.state || '').trim().toUpperCase();
+}
+
+function pickLeftoverPageOwner(owners, name) {
+  const overrode = owners.filter((o) => o.row.overrides.has(name));
+  const pool = overrode.length === 1 ? overrode : overrode.length > 1 ? overrode : owners;
+  let best = pool[0];
+  let bestMiles = milesPlaceToPrimary(name, best.state, best.row.member);
+  for (const o of pool.slice(1)) {
+    const miles = milesPlaceToPrimary(name, o.state, o.row.member);
+    if (miles < bestMiles) {
+      best = o;
+      bestMiles = miles;
+    }
+  }
+  return best;
+}
+
 export function resyncClusterSiteConfigs(cluster) {
   const members = cluster?.members || [];
   const siblingNames = new Set(
     members.map((m) => normalizePlaceName(m.city)).filter(Boolean),
   );
+  const loaded = [];
   for (const m of members) {
     if (!m.candidateId) continue;
     const p = pathsFor(m.candidateId);
@@ -1816,9 +2011,65 @@ export function resyncClusterSiteConfigs(cluster) {
       cfg.targetSuburbs = nextSuburbs;
       dirty = true;
     }
-    if (dirty) {
-      writeJson(p.siteConfig, cfg);
+    loaded.push({ member: m, path: p, cfg, overrides, dirty });
+  }
+
+  const ownersByName = new Map();
+  for (const row of loaded) {
+    for (const raw of row.cfg.targetSuburbs || []) {
+      const name = nameOf(raw);
+      const key = normalizePlaceName(name);
+      if (!key || siblingNames.has(key)) continue;
+      const list = ownersByName.get(key) || [];
+      list.push({
+        row,
+        display: name,
+        state: leftoverPlaceState(row.cfg, name),
+      });
+      ownersByName.set(key, list);
     }
+  }
+  for (const [key, owners] of ownersByName) {
+    if (owners.length < 2) continue;
+    const keep = pickLeftoverPageOwner(owners, key);
+    for (const o of owners) {
+      if (o.row.member.candidateId === keep.row.member.candidateId) continue;
+      const suburbs = Array.isArray(o.row.cfg.targetSuburbs) ? o.row.cfg.targetSuburbs : [];
+      const next = suburbs.filter((n) => normalizePlaceName(nameOf(n)) !== key);
+      if (next.length !== suburbs.length) {
+        o.row.cfg.targetSuburbs = next;
+        o.row.dirty = true;
+      }
+    }
+  }
+
+  for (const row of loaded) {
+    const planned = toCoverageAreas(
+      [...(row.cfg.targetSuburbs || []), ...(row.cfg.alsoServing || [])].map((n) => ({
+        name: nameOf(n),
+        state: leftoverPlaceState(row.cfg, nameOf(n)),
+      })),
+      row.cfg.primaryCity,
+      row.cfg.state,
+    );
+    const before = (row.cfg.coverageAreas || [])
+      .map((a) => normalizePlaceName(nameOf(a)))
+      .filter(Boolean)
+      .sort()
+      .join('|');
+    const after = planned
+      .map((a) => normalizePlaceName(a.name))
+      .filter(Boolean)
+      .sort()
+      .join('|');
+    if (before !== after) {
+      row.cfg.coverageAreas = planned;
+      row.dirty = true;
+    }
+  }
+
+  for (const row of loaded) {
+    if (row.dirty) writeJson(row.path.siteConfig, row.cfg);
   }
 }
 
@@ -1852,8 +2103,7 @@ export function addClusterCity(clusterId, { city, state, confirmOutside = false 
     const rings = shotgunRingPools(cluster.hub?.city, cluster.hub?.state, {
       innerMiles: settings.clusterMiles,
       outerMiles: settings.clusterMiles,
-      wave1: settings.bands.cities,
-      wave2: settings.bands.cities,
+      citiesBand: settings.bands.cities,
     });
     const hit =
       rings.innerPool.find((p) => placeKey(p.name, p.state) === placeKey(name, st)) ||
@@ -1892,7 +2142,6 @@ export function addClusterCity(clusterId, { city, state, confirmOutside = false 
     city: name,
     state: st,
     role: 'unassigned',
-    wave: null,
     clusterKey: null,
     population: pop,
     miles,
@@ -1980,8 +2229,7 @@ export function getZoneWorkspace(clusterId) {
       rings = shotgunRingPools(cluster.hub.city, cluster.hub.state, {
         innerMiles: miles,
         outerMiles: miles,
-        wave1: s.bands.cities,
-        wave2: s.bands.cities,
+        citiesBand: s.bands.cities,
       });
     } catch (error) {
       rings = { error: error.message };
@@ -2063,14 +2311,8 @@ export function paintZoneMember(clusterId, { city, state, tool, slot, minPop, ma
     if (!feat) {
       throw Object.assign(new Error('No Census place match for that city'), { status: 400 });
     }
-    if (!zone.inZone) {
+    if (!centroidInsideZone(zone, milesCap)) {
       throw Object.assign(new Error('City is outside the Zone radius'), { status: 400 });
-    }
-    const pop = Number(feat?.properties?.population) || 0;
-    const overrideMin = Number(minPop);
-    const overrideMax = Number(maxPop);
-    if (Number.isFinite(overrideMin) && Number.isFinite(overrideMax) && !inPopBand(pop, { min: overrideMin, max: overrideMax })) {
-      throw Object.assign(new Error('Population is outside the map min/max range'), { status: 400 });
     }
   }
   const name = feat?.properties?.name || already?.city || city;
@@ -2102,6 +2344,63 @@ export function paintZoneMember(clusterId, { city, state, tool, slot, minPop, ma
   return { cluster: next, workspace: getZoneWorkspace(next.id) };
 }
 
+export function paintZoneMembers(clusterId, { cities = [], slot, radiusMiles } = {}) {
+  const registry = loadShotgunClusters();
+  const cluster = registry.clusters.find((c) => c.id === clusterId);
+  if (!cluster) {
+    throw Object.assign(new Error('Zone not found'), { status: 404 });
+  }
+  if (!cluster.hub?.city) {
+    throw Object.assign(new Error('Zone has no hub'), { status: 400 });
+  }
+  const s = normalizeShotgunSettings(cluster);
+  const liveRaw = Number(radiusMiles);
+  const milesCap = Number.isFinite(liveRaw) ? clampClusterMiles(liveRaw) : s.clusterMiles;
+  const hubKey = placeKey(cluster.hub.city, cluster.hub.state);
+  const clearing = !Number(slot);
+  const resolved = [];
+  for (const raw of cities) {
+    const city = raw?.city;
+    const state = raw?.state;
+    const k = placeKey(city, state);
+    if (!k || k === hubKey) continue;
+    const zone = placeInZoneRadius(city, state, cluster.hub.city, cluster.hub.state, milesCap);
+    const feat = zone.feat;
+    const already = (cluster.members || []).find((m) => placeKey(m.city, m.state) === k);
+    if (!already && !clearing) {
+      if (!feat) continue;
+      if (!centroidInsideZone(zone, milesCap)) continue;
+    }
+    if (!already && !feat) continue;
+    resolved.push({
+      city: feat?.properties?.name || already?.city || city,
+      state: feat?.properties?.state || already?.state || String(state || '').toUpperCase(),
+      population: Number(feat?.properties?.population ?? already?.population) || null,
+      miles: zone.miles,
+      name: feat?.properties?.name || already?.city || city,
+      featState: feat?.properties?.state || already?.state || String(state || '').toUpperCase(),
+    });
+  }
+  const members = annotateMembersWithPipeline(
+    cluster.niche,
+    applyMemberPaintMany(cluster.members || [], cluster.hub, {
+      cities: resolved,
+      slot,
+      mode: 'set',
+    }),
+  );
+  const next = upsertShotgunCluster({
+    ...cluster,
+    members,
+    clusterMiles: milesCap,
+    innerMiles: milesCap,
+    outerMiles: milesCap,
+  });
+  syncClusterDraft(next);
+  resyncClusterSiteConfigs(next);
+  return { cluster: next, workspace: getZoneWorkspace(next.id) };
+}
+
 export function setZoneMiles(clusterId, miles) {
   const registry = loadShotgunClusters();
   const cluster = registry.clusters.find((c) => c.id === clusterId);
@@ -2109,12 +2408,19 @@ export function setZoneMiles(clusterId, miles) {
     throw Object.assign(new Error('Zone not found'), { status: 404 });
   }
   const s = normalizeShotgunSettings({ ...cluster, clusterMiles: miles });
+  const members = annotateMembersWithPipeline(
+    cluster.niche,
+    pruneMembersOutsideZone(cluster.hub, cluster.members || [], s.clusterMiles),
+  );
+  const membersChanged = memberPaintSignature(cluster.members) !== memberPaintSignature(members);
   const next = upsertShotgunCluster({
     ...cluster,
+    members,
     clusterMiles: s.clusterMiles,
     innerMiles: s.clusterMiles,
     outerMiles: s.clusterMiles,
   });
   syncClusterDraft(next);
+  if (membersChanged) resyncClusterSiteConfigs(next);
   return { cluster: next, workspace: getZoneWorkspace(next.id) };
 }

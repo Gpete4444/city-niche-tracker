@@ -6,6 +6,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { RESEARCH_DIR, getCandidateDetail, pathsFor } from './candidates.mjs';
 import { loadAcceptedSiteConfig } from './content-markdown.mjs';
+import { publicLeadsEmail } from './site-config.mjs';
 
 export const SITES_FILE = path.join(RESEARCH_DIR, 'sites.json');
 export const SITES_FILENAME = 'sites.json';
@@ -193,6 +194,7 @@ export function hydrateFromCandidate(candidateId) {
     liveUrl: liveUrlFromDomain(domain),
     phone: config.phone || null,
     email: config.email || null,
+    web3FormsRecipient: publicLeadsEmail(config.email, domain) || null,
     githubRepo: meta.githubRepo || null,
     githubRepoUrl: meta.githubRepoUrl || null,
     cfProject,
@@ -230,6 +232,7 @@ function mergeSiteRow(row) {
       liveUrl: liveUrlFromDomain(row.domain),
       phone: row.phone || null,
       email: row.email || null,
+      web3FormsRecipient: publicLeadsEmail(row.email, row.domain) || null,
       githubRepo: null,
       githubRepoUrl: null,
       cfProject: null,

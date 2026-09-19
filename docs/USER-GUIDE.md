@@ -21,7 +21,7 @@ The top bar is always there.
 
 ### Version {#chrome-version}
 
-**v2.3** (or current) sits next to the Rover wordmark. That is the product version, not a candidate.
+**v2.4** (or current) sits next to the Rover wordmark. That is the product version, not a candidate.
 
 ### Stages {#chrome-stages}
 
@@ -66,7 +66,7 @@ Find niche × city ideas. Most rows will not become sites.
 
 ### New Discovery Pack {#discovery-new-pack}
 
-Creates a pack from your filters. Required niche text stays exact. Suggested / OPEN niches prefer head terms (Drywall → Drywall Repair). Claude also estimates monthly search volume for triage only.
+Creates a pack from your filters. Required niche text stays exact. Suggested / OPEN niches prefer head terms (Drywall → Drywall Repair). Claude also estimates monthly search volume. That estimate is Discovery triage, and when Ads volumes are skipped it can seed Research Demand (labeled **est.** — not Ads Planner).
 
 In **Anthropic API** mode, **Generate Discovery pack** creates the pack and runs Claude in one click (confirm cost, then wait on the overlay). Glance/fix rows, then Light SERP (sidebar step 2). **Re-run Generate pack** appears under that button when a batch is already selected. Canceling the cost confirm leaves the empty batch selected.
 
@@ -108,7 +108,7 @@ Prove the market with paid search data and a written story. Set **pursue** only 
 
 **Concurrent Limit** (Settings, gear) is how many Evaluations may run at once (default 6, maximum 50). SERP / Enrich / Prospects use it in Copy & paste and API. API **Run Narrative** and **Run all** use it too; paste Narrative is still Copy prompt for one candidate. If you select more rows than the Evaluations box, Rover explains the soft limit and does not start — raise **Evaluations** under Concurrent Limit or select fewer.
 
-In **Anthropic API** mode, **Run all** (after Prospects) fills any missing Evaluations 1–4 in order. Ad volumes on that path are Live and do not force a new SERP. Copy & paste mode hides this button.
+In **Anthropic API** mode, the All box has **Run all required** (default, cheapest Research path: SERP seeds + Narrative) and **Run all** (expensive: Ads volumes + Enrich + Narrative + Prospects). Copy & paste mode hides this box; **Copy prompt** hydrates cheap SERP seeds first.
 
 ### Overview {#research-overview}
 
@@ -116,15 +116,15 @@ Snapshot of scores and flags. Set **pursue** here when Evaluations look good. Th
 
 ### SERP / Volume {#research-serp}
 
-Evaluation 1. Runs ad volumes and SERP signals. **Force new SERP** re-pulls Map Pack / organic (keeps enrichment, may mark it stale). Watch **Light** for the job bar. **Keywords** is a glance at volumes on the same evaluation.
+Evaluation 1. Paid **Ad volumes** (optional). Cheap **SERP seeds** (Discovery cache or ~$0.002) are enough for Narrative and Website keyword/FAQ/title hints. When Ads are skipped, Demand is blank unless Claude’s Discovery volume estimate is present (shown as **est.**). **Force new SERP** re-pulls Map Pack / organic. **Keywords** is a glance at Ads volumes when you ran them.
 
 ### Enrich {#research-enrich}
 
-Evaluation 2. Domain rank / thinness. Requires Evaluation 1. Optional if you already trust the market; skipping saves a wait.
+Evaluation 2. Domain rank / thinness. Optional — does not block Narrative or Website.
 
 ### Narrative {#research-narrative}
 
-Evaluation 3. **Copy prompt** → Claude → **Load** the JSON draft → **Accept**. Requires Evaluation 2. Accept writes the approved package. Job-cost outside the Discovery seed band asks you to override or fix the draft.
+Evaluation 3. Required to build. Needs SERP seeds (not Enrich). **Copy prompt** → Claude → **Load** the JSON draft → **Accept**. Accept writes the approved package. When Ads volumes were skipped, Claude should emit `suggestedKeywords` phrases (no invented volumes).
 
 ### Prospects {#research-prospects}
 
@@ -145,7 +145,7 @@ Build the site for a **pursue** candidate. Three tracks, in order: Site-Config �
 3. **Business details** — name, domain, NAP fields.
 4. **Paste & edit draft** — Claude site-config JSON; Load into the editor.
 5. **Review services → Accept** — locks site-config.
-6. **Service area** — confirm cities on the map.
+6. **Service area** — click a city to add or remove coverage (reversible). Zone candidates have no radius ring or slider: seed is the closest leftover (non-site) towns as **Suggested location pages** (one leftover page per Zone site) plus 10 Also serving leftovers. **Also serving** leftovers may overlap across Zone sites, including towns another site already pages; other Zone cities stay Also serving only (never pages). Use **Page** to steal a leftover page (confirm). Non-Zone still uses the research-seed list and a radius slider.
 7. **Provision phone** — Twilio ranking number, or Skip. Do not buy numbers in Discovery or Research. If **Phone → Twilio** is still red in Settings, finish [First-time Twilio setup](#phone-twilio-setup) first.
 
 **Find addresses:** Clean target (default 10) stops Places after that many clean streets. Pull size (default ~40 listings per source) is remembered in this browser. A street is rejected only for an **active OPERATIONAL** Maps listing on that street + ZIP. **Refresh / Fetch deeper** re-scrapes checked sources (costs Apify). Use **Find** when a source still has streets left; **Fetch deeper** when every checked source is exhausted.
@@ -163,7 +163,7 @@ Build the site for a **pursue** candidate. Three tracks, in order: Site-Config �
 9. **Load photo group** — optional. Skip uses fresh stock on Accept (queries required).
 10. **Accept** — writes pages, then photos (group, niche master, or stock pull), logo, and coverage map. A card covers the workspace while it runs.
 
-In **API** mode, steps 2–8 are **Write site with Claude** (one job per candidate). You can start Write site on up to **six different** candidates at the same time. A second Write site on the same candidate is blocked until the first finishes (or you Stop it in Light). Each window still confirms cost. Generate pack can run on different batches up to the Generate pack box (default 5). A second Generate pack on the same batch is blocked.
+In **API** mode, steps 2–8 are **Write site with Claude** (one job per candidate). You can start Write site on up to **six different** candidates at the same time. A second Write site on the same candidate is blocked until the first finishes (or you Stop it in Light). Each window still confirms cost. Polish retries the editor if speech notes or Critical SEO remain, then expands thin location pages. Location bodies under 450 words fail Write site (Retry). After a finished Write site, Accept shows **Expand location pages** for the same lint. Leftover speech notes are optional (Copy & paste Humanize), not a stop. Generate pack can run on different batches up to the Generate pack box (default 5). A second Generate pack on the same batch is blocked.
 
 ### Launch track {#website-launch}
 
@@ -171,10 +171,10 @@ In **API** mode, steps 2–8 are **Write site with Claude** (one job per candida
 2. **Review images** — grade slots, re-pull, generate, save/load photo groups. Niche master is first in the dropdown.
 3. **Prepare preview** — stages, assembles, builds, starts a local preview. A card covers the workspace (`Staging` through `Preview`). A waiting tab opens while it runs.
 4. **QA preview** — spot-check key URLs on the preview.
-5. **Run launch** — first go-live: paste domain / Web3Forms / email destination; Auto ship is on by default.
+5. **Run launch** — first go-live: Email Routing so `leads@` exists, then Web3Forms Recipient Emails = `leads@{domain}` (not the account Gmail); Auto ship is on by default.
 6. **Push updates** — already live: ship GitHub + build + Worker only. Run **Prepare preview** first if content changed.
 
-**Before first launch (outside Rover):** buy the domain and point NS at Cloudflare; create a Web3Forms form; have a Gmail (or inbox) for `leads@` routing.
+**Before first launch (outside Rover):** buy the domain and point NS at Cloudflare; run Email Routing so `leads@` exists; create a Web3Forms form with Recipient Emails = `leads@{domain}`; have a Gmail for `leads@` routing.
 
 ## Launched {#launched}
 
@@ -600,7 +600,7 @@ Most clicks are seconds. Wall-clock is Claude, DataForSEO, Prepare preview, and 
 ## Still done by hand {#manual}
 
 - Buy domain + point NS at Cloudflare
-- Create Web3Forms form + paste the key
+- Create Web3Forms form (Recipient Emails = `leads@{domain}`) + paste the key
 - Verify Email Routing in Gmail once
 - One-time machine setup (`gh auth`, Cloudflare tokens)
 - First-time Twilio Functions **Deploy All** (see [First-time Twilio setup](#phone-twilio-setup))

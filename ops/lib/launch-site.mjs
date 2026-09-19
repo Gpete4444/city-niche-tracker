@@ -271,7 +271,7 @@ export async function launchSite(candidateId, opts = {}) {
   const human = [];
   if (!formsDone) {
     human.push(
-      'Create a form at https://web3forms.com and paste the access key into Launch, then re-run (or Save keys only).',
+      `Create a form at https://web3forms.com. Set Recipient Emails to ${email || 'the Leads email (leads@yourdomain)'}, not the Web3Forms account Gmail. Paste the access key into Launch, then re-run.`,
     );
   } else {
     human.push('Web3Forms key written to assembled site-config.');
@@ -439,6 +439,7 @@ export function getLaunchStatus(candidateId) {
     domain: config.domain || null,
     phone: config.phone || null,
     email: config.email || null,
+    web3FormsRecipient: publicLeadsEmail(config.email, config.domain) || null,
     web3FormsAccessKeySet: Boolean(web3) && !isLaunchWeb3Placeholder(web3),
     turnstileSiteKeySet: Boolean(String(config.turnstileSiteKey || '').trim()),
     formsDone: Boolean(detail.meta?.formsDone),

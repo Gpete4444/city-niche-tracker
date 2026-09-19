@@ -51,6 +51,17 @@ Off-site levers (GBP, reviews, citations) usually move rankings faster than more
 
 ## History
 
+### Detector pack (2026-09) — pipeline lever (grade pending next-candidate re-score)
+
+- Contrast closer cap (≥2 per FILE), per-FILE bookend policy, location Why-choose/FAQ mix, structured em-dash budget.
+- Projected site crawl **~62%** (58–68) after the next Write that actually follows the new prompts + lint. No Accept “AI-likely %” gate. No Sparks backfill.
+
+### Ranking-first bands + local sources (2026-09) — pipeline lever (grade pending re-score)
+
+- Homepage encyclopedia kept; service cost/DIY/permits **rotate** per FILE (coverage `min(2, n)`).
+- City context + field research require public citations; location near-duplicate / stitch lint tightened.
+- Detector pack shipped in the following History entry.
+
 ### Eight-pass Soft path (2026-08) — pipeline lever (grade held **B+**; operator consistency ↑)
 
 - Soft steps: Structure → Field research → Brief → Outline → batched Full write → Humanize → Final check → Accept (no Skip)

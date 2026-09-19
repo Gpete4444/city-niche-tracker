@@ -1,5 +1,9 @@
 import { existsSync, mkdirSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import {
+  mergeCandidateDetail,
+  photoGroupsLoadedOnDetail,
+} from '../ops/public/candidate-detail-client.mjs';
 import { pathsFor } from '../ops/lib/candidates.mjs';
 import {
   PHOTO_GROUPS_DIR,
@@ -113,6 +117,56 @@ try {
   const sidecar = getAttachedPhotoGroup(candidateId);
   assertEqual(sidecar.groupIds, [groupE.id, groupD.id], 'sidecar matches load order');
   assertEqual(sidecar.names, [groupE.name, groupD.name], 'sidecar names match load order');
+
+  const openDetail = {
+    id: candidateId,
+    photoGroupAttached: sidecar,
+    imagesManifest: {
+      photoGroupIds: [groupE.id, groupD.id],
+      photoGroupId: groupE.id,
+    },
+    _slices: { images: true, shell: true },
+  };
+  const shell = {
+    id: candidateId,
+    name: 'Wylie Concrete Lifting',
+    _slices: { shell: true },
+  };
+  const merged = mergeCandidateDetail(openDetail, shell);
+  assert(merged.photoGroupAttached === sidecar, 'shell merge keeps photoGroupAttached');
+  assertEqual(
+    merged.imagesManifest.photoGroupIds,
+    [groupE.id, groupD.id],
+    'shell merge keeps photoGroupIds',
+  );
+  assert(merged._slices.images && merged._slices.shell, 'shell merge keeps images slice flag');
+  assert(photoGroupsLoadedOnDetail(merged), 'See More after shell merge');
+  assert(
+    photoGroupsLoadedOnDetail({ photoGroupAttached: sidecar }),
+    'See More from sidecar groupIds',
+  );
+  assert(
+    photoGroupsLoadedOnDetail({
+      imagesManifest: { photoGroupIds: [groupE.id], photoGroupId: groupE.id },
+    }),
+    'See More from applied photoGroupIds',
+  );
+  assert(
+    photoGroupsLoadedOnDetail({ imagesManifest: { photoGroupId: groupE.id } }),
+    'See More from applied photoGroupId',
+  );
+  assert(
+    !photoGroupsLoadedOnDetail({ photoGroupAttached: { skipped: true } }),
+    'See More hidden when sidecar skipped and no manifest ids',
+  );
+  assert(
+    photoGroupsLoadedOnDetail({
+      photoGroupAttached: { skipped: true },
+      imagesManifest: { photoGroupIds: [groupE.id] },
+    }),
+    'See More from manifest when sidecar skipped',
+  );
+  assert(!photoGroupsLoadedOnDetail({}), 'See More hidden with no groups');
 } finally {
   for (const file of created) {
     try {

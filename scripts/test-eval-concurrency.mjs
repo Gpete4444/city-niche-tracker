@@ -17,7 +17,7 @@ function assertEqual(got, want, label) {
 
 assertEqual(clampEvalConcurrency(0), 1, 'clamp 0');
 assertEqual(clampEvalConcurrency(-3), 1, 'clamp negative');
-assertEqual(clampEvalConcurrency(80), EVAL_CONCURRENCY_MAX, 'clamp 80');
+assertEqual(clampEvalConcurrency(150), EVAL_CONCURRENCY_MAX, 'clamp 150');
 assertEqual(clampEvalConcurrency('6'), 6, 'clamp 6');
 assertEqual(clampEvalConcurrency('nope'), EVAL_CONCURRENCY_DEFAULT, 'clamp junk');
 assertEqual(clampEvalConcurrency(null), EVAL_CONCURRENCY_DEFAULT, 'clamp null');

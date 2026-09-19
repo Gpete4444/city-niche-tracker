@@ -2,7 +2,7 @@
  * Accumulated address shortlist: newest foundAt first within tier; cap drops oldest.
  * Run: node scripts/test-address-shortlist-newest.mjs
  */
-import { mergeAccumulatedShortlist } from '../ops/lib/address-screen.mjs';
+import { mergeAccumulatedShortlist, stripInventedSuite } from '../ops/lib/address-screen.mjs';
 
 function assert(cond, label) {
   if (!cond) {
@@ -28,15 +28,25 @@ function row(street, zip, extra = {}) {
   };
 }
 
+assertEqual(stripInventedSuite('1221 E University Dr, STE-100'), '1221 E University Dr', 'strip STE-100');
+assertEqual(stripInventedSuite('1450 E Prater Way, STE-150'), '1450 E Prater Way', 'strip STE-150');
+assertEqual(stripInventedSuite('123 Main St Ste 200'), '123 Main St Ste 200', 'keep listing suite text');
+
 const merged = mergeAccumulatedShortlist(
   [
-    row('100 Old St', '68102', { foundAt: '2026-01-01T00:00:00.000Z', score: 99, suite: 'STE-100' }),
+    row('100 Old St, STE-100', '68102', { foundAt: '2026-01-01T00:00:00.000Z', score: 99, suite: 'STE-100' }),
     row('200 Mid St', '68102', { foundAt: '2026-06-01T00:00:00.000Z', score: 80, suite: 'STE-200' }),
   ],
   [row('300 New St', '68102', { foundAt: '2026-09-01T00:00:00.000Z', score: 10 })],
 );
 
 assertEqual(merged.map((r) => r.street).join('|'), '300 New St|200 Mid St|100 Old St', 'newest primary first');
+assert(
+  merged.every((r) => !r.suite),
+  'merge does not invent or keep STE stubs',
+);
+assertEqual(merged.find((r) => r.street === '200 Mid St')?.suite || '', '', 'STE-200 stub dropped');
+assertEqual(merged.find((r) => r.street === '100 Old St')?.street, '100 Old St', 'strips suite from prior street');
 
 const withSecondary = mergeAccumulatedShortlist(
   [

@@ -9,6 +9,15 @@ import {
   loadMeta,
   readPromptFile,
 } from './candidates.mjs';
+import {
+  EVAL_ALL_STEP_LABELS,
+  EVAL_ALL_STEPS_ALL,
+  EVAL_ALL_STEPS_REQUIRED,
+  EVAL_RUN_MODE_ALL,
+  EVAL_RUN_MODE_REQUIRED,
+  missingEvalAllStepsFromFlags,
+  normalizeEvalRunMode,
+} from './eval-run-mode.mjs';
 
 function defaultModel() {
   return String(process.env.ANTHROPIC_MODEL || '').trim() || 'claude-sonnet-5';
@@ -68,23 +77,7 @@ function countEnrichTargets(research) {
   return urls.size || (research.serp.uniqueOrganicDomains?.length ?? 0);
 }
 
-const EVAL_ALL_STEPS = ['research', 'enrich', 'narrative', 'prospects'];
-const EVAL_ALL_STEP_LABELS = {
-  research: 'SERP / Volume',
-  enrich: 'Enrich',
-  narrative: 'Narrative',
-  prospects: 'Prospects',
-};
-
-function missingEvalAllStepsFromDetail(detail) {
-  const f = detail?.stageFlags || {};
-  const missing = [];
-  if (!f.hasResearch) missing.push('research');
-  if (!f.hasEnrichment) missing.push('enrich');
-  if (!f.hasNarrative) missing.push('narrative');
-  if (!f.hasProspects) missing.push('prospects');
-  return missing;
-}
+const EVAL_ALL_STEPS = EVAL_ALL_STEPS_ALL;
 
 function estimateEvalAllStep(candidateId, step) {
   if (step === 'narrative') {
@@ -108,47 +101,82 @@ function estimateEvalAllStep(candidateId, step) {
   return getCostPreview(candidateId, step);
 }
 
-function getEvaluateAllCostPreview(candidateId) {
+function estimateRequiredResearchStep(candidateId) {
   const detail = getCandidateDetail(candidateId);
-  const missing = missingEvalAllStepsFromDetail(detail);
+  if (detail?.stageFlags?.hasResearch) {
+    return { act: 'serp-seeds', estimateUsdLow: 0, estimateUsdHigh: 0 };
+  }
+  return {
+    act: 'serp-seeds',
+    estimateUsdLow: 0,
+    estimateUsdHigh: 0.002,
+  };
+}
+
+function getEvaluateAllCostPreview(candidateId, evalRunMode = EVAL_RUN_MODE_REQUIRED) {
+  const mode = normalizeEvalRunMode(evalRunMode);
+  const required = mode === EVAL_RUN_MODE_REQUIRED;
+  const detail = getCandidateDetail(candidateId);
+  const missing = missingEvalAllStepsFromFlags(detail?.stageFlags || {}, mode);
+  const allSteps = required ? EVAL_ALL_STEPS_REQUIRED : EVAL_ALL_STEPS;
+  const title = required ? 'Run all required?' : 'Run all evaluations?';
   if (!missing.length) {
     return {
       act: 'evaluate-all',
+      evalRunMode: mode,
       provider: 'mixed',
-      title: 'Run all evaluations?',
-      whatItDoes: 'Evaluations 1–4 are already complete.',
-      error: 'Already complete — Evaluations 1–4 are done.',
+      title,
+      whatItDoes: required
+        ? 'Required Research steps are already complete (SERP seeds + Narrative).'
+        : 'Evaluations 1–4 are already complete.',
+      error: required
+        ? 'Already complete — SERP seeds and Narrative are done.'
+        : 'Already complete — Evaluations 1–4 are done.',
       confirmLabel: 'Cannot run',
     };
   }
   let low = 0;
   let high = 0;
   for (const step of missing) {
-    const p = estimateEvalAllStep(candidateId, step);
+    const p =
+      required && step === 'research'
+        ? estimateRequiredResearchStep(candidateId)
+        : estimateEvalAllStep(candidateId, step);
     low += Number(p.estimateUsdLow) || 0;
     high += Number(p.estimateUsdHigh) || 0;
   }
-  const skipped = EVAL_ALL_STEPS.filter((s) => !missing.includes(s)).map(
-    (s) => EVAL_ALL_STEP_LABELS[s],
+  const skipped = allSteps.filter((s) => !missing.includes(s)).map((s) =>
+    required && s === 'research' ? 'SERP seeds' : EVAL_ALL_STEP_LABELS[s],
   );
-  const running = missing.map((s) => EVAL_ALL_STEP_LABELS[s]);
+  const running = missing.map((s) =>
+    required && s === 'research' ? 'SERP seeds' : EVAL_ALL_STEP_LABELS[s],
+  );
   const same = Math.abs(low - high) < 0.0001;
   return {
     act: 'evaluate-all',
+    evalRunMode: mode,
     provider: 'mixed',
-    title: 'Run all missing evaluations?',
-    whatItDoes: `Fills missing evaluations in order (${running.join(
-      ' → ',
-    )}). Ad volumes use Live queue and do not force a new SERP. Narrative uses the Anthropic API.`,
+    title: required ? 'Run all required (missing steps)?' : 'Run all missing evaluations?',
+    whatItDoes: required
+      ? `Cheapest Research path (${running.join(
+          ' → ',
+        )}). Skips Ads volumes, Enrich, and Prospects. Website Write still has its own Claude cost later.`
+      : `Fills missing evaluations in order (${running.join(
+          ' → ',
+        )}). Ad volumes use Live queue and do not force a new SERP. Narrative uses the Anthropic API.`,
     estimateLabel: same ? `~${formatUsd(low)}` : formatRange(low, high),
     estimateUsdLow: Number(low.toFixed(4)),
     estimateUsdHigh: Number(high.toFixed(4)),
     estimateDetail: skipped.length
       ? `Skipping already done: ${skipped.join(', ')}.`
-      : 'All four steps will run.',
+      : required
+        ? 'SERP seeds + Narrative will run.'
+        : 'All four steps will run.',
     willOverwrite: false,
     overwriteNote: null,
-    confirmLabel: `Run all (est. ${same ? formatUsd(low) : formatRange(low, high)})`,
+    confirmLabel: `${required ? 'Run all required' : 'Run all'} (est. ${
+      same ? formatUsd(low) : formatRange(low, high)
+    })`,
     missingSteps: missing,
     skippedSteps: skipped,
   };
@@ -166,11 +194,11 @@ function overwriteFlags(detail, act) {
 /**
  * Build a cost preview for a paid stage action.
  * @param {string} candidateId
- * @param {string} act research|enrich|prospects|narrative|outreach|domain-pick|site-config|write-site|evaluate-all
+ * @param {string} act research|enrich|prospects|narrative|outreach|domain-pick|site-config|write-site|expand-locations|evaluate-all
  */
-export function getCostPreview(candidateId, act) {
+export function getCostPreview(candidateId, act, opts = {}) {
   if (act === 'evaluate-all' || act === 'evaluateAll') {
-    return getEvaluateAllCostPreview(candidateId);
+    return getEvaluateAllCostPreview(candidateId, opts.evalRunMode);
   }
   const detail = getCandidateDetail(candidateId);
   const meta = loadMeta(candidateId);
@@ -447,14 +475,45 @@ export function getCostPreview(candidateId, act) {
     };
   }
 
+  if (act === 'expand-locations' || act === 'expandLocations') {
+    const lastCost = last.expandLocations ?? null;
+    const low = lastCost ?? 0.12;
+    const high = lastCost ?? 0.45;
+    return {
+      act: 'expand-locations',
+      provider: 'anthropic',
+      title: 'Expand location pages?',
+      whatItDoes:
+        'Sends only the thin location Markdown files back to Claude to add unique local copy until each body is at least 450 words. Home and service pages stay as they are.',
+      estimateLabel:
+        lastCost != null ? `Last run: ${formatUsd(lastCost)}` : formatRange(low, high),
+      estimateUsdLow: low,
+      estimateUsdHigh: high,
+      estimateDetail:
+        lastCost != null
+          ? 'Using your last Expand location pages cost for this candidate as the estimate.'
+          : 'Typical 1–3 thin location files. Actual depends on Claude tokens.',
+      willOverwrite: Boolean(detail.stageFlags?.hasContentDraft),
+      overwriteNote: 'Rewrites the thin location draft files only.',
+      confirmLabel:
+        lastCost != null
+          ? `Expand pages (est. ${formatUsd(lastCost)})`
+          : `Expand pages (est. ${formatRange(low, high)})`,
+      freeFallback: null,
+    };
+  }
+
   throw Object.assign(new Error(`Unknown act for cost preview: ${act}`), { status: 400 });
 }
 
 /**
  * Aggregated cost preview for multi-candidate batch runs.
  */
-export function getBatchCostPreview(candidateIds = [], act) {
+export function getBatchCostPreview(candidateIds = [], act, opts = {}) {
   const ids = [...new Set(candidateIds.map((id) => String(id || '').trim()).filter(Boolean))];
+  const evalAll = act === 'evaluate-all' || act === 'evaluateAll';
+  const mode = evalAll ? normalizeEvalRunMode(opts.evalRunMode) : EVAL_RUN_MODE_ALL;
+  const required = evalAll && mode === EVAL_RUN_MODE_REQUIRED;
   const previews = [];
   const errors = [];
   let low = 0;
@@ -462,7 +521,7 @@ export function getBatchCostPreview(candidateIds = [], act) {
   let overwriteCount = 0;
   for (const id of ids) {
     try {
-      const p = getCostPreview(id, act);
+      const p = getCostPreview(id, act, { evalRunMode: mode });
       if (p.error) {
         errors.push({ id, error: p.error });
         continue;
@@ -475,12 +534,13 @@ export function getBatchCostPreview(candidateIds = [], act) {
       errors.push({ id, error: error.message });
     }
   }
-  const evalAll = act === 'evaluate-all' || act === 'evaluateAll';
   const provider =
     previews[0]?.provider ||
     (evalAll ? 'mixed' : act === 'narrative' ? 'anthropic' : 'dataforseo');
   const actTitle = evalAll
-    ? 'Run all'
+    ? required
+      ? 'Run all required'
+      : 'Run all'
     : act === 'research'
       ? 'Ad volumes'
       : act === 'enrich'
@@ -489,11 +549,14 @@ export function getBatchCostPreview(candidateIds = [], act) {
   const same = Math.abs(low - high) < 0.0001;
   return {
     act: evalAll ? 'evaluate-all' : act,
+    evalRunMode: evalAll ? mode : undefined,
     provider,
     count: ids.length,
     runnable: previews.length,
     title: evalAll
-      ? `Run all missing evaluations on ${ids.length}?`
+      ? required
+        ? `Run all required on ${ids.length}?`
+        : `Run all missing evaluations on ${ids.length}?`
       : `Batch ${actTitle} on ${ids.length}?`,
     estimateUsdLow: Number(low.toFixed(4)),
     estimateUsdHigh: Number(high.toFixed(4)),
@@ -502,14 +565,20 @@ export function getBatchCostPreview(candidateIds = [], act) {
         ? `~${formatUsd(low)} for ${previews.length} candidates`
         : `${formatUsd(low)}–${formatUsd(high)} for ${previews.length} candidates`,
     estimateDetail: evalAll
-      ? `Fill-gaps 1–4. Ad volumes: Live, no Force new SERP. Narrative uses the Anthropic API. Sum of remaining steps (${previews.length} runnable${
-          errors.length ? `, ${errors.length} skipped` : ''
-        }).`
+      ? required
+        ? `Cheapest Research path (SERP seeds + Narrative). Skips Ads volumes, Enrich, and Prospects. Sum of remaining steps (${previews.length} runnable${
+            errors.length ? `, ${errors.length} skipped` : ''
+          }).`
+        : `Fill-gaps 1–4. Ad volumes: Live, no Force new SERP. Narrative uses the Anthropic API. Sum of remaining steps (${previews.length} runnable${
+            errors.length ? `, ${errors.length} skipped` : ''
+          }).`
       : `Sum of per-candidate estimates (${previews.length} runnable${
           errors.length ? `, ${errors.length} skipped` : ''
         }).`,
     whatItDoes: evalAll
-      ? 'Runs missing Evaluations in order (SERP / Volume → Enrich → Narrative → Prospects). Skips steps that already have data.'
+      ? required
+        ? 'Runs missing required Research steps (SERP seeds → Narrative). Enough to Accept, set pursue, and build. Website Write still has its own Claude cost later.'
+        : 'Runs missing Evaluations in order (SERP / Volume → Enrich → Narrative → Prospects). Skips steps that already have data.'
       : null,
     willOverwrite: overwriteCount > 0,
     overwriteNote:
@@ -517,7 +586,7 @@ export function getBatchCostPreview(candidateIds = [], act) {
         ? `${overwriteCount} of ${previews.length} already have this stage data and would be overwritten.`
         : null,
     confirmLabel: evalAll
-      ? `Run all on ${previews.length} (est. ${
+      ? `${required ? 'Run all required' : 'Run all'} on ${previews.length} (est. ${
           same ? formatUsd(low) : `${formatUsd(low)}–${formatUsd(high)}`
         })`
       : `Run on ${previews.length} (est. ${

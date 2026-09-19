@@ -33,7 +33,8 @@ let snapshotSeq = 0;
 const bus = new EventEmitter();
 bus.setMaxListeners(50);
 
-const RECENT_KEEP = 40;
+export const LIGHT_JOBS_RECENT_KEEP = 40;
+const RECENT_KEEP = LIGHT_JOBS_RECENT_KEEP;
 
 /** Default / compat: Settings Write site box default. Hard max is CONCURRENCY_MAX.writeSite. */
 export const WRITE_SITE_MAX_CONCURRENT = 6;
@@ -88,11 +89,17 @@ export function listLightJobsSnapshot() {
     return String(b.createdAt).localeCompare(String(a.createdAt));
   });
   const active = all.filter((j) => j.status === 'queued' || j.status === 'running');
+  const finished = all
+    .filter((j) => j.status === 'done' || j.status === 'error')
+    .sort((a, b) =>
+      String(b.finishedAt || b.createdAt || '').localeCompare(String(a.finishedAt || a.createdAt || '')),
+    );
+  const listed = [...active, ...finished.slice(0, RECENT_KEEP)];
   return {
     running: active.filter((j) => j.status === 'running').length,
     queued: active.filter((j) => j.status === 'queued').length,
     activeCount: active.length,
-    jobs: all.slice(0, RECENT_KEEP).map((j) => serializeLightJob(j, { includeResult: false })),
+    jobs: listed.map((j) => serializeLightJob(j, { includeResult: false })),
     generatedAt: new Date().toISOString(),
     seq: snapshotSeq,
   };
@@ -163,9 +170,28 @@ export function openLightJob(opts) {
  * @param {string} jobId
  * @param {{ error?: unknown, result?: unknown }} [opts]
  */
+export const OPENAI_RATE_LIMIT_REQUEUES = 8;
+
+export function shouldRequeueOpenaiRateLimit(job, error) {
+  if (!job || error?.code !== 'openai-rate-limit') return false;
+  if (typeof job.run !== 'function') return false;
+  return (Number(job.rateLimitRequeues) || 0) < OPENAI_RATE_LIMIT_REQUEUES;
+}
+
 export function finishLightJob(jobId, { error, result } = {}) {
   const job = jobs.get(String(jobId || '').trim());
   if (!job || job.status === 'done' || job.status === 'error') return;
+  if (error && shouldRequeueOpenaiRateLimit(job, error)) {
+    job.rateLimitRequeues = (Number(job.rateLimitRequeues) || 0) + 1;
+    job.status = 'queued';
+    job.error = null;
+    job.startedAt = null;
+    job.finishedAt = null;
+    job.detail = 'Waiting for rate limit…';
+    emitChange();
+    pumpQueuedLightJobs();
+    return;
+  }
   if (error) {
     job.status = 'error';
     const err = error;
@@ -377,6 +403,15 @@ export function assertWriteSiteStartAllowed(candidateId) {
       candidateId: cid,
     });
   }
+  const expand = findActiveLightJob('expand-locations', cid);
+  if (expand) {
+    throw Object.assign(new Error('Expand location pages is already running for this candidate'), {
+      status: 409,
+      code: 'EXPAND_LOCATIONS_RUNNING',
+      jobId: expand.id,
+      candidateId: cid,
+    });
+  }
   const running = countActiveLightJobs('write-site');
   const limit = writeSiteConcurrencyLimit();
   if (running >= limit) {
@@ -434,6 +469,29 @@ export function assertGeneratePackStartAllowed(batchId) {
 }
 
 /** Same candidate cannot run two Accept jobs. Other candidates may Accept in parallel. */
+/** Same candidate cannot expand locations while Write site or another expand is running. */
+export function assertExpandLocationsStartAllowed(candidateId) {
+  const cid = String(candidateId || '').trim();
+  const write = findActiveLightJob('write-site', cid);
+  if (write) {
+    throw Object.assign(new Error('Write site is already running for this candidate'), {
+      status: 409,
+      code: 'WRITE_SITE_RUNNING',
+      jobId: write.id,
+      candidateId: cid,
+    });
+  }
+  const same = findActiveLightJob('expand-locations', cid);
+  if (same) {
+    throw Object.assign(new Error('Expand location pages is already running for this candidate'), {
+      status: 409,
+      code: 'EXPAND_LOCATIONS_RUNNING',
+      jobId: same.id,
+      candidateId: cid,
+    });
+  }
+}
+
 export function assertAcceptStartAllowed(candidateId) {
   const cid = String(candidateId || '').trim();
   const same = findActiveLightJob('accept', cid);

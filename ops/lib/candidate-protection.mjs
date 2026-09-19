@@ -12,7 +12,7 @@ export function researchHighestEvalStep(id) {
   if (f.hasProspects) return 4;
   if (f.hasNarrative) return 3;
   if (f.hasEnrichment) return 2;
-  if (f.hasResearch) return 1;
+  if (f.hasVolumes) return 1;
   return 0;
 }
 
@@ -87,7 +87,8 @@ export function assertDeletableIds(ids = []) {
 }
 
 /**
- * Research Evaluation order: enrich needs 1, narrative needs 2, prospects needs 3.
+ * Research Evaluation order: enrich needs SERP seeds, narrative needs SERP seeds
+ * (Enrich is optional), prospects needs accepted Narrative.
  * @param {string} id
  * @param {'enrich'|'narrative'|'prospects'} act
  */
@@ -103,8 +104,8 @@ export function assertEvalPrerequisite(id, act) {
     return;
   }
   if (act === 'narrative') {
-    if (!f.hasEnrichment) {
-      const err = new Error('Complete Evaluation 2 (Enrich) before Narrative');
+    if (!f.hasResearch) {
+      const err = new Error('Add SERP seeds first (Run all required, Copy prompt, or Ad volumes)');
       err.status = 400;
       err.code = 'EVAL_ORDER';
       throw err;

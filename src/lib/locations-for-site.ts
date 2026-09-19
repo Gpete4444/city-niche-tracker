@@ -17,7 +17,13 @@ export type LocationLink = {
   href: string;
 };
 
-type SiteGeo = Pick<SiteConfig, 'primaryCity' | 'state' | 'targetSuburbs' | 'coverageAreas'>;
+type SiteGeo = Pick<
+  SiteConfig,
+  'primaryCity' | 'state' | 'targetSuburbs' | 'coverageAreas' | 'alsoServing'
+>;
+
+/** Same cap as Site-Config Zone Also serving column. */
+const ALSO_SERVING_CAP = 10;
 
 function norm(s: string) {
   return String(s || '')
@@ -70,14 +76,18 @@ export function filterLocationsForSite<T extends LocationEntryLike>(
 
 /**
  * Coverage cities without a location page — for “Also serving” (link to contact).
- * Homepage always appends “and others” after this list.
+ * Prefers persisted site.alsoServing (Accept / Stage); otherwise leftover coverage.
+ * Always capped at 10. Homepage always appends “and others” after this list.
  */
 export function alsoServingLinks(site: SiteGeo): LocationLink[] {
   const state = String(site.state || '').trim().toUpperCase();
   const seo = seoLocationCities(site);
-  return coverageCityNames(site)
-    .filter((name) => !seo.has(norm(name)))
-    .map((city) => ({ city, state, href: sitePath('/contact') }));
+  const saved = (site.alsoServing || [])
+    .map((s) => String(s || '').trim())
+    .filter((name) => name && !seo.has(norm(name)));
+  const names = (saved.length ? saved : coverageCityNames(site).filter((name) => !seo.has(norm(name))))
+    .slice(0, ALSO_SERVING_CAP);
+  return names.map((city) => ({ city, state, href: sitePath('/contact') }));
 }
 
 /** @deprecated Prefer alsoServingLinks + filterLocationsForSite */

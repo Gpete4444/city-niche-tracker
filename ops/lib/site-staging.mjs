@@ -24,7 +24,7 @@ import {
 } from './preview-fidelity.mjs';
 import { syncSiteImagesToPublic } from './fill-site-images.mjs';
 import { setCoverageMapOnMarkdown } from './generate-coverage-map.mjs';
-import { defaultPlaceholderSocialProof } from './site-config.mjs';
+import { defaultPlaceholderSocialProof, ensureAlsoServingOnSiteConfig } from './site-config.mjs';
 import { rehydrateGalleryBaFrontmatter } from './chatgpt-before-after.mjs';
 
 const ROOT = process.cwd();
@@ -95,6 +95,10 @@ export function stageSiteContent(candidateId, { mode = 'full', refreshPackage = 
     throw err;
   }
 
+  const alsoServingSync = ensureAlsoServingOnSiteConfig(candidateId);
+  if (alsoServingSync.ok && alsoServingSync.config) {
+    loaded.config = { ...loaded.config, alsoServing: alsoServingSync.alsoServing };
+  }
   let config = ensureTrustRatingStat(applyArchetypeDefaults({ ...loaded.config }));
   // Persist patched socialProof onto accepted site-config so Assemble/Stage stay in sync
   const p = pathsFor(candidateId);

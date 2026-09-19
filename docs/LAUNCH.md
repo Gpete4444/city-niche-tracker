@@ -48,8 +48,9 @@ Statuses: `current` | `behind` | `no_remote` | `no_assembled` | `unknown`. Push 
 | --- | --- | --- |
 | Domain | From accepted site-config | Written into site-config; used for CF zone + custom domain |
 | Phone | From site-config | Written into site-config |
-| Leads email | From site-config (or `leads@{domain}`) | Written into site-config; used as Email Routing matcher |
-| Email Routing destination | Prefills from `WEB3FORMS_DEFAULT_NOTIFY_EMAIL` if empty | Gmail (or inbox) that receives forwarded `leads@` mail |
+| Leads email | From site-config (or `leads@{domain}`) | Written into site-config; used as Email Routing matcher **and** the required Web3Forms Recipient Emails address |
+| Web3Forms recipient | Copyable `leads@{domain}` (same as Leads email) | Paste into Web3Forms → Settings → Recipient Emails. Not the account Gmail. Rover does not write this (no form API) |
+| Email Routing destination | Prefills from `WEB3FORMS_DEFAULT_NOTIFY_EMAIL` if empty | Gmail (or inbox) that receives forwarded `leads@` mail. Does **not** change Web3Forms Recipient Emails |
 | Web3Forms access key | From site-config | Written into site-config; marks `formsDone` when real (not placeholder) |
 | Turnstile site key | From site-config / optional | Written into site-config |
 | **Auto ship** (GitHub + build + Worker deploy) | **On** | GitHub create/push, `npm` build, Wrangler deploy, Workers Builds connect |
@@ -166,7 +167,7 @@ If a build-package JSON exists for the candidate, refreshes `deploy.domain`, `de
 | Ship failed: … nothing to commit / Command failed: git commit | Older bug: clean tree treated as failure | Fixed — clean tree is success and push continues |
 | Worker "…" not found | Worker missing or existence check failed | Re-run Launch after Auto ship deploy; assets Worker check uses `/settings` |
 | No Cloudflare zone found | Domain not in this CF account | Add domain / point NS, then re-run |
-| Create a form at web3forms.com… | Key missing or placeholder | Paste access key and re-run |
+| Create a form at web3forms.com… | Key missing or placeholder | Set Recipient Emails to `leads@{domain}`, paste access key, re-run |
 
 Launch result modal summarizes ship ok/partial, Cloudflare ok/partial, and forms key set vs placeholder.
 
@@ -175,10 +176,11 @@ Launch result modal summarizes ship ok/partial, Cloudflare ok/partial, and forms
 ## 5. Human leftovers (never fully automated)
 
 1. **Buy the domain** and point nameservers at Cloudflare (zone must exist in the account)
-2. **Create** the Web3Forms form at [web3forms.com](https://web3forms.com) and paste the access key (no public create-form API)
-3. **Verify** Email Routing destination once when it is new (click link in Gmail)
-4. **Index the live site** — Search Console Domain property, submit `/sitemap.xml`, Request indexing on homepage + top service pages: [SITE-INDEXING.md](SITE-INDEXING.md)
-5. **One-time machine setup** (not per site):
+2. **Run Cloudflare email** so `leads@` exists (Email Routing destination = Gmail). Uncheck Auto ship the first time if you still need to create the form
+3. **Create** the Web3Forms form at [web3forms.com](https://web3forms.com). Set **Recipient Emails** to the site’s Leads email (`leads@{domain}`), not the Web3Forms account Gmail. Paste the access key (no public create-form API)
+4. **Verify** Email Routing destination once when it is new, then the Web3Forms `leads@` verify link (both land in Gmail)
+5. **Index the live site** — Search Console Domain property, submit `/sitemap.xml`, Request indexing on homepage + top service pages: [SITE-INDEXING.md](SITE-INDEXING.md)
+6. **One-time machine setup** (not per site):
    - `gh auth login`
    - `.env`: `GITHUB_OWNER`, `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN`, optional `WEB3FORMS_DEFAULT_NOTIFY_EMAIL`
    - Authorize Cloudflare Workers and Pages GitHub App once for push-to-rebuild
@@ -194,7 +196,7 @@ See [`.env.example`](../.env.example).
 | `CLOUDFLARE_ACCOUNT_ID` | Account for Wrangler + CF APIs |
 | `CLOUDFLARE_API_TOKEN` | **User** API token (account-owned tokens fail Builds API) |
 | `GITHUB_OWNER` | Org/user for per-site repos (optional if `gh` user / template remote resolves it) |
-| `WEB3FORMS_DEFAULT_NOTIFY_EMAIL` | Prefills Email Routing destination in Launch UI |
+| `WEB3FORMS_DEFAULT_NOTIFY_EMAIL` | Prefills Email Routing destination in Launch UI (Cloudflare only — not Web3Forms Recipient Emails) |
 | `ASSEMBLED_SITES_DIR` | Where Assemble writes sibling sites (default `../rover-sites`) |
 | `TEMPLATE_GITHUB_REPO` | Optional; used to infer GitHub owner (default example `7D7D/Rover`) |
 

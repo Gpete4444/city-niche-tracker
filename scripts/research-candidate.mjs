@@ -44,6 +44,7 @@ import { lookupPopulation } from '../ops/lib/census.mjs';
 import { adjacentPlaces } from '../ops/lib/geo-neighbors.mjs';
 import { normalizeCityStateCluster, parseCityStateToken } from '../ops/lib/city-state.mjs';
 import { exitAfterNetwork } from './lib/script-exit.mjs';
+import { resolveEstimatedVolumeForSeed } from './lib/estimated-volume.mjs';
 
 loadEnvFile();
 
@@ -266,6 +267,20 @@ function rewriteConfigCluster(configPath, cluster) {
 
 function googleSearchLink(query) {
   return `https://www.google.com/search?q=${encodeURIComponent(query)}`;
+}
+
+function loadDiscoverySeedNearOut(filePath) {
+  if (!filePath) return null;
+  const resolved = path.resolve(filePath);
+  const base = path.basename(resolved, path.extname(resolved));
+  const seedPath = path.join(path.dirname(resolved), `${base}-discovery-seed.json`);
+  if (!existsSync(seedPath)) return null;
+  try {
+    const seed = JSON.parse(readFileSync(seedPath, 'utf8'));
+    return seed && typeof seed === 'object' ? seed : null;
+  } catch {
+    return null;
+  }
 }
 
 async function fetchSerp(keyword, locationSpec) {
@@ -545,7 +560,7 @@ async function main() {
     }
   }
 
-  const volumesSkipped = Boolean(!args.skipVolumes && !primaryAds);
+  const volumesSkipped = Boolean(args.skipVolumes || !primaryAds);
   const clusterVolumeSum = volumesSkipped
     ? null
     : keywords.reduce((sum, k) => sum + (k.clusterSum ?? 0), 0);
@@ -556,11 +571,16 @@ async function main() {
     primaryVolumeSum: volumesSkipped ? null : primaryVolumeSum,
     clusterVolumeSum: volumesSkipped ? null : clusterVolumeSum,
   });
+  const estimatedVolume = volumesSkipped
+    ? resolveEstimatedVolumeForSeed(loadDiscoverySeedNearOut(args.out || args.config))
+    : { value: null, raw: null, source: null };
 
   const scoring = buildResearchScoring({
-    clusterVolumeSum: clusterVolumeSum ?? 0,
-    primaryVolumeSum: volumesSkipped ? 0 : primaryVolumeSum,
+    clusterVolumeSum: volumesSkipped ? null : clusterVolumeSum,
+    primaryVolumeSum: volumesSkipped ? null : primaryVolumeSum,
     suburbOverlapFactor: demandVolumes.suburbOverlapFactor,
+    volumesSkipped,
+    estimatedDemandVolume: estimatedVolume.value,
     mapPackPresent: serp.mapPackPresent,
     classifiedSerp: serp,
     softnessUniqueOrganicDomainCount: stageOneSoftness.uniqueOrganicDomainCount,
@@ -569,9 +589,10 @@ async function main() {
   if (serp.features?.localServicesAds && scoring.scoreInputs) {
     scoring.scoreInputs.notes = `${scoring.scoreInputs.notes || ''} Local Services Ads present on SERP — organic/phone leads may sit below LSAs.`.trim();
   }
-  if (volumesSkipped && scoring.scoreInputs) {
-    scoring.scoreInputs.notes =
-      `Ads volumes skipped — ${primary.city}, ${primary.state} has no Google Ads geo (no Ads-listed neighbor). Demand not measured. ${scoring.scoreInputs.notes || ''}`.trim();
+  if (volumesSkipped && scoring.scoreInputs && estimatedVolume.value == null) {
+    scoring.scoreInputs.notes = args.skipVolumes
+      ? `Ads volumes skipped (required / cheap path). Demand not measured. ${scoring.scoreInputs.notes || ''}`.trim()
+      : `Ads volumes skipped — ${primary.city}, ${primary.state} has no Google Ads geo (no Ads-listed neighbor). Demand not measured. ${scoring.scoreInputs.notes || ''}`.trim();
   }
   const avgCpc = averageKeywordCpc(keywords);
 
@@ -614,6 +635,11 @@ async function main() {
       primaryVolumeSum,
       clusterVolumeSum,
       demandVolumeSum: volumesSkipped ? null : demandVolumes.demandVolumeSum,
+      estimatedMonthlySearchVolume: volumesSkipped ? estimatedVolume.value : null,
+      estimatedMonthlySearchVolumeRaw: volumesSkipped ? estimatedVolume.raw : null,
+      estimatedVolumeSource: volumesSkipped && estimatedVolume.value != null
+        ? estimatedVolume.source || 'discovery_claude'
+        : null,
       suburbOverlapFactor: demandVolumes.suburbOverlapFactor,
       averageCpc: avgCpc,
       relatedIdeasFromPrimary: related.ideas,

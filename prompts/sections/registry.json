@@ -196,7 +196,7 @@
       "photoCapable": false,
       "astroKey": "cost",
       "kind": "cost",
-      "writeInstructions": "Short natural intro (no city-stuffed lead) + 3–5 ballpark range bullets: **Tier** — $low–$high — what is typically included. Example: **Entry-level updates** — $2,500–$8,000 — fixtures and single-surface swaps. Honest local ranges only (not a fixed quote). Point to free estimate."
+      "writeInstructions": "Short natural intro (no city-stuffed lead) + 3–5 ballpark range bullets: **Tier** — $low–$high, what is typically included. Example: **Entry-level updates** — $2,500–$8,000, fixtures and single-surface swaps. Honest local ranges only (not a fixed quote). Point to free estimate."
     },
     {
       "id": "materials",
@@ -212,7 +212,7 @@
       "maxImages": 6,
       "astroKey": "materials",
       "kind": "materials",
-      "writeInstructions": "Short intro + exactly 3 or 6 material option bullets (never 4, 5, 7, or 8). Choose 6 when research/entities support six distinct products/methods; otherwise 3. Each bullet: **Product/system name** — then 1–2 sentences (why it matters, climate or use cue from City context when available, durable outcome). Concrete photographable product names as titles (not “professional grade” alone). Do NOT include markdown body images — photos come from Rover Pull materialsImages (compact row thumbs)."
+      "writeInstructions": "Short intro + exactly 3 or 6 material option bullets (never 4, 5, 7, or 8). Choose 6 when research/entities support six distinct products/methods; otherwise 3. Each bullet: **Product/system name**: then 1–2 sentences (why it matters, climate or use cue from City context when available, durable outcome). Concrete photographable product names as titles (not “professional grade” alone). Do NOT include markdown body images — photos come from Rover Pull materialsImages (compact row thumbs)."
     },
     {
       "id": "timeline",
@@ -227,7 +227,7 @@
       "photoCapable": false,
       "astroKey": "timeline",
       "kind": "planning",
-      "writeInstructions": "Short natural human opener (e.g. how a typical project unfolds) — do NOT write \"Typical stages for {city}...\". Then stage bullets shaped `**Stage title** — duration` (e.g. Consult — same day; Permit approval — 1 week). Put timing ONLY in that duration cue — do NOT add \"or next-day\", \"usually\", or \"varies by city/county\" on the same bullet. Optional second clause only for real step description (what happens), not schedule hedging. Realistic timelines; no fabricated guarantees."
+      "writeInstructions": "Short natural human opener (e.g. how a typical project unfolds) — do NOT write \"Typical stages for {city}...\". Then stage bullets shaped `**Stage title**: duration` (e.g. Consult: same day; Permit approval: 1 week). Put timing ONLY in that duration cue — do NOT add \"or next-day\", \"usually\", or \"varies by city/county\" on the same bullet. Optional second clause only for real step description (what happens), not schedule hedging. Realistic timelines; no fabricated guarantees."
     },
     {
       "id": "beforeAfter",
@@ -409,7 +409,7 @@
       "photoCapable": false,
       "astroKey": null,
       "kind": "cost",
-      "writeInstructions": "Short natural intro (no city-stuffed lead) + 3–5 ballpark range bullets: **Tier** — $low–$high — what is typically included. Example: **Entry-level updates** — $2,500–$8,000 — fixtures and single-surface swaps. Honest local ranges only (not a fixed quote). Point to free estimate."
+      "writeInstructions": "Short natural intro (no city-stuffed lead) + 3–5 ballpark range bullets: **Tier** — $low–$high, what is typically included. Example: **Entry-level updates** — $2,500–$8,000, fixtures and single-surface swaps. Honest local ranges only (not a fixed quote). Point to free estimate."
     },
     {
       "id": "svcMaterials",
@@ -425,7 +425,7 @@
       "maxImages": 6,
       "astroKey": null,
       "kind": "materials",
-      "writeInstructions": "Short intro + exactly 3 or 6 material option bullets for this serviceName (never 4, 5, 7, or 8). Choose 6 when research/entities support six distinct products/methods; otherwise 3. Each bullet: **Product/system name** — then 1–2 sentences (why it matters for this service, climate or use cue from City context when available, durable outcome). Concrete product/system/method titles (not “professional grade” alone). Do NOT include markdown body images — photos come from Rover Pull materialsImages (compact row thumbs)."
+      "writeInstructions": "Short intro + exactly 3 or 6 material option bullets for this serviceName (never 4, 5, 7, or 8). Choose 6 when research/entities support six distinct products/methods; otherwise 3. Each bullet: **Product/system name**: then 1–2 sentences (why it matters for this service, climate or use cue from City context when available, durable outcome). Concrete product/system/method titles (not “professional grade” alone). Do NOT include markdown body images — photos come from Rover Pull materialsImages (compact row thumbs)."
     },
     {
       "id": "svcTimeline",
@@ -440,7 +440,7 @@
       "photoCapable": false,
       "astroKey": null,
       "kind": "planning",
-      "writeInstructions": "Short natural human opener (e.g. how a typical project unfolds) — do NOT write \"Typical stages for {city}...\". Then stage bullets shaped `**Stage title** — duration` (e.g. Consult — same day; Permit approval — 1 week). Put timing ONLY in that duration cue — do NOT add \"or next-day\", \"usually\", or \"varies by city/county\" on the same bullet. Optional second clause only for real step description (what happens), not schedule hedging. Realistic timelines; no fabricated guarantees."
+      "writeInstructions": "Short natural human opener (e.g. how a typical project unfolds) — do NOT write \"Typical stages for {city}...\". Then stage bullets shaped `**Stage title**: duration` (e.g. Consult: same day; Permit approval: 1 week). Put timing ONLY in that duration cue — do NOT add \"or next-day\", \"usually\", or \"varies by city/county\" on the same bullet. Optional second clause only for real step description (what happens), not schedule hedging. Realistic timelines; no fabricated guarantees."
     },
     {
       "id": "svcBeforeAfter",

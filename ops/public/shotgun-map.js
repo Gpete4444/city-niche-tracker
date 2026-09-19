@@ -9,7 +9,7 @@ import {
   clusterColor,
   memberClusterKey,
   parseClusterKey,
-} from './shotgun-waves.js?v=20260915nowave';
+} from './shotgun-clusters.js?v=20260915purge';
 
 const LEAFLET_LOAD_MS = 8000;
 let lastPaintTool = 'cluster';
@@ -220,6 +220,100 @@ function haversineMi(lng1, lat1, lng2, lat2) {
   return 2 * 3958.7613 * Math.asin(Math.min(1, Math.sqrt(a)));
 }
 
+const METERS_PER_MI = 1609.34;
+
+function localXyMeters(lat, lng, originLat, originLng) {
+  const x = (lng - originLng) * Math.cos((originLat * Math.PI) / 180) * 111320;
+  const y = (lat - originLat) * 110540;
+  return { x, y };
+}
+
+function distPointToSeg(px, py, ax, ay, bx, by) {
+  const dx = bx - ax;
+  const dy = by - ay;
+  const len2 = dx * dx + dy * dy;
+  if (len2 === 0) return Math.hypot(px - ax, py - ay);
+  let t = ((px - ax) * dx + (py - ay) * dy) / len2;
+  t = Math.max(0, Math.min(1, t));
+  return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
+}
+
+function pointInRing(lng, lat, ring) {
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const xi = Number(ring[i]?.[0]);
+    const yi = Number(ring[i]?.[1]);
+    const xj = Number(ring[j]?.[0]);
+    const yj = Number(ring[j]?.[1]);
+    if (![xi, yi, xj, yj].every(Number.isFinite)) continue;
+    const intersect = yi > lat !== yj > lat && lng < ((xj - xi) * (lat - yi)) / (yj - yi || 1e-12) + xi;
+    if (intersect) inside = !inside;
+  }
+  return inside;
+}
+
+function pointInGeometry(lng, lat, geometry) {
+  if (!geometry) return false;
+  if (geometry.type === 'Polygon') {
+    const rings = geometry.coordinates || [];
+    if (!rings.length || !pointInRing(lng, lat, rings[0])) return false;
+    for (let i = 1; i < rings.length; i += 1) {
+      if (pointInRing(lng, lat, rings[i])) return false;
+    }
+    return true;
+  }
+  if (geometry.type === 'MultiPolygon') {
+    for (const poly of geometry.coordinates || []) {
+      if (pointInGeometry(lng, lat, { type: 'Polygon', coordinates: poly })) return true;
+    }
+  }
+  return false;
+}
+
+function iterOuterRings(geometry, fn) {
+  if (!geometry) return;
+  if (geometry.type === 'Polygon') {
+    fn(geometry.coordinates?.[0] || []);
+    return;
+  }
+  if (geometry.type === 'MultiPolygon') {
+    for (const poly of geometry.coordinates || []) fn(poly?.[0] || []);
+  }
+}
+
+/** True if a GeoJSON polygon intersects a geographic disk (origin lat/lng, radius meters). */
+function polygonTouchesDisk(origin, radiusM, geometry) {
+  if (!origin || !geometry || !Number.isFinite(radiusM) || radiusM <= 0) return false;
+  const oLat = Number(origin.lat);
+  const oLng = Number(origin.lng);
+  if (!Number.isFinite(oLat) || !Number.isFinite(oLng)) return false;
+  if (pointInGeometry(oLng, oLat, geometry)) return true;
+  let hit = false;
+  iterOuterRings(geometry, (ring) => {
+    if (hit || !Array.isArray(ring) || ring.length < 2) return;
+    for (let i = 0; i < ring.length; i += 1) {
+      const a = ring[i];
+      const b = ring[(i + 1) % ring.length];
+      if (!Array.isArray(a) || a.length < 2) continue;
+      const lng = Number(a[0]);
+      const lat = Number(a[1]);
+      if (Number.isFinite(lng) && Number.isFinite(lat)) {
+        if (haversineMi(oLng, oLat, lng, lat) * METERS_PER_MI <= radiusM) {
+          hit = true;
+          return;
+        }
+      }
+      if (!Array.isArray(b) || b.length < 2) continue;
+      const axy = localXyMeters(lat, lng, oLat, oLng);
+      const bxy = localXyMeters(Number(b[1]), Number(b[0]), oLat, oLng);
+      if (distPointToSeg(0, 0, axy.x, axy.y, bxy.x, bxy.y) <= radiusM) {
+        hit = true;
+      }
+    }
+  });
+  return hit;
+}
+
 function featureMiles(feature, center) {
   if (!center) return null;
   const geom = feature?.geometry;
@@ -307,24 +401,18 @@ function memberAssigned(info) {
   return info.role === 'hub' || info.role === 'member' || parseClusterKey(info.clusterKey) >= 1;
 }
 
-function waveBands(workspace) {
-  const cities = workspace?.settings?.bands?.cities
-    || workspace?.settings?.bands?.wave1
-    || { min: 2000, max: 60000 };
-  return {
-    wave1: cities,
-    wave2: cities,
-    cities,
-  };
+function zoneBands(workspace) {
+  const cities = workspace?.settings?.bands?.cities || { min: 2000, max: 60000 };
+  return { cities };
 }
 
 function combinedPopDefaults(workspace) {
-  const bands = waveBands(workspace);
-  const mins = [Number(bands.wave1.min), Number(bands.wave2.min)].filter(Number.isFinite);
-  const maxs = [Number(bands.wave1.max), Number(bands.wave2.max)].filter(Number.isFinite);
+  const bands = zoneBands(workspace);
+  const min = Number(bands.cities.min);
+  const max = Number(bands.cities.max);
   return {
-    min: mins.length ? Math.min(...mins) : 2000,
-    max: maxs.length ? Math.max(...maxs) : 60000,
+    min: Number.isFinite(min) ? min : 2000,
+    max: Number.isFinite(max) ? max : 60000,
   };
 }
 
@@ -335,6 +423,7 @@ function combinedPopDefaults(workspace) {
  *   workspace: object,
  *   slot?: HTMLElement,
  *   onPaint?: (city: string, state: string, payload: object) => Promise<void> | void,
+ *   onPaintMany?: (cities: {city:string,state:string}[], payload: object) => Promise<void> | void,
  *   onZoneMilesChange?: (miles: number, range?: object) => Promise<void> | void,
  *   onHandle?: (handle: object) => void,
  * }} opts
@@ -345,6 +434,7 @@ export async function mountShotgunMap({
   workspace,
   slot,
   onPaint,
+  onPaintMany,
   onZoneMilesChange,
   onHandle,
 }) {
@@ -393,7 +483,7 @@ export async function mountShotgunMap({
   let map = null;
   let placesLayer = null;
   let canvasRenderer = null;
-  let waveRingLayers = [];
+  let zoneRingLayers = [];
   let members = membersMapFromWorkspace(workspace);
   let settingsWs = workspace;
   let zoneMiles = clampClusterMiles(
@@ -406,9 +496,10 @@ export async function mountShotgunMap({
   let labelTimer = null;
   let popTimer = null;
   let radiusTimer = null;
-  let loadedMinPop = Infinity;
   let loadedMiles = 0;
   let placesFetchGen = 0;
+  const SELECT_PX_MIN = 8;
+  let selectDrag = null;
   const permanentLabelLayers = new Set();
   const layerByKey = new Map();
 
@@ -440,16 +531,16 @@ export async function mountShotgunMap({
     const lat = center[1];
     const lng = center[0];
     const radius = outerMiles() * 1609.34;
-    if (waveRingLayers[0]) {
+    if (zoneRingLayers[0]) {
       try {
-        waveRingLayers[0].setLatLng([lat, lng]);
-        waveRingLayers[0].setRadius(radius);
-        waveRingLayers[0].setStyle({ color: '#334155', opacity: 0.9, weight: 3 });
+        zoneRingLayers[0].setLatLng([lat, lng]);
+        zoneRingLayers[0].setRadius(radius);
+        zoneRingLayers[0].setStyle({ color: '#334155', opacity: 0.9, weight: 3 });
       } catch {
         /* ignore */
       }
     } else {
-      waveRingLayers[0] = Lref.circle([lat, lng], {
+      zoneRingLayers[0] = Lref.circle([lat, lng], {
         radius,
         color: '#334155',
         weight: 3,
@@ -458,11 +549,11 @@ export async function mountShotgunMap({
         interactive: false,
       }).addTo(map);
     }
-    while (waveRingLayers.length > 1) {
+    while (zoneRingLayers.length > 1) {
       try {
-        map.removeLayer(waveRingLayers.pop());
+        map.removeLayer(zoneRingLayers.pop());
       } catch {
-        waveRingLayers.pop();
+        zoneRingLayers.pop();
       }
     }
   }
@@ -515,13 +606,35 @@ export async function mountShotgunMap({
     return popInMapRange(pop);
   }
 
+  function featureMilesForKey(key) {
+    const layers = layerByKey.get(key) || [];
+    for (const lyr of layers) {
+      const miles = Number(lyr?.feature?.properties?._sgMiles);
+      if (Number.isFinite(miles)) return miles;
+    }
+    return NaN;
+  }
+
+  function pruneLocalMembersOutsideRadius() {
+    const cap = outerMiles() + 0.5;
+    const hubKey = placeKey(hub?.city, hub?.state);
+    for (const key of [...members.keys()]) {
+      if (hubKey && key === hubKey) continue;
+      const info = members.get(key);
+      if (!info || parseClusterKey(info.clusterKey) < 1) continue;
+      const miles = featureMilesForKey(key);
+      if (!Number.isFinite(miles)) continue;
+      if (miles > cap) members.delete(key);
+    }
+  }
+
   function styleFor(feature, { selected = false } = {}) {
     const p = feature?.properties || {};
     const key = placeKey(p.name || p.city, p.state || hub.state);
     const info = members.get(key) || {};
     const pop = Number(p.population);
     const miles = Number(p._sgMiles);
-    const inWave = inBandFor(pop) && Number.isFinite(miles) && miles <= outerMiles() + 0.5;
+    const inZone = inBandFor(pop) && Number.isFinite(miles) && miles <= outerMiles() + 0.5;
     const isHub = info.role === 'hub';
     const ck = parseClusterKey(info.clusterKey);
     if (isHub) {
@@ -544,7 +657,7 @@ export async function mountShotgunMap({
         fillRule: 'nonzero',
       };
     }
-    if (!inWave) {
+    if (!inZone) {
       return {
         color: selected ? '#991b1b' : '#dc2626',
         weight: selected ? 2.5 : 2,
@@ -707,7 +820,10 @@ export async function mountShotgunMap({
     none.setAttribute('aria-label', clearTip);
     none.setAttribute('data-tip', clearTip);
     none.classList.toggle('active', paintSlot === 0);
-    none.addEventListener('click', () => setPaintSlot(0));
+    none.addEventListener('click', () => {
+      setPaintTool('cluster');
+      setPaintSlot(0);
+    });
     paletteEl.appendChild(none);
     const grid = document.createElement('div');
     grid.className = 'sg-map-palette-grid';
@@ -724,7 +840,10 @@ export async function mountShotgunMap({
         btn.style.color = '#fff';
       }
       btn.classList.toggle('active', paintSlot === n);
-      btn.addEventListener('click', () => setPaintSlot(n));
+      btn.addEventListener('click', () => {
+        setPaintTool('cluster');
+        setPaintSlot(n);
+      });
       grid.appendChild(btn);
     }
     paletteEl.appendChild(grid);
@@ -811,13 +930,9 @@ export async function mountShotgunMap({
 
   async function loadPlaces({ force = false } = {}) {
     if (!map || !Lref) return;
-    const { min } = readMapPopRange();
-    const need = Number.isFinite(min) ? min : 0;
     const miles = outerMiles();
     if (
       !force &&
-      Number.isFinite(loadedMinPop) &&
-      need >= loadedMinPop &&
       Number.isFinite(loadedMiles) &&
       miles <= loadedMiles &&
       placesLayer
@@ -830,7 +945,7 @@ export async function mountShotgunMap({
     const bbox = bboxFromCenter(center, miles);
     const qs = new URLSearchParams({
       layer: 'places',
-      minPop: String(need),
+      minPop: '0',
     });
     if (bbox) qs.set('bbox', bbox.map((n) => n.toFixed(5)).join(','));
 
@@ -867,7 +982,6 @@ export async function mountShotgunMap({
     permanentLabelLayers.clear();
     layerByKey.clear();
 
-    loadedMinPop = Math.min(Number.isFinite(loadedMinPop) ? loadedMinPop : need, need);
     loadedMiles = Math.max(Number.isFinite(loadedMiles) ? loadedMiles : miles, miles);
 
     if (features.length) {
@@ -896,12 +1010,9 @@ export async function mountShotgunMap({
   }
 
   async function applyPaint(city, st) {
-    const range = readMapPopRange();
     const payload = {
       tool: paintTool,
       slot: paintSlot,
-      minPop: range.min,
-      maxPop: Number.isFinite(range.max) ? range.max : 50_000_000,
       radiusMiles: outerMiles(),
     };
     try {
@@ -916,6 +1027,138 @@ export async function mountShotgunMap({
     }
   }
 
+  function selectCircleColor() {
+    if (paintSlot >= 1) return clusterColor(paintSlot) || '#334155';
+    return '#64748b';
+  }
+
+  function citiesInSelectCircle(origin, radiusM) {
+    if (!origin || !Number.isFinite(radiusM) || radiusM <= 0) return [];
+    const hubKey = placeKey(hub?.city, hub?.state);
+    const cap = outerMiles() + 0.5;
+    const seen = new Set();
+    const out = [];
+    for (const [key, layers] of layerByKey) {
+      if (!key || key === hubKey || seen.has(key)) continue;
+      let touched = false;
+      let picked = null;
+      for (const lyr of layers || []) {
+        const feature = lyr?.feature;
+        if (!feature) continue;
+        const p = feature.properties || {};
+        if (!popInMapRange(p.population)) continue;
+        const miles = Number(p._sgMiles);
+        if (Number.isFinite(miles) && miles > cap) continue;
+        if (polygonTouchesDisk(origin, radiusM, feature.geometry)) {
+          touched = true;
+          picked = p;
+          break;
+        }
+      }
+      if (!touched || !picked) continue;
+      seen.add(key);
+      out.push({
+        city: picked.name || picked.city,
+        state: picked.state || hub.state,
+      });
+    }
+    return out.filter((c) => c.city && c.state);
+  }
+
+  function clearSelectCircle() {
+    if (selectDrag?.layer && map) {
+      try {
+        map.removeLayer(selectDrag.layer);
+      } catch {
+        /* ignore */
+      }
+    }
+    selectDrag = null;
+  }
+
+  async function applyPaintMany(cities) {
+    if (!cities.length) return;
+    const payload = {
+      tool: 'cluster',
+      slot: paintSlot,
+      radiusMiles: outerMiles(),
+    };
+    try {
+      if (onPaintMany) {
+        await onPaintMany(cities, payload);
+      } else if (onPaint) {
+        for (const c of cities) {
+          await onPaint(c.city, c.state, payload);
+        }
+      } else {
+        return;
+      }
+      shotgunMapStatus(mapHost, '');
+    } catch (error) {
+      shotgunMapStatus(mapHost, error?.message || 'Could not update cities');
+    }
+  }
+
+  function onMapContextMenu(e) {
+    e.preventDefault();
+  }
+
+  function onSelectMouseDown(e) {
+    if (e.originalEvent?.button !== 2 || !map || !Lref) return;
+    e.originalEvent.preventDefault();
+    clearSelectCircle();
+    const origin = e.latlng;
+    const layer = Lref.circle(origin, {
+      radius: 1,
+      color: selectCircleColor(),
+      weight: 2,
+      opacity: 0.95,
+      fillColor: selectCircleColor(),
+      fillOpacity: 0.12,
+      interactive: false,
+    }).addTo(map);
+    selectDrag = {
+      origin,
+      layer,
+      startX: e.originalEvent.clientX,
+      startY: e.originalEvent.clientY,
+    };
+  }
+
+  function onSelectMouseMove(e) {
+    if (!selectDrag?.layer || !e.latlng) return;
+    const radius = selectDrag.origin.distanceTo(e.latlng);
+    try {
+      selectDrag.layer.setRadius(Math.max(1, radius));
+      selectDrag.layer.setStyle({ color: selectCircleColor(), fillColor: selectCircleColor() });
+    } catch {
+      /* ignore */
+    }
+  }
+
+  function onSelectMouseUp(e) {
+    if (!selectDrag) return;
+    const startX = selectDrag.startX;
+    const startY = selectDrag.startY;
+    const origin = selectDrag.origin;
+    const layer = selectDrag.layer;
+    const ev = e?.originalEvent || e;
+    const dx = (ev?.clientX ?? startX) - startX;
+    const dy = (ev?.clientY ?? startY) - startY;
+    const px = Math.hypot(dx, dy);
+    let radiusM = 0;
+    try {
+      radiusM = Number(layer?.getRadius?.()) || 0;
+    } catch {
+      radiusM = 0;
+    }
+    clearSelectCircle();
+    if (px < SELECT_PX_MIN || radiusM < 50) return;
+    const cities = citiesInSelectCircle(origin, radiusM);
+    if (!cities.length) return;
+    void applyPaintMany(cities);
+  }
+
   const popRangeForCommit = () => {
     const range = readMapPopRange();
     return {
@@ -926,7 +1169,7 @@ export async function mountShotgunMap({
   const commitZoneMiles = () => {
     clearTimeout(radiusTimer);
     radiusTimer = setTimeout(() => {
-      void loadPlaces();
+      if (outerMiles() > loadedMiles) void loadPlaces();
       void onZoneMilesChange?.(zoneMiles, popRangeForCommit());
     }, 300);
   };
@@ -934,6 +1177,7 @@ export async function mountShotgunMap({
     zoneMiles = clampClusterMiles(zoneMilesEl?.value);
     syncZoneSliderDom();
     applyZoneRing();
+    pruneLocalMembersOutsideRadius();
     restyleAll();
     commitZoneMiles();
   };
@@ -941,7 +1185,6 @@ export async function mountShotgunMap({
     clearTimeout(popTimer);
     popTimer = setTimeout(() => {
       restyleAll();
-      void loadPlaces();
       void onZoneMilesChange?.(zoneMiles, popRangeForCommit());
     }, 300);
   };
@@ -956,14 +1199,19 @@ export async function mountShotgunMap({
       return;
     }
     if (e.key === '0') {
+      setPaintTool('cluster');
       setPaintSlot(10);
       return;
     }
     if (e.key === 'Backspace' || e.key === 'Escape' || e.key === 'x' || e.key === 'X') {
+      setPaintTool('cluster');
       setPaintSlot(0);
       return;
     }
-    if (/^[1-9]$/.test(e.key)) setPaintSlot(Number(e.key));
+    if (/^[1-9]$/.test(e.key)) {
+      setPaintTool('cluster');
+      setPaintSlot(Number(e.key));
+    }
   };
   toolEls().forEach((b) => b.addEventListener('click', onToolClick));
   document.addEventListener('keydown', onKeyPaint);
@@ -1009,13 +1257,22 @@ export async function mountShotgunMap({
       labelDecEl?.removeEventListener('click', onLabelDec);
       zoneMilesEl?.removeEventListener('input', onZoneSliderInput);
       try {
+        map?.getContainer()?.removeEventListener('contextmenu', onMapContextMenu);
+        map?.off('mousedown', onSelectMouseDown);
+        map?.off('mousemove', onSelectMouseMove);
+      } catch {
+        /* ignore */
+      }
+      window.removeEventListener('mouseup', onSelectMouseUp);
+      clearSelectCircle();
+      try {
         map?.remove();
       } catch {
         /* ignore */
       }
       map = null;
       placesLayer = null;
-      waveRingLayers = [];
+      zoneRingLayers = [];
     },
     invalidateSize() {
       bump();
@@ -1029,6 +1286,7 @@ export async function mountShotgunMap({
       hub = nextWorkspace?.draft?.hub || hub;
       members = membersMapFromWorkspace(nextWorkspace);
       zoneMiles = readZoneMilesFromDraft(nextWorkspace);
+      pruneLocalMembersOutsideRadius();
       syncZoneSliderDom();
       applyZoneRing();
       restyleAll();
@@ -1072,6 +1330,10 @@ export async function mountShotgunMap({
     setTimeout(bump, 80);
 
     map.on('zoomend moveend', scheduleLabelUpdate);
+    map.getContainer()?.addEventListener('contextmenu', onMapContextMenu);
+    map.on('mousedown', onSelectMouseDown);
+    map.on('mousemove', onSelectMouseMove);
+    window.addEventListener('mouseup', onSelectMouseUp);
     await loadPlaces({ force: true });
     if (destroyed) return handle;
 

@@ -10,7 +10,7 @@ import { loadAcceptedSiteConfig } from './content-markdown.mjs';
 import { lookupPopulation } from './census.mjs';
 
 const WIKI_UA = 'RoverLocalSEO/1.0 (city-context; local service site builder)';
-const EXTRACT_MAX = 900;
+const EXTRACT_MAX = 1600;
 const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 const STATE_ABBR_TO_NAME = {
@@ -117,6 +117,22 @@ function extractClimateHints(text) {
   return hints;
 }
 
+function extractHousingHints(text) {
+  const t = String(text || '');
+  const hints = [];
+  const patterns = [
+    /\b(founded|incorporated|census-designated|mid-century|ranch|suburban|residential|manufactured|housing|population of)\b[^.!?]{0,100}/gi,
+  ];
+  for (const re of patterns) {
+    let m;
+    while ((m = re.exec(t)) !== null && hints.length < 4) {
+      const phrase = m[0].replace(/\s+/g, ' ').trim();
+      if (phrase.length > 10 && !hints.includes(phrase)) hints.push(phrase);
+    }
+  }
+  return hints;
+}
+
 function extractNeighborhoodHints(text) {
   const t = String(text || '');
   const hints = [];
@@ -138,6 +154,29 @@ function extractNeighborhoodHints(text) {
   return hints;
 }
 
+async function fetchWikiIntroExtract(title) {
+  if (!title) return '';
+  const url = `https://en.wikipedia.org/w/api.php?action=query&prop=extracts&exintro=1&explaintext=1&format=json&redirects=1&titles=${encodeURIComponent(title)}`;
+  try {
+    const res = await fetch(url, {
+      headers: {
+        'User-Agent': WIKI_UA,
+        Accept: 'application/json',
+      },
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!res.ok) return '';
+    const data = await res.json();
+    const pages = data?.query?.pages || {};
+    const first = Object.values(pages)[0];
+    const extract = String(first?.extract || '').trim();
+    if (!extract || first?.missing != null) return '';
+    return extract.length > EXTRACT_MAX ? `${extract.slice(0, EXTRACT_MAX).trim()}…` : extract;
+  } catch {
+    return '';
+  }
+}
+
 async function fetchWikiSummary(title) {
   if (!title) return { ok: false, note: 'empty title' };
   const url = `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(title.replace(/ /g, '_'))}`;
@@ -155,8 +194,23 @@ async function fetchWikiSummary(title) {
     if (data.type === 'disambiguation') {
       return { ok: false, note: 'disambiguation', title };
     }
-    const extract = String(data.extract || '').trim();
+    let extract = String(data.extract || '').trim();
     if (!extract) return { ok: false, note: 'empty extract', title };
+    const pageUrl = data.content_urls?.desktop?.page || null;
+    let climateHints = extractClimateHints(extract);
+    let housingHints = extractHousingHints(extract);
+    let neighborhoodHints = extractNeighborhoodHints(extract);
+    if (!climateHints.length && !housingHints.length) {
+      const longer = await fetchWikiIntroExtract(title);
+      if (longer) {
+        extract = longer;
+        climateHints = extractClimateHints(extract);
+        housingHints = extractHousingHints(extract);
+        neighborhoodHints = neighborhoodHints.length
+          ? neighborhoodHints
+          : extractNeighborhoodHints(extract);
+      }
+    }
     const truncated =
       extract.length > EXTRACT_MAX ? `${extract.slice(0, EXTRACT_MAX).trim()}…` : extract;
     return {
@@ -164,9 +218,10 @@ async function fetchWikiSummary(title) {
       title: data.title || title,
       description: data.description || null,
       extract: truncated,
-      url: data.content_urls?.desktop?.page || null,
-      climateHints: extractClimateHints(extract),
-      neighborhoodHints: extractNeighborhoodHints(extract),
+      url: pageUrl,
+      climateHints,
+      housingHints,
+      neighborhoodHints,
     };
   } catch (err) {
     return { ok: false, note: err?.message || 'wiki fetch failed', title };
@@ -201,9 +256,10 @@ function placeNamesFromConfig(config) {
 export function cityContextPromptRules() {
   return `## City context briefs (reference only)
 - Use the City context JSON below for local flavor: climate, geography, housing eras, named neighborhoods **when listed**.
+- Prefer sourced cues (wiki url, census pop, field-research items with sourceUrl). Empty hints stay empty — do **not** invent neighborhoods or soils.
 - Do **not** invent demographics, awards, or neighborhoods not in the brief or site-config.
 - Do **not** copy Wikipedia sentences verbatim — paraphrase into contractor speech tied to the niche.
-- Each location FILE must be **distinct** (different local notes / housing cues); never clone suburb copy.
+- Each location FILE must be **distinct** (different local notes / housing cues); never clone suburb copy or stitch two other cities together.
 - Materials/methods: name concrete products or methods suited to local climate (not “professional grade” alone).
 - Location pages: ~600+ words across loc* sections; Accept enforces thin / near-duplicate location bodies.`;
 }
@@ -230,6 +286,7 @@ export function compactCityContextForPrompt(pkg) {
             description: p.wiki.description,
             extract: p.wiki.extract,
             climateHints: p.wiki.climateHints || [],
+            housingHints: p.wiki.housingHints || [],
             neighborhoodHints: p.wiki.neighborhoodHints || [],
             note: p.wiki.ok === false ? p.wiki.note : undefined,
           }
@@ -309,6 +366,7 @@ export async function buildCityContextPackage(candidateId, opts = {}) {
             extract: wikiResult.extract,
             url: wikiResult.url,
             climateHints: wikiResult.climateHints || [],
+            housingHints: wikiResult.housingHints || [],
             neighborhoodHints: wikiResult.neighborhoodHints || [],
           }
         : {

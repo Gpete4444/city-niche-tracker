@@ -22,7 +22,7 @@ import { getCandidateShell } from './candidates.mjs';
 import {
   annotateMembersWithPipeline,
   applyHubScanToDraft,
-  applyWaveCaps,
+  applyCityCaps,
   censusTableForPrompt,
   emptyShotgunDraft,
   ensureLockedHubOnDraft,
@@ -30,9 +30,11 @@ import {
   findShotgunMember,
   formatHubHintTable,
   hubPopAllowed,
-  inPopBand,
   isPackMember,
   applyMemberPaint,
+  applyMemberPaintMany,
+  pruneMembersOutsideZone,
+  centroidInsideZone,
   setZoneHub,
   clusterName,
   listViableHubs,
@@ -42,7 +44,7 @@ import {
   mergePickerHubs,
   normalizeClusterRole,
   normalizeShotgunSettings,
-  parseAssignWavesJson,
+  parseAssignCitiesJson,
   parseFindHubsJson,
   placeKey,
   saveShotgunDraft,
@@ -52,6 +54,13 @@ import {
   clampClusterMiles,
 } from './shotgun.mjs';
 import { shotgunRingPools, findPlaceFeatureLocal, placeInZoneRadius } from './geo-neighbors.mjs';
+import {
+  fillGeneratePackRowChunks,
+  formatGeneratePackSiblings,
+  GENERATE_PACK_CHUNK,
+  generatePackChunkCount,
+  generatePackChunkMaxTokens,
+} from './discovery-generate-pack-chunks.mjs';
 
 const ROOT = process.cwd();
 
@@ -129,12 +138,14 @@ export function ensureHubScan(batchId) {
     const withLock = ensureLockedHubOnDraft(draft);
     if (withLock !== draft) current = saveShotgunDraft(dir, withLock);
   }
-  const hasWaveLists = (current.viableHubs || []).some((h) => Array.isArray(h.wave1));
+  const hasCityLists = (current.viableHubs || []).some(
+    (h) => Array.isArray(h.innerCities) || Array.isArray(h.wave1),
+  );
   const scanComplete =
     Boolean(current.hubScan) &&
     Array.isArray(current.viableHubs) &&
     Array.isArray(current.rejectedHubs) &&
-    (hasWaveLists || !(current.viableHubs || []).length);
+    (hasCityLists || !(current.viableHubs || []).length);
   if (scanComplete) {
     return {
       batch,
@@ -191,14 +202,12 @@ export function buildFindHubsPrompt(batchId, { api = false } = {}) {
     HUB_BAND: `${s.bands.hub.min}–${s.bands.hub.max ?? '∞'}`,
     CITIES_BAND: `${s.bands.cities.min}–${s.bands.cities.max ?? '∞'}`,
     CLUSTER_MILES: String(s.clusterMiles),
-    WAVE1_BAND: `${s.bands.cities.min}–${s.bands.cities.max ?? '∞'}`,
-    WAVE2_BAND: `${s.bands.cities.min}–${s.bands.cities.max ?? '∞'}`,
     INNER_MILES: String(s.clusterMiles),
     OUTER_MILES: String(s.clusterMiles),
   });
 }
 
-export function buildAssignWavesPrompt(batchId, { api = false } = {}) {
+export function buildAssignCitiesPrompt(batchId, { api = false } = {}) {
   const { batch, draft } = draftFor(batchId);
   const f = normalizeFilters(batch.filters || {});
   const s = normalizeShotgunSettings(draft);
@@ -210,12 +219,11 @@ export function buildAssignWavesPrompt(batchId, { api = false } = {}) {
   const rings = shotgunRingPools(hub.city, hub.state, {
     innerMiles: s.clusterMiles,
     outerMiles: s.clusterMiles,
-    wave1: s.bands.cities,
-    wave2: s.bands.cities,
+    citiesBand: s.bands.cities,
   });
   const file = api
-    ? 'prompts/claude-shotgun-assign-waves-api.md'
-    : 'prompts/claude-shotgun-assign-waves.md';
+    ? 'prompts/claude-shotgun-assign-cities-api.md'
+    : 'prompts/claude-shotgun-assign-cities.md';
   return {
     prompt: fillPrompt(file, {
       FILTER_BRIEF: buildFilterBrief(f),
@@ -225,8 +233,6 @@ export function buildAssignWavesPrompt(batchId, { api = false } = {}) {
       INNER_MILES: String(s.clusterMiles),
       OUTER_MILES: String(s.clusterMiles),
       CLUSTER_MILES: String(s.clusterMiles),
-      WAVE1_BAND: `${s.bands.cities.min}–${s.bands.cities.max ?? '∞'}`,
-      WAVE2_BAND: `${s.bands.cities.min}–${s.bands.cities.max ?? '∞'}`,
       CITIES_BAND: `${s.bands.cities.min}–${s.bands.cities.max ?? '∞'}`,
       CENSUS_TABLE: censusTableForPrompt(rings),
       KNOWN_CANDIDATES: shotgunKnown(batch),
@@ -235,7 +241,7 @@ export function buildAssignWavesPrompt(batchId, { api = false } = {}) {
   };
 }
 
-function pinnedRows(niche, members) {
+export function pinnedRows(niche, members) {
   return (members || [])
     .filter((m) => isPackMember(m))
     .filter((m) => !m.candidateId)
@@ -249,16 +255,13 @@ function pinnedRows(niche, members) {
     });
 }
 
-export function buildGeneratePackPrompt(batchId, { api = false } = {}) {
+export function buildGeneratePackPrompt(batchId, { api = false, pinnedRows: pinned = null } = {}) {
   const { batch, dir, draft } = draftFor(batchId);
   const f = normalizeFilters(batch.filters || {});
   const niche = nicheOf(batch, draft);
   const annotated = annotateMembersWithPipeline(niche, draft.members || []);
-  const rows = pinnedRows(niche, annotated);
+  const rows = Array.isArray(pinned) ? pinned : pinnedRows(niche, annotated);
   const csv = rowsToCsv(rows, DISCOVERY_CLAUDE_COLUMNS);
-  const siblings = annotated
-    .map((m) => `${m.city}, ${m.state} (${m.role})`)
-    .join('\n');
   const file = api
     ? 'prompts/claude-shotgun-generate-pack-api.md'
     : 'prompts/claude-shotgun-generate-pack.md';
@@ -266,7 +269,7 @@ export function buildGeneratePackPrompt(batchId, { api = false } = {}) {
     FILTER_BRIEF: buildFilterBrief(f),
     NICHE: niche,
     PINNED_CSV: csv.trimEnd(),
-    SIBLING_CITIES: siblings || '(none)',
+    SIBLING_CITIES: formatGeneratePackSiblings(annotated),
     OUTPUT_BASENAME: batch.outputBasename || `shotgun-${batch.id}`,
     CLAUDE_OUTPUT_CSV: batch.files?.claudeCsv || 'shotgun-claude.csv',
     BATCH_DIR: dir,
@@ -284,25 +287,70 @@ export function getShotgunCostPreview(batchId, act) {
     title = 'Find hubs with Claude?';
     what =
       'Claude proposes hubs plus Cluster Cities. Rover Census-matches places and miles. Census leftovers stay on the map.';
-  } else if (act === 'shotgun-assign-waves') {
-    prompt = buildAssignWavesPrompt(batchId, { api: true }).prompt;
+  } else if (act === 'shotgun-assign-cities' || act === 'shotgun-assign-waves') {
+    prompt = buildAssignCitiesPrompt(batchId, { api: true }).prompt;
+    act = 'shotgun-assign-cities';
     title = 'Assign cluster cities with Claude?';
     what = 'Claude assigns Hub / Cluster Cities from the Census table. You can still click the map.';
   } else {
-    prompt = buildGeneratePackPrompt(batchId, { api: true });
+    const { draft } = draftFor(batchId);
+    const niche = nicheOf(batch, draft);
+    const annotated = annotateMembersWithPipeline(niche, draft.members || []);
+    const pinned = pinnedRows(niche, annotated);
+    const chunks = generatePackChunkCount(pinned.length);
+    prompt = buildGeneratePackPrompt(batchId, {
+      api: true,
+      pinnedRows: pinned.slice(0, GENERATE_PACK_CHUNK),
+    });
     title = 'Generate cluster pack with Claude?';
     what =
       'Claude fills copy for this hub’s Hub + Cluster Cities only. Other hubs in the picker are not packed. Existing pipeline cities are merged, not duplicated.';
     act = 'shotgun-generate-pack';
+    const inputTokens = estimateTokensFromText(prompt) * chunks;
+    const perOut = generatePackChunkMaxTokens(Math.min(GENERATE_PACK_CHUNK, pinned.length || 1));
+    const outputTokens = perOut * chunks;
+    const priced = estimateClaudeCostUsd({
+      inputTokens,
+      outputTokens,
+      model: defaultModel(),
+    });
+    const lastCost =
+      batch.lastCosts?.[act] ??
+      (act === 'shotgun-assign-cities' ? batch.lastCosts?.['shotgun-assign-waves'] : null) ??
+      null;
+    const callsNote = chunks > 1 ? `${chunks} Claude calls` : '1 Claude call';
+    return {
+      act,
+      provider: 'anthropic',
+      title,
+      whatItDoes: what,
+      estimateLabel:
+        lastCost != null
+          ? `Last run: ${formatUsd(lastCost)}`
+          : `~${formatUsd(priced.costUsd)} (${callsNote} · ${inputTokens.toLocaleString()} in + ~${outputTokens.toLocaleString()} out tokens)`,
+      estimateUsdLow: lastCost ?? priced.costUsd,
+      estimateUsdHigh: lastCost ?? priced.costUsd,
+      estimateDetail:
+        lastCost != null ? 'Using your last cost for this step.' : priced.costNote,
+      model: defaultModel(),
+      confirmLabel:
+        lastCost != null
+          ? `${title.replace('?', '')} (est. ${formatUsd(lastCost)})`
+          : `${title.replace('?', '')} (est. ${formatUsd(priced.costUsd)})`,
+      freeFallback: 'Prefer Copy & paste? Switch the header toggle.',
+    };
   }
   const inputTokens = estimateTokensFromText(prompt);
-  const outputTokens = act === 'shotgun-generate-pack' ? 4000 : 2000;
+  const outputTokens = 2000;
   const priced = estimateClaudeCostUsd({
     inputTokens,
     outputTokens,
     model: defaultModel(),
   });
-  const lastCost = batch.lastCosts?.[act] ?? null;
+  const lastCost =
+    batch.lastCosts?.[act] ??
+    (act === 'shotgun-assign-cities' ? batch.lastCosts?.['shotgun-assign-waves'] : null) ??
+    null;
   return {
     act,
     provider: 'anthropic',
@@ -397,19 +445,18 @@ export function clearShotgunHub(batchId) {
   });
 }
 
-export function importAssignWavesText(batchId, text) {
+export function importAssignCitiesText(batchId, text) {
   const { dir, draft, batch } = draftFor(batchId);
   if (!draft.hub?.city) {
     throw Object.assign(new Error('Pick a hub before Assign cluster cities'), { status: 400 });
   }
-  const parsed = parseAssignWavesJson(text);
-  const capped = applyWaveCaps(parsed);
+  const parsed = parseAssignCitiesJson(text);
+  const capped = applyCityCaps(parsed);
   const s = normalizeShotgunSettings(draft);
   const rings = shotgunRingPools(draft.hub.city, draft.hub.state, {
     innerMiles: s.clusterMiles,
     outerMiles: s.clusterMiles,
-    wave1: s.bands.cities,
-    wave2: s.bands.cities,
+    citiesBand: s.bands.cities,
   });
   const allow = new Set(
     [placeKey(rings.primary.name, rings.primary.state)].concat(
@@ -422,11 +469,10 @@ export function importAssignWavesText(batchId, text) {
     city: rings.primary.name,
     state: rings.primary.state,
   };
-  const wave1 = capped.wave1.filter(keep);
-  const wave2 = capped.wave2.filter(keep);
+  const cities = (capped.cities || []).filter(keep);
   const members = annotateMembersWithPipeline(
     nicheOf(batch, draft),
-    membersFromAssign({ main, wave1, wave2 }, rings),
+    membersFromAssign({ main, cities }, rings),
   );
   return saveShotgunDraft(dir, {
     ...draft,
@@ -484,10 +530,10 @@ export async function runFindHubsJob(batchId, { jobId, signal } = {}) {
   return { ok: true, ...result, costUsd: costUsd ?? null, usage };
 }
 
-export async function runAssignWavesJob(batchId, { jobId, signal } = {}) {
-  const { prompt } = buildAssignWavesPrompt(batchId, { api: true });
+export async function runAssignCitiesJob(batchId, { jobId, signal } = {}) {
+  const { prompt } = buildAssignCitiesPrompt(batchId, { api: true });
   const tick = (detail, done) => updateLightJobProgress(jobId, { detail, done, total: 2 });
-  tick('Assigning waves', 1);
+  tick('Assigning cluster cities', 1);
   throwIfAborted(signal);
   const { text, costUsd, usage, truncated } = await claudeMessages({
     user: prompt,
@@ -500,37 +546,44 @@ export async function runAssignWavesJob(batchId, { jobId, signal } = {}) {
   }
   if (costUsd != null) {
     recordRoverApiSpend('anthropic', costUsd);
-    patchBatchMeta(batchId, { lastCosts: { 'shotgun-assign-waves': costUsd } });
+    patchBatchMeta(batchId, { lastCosts: { 'shotgun-assign-cities': costUsd } });
   }
   tick('Updating map', 2);
-  const draft = importAssignWavesText(batchId, text);
+  const draft = importAssignCitiesText(batchId, text);
   return { ok: true, draft, costUsd: costUsd ?? null, usage };
 }
 
 export async function runShotgunGeneratePackJob(batchId, { jobId, signal } = {}) {
-  const prompt = buildGeneratePackPrompt(batchId, { api: true });
+  const { batch, draft } = draftFor(batchId);
+  const niche = nicheOf(batch, draft);
+  const annotated = annotateMembersWithPipeline(niche, draft.members || []);
+  const pinned = pinnedRows(niche, annotated);
   const tick = (detail, done) => updateLightJobProgress(jobId, { detail, done, total: 2 });
-  tick('Calling Claude', 1);
+  tick(
+    pinned.length > GENERATE_PACK_CHUNK
+      ? `Calling Claude (1/${generatePackChunkCount(pinned.length)} · ${Math.min(GENERATE_PACK_CHUNK, pinned.length)} cities)…`
+      : 'Calling Claude',
+    1,
+  );
   throwIfAborted(signal);
-  const { text, costUsd, usage, truncated } = await claudeMessages({
-    user: prompt,
-    maxTokens: 8000,
-    effort: 'low',
+  const filled = await fillGeneratePackRowChunks({
+    pinnedRows: pinned,
+    buildPrompt: (chunkRows) => buildGeneratePackPrompt(batchId, { api: true, pinnedRows: chunkRows }),
+    claudeMessagesFn: claudeMessages,
     signal,
+    onChunk: ({ index, total, cities }) => {
+      tick(`Calling Claude (${index}/${total} · ${cities} cities)…`, 1);
+    },
   });
-  if (truncated) {
-    throw Object.assign(new Error('Claude hit the token cap — retry Generate cluster pack.'), {
-      status: 502,
-    });
-  }
-  if (costUsd != null) {
-    recordRoverApiSpend('anthropic', costUsd);
-    patchBatchMeta(batchId, { lastCosts: { 'shotgun-generate-pack': costUsd } });
+  if (filled.costUsd != null) {
+    recordRoverApiSpend('anthropic', filled.costUsd);
+    patchBatchMeta(batchId, { lastCosts: { 'shotgun-generate-pack': filled.costUsd } });
   }
   tick('Importing CSV', 2);
-  const imported = importDiscoveryCsv(batchId, text, { createIfMissing: false });
-  const { dir, draft } = draftFor(batchId);
+  const csv = rowsToCsv(filled.rows, DISCOVERY_CLAUDE_COLUMNS);
+  const imported = importDiscoveryCsv(batchId, csv, { createIfMissing: false });
   applyGeneratePackRows(batchId, draft.members);
+  const { dir } = draftFor(batchId);
   const next = loadShotgunDraft(dir);
   syncShotgunRosterRows(batchId, next.members);
   return {
@@ -538,8 +591,8 @@ export async function runShotgunGeneratePackJob(batchId, { jobId, signal } = {})
     batch: imported.batch,
     rowCount: imported.batch?.rowCount ?? 0,
     draft: next,
-    costUsd: costUsd ?? null,
-    usage,
+    costUsd: filled.costUsd ?? null,
+    usage: filled.usage,
   };
 }
 
@@ -600,8 +653,7 @@ export function getShotgunWorkspace(batchId) {
       rings = shotgunRingPools(draft.hub.city, draft.hub.state, {
         innerMiles: miles,
         outerMiles: miles,
-        wave1: s.bands.cities,
-        wave2: s.bands.cities,
+        citiesBand: s.bands.cities,
       });
     } catch (error) {
       rings = { error: error.message };
@@ -625,7 +677,7 @@ export function getShotgunWorkspace(batchId) {
     },
     prompts: {
       findHubs: buildFindHubsPrompt(batchId, { api: false }),
-      assignWaves: draft.hub?.city ? buildAssignWavesPrompt(batchId, { api: false }).prompt : '',
+      assignCities: draft.hub?.city ? buildAssignCitiesPrompt(batchId, { api: false }).prompt : '',
       generatePack: assigned.length ? buildGeneratePackPrompt(batchId, { api: false }) : '',
     },
     dir,
@@ -717,19 +769,8 @@ export function setShotgunMemberPaint(batchId, city, state, opts = {}) {
     if (!feat) {
       throw Object.assign(new Error('No Census place match for that city'), { status: 400 });
     }
-    if (!zone.inZone) {
+    if (!centroidInsideZone(zone, sLive.clusterMiles)) {
       throw Object.assign(new Error('City is outside the Zone radius'), { status: 400 });
-    }
-    const pop = Number(feat?.properties?.population) || 0;
-    const overrideMin = Number(opts.minPop);
-    const overrideMax = Number(opts.maxPop);
-    const useMapRange = Number.isFinite(overrideMin) && Number.isFinite(overrideMax);
-    if (useMapRange) {
-      if (!inPopBand(pop, { min: overrideMin, max: overrideMax })) {
-        throw Object.assign(new Error('Population is outside the map min/max range'), { status: 400 });
-      }
-    } else if (!inPopBand(pop, s.bands.cities)) {
-      throw Object.assign(new Error('Population is outside the Cluster Cities band'), { status: 400 });
     }
   }
   const name = feat?.properties?.name || already?.city || city;
@@ -777,6 +818,82 @@ export function setShotgunMemberPaint(batchId, city, state, opts = {}) {
   return saved;
 }
 
+export function setShotgunMemberPaintMany(batchId, cities, opts = {}) {
+  const { dir, draft, batch } = draftFor(batchId);
+  if (!draft.hub?.city) {
+    throw Object.assign(new Error('Pick a hub first'), { status: 400 });
+  }
+  if (String(opts.tool || 'cluster').toLowerCase() === 'hub') {
+    throw Object.assign(new Error('Circle select cannot set the hub'), { status: 400 });
+  }
+  const slot = opts.slot;
+  const s = normalizeShotgunSettings(draft);
+  const liveRaw = Number(opts.radiusMiles);
+  const sLive = normalizeShotgunSettings({
+    ...draft,
+    clusterMiles: Number.isFinite(liveRaw) ? liveRaw : s.clusterMiles,
+  });
+  const hubKey = placeKey(draft.hub.city, draft.hub.state);
+  const clearing = !Number(slot);
+  const resolved = [];
+  for (const raw of cities || []) {
+    const city = raw?.city;
+    const state = raw?.state;
+    const k = placeKey(city, state);
+    if (!k || k === hubKey) continue;
+    const zone = placeInZoneRadius(city, state, draft.hub.city, draft.hub.state, sLive.clusterMiles);
+    const feat = zone.feat;
+    const already = (draft.members || []).find((m) => placeKey(m.city, m.state) === k);
+    if (!already && !clearing) {
+      if (!feat) continue;
+      if (!centroidInsideZone(zone, sLive.clusterMiles)) continue;
+    }
+    if (!already && !feat) continue;
+    resolved.push({
+      city: feat?.properties?.name || already?.city || city,
+      state: feat?.properties?.state || already?.state || String(state || '').toUpperCase(),
+      population: Number(feat?.properties?.population ?? already?.population) || null,
+      miles: zone.miles,
+      name: feat?.properties?.name || already?.city || city,
+      featState: feat?.properties?.state || already?.state || String(state || '').toUpperCase(),
+    });
+  }
+  const members = annotateMembersWithPipeline(
+    nicheOf(batch, draft),
+    applyMemberPaintMany(draft.members || [], draft.hub, {
+      cities: resolved,
+      slot,
+      mode: 'set',
+    }),
+  );
+  const saved = saveShotgunDraft(dir, {
+    ...draft,
+    members,
+    step: 'pack',
+    clusterMiles: sLive.clusterMiles,
+    innerMiles: sLive.clusterMiles,
+    outerMiles: sLive.clusterMiles,
+  });
+  if (draft.clusterId) {
+    try {
+      upsertShotgunCluster({
+        id: draft.clusterId,
+        niche: nicheOf(batch, saved),
+        hub: draft.hub,
+        members,
+        innerMiles: sLive.clusterMiles,
+        outerMiles: sLive.clusterMiles,
+        clusterMiles: sLive.clusterMiles,
+        bands: draft.bands,
+        batchId,
+      });
+    } catch {
+      /* registry sync is best-effort while still in Discovery */
+    }
+  }
+  return saved;
+}
+
 export function setShotgunMemberRole(batchId, city, state, role, opts = {}) {
   const want = normalizeClusterRole(role) || String(role || '').toLowerCase();
   if (want === 'unassigned') {
@@ -789,14 +906,39 @@ export function setShotgunMemberRole(batchId, city, state, role, opts = {}) {
 }
 
 export function setShotgunRadius(batchId, miles) {
-  const { dir, draft } = draftFor(batchId);
+  const { dir, draft, batch } = draftFor(batchId);
   const s = normalizeShotgunSettings({ ...draft, clusterMiles: miles });
-  return saveShotgunDraft(dir, {
+  const members = draft.hub?.city
+    ? annotateMembersWithPipeline(
+        nicheOf(batch, draft),
+        pruneMembersOutsideZone(draft.hub, draft.members || [], s.clusterMiles),
+      )
+    : draft.members || [];
+  const saved = saveShotgunDraft(dir, {
     ...draft,
+    members,
     clusterMiles: s.clusterMiles,
     innerMiles: s.clusterMiles,
     outerMiles: s.clusterMiles,
   });
+  if (draft.clusterId) {
+    try {
+      upsertShotgunCluster({
+        id: draft.clusterId,
+        niche: nicheOf(batch, saved),
+        hub: draft.hub,
+        members,
+        innerMiles: s.clusterMiles,
+        outerMiles: s.clusterMiles,
+        clusterMiles: s.clusterMiles,
+        bands: draft.bands,
+        batchId,
+      });
+    } catch {
+      /* registry sync is best-effort while still in Discovery */
+    }
+  }
+  return saved;
 }
 
 export function finalizeShotgunImport(batchId) {

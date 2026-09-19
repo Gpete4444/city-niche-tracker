@@ -45,6 +45,19 @@ const ogImageAbs = ogImageRaw.startsWith('http')
 
 const loadVisualBridge = import.meta.env.PUBLIC_ROVER_VE === '1';
 const fontTheme = getFontTheme(site.brand?.fontTheme);
+
+function faviconTypeFromHref(href: string): string {
+  const pathOnly = String(href || '').split('?')[0].toLowerCase();
+  if (pathOnly.endsWith('.svg')) return 'image/svg+xml';
+  if (pathOnly.endsWith('.png')) return 'image/png';
+  if (pathOnly.endsWith('.ico')) return 'image/x-icon';
+  if (pathOnly.endsWith('.webp')) return 'image/webp';
+  if (pathOnly.endsWith('.jpg') || pathOnly.endsWith('.jpeg')) return 'image/jpeg';
+  return 'image/png';
+}
+
+const faviconHref = String(site.logo?.src || '/favicon.svg').trim() || '/favicon.svg';
+const faviconType = faviconTypeFromHref(faviconHref);
 ---
 
 <!doctype html>
@@ -56,7 +69,8 @@ const fontTheme = getFontTheme(site.brand?.fontTheme);
     <meta name="generator" content={Astro.generator} />
     <link rel="canonical" href={canonicalUrl} />
     <link rel="sitemap" type="application/xml" href="/sitemap.xml" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" type={faviconType} href={faviconHref} />
+    <link rel="apple-touch-icon" href={faviconHref} />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link id="rover-site-fonts" href={fontTheme.googleHref} rel="stylesheet" />

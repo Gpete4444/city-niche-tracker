@@ -51,7 +51,7 @@ function assertThrows(fn, code, label) {
 assertEqual(clampConcurrencyKey('openaiPhotos', 80), CONCURRENCY_MAX.openaiPhotos, 'photos 80→50');
 assertEqual(clampConcurrencyKey('openaiBeforeAfter', 80), CONCURRENCY_MAX.openaiBeforeAfter, 'BA 80→20');
 assertEqual(clampConcurrencyKey('heavy', 80), CONCURRENCY_MAX.heavy, 'heavy 80→12');
-assertEqual(clampConcurrencyKey('evaluations', 80), CONCURRENCY_MAX.evaluations, 'eval 80→50');
+assertEqual(clampConcurrencyKey('evaluations', 150), CONCURRENCY_MAX.evaluations, 'eval 150→100');
 assertEqual(clampConcurrencyKey('lightSerp', 0), 1, 'light serp 0→1');
 assertEqual(clampConcurrencyKey('writeSite', 'nope'), CONCURRENCY_DEFAULTS.writeSite, 'write site junk');
 assertEqual(clampConcurrencyKey('generatePack', 80), CONCURRENCY_MAX.generatePack, 'pack 80→10');

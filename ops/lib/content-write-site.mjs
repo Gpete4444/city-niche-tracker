@@ -4,6 +4,7 @@
  */
 import { getCandidateDetail, getCandidateShell, loadMeta, saveMeta } from './candidates.mjs';
 import { claudeMessages } from './claude.mjs';
+import { claudeJsonWithContinue } from './claude-json-continue.mjs';
 import {
   buildBatchedFullWritePrompt,
   buildFieldResearchPrompt,
@@ -32,10 +33,17 @@ import {
   confirmContentOutline,
   getContentOutlinePackage,
   getContentStructure,
+  mergeOutlineSectionChunks,
+  outlineRefineGroups,
   pasteContentOutlinePackage,
   buildContinueWritePrompt,
 } from './content-structure.mjs';
 import { loadAcceptedSiteConfig } from './content-markdown.mjs';
+import {
+  cityContextPromptRules,
+  compactCityContextForPrompt,
+  getCachedCityContext,
+} from './city-context.mjs';
 import { listImageSlots, structureHasPhotosEnabled } from './fill-site-images.mjs';
 import { listBaPromptSlots } from './chatgpt-before-after.mjs';
 import { updateLightJobProgress } from './rover-light-jobs.mjs';
@@ -46,16 +54,94 @@ const COST_KEY = (candidateId) => ({
   accumulate: true,
 });
 
+export const POLISH_EDITOR_ATTEMPTS = 3;
+export const EXPAND_LOCATION_ATTEMPTS = 2;
+export const LOCATION_WRITE_CHUNK = 3;
+
+/** Speech leftovers never 422 Write site after Polish (advisory). */
+export function polishSpeechShouldBlockWrite(_opts = {}) {
+  return false;
+}
+
+export function thinLocationSeoFindings(seoLint) {
+  return (seoLint?.findings || []).filter(
+    (f) => f.severity === 'critical' && String(f.rule || '') === 'location_body_thin',
+  );
+}
+
+export function leftoversFromLint(speechLint, seoLint) {
+  const speechN = speechLint?.findings?.length || 0;
+  const criticalSeoN = (seoLint?.findings || []).filter((f) => f.severity === 'critical').length;
+  const thinLocationN = thinLocationSeoFindings(seoLint).length;
+  return { speechN, criticalSeoN, thinLocationN, speechLint, seoLint };
+}
+
+/** Editor runs while speech leftovers or any critical SEO remain (all attempts). */
+export function polishNeedsEditor({ speechN = 0, criticalSeoN = 0 } = {}) {
+  return Number(speechN) > 0 || Number(criticalSeoN) > 0;
+}
+
+/** Re-run Write site still polishes when Final check is stamped but critical SEO remains. */
+export function polishShouldSkipBecauseFinalStamped({ lastFinalCheckAt, criticalSeoN = 0 } = {}) {
+  return Boolean(lastFinalCheckAt) && Number(criticalSeoN) === 0;
+}
+
+export function polishThinLocationsShouldBlockWrite({ thinLocationN = 0 } = {}) {
+  return Number(thinLocationN) > 0;
+}
+
+export function chunkList(items, size) {
+  const list = Array.isArray(items) ? items : [];
+  const n = Math.max(1, Number(size) || 1);
+  const out = [];
+  for (let i = 0; i < list.length; i += n) out.push(list.slice(i, i + n));
+  return out;
+}
+
+/** Polish phase is done once speech was checked — leftover findings do not block. */
+export function writeSitePolishDone({ speechChecked } = {}) {
+  return Boolean(speechChecked);
+}
+
+/**
+ * Write-site phase flags. Speech leftovers do not clear editor / all.
+ * @param {{
+ *   fieldLoaded?: boolean,
+ *   briefConfirmed?: boolean,
+ *   outlineConfirmed?: boolean,
+ *   writeComplete?: boolean,
+ *   speechChecked?: boolean,
+ *   speechN?: number,
+ *   finalOk?: boolean,
+ *   photosOn?: boolean,
+ *   queriesLoaded?: boolean,
+ * }} flags
+ */
+export function composeWriteSiteInnerDone(flags = {}) {
+  const editor = writeSitePolishDone({ speechChecked: flags.speechChecked });
+  const field = Boolean(flags.fieldLoaded);
+  const brief = Boolean(flags.briefConfirmed);
+  const outline = Boolean(flags.outlineConfirmed);
+  const write = Boolean(flags.writeComplete);
+  const finalCheck = Boolean(flags.finalOk);
+  const imageQueries = !flags.photosOn || Boolean(flags.queriesLoaded);
+  return {
+    field,
+    brief,
+    outline,
+    write,
+    editor,
+    finalCheck,
+    imageQueries,
+    photosOn: Boolean(flags.photosOn),
+    all: field && brief && outline && write && editor && finalCheck && imageQueries,
+  };
+}
+
 function throwIfAborted(signal) {
   if (signal?.aborted) {
     throw Object.assign(new Error('Stopped'), { status: 499, cancelled: true });
   }
-}
-
-function leftoversFromLint(speechLint, seoLint) {
-  const speechN = speechLint?.findings?.length || 0;
-  const criticalSeoN = (seoLint?.findings || []).filter((f) => f.severity === 'critical').length;
-  return { speechN, criticalSeoN, speechLint, seoLint };
 }
 
 export function writeSiteInnerDone(candidateId) {
@@ -65,29 +151,22 @@ export function writeSiteInnerDone(candidateId) {
   const outline = d.contentOutlinePackage || getContentOutlinePackage(candidateId);
   const draft = d.contentDraft || d.content;
   const batches = getWriteBatchStatus(candidateId, d);
-  const speechN = draft?._ops?.speechLint?.findings?.length || 0;
   const speechChecked = Boolean(draft?._ops?.lastSpeechCheckAt);
+  const speechN = draft?._ops?.speechLint?.findings?.length || 0;
   const finalOk = Boolean(draft?._ops?.lastFinalCheckAt || d.content?._ops?.lastFinalCheckAt);
   const photosOn = structureHasPhotosEnabled(candidateId);
   const queriesLoaded = imagesPlanIsComplete(candidateId);
-  return {
-    field: Boolean(field?.status === 'loaded'),
-    brief: brief?.status === 'confirmed',
-    outline: outline?.status === 'confirmed' && Boolean(outline?.sections?.length),
-    write: Boolean(batches.allComplete),
-    editor: Boolean(speechChecked && speechN === 0),
-    finalCheck: Boolean(finalOk),
-    imageQueries: !photosOn || queriesLoaded,
+  return composeWriteSiteInnerDone({
+    fieldLoaded: field?.status === 'loaded',
+    briefConfirmed: brief?.status === 'confirmed',
+    outlineConfirmed: outline?.status === 'confirmed' && Boolean(outline?.sections?.length),
+    writeComplete: batches.allComplete,
+    speechChecked,
+    speechN,
+    finalOk,
     photosOn,
-    all:
-      Boolean(field?.status === 'loaded') &&
-      brief?.status === 'confirmed' &&
-      outline?.status === 'confirmed' &&
-      Boolean(batches.allComplete) &&
-      Boolean(speechChecked && speechN === 0) &&
-      Boolean(finalOk) &&
-      (!photosOn || queriesLoaded),
-  };
+    queriesLoaded,
+  });
 }
 
 export function assertWriteSiteReady(candidateId) {
@@ -108,10 +187,13 @@ function costKey(candidateId) {
   return COST_KEY(candidateId);
 }
 
-async function callClaude(candidateId, { user, system, cacheSystem, maxTokens, temperature, signal }) {
+export const OUTLINE_REFINE_MAX_TOKENS = 32768;
+
+async function callClaude(candidateId, { user, system, cacheSystem, maxTokens, temperature, signal, messages }) {
   throwIfAborted(signal);
   return claudeMessages({
     user,
+    messages,
     system,
     cacheSystem: Boolean(cacheSystem && system),
     maxTokens,
@@ -119,6 +201,66 @@ async function callClaude(candidateId, { user, system, cacheSystem, maxTokens, t
     signal,
     costKey: costKey(candidateId),
   });
+}
+
+function outlineJsonShapeOk(parsed) {
+  return Boolean(parsed?.ok && Array.isArray(parsed.value?.sections) && parsed.value.sections.length);
+}
+
+/**
+ * Full outline refine with JSON-continue; if still incomplete, home / services / locations slices.
+ */
+export async function refineOutlineFromClaude({
+  prompt,
+  outline,
+  maxTokens = OUTLINE_REFINE_MAX_TOKENS,
+  callClaudeFn,
+  buildSlicePrompt,
+  signal,
+  tick,
+} = {}) {
+  const call = typeof callClaudeFn === 'function' ? callClaudeFn : async () => ({});
+  const full = await claudeJsonWithContinue({
+    user: prompt,
+    maxTokens,
+    temperature: 0.3,
+    signal,
+    claudeMessagesFn: call,
+  });
+  if (outlineJsonShapeOk(full.parsed)) {
+    return { ...full, mode: 'full' };
+  }
+
+  const groups = outlineRefineGroups(outline);
+  if (!groups.length || typeof buildSlicePrompt !== 'function') {
+    return { ...full, mode: 'full' };
+  }
+
+  const chunks = [];
+  for (const group of groups) {
+    throwIfAborted(signal);
+    tick?.(`Plan — Outline (${group.label})`);
+    const slicePrompt = await buildSlicePrompt(group.sectionIds);
+    const part = await claudeJsonWithContinue({
+      user: slicePrompt,
+      maxTokens,
+      temperature: 0.3,
+      signal,
+      claudeMessagesFn: call,
+    });
+    if (!outlineJsonShapeOk(part.parsed)) {
+      return { ...part, mode: 'chunk', failedGroup: group.label };
+    }
+    chunks.push(part.parsed.value);
+  }
+
+  const merged = mergeOutlineSectionChunks(outline, chunks);
+  return {
+    parsed: { ok: true, value: merged },
+    text: JSON.stringify(merged),
+    truncated: false,
+    mode: 'chunks',
+  };
 }
 
 function throwIfMissingJson(phase, { parsed, truncated, text }, { shapeOk = true, missing = null } = {}) {
@@ -175,21 +317,27 @@ async function runPlan(candidateId, signal, tick) {
   if (outline?.status === 'confirmed') return;
   tick('Plan — Outline');
   const { prompt } = await buildStructurePrompt(candidateId);
-  const { parsed, text, truncated } = await callClaude(candidateId, {
-    user: prompt,
-    maxTokens: 16384,
-    temperature: 0.3,
+  const result = await refineOutlineFromClaude({
+    prompt,
+    outline,
+    maxTokens: OUTLINE_REFINE_MAX_TOKENS,
+    callClaudeFn: (opts) => callClaude(candidateId, opts),
+    buildSlicePrompt: async (sectionIds) => {
+      const built = await buildStructurePrompt(candidateId, { sectionIds });
+      return built.prompt;
+    },
     signal,
+    tick,
   });
   throwIfMissingJson(
     'Outline',
-    { parsed, truncated, text },
+    result,
     {
-      shapeOk: Array.isArray(parsed.value?.sections),
+      shapeOk: outlineJsonShapeOk(result.parsed),
       missing: 'Outline: Claude did not return sections[] JSON',
     },
   );
-  pasteContentOutlinePackage(candidateId, parsed.value);
+  pasteContentOutlinePackage(candidateId, result.parsed.value);
   await confirmContentOutline(candidateId);
 }
 
@@ -211,10 +359,8 @@ async function runWrite(candidateId, signal, tick) {
   if (status.needServices && !status.complete.services) batches.push('services');
   if (status.needLocations && !status.complete.locations) batches.push('locations');
 
-  for (const batch of batches) {
-    throwIfAborted(signal);
-    tick(`Write — ${batch[0].toUpperCase()}${batch.slice(1)}`);
-    const built = await buildBatchedFullWritePrompt(candidateId, batch);
+  const writeOne = async (batch, built, label) => {
+    tick(label);
     const { text } = await callClaude(candidateId, {
       user: built.prompt,
       system,
@@ -228,8 +374,37 @@ async function runWrite(candidateId, signal, tick) {
         status: 500,
       });
     }
-    pasteAgentContentDraft(candidateId, text, { mode: 'full' });
+    const pasted = pasteAgentContentDraft(candidateId, text, { mode: 'full' });
     syncWriteBatchesFromDraft(candidateId);
+    if (pasted?.skippedYaml?.length) {
+      tick(
+        `${label} · skipped ${pasted.skippedYaml
+          .map((rel) => String(rel).replace(/^src\/content\//, ''))
+          .join(', ')}`,
+      );
+    }
+  };
+
+  for (const batch of batches) {
+    throwIfAborted(signal);
+    if (batch === 'locations') {
+      const full = await buildBatchedFullWritePrompt(candidateId, 'locations');
+      const chunks = chunkList(full.batchFiles || [], LOCATION_WRITE_CHUNK);
+      if (chunks.length <= 1) {
+        await writeOne('locations', full, 'Write — Locations');
+      } else {
+        for (let i = 0; i < chunks.length; i += 1) {
+          throwIfAborted(signal);
+          const part = await buildBatchedFullWritePrompt(candidateId, 'locations', {
+            onlyFiles: chunks[i],
+          });
+          await writeOne('locations', part, `Write — Locations (${i + 1}/${chunks.length})`);
+        }
+      }
+    } else {
+      const built = await buildBatchedFullWritePrompt(candidateId, batch);
+      await writeOne(batch, built, `Write — ${batch[0].toUpperCase()}${batch.slice(1)}`);
+    }
   }
 
   let continues = 0;
@@ -269,13 +444,121 @@ async function runWrite(candidateId, signal, tick) {
   }
 }
 
+function throwThinLocations(seoLint, { retryLabel = 'Retry Write site or Expand location pages' } = {}) {
+  const thin = thinLocationSeoFindings(seoLint);
+  const names = thin.map((f) => f.file || f.excerpt || 'location page').join(', ');
+  const err = Object.assign(
+    new Error(`Location pages still under 450 words (${names}). ${retryLabel}.`),
+    { status: 422 },
+  );
+  err.seoLint = seoLint;
+  return err;
+}
+
+export function buildExpandThinLocationsPrompt(candidateId, findings = []) {
+  const files = getCandidateDetail(candidateId)?.contentDraft?.files || {};
+  const want = new Set(
+    (findings || [])
+      .map((f) => String(f.file || '').trim())
+      .filter((rel) => /locations\/.+\.md$/i.test(rel)),
+  );
+  const selected = Object.entries(files).filter(([rel]) => want.has(rel));
+  if (!selected.length) {
+    throw Object.assign(new Error('No thin location pages to expand'), { status: 400 });
+  }
+  let prefix = '';
+  try {
+    prefix = `${injectEightPassContext(candidateId).prefix}\n\n`;
+  } catch {
+    prefix = '';
+  }
+  const city = compactCityContextForPrompt(getCachedCityContext(candidateId));
+  const list = findings
+    .filter((f) => want.has(String(f.file || '').trim()))
+    .map((f) => `- ${f.file}: ${f.excerpt || 'thin'}`)
+    .join('\n');
+  const blocks = selected
+    .map(([rel, body]) => `### FILE: ${rel}\n${String(body || '').trim()}\n`)
+    .join('\n');
+  const prompt = `${prefix}You are expanding thin location pages. Return ### FILE: blocks only for the paths listed.
+
+Rules:
+- Each FILE body must be at least 600 words of useful local copy (intro + local notes + proof + FAQs + CTA when those sections exist). Accept rejects under 450.
+- Add climate, housing, and neighborhood cues from City context. Do not invent neighborhoods or soils.
+- Each FILE must stay distinct from sibling location pages. Do not swap only the city name.
+- Keep existing frontmatter keys. Do not cannibalize the homepage H1.
+- Contractor speech. No invented awards or demographics.
+
+${cityContextPromptRules()}
+
+## Thin findings
+${list}
+
+## City context JSON
+\`\`\`json
+${JSON.stringify(city || { note: 'unavailable' }, null, 2)}
+\`\`\`
+
+## Current FILE bodies
+${blocks}
+`;
+  return { prompt, files: selected.map(([rel]) => rel) };
+}
+
+async function runExpandThinLocationPass(candidateId, { signal, findings, tick, costOverride } = {}) {
+  const { prompt, files } = buildExpandThinLocationsPrompt(candidateId, findings);
+  tick?.(`Expand locations — ${files.length} file(s)`);
+  throwIfAborted(signal);
+  const { text } = await claudeMessages({
+    user: prompt,
+    maxTokens: 16384,
+    temperature: 0.45,
+    signal,
+    costKey: costOverride || costKey(candidateId),
+  });
+  if (!String(text).includes('### FILE:')) {
+    throw Object.assign(new Error('Expand locations: Claude did not return FILE blocks'), {
+      status: 500,
+    });
+  }
+  pasteAgentContentDraft(candidateId, text, { mode: 'full' });
+  return getContentSpeechLint(candidateId);
+}
+
+async function expandThinLocationsUntilClear(candidateId, { signal, tick, costOverride } = {}) {
+  let lint = getContentSpeechLint(candidateId);
+  let thin = thinLocationSeoFindings(lint.seoLint);
+  for (let attempt = 1; attempt <= EXPAND_LOCATION_ATTEMPTS && thin.length; attempt += 1) {
+    tick?.(`Polish — expand locations (${attempt}/${EXPAND_LOCATION_ATTEMPTS})`);
+    lint = await runExpandThinLocationPass(candidateId, {
+      signal,
+      findings: thin,
+      tick,
+      costOverride,
+    });
+    thin = thinLocationSeoFindings(lint.seoLint);
+  }
+  return leftoversFromLint(lint.speechLint, lint.seoLint);
+}
+
 async function runPolish(candidateId, signal, tick) {
   tick('Polish — Speech/SEO auto-fix');
   throwIfAborted(signal);
   let lint = getContentSpeechLint(candidateId);
   let left = leftoversFromLint(lint.speechLint, lint.seoLint);
-  if (left.speechN > 0 || left.criticalSeoN > 0) {
-    tick('Polish — editor');
+  const draft = getCandidateDetail(candidateId).contentDraft;
+  if (
+    polishShouldSkipBecauseFinalStamped({
+      lastFinalCheckAt: draft?._ops?.lastFinalCheckAt,
+      criticalSeoN: left.criticalSeoN,
+    })
+  ) {
+    return;
+  }
+
+  for (let attempt = 1; attempt <= POLISH_EDITOR_ATTEMPTS; attempt += 1) {
+    if (!polishNeedsEditor(left)) break;
+    tick(`Polish — editor (${attempt}/${POLISH_EDITOR_ATTEMPTS})`);
     throwIfAborted(signal);
     const { prompt } = buildEditorPrompt(candidateId);
     const { text } = await callClaude(candidateId, {
@@ -290,7 +573,7 @@ async function runPolish(candidateId, signal, tick) {
     lint = getContentSpeechLint(candidateId);
     left = leftoversFromLint(lint.speechLint, lint.seoLint);
   }
-  if (left.speechN > 0) {
+  if (left.speechN > 0 && polishSpeechShouldBlockWrite({ speechN: left.speechN })) {
     const err = Object.assign(
       new Error(
         `Polish leftover speech findings (${left.speechN}). Retry this phase or switch to Copy & paste Humanize.`,
@@ -302,8 +585,17 @@ async function runPolish(candidateId, signal, tick) {
     throw err;
   }
 
-  const draft = getCandidateDetail(candidateId).contentDraft;
-  if (draft?._ops?.lastFinalCheckAt) return;
+  if (left.thinLocationN > 0) {
+    left = await expandThinLocationsUntilClear(candidateId, { signal, tick });
+  }
+  if (polishThinLocationsShouldBlockWrite(left)) {
+    throw throwThinLocations(left.seoLint);
+  }
+
+  const stamped = getCandidateDetail(candidateId).contentDraft?._ops?.lastFinalCheckAt;
+  if (polishShouldSkipBecauseFinalStamped({ lastFinalCheckAt: stamped, criticalSeoN: left.criticalSeoN })) {
+    return;
+  }
 
   if (left.criticalSeoN === 0) {
     stampFinalCheck(candidateId, { ok: true, summary: 'Rover lint clear (no Claude final-check)' });
@@ -320,20 +612,55 @@ async function runPolish(candidateId, signal, tick) {
   });
   if (parsed.ok && parsed.value?.ok === true) {
     stampFinalCheck(candidateId, { ok: true, summary: parsed.value.summary || 'Claude ok' });
-    return;
-  }
-  if (String(text).includes('### FILE:')) {
+  } else if (String(text).includes('### FILE:')) {
     pasteAgentContentDraft(candidateId, text, { mode: 'full' });
     stampFinalCheck(candidateId, { ok: true, summary: 'FILE fixes loaded' });
     syncWriteBatchesFromDraft(candidateId);
-    return;
+  } else {
+    const err = Object.assign(new Error('Final check did not return {"ok":true} or FILE fixes'), {
+      status: 422,
+    });
+    err.speechLint = left.speechLint;
+    err.seoLint = left.seoLint;
+    throw err;
   }
-  const err = Object.assign(new Error('Final check did not return {"ok":true} or FILE fixes'), {
-    status: 422,
+
+  lint = getContentSpeechLint(candidateId);
+  left = leftoversFromLint(lint.speechLint, lint.seoLint);
+  if (polishThinLocationsShouldBlockWrite(left)) {
+    throw throwThinLocations(left.seoLint);
+  }
+}
+
+export async function runExpandThinLocationsJob(candidateId, { jobId, signal } = {}) {
+  saveMeta(candidateId, { lastCosts: { expandLocations: 0 } });
+  const total = 2;
+  const tick = (detail, done) => {
+    updateLightJobProgress(jobId, { detail, done, total });
+  };
+  tick('Checking location pages', 0);
+  const costOverride = {
+    candidateId,
+    label: 'expandLocations',
+    accumulate: true,
+  };
+  const left = await expandThinLocationsUntilClear(candidateId, {
+    signal,
+    tick,
+    costOverride,
   });
-  err.speechLint = left.speechLint;
-  err.seoLint = left.seoLint;
-  throw err;
+  if (polishThinLocationsShouldBlockWrite(left)) {
+    throw throwThinLocations(left.seoLint, { retryLabel: 'Retry Expand location pages' });
+  }
+  if (left.criticalSeoN === 0) {
+    stampFinalCheck(candidateId, { ok: true, summary: 'Rover lint clear after location expand' });
+  }
+  tick('Done', total);
+  return {
+    ok: true,
+    thinLocationN: 0,
+    spentUsd: loadMeta(candidateId)?.lastCosts?.expandLocations ?? null,
+  };
 }
 
 const IMAGE_QUERY_BA_CHUNK = 2;

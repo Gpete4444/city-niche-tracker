@@ -1,7 +1,15 @@
 /**
  * Deterministic auto-fix for speech stock phrases, leaked editor prompts,
- * prose em dashes, missing soft internal links, broken body images, and heading grammar. No LLM.
+ * prose em dashes, missing soft internal links, broken body images, heading grammar,
+ * and homepage Why / Process / FAQ body dumps. No LLM.
  */
+
+export const HOMEPAGE_DESIGNED_SECTIONS_WARNING =
+  'Homepage Why / Process / FAQs could not be rebuilt from the page. Re-run Write site.';
+
+const HOMEPAGE_INDEX_RE = /(^|\/)pages\/index\.md$/i;
+const DESIGNED_SECTION_WARNING_RE =
+  /homepage usually needs|usually needs "(?:whyChooseUs|process|faqs|sectionHeading)"|could not be rebuilt from the page|intro heading is missing/i;
 
 import { existsSync } from 'node:fs';
 import path from 'node:path';
@@ -136,6 +144,17 @@ export function autoFixContentDraft(files, opts = {}) {
       });
     }
 
+    const costDash = collapseCostDoubleDash(body);
+    if (costDash.changed) {
+      body = costDash.body;
+      changes.push({
+        file: rel,
+        rule: 'em_dash_density',
+        kind: 'speech',
+        detail: `Normalized ${costDash.count} cost row(s) to one em dash + comma`,
+      });
+    }
+
     if (/(^|\/)services\/.+\.md$/i.test(rel)) {
       const introStrip = stripServiceIntroH2(body, outline);
       if (introStrip.changed) {
@@ -160,7 +179,17 @@ export function autoFixContentDraft(files, opts = {}) {
       });
     }
 
-    if (/(^|\/)pages\/index\.md$/i.test(rel)) {
+    if (HOMEPAGE_INDEX_RE.test(rel)) {
+      const lifted = liftHomepageDesignedSections(body, { config, outline });
+      if (lifted.changed) {
+        body = lifted.body;
+        changes.push({
+          file: rel,
+          rule: 'homepage_designed_sections',
+          kind: 'seo',
+          detail: lifted.detail,
+        });
+      }
       const faqStrip = stripOffNicheHomepageFaqs(body, {
         niche: config.niche,
         primaryKeyword: outline.keywords?.primary || outline.keywordTargets?.[0]?.keyword || config.niche,
@@ -682,6 +711,30 @@ const EM_DASH_RE = /[—\u2014]/;
  * Convert leftover prose em dashes so speech lint does not fail Write site Polish.
  * Structured `**Label** —` bullets stay. Numeric ranges become en dashes.
  */
+/** `**Tier** — $range — detail` → `**Tier** — $range, detail` */
+function collapseCostDoubleDash(src) {
+  const { fm, body } = splitFrontmatter(src);
+  let count = 0;
+  const nextBody = String(body || '')
+    .split('\n')
+    .map((line) => {
+      if (!isStructuredLabelDashLine(line) || !/\$/.test(line)) return line;
+      const next = line.replace(
+        /^(\s*(?:[-*+]\s+)?\*\*.+?\*\*\s+[—–\u2013\u2014]\s+\$[\d,]+(?:\.\d+)?(?:\s*[–—\u2013\u2014-]\s*\$?[\d,]+(?:\.\d+)?)?\+?)\s+[—–\u2013\u2014]\s+/,
+        '$1, ',
+      );
+      if (next !== line) count += 1;
+      return next;
+    })
+    .join('\n');
+  if (!count) return { body: src, changed: false, count: 0 };
+  return {
+    body: fm != null ? `---\n${fm}\n---\n${nextBody.replace(/^\n+/, '')}` : nextBody,
+    changed: true,
+    count,
+  };
+}
+
 function replaceProseEmDashes(src) {
   const { fm, body } = splitFrontmatter(src);
   if (!EM_DASH_RE.test(body)) return { body: src, changed: false, count: 0 };
@@ -810,6 +863,435 @@ function splitFrontmatter(src) {
 function joinFrontmatter(fm, body) {
   if (fm == null) return body;
   return `---\n${fm}\n---\n${String(body).replace(/^\n+/, '')}`;
+}
+
+function fmHasKey(fm, key) {
+  return new RegExp(`^${key}\\s*:`, 'm').test(String(fm || ''));
+}
+
+function fmScalar(fm, key) {
+  const m = String(fm || '').match(new RegExp(`^${key}\\s*:\\s*(.*)$`, 'm'));
+  if (!m) return '';
+  let v = String(m[1] || '').trim();
+  if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) {
+    v = v.slice(1, -1);
+  }
+  return v;
+}
+
+function countFmListItems(fm, key) {
+  const text = String(fm || '');
+  const startRe = new RegExp(`^${key}\\s*:\\s*(.*)$`, 'm');
+  const start = text.match(startRe);
+  if (!start) return 0;
+  const after = text.slice(text.indexOf(start[0]) + start[0].length);
+  const lines = [];
+  for (const line of after.split('\n')) {
+    if (!line.trim()) {
+      if (lines.length) break;
+      continue;
+    }
+    if (/^[A-Za-z_][A-Za-z0-9_]*\s*:/.test(line)) break;
+    lines.push(line);
+  }
+  return lines.filter((l) => /^[ \t]*-[ \t]+(?:title|question)\s*:/.test(l)).length;
+}
+
+function looksLikeWhyHeading(heading) {
+  return /why choose|why .{0,60}(choose|trust|hire)/i.test(String(heading || ''));
+}
+
+function looksLikeProcessSectionHeading(heading) {
+  return /process works|how (our|the) .{0,40} process/i.test(String(heading || ''));
+}
+
+function looksLikeFaqsHeading(heading) {
+  return /\bfaqs?\b|frequently asked/i.test(String(heading || ''));
+}
+
+function classifyDesignedHeading(heading) {
+  if (looksLikeWhyHeading(heading)) return 'whyChooseUs';
+  if (looksLikeProcessSectionHeading(heading)) return 'process';
+  if (looksLikeFaqsHeading(heading)) return 'faqs';
+  return '';
+}
+
+function splitH2Sections(body) {
+  const lines = String(body || '').replace(/\r\n/g, '\n').split('\n');
+  const intro = [];
+  const sections = [];
+  let current = null;
+  const flush = () => {
+    if (current) sections.push(current);
+    current = null;
+  };
+  for (const line of lines) {
+    const hm = line.match(/^##[ \t]+(.+?)[ \t]*$/);
+    if (hm) {
+      flush();
+      current = {
+        heading: hm[1].trim(),
+        headingLine: line,
+        kind: classifyDesignedHeading(hm[1]),
+        lines: [],
+      };
+      continue;
+    }
+    if (current) current.lines.push(line);
+    else intro.push(line);
+  }
+  flush();
+  return { intro: intro.join('\n'), sections };
+}
+
+function sectionText(section) {
+  return (section?.lines || []).join('\n').trim();
+}
+
+function titleCasePhrase(s) {
+  return String(s || '')
+    .replace(/[.!?…,;:]+$/g, '')
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((w) => (/^[A-Z]{2,}$/.test(w) ? w : w.charAt(0).toUpperCase() + w.slice(1)))
+    .join(' ');
+}
+
+/** Card title from a plain Why/reason sentence (no **Title** — desc). */
+function titleFromPlainReason(text) {
+  const t = String(text || '')
+    .replace(/\*+/g, '')
+    .replace(/[.!?…]+$/g, '')
+    .trim();
+  if (!t) return '';
+  const clause = t.split(/\s*(?:,|[—–]|:)\s+/)[0].trim();
+  const clauseWords = clause.split(/\s+/).filter(Boolean);
+  if (clauseWords.length >= 2 && clauseWords.length <= 8) {
+    return titleCasePhrase(clauseWords.join(' '));
+  }
+  const words = t.split(/\s+/).filter(Boolean);
+  return titleCasePhrase(words.slice(0, Math.min(6, words.length)).join(' '));
+}
+
+function parseTitleDescItems(text) {
+  const items = [];
+  const raw = String(text || '').replace(/\r\n/g, '\n').trim();
+  if (!raw) return items;
+
+  for (const line of raw.split('\n')) {
+    const t = line.trim();
+    if (!t) continue;
+    const bullet = t.match(/^[-*•]\s+(.+)$/) || t.match(/^\d+[.)]\s+(.+)$/);
+    if (!bullet) continue;
+    const step = parseOneProcessStepLine(t);
+    if (step?.title && step?.description) items.push({ title: step.title, description: sentenceCaseLine(step.description) });
+  }
+  if (items.length >= 2) return items;
+
+  const chunks = [];
+  let cur = null;
+  for (const line of raw.split('\n')) {
+    const hm = line.match(/^###[ \t]+(.+?)[ \t]*$/);
+    if (hm) {
+      if (cur) chunks.push(cur);
+      cur = { title: hm[1].replace(/\*+/g, '').trim(), lines: [] };
+      continue;
+    }
+    if (cur) cur.lines.push(line);
+  }
+  if (cur) chunks.push(cur);
+  const fromH3 = chunks
+    .map((c) => ({
+      title: c.title,
+      description: sentenceCaseLine(c.lines.join(' ').replace(/\s+/g, ' ').trim()),
+    }))
+    .filter((c) => c.title && c.description && c.title.split(/\s+/).length <= 12);
+  if (fromH3.length >= 2) return fromH3;
+
+  const fromPlain = [];
+  for (const line of raw.split('\n')) {
+    const t = line.trim();
+    if (!t || isAutofixOrNavJunk(t)) continue;
+    const bullet = t.match(/^[-*•]\s+(.+)$/) || t.match(/^\d+[.)]\s+(.+)$/);
+    if (!bullet) continue;
+    const desc = String(bullet[1] || '')
+      .replace(/\*+/g, '')
+      .trim();
+    if (!desc || desc.split(/\s+/).length < 3) continue;
+    const title = titleFromPlainReason(desc);
+    if (!title) continue;
+    fromPlain.push({ title, description: sentenceCaseLine(desc) });
+  }
+  return fromPlain.length >= 2 ? fromPlain : items;
+}
+
+function isAutofixOrNavJunk(para) {
+  const t = String(para || '').trim();
+  if (!t) return true;
+  if (/rover-autofix-links/i.test(t)) return true;
+  const lines = t.split('\n').map((l) => l.trim()).filter(Boolean);
+  if (lines.length && lines.every((l) => /^[-*]\s+\[[^\]]+\]\([^)]+\)/.test(l))) return true;
+  return false;
+}
+
+function looksLikeFaqQuestion(para) {
+  const t = String(para || '')
+    .replace(/^[-*•]\s+/, '')
+    .replace(/^#{1,3}\s+/, '')
+    .replace(/\*+/g, '')
+    .trim();
+  if (!t.endsWith('?')) return false;
+  const words = t.split(/\s+/).filter(Boolean).length;
+  return words >= 3 && words <= 30 && t.length <= 220;
+}
+
+function parseFaqItems(text) {
+  const raw = String(text || '').replace(/\r\n/g, '\n').trim();
+  if (!raw) return [];
+
+  const h3 = [];
+  const chunks = [];
+  let cur = null;
+  for (const line of raw.split('\n')) {
+    const hm = line.match(/^###[ \t]+(.+?)[ \t]*$/);
+    if (hm) {
+      if (cur) chunks.push(cur);
+      cur = { question: hm[1].replace(/\*+/g, '').trim(), lines: [] };
+      continue;
+    }
+    if (cur) cur.lines.push(line);
+  }
+  if (cur) chunks.push(cur);
+  for (const c of chunks) {
+    const answer = c.lines.join('\n').replace(/\s+/g, ' ').trim();
+    if (c.question && answer) h3.push({ question: c.question, answer });
+  }
+  if (h3.length >= 2) return h3;
+
+  const fromBullets = [];
+  for (const line of raw.split('\n')) {
+    const step = parseOneProcessStepLine(line);
+    if (step?.title && step?.description && /\?$/.test(step.title.trim())) {
+      fromBullets.push({ question: step.title.trim(), answer: step.description.trim() });
+    }
+  }
+  if (fromBullets.length >= 2) return fromBullets;
+
+  const paras = raw
+    .split(/\n{2,}/)
+    .map((p) => p.trim())
+    .filter((p) => p && !isAutofixOrNavJunk(p));
+  const pairs = [];
+  for (let i = 0; i < paras.length; i += 1) {
+    if (!looksLikeFaqQuestion(paras[i])) continue;
+    const question = paras[i]
+      .replace(/^[-*•]\s+/, '')
+      .replace(/^#{1,3}\s+/, '')
+      .replace(/\*+/g, '')
+      .trim();
+    const answerParts = [];
+    let j = i + 1;
+    while (j < paras.length && !looksLikeFaqQuestion(paras[j])) {
+      answerParts.push(paras[j].replace(/\s+/g, ' ').trim());
+      j += 1;
+    }
+    const answer = answerParts.join(' ').trim();
+    if (question && answer) pairs.push({ question, answer });
+    i = j - 1;
+  }
+  return pairs;
+}
+
+function leftoverFromLiftedSection(section) {
+  const kept = [];
+  const buf = [];
+  const flush = () => {
+    const para = buf.join('\n').trim();
+    if (para && isAutofixOrNavJunk(para)) kept.push(para);
+    buf.length = 0;
+  };
+  for (const line of section?.lines || []) {
+    if (!String(line).trim()) {
+      flush();
+      continue;
+    }
+    buf.push(line);
+  }
+  flush();
+  return kept.join('\n\n').trim();
+}
+
+function formatYamlList(key, items, fields) {
+  const lines = [`${key}:`];
+  for (const item of items) {
+    let first = true;
+    for (const field of fields) {
+      const val = item[field];
+      if (val == null || val === '') continue;
+      const prefix = first ? '- ' : '  ';
+      lines.push(`${prefix}${field}: ${JSON.stringify(String(val))}`);
+      first = false;
+    }
+  }
+  return `${lines.join('\n')}\n`;
+}
+
+function replaceFmBlock(fm, key, yamlBlock) {
+  const re = new RegExp(`^${key}\\s*:[^\\n]*(?:\\n(?:[ \\t].*|-(?!-).*))*\\n?`, 'm');
+  if (re.test(fm)) return fm.replace(re, yamlBlock.endsWith('\n') ? yamlBlock : `${yamlBlock}\n`);
+  return `${String(fm).replace(/\s+$/, '')}\n${yamlBlock}`;
+}
+
+function replaceFmScalar(fm, key, value) {
+  const line = `${key}: ${JSON.stringify(String(value))}\n`;
+  const re = new RegExp(`^${key}\\s*:.*\\n?`, 'm');
+  if (re.test(fm)) return fm.replace(re, line);
+  return `${String(fm).replace(/\s+$/, '')}\n${line}`;
+}
+
+function homepageIntroHeadingFromOutline(outline, config) {
+  const sections = Array.isArray(outline?.sections) ? outline.sections : [];
+  const intro = sections.find((s) => s?.id === 'intro' || s?.kind === 'intro');
+  const heading = String(intro?.heading || '').trim();
+  if (heading) return heading;
+  const niche = String(config?.niche || '').trim();
+  const city = String(config?.primaryCity || '').trim();
+  if (niche && city) return `${niche} in ${city}`;
+  return '';
+}
+
+/**
+ * Move homepage Why / Process / FAQs from body ## dumps into frontmatter arrays.
+ * @param {string} markdown
+ * @param {{ config?: object, outline?: object }} [opts]
+ */
+export function liftHomepageDesignedSections(markdown, opts = {}) {
+  const { fm, body } = splitFrontmatter(markdown);
+  if (fm == null) return { body: markdown, changed: false, detail: '', lifted: [] };
+
+  const config = opts.config || {};
+  const outline = opts.outline || {};
+  let nextFm = fm;
+  const { intro, sections } = splitH2Sections(body);
+  const dropKinds = new Set();
+  const lifted = [];
+
+  const tryLiftList = (kind, fields) => {
+    if (countFmListItems(nextFm, kind) >= 2) return;
+    const section = sections.find((s) => s.kind === kind);
+    if (!section) return;
+    const items =
+      kind === 'faqs' ? parseFaqItems(sectionText(section)) : parseTitleDescItems(sectionText(section));
+    if (items.length < 2) return;
+    nextFm = replaceFmBlock(nextFm, kind, formatYamlList(kind, items, fields));
+    dropKinds.add(kind);
+    lifted.push({ key: kind, count: items.length });
+  };
+
+  tryLiftList('whyChooseUs', ['title', 'description']);
+  tryLiftList('process', ['title', 'description']);
+  tryLiftList('faqs', ['question', 'answer']);
+
+  if (!fmHasKey(nextFm, 'sectionHeading') || !fmScalar(nextFm, 'sectionHeading')) {
+    const heading = homepageIntroHeadingFromOutline(outline, config);
+    if (heading) {
+      nextFm = replaceFmScalar(nextFm, 'sectionHeading', heading);
+      lifted.push({ key: 'sectionHeading', count: 1 });
+    }
+  }
+
+  if (!lifted.length) return { body: markdown, changed: false, detail: '', lifted };
+
+  const parts = [];
+  if (String(intro).trim()) parts.push(String(intro).trim());
+  for (const section of sections) {
+    if (dropKinds.has(section.kind)) {
+      const leftover = leftoverFromLiftedSection(section);
+      if (leftover) parts.push(leftover);
+      continue;
+    }
+    const text = section.lines.join('\n').replace(/\s+$/, '');
+    parts.push(text ? `${section.headingLine}\n${text}` : section.headingLine);
+  }
+  const nextBody = `${parts.join('\n\n').replace(/\n{3,}/g, '\n\n').trim()}\n`;
+  const labels = lifted
+    .filter((x) => x.key !== 'sectionHeading')
+    .map((x) => (x.key === 'whyChooseUs' ? 'Why' : x.key === 'process' ? 'Process' : 'FAQs'));
+  const detail = labels.length
+    ? `Moved ${labels.join(' / ')} into homepage template fields`
+    : 'Added homepage intro heading';
+  return {
+    body: joinFrontmatter(nextFm.trimEnd(), nextBody),
+    changed: true,
+    detail,
+    lifted,
+  };
+}
+
+export function homepageNeedsDesignedSectionLift(markdown) {
+  const { fm, body } = splitFrontmatter(markdown);
+  if (fm == null) return false;
+  if (!fmHasKey(fm, 'sectionHeading') || !fmScalar(fm, 'sectionHeading')) return true;
+  const missing = ['whyChooseUs', 'process', 'faqs'].filter((key) => countFmListItems(fm, key) < 2);
+  if (!missing.length) return false;
+  return missing.some((kind) => splitH2Sections(body).sections.some((s) => s.kind === kind));
+}
+
+export function applyHomepageDesignedSectionLiftToFiles(files, opts = {}) {
+  const next = { ...(files || {}) };
+  const rel = Object.keys(next).find((r) => HOMEPAGE_INDEX_RE.test(r));
+  if (!rel || !next[rel]) return { files: next, changed: false, changes: [] };
+  if (!homepageNeedsDesignedSectionLift(next[rel])) return { files: next, changed: false, changes: [] };
+  const lifted = liftHomepageDesignedSections(next[rel], opts);
+  if (!lifted.changed) return { files: next, changed: false, changes: [] };
+  next[rel] = lifted.body;
+  return {
+    files: next,
+    changed: true,
+    changes: [
+      {
+        file: rel,
+        rule: 'homepage_designed_sections',
+        kind: 'seo',
+        detail: lifted.detail,
+      },
+    ],
+    lifted: lifted.lifted,
+  };
+}
+
+export function isDesignedSectionWarning(text) {
+  return DESIGNED_SECTION_WARNING_RE.test(String(text || ''));
+}
+
+export function stampHomepageLiftOnDraftOps(ops, { changes = [], files } = {}) {
+  const next = { ...(ops || {}) };
+  const prev = next.autoFix && typeof next.autoFix === 'object' ? next.autoFix : {};
+  const extra = Array.isArray(changes) ? changes : [];
+  if (extra.length) {
+    next.autoFix = {
+      at: new Date().toISOString(),
+      changeCount: (prev.changeCount || 0) + extra.length,
+      speechCount: prev.speechCount || 0,
+      seoCount: (prev.seoCount || 0) + extra.length,
+      changes: [...extra, ...(Array.isArray(prev.changes) ? prev.changes : [])].slice(0, 40),
+    };
+  }
+  const index = files?.['src/content/pages/index.md'] || files?.['src\\content\\pages\\index.md'] || '';
+  const { fm } = splitFrontmatter(index);
+  const stillMissing = ['whyChooseUs', 'process', 'faqs'].some((key) => countFmListItems(fm, key) < 2);
+  const prune = (arr) => {
+    const kept = (arr || []).filter((w) => !isDesignedSectionWarning(w));
+    if (stillMissing) kept.push(HOMEPAGE_DESIGNED_SECTIONS_WARNING);
+    return [...new Set(kept)];
+  };
+  if (next.check && typeof next.check === 'object') {
+    next.check = { ...next.check, warnings: prune(next.check.warnings) };
+  }
+  if (next.contract && typeof next.contract === 'object') {
+    next.contract = { ...next.contract, warnings: prune(next.contract.warnings) };
+  }
+  return next;
 }
 
 function introHeadingFromOutline(outline) {

@@ -14,17 +14,13 @@ import {
   normalizeClusterRole,
   shotgunRoleLabel,
   applyHubScanToDraft,
-  applyWaveCaps,
+  applyCityCaps,
   compactHubScore,
   cycleShotgunRole,
   DEFAULT_SHOTGUN_BANDS,
   clampClusterMiles,
-  clampWaveCount,
   emptyShotgunDraft,
-  isWaveRole,
-  parseWaveNumber,
-  WAVE_DEFAULT_COUNT,
-  WAVE_MAX,
+  CLUSTER_MAX,
   gateProposedHubs,
   hubPopAllowed,
   isStateNamedPlace,
@@ -34,32 +30,28 @@ import {
   ensureLockedHubOnDraft,
   shotgunDraftHubCount,
   normalizePackType,
-  parseAssignWavesJson,
+  parseAssignCitiesJson,
   parseFindHubsJson,
   placeKey,
   removeClusterCity,
   seedMembersFromPreferred,
   seedMembersFromRings,
   setShotgunClustersFileForTests,
-  normalizeWaveMiles,
-  setWaveMilesAt,
-  waveForMiles,
-  withWaveMiles,
-  extendWaveMiles,
-  rebalanceMembersByWaveMiles,
   applyMemberPaint,
+  applyMemberPaintMany,
+  pruneMembersOutsideZone,
   setZoneHub,
   paintZoneMember,
+  setZoneMiles,
   clusterName,
   memberClusterKey,
-  memberWave,
   normalizeMember,
   parseClusterKey,
   nextPaintSlot,
   isPackMember,
   scrubShotgunRecord,
 } from '../ops/lib/shotgun.mjs';
-import { cityMapLabel } from '../ops/public/shotgun-waves.js';
+import { cityMapLabel } from '../ops/public/shotgun-clusters.js';
 import { autoLabel, buildFilterBrief, emptyDiscoveryRowsHint, normalizeFilters } from '../ops/lib/discovery.mjs';
 import { censusCsvPath, normalizePlaceName } from '../ops/lib/census.mjs';
 import { placesGeojsonPath, placeInZoneRadius } from '../ops/lib/geo-neighbors.mjs';
@@ -118,7 +110,9 @@ assertEqual(cityMapLabel('Mesquite', 1), '1 Mesquite', 'cluster prefix on map la
 assertEqual(cityMapLabel('Dallas', 0, { hub: true }), '★ Dallas', 'hub star on map label');
 assertEqual(clusterName('Roofing', 'Frisco', 'TX'), 'Zone · Roofing · Frisco TX', 'zone name');
 assertEqual(parseClusterKey(3), 3, 'cluster key 3');
-assertEqual(parseClusterKey(11), 0, 'cluster key 11 rejected');
+assertEqual(parseClusterKey(11), 11, 'cluster key 11');
+assertEqual(parseClusterKey(20), 20, 'cluster key 20');
+assertEqual(parseClusterKey(21), 0, 'cluster key 21 rejected');
 assertEqual(nextPaintSlot(3, 3), 0, 'paint toggle off');
 assertEqual(nextPaintSlot(2, 3), 3, 'paint move cluster');
 assertEqual(nextPaintSlot(2, 0), 0, 'paint none clears');
@@ -140,6 +134,69 @@ assertEqual(nextPaintSlot(2, 0), 0, 'paint none clears');
   });
   const after = toggled.find((m) => m.city === 'Plano');
   assertEqual(after, undefined, 'paint toggle-off removes map-painted city');
+  const setAgain = applyMemberPaint(painted, { city: 'Frisco', state: 'TX' }, {
+    city: 'Plano',
+    state: 'TX',
+    tool: 'cluster',
+    slot: 4,
+    mode: 'set',
+  });
+  assertEqual(memberClusterKey(setAgain.find((m) => m.city === 'Plano')), 4, 'set mode does not toggle');
+}
+{
+  const hub = { city: 'Dallas', state: 'TX' };
+  const batch = applyMemberPaintMany(
+    [
+      { city: 'Dallas', state: 'TX', role: 'hub' },
+      { city: 'Irving', state: 'TX', role: 'unassigned' },
+      { city: 'Mesquite', state: 'TX', role: 'unassigned' },
+      { city: 'Garland', state: 'TX', role: 'unassigned' },
+    ],
+    hub,
+    {
+      cities: [
+        { city: 'Irving', state: 'TX' },
+        { city: 'Mesquite', state: 'TX' },
+        { city: 'Garland', state: 'TX' },
+      ],
+      slot: 2,
+      mode: 'set',
+    },
+  );
+  assertEqual(memberClusterKey(batch.find((m) => m.city === 'Irving')), 2, 'batch Irving Cluster 2');
+  assertEqual(memberClusterKey(batch.find((m) => m.city === 'Mesquite')), 2, 'batch Mesquite Cluster 2');
+  assertEqual(memberClusterKey(batch.find((m) => m.city === 'Garland')), 2, 'batch Garland Cluster 2');
+  const mixed = applyMemberPaintMany(
+    [
+      { city: 'Dallas', state: 'TX', role: 'hub' },
+      { city: 'Irving', state: 'TX', role: 'member', clusterKey: 1 },
+      { city: 'Mesquite', state: 'TX', role: 'member', clusterKey: 5 },
+    ],
+    hub,
+    {
+      cities: [
+        { city: 'Irving', state: 'TX' },
+        { city: 'Mesquite', state: 'TX' },
+      ],
+      slot: 0,
+      mode: 'set',
+    },
+  );
+  assertEqual(mixed.find((m) => m.city === 'Irving'), undefined, 'clear removes Cluster 1 city');
+  assertEqual(mixed.find((m) => m.city === 'Mesquite'), undefined, 'clear removes Cluster 5 city');
+  assertEqual(mixed.find((m) => m.city === 'Dallas')?.role, 'hub', 'clear keeps hub');
+}
+{
+  const kept = pruneMembersOutsideZone(
+    { city: 'Dallas', state: 'TX' },
+    [
+      { city: 'Dallas', state: 'TX', role: 'hub' },
+      { city: 'NotARealCityXYZ', state: 'TX', role: 'member', clusterKey: 2, source: 'manual' },
+    ],
+    30,
+  );
+  const mystery = kept.find((m) => m.city === 'NotARealCityXYZ');
+  assertEqual(memberClusterKey(mystery), 2, 'unknown geo keeps cluster when radius shrinks');
 }
 {
   const claude = normalizeMember({
@@ -188,26 +245,35 @@ assertEqual(nextPaintSlot(2, 0), 0, 'paint none clears');
   const { record, dirty } = scrubShotgunRecord({
     waveCount: 3,
     waveMiles: [20, 30, 40],
-    members: [{ city: 'Allen', state: 'TX', role: 'wave2' }],
+    bands: { hub: { min: 60000, max: 200000 }, wave1: { min: 2000, max: 60000 }, wave2: { min: 2000, max: 8000 } },
+    hubs: [{
+      city: 'Dallas',
+      state: 'TX',
+      wave1: [{ city: 'Irving', state: 'TX' }],
+      wave2: [{ city: 'Grand Prairie', state: 'TX' }],
+      wave1Preferred: [{ city: 'Plano', state: 'TX' }],
+    }],
+    members: [{ city: 'Allen', state: 'TX', role: 'wave1' }],
   });
   assert(dirty, 'scrub marks dirty');
   assertEqual(record.waveCount, undefined, 'scrub drops waveCount');
   assertEqual(record.waveMiles, undefined, 'scrub drops waveMiles');
-  assertEqual(record.members[0].clusterKey, 2, 'scrub copies wave to cluster');
+  assertEqual(record.clusterMiles, 40, 'scrub copies last waveMiles to clusterMiles');
+  assertEqual(record.bands.cities.min, 2000, 'scrub copies wave bands into cities');
+  assertEqual(record.bands.wave1, undefined, 'scrub drops bands.wave1');
+  assertEqual(record.hubs[0].innerCities[0].city, 'Irving', 'scrub copies wave1 to innerCities');
+  assertEqual(record.hubs[0].outerCities[0].city, 'Grand Prairie', 'scrub copies wave2 to outerCities');
+  assertEqual(record.hubs[0].citiesPreferred[0].city, 'Plano', 'scrub copies preferred to citiesPreferred');
+  assertEqual(record.hubs[0].wave1, undefined, 'scrub drops hub wave1');
+  assertEqual(record.members[0].clusterKey, 1, 'scrub copies wave1 role to clusterKey');
+  assertEqual(record.members[0].role, 'member', 'scrub wave1 member is member');
   assert(isPackMember(record.members[0]), 'scrubbed city is pack member');
 }
 assertEqual(normalizeClusterRole('city'), 'member', 'legacy city is member');
 assertEqual(normalizeClusterRole('wave2'), 'member', 'wave2 is member');
 assertEqual(normalizeClusterRole('wave10'), 'member', 'wave10 is member');
 assertEqual(normalizeClusterRole('wave11'), '', 'wave11 rejected');
-assertEqual(parseWaveNumber('wave10'), 10, 'parse wave10');
-assertEqual(parseWaveNumber('wave11'), 0, 'parse wave11');
-assert(isWaveRole('city'), 'legacy city is a wave alias');
-assert(!isWaveRole('wave11'), 'wave11 is not a wave');
-assertEqual(WAVE_DEFAULT_COUNT, 3, 'default wave count');
-assertEqual(WAVE_MAX, 10, 'max waves');
-assertEqual(clampWaveCount(2), 3, 'clamp wave count min');
-assertEqual(clampWaveCount(11), 10, 'clamp wave count max');
+assertEqual(CLUSTER_MAX, 20, 'max clusters');
 assertEqual(emptyShotgunDraft().waveCount, undefined, 'draft has no waveCount');
 assertEqual(nextShotgunSgNumber([{ sgNumber: 1 }, { sgNumber: 3 }]), 4, 'next after max');
 assertEqual(clampClusterMiles(30), 30, 'clamp default miles');
@@ -218,21 +284,6 @@ assertEqual(clampClusterMiles(250), 100, 'clamp above max miles');
 assertEqual(emptyShotgunDraft({ clusterMiles: 250 }).clusterMiles, 100, 'draft miles clamped');
 assertEqual(emptyShotgunDraft({ clusterMiles: 12 }).innerMiles, 12, 'draft inner follows cluster');
 assertEqual(emptyShotgunDraft().waveMiles, undefined, 'draft has no waveMiles');
-
-const defaultMiles = normalizeWaveMiles(null, { waveCount: 3, clusterMiles: 30 });
-assertEqual(defaultMiles.join(','), '30,30,30', 'legacy pack defaults all waves to clusterMiles');
-assertEqual(withWaveMiles({ clusterMiles: 30, waveCount: 3 }).clusterMiles, 30, 'withWaveMiles last is cluster');
-{
-  const pushed = setWaveMilesAt([15, 20, 30], 0, 25);
-  assertEqual(pushed.join(','), '25,25,30', 'raising Wave 1 pushes later waves up');
-  const blocked = setWaveMilesAt([15, 30, 40], 1, 10);
-  assertEqual(blocked[1], 15, 'Wave 2 cannot go below Wave 1');
-}
-assertEqual(waveForMiles(15, [15, 30, 30]), 1, 'boundary miles stay in Wave 1');
-assertEqual(waveForMiles(15.1, [15, 30, 30]), 2, 'just past Wave 1 is Wave 2');
-assertEqual(waveForMiles(30, [15, 30, 30]), 2, 'Wave 2 outer bound');
-assertEqual(waveForMiles(5, [15, 15, 30]), 1, 'equal Wave 1/2 leaves Wave 2 empty');
-assertEqual(extendWaveMiles([30, 30, 30], 4, 30).join(','), '30,30,30,40', 'Add Wave is last+10');
 
 const backfill = {
   clusters: [
@@ -265,16 +316,15 @@ assertEqual(find.hubs.length, 1, 'find hubs count');
 assertEqual(find.hubs[0].city, 'Bend', 'find hubs city');
 assertEqual(find.hubs[0].state, 'OR', 'find hubs state');
 
-const assign = parseAssignWavesJson(`{
+const assign = parseAssignCitiesJson(`{
   "main": { "city": "Bend", "state": "OR" },
   "wave1": [{ "city": "Redmond", "state": "OR" }, { "city": "Prineville", "state": "OR" }, { "city": "Madras", "state": "OR" }],
   "wave2": [{ "city": "Sisters", "state": "OR" }, { "city": "La Pine", "state": "OR" }, { "city": "Culver", "state": "OR" }, { "city": "Terrebonne", "state": "OR" }]
 }`);
 assertEqual(assign.main.city, 'Bend', 'assign main alias');
 assertEqual(assign.hub.city, 'Bend', 'assign hub');
-assertEqual(assign.cities.length, 7, 'assign cities merged');
-assertEqual(assign.wave1.length, 7, 'legacy wave1 is merged cities');
-assertEqual(assign.wave2.length, 0, 'legacy wave2 folded into cities');
+assertEqual(assign.cities.length, 7, 'legacy wave1/wave2 keys still parse as cities');
+assertEqual(assign.wave1, undefined, 'assign result has no wave1 key');
 const assignMembers = membersFromAssign(assign);
 assertEqual(assignMembers[0].role, 'hub', 'assign member hub role');
 assert(
@@ -292,21 +342,21 @@ assertEqual(mixedWaves[1].role, 'member', 'membersFromAssign stamps member not w
 assertEqual(mixedWaves[2].role, 'member', 'membersFromAssign stamps member not waveN');
 assertEqual(mixedWaves[1].source, 'claude', 'assign source is claude');
 
-const assignNew = parseAssignWavesJson(`{
+const assignNew = parseAssignCitiesJson(`{
   "hub": { "city": "Bend", "state": "OR" },
   "cities": [{ "city": "Redmond", "state": "OR" }, { "city": "Sisters", "state": "OR" }]
 }`);
 assertEqual(assignNew.hub.city, 'Bend', 'assign hub key');
 assertEqual(assignNew.cities.length, 2, 'assign cities key');
 
-const tooMany = applyWaveCaps({
+const tooMany = applyCityCaps({
   main: { city: 'Bend', state: 'OR' },
-  wave1: ['a', 'b', 'c', 'd', 'e', 'f'].map((x) => ({ city: x, state: 'OR' })),
-  wave2: Array.from({ length: 12 }, (_, i) => ({ city: `w${i}`, state: 'OR' })),
+  cities: ['a', 'b', 'c', 'd', 'e', 'f']
+    .map((x) => ({ city: x, state: 'OR' }))
+    .concat(Array.from({ length: 12 }, (_, i) => ({ city: `w${i}`, state: 'OR' }))),
 });
 assertEqual(tooMany.cities.length, 18, 'cities not truncated');
-assertEqual(tooMany.wave1.length, 18, 'wave1 alias is merged cities');
-assertEqual(tooMany.wave2.length, 0, 'wave2 folded into cities');
+assertEqual(tooMany.wave1, undefined, 'applyCityCaps does not write wave1');
 
 const shotgunFilters = normalizeFilters({
   packType: 'shotgun',
@@ -395,10 +445,8 @@ assertEqual(
 assertEqual(DEFAULT_SHOTGUN_BANDS.hub.min, 60000, 'default hub min');
 assertEqual(DEFAULT_SHOTGUN_BANDS.cities.min, 2000, 'default cities min');
 assertEqual(DEFAULT_SHOTGUN_BANDS.cities.max, 60000, 'default cities max');
-assertEqual(DEFAULT_SHOTGUN_BANDS.wave1.min, 2000, 'wave1 alias min');
-assertEqual(DEFAULT_SHOTGUN_BANDS.wave1.max, 60000, 'wave1 alias max');
-assertEqual(DEFAULT_SHOTGUN_BANDS.wave2.min, 2000, 'wave2 alias min');
-assertEqual(DEFAULT_SHOTGUN_BANDS.wave2.max, 60000, 'wave2 alias max');
+assertEqual(DEFAULT_SHOTGUN_BANDS.wave1, undefined, 'default bands have no wave1');
+assertEqual(DEFAULT_SHOTGUN_BANDS.wave2, undefined, 'default bands have no wave2');
 assert(hubPopAllowed(203677, { min: 60000, max: 200000 }), 'Overland Park within 10% slack');
 assert(!hubPopAllowed(400987, { min: 60000, max: 200000 }), 'Wichita outside hub slack');
 assert(isStateNamedPlace('Kansas', 'KS'), 'Kansas KS is bogus state-named place');
@@ -413,8 +461,9 @@ const nested = parseFindHubsJson(`{
     "wave2": [{ "city": "Gardner", "state": "KS" }, { "city": "Paola", "state": "KS" }]
   }]
 }`);
-assertEqual(nested.hubs[0].wave1.length, 1, 'parse nested wave1');
-assertEqual(nested.hubs[0].wave2[0].city, 'Gardner', 'parse nested wave2');
+assertEqual(nested.hubs[0].cities.length, 3, 'parse nested wave1/wave2 as cities');
+assertEqual(nested.hubs[0].cities[0].city, 'Lenexa', 'parse nested first city');
+assertEqual(nested.hubs[0].wave1, undefined, 'parseFindHubs does not keep wave1');
 
 const compact = compactHubScore({
   city: 'Olathe',
@@ -436,17 +485,17 @@ const compact = compactHubScore({
   })),
   viable: true,
 });
-assertEqual(compact.wave1.length, 6, 'compact persists Wave 1 cities');
-assertEqual(compact.wave2.length, 12, 'compact persists Wave 2 cities');
+assertEqual(compact.innerCities.length, 6, 'compact persists inner cities');
+assertEqual(compact.outerCities.length, 12, 'compact persists leftover-outer cities');
 assertEqual(compact.clusterPop, compact.population, 'clusterPop is hub only without preferred cities');
 assert(!JSON.stringify(compact).includes('innerPool'), 'compact drops full innerPool');
+assertEqual(compact.wave1, undefined, 'compact does not write wave1');
 
 const compactPref = compactHubScore({
   city: 'Olathe',
   state: 'KS',
   population: 150000,
-  wave1Preferred: compact.wave1.slice(0, 2),
-  wave2Preferred: [],
+  citiesPreferred: compact.innerCities.slice(0, 2),
   viable: true,
 });
 assertEqual(
@@ -459,8 +508,8 @@ const springfield = compactHubScore({
   city: 'Springfield',
   state: 'MO',
   population: 169000,
-  wave1: compact.wave1,
-  wave2: compact.wave2,
+  innerCities: compact.innerCities,
+  outerCities: compact.outerCities,
   viable: true,
 });
 const picked = mergePickerHubs(
@@ -501,8 +550,8 @@ const lockedOutOfBand = mergePickerHubs(
       hubInBand: false,
       viable: false,
       source: 'locked',
-      wave1: [{ city: 'Celina', state: 'TX', population: 64000, miles: 10 }],
-      wave2: [],
+      innerCities: [{ city: 'Celina', state: 'TX', population: 64000, miles: 10 }],
+      outerCities: [],
     },
   ],
   [],
@@ -549,33 +598,32 @@ assertEqual(skippedBandRejected.censusExtras.length, 0, 'non-locked out-of-band 
         city: 'Frisco',
         state: 'TX',
         source: 'locked',
-        wave1: [{ city: 'Celina', state: 'TX' }],
-        wave2: [],
+        innerCities: [{ city: 'Celina', state: 'TX' }],
+        outerCities: [],
       },
     ],
   };
   const same = ensureLockedHubOnDraft(already);
-  assert(same === already, 'locked hub with wave lists is not rescored');
+  assert(same === already, 'locked hub with city lists is not rescored');
 }
 
 const seededPref = seedMembersFromPreferred(
   {
     city: 'Olathe',
     state: 'KS',
-    wave1Preferred: compact.wave1.slice(0, 3),
-    wave2Preferred: compact.wave2.slice(0, 4),
+    citiesPreferred: compact.innerCities.slice(0, 3).concat(compact.outerCities.slice(0, 4)),
   },
   {
     city: 'Olathe',
     state: 'KS',
     population: 150000,
-    innerPool: compact.wave1.map((c) => ({ name: c.city, ...c })),
-    outerPool: compact.wave2.map((c) => ({ name: c.city, ...c })),
+    innerPool: compact.innerCities.map((c) => ({ name: c.city, ...c })),
+    outerPool: compact.outerCities.map((c) => ({ name: c.city, ...c })),
   },
 );
 assertEqual(
   seededPref.filter((m) => m.role === 'member')[0].city,
-  compact.wave1[0].city,
+  compact.innerCities[0].city,
   'Use hub seeds Claude preferred as members',
 );
 
@@ -583,11 +631,11 @@ const seeded = seedMembersFromRings({
   city: 'Olathe',
   state: 'KS',
   population: 150000,
-  innerPool: compact.wave1.map((c) => ({ name: c.city, ...c })),
-  outerPool: compact.wave2.map((c) => ({ name: c.city, ...c })),
+  innerPool: compact.innerCities.map((c) => ({ name: c.city, ...c })),
+  outerPool: compact.outerCities.map((c) => ({ name: c.city, ...c })),
 });
 const seedCities = seeded.filter((m) => m.role === 'member');
-assertEqual(seedCities.length, compact.wave1.length + compact.wave2.length, 'seed cities not truncated');
+assertEqual(seedCities.length, compact.innerCities.length + compact.outerCities.length, 'seed cities not truncated');
 assertEqual(seedCities[0].city, 'Merriam', 'seed nearest city first');
 assert(!seeded.some((m) => String(m.role).startsWith('wave')), 'seed does not stamp waveN roles');
 assert(seeded.some((m) => m.role === 'hub' && m.city === 'Olathe'), 'seed includes Hub');
@@ -617,16 +665,13 @@ if (existsSync(mapPath) && existsSync(censusPath)) {
   assert(mergedHub.ok, 'merge Claude Olathe cluster');
   assert(mergedHub.hub.viable, 'Claude hub shows in picker without Census 3/4 gate');
   assert(
-    (mergedHub.hub.wave1Preferred || []).some((c) => /lenexa/i.test(c.city)) ||
-      (mergedHub.hub.wave2Preferred || []).some((c) => /lenexa/i.test(c.city)) ||
+    (mergedHub.hub.citiesPreferred || []).some((c) => /lenexa/i.test(c.city)) ||
       (mergedHub.hub.unmatched || []).some((c) => /lenexa/i.test(c.city)),
-    'Claude Wave 1 city kept as preferred or unmatched',
+    'Claude city kept as preferred or unmatched',
   );
   assert(
-    (mergedHub.hub.wave1Preferred || []).length +
-      (mergedHub.hub.wave2Preferred || []).length >
-      0 || (mergedHub.hub.unmatched || []).length > 0,
-    'Claude waves matched or recorded unmatched',
+    (mergedHub.hub.citiesPreferred || []).length > 0 || (mergedHub.hub.unmatched || []).length > 0,
+    'Claude cities matched or recorded unmatched',
   );
   const lockedDraft = ensureLockedHubOnDraft({
     ...emptyShotgunDraft({}),
@@ -637,45 +682,21 @@ if (existsSync(mapPath) && existsSync(censusPath)) {
     /frisco/i.test(lockedDraft.viableHubs[0]?.city || ''),
     'locked hub city is Frisco',
   );
-  assert(Array.isArray(lockedDraft.viableHubs[0]?.wave1), 'locked hub has leftover wave lists');
+  assert(Array.isArray(lockedDraft.viableHubs[0]?.innerCities), 'locked hub has leftover city lists');
   assert(shotgunDraftHubCount(lockedDraft) >= 1, 'locked hub counts in picker');
-  const rb = rebalanceMembersByWaveMiles(
-    {
-      ...emptyShotgunDraft({}),
-      hub: { city: 'Frisco', state: 'TX' },
-      waveMiles: [15, 30, 30],
-      members: [
-        { city: 'Frisco', state: 'TX', role: 'hub' },
-        { city: 'Celina', state: 'TX', role: 'wave1', wave: 1, clusterKey: 2, miles: 10 },
-      ],
-    },
-    { minPop: 20000, maxPop: 200000 },
-  );
+  const { record: rb } = scrubShotgunRecord({
+    ...emptyShotgunDraft({}),
+    hub: { city: 'Frisco', state: 'TX' },
+    waveMiles: [15, 30, 30],
+    members: [
+      { city: 'Frisco', state: 'TX', role: 'hub' },
+      { city: 'Celina', state: 'TX', role: 'wave1', wave: 1, clusterKey: 2, miles: 10 },
+    ],
+  });
   const celina = (rb.members || []).find((m) => m.city === 'Celina');
-  assertEqual(celina?.wave, undefined, 'rebalance drops wave');
-  assertEqual(celina?.clusterKey, 2, 'rebalance keeps clusterKey');
-  assertEqual(celina?.role, 'member', 'rebalance member role');
-  assertEqual(
-    (rb.members || []).filter((m) => m.role === 'wave1' && m.city !== 'Celina').length,
-    0,
-    'rebalance does not auto-assign waves by miles',
-  );
-  const rbPinned = rebalanceMembersByWaveMiles(
-    {
-      ...rb,
-      members: rb.members.map((m) =>
-        m.city === 'Celina' && m.state === 'TX'
-          ? { ...m, role: 'wave3', wave: 3, pinned: true, source: 'manual' }
-          : m,
-      ),
-    },
-    { minPop: 20000, maxPop: 200000 },
-  );
-  const stillPinned = rbPinned.members.find(
-    (m) => m.city === 'Celina' && m.state === 'TX',
-  );
-  assertEqual(stillPinned?.wave, undefined, 'pinned wave migrates away');
-  assertEqual(stillPinned?.clusterKey, 2, 'pinned cluster survives rebalance');
+  assertEqual(celina?.wave, undefined, 'scrub drops wave');
+  assertEqual(celina?.clusterKey, 2, 'scrub keeps clusterKey');
+  assertEqual(celina?.role, 'member', 'scrub member role');
 } else {
   console.log('test-shotgun: skip listViableHubs (Census map or CSV missing)');
 }
@@ -699,10 +720,40 @@ if (existsSync(placesGeojsonPath())) {
   assert(boxed.features.length < 800, 'bbox geojson is not the whole nation');
   assert(boxed.features.every((f) => Number(f.properties.population) >= 3000), 'bbox respects minPop');
 
+  const wide = getMapGeojson({
+    layer: 'places',
+    minPop: 0,
+    states: 'KS,MO',
+    bbox: '-95.1,38.6,-94.3,39.4',
+  });
+  const tight = getMapGeojson({
+    layer: 'places',
+    minPop: 20000,
+    states: 'KS,MO',
+    bbox: '-95.1,38.6,-94.3,39.4',
+  });
+  assert(
+    wide.features.some((f) => Number(f.properties.population) < 20000),
+    'bbox minPop 0 includes places below 20k',
+  );
+  assert(
+    tight.features.every((f) => Number(f.properties.population) >= 20000),
+    'bbox minPop 20000 drops places below 20k',
+  );
+
   const mesq = placeInZoneRadius('Mesquite', 'TX', 'Dallas', 'TX', 52);
   assert(mesq.inZone, 'Mesquite is inside 52 mi of Dallas');
   const tyler = placeInZoneRadius('Tyler', 'TX', 'Dallas', 'TX', 52);
   assert(!tyler.inZone, 'Tyler is outside 52 mi of Dallas');
+  const burleson52 = placeInZoneRadius('Burleson', 'TX', 'Dallas', 'TX', 52);
+  const burleson30 = placeInZoneRadius('Burleson', 'TX', 'Dallas', 'TX', 30);
+  assert(burleson52.inZone, 'Burleson is inside 52 mi of Dallas');
+  assert(!burleson30.inZone, 'Burleson is outside 30 mi of Dallas');
+  const denton52 = placeInZoneRadius('Denton', 'TX', 'Dallas', 'TX', 52);
+  const denton30 = placeInZoneRadius('Denton', 'TX', 'Dallas', 'TX', 30);
+  assert(denton52.inZone, 'Denton is inside 52 mi of Dallas');
+  assert(denton30.inZone, 'Denton polygon still intersects 30 mi disk');
+  assert(Number(denton30.miles) > 30.5, 'Denton centroid is outside 30 mi ring');
 } else {
   console.log('test-shotgun: skip geojson bbox (Census map missing)');
 }
@@ -742,6 +793,50 @@ if (existsSync(placesGeojsonPath())) {
     });
     const mesq = (painted.cluster.members || []).find((m) => m.city === 'Mesquite');
     assertEqual(Number(mesq?.clusterKey), 1, 'Mesquite Cluster 1 inside 52 mi');
+    const irvingPaint = paintZoneMember('sg_dallas', {
+      city: 'Irving',
+      state: 'TX',
+      tool: 'cluster',
+      slot: 3,
+      radiusMiles: 52,
+      minPop: 20000,
+      maxPop: 200000,
+    });
+    const irving = (irvingPaint.cluster.members || []).find((m) => m.city === 'Irving');
+    assertEqual(Number(irving?.clusterKey), 3, 'Irving Cluster 3 even though pop is above map max');
+    const rendonPaint = paintZoneMember('sg_dallas', {
+      city: 'Rendon',
+      state: 'TX',
+      tool: 'cluster',
+      slot: 5,
+      radiusMiles: 69,
+      minPop: 20000,
+      maxPop: 200000,
+    });
+    const rendon = (rendonPaint.cluster.members || []).find((m) => m.city === 'Rendon');
+    assertEqual(Number(rendon?.clusterKey), 5, 'Rendon Cluster 5 even though pop is below map min');
+    const burlesonPaint = paintZoneMember('sg_dallas', {
+      city: 'Burleson',
+      state: 'TX',
+      tool: 'cluster',
+      slot: 2,
+      radiusMiles: 52,
+      minPop: 20000,
+      maxPop: 200000,
+    });
+    const burleson = (burlesonPaint.cluster.members || []).find((m) => m.city === 'Burleson');
+    assertEqual(Number(burleson?.clusterKey), 2, 'Burleson Cluster 2 inside 52 mi');
+    const dentonPaint = paintZoneMember('sg_dallas', {
+      city: 'Denton',
+      state: 'TX',
+      tool: 'cluster',
+      slot: 4,
+      radiusMiles: 52,
+      minPop: 20000,
+      maxPop: 200000,
+    });
+    const denton = (dentonPaint.cluster.members || []).find((m) => m.city === 'Denton');
+    assertEqual(Number(denton?.clusterKey), 4, 'Denton Cluster 4 inside 52 mi');
     let farErr = '';
     try {
       paintZoneMember('sg_dallas', {
@@ -757,6 +852,29 @@ if (existsSync(placesGeojsonPath())) {
       farErr = error.message || '';
     }
     assert(/outside the Zone radius/i.test(farErr), 'Tyler rejected as outside zone');
+    const shrunk = setZoneMiles('sg_dallas', 30);
+    const burlesonAfter = (shrunk.cluster.members || []).find((m) => m.city === 'Burleson');
+    assert(!burlesonAfter || !memberClusterKey(burlesonAfter), 'Burleson dropped when radius shrinks past it');
+    const dentonAfter = (shrunk.cluster.members || []).find((m) => m.city === 'Denton');
+    assert(!dentonAfter || !memberClusterKey(dentonAfter), 'Denton dropped: centroid outside 30 mi even if polygon intersects');
+    let denton30Err = '';
+    try {
+      paintZoneMember('sg_dallas', {
+        city: 'Denton',
+        state: 'TX',
+        tool: 'cluster',
+        slot: 4,
+        radiusMiles: 30,
+      });
+    } catch (error) {
+      denton30Err = error.message || '';
+    }
+    assert(/outside the Zone radius/i.test(denton30Err), 'Denton rejected at 30 mi by centroid');
+    const mesqAfter = (shrunk.cluster.members || []).find((m) => m.city === 'Mesquite');
+    assertEqual(Number(mesqAfter?.clusterKey), 1, 'Mesquite stays inside 30 mi');
+    const dallas = (shrunk.cluster.members || []).find((m) => m.city === 'Dallas');
+    assert(dallas?.role === 'hub', 'Dallas hub stays after radius shrink');
+    assertEqual(Number(shrunk.cluster.clusterMiles), 30, 'Zone miles saved as 30');
   } finally {
     setShotgunClustersFileForTests(null);
     try {

@@ -1,5 +1,6 @@
-import { displayLabelForSlot } from '../ops/lib/fill-site-images.mjs';
+import { displayLabelForSlot, sectionGroupKey, sectionLabelForGroup } from '../ops/lib/fill-site-images.mjs';
 import { reviewSlotServiceSubtitle } from '../ops/lib/review-slot-service-subtitle.mjs';
+import { loadSectionRegistry } from '../ops/lib/content-structure.mjs';
 
 function assertEqual(got, want, label) {
   if (got !== want) {
@@ -19,8 +20,8 @@ const processCard = { ...processSlot, label: displayLabelForSlot(processSlot) };
 assertEqual(processCard.label, 'Step 2: Contain the room', 'step title stays');
 assertEqual(
   reviewSlotServiceSubtitle(processCard),
-  'Sheetrock Repair',
-  'process slot shows service subtitle',
+  '',
+  'process slot has no subtitle once the heading is the service',
 );
 
 const heroSlot = {
@@ -44,8 +45,71 @@ const materials = {
 };
 assertEqual(
   reviewSlotServiceSubtitle(materials),
-  'Popcorn Ceiling Removal & Re-Texture',
-  'materials slot shows service',
+  '',
+  'materials slot has no subtitle once the heading is the service',
+);
+
+const registry = loadSectionRegistry();
+assertEqual(
+  sectionLabelForGroup('materials', registry),
+  'Homepage · Materials & methods',
+  'homepage materials heading',
+);
+assertEqual(
+  sectionLabelForGroup('svcMaterials', registry),
+  'Services · Materials & methods',
+  'service materials heading',
+);
+assertEqual(
+  sectionLabelForGroup('services', registry),
+  'What we do (services grid)',
+  'mixed services group stays unprefixed',
+);
+assertEqual(
+  sectionLabelForGroup('process', registry),
+  'Homepage · Process / how we work',
+  'homepage process heading',
+);
+assertEqual(sectionGroupKey('svcProcess'), 'svcProcess', 'process group without slug stays combined');
+assertEqual(
+  sectionGroupKey('svcProcess', { serviceSlug: 'commercial-concrete-leveling' }),
+  'svcProcess:commercial-concrete-leveling',
+  'process group key includes service slug',
+);
+assertEqual(sectionGroupKey('svcMaterials'), 'svcMaterials', 'materials group without slug stays combined');
+assertEqual(
+  sectionGroupKey('svcMaterials', { serviceSlug: 'commercial-concrete-leveling' }),
+  'svcMaterials:commercial-concrete-leveling',
+  'materials group key includes service slug',
+);
+assertEqual(
+  sectionLabelForGroup('svcProcess', registry),
+  'Services · Service process',
+  'bare service process heading',
+);
+assertEqual(
+  sectionLabelForGroup('svcProcess', registry, { serviceName: 'Commercial Concrete Leveling' }),
+  'Services · Commercial Concrete Leveling',
+  'process heading uses service name',
+);
+assertEqual(
+  sectionLabelForGroup('svcProcess:commercial-concrete-leveling', registry, {
+    serviceName: 'Commercial Concrete Leveling',
+  }),
+  'Services · Commercial Concrete Leveling',
+  'per-service process group heading',
+);
+assertEqual(
+  sectionLabelForGroup('svcMaterials', registry, { serviceName: 'Commercial Concrete Leveling' }),
+  'Services · Materials & methods · Commercial Concrete Leveling',
+  'materials heading uses service name',
+);
+assertEqual(
+  sectionLabelForGroup('svcMaterials:commercial-concrete-leveling', registry, {
+    serviceName: 'Commercial Concrete Leveling',
+  }),
+  'Services · Materials & methods · Commercial Concrete Leveling',
+  'per-service materials group heading',
 );
 
 console.log('test-review-slot-service-subtitle: ok');

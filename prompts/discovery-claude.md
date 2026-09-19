@@ -64,7 +64,7 @@ Use **only** the empty-template headers below:
 
 - `Niche`, `City`, `State` (required per row)
 - `Average Job Cost`
-- `Est. Monthly Search Volume` — Claude’s best-guess **monthly** searches for the **Niche + City + State** primary query only (not suburbs/cluster, not “near me”). Prefer a single integer (e.g. `2400`); a short range is OK (`1800-3200`). Leave blank if you have no honest guess. **Discovery triage only** — Rover does not treat this as Ads truth and does not carry it into Research.
+- `Est. Monthly Search Volume` — Claude’s best-guess **monthly** searches for the **Niche + City + State** primary query only (not suburbs/cluster, not “near me”). Prefer a single integer (e.g. `2400`); a short range is OK (`1800-3200`). Leave blank if you have no honest guess. Not Ads / Keyword Planner truth. Rover may seed Research Demand from this guess when Ads volumes are skipped (labeled estimate). Never write this number into Ads volume columns.
 - `Est. time to rank with GBP` — e.g. `2-3 months`
 - `Est. time to rank without GBP` — e.g. `4-6 months`
 - `pain_points` / `suggested_services` — ≤3 short semicolon-separated items each; leave blank rather than invent fluff

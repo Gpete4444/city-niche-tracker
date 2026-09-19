@@ -35,7 +35,7 @@ Design + writer rules for Structure sections. Informed by contractor conversion 
 
 Content chain (eight-pass Soft path, all required): **Structure → Site research → Brief → Outline → batched Full write → Humanize (Passes 4–7) → Final check → Accept**.
 
-- **Site research** — Claude JSON stand-in for Reddit/PAA/competitor angles (`*-content-field-research.json`). Optional operator notes enrich Brief only.
+- **Site research** — Claude JSON for homeowner questions, competitor angles, and **cited** local conditions (`text` + `place` + `sourceUrl`: Wikipedia, census, municipal, local news, public Reddit). Not a Facebook/Nextdoor scrape. Optional operator notes enrich Brief only.
 - **Content brief** — Pass 1 synthesis; must Load & confirm before Outline/Full write.
 - **Outline** — Pass 2 strategic outline (shared guardrails + per-H2 angle / job-to-be-done).
 - **Full write** — Pass 3 batched by Home / Services / Locations (tone variance); Continue merge for stubs.
@@ -74,7 +74,8 @@ Rank & Rent sites should mirror what a future GBP will claim:
 - Proof lives in `socialProof` (trust strip + reviews) and About (`aboutStory`).
 - Do not invent license ID numbers, founding years, or testimonials in Claude copy.
 - When `socialProof` is empty, **Rover** seeds placeholders via `defaultPlaceholderSocialProof` / `buildGoogleStyleSocialProof` (site-config paste / content Load+Accept): exactly **3** Google-lookalike reviews (First + last initial, 2 bundled avatars + 1 initials circle, dates within ~1 week / ~2 weeks / ~1 month). Operator swaps with real GBP reviews before launch when available.
-- Preset **C (Value SEO heavy)** is the ranking-focused default (all pages/sections including Location pages and Include photos; Deep offer process stays off).
+- Preset **C (Value SEO heavy)** is the ranking-focused default (all pages/sections including Location pages and Include photos; Deep offer process stays off). **Write** still rotates service educational bands: cost / DIY / permits stay on the homepage plus a subset of service URLs so child pages are not one cloned H2 grid.
+- **Location angles** come from City context + sourced field-research cues. Each suburb FILE must use its own angle; Accept rejects near-duplicate openings/FAQs and mashups of other suburbs.
 - Editor must preserve socialProof while fixing speech/SEO issues.
 
 ## Social proof

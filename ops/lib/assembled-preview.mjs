@@ -8,13 +8,16 @@
  */
 
 import { spawn, execFileSync } from 'node:child_process';
-import { createConnection } from 'node:net';
-import { existsSync, readdirSync, statSync } from 'node:fs';
+import { request as httpRequest } from 'node:http';
+import { createConnection, createServer } from 'node:net';
+import { existsSync, readdirSync, readFileSync, statSync, unlinkSync } from 'node:fs';
 import path from 'node:path';
 import { buildAssembledSiteAsync } from './ship-site.mjs';
 import { getConcurrency } from './rover-concurrency.mjs';
 
 const PREVIEW_HOST = '127.0.0.1';
+/** Truthy so Astro 7 `isRunByAgent()` does not auto `--background` and exit the child. */
+export const ASTRO_PREVIEW_BACKGROUND_SENTINEL = 'rover';
 const PORT_BASE = Math.max(
   1024,
   Number(process.env.ASSEMBLED_PREVIEW_PORT_BASE || 4322) || 4322,
@@ -70,8 +73,206 @@ function portOpen(port, host = PREVIEW_HOST) {
   });
 }
 
+/**
+ * HTTP GET on the reserved preview URL. Any HTTP response means the server is up
+ * (2xx / 3xx / 404). TCP accept alone is not enough — Vite can hop ports.
+ * @param {number} port
+ * @param {string} [host]
+ * @returns {Promise<boolean>}
+ */
+export function previewHttpReady(port, host = PREVIEW_HOST) {
+  return new Promise((resolve) => {
+    const req = httpRequest(
+      {
+        host,
+        port,
+        path: '/',
+        method: 'GET',
+        timeout: 1500,
+      },
+      (res) => {
+        res.resume();
+        const code = Number(res.statusCode || 0);
+        resolve(Number.isFinite(code) && code > 0);
+      },
+    );
+    req.on('error', () => resolve(false));
+    req.on('timeout', () => {
+      req.destroy();
+      resolve(false);
+    });
+    req.end();
+  });
+}
+
+/**
+ * True when this process can bind the reserved preview port (not just connect).
+ * Windows TIME_WAIT can fail bind after portOpen looks free.
+ * @param {number} port
+ * @param {string} [host]
+ * @returns {Promise<boolean>}
+ */
+export function portBindable(port, host = PREVIEW_HOST) {
+  return new Promise((resolve) => {
+    const server = createServer();
+    let settled = false;
+    const finish = (ok) => {
+      if (settled) return;
+      settled = true;
+      try {
+        server.close(() => resolve(ok));
+      } catch {
+        resolve(ok);
+      }
+    };
+    server.once('error', () => finish(false));
+    server.listen({ host, port, exclusive: true }, () => finish(true));
+  });
+}
+
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
+}
+
+/** Local column from `netstat -ano` (`127.0.0.1:4322` or `[::1]:4322`). */
+export function parseLocalAddressPort(localAddr) {
+  const m = String(localAddr || '').trim().match(/:(\d+)$/);
+  if (!m) return null;
+  const n = Number(m[1]);
+  return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * Vite hopped off the reserved port (`trying another one` / Local URL).
+ * @param {string} output
+ * @param {number} reservedPort
+ * @returns {number | null}
+ */
+export function parsePreviewHopPort(output, reservedPort) {
+  const text = String(output || '');
+  const local = text.match(/https?:\/\/(?:127\.0\.0\.1|localhost):(\d+)/i);
+  const hopped = Number(local?.[1]);
+  const mentioned = /trying another one/i.test(text);
+  if (Number.isFinite(hopped) && hopped > 0 && hopped !== reservedPort) return hopped;
+  if (mentioned) return Number.isFinite(hopped) && hopped > 0 ? hopped : null;
+  return null;
+}
+
+function astroBin(siteRoot) {
+  return path.join(siteRoot, 'node_modules', 'astro', 'bin', 'astro.mjs');
+}
+
+function previewLockPath(siteRoot) {
+  return path.join(siteRoot, '.astro', 'preview.json');
+}
+
+function previewEnv() {
+  return { ...process.env, ASTRO_PREVIEW_BACKGROUND: ASTRO_PREVIEW_BACKGROUND_SENTINEL };
+}
+
+function readPreviewLock(siteRoot) {
+  const lock = previewLockPath(siteRoot);
+  if (!existsSync(lock)) return null;
+  try {
+    const data = JSON.parse(readFileSync(lock, 'utf8'));
+    return data && typeof data === 'object' ? data : null;
+  } catch {
+    return null;
+  }
+}
+
+function readPreviewLockPid(siteRoot) {
+  const pid = Number(readPreviewLock(siteRoot)?.pid);
+  return Number.isFinite(pid) && pid > 0 ? pid : null;
+}
+
+function previewHtmlSnippet(port) {
+  return new Promise((resolve) => {
+    const req = httpRequest(
+      { host: PREVIEW_HOST, port, path: '/', method: 'GET', timeout: 1500 },
+      (res) => {
+        let body = '';
+        res.on('data', (chunk) => {
+          body += chunk;
+          if (body.length > 8000) {
+            res.destroy();
+            resolve(body);
+          }
+        });
+        res.on('end', () => resolve(body));
+      },
+    );
+    req.on('error', () => resolve(''));
+    req.on('timeout', () => {
+      req.destroy();
+      resolve('');
+    });
+    req.end();
+  });
+}
+
+async function previewServesThisSite(port, siteRoot) {
+  if (!(await previewHttpReady(port))) return false;
+  const lockPort = Number(readPreviewLock(siteRoot)?.port);
+  if (lockPort === port) return true;
+  try {
+    const cfgPath = path.join(siteRoot, 'src', 'config', 'site-config.json');
+    if (!existsSync(cfgPath)) return false;
+    const domain = String(JSON.parse(readFileSync(cfgPath, 'utf8'))?.domain || '').trim();
+    if (!domain) return false;
+    const html = await previewHtmlSnippet(port);
+    return html.toLowerCase().includes(domain.toLowerCase());
+  } catch {
+    return false;
+  }
+}
+
+function clearPreviewLock(siteRoot) {
+  try {
+    const lock = previewLockPath(siteRoot);
+    if (existsSync(lock)) unlinkSync(lock);
+  } catch {
+    /* ignore */
+  }
+}
+
+/** Best-effort `astro preview stop` + lock PID kill + delete `.astro/preview.json`. */
+function stopAstroPreviewCli(siteRoot) {
+  if (!siteRoot) return;
+  const abs = path.resolve(siteRoot);
+  const bin = astroBin(abs);
+  if (existsSync(bin)) {
+    try {
+      execFileSync(process.execPath, [bin, 'preview', 'stop'], {
+        cwd: abs,
+        encoding: 'utf8',
+        windowsHide: true,
+        timeout: 8000,
+        stdio: ['ignore', 'pipe', 'pipe'],
+        env: previewEnv(),
+      });
+    } catch {
+      /* ignore */
+    }
+  }
+  const pid = readPreviewLockPid(abs);
+  if (pid) killPidTree(pid);
+  clearPreviewLock(abs);
+}
+
+async function waitUntilPortFree(port, { timeoutMs = 8000 } = {}) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    for (const pid of pidsListeningOnPort(port)) killPidTree(pid);
+    if (await portBindable(port)) return true;
+    await sleep(200);
+  }
+  return portBindable(port);
+}
+
+function formatPreviewOutput(out) {
+  const tail = String(out || '').trim().slice(-400);
+  return tail ? `: ${tail}` : '';
 }
 
 function sameSiteRoot(a, b) {
@@ -84,10 +285,12 @@ function pidsListeningOnPort(port) {
   if (process.platform === 'win32') {
     try {
       const out = execFileSync('netstat', ['-ano'], { encoding: 'utf8' });
-      const needle = `:${port}`;
       for (const line of out.split(/\r?\n/)) {
-        if (!line.includes(needle) || !/LISTENING/i.test(line)) continue;
+        if (!/LISTENING/i.test(line)) continue;
         const parts = line.trim().split(/\s+/);
+        if (parts.length < 4) continue;
+        const localPort = parseLocalAddressPort(parts[1]);
+        if (localPort !== port) continue;
         const pid = parts[parts.length - 1];
         if (/^\d+$/.test(pid) && pid !== '0') pids.add(Number(pid));
       }
@@ -109,6 +312,9 @@ function pidsListeningOnPort(port) {
 
 function killPidTree(pid) {
   if (!pid) return;
+  const self = process.pid;
+  const parent = typeof process.ppid === 'number' ? process.ppid : 0;
+  if (pid === self || (parent && pid === parent)) return;
   try {
     if (process.platform === 'win32') {
       execFileSync('taskkill', ['/PID', String(pid), '/T', '/F'], {
@@ -201,6 +407,51 @@ function usedPorts() {
   return new Set([...bindings.values()].map((s) => s.port));
 }
 
+function bindingForPort(port) {
+  for (const slot of bindings.values()) {
+    if (slot.port === port) return slot;
+  }
+  return null;
+}
+
+function claimPort(siteRoot, port, extra = {}) {
+  const abs = path.resolve(siteRoot);
+  bindings.set(normRoot(abs), {
+    port,
+    siteRoot: abs,
+    child: extra.child ?? null,
+    touchedAt: Date.now(),
+    reserved: true,
+    ...extra,
+  });
+  return port;
+}
+
+/**
+ * Reserve a pool port we can actually bind. Orphans (listening, not in bindings)
+ * are killed. Sibling bindings are skipped.
+ * @param {string} siteRoot
+ * @returns {Promise<number | null>}
+ */
+async function reserveBindablePort(siteRoot) {
+  const abs = path.resolve(siteRoot);
+  const key = normRoot(abs);
+  const existing = bindings.get(key);
+  if (existing?.port != null) return existing.port;
+
+  const freeMs = process.platform === 'win32' ? 8000 : 3000;
+  for (const p of poolPorts()) {
+    const owner = bindingForPort(p);
+    if (owner && !sameSiteRoot(owner.siteRoot, abs)) continue;
+    if (await portBindable(p)) return claimPort(abs, p);
+    if (!owner) {
+      for (const pid of pidsListeningOnPort(p)) killPidTree(pid);
+      if (await waitUntilPortFree(p, { timeoutMs: freeMs })) return claimPort(abs, p);
+    }
+  }
+  return null;
+}
+
 /**
  * Reserve a free pool port for siteRoot immediately (before async start),
  * so concurrent Prepare cannot both claim the same port.
@@ -214,17 +465,9 @@ function reservePort(siteRoot) {
   if (existing?.port != null) return existing.port;
 
   const used = usedPorts();
-  for (let i = 0; i < assembledPreviewSlotCount(); i += 1) {
-    const p = PORT_BASE + i;
+  for (const p of poolPorts()) {
     if (used.has(p)) continue;
-    bindings.set(key, {
-      port: p,
-      siteRoot: abs,
-      child: null,
-      touchedAt: Date.now(),
-      reserved: true,
-    });
-    return p;
+    return claimPort(abs, p);
   }
   return null;
 }
@@ -258,7 +501,9 @@ export function stopAssembledPreviewSync(siteRoot, { waitMs, forcePoolClear = fa
     : [...bindings.entries()];
 
   const ports = [];
+  if (siteRoot) stopAstroPreviewCli(siteRoot);
   for (const [key, slot] of targets) {
+    stopAstroPreviewCli(slot.siteRoot);
     if (slot.child?.pid) killPidTree(slot.child.pid);
     ports.push(slot.port);
     bindings.delete(key);
@@ -317,7 +562,9 @@ export async function stopAssembledPreview(siteRoot, { forcePoolClear = false } 
     : [...bindings.entries()];
 
   const ports = [];
+  if (siteRoot) stopAstroPreviewCli(siteRoot);
   for (const [key, slot] of targets) {
+    stopAstroPreviewCli(slot.siteRoot);
     if (slot.child?.pid) killPidTree(slot.child.pid);
     ports.push(slot.port);
     bindings.delete(key);
@@ -383,50 +630,79 @@ export function contentNewerThanDist(siteRoot, { ignoreAssembleMeta = false } = 
 
 function startAstroPreview(siteRoot, port, { timeoutMs = 90000 } = {}) {
   return new Promise((resolve) => {
+    const abs = path.resolve(siteRoot);
+    const bin = astroBin(abs);
+    if (!existsSync(bin)) {
+      resolve({
+        ok: false,
+        error: `Assembled site is missing astro (${path.relative(abs, bin) || 'node_modules/astro/bin/astro.mjs'})`,
+        output: '',
+        pid: null,
+        port,
+      });
+      return;
+    }
+
+    stopAstroPreviewCli(abs);
+
     const child = spawn(
-      'npx',
-      ['astro', 'preview', '--host', PREVIEW_HOST, '--port', String(port)],
+      process.execPath,
+      [bin, 'preview', '--host', PREVIEW_HOST, '--port', String(port)],
       {
-        cwd: siteRoot,
-        shell: true,
+        cwd: abs,
         windowsHide: true,
         stdio: ['ignore', 'pipe', 'pipe'],
-        detached: process.platform !== 'win32',
+        env: previewEnv(),
       },
     );
-    const key = normRoot(siteRoot);
+    const key = normRoot(abs);
     bindings.set(key, {
       port,
-      siteRoot: path.resolve(siteRoot),
+      siteRoot: abs,
       child,
       touchedAt: Date.now(),
     });
 
-    if (process.platform !== 'win32') {
-      try {
-        child.unref();
-      } catch {
-        /* ignore */
-      }
-    }
-
     let settled = false;
     let out = '';
-    const finish = (ok, error) => {
+    const finish = (ok, error, extra = {}) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      resolve({ ok, error, output: out.slice(-800), pid: child.pid || null, port });
+      clearInterval(poll);
+      resolve({
+        ok,
+        error,
+        output: out.slice(-800),
+        pid: child.pid || null,
+        port,
+        hopped: Boolean(extra.hopped),
+        hoppedPort: extra.hoppedPort ?? null,
+      });
     };
 
     const timer = setTimeout(() => {
-      finish(false, `Timed out starting assembled preview (${timeoutMs}ms)`);
+      finish(
+        false,
+        `Timed out starting assembled preview (${timeoutMs}ms)${formatPreviewOutput(out)}`,
+      );
     }, timeoutMs);
+
+    const poll = setInterval(() => {
+      previewHttpReady(port).then((ready) => {
+        if (ready) finish(true);
+      });
+    }, 400);
 
     const onChunk = (d) => {
       out += String(d);
-      if (/localhost|127\.0\.0\.1|preview|local/i.test(out) && /http/i.test(out)) {
-        finish(true);
+      const hopped = parsePreviewHopPort(out, port);
+      if (hopped) {
+        if (child.pid) killPidTree(child.pid);
+        finish(false, `astro preview hopped from :${port} to :${hopped}${formatPreviewOutput(out)}`, {
+          hopped: true,
+          hoppedPort: hopped,
+        });
       }
     };
     child.stdout?.on('data', onChunk);
@@ -438,14 +714,17 @@ function startAstroPreview(siteRoot, port, { timeoutMs = 90000 } = {}) {
         bindings.set(key, { ...cur, child: null });
       }
       if (settled) return;
-      for (let i = 0; i < 30; i += 1) {
-        if (await portOpen(port)) {
+      for (let i = 0; i < 8; i += 1) {
+        if (await previewHttpReady(port)) {
           finish(true);
           return;
         }
         await sleep(250);
       }
-      finish(false, `astro preview exited before port ${port} opened: ${out.slice(-400)}`);
+      finish(
+        false,
+        `astro preview exited before http://${PREVIEW_HOST}:${port}/ became ready${formatPreviewOutput(out)}`,
+      );
     });
   });
 }
@@ -488,7 +767,7 @@ export async function ensureAssembledPreview(
   let existing = bindings.get(key);
   if (existing) {
     existing.touchedAt = Date.now();
-    const portBusy = await portOpen(existing.port);
+    const portBusy = await previewHttpReady(existing.port);
     if (portBusy && !forceRebind) {
       const shouldRebuild = rebuild || contentNewerThanDist(abs);
       let build = null;
@@ -523,33 +802,50 @@ export async function ensureAssembledPreview(
     existing = null;
   }
 
+  if (!forceRebind) {
+    for (const p of poolPorts()) {
+      const owner = bindingForPort(p);
+      if (owner && !sameSiteRoot(owner.siteRoot, abs)) continue;
+      if (await previewServesThisSite(p, abs)) {
+        claimPort(abs, p, { child: owner?.child ?? null, reused: true });
+        return {
+          ok: true,
+          url: `http://${PREVIEW_HOST}:${p}/`,
+          started: false,
+          rebound: false,
+          build: null,
+          port: p,
+          boundSiteRoot: abs,
+          assembledSitePath: abs,
+        };
+      }
+    }
+  }
+
   let build = null;
   const shouldRebuild = rebuild || contentNewerThanDist(abs);
+  const freeMs = process.platform === 'win32' ? 8000 : 3000;
 
-  // Reserve port before long build so concurrent prepares cannot both claim :4322.
-  let port = reservePort(abs);
+  // Reserve a bindable pool port before long build so concurrent prepares cannot both claim :4322.
+  let port = await reserveBindablePort(abs);
   if (port == null) {
     port = await evictOldestOther(abs);
     if (port != null) {
-      bindings.set(key, {
-        port,
-        siteRoot: abs,
-        child: null,
-        touchedAt: Date.now(),
-        reserved: true,
-      });
-    } else {
-      port = reservePort(abs);
+      const freed = await waitUntilPortFree(port, { timeoutMs: freeMs });
+      if (freed) claimPort(abs, port);
+      else port = null;
     }
+    if (port == null) port = await reserveBindablePort(abs);
   }
   if (port == null) {
+    const busy = poolPorts().map((p) => `${p}[${pidsListeningOnPort(p).join(',') || '?'}]`);
     return {
       ok: false,
       url: null,
       started: false,
       rebound: false,
       build: null,
-      error: `Preview port pool full (${assembledPreviewSlotCount()} slots from ${PORT_BASE})`,
+      error: `Preview port pool full (${assembledPreviewSlotCount()} slots from ${PORT_BASE}; busy ${busy.join(', ')})`,
       assembledSitePath: abs,
       port: null,
     };
@@ -573,16 +869,72 @@ export async function ensureAssembledPreview(
     }
   }
 
-  if (await portOpen(port)) {
-    for (const pid of pidsListeningOnPort(port)) killPidTree(pid);
-    await sleep(200);
+  const freed = await waitUntilPortFree(port, { timeoutMs: freeMs });
+  if (!freed) {
+    const pids = pidsListeningOnPort(port);
+    bindings.delete(key);
+    return {
+      ok: false,
+      url: `http://${PREVIEW_HOST}:${port}/`,
+      started: false,
+      rebound: true,
+      build,
+      error: `Preview port ${port} still in use (pids ${pids.join(', ') || 'unknown'})`,
+      assembledSitePath: abs,
+      port,
+    };
   }
 
-  const start = await startAstroPreview(abs, port, { timeoutMs: Math.min(timeoutMs, 90000) });
+  const startTimeout = Math.min(timeoutMs, 90000);
+  let start = await startAstroPreview(abs, port, { timeoutMs: startTimeout });
+  if (start.hopped) {
+    if (start.pid) killPidTree(start.pid);
+    if (start.hoppedPort) {
+      for (const pid of pidsListeningOnPort(start.hoppedPort)) killPidTree(pid);
+    }
+    stopAstroPreviewCli(abs);
+    clearPreviewLock(abs);
+    const reclaimed = await waitUntilPortFree(port, { timeoutMs: freeMs });
+    if (!reclaimed) {
+      const pids = pidsListeningOnPort(port);
+      bindings.delete(key);
+      return {
+        ok: false,
+        url: `http://${PREVIEW_HOST}:${port}/`,
+        started: false,
+        rebound: true,
+        build,
+        error: `Preview port ${port} still in use after hop to :${start.hoppedPort} (pids ${pids.join(', ') || 'unknown'})${formatPreviewOutput(start.output)}`,
+        assembledSitePath: abs,
+        port,
+      };
+    }
+    start = await startAstroPreview(abs, port, { timeoutMs: startTimeout });
+    if (start.hopped) {
+      if (start.pid) killPidTree(start.pid);
+      if (start.hoppedPort) {
+        for (const pid of pidsListeningOnPort(start.hoppedPort)) killPidTree(pid);
+      }
+      stopAstroPreviewCli(abs);
+      bindings.delete(key);
+      return {
+        ok: false,
+        url: `http://${PREVIEW_HOST}:${port}/`,
+        started: false,
+        rebound: true,
+        build,
+        error: start.error || `astro preview hopped off :${port}${formatPreviewOutput(start.output)}`,
+        assembledSitePath: abs,
+        port,
+      };
+    }
+  }
+
   const boundPort = bindings.get(key)?.port ?? port;
   const url = `http://${PREVIEW_HOST}:${boundPort}/`;
+  const startTail = formatPreviewOutput(start.output);
 
-  if (!start.ok && !(await portOpen(boundPort))) {
+  if (!start.ok && !(await previewHttpReady(boundPort))) {
     bindings.delete(key);
     return {
       ok: false,
@@ -590,7 +942,7 @@ export async function ensureAssembledPreview(
       started: false,
       rebound: true,
       build,
-      error: start.error || 'Failed to start assembled Astro preview',
+      error: start.error || `Failed to start assembled Astro preview${startTail}`,
       assembledSitePath: abs,
       port: boundPort,
     };
@@ -598,7 +950,7 @@ export async function ensureAssembledPreview(
 
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    if (await portOpen(boundPort)) {
+    if (await previewHttpReady(boundPort)) {
       const slot = bindings.get(key);
       if (slot) slot.touchedAt = Date.now();
       const livePort = slot?.port ?? boundPort;
@@ -623,7 +975,7 @@ export async function ensureAssembledPreview(
     started: Boolean(start.ok),
     rebound: true,
     build,
-    error: `Assembled preview did not become ready on ${url}`,
+    error: `Assembled preview did not become ready on ${url}${startTail}`,
     assembledSitePath: abs,
     port: boundPort,
   };

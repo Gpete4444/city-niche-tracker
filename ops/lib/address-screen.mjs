@@ -77,6 +77,309 @@ function env(name) {
   return String(process.env[name] || '').trim();
 }
 
+/** Rover used to invent STE-100 / STE-150 NAP stubs. Strip those only — not listing "Ste 200". */
+export function stripInventedSuite(street) {
+  return String(street || '')
+    .replace(/,?\s*STE-\d+\s*$/i, '')
+    .trim();
+}
+
+const LISTED_SUITE_TOKEN_RE = /\b(?:ste|suite|unit|spc)\.?\s+([a-z0-9][a-z0-9-]*)\b|#\s*([a-z0-9][a-z0-9-]*)\b/gi;
+const NOT_A_SUITE_TOKEN_RE = /^(?:floor|fl|ground|retail|shell|build|space|available|office|medical)$/i;
+const LISTING_CACHE_SCHEMA = 'listing-details-suites-v1';
+const LISTING_CACHE_SCHEMA_ALIASES = ['enrich-suites-v1', 'listing-details-suites-v1'];
+
+function suiteTokenId(raw) {
+  const m = String(raw || '').match(
+    /\b(?:ste|suite|unit|spc)\.?\s+([a-z0-9][a-z0-9-]*)\b|#\s*([a-z0-9][a-z0-9-]*)\b/i,
+  );
+  const id = m ? m[1] || m[2] : '';
+  if (!id || NOT_A_SUITE_TOKEN_RE.test(id)) return '';
+  if (!/^(?:\d+[a-z]?|[a-z]\d*|[a-z])$/i.test(id)) return '';
+  if (/^(?:of|to|in|or|on|at|by|an|the|and|for)$/i.test(id)) return '';
+  return id;
+}
+
+/** Google-style unit label from listing text. Drops invented STE-100 stubs. */
+export function sanitizeListedSuite(raw) {
+  const s = String(raw || '').trim();
+  if (!s || /^STE-\d+$/i.test(s)) return '';
+  const id = suiteTokenId(s);
+  if (!id || NOT_A_SUITE_TOKEN_RE.test(id)) return '';
+  return `Ste ${id}`;
+}
+
+function pushSpaceStrings(out, value) {
+  if (!value) return;
+  if (typeof value === 'string') {
+    const t = value.trim();
+    if (t) out.push(t);
+    return;
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) pushSpaceStrings(out, item);
+    return;
+  }
+  if (typeof value === 'object') {
+    for (const key of [
+      'name',
+      'space',
+      'spaceName',
+      'suite',
+      'unit',
+      'unitNumber',
+      'label',
+      'title',
+      'description',
+      'floor',
+      'value',
+    ]) {
+      pushSpaceStrings(out, value[key]);
+    }
+  }
+}
+
+function pushListingSpaceFields(raw, strings) {
+  if (!raw || typeof raw !== 'object') return;
+  pushSpaceStrings(strings, raw.spaces);
+  pushSpaceStrings(strings, raw.availableSpaces);
+  pushSpaceStrings(strings, raw.spaceAvailability);
+  pushSpaceStrings(strings, raw.spaceList);
+  pushSpaceStrings(strings, raw.Spaces);
+  pushSpaceStrings(strings, raw.suite);
+  pushSpaceStrings(strings, raw.unit);
+  pushSpaceStrings(strings, raw.spaceName);
+  if (Array.isArray(raw.propertyFacts)) {
+    for (const fact of raw.propertyFacts) {
+      const name = String(fact?.name || '');
+      if (/\b(space|suite|unit|availability)\b/i.test(name)) pushSpaceStrings(strings, fact);
+    }
+  }
+  if (raw.Raw) {
+    const nested = typeof raw.Raw === 'string' ? parseJsonObject(raw.Raw) : raw.Raw;
+    if (nested && nested !== raw) pushListingSpaceFields(nested, strings);
+  }
+}
+
+function parseJsonObject(text) {
+  try {
+    const v = JSON.parse(text);
+    return v && typeof v === 'object' ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Ste / Suite / Unit tokens from LoopNet/Crexi space rows. Floor-only labels are ignored. */
+export function extractListedSuites(raw) {
+  const strings = [];
+  if (raw == null) return [];
+  if (typeof raw === 'string' || Array.isArray(raw)) {
+    pushSpaceStrings(strings, raw);
+  } else if (typeof raw === 'object') {
+    pushListingSpaceFields(raw, strings);
+  }
+  const seen = new Set();
+  const out = [];
+  for (const line of strings) {
+    LISTED_SUITE_TOKEN_RE.lastIndex = 0;
+    let m;
+    while ((m = LISTED_SUITE_TOKEN_RE.exec(line))) {
+      const label = sanitizeListedSuite(m[0]);
+      const key = label.toLowerCase();
+      if (!label || seen.has(key)) continue;
+      seen.add(key);
+      out.push(label);
+    }
+  }
+  return out;
+}
+
+export function composeNapStreet(street, suite) {
+  const split = splitNapStreet(street);
+  const base = split.street;
+  const unit = sanitizeListedSuite(suite) || split.suite;
+  if (!unit) return base;
+  return `${base}, ${unit}`;
+}
+
+export function splitNapStreet(street) {
+  const raw = stripInventedSuite(street);
+  const m = raw.match(/^(.*?),?\s*((?:Ste|Suite|Unit)\s+[a-z0-9-]+)\s*$/i);
+  if (m) {
+    return {
+      street: String(m[1] || '').replace(/[,\s]+$/, '').trim(),
+      suite: sanitizeListedSuite(m[2]),
+    };
+  }
+  return { street: raw, suite: '' };
+}
+
+/** Peel a leading Ste N off a city field (`Ste 3 Prosper` → suite + Prosper). */
+export function splitSuiteFromCity(raw) {
+  const s = String(raw || '').trim();
+  if (!s) return { suite: '', city: '' };
+  if (/^(?:ste|suite|unit)\.?\s+[a-z0-9-]+$/i.test(s)) {
+    return { suite: sanitizeListedSuite(s), city: '' };
+  }
+  const m = s.match(/^((?:ste|suite|unit)\.?\s+[a-z0-9-]+)\s+(.+)$/i);
+  if (m) {
+    const suite = sanitizeListedSuite(m[1]);
+    const city = String(m[2] || '').trim();
+    if (suite && city) return { suite, city };
+  }
+  return { suite: '', city: s };
+}
+
+function uniqueListedSuites(list) {
+  const seen = new Set();
+  const out = [];
+  for (const item of Array.isArray(list) ? list : []) {
+    const label = sanitizeListedSuite(item);
+    const key = label.toLowerCase();
+    if (!label || seen.has(key)) continue;
+    seen.add(key);
+    out.push(label);
+  }
+  return out;
+}
+
+/** Public listing page used for the space-table details scrape. */
+export function listingDetailsUrl(listing) {
+  if (!listing || typeof listing !== 'object') return '';
+  const href = String(
+    listing.url ||
+      listing.listingUrl ||
+      listing.urls?.loopnet ||
+      listing.urls?.crexi ||
+      listing.listingUrls?.loopnet ||
+      listing.listingUrls?.crexi ||
+      '',
+  ).trim();
+  return /^https?:\/\//i.test(href) ? href : '';
+}
+
+/** True when Find should scrape the listing URL before Places (no suites yet). */
+export function listingNeedsSuiteDetails(listing) {
+  if (!listing || typeof listing !== 'object') return false;
+  if (uniqueListedSuites(listing.listedSuites).length) return false;
+  if (listing.suitesFetchedAt) return false;
+  return Boolean(listingDetailsUrl(listing));
+}
+
+export function listingHasOccupiableFacts(listing) {
+  if (!listing || typeof listing !== 'object') return false;
+  return Boolean(String(listing.listingText || '').trim() || listing.yearBuilt != null);
+}
+
+/** Scrape details again when suites were fetched but construction/year facts never landed. */
+export function listingNeedsOccupiableDetails(listing) {
+  if (!listing || typeof listing !== 'object') return false;
+  if (!listingDetailsUrl(listing)) return false;
+  if (listingHasOccupiableFacts(listing)) return false;
+  if (listing.occupiableFetchedAt) return false;
+  return true;
+}
+
+export function listingNeedsDetails(listing) {
+  return listingNeedsSuiteDetails(listing) || listingNeedsOccupiableDetails(listing);
+}
+
+/** Clean cache rows with no listing facts must run again so UC / year-built can reject. */
+export function screenedNeedsOccupiableRecheck(meta, listing) {
+  if (!meta?.clean) return false;
+  if (meta.fail) return false;
+  if (listingHasOccupiableFacts(listing)) return false;
+  if (listing?.occupiableFetchedAt) return false;
+  return Boolean(listingDetailsUrl(listing));
+}
+
+function persistListedSuitesOnListing(listing, suites) {
+  const listed = uniqueListedSuites(suites);
+  listing.listedSuites = listed;
+  listing.suitesFetchedAt = nowIso();
+  return listed;
+}
+
+function isStreetOnlyPlacesFail(fail) {
+  return /^active Maps listing/i.test(String(fail || ''));
+}
+
+/** Old street-only / STE-stub screens must run again so listed Ste N can be picked. */
+export function screenedNeedsListedSuiteRepick(meta, listing) {
+  if (!meta) return false;
+  if (meta.suitesFetched) return false;
+  if (listing?.suitesFetchedAt) return false;
+  if (meta.fail && !isStreetOnlyPlacesFail(meta.fail) && !isLegacyMapsDirtyFail(meta.fail)) {
+    return false;
+  }
+  if (uniqueListedSuites(listing?.listedSuites).length) return true;
+  return listingNeedsSuiteDetails(listing);
+}
+
+function streetsForListingScreen(listing) {
+  const street = listing?.street;
+  if (hasAddressRange(street)) {
+    const expanded = expandAddressRangeStreets(street);
+    if (expanded.length) return expanded;
+  }
+  return street ? [street] : [];
+}
+
+function listingFromShortlistRow(row) {
+  if (!row || typeof row !== 'object') return null;
+  return {
+    street: row.street,
+    zip: row.zip,
+    url: row.listingUrl,
+    listingUrl: row.listingUrl,
+    urls: row.listingUrls,
+    listedSuites: row.listedSuites,
+    suitesFetchedAt: row.suitesFetchedAt,
+    source: row.source,
+  };
+}
+
+function placeMentionsSuite(formattedAddress, suite) {
+  const id = suiteTokenId(suite);
+  if (!id) return false;
+  return new RegExp(`\\b(?:ste|suite|unit|#)\\.?\\s*${id}\\b`, 'i').test(String(formattedAddress || ''));
+}
+
+function sanitizeShortlistRow(row) {
+  if (!row || typeof row !== 'object') return row;
+  const split = splitNapStreet(row.street);
+  const street = split.street;
+  const suite = sanitizeListedSuite(row.suite) || split.suite;
+  const checks = Array.isArray(row.checks) ? row.checks.filter((c) => c?.id !== 'suite') : row.checks;
+  const addr = { street, city: row.city, state: row.state, zip: row.zip };
+  const coords = { lat: row.lat, lng: row.lng };
+  return {
+    ...row,
+    street,
+    suite,
+    listedSuites: uniqueListedSuites(row.listedSuites || (suite ? [suite] : [])),
+    checks,
+    mapsUrl: mapsUrl(addr, coords),
+    streetViewUrl: streetViewUrl(addr, coords),
+  };
+}
+
+function sanitizeSelection(sel) {
+  if (!sel || typeof sel !== 'object') return sel;
+  const split = splitNapStreet(sel.streetBase || sel.street);
+  const street = split.street;
+  const peeled = splitSuiteFromCity(sel.city);
+  const suite = sanitizeListedSuite(sel.suite) || split.suite || peeled.suite;
+  return {
+    ...sel,
+    street,
+    streetBase: street,
+    suite,
+    city: peeled.city || sel.city,
+  };
+}
+
 /** Clamp Find clean-stop (1…SHORTLIST_CAP). */
 export function clampCleanPerRun(raw) {
   const n = Number(raw);
@@ -180,23 +483,13 @@ export function getBusinessAddressPackage(candidateId) {
     }
     pkg.lastSearchStats = { ...pkg.lastSearchStats, rejectTallies: tallies };
   }
-  if (!Array.isArray(pkg.shortlist) || !pkg.shortlist.length) return pkg;
+  const shortlist = Array.isArray(pkg.shortlist)
+    ? pkg.shortlist.map((row) => sanitizeShortlistRow(row))
+    : pkg.shortlist;
   return {
     ...pkg,
-    shortlist: pkg.shortlist.map((row) => {
-      const addr = {
-        street: row.street,
-        city: row.city,
-        state: row.state,
-        zip: row.zip,
-      };
-      const coords = { lat: row.lat, lng: row.lng };
-      return {
-        ...row,
-        mapsUrl: mapsUrl(addr, coords),
-        streetViewUrl: streetViewUrl(addr, coords),
-      };
-    }),
+    selection: pkg.selection ? sanitizeSelection(pkg.selection) : pkg.selection,
+    shortlist,
   };
 }
 
@@ -350,6 +643,8 @@ function normalizeCachedListing(row) {
     sources,
     urls,
     url,
+    listedSuites: uniqueListedSuites(row.listedSuites),
+    suitesFetchedAt: row.suitesFetchedAt || null,
   };
 }
 
@@ -443,8 +738,8 @@ function claimUsedAddress(cityCache, candidateId, sel) {
   }
   used[key] = {
     candidateId: id,
-    street: sel.streetBase || sel.street,
-    suite: sel.suite || '',
+    street: stripInventedSuite(sel.streetBase || sel.street),
+    suite: sanitizeListedSuite(sel.suite),
     city: sel.city,
     state: sel.state,
     zip: sel.zip,
@@ -510,8 +805,8 @@ function ensureCityCacheSeeded(city, state, fingerprint = '') {
         if (!existing || existing.candidateId === id) {
           usedAddresses[key] = {
             candidateId: id,
-            street: pkg.selection.streetBase || pkg.selection.street,
-            suite: pkg.selection.suite || '',
+            street: stripInventedSuite(pkg.selection.streetBase || pkg.selection.street),
+            suite: sanitizeListedSuite(pkg.selection.suite),
             city: pkg.selection.city,
             state: pkg.selection.state,
             zip: pkg.selection.zip,
@@ -813,6 +1108,274 @@ export function propertyTypePass(rawType) {
   return { ok: true, reason: `property type allowed: ${t}` };
 }
 
+const LISTING_TEXT_MAX = 4000;
+const AVAILABLE_DATE_LEAD_MS = 30 * 24 * 60 * 60 * 1000;
+const UNOCCUPIABLE_UNBUILT_RE =
+  /\b(?:to[\s-]?be[\s-]?built|under[\s-]?construction|pre[\s-]?construction|ground[\s-]?up|build[\s-]?to[\s-]?suit|planned\s+(?:development|building|project)|future\s+(?:development|building|project|delivery)|speculative\s+(?:development|building))\b/i;
+const UNOCCUPIABLE_PROPOSED_RE =
+  /\b(?:building|construction)\s*status\b[\s:–-]*proposed\b|\bproposed\s+(?:building|development|project|construction)\b|\bstatus[:\s]+proposed\b/i;
+const UNOCCUPIABLE_UNAVAILABLE_RE =
+  /\b(?:coming\s+soon|pre[\s-]?leas(?:e|ing)|not\s+yet\s+available|future\s+availability)\b/i;
+
+function truncateListingText(text) {
+  const s = String(text || '').replace(/\s+/g, ' ').trim();
+  if (s.length <= LISTING_TEXT_MAX) return s;
+  return s.slice(0, LISTING_TEXT_MAX);
+}
+
+function propertyFactValue(fact) {
+  const v = fact?.value;
+  if (Array.isArray(v)) return v.map((x) => String(x || '').trim()).filter(Boolean).join(' ');
+  return v != null ? String(v).trim() : '';
+}
+
+/** Case-insensitive field read (one-api details uses Title Case keys). */
+function rawField(raw, ...names) {
+  if (!raw || typeof raw !== 'object') return undefined;
+  for (const n of names) {
+    if (raw[n] != null && raw[n] !== '') return raw[n];
+  }
+  const lower = new Map(Object.keys(raw).map((k) => [k.toLowerCase(), raw[k]]));
+  for (const n of names) {
+    const v = lower.get(String(n).toLowerCase());
+    if (v != null && v !== '') return v;
+  }
+  return undefined;
+}
+
+function stringifyListingValue(value, depth = 0) {
+  if (value == null) return '';
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+    return String(value).trim();
+  }
+  if (depth > 2) return '';
+  if (Array.isArray(value)) {
+    return value
+      .map((v) => stringifyListingValue(v, depth + 1))
+      .filter(Boolean)
+      .join(' ');
+  }
+  if (typeof value === 'object') {
+    const parts = [];
+    for (const [k, v] of Object.entries(value)) {
+      if (/^(photo|image|url|broker|phone|lat|lng|id|cover)/i.test(k)) continue;
+      const s = stringifyListingValue(v, depth + 1);
+      if (s) parts.push(/^(name|title|label)$/i.test(k) ? s : `${k}: ${s}`);
+    }
+    return parts.join(' ');
+  }
+  return '';
+}
+
+function mergeListingText(a, b) {
+  const left = truncateListingText(a);
+  const right = truncateListingText(b);
+  if (!left) return right;
+  if (!right) return left;
+  if (left.includes(right)) return left;
+  if (right.includes(left)) return right;
+  return truncateListingText(`${left} ${right}`);
+}
+
+/** Compact listing copy + structured facts used to reject unbuilt / not-yet-available rows. */
+export function listingTextFromRaw(raw) {
+  if (raw == null) return '';
+  if (typeof raw === 'string') return truncateListingText(raw);
+  if (typeof raw !== 'object') return '';
+  const parts = [];
+  const push = (v) => {
+    const s = stringifyListingValue(v);
+    if (s) parts.push(s);
+  };
+  push(rawField(raw, 'listingText'));
+  push(rawField(raw, 'name', 'Title', 'headline'));
+  push(rawField(raw, 'summary', 'Highlights'));
+  push(rawField(raw, 'fullDescription', 'Description', 'description'));
+  push(rawField(raw, 'Building Info', 'buildingInfo'));
+  push(rawField(raw, 'buildingStatus', 'constructionStatus', 'Construction Status'));
+  push(rawField(raw, 'availability', 'occupancy'));
+  push(rawField(raw, 'Spaces'));
+  const yearBuilt = rawField(raw, 'yearBuilt', 'year_built');
+  if (yearBuilt != null) push(`Year Built: ${stringifyListingValue(yearBuilt)}`);
+  const available =
+    rawField(raw, 'availableDate', 'dateAvailable', 'available_date', 'Date Available');
+  if (available) push(`Date Available: ${stringifyListingValue(available)}`);
+  if (Array.isArray(raw.propertyFacts)) {
+    for (const fact of raw.propertyFacts) {
+      const name = String(fact?.name || '').trim();
+      const val = propertyFactValue(fact);
+      if (name || val) parts.push([name, val].filter(Boolean).join(': '));
+    }
+  }
+  const nestedRaw = raw.Raw && raw.Raw !== raw
+    ? typeof raw.Raw === 'string'
+      ? parseJsonObject(raw.Raw)
+      : raw.Raw
+    : null;
+  if (nestedRaw && typeof nestedRaw === 'object') {
+    push(listingTextFromRaw(nestedRaw));
+  }
+  return truncateListingText(parts.join('\n'));
+}
+
+function yearsFromValue(value) {
+  const years = String(value ?? '').match(/\b(?:19|20)\d{2}\b/g) || [];
+  const out = [];
+  for (const y of years) {
+    const n = Number(y);
+    if (n >= 1800 && n <= 2100) out.push(n);
+  }
+  return out;
+}
+
+function yearBuiltFromBlob(text) {
+  const matches = String(text || '').matchAll(/year\s*built\s*[:\s]+((?:19|20)\d{2})/gi);
+  let maxYear = null;
+  for (const m of matches) {
+    const n = Number(m[1]);
+    if (n >= 1800 && n <= 2100) maxYear = maxYear == null ? n : Math.max(maxYear, n);
+  }
+  return maxYear;
+}
+
+export function parseListingYearBuilt(raw) {
+  if (raw == null || typeof raw !== 'object') return null;
+  const candidates = [
+    rawField(raw, 'yearBuilt', 'year_built'),
+    rawField(raw, 'Building Info', 'buildingInfo'),
+    rawField(raw, 'listingText'),
+  ];
+  if (Array.isArray(raw.propertyFacts)) {
+    for (const fact of raw.propertyFacts) {
+      if (/^year built$/i.test(String(fact?.name || ''))) candidates.push(propertyFactValue(fact));
+    }
+  }
+  let maxYear = null;
+  for (const c of candidates) {
+    const labeled = yearBuiltFromBlob(c);
+    if (labeled != null) maxYear = maxYear == null ? labeled : Math.max(maxYear, labeled);
+    if (c === rawField(raw, 'yearBuilt', 'year_built') || (c != null && yearsFromValue(c).length === 1)) {
+      for (const n of yearsFromValue(c)) {
+        maxYear = maxYear == null ? n : Math.max(maxYear, n);
+      }
+    }
+  }
+  if (maxYear != null) return maxYear;
+  return yearBuiltFromBlob(listingTextFromRaw(raw));
+}
+
+function coerceListingDate(value) {
+  if (!value) return null;
+  if (value instanceof Date && !Number.isNaN(value.getTime())) return value;
+  const s = String(value).trim();
+  if (!s || /^(?:now|immediately|available\s+now)$/i.test(s)) return null;
+  const t = Date.parse(s);
+  if (!Number.isFinite(t)) return null;
+  return new Date(t);
+}
+
+export function parseListingAvailableDate(raw) {
+  if (raw == null || typeof raw !== 'object') return null;
+  const candidates = [
+    rawField(raw, 'availableDate', 'dateAvailable', 'available_date', 'Date Available'),
+    rawField(raw, 'Building Info', 'buildingInfo'),
+  ];
+  if (Array.isArray(raw.propertyFacts)) {
+    for (const fact of raw.propertyFacts) {
+      if (/date available|available date|^available$/i.test(String(fact?.name || ''))) {
+        candidates.push(propertyFactValue(fact));
+      }
+    }
+  }
+  let latest = null;
+  for (const c of candidates) {
+    const d = coerceListingDate(c);
+    if (d && (!latest || d > latest)) latest = d;
+  }
+  return latest;
+}
+
+function isoDateOnly(d) {
+  if (!(d instanceof Date) || Number.isNaN(d.getTime())) return '';
+  return d.toISOString().slice(0, 10);
+}
+
+function persistListingOccupiableFields(listing, extra = {}) {
+  if (!listing || typeof listing !== 'object') return listing;
+  listing.listingText = mergeListingText(listing.listingText, extra.listingText);
+  const year = extra.yearBuilt ?? parseListingYearBuilt(extra);
+  if (year != null) listing.yearBuilt = year;
+  const avail = extra.availableDate ? coerceListingDate(extra.availableDate) : parseListingAvailableDate(extra);
+  if (avail) listing.availableDate = isoDateOnly(avail);
+  listing.occupiableFetchedAt = nowIso();
+  return listing;
+}
+
+const UNOCCUPIABLE_STATUS_RE =
+  /^(?:proposed|under[\s-]?construction|pre[\s-]?construction|coming\s+soon|to[\s-]?be[\s-]?built|pre[\s-]?leas(?:e|ing)|not\s+yet\s+(?:available|delivered))/i;
+
+function constructionStatusValue(raw, text = '') {
+  const direct = stringifyListingValue(
+    rawField(raw, 'buildingStatus', 'constructionStatus', 'Construction Status'),
+  );
+  if (direct) return direct;
+  const m = String(text || '').match(
+    /(?:construction|building)\s*status\s*[:\s]+([^\n|,]+)/i,
+  );
+  return m ? m[1].trim() : '';
+}
+
+/**
+ * Reject unbuilt / coming-soon listings. Empty text is allowed (unknown).
+ * Finished “new construction” and shell space pass.
+ */
+export function listingOccupiablePass(listing) {
+  const raw = listing && typeof listing === 'object' ? listing : { listingText: listing };
+  const text = listingTextFromRaw(raw);
+  const year = parseListingYearBuilt(raw);
+  const avail = parseListingAvailableDate(raw);
+  const status = constructionStatusValue(raw, text);
+
+  if (year != null && year > new Date().getFullYear()) {
+    return { ok: false, reason: `unbuilt / not available: year built ${year}` };
+  }
+  if (avail && avail.getTime() > Date.now() + AVAILABLE_DATE_LEAD_MS) {
+    return { ok: false, reason: `unbuilt / not available: available ${isoDateOnly(avail)}` };
+  }
+  if (status && UNOCCUPIABLE_STATUS_RE.test(status)) {
+    return { ok: false, reason: `unbuilt / not available: ${status}` };
+  }
+  const unbuilt = text.match(UNOCCUPIABLE_UNBUILT_RE);
+  if (unbuilt) {
+    return { ok: false, reason: `unbuilt / not available: ${unbuilt[0]}` };
+  }
+  if (UNOCCUPIABLE_PROPOSED_RE.test(text)) {
+    return { ok: false, reason: 'unbuilt / not available: proposed' };
+  }
+  const unavailable = text.match(UNOCCUPIABLE_UNAVAILABLE_RE);
+  if (unavailable) {
+    return { ok: false, reason: `unbuilt / not available: ${unavailable[0]}` };
+  }
+  if (!text && year == null && !avail) {
+    return { ok: true, reason: 'occupiable unknown — allow' };
+  }
+  return { ok: true, reason: 'occupiable' };
+}
+
+/**
+ * Peel a trailing US ZIP (or ZIP+4). Do not take the first 5-digit token —
+ * that is often a house number (e.g. 13755 Lyndon B Johnson Freeway).
+ */
+function peelTrailingZip(line) {
+  const raw = String(line || '');
+  const zipMatch = raw.match(/\b(\d{5})(?:-\d{4})?\s*$/);
+  if (!zipMatch) return { zip: '', rest: raw };
+  return {
+    zip: zipMatch[1],
+    rest: raw.slice(0, zipMatch.index).trim().replace(/[,\s]+$/, ''),
+  };
+}
+
 /**
  * Parse a single-line home address into street/city/state/zip.
  * Accepts "123 Main St, Omaha, NE 68102" or street + zip with city/state from candidate.
@@ -829,9 +1392,9 @@ export function parseHomeAddressLine(raw, { city = '', state = '' } = {}) {
     );
   }
 
-  const zipMatch = line.match(/\b(\d{5})(?:-\d{4})?\b/);
-  const zip = zipMatch ? zipMatch[1] : '';
-  let rest = zipMatch ? line.slice(0, zipMatch.index).trim().replace(/[,\s]+$/, '') : line;
+  const peeledZip = peelTrailingZip(line);
+  const zip = peeledZip.zip;
+  let rest = peeledZip.rest;
 
   const stateMatch = rest.match(/,?\s*([A-Za-z]{2})\s*$/);
   let st = state;
@@ -846,14 +1409,31 @@ export function parseHomeAddressLine(raw, { city = '', state = '' } = {}) {
   const parts = rest.split(',').map((p) => p.trim()).filter(Boolean);
   let street = '';
   let c = city;
+  let suiteFromParts = '';
   if (parts.length >= 2) {
     street = parts[0];
-    c = parts[parts.length - 1] || city;
+    const last = parts[parts.length - 1] || '';
+    const peeledLast = splitSuiteFromCity(last);
+    if (peeledLast.suite && peeledLast.city) {
+      suiteFromParts = peeledLast.suite;
+      c = peeledLast.city;
+    } else if (peeledLast.suite && !peeledLast.city) {
+      suiteFromParts = peeledLast.suite;
+      c = city;
+    } else {
+      c = last || city;
+    }
+    for (const mid of parts.slice(1, -1)) {
+      const unit = sanitizeListedSuite(mid);
+      if (unit) suiteFromParts = suiteFromParts || unit;
+    }
   } else {
     street = rest;
   }
   street = street.trim();
-  c = String(c || city || '').trim();
+  const peeledCity = splitSuiteFromCity(c);
+  if (peeledCity.suite) suiteFromParts = suiteFromParts || peeledCity.suite;
+  c = String(peeledCity.city || c || city || '').trim();
 
   if (!street) {
     throw Object.assign(new Error('Could not parse street'), { status: 400 });
@@ -868,12 +1448,13 @@ export function parseHomeAddressLine(raw, { city = '', state = '' } = {}) {
     );
   }
 
+  const homeSplit = splitNapStreet(street);
   return {
-    street,
+    street: homeSplit.street || street,
     city: c,
     state: st,
     zip,
-    suite: '',
+    suite: homeSplit.suite || suiteFromParts,
     source: 'home',
     screenedAt: nowIso(),
   };
@@ -997,20 +1578,22 @@ export function selectBusinessAddress(candidateId, selection, { skipped = false 
     if (hasAddressRange(street)) {
       throw Object.assign(new Error('Street must not be a numeric range'), { status: 400 });
     }
-    const suite = String(selection.suite || '').trim();
-    const streetBase = street;
-    const streetOut =
-      suite && !new RegExp(`\\b${suite.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(street)
-        ? `${street}, ${suite}`
-        : street;
+    const split = splitNapStreet(street);
+    const streetBase = split.street;
+    const suite = sanitizeListedSuite(selection.suite) || split.suite;
     sel = {
-      street: streetOut,
+      street: streetBase,
       streetBase,
       suite,
       city: c,
       state: st,
       zip,
       source: selection.source || 'manual',
+      listingUrl: String(selection.listingUrl || '').trim() || undefined,
+      listingUrls:
+        selection.listingUrls && typeof selection.listingUrls === 'object'
+          ? selection.listingUrls
+          : undefined,
       screenedAt: selection.screenedAt || nowIso(),
       lat: Number.isFinite(Number(selection.lat)) ? Number(selection.lat) : undefined,
       lng: Number.isFinite(Number(selection.lng)) ? Number(selection.lng) : undefined,
@@ -1194,9 +1777,14 @@ export function listRecoverableAddresses(candidateId) {
       continue;
     }
     const addr = { street, city: c, state: st, zip };
+    const listedSuites = uniqueListedSuites(listing?.listedSuites);
     const row = {
-      street,
-      suite: used?.suite || suggestSuite(cleans.length + overrides.length),
+      street: stripInventedSuite(street),
+      suite:
+        meta.clean && !meta.fail
+          ? sanitizeListedSuite(meta.suite) || listedSuites[0] || ''
+          : '',
+      listedSuites,
       city: c,
       state: st,
       zip,
@@ -1324,9 +1912,9 @@ function isSolidcodeLoopnetActor(actorId) {
 function parseAddressFromName(name) {
   const line = String(name || '').replace(/\s+/g, ' ').trim();
   if (!line) return null;
-  const zipMatch = line.match(/\b(\d{5})(?:-\d{4})?\b/);
-  const zip = zipMatch ? zipMatch[1] : '';
-  let rest = zipMatch ? line.slice(0, zipMatch.index).trim().replace(/[,\s]+$/, '') : line;
+  const peeledZip = peelTrailingZip(line);
+  const zip = peeledZip.zip;
+  let rest = peeledZip.rest;
   const stateMatch = rest.match(/,?\s*([A-Za-z]{2})\s*$/);
   let state = '';
   if (stateMatch) {
@@ -1424,6 +2012,8 @@ function normalizeListing(raw, source = SOURCE_LOOPNET) {
   }
   const urls = {};
   if (url) urls[src] = url;
+  const yearBuilt = parseListingYearBuilt(raw);
+  const available = parseListingAvailableDate(raw);
   return {
     id,
     street: String(street).trim(),
@@ -1431,6 +2021,10 @@ function normalizeListing(raw, source = SOURCE_LOOPNET) {
     state,
     zip,
     propertyType: String(propertyType).trim(),
+    listingText: listingTextFromRaw(raw),
+    yearBuilt: yearBuilt != null ? yearBuilt : undefined,
+    availableDate: available ? isoDateOnly(available) : undefined,
+    listedSuites: extractListedSuites(raw),
     url,
     source: src,
     sources: [src],
@@ -1456,9 +2050,28 @@ export function mergeListingsByStreet(rows) {
     const sources = [
       ...new Set([...(existing.sources || []), ...(normalized.sources || []), existing.source, normalized.source].filter(Boolean)),
     ];
+    const yearBuilt =
+      existing.yearBuilt != null || normalized.yearBuilt != null
+        ? Math.max(Number(existing.yearBuilt) || 0, Number(normalized.yearBuilt) || 0) ||
+          existing.yearBuilt ||
+          normalized.yearBuilt
+        : undefined;
+    const availA = coerceListingDate(existing.availableDate);
+    const availB = coerceListingDate(normalized.availableDate);
+    const availableDate = availA && availB ? isoDateOnly(availA > availB ? availA : availB)
+      : availA ? isoDateOnly(availA)
+      : availB ? isoDateOnly(availB)
+      : existing.availableDate || normalized.availableDate || undefined;
     byKey.set(k, {
       ...existing,
       propertyType: existing.propertyType || normalized.propertyType,
+      listingText: mergeListingText(existing.listingText, normalized.listingText),
+      yearBuilt,
+      availableDate,
+      listedSuites: uniqueListedSuites([
+        ...(existing.listedSuites || []),
+        ...(normalized.listedSuites || []),
+      ]),
       url: existing.url || normalized.url || urls.loopnet || urls.crexi || '',
       urls,
       sources,
@@ -1480,7 +2093,7 @@ function buildApifyLoopnetInput({ city, state, max, actorId }) {
       input: {
         searchUrls,
         maxItems: max,
-        enrichDetails: false,
+        enrichDetails: true,
       },
       query: {
         city,
@@ -1621,7 +2234,6 @@ function localityTierReason({
 function buildShortlistChecks({
   listing,
   typeCheck,
-  suite,
   rank,
   expandedFrom = '',
   tier = 'primary',
@@ -1630,6 +2242,7 @@ function buildShortlistChecks({
   localityUnknown = false,
   listingCity = '',
   listingCityMismatch = false,
+  placesLabel = '',
 }) {
   const typeLabel = listing.propertyType
     ? `property type allowed (${listing.propertyType})`
@@ -1681,14 +2294,9 @@ function buildShortlistChecks({
     {
       id: 'places_clean',
       pass: true,
-      label: 'Places — no active OPERATIONAL Maps listing at this street+ZIP',
+      label: placesLabel || 'Places — no active OPERATIONAL Maps listing at this street+ZIP',
     },
     localityCheck,
-    {
-      id: 'suite',
-      pass: null,
-      label: `Suggested suite ${suite} (NAP-friendly stub)`,
-    },
     {
       id: 'rank',
       pass: null,
@@ -1777,6 +2385,7 @@ function tallyRejectReasons(rejected) {
     if (key.startsWith('existing Maps business') || key.startsWith('active Maps listing')) {
       key = 'active Maps listing';
     } else if (key.startsWith('property type rejected')) key = 'property type rejected';
+    else if (/^unbuilt \/ not available/i.test(key)) key = 'unbuilt / not available';
     else if (key.startsWith('Places error')) key = 'Places error';
     else if (/^wrong state:/i.test(key) || /^Maps state /i.test(key)) key = 'wrong state (not target)';
     else if (/^outside metro/i.test(key)) key = 'outside metro';
@@ -1825,7 +2434,7 @@ async function runApifyActorPull({
   }
   const { input, query } = buildInput({ city, state, max, actorId });
   const startRes = await fetch(
-    `${APIFY_BASE}/acts/${encodeURIComponent(actorId)}/runs?waitForFinish=120`,
+    `${APIFY_BASE}/acts/${encodeURIComponent(actorId)}/runs?waitForFinish=300`,
     {
       method: 'POST',
       headers: {
@@ -1891,7 +2500,7 @@ async function runApifyActorPull({
   ) {
     const fallbackInput = query.filterFallback;
     const retryRes = await fetch(
-      `${APIFY_BASE}/acts/${encodeURIComponent(actorId)}/runs?waitForFinish=120`,
+      `${APIFY_BASE}/acts/${encodeURIComponent(actorId)}/runs?waitForFinish=300`,
       {
         method: 'POST',
         headers: {
@@ -1938,7 +2547,7 @@ async function runApifyActorPull({
   return { listings, query, apify };
 }
 
-async function runApifyLoopnet({ city, state, max }) {
+export async function runApifyLoopnet({ city, state, max }) {
   return runApifyActorPull({
     city,
     state,
@@ -1950,7 +2559,7 @@ async function runApifyLoopnet({ city, state, max }) {
   });
 }
 
-async function runApifyCrexi({ city, state, max }) {
+export async function runApifyCrexi({ city, state, max }) {
   return runApifyActorPull({
     city,
     state,
@@ -1960,6 +2569,103 @@ async function runApifyCrexi({ city, state, max }) {
     buildInput: buildApifyCrexiInput,
     label: 'Crexi',
   });
+}
+
+const DEFAULT_LOOPNET_DETAILS_ACTOR = 'one-api~loopnet-scraper';
+const APIFY_RUN_POLL_MS = 5000;
+const APIFY_RUN_MAX_WAIT_MS = 180000;
+
+async function waitForApifyRun(token, run, label = 'Apify') {
+  let data = run && typeof run === 'object' ? run : {};
+  const started = Date.now();
+  while (true) {
+    const status = String(data.status || '').toUpperCase();
+    if (status === 'SUCCEEDED') return data;
+    if (['FAILED', 'ABORTED', 'TIMED-OUT', 'TIMEDOUT'].includes(status)) {
+      throw new Error(`${label} run ${status}${data.statusMessage ? `: ${data.statusMessage}` : ''}`);
+    }
+    if (!data.id) throw new Error(`${label} run missing id`);
+    if (Date.now() - started > APIFY_RUN_MAX_WAIT_MS) {
+      throw new Error(`${label} run still ${status || 'unknown'} after ${APIFY_RUN_MAX_WAIT_MS / 1000}s`);
+    }
+    await new Promise((r) => setTimeout(r, APIFY_RUN_POLL_MS));
+    const res = await fetch(`${APIFY_BASE}/actor-runs/${encodeURIComponent(data.id)}`, {
+      headers: { authorization: `Bearer ${token}` },
+    });
+    const json = await res.json().catch(() => ({}));
+    data = json.data || json;
+  }
+}
+
+/** Details scrape: listed Ste tokens plus occupiable listing copy. */
+export async function fetchListingDetailsForScreen(url, source = SOURCE_LOOPNET) {
+  const empty = { suites: [], listingText: '', yearBuilt: null, availableDate: '' };
+  const href = String(url || '').trim();
+  if (!href || !/^https?:\/\//i.test(href)) return empty;
+  const src = source === SOURCE_CREXI || /crexi\.com/i.test(href) ? SOURCE_CREXI : SOURCE_LOOPNET;
+  const token = env('APIFY_TOKEN');
+  const actorId =
+    src === SOURCE_CREXI
+      ? env('APIFY_CREXI_ACTOR_ID')
+      : env('APIFY_LOOPNET_DETAILS_ACTOR_ID') || DEFAULT_LOOPNET_DETAILS_ACTOR;
+  if (!token || !actorId) return empty;
+  const input =
+    src === SOURCE_CREXI
+      ? { startUrls: [href], maxResults: 1 }
+      : { property_inputs: [href] };
+  const startRes = await fetch(
+    `${APIFY_BASE}/acts/${encodeURIComponent(actorId)}/runs?waitForFinish=60`,
+    {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(input),
+    },
+  );
+  const startJson = await startRes.json().catch(() => ({}));
+  if (!startRes.ok) {
+    throw new Error(
+      `Listing details failed (${startRes.status}): ${
+        startJson?.error?.message || JSON.stringify(startJson).slice(0, 200)
+      }`,
+    );
+  }
+  const run = await waitForApifyRun(token, startJson.data || startJson, 'Listing details');
+  const datasetId = run.defaultDatasetId;
+  if (!datasetId) return empty;
+  const itemsRes = await fetch(`${APIFY_BASE}/datasets/${datasetId}/items?format=json&limit=5`, {
+    headers: { authorization: `Bearer ${token}` },
+  });
+  const items = await itemsRes.json().catch(() => []);
+  if (!Array.isArray(items)) return empty;
+  const seen = new Set();
+  const out = [];
+  let listingText = '';
+  let yearBuilt = null;
+  let availableDate = '';
+  for (const raw of items) {
+    if (String(raw?.Mode || '').toUpperCase() === 'ERROR') continue;
+    listingText = mergeListingText(listingText, listingTextFromRaw(raw));
+    const y = parseListingYearBuilt(raw);
+    if (y != null) yearBuilt = yearBuilt == null ? y : Math.max(yearBuilt, y);
+    const d = parseListingAvailableDate(raw);
+    if (d) availableDate = isoDateOnly(d);
+    for (const label of extractListedSuites(raw)) {
+      const key = label.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(label);
+    }
+  }
+  return { suites: out, listingText, yearBuilt, availableDate };
+}
+
+/** One listing URL → listed Ste tokens from space rows. Empty if actor/config missing. */
+export async function fetchListedSuitesForListing(url, source = SOURCE_LOOPNET) {
+  const details = await fetchListingDetailsForScreen(url, source);
+  return details.suites;
 }
 
 /**
@@ -2019,7 +2725,7 @@ function placeAddressLocksToListing(formattedAddress, addr) {
  * Places Text Search: dirty only when an OPERATIONAL Maps listing locks to this street+ZIP.
  * CLOSED_* / missing status do not dirty (not "active").
  */
-async function placesHasBusinessAtAddress(addr) {
+export async function placesHasBusinessAtAddress(addr) {
   const key = env('GOOGLE_MAPS_API_KEY');
   if (!key) {
     throw Object.assign(
@@ -2029,7 +2735,9 @@ async function placesHasBusinessAtAddress(addr) {
       { status: 400 },
     );
   }
-  const textQuery = [addr.street, addr.city, addr.state, addr.zip].filter(Boolean).join(', ');
+  const textQuery = [addr.street, addr.suite, addr.city, addr.state, addr.zip]
+    .filter(Boolean)
+    .join(', ');
   const res = await fetch(PLACES_SEARCH_URL, {
     method: 'POST',
     headers: {
@@ -2049,6 +2757,7 @@ async function placesHasBusinessAtAddress(addr) {
   const places = Array.isArray(json.places) ? json.places : [];
   const hits = places.filter((p) => {
     if (!placeAddressLocksToListing(p.formattedAddress, addr)) return false;
+    if (addr.suite && !placeMentionsSuite(p.formattedAddress, addr.suite)) return false;
     const status = String(p.businessStatus || '').toUpperCase();
     return status === 'OPERATIONAL';
   });
@@ -2059,6 +2768,20 @@ async function placesHasBusinessAtAddress(addr) {
     sampleName: top?.displayName?.text || top?.displayName || null,
     placeId: top?.id || null,
   };
+}
+
+/** First listed suite without an OPERATIONAL Maps pin that names that suite. */
+export async function pickFirstUnusedListedSuite(addr, suites, { onCall, shouldStop } = {}) {
+  const listed = uniqueListedSuites(suites);
+  const tried = [];
+  for (const suite of listed) {
+    if (shouldStop?.()) return { suite: '', places: null, tried, allTaken: false, incomplete: true };
+    const places = await placesHasBusinessAtAddress({ ...addr, suite });
+    onCall?.(places);
+    tried.push({ suite, dirty: places.dirty, sampleName: places.sampleName });
+    if (!places.dirty) return { suite, places, tried, allTaken: false, incomplete: false };
+  }
+  return { suite: '', places: null, tried, allTaken: listed.length > 0, incomplete: false };
 }
 
 /** Legacy Maps-dirty fails that should be re-checked under OPERATIONAL-only gate. */
@@ -2412,12 +3135,14 @@ export async function retierShortlistLocalities(candidateId) {
     if (tier === 'secondary') secondaryN += 1;
     else primaryN += 1;
 
-    const suite = row.suite || suggestSuite(nextRows.length);
     const typeCheck = propertyTypePass(row.propertyType);
+    const retierSuite = sanitizeListedSuite(row.suite);
+    const retierPlacesLabel = retierSuite
+      ? `Places — listed ${retierSuite} unused`
+      : 'Places — no active OPERATIONAL Maps listing at this street+ZIP';
     const checks = buildShortlistChecks({
       listing: { ...row, zip: addr.zip },
       typeCheck,
-      suite,
       rank: nextRows.length + 1,
       expandedFrom: row.expandedFrom || '',
       tier,
@@ -2426,6 +3151,7 @@ export async function retierShortlistLocalities(candidateId) {
       localityUnknown,
       listingCity,
       listingCityMismatch,
+      placesLabel: retierPlacesLabel,
     });
 
     const reason = localityTierReason({
@@ -2439,7 +3165,7 @@ export async function retierShortlistLocalities(candidateId) {
     const reasons = [
       typeCheck.reason,
       row.expandedFrom ? `expanded from ${row.expandedFrom}` : null,
-      'no active OPERATIONAL Maps listing at street+ZIP',
+      retierPlacesLabel,
       reason,
     ].filter(Boolean);
 
@@ -2447,7 +3173,9 @@ export async function retierShortlistLocalities(candidateId) {
 
     nextRows.push({
       ...row,
-      suite,
+      street: stripInventedSuite(row.street),
+      suite: retierSuite,
+      listedSuites: uniqueListedSuites(row.listedSuites || (retierSuite ? [retierSuite] : [])),
       city: addr.city,
       state: addr.state,
       tier,
@@ -2544,11 +3272,6 @@ export async function retierShortlistLocalities(candidateId) {
       localityUnknown: Boolean(r.localityUnknown),
     })),
   };
-}
-
-function suggestSuite(index) {
-  const n = 100 + (index % 20) * 50;
-  return `STE-${n}`;
 }
 
 /** Dedupe key: normalized street + ZIP. */
@@ -2671,22 +3394,19 @@ export function buildSourceInventoryMap(
 }
 
 /**
- * Newest Find uniques first, then prior list (deduped). Cap at SHORTLIST_CAP (drops oldest).
- * Primary tier before Secondary; keeps existing suite/foundAt on prior rows.
+ * Fresh rows first (same street|zip replaces prior so Ste N can overwrite STE-* / street-only).
+ * Then leftover prior rows. Cap at SHORTLIST_CAP (drops oldest). Primary before Secondary.
  */
 export function mergeAccumulatedShortlist(prior, fresh, { foundAt, cap = SHORTLIST_CAP } = {}) {
   const priorList = Array.isArray(prior) ? prior : [];
   const freshList = Array.isArray(fresh) ? fresh : [];
-  const priorKeys = new Set(
-    priorList.map((row) => shortlistDedupeKey(row)).filter((k) => k && !k.endsWith('|') && !k.startsWith('|')),
-  );
   const seen = new Set();
   const out = [];
 
-  // New uniques only (skip anything already in the accumulated list)
+  // Re-screens replace the same street|zip so leftover STE-* / street-only rows pick up Ste N.
   for (const row of freshList) {
     const k = shortlistDedupeKey(row);
-    if (!row?.street || !k.split('|')[1] || seen.has(k) || priorKeys.has(k)) continue;
+    if (!row?.street || !k.split('|')[1] || seen.has(k)) continue;
     seen.add(k);
     out.push({
       ...row,
@@ -2719,26 +3439,27 @@ export function mergeAccumulatedShortlist(prior, fresh, { foundAt, cap = SHORTLI
 
   const limit = Math.max(1, Number(cap) || SHORTLIST_CAP);
   return out.slice(0, limit).map((row, i) => {
-    const suite = row.suite || suggestSuite(i);
+    const split = splitNapStreet(row.street);
+    const street = split.street;
+    const suite = sanitizeListedSuite(row.suite) || split.suite;
     const tier = row.tier === 'secondary' ? 'secondary' : 'primary';
     const addr = {
-      street: row.street,
-      suite,
+      street,
       city: row.city,
       state: row.state,
       zip: row.zip,
     };
     const checks = Array.isArray(row.checks)
-      ? row.checks.map((c) =>
-          c.id === 'rank'
-            ? {
-                ...c,
-                label: `Shortlist rank #${i + 1} of up to ${SHORTLIST_CAP} (accumulated recommendations)`,
-              }
-            : c.id === 'suite'
-              ? { ...c, label: `Suggested suite ${suite} (NAP-friendly stub)` }
+      ? row.checks
+          .filter((c) => c.id !== 'suite')
+          .map((c) =>
+            c.id === 'rank'
+              ? {
+                  ...c,
+                  label: `Shortlist rank #${i + 1} of up to ${SHORTLIST_CAP} (accumulated recommendations)`,
+                }
               : c,
-        )
+          )
       : row.checks;
     const baseScore =
       tier === 'secondary'
@@ -2750,20 +3471,36 @@ export function mergeAccumulatedShortlist(prior, fresh, { foundAt, cap = SHORTLI
           : 100 - i;
     return {
       ...row,
+      street,
       tier,
       suite,
+      listedSuites: uniqueListedSuites(row.listedSuites || (suite ? [suite] : [])),
       checks,
       score: baseScore,
       mapsUrl: mapsUrl(addr, { lat: row.lat, lng: row.lng }),
-      // Always rebuild — old suite-in-query / pano links were wrong.
       streetViewUrl: streetViewUrl(addr, { lat: row.lat, lng: row.lng }),
     };
   });
 }
 
+function listingFingerprintCore(fingerprint) {
+  let fp = String(fingerprint || '');
+  for (const schema of LISTING_CACHE_SCHEMA_ALIASES) {
+    const suffix = `|${schema}`;
+    if (fp.endsWith(suffix)) return fp.slice(0, -suffix.length);
+  }
+  return fp;
+}
+
+function listingFingerprintsMatch(cached, wanted) {
+  if (!cached || !wanted) return false;
+  if (cached === wanted) return true;
+  return listingFingerprintCore(cached) === listingFingerprintCore(wanted);
+}
+
 function cacheFingerprint(city, state, searchUrls) {
   const urls = (Array.isArray(searchUrls) ? searchUrls : []).join('|');
-  return `${String(city).toLowerCase()}|${String(state).toUpperCase()}|${urls}`;
+  return `${String(city).toLowerCase()}|${String(state).toUpperCase()}|${urls}|${LISTING_CACHE_SCHEMA}`;
 }
 
 function sourceCacheFingerprint(source, city, state, query) {
@@ -2771,7 +3508,7 @@ function sourceCacheFingerprint(source, city, state, query) {
     const urls = (query?.startUrls || []).join('|');
     const types = (query?.propertyTypes || []).join(',');
     const deal = query?.dealType || 'For Lease';
-    return `crexi|${String(city).toLowerCase()}|${String(state).toUpperCase()}|${urls || types}|${deal}`;
+    return `crexi|${String(city).toLowerCase()}|${String(state).toUpperCase()}|${urls || types}|${deal}|${LISTING_CACHE_SCHEMA}`;
   }
   return `loopnet|${cacheFingerprint(city, state, query?.searchUrls)}`;
 }
@@ -2779,7 +3516,7 @@ function sourceCacheFingerprint(source, city, state, query) {
 function isListingCacheFresh(cacheOrSource, fingerprint) {
   const fetchedAt = cacheOrSource?.fetchedAt;
   if (!fetchedAt) return false;
-  if (cacheOrSource.fingerprint && fingerprint && cacheOrSource.fingerprint !== fingerprint) {
+  if (cacheOrSource.fingerprint && fingerprint && !listingFingerprintsMatch(cacheOrSource.fingerprint, fingerprint)) {
     return false;
   }
   const age = Date.now() - Date.parse(fetchedAt);
@@ -3131,6 +3868,27 @@ export async function searchBusinessAddresses(candidateId, opts = {}) {
     }
   }
 
+  const listingByScreenKey = new Map();
+  for (const listing of listings) {
+    listingByScreenKey.set(shortlistDedupeKey(listing), listing);
+    for (const street of streetsForListingScreen(listing)) {
+      listingByScreenKey.set(shortlistDedupeKey({ ...listing, street }), listing);
+    }
+  }
+  const requeuedSuiteKeys = new Set();
+  for (const [key, meta] of Object.entries(screenedKeys)) {
+    const listing =
+      listingByScreenKey.get(key) ||
+      listingFromShortlistRow(
+        (Array.isArray(prev.shortlist) ? prev.shortlist : []).find((row) => shortlistDedupeKey(row) === key),
+      );
+    if (screenedNeedsListedSuiteRepick(meta, listing) || screenedNeedsOccupiableRecheck(meta, listing)) {
+      delete screenedKeys[key];
+      requeuedSuiteKeys.add(key);
+    }
+  }
+  const suitesRequeued = requeuedSuiteKeys.size;
+
   const runClean = [];
   const rejected = [];
   let placesCalls = 0;
@@ -3140,6 +3898,7 @@ export async function searchBusinessAddresses(candidateId, opts = {}) {
   let considered = 0;
   let rangesExpanded = 0;
   let rangeEndpointsScreened = 0;
+  let detailsFetches = 0;
 
   const isUsedByOther = (key) => {
     const u = usedAddresses[key];
@@ -3149,6 +3908,18 @@ export async function searchBusinessAddresses(candidateId, opts = {}) {
   const placesBudget = placesBudgetPerRun();
   let placesBudgetReached = false;
   listings = sortListingsForScreening(listings, city, state);
+  if (requeuedSuiteKeys.size) {
+    const listingWasRequeued = (listing) => {
+      if (requeuedSuiteKeys.has(shortlistDedupeKey(listing))) return true;
+      return streetsForListingScreen(listing).some((street) =>
+        requeuedSuiteKeys.has(shortlistDedupeKey({ ...listing, street })),
+      );
+    };
+    listings = [
+      ...listings.filter((listing) => listingWasRequeued(listing)),
+      ...listings.filter((listing) => !listingWasRequeued(listing)),
+    ];
+  }
   const metroSet = buildMetroCitySet(city, state);
 
   for (const listing of listings) {
@@ -3179,6 +3950,14 @@ export async function searchBusinessAddresses(candidateId, opts = {}) {
     if (!typeCheck.ok) {
       rejected.push({ ...listing, fail: typeCheck.reason });
       screenedKeys[key] = { fail: typeCheck.reason, at: searchedAt };
+      localRejects += 1;
+      continue;
+    }
+
+    const occupiableCheck = listingOccupiablePass(listing);
+    if (!occupiableCheck.ok) {
+      rejected.push({ ...listing, fail: occupiableCheck.reason });
+      screenedKeys[key] = { fail: occupiableCheck.reason, at: searchedAt };
       localRejects += 1;
       continue;
     }
@@ -3227,6 +4006,25 @@ export async function searchBusinessAddresses(candidateId, opts = {}) {
       rangesExpanded += 1;
     }
 
+    let listedSuites = uniqueListedSuites(listing.listedSuites);
+    if (listingNeedsDetails(listing)) {
+      try {
+        const fetched = await fetchListingDetailsForScreen(listingDetailsUrl(listing), listing.source);
+        listedSuites = persistListedSuitesOnListing(listing, fetched.suites);
+        persistListingOccupiableFields(listing, fetched);
+        detailsFetches += 1;
+      } catch {
+        listedSuites = uniqueListedSuites(listing.listedSuites);
+      }
+    }
+    const occupiableAfterDetails = listingOccupiablePass(listing);
+    if (!occupiableAfterDetails.ok) {
+      rejected.push({ ...listing, fail: occupiableAfterDetails.reason });
+      screenedKeys[key] = { fail: occupiableAfterDetails.reason, at: searchedAt };
+      localRejects += 1;
+      continue;
+    }
+
     for (const street of streetsToScreen) {
       if (runClean.length >= cleanPerRun) break;
       if (placesCalls >= placesBudget) {
@@ -3259,19 +4057,45 @@ export async function searchBusinessAddresses(candidateId, opts = {}) {
         state: listing.state || state,
         zip: listing.zip,
       };
+      let pickedSuite = '';
+      let placesLabel = 'Places — no active OPERATIONAL Maps listing at this street+ZIP';
 
-      let places;
       try {
-        places = await placesHasBusinessAtAddress(addr);
-        placesCalls += 1;
+        if (listedSuites.length) {
+          const pick = await pickFirstUnusedListedSuite(addr, listedSuites, {
+            onCall: () => {
+              placesCalls += 1;
+            },
+            shouldStop: () => placesCalls >= placesBudget,
+          });
+          if (pick.incomplete) {
+            placesBudgetReached = true;
+            break;
+          }
+          if (pick.allTaken) {
+            const fail = 'all listed suites have an active Maps listing';
+            rejected.push({ ...expandedListing, fail, expandedFrom: expandedFrom || undefined });
+            screenedKeys[ekey] = { fail, at: searchedAt, suitesFetched: true };
+            continue;
+          }
+          pickedSuite = pick.suite;
+          placesLabel = `Places — listed ${pickedSuite} unused`;
+        } else {
+          const places = await placesHasBusinessAtAddress(addr);
+          placesCalls += 1;
+          if (places.dirty) {
+            const fail = `active Maps listing${places.sampleName ? `: ${places.sampleName}` : ''}`;
+            rejected.push({ ...expandedListing, fail, expandedFrom: expandedFrom || undefined });
+            screenedKeys[ekey] = {
+              fail,
+              at: searchedAt,
+              suitesFetched: Boolean(listing.suitesFetchedAt) || listedSuites.length > 0,
+            };
+            continue;
+          }
+        }
       } catch (error) {
         const fail = `Places error: ${error.message}`;
-        rejected.push({ ...expandedListing, fail, expandedFrom: expandedFrom || undefined });
-        screenedKeys[ekey] = { fail, at: searchedAt };
-        continue;
-      }
-      if (places.dirty) {
-        const fail = `active Maps listing${places.sampleName ? `: ${places.sampleName}` : ''}`;
         rejected.push({ ...expandedListing, fail, expandedFrom: expandedFrom || undefined });
         screenedKeys[ekey] = { fail, at: searchedAt };
         continue;
@@ -3337,12 +4161,10 @@ export async function searchBusinessAddresses(candidateId, opts = {}) {
 
       const primaryCount = runClean.filter((r) => r.tier !== 'secondary').length;
       const secondaryCountRun = runClean.filter((r) => r.tier === 'secondary').length;
-      const suite = suggestSuite(runClean.length);
       const rank = runClean.length + 1;
       const checks = buildShortlistChecks({
         listing: { ...expandedListing, zip: addr.zip },
         typeCheck,
-        suite,
         rank,
         expandedFrom,
         tier,
@@ -3351,6 +4173,7 @@ export async function searchBusinessAddresses(candidateId, opts = {}) {
         localityUnknown,
         listingCity,
         listingCityMismatch,
+        placesLabel,
       });
       const score = tier === 'secondary' ? 40 - secondaryCountRun : 100 - primaryCount;
       const listingUrlsRaw = listing.urls || {};
@@ -3375,12 +4198,16 @@ export async function searchBusinessAddresses(candidateId, opts = {}) {
       });
       const row = {
         id: listing.id,
-        street: addr.street,
-        suite,
+        street: stripInventedSuite(addr.street),
+        suite: pickedSuite,
+        listedSuites,
         city: addr.city,
         state: addr.state,
         zip: addr.zip,
         propertyType: listing.propertyType || '',
+        listingText: listing.listingText || undefined,
+        yearBuilt: listing.yearBuilt != null ? listing.yearBuilt : undefined,
+        availableDate: listing.availableDate || undefined,
         listingUrl,
         listingUrls,
         source: listing.source || SOURCE_LOOPNET,
@@ -3395,7 +4222,7 @@ export async function searchBusinessAddresses(candidateId, opts = {}) {
         reasons: [
           typeCheck.reason,
           expandedFrom ? `expanded from ${expandedFrom}` : null,
-          'no active OPERATIONAL Maps listing at street+ZIP',
+          placesLabel,
           localityReason,
         ].filter(Boolean),
         checks,
@@ -3409,6 +4236,8 @@ export async function searchBusinessAddresses(candidateId, opts = {}) {
         fail: null,
         at: searchedAt,
         clean: true,
+        suite: pickedSuite || '',
+        suitesFetched: Boolean(listing.suitesFetchedAt) || listedSuites.length > 0 || !listingNeedsSuiteDetails(listing),
         tier,
         mapsLocality: mapsLocality || null,
         mapsState: mapsState || null,
@@ -3430,7 +4259,26 @@ export async function searchBusinessAddresses(candidateId, opts = {}) {
 
   const priorList = (Array.isArray(prev.shortlist) ? prev.shortlist : []).filter((r) => {
     const k = shortlistDedupeKey(r);
-    return !isUsedByOther(k);
+    if (isUsedByOther(k)) return false;
+    const listing =
+      listingByScreenKey.get(k) ||
+      listings.find((l) => shortlistDedupeKey(l) === k) ||
+      listingFromShortlistRow(r);
+    const check = listingOccupiablePass({
+      listingText: mergeListingText(listing?.listingText, r.listingText),
+      yearBuilt: listing?.yearBuilt ?? r.yearBuilt,
+      availableDate: listing?.availableDate || r.availableDate,
+      buildingStatus: listing?.buildingStatus || r.buildingStatus,
+      constructionStatus: listing?.constructionStatus || r.constructionStatus,
+      propertyFacts: listing?.propertyFacts || r.propertyFacts,
+    });
+    if (!check.ok) {
+      rejected.push({ ...r, fail: check.reason });
+      screenedKeys[k] = { fail: check.reason, at: searchedAt };
+      localRejects += 1;
+      return false;
+    }
+    return true;
   });
   const priorKeys = new Set(priorList.map((r) => shortlistDedupeKey(r)));
   const added = runClean.filter((r) => !priorKeys.has(shortlistDedupeKey(r))).length;
@@ -3645,6 +4493,8 @@ export async function searchBusinessAddresses(candidateId, opts = {}) {
       rangesRequeued,
       rangesExpanded,
       rangeEndpointsScreened,
+      suitesRequeued,
+      detailsFetches,
       partialSourceErrors: errors.map((e) => ({
         source: e.source,
         message: e.error.message || String(e.error),
@@ -3683,9 +4533,11 @@ export function addressNapForPrompt(candidateId) {
   const pkg = getBusinessAddressPackage(candidateId);
   if (!pkg?.selection || pkg.skipped) return null;
   const s = pkg.selection;
+  const peeled = splitSuiteFromCity(s.city);
   return {
-    street: s.street,
-    city: s.city,
+    street: splitNapStreet(s.street).street,
+    suite: sanitizeListedSuite(s.suite) || peeled.suite,
+    city: peeled.city || s.city,
     state: s.state,
     zip: s.zip,
   };

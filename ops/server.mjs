@@ -60,6 +60,7 @@ import {
 import {
   acceptSiteConfig,
   acceptServiceArea,
+  refreshServiceAreaClaims,
   buildSiteConfigPrompt,
   buildDomainPickPrompt,
   suggestDomainsWithClaude,
@@ -200,7 +201,11 @@ import {
   stampFinalCheck,
   syncWriteBatchesFromDraft,
 } from './lib/content-eight-pass.mjs';
-import { assertWriteSiteReady, runWriteSiteJob } from './lib/content-write-site.mjs';
+import {
+  assertWriteSiteReady,
+  runExpandThinLocationsJob,
+  runWriteSiteJob,
+} from './lib/content-write-site.mjs';
 import { buildBuildPackage, getBuildPackage } from './lib/build-package.mjs';
 import { stageSiteInWorker, getStagingSummary } from './lib/site-staging.mjs';
 import {
@@ -234,6 +239,7 @@ import {
   updateLightJobProgress,
   cancelLightJob,
   assertWriteSiteStartAllowed,
+  assertExpandLocationsStartAllowed,
   assertAcceptStartAllowed,
   assertGeneratePackStartAllowed,
 } from './lib/rover-light-jobs.mjs';
@@ -256,20 +262,21 @@ import {
   runGeneratePackJob,
 } from './lib/discovery-generate-pack.mjs';
 import {
-  buildAssignWavesPrompt,
+  buildAssignCitiesPrompt,
   buildFindHubsPrompt,
   buildGeneratePackPrompt,
   finalizeShotgunImport,
   getShotgunCostPreview,
   getShotgunWorkspace,
-  importAssignWavesText,
+  importAssignCitiesText,
   importFindHubsText,
   assertFindHubsAllowed,
-  runAssignWavesJob,
+  runAssignCitiesJob,
   runFindHubsJob,
   runShotgunGeneratePackJob,
   selectShotgunHub,
   setShotgunMemberPaint,
+  setShotgunMemberPaintMany,
   setShotgunRadius,
   startShotgunThisMetro,
 } from './lib/discovery-shotgun.mjs';
@@ -282,10 +289,13 @@ import {
   addClusterCity,
   removeClusterCity,
   shotgunBlockedLocationNames,
+  shotgunClaimedSuburbEntries,
+  shotgunZonePrimaryGeos,
   shotgunMembershipByCandidateId,
   isClusterPack,
   getZoneWorkspace,
   paintZoneMember,
+  paintZoneMembers,
   setZoneMiles,
 } from './lib/shotgun.mjs';
 import { getUserGuidePayload } from './lib/help-markdown.mjs';
@@ -367,6 +377,8 @@ import {
 import { findPlaceFeature, findPlaceFeatures, getMapGeojson, getMapStatus } from './lib/research-map.mjs';
 import { placesIntersectingRadius } from './lib/geo-neighbors.mjs';
 import { getBatchCostPreview, getCostPreview } from './lib/cost-estimates.mjs';
+import { normalizeEvalRunMode } from './lib/eval-run-mode.mjs';
+import { ensureResearchSerpSeeds } from './lib/serp-seeds.mjs';
 import {
   getJob,
   listJobsForCandidate,
@@ -428,6 +440,57 @@ app.use((req, res, next) => {
   next();
 });
 app.use(express.static(path.join(__dirname, 'public'), { etag: false, lastModified: false, maxAge: 0 }));
+
+function attachShotgunFields(candidateId, candidate = {}) {
+  const id = String(candidateId || '').trim();
+  const shotgun = clusterForCandidate(id);
+  const member = shotgun
+    ? (shotgun.members || []).find((m) => m.candidateId === id)
+    : null;
+  return {
+    ...candidate,
+    shotgunClusterId: shotgun?.id || null,
+    shotgunZoneId: shotgun?.id || null,
+    shotgunRole: member?.role || null,
+    shotgunClusterKey: member?.clusterKey ?? null,
+    shotgunClusterName: shotgun?.name || null,
+    shotgunSg: shotgun ? formatShotgunSg(shotgun.sgNumber) || null : null,
+    sgNumber: shotgun?.sgNumber ?? null,
+    shotgunBlockedLocations: [...shotgunBlockedLocationNames(id)],
+    shotgunClaimedSuburbs: shotgunClaimedSuburbEntries(id).map((e) => ({
+      name: e.name,
+      ownerCity: e.ownerCity,
+      kind: e.kind || 'page',
+    })),
+    shotgunZonePrimaries: shotgunZonePrimaryGeos(id).map((g) => ({
+      city: g.city,
+      state: g.state,
+      lat: g.lat,
+      lng: g.lng,
+      clusterKey: g.clusterKey ?? null,
+      role: g.role || null,
+    })),
+    shotgunMembers: shotgun
+      ? (shotgun.members || []).map((m) => {
+          const stored = Number(m.population);
+          const population =
+            Number.isFinite(stored) && stored > 0
+              ? stored
+              : lookupPopulation(m.city, m.state) ?? null;
+          return {
+            city: m.city,
+            state: m.state,
+            role: m.role,
+            wave: m.wave ?? null,
+            clusterKey: m.clusterKey ?? null,
+            population,
+            candidateId: m.candidateId || null,
+            pipelineStage: m.pipelineStage || null,
+          };
+        })
+      : [],
+  };
+}
 
 function launchSuccessSoundPath() {
   const dir = path.join(__dirname, 'sounds', 'Launch Success');
@@ -655,6 +718,27 @@ app.get('/api/map/coverage-preview', (req, res) => {
   }
 });
 
+app.get('/api/candidates/:id/site-config/service-area/claims', (req, res) => {
+  try {
+    res.setHeader('Cache-Control', 'no-store');
+    res.json(attachShotgunFields(req.params.id));
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/candidates/:id/site-config/service-area/refresh', (req, res) => {
+  try {
+    const result = refreshServiceAreaClaims(req.params.id);
+    res.json({
+      ...result,
+      candidate: attachShotgunFields(req.params.id, result.candidate || {}),
+    });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
 app.post('/api/candidates/:id/site-config/service-area', async (req, res) => {
   const writeLine = (obj) => {
     if (res.writableEnded) return;
@@ -735,6 +819,7 @@ app.post('/api/candidates/:id/site-config/service-area', async (req, res) => {
     writeLine({
       type: 'done',
       ...result,
+      candidate: attachShotgunFields(req.params.id, result.candidate || {}),
       locationStubs,
       coverageMap,
     });
@@ -877,7 +962,7 @@ app.get('/api/discovery/batches/:id/shotgun/prompt', (req, res) => {
   try {
     const step = String(req.query.step || '').trim();
     if (step === 'assign') {
-      return res.json(buildAssignWavesPrompt(req.params.id, { api: false }));
+      return res.json(buildAssignCitiesPrompt(req.params.id, { api: false }));
     }
     if (step === 'pack') {
       return res.json({ prompt: buildGeneratePackPrompt(req.params.id, { api: false }) });
@@ -907,22 +992,26 @@ app.post('/api/discovery/batches/:id/shotgun/find-hubs', (req, res) => {
   }
 });
 
-app.post('/api/discovery/batches/:id/shotgun/assign-waves', (req, res) => {
+app.post('/api/discovery/batches/:id/shotgun/assign-cities', (req, res) => {
   try {
     const batchId = req.params.id;
     requireAnthropicKey();
     getBatch(batchId);
     const { jobId } = startLightJob({
       batchId,
-      phase: 'shotgun-assign-waves',
+      phase: 'shotgun-assign-cities',
       label: 'Assign cluster cities',
       progressTotal: 2,
-      run: async ({ jobId: jid, signal }) => runAssignWavesJob(batchId, { jobId: jid, signal }),
+      run: async ({ jobId: jid, signal }) => runAssignCitiesJob(batchId, { jobId: jid, signal }),
     });
     res.status(202).json({ jobId, accepted: true, batchId });
   } catch (error) {
     sendError(res, error);
   }
+});
+
+app.post('/api/discovery/batches/:id/shotgun/assign-waves', (req, res) => {
+  res.redirect(308, `/api/discovery/batches/${encodeURIComponent(req.params.id)}/shotgun/assign-cities`);
 });
 
 app.post('/api/discovery/batches/:id/shotgun/generate-pack', (req, res) => {
@@ -950,7 +1039,7 @@ app.post('/api/discovery/batches/:id/shotgun/import', (req, res) => {
     const step = String(req.body?.step || '').trim();
     const text = req.body?.text ?? req.body?.json ?? req.body?.csv ?? '';
     if (step === 'assign') {
-      return res.json({ draft: importAssignWavesText(req.params.id, text) });
+      return res.json({ draft: importAssignCitiesText(req.params.id, text) });
     }
     if (step === 'pack') {
       const imported = importDiscoveryCsv(req.params.id, text, { createIfMissing: false });
@@ -979,6 +1068,21 @@ app.post('/api/discovery/batches/:id/shotgun/paint', (req, res) => {
       slot: req.body?.slot,
       minPop: req.body?.minPop,
       maxPop: req.body?.maxPop,
+      radiusMiles: req.body?.radiusMiles,
+    });
+    res.json({ draft, workspace: getShotgunWorkspace(req.params.id) });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/discovery/batches/:id/shotgun/paint-many', (req, res) => {
+  try {
+    if (String(req.body?.tool || '').toLowerCase() === 'hub') {
+      throw Object.assign(new Error('Circle select cannot set the hub'), { status: 400 });
+    }
+    const draft = setShotgunMemberPaintMany(req.params.id, req.body?.cities, {
+      slot: req.body?.slot,
       radiusMiles: req.body?.radiusMiles,
     });
     res.json({ draft, workspace: getShotgunWorkspace(req.params.id) });
@@ -1022,6 +1126,23 @@ app.post('/api/shotgun-clusters/:id/paint', (req, res) => {
         slot: req.body?.slot,
         minPop: req.body?.minPop,
         maxPop: req.body?.maxPop,
+        radiusMiles: req.body?.radiusMiles,
+      }),
+    );
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/shotgun-clusters/:id/paint-many', (req, res) => {
+  try {
+    if (String(req.body?.tool || '').toLowerCase() === 'hub') {
+      throw Object.assign(new Error('Circle select cannot set the hub'), { status: 400 });
+    }
+    res.json(
+      paintZoneMembers(req.params.id, {
+        cities: req.body?.cities,
+        slot: req.body?.slot,
         radiusMiles: req.body?.radiusMiles,
       }),
     );
@@ -1262,10 +1383,11 @@ app.post('/api/discovery/batches/:id/process', (req, res) => {
     const body = req.body || {};
     res.json(
       processDiscoveryBatch(req.params.id, {
-        runStage1ForPursue: body.runStage1ForPursue !== false,
+        runStage1ForPursue: normalizeEvalRunMode(body.evalRunMode) === 'all',
         decisions: Array.isArray(body.decisions) ? body.decisions : null,
         concurrency: Number(body.concurrency) || 1,
         adsMode: body.adsMode === 'standard' ? 'standard' : 'live',
+        evalRunMode: normalizeEvalRunMode(body.evalRunMode),
       }),
     );
   } catch (error) {
@@ -1304,6 +1426,7 @@ app.post('/api/jobs/batch', (req, res) => {
         adsMode: evalAll ? 'live' : body.adsMode === 'standard' ? 'standard' : 'live',
         forceSerp: evalAll ? false : Boolean(body.forceSerp),
         volumesOnly: evalAll ? false : Boolean(body.volumesOnly),
+        evalRunMode: evalAll ? normalizeEvalRunMode(body.evalRunMode) : undefined,
       }),
     );
   } catch (error) {
@@ -1378,7 +1501,11 @@ app.get('/api/api-cost', async (req, res) => {
 app.get('/api/candidates/:id/cost-preview', (req, res) => {
   try {
     const act = String(req.query.act || '');
-    res.json(getCostPreview(req.params.id, act));
+    res.json(
+      getCostPreview(req.params.id, act, {
+        evalRunMode: req.query.evalRunMode,
+      }),
+    );
   } catch (error) {
     sendError(res, error);
   }
@@ -1389,7 +1516,11 @@ app.post('/api/jobs/batch/cost-preview', (req, res) => {
     const body = req.body || {};
     const act = String(body.act || '');
     const candidateIds = Array.isArray(body.candidateIds) ? body.candidateIds : [];
-    res.json(getBatchCostPreview(candidateIds, act));
+    res.json(
+      getBatchCostPreview(candidateIds, act, {
+        evalRunMode: body.evalRunMode,
+      }),
+    );
   } catch (error) {
     sendError(res, error);
   }
@@ -1483,41 +1614,7 @@ app.get('/api/candidates/:id', (req, res) => {
     const raw = req.query.include;
     const include = raw == null || raw === '' ? [] : raw;
     const detail = getCandidateDetail(req.params.id, { include });
-    const shotgun = clusterForCandidate(req.params.id);
-    res.json({
-      ...detail,
-      shotgunClusterId: shotgun?.id || null,
-      shotgunZoneId: shotgun?.id || null,
-      shotgunRole: shotgun
-        ? (shotgun.members || []).find((m) => m.candidateId === req.params.id)?.role || null
-        : null,
-      shotgunClusterKey: shotgun
-        ? (shotgun.members || []).find((m) => m.candidateId === req.params.id)?.clusterKey ?? null
-        : null,
-      shotgunClusterName: shotgun?.name || null,
-      shotgunSg: shotgun ? formatShotgunSg(shotgun.sgNumber) || null : null,
-      sgNumber: shotgun?.sgNumber ?? null,
-      shotgunBlockedLocations: [...shotgunBlockedLocationNames(req.params.id)],
-      shotgunMembers: shotgun
-        ? (shotgun.members || []).map((m) => {
-            const stored = Number(m.population);
-            const population =
-              Number.isFinite(stored) && stored > 0
-                ? stored
-                : lookupPopulation(m.city, m.state) ?? null;
-            return {
-              city: m.city,
-              state: m.state,
-              role: m.role,
-              wave: m.wave ?? null,
-              clusterKey: m.clusterKey ?? null,
-              population,
-              candidateId: m.candidateId || null,
-              pipelineStage: m.pipelineStage || null,
-            };
-          })
-        : [],
-    });
+    res.json(attachShotgunFields(req.params.id, detail));
   } catch (error) {
     sendError(res, error);
   }
@@ -1721,6 +1818,7 @@ app.post('/api/candidates/:id/research', (req, res) => {
       adsMode: req.body?.adsMode === 'standard' ? 'standard' : 'live',
       forceSerp: Boolean(req.body?.forceSerp),
       volumesOnly: Boolean(req.body?.volumesOnly),
+      skipVolumes: Boolean(req.body?.skipVolumes),
     });
     res.json({ job });
   } catch (error) {
@@ -1884,6 +1982,7 @@ app.get('/api/candidates/:id/jobs', (req, res) => {
 
 app.post('/api/candidates/:id/narrative', async (req, res) => {
   try {
+    ensureResearchSerpSeeds(req.params.id);
     assertEvalPrerequisite(req.params.id, 'narrative');
     const result = await generateNarrativeDraft(req.params.id);
     res.json(result);
@@ -1894,6 +1993,7 @@ app.post('/api/candidates/:id/narrative', async (req, res) => {
 
 app.post('/api/candidates/:id/narrative/paste', (req, res) => {
   try {
+    ensureResearchSerpSeeds(req.params.id);
     assertEvalPrerequisite(req.params.id, 'narrative');
     const raw = req.body?.json ?? req.body?.text ?? req.body;
     const result = pasteNarrativeDraft(req.params.id, raw);
@@ -1911,6 +2011,7 @@ app.post('/api/candidates/:id/narrative/accept', (req, res) => {
     res.json({
       narrative: result.narrative,
       approved: result.approved,
+      warning: result.warning || null,
       candidate: getCandidateShell(req.params.id),
     });
   } catch (error) {
@@ -1970,6 +2071,7 @@ app.get('/api/candidates/:id/site-config/prompt', (req, res) => {
       paletteId: req.query.paletteId,
       fontTheme: req.query.fontTheme,
       addressStreet: req.query.addressStreet || req.query.street,
+      addressSuite: req.query.addressSuite || req.query.suite,
       addressCity: req.query.addressCity,
       addressState: req.query.addressState,
       addressZip: req.query.addressZip || req.query.zip,
@@ -2020,6 +2122,7 @@ app.post('/api/candidates/:id/site-config/generate', async (req, res) => {
       paletteId: body.paletteId,
       fontTheme: body.fontTheme,
       addressStreet: body.addressStreet || body.street,
+      addressSuite: body.addressSuite || body.suite,
       addressCity: body.addressCity,
       addressState: body.addressState,
       addressZip: body.addressZip || body.zip,
@@ -2586,6 +2689,7 @@ app.get('/api/photo-groups/:id/slots/:key/chatgpt-prompt', (req, res) => {
     res.json(
       chatgptPromptForGroupSlot(req.params.id, req.params.key, {
         viewpoint: req.query?.viewpoint || 'inside',
+        occupancy: req.query?.occupancy || 'none',
       }),
     );
   } catch (error) {
@@ -2598,6 +2702,7 @@ app.post('/api/photo-groups/:id/slots/:key/openai-prompt', (req, res) => {
     res.json(
       savePhotoGroupSlotOpenaiPrompt(req.params.id, req.params.key, {
         viewpoint: req.body?.viewpoint || 'inside',
+        occupancy: req.body?.occupancy || 'none',
         prompt: req.body?.prompt,
         restore: Boolean(req.body?.restore),
       }),
@@ -2615,6 +2720,7 @@ app.post('/api/photo-groups/:id/generate-openai', (req, res) => {
       baKeys: body.baKeys,
       baItems: body.baItems,
       viewpoint: body.viewpoint || 'inside',
+      occupancy: body.occupancy || 'none',
       prompt: body.prompt,
       prompts: body.prompts,
       onConflict: 'reuse',
@@ -2633,6 +2739,7 @@ app.post('/api/photo-groups/:id/slots/generate-openai', (req, res) => {
       slotKeys: matchKey && !String(matchKey).startsWith('ba:') ? [matchKey] : [],
       matchKey,
       viewpoint: body.viewpoint || 'inside',
+      occupancy: body.occupancy || 'none',
       prompt: body.prompt,
       onConflict: 'throw',
     });
@@ -2675,6 +2782,7 @@ app.get('/api/photo-groups/:id/before-after-prompts', (req, res) => {
       getPhotoGroupBaPrompts(req.params.id, {
         matchKey: req.query?.matchKey || req.query?.match || '',
         viewpoint: req.query?.viewpoint || 'inside',
+        occupancy: req.query?.occupancy || 'none',
         pairIndex: req.query?.pairIndex || 1,
         serviceSlug: req.query?.service || req.query?.serviceSlug || '',
       }),
@@ -2690,6 +2798,7 @@ app.post('/api/photo-groups/:id/before-after/openai-prompt', (req, res) => {
       savePhotoGroupBaOpenaiPrompt(req.params.id, {
         matchKey: req.body?.matchKey || req.body?.match || '',
         viewpoint: req.body?.viewpoint || 'inside',
+        occupancy: req.body?.occupancy || 'none',
         pairIndex: req.body?.pairIndex || 1,
         serviceSlug: req.body?.service || req.body?.serviceSlug || '',
         before: req.body?.before,
@@ -2709,6 +2818,7 @@ app.post('/api/photo-groups/:id/before-after/generate-openai', (req, res) => {
       kind: 'pair',
       matchKey: body.matchKey,
       viewpoint: body.viewpoint || 'inside',
+      occupancy: body.occupancy || 'none',
       pairIndex: body.pairIndex,
       serviceSlug: body.serviceSlug,
       serviceName: body.serviceName,
@@ -2868,6 +2978,7 @@ app.get('/api/candidates/:id/images/slots/:slotKey/chatgpt-prompt', (req, res) =
     res.json(
       buildSlotImagePrompt(req.params.id, req.params.slotKey, {
         viewpoint: req.query?.viewpoint || 'inside',
+        occupancy: req.query?.occupancy || 'none',
       }),
     );
   } catch (error) {
@@ -2880,6 +2991,7 @@ app.post('/api/candidates/:id/images/slots/:slotKey/openai-prompt', (req, res) =
     res.json(
       saveSlotOpenaiPrompt(req.params.id, req.params.slotKey, {
         viewpoint: req.body?.viewpoint || req.query?.viewpoint || 'inside',
+        occupancy: req.body?.occupancy || req.query?.occupancy || 'none',
         prompt: req.body?.prompt,
         restore: Boolean(req.body?.restore),
       }),
@@ -2898,6 +3010,7 @@ app.post('/api/candidates/:id/images/generate-openai', (req, res) => {
       baKeys: body.baKeys,
       baItems: body.baItems,
       viewpoint: body.viewpoint || 'inside',
+      occupancy: body.occupancy || 'none',
       prompt: body.prompt,
       prompts: body.prompts,
       onConflict: 'reuse',
@@ -2914,10 +3027,12 @@ app.post('/api/candidates/:id/images/slots/:slotKey/generate-openai', (req, res)
     const out = enqueueCandidateOpenaiJobs(req.params.id, {
       slotKeys: [req.params.slotKey],
       viewpoint: req.body?.viewpoint || 'inside',
+      occupancy: req.body?.occupancy || 'none',
       prompt: req.body?.prompt,
       prompts: {
         [req.params.slotKey]: {
           viewpoint: req.body?.viewpoint || 'inside',
+          occupancy: req.body?.occupancy || 'none',
           prompt: req.body?.prompt,
         },
       },
@@ -3047,6 +3162,7 @@ app.get('/api/candidates/:id/images/before-after-prompts', (req, res) => {
         serviceSlug: req.query?.service || req.query?.serviceSlug || '',
         pairIndex: req.query?.pairIndex || 1,
         viewpoint: req.query?.viewpoint || 'inside',
+        occupancy: req.query?.occupancy || 'none',
       }),
     );
   } catch (error) {
@@ -3061,6 +3177,7 @@ app.post('/api/candidates/:id/images/before-after/openai-prompt', (req, res) => 
         serviceSlug: req.body?.serviceSlug || req.body?.service || '',
         pairIndex: req.body?.pairIndex || 1,
         viewpoint: req.body?.viewpoint || 'inside',
+        occupancy: req.body?.occupancy || 'none',
         before: req.body?.before,
         after: req.body?.after,
         restore: Boolean(req.body?.restore),
@@ -3090,11 +3207,13 @@ app.post('/api/candidates/:id/images/before-after-generate-openai', (req, res) =
           serviceSlug: body.serviceSlug || body.service || '',
           pairIndex: body.pairIndex || 1,
           viewpoint: body.viewpoint || 'inside',
+          occupancy: body.occupancy || 'none',
           before: body.before,
           after: body.after,
         },
       ],
       viewpoint: body.viewpoint || 'inside',
+      occupancy: body.occupancy || 'none',
       onConflict: 'throw',
     });
     res.status(202).json({ ...out, jobId: out.jobs[0]?.jobId });
@@ -3480,6 +3599,27 @@ app.post('/api/candidates/:id/content/write-site', (req, res) => {
       label: 'Write site',
       progressTotal: photosOn ? 5 : 4,
       run: async ({ jobId: jid, signal }) => runWriteSiteJob(candidateId, { jobId: jid, signal }),
+    });
+    res.status(202).json({ jobId, accepted: true });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/candidates/:id/content/expand-locations', (req, res) => {
+  try {
+    const candidateId = req.params.id;
+    assertLaunchedEditAllowed(candidateId, req.body || {});
+    requireAnthropicKey();
+    assertExpandLocationsStartAllowed(candidateId);
+
+    const { jobId } = startLightJob({
+      candidateId,
+      phase: 'expand-locations',
+      label: 'Expand location pages',
+      progressTotal: 2,
+      run: async ({ jobId: jid, signal }) =>
+        runExpandThinLocationsJob(candidateId, { jobId: jid, signal }),
     });
     res.status(202).json({ jobId, accepted: true });
   } catch (error) {
@@ -4790,8 +4930,39 @@ app.post('/api/candidates/:id/ship', async (req, res) => {
   }
 });
 
+app.post('/api/candidates/:id/ensure-serp-seeds', (req, res) => {
+  try {
+    const ensured = ensureResearchSerpSeeds(req.params.id);
+    if (ensured.ready) {
+      res.json({ ready: true, source: ensured.source || 'existing' });
+      return;
+    }
+    if (ensured.reason === 'no_config') {
+      throw Object.assign(new Error('No config — create the candidate first'), { status: 400 });
+    }
+    ensureConfigFromResearch(req.params.id);
+    const p = pathsFor(req.params.id);
+    if (!existsSync(p.config)) {
+      throw Object.assign(new Error('No config — create candidate or add research/{id}.config.json'), {
+        status: 400,
+      });
+    }
+    const job = runResearch(req.params.id, { skipVolumes: true });
+    res.json({ ready: false, job });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
 app.get('/api/candidates/:id/copy-prompt', (req, res) => {
   try {
+    const ensured = ensureResearchSerpSeeds(req.params.id);
+    if (!ensured.ready) {
+      const err = new Error('SERP seeds needed before Copy prompt');
+      err.status = 409;
+      err.code = 'SERP_SEEDS_NEEDED';
+      throw err;
+    }
     assertEvalPrerequisite(req.params.id, 'narrative');
     res.json({ prompt: buildCopyPrompt(req.params.id) });
   } catch (error) {

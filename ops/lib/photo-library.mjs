@@ -26,6 +26,8 @@ import {
   editOpenaiImage,
 } from './image-providers/openai-image.mjs';
 import { fluxSlotPromptForCandidate, fluxSlotPromptFromMeta, buildFluxBaPrompts } from './flux-prompts.mjs';
+import { defaultSlotDescription } from './slot-photo-brief.mjs';
+import { applyOccupancyToPrompt, normalizeOccupancy } from './image-occupancy.mjs';
 import { slotSettingKind } from './image-setting.mjs';
 import {
   loadOpenaiPromptsFile,
@@ -404,12 +406,12 @@ function saveGroupOpenaiDoc(group, doc) {
   return saveOpenaiPromptsFile(openaiPromptsPathForGroupDir(group.dir), doc);
 }
 
-function canonicalGroupSlotPrompt(group, existing, { viewpoint, forChatGpt = true } = {}) {
+function canonicalGroupSlotPrompt(group, existing, { viewpoint, occupancy, forChatGpt = true } = {}) {
   const cid = candidateIdForGroup(group);
   const setting = groupSlotSetting(group, existing);
   if (cid && existing.key) {
     try {
-      return fluxSlotPromptForCandidate(cid, existing.key, { viewpoint, forChatGpt });
+      return fluxSlotPromptForCandidate(cid, existing.key, { viewpoint, occupancy, forChatGpt });
     } catch {
       /* fall through */
     }
@@ -418,6 +420,7 @@ function canonicalGroupSlotPrompt(group, existing, { viewpoint, forChatGpt = tru
     niche: group.niche,
     slot: existing,
     viewpoint,
+    occupancy,
     setting,
     config: groupSiteConfig(group),
     forChatGpt,
@@ -473,6 +476,17 @@ function decorateBaPair(group, pair, extras = {}) {
   );
   return {
     ...row,
+    slotDescription:
+      row.slotDescription ||
+      defaultSlotDescription(
+        {
+          sectionId: extras.serviceName || pair.serviceName ? 'svcBeforeAfter' : 'beforeAfter',
+          kind: 'gallery',
+          serviceName: extras.serviceName || pair.serviceName || '',
+          key: extras.matchKey || pair.matchKey || '',
+        },
+        { niche: group.niche, setting },
+      ),
     beforeUrl: row.before?.filename ? previewUrl(group.id, row.before.filename) : null,
     afterUrl: row.after?.filename ? previewUrl(group.id, row.after.filename) : null,
     lastPrompts: row.lastPrompts || null,
@@ -573,17 +587,20 @@ function photoGroupBaView(group) {
 function slotCard(group, slot, registry) {
   const onDisk = Boolean(slot.filename && existsSync(path.join(group.dir, slot.filename)));
   const matchKey = matchKeyForSlot(slot);
-  const groupKey = sectionGroupKey(slot.sectionId);
+  const groupKey = sectionGroupKey(slot.sectionId, slot);
   const source = inferSlotSource(slot, onDisk);
   return {
     ...slot,
     matchKey,
     label: displayLabelForSlot(slot),
+    slotDescription:
+      slot.slotDescription || defaultSlotDescription(slot, { niche: group.niche }),
     wiredFm: wiredFmForSlot(slot) || slot.key,
     sectionGroup: groupKey,
     sectionLabel: sectionLabelForGroup(
-      groupKey === 'services' ? 'services' : slot.sectionId,
+      groupKey === 'services' ? 'services' : groupKey,
       registry,
+      slot,
     ),
     missing: !onDisk,
     previewUrl: onDisk ? previewUrl(group.id, slot.filename) : null,
@@ -645,7 +662,7 @@ export function getPhotoGroupView(groupId) {
     if (!sectionsMap.has(gKey)) {
       sectionsMap.set(gKey, {
         sectionId: gKey,
-        label: s.sectionLabel || sectionLabelForGroup(gKey, registry),
+        label: s.sectionLabel || sectionLabelForGroup(gKey, registry, s),
         slots: [],
         _order: sectionOrderIndex(s.sectionId),
       });
@@ -660,7 +677,9 @@ export function getPhotoGroupView(groupId) {
         (Number(a.index) || 0) - (Number(b.index) || 0) || String(a.key || '').localeCompare(String(b.key || '')),
     );
   }
-  const sections = [...sectionsMap.values()].sort((a, b) => a._order - b._order);
+  const sections = [...sectionsMap.values()].sort(
+    (a, b) => a._order - b._order || String(a.label || '').localeCompare(String(b.label || '')),
+  );
   for (const sec of sections) delete sec._order;
   const beforeAfter = photoGroupBaView(group);
   return {
@@ -962,30 +981,35 @@ export async function repullPhotoGroupSlot(groupId, { matchKey } = {}) {
   return { ok: true, group: persistPhotoGroupRecord(dest) };
 }
 
-export function chatgptPromptForGroupSlot(groupId, matchKey, { viewpoint, prompt: bodyPrompt } = {}) {
+export function chatgptPromptForGroupSlot(groupId, matchKey, { viewpoint, occupancy: occupancyRaw, prompt: bodyPrompt } = {}) {
   const dest = getPhotoGroup(groupId);
   const existing = (dest.slots || []).find((s) => matchKeyForSlot(s) === matchKey);
   if (!existing) {
     throw Object.assign(new Error('Unknown slot'), { status: 404 });
   }
-  const built = canonicalGroupSlotPrompt(dest, existing, { viewpoint, forChatGpt: true });
+  const occupancy = normalizeOccupancy(occupancyRaw);
+  const built = canonicalGroupSlotPrompt(dest, existing, { viewpoint, occupancy, forChatGpt: true });
   const override = getSlotPromptOverride(groupOpenaiDoc(dest), matchKey, built.viewpoint);
-  const prompt = pickPromptText(built.prompt, override, bodyPrompt);
+  const fromBody = Boolean(String(bodyPrompt || '').trim());
+  const picked = pickPromptText(built.prompt, override, bodyPrompt);
+  const prompt = fromBody ? picked : applyOccupancyToPrompt(picked, occupancy);
   return {
     ...built,
+    occupancy,
     original: built.prompt,
     prompt,
     overridden: prompt !== built.prompt,
   };
 }
 
-export function savePhotoGroupSlotOpenaiPrompt(groupId, matchKey, { viewpoint, prompt, restore } = {}) {
+export function savePhotoGroupSlotOpenaiPrompt(groupId, matchKey, { viewpoint, occupancy, prompt, restore } = {}) {
   const dest = getPhotoGroup(groupId);
   const existing = (dest.slots || []).find((s) => matchKeyForSlot(s) === matchKey);
   if (!existing) {
     throw Object.assign(new Error('Unknown slot'), { status: 404 });
   }
-  const built = canonicalGroupSlotPrompt(dest, existing, { viewpoint, forChatGpt: true });
+  const occ = normalizeOccupancy(occupancy);
+  const built = canonicalGroupSlotPrompt(dest, existing, { viewpoint, occupancy: occ, forChatGpt: true });
   let doc = groupOpenaiDoc(dest);
   const text = String(prompt || '').trim();
   if (restore || text === built.prompt) {
@@ -994,7 +1018,7 @@ export function savePhotoGroupSlotOpenaiPrompt(groupId, matchKey, { viewpoint, p
     doc = setSlotPromptOverride(doc, matchKey, built.viewpoint, text);
   }
   saveGroupOpenaiDoc(dest, doc);
-  return chatgptPromptForGroupSlot(groupId, matchKey, { viewpoint: built.viewpoint });
+  return chatgptPromptForGroupSlot(groupId, matchKey, { viewpoint: built.viewpoint, occupancy: occ });
 }
 
 export function importPhotoGroupBa(groupId, body = {}) {
@@ -1368,7 +1392,7 @@ function trimGroupVariants(dir, variants) {
   return trimTrayVariants(dir, variants, ALT_CAP);
 }
 
-export async function generatePhotoGroupSlotOpenai(groupId, { matchKey, viewpoint, prompt } = {}) {
+export async function generatePhotoGroupSlotOpenai(groupId, { matchKey, viewpoint, occupancy, prompt } = {}) {
   if (!openaiImageKeySet()) {
     throw Object.assign(
       new Error('Set OPENAI_API_KEY in .env (same key as Phone), then restart Rover.'),
@@ -1379,7 +1403,7 @@ export async function generatePhotoGroupSlotOpenai(groupId, { matchKey, viewpoin
   const existing = (dest.slots || []).find((s) => matchKeyForSlot(s) === matchKey);
   if (!existing) throw Object.assign(new Error('Unknown slot'), { status: 400 });
   const cid = candidateIdForGroup(dest);
-  const built = chatgptPromptForGroupSlot(groupId, matchKey, { viewpoint, prompt });
+  const built = chatgptPromptForGroupSlot(groupId, matchKey, { viewpoint, occupancy, prompt });
   if (String(prompt || '').trim()) {
     persistSlotOverrideIfBody(
       openaiPromptsPathForGroupDir(dest.dir),
@@ -1664,7 +1688,7 @@ function persistGeneratedGroupBaPair(groupId, ctx, { beforeBuffer, afterBuffer, 
   return { ok: true, view: getPhotoGroupView(groupId) };
 }
 
-export async function generatePhotoGroupBaPairOpenai(groupId, { matchKey, viewpoint, kind, pairIndex, serviceSlug, serviceName, before, after } = {}) {
+export async function generatePhotoGroupBaPairOpenai(groupId, { matchKey, viewpoint, occupancy, kind, pairIndex, serviceSlug, serviceName, before, after } = {}) {
   if (!openaiImageKeySet()) {
     throw Object.assign(
       new Error('Set OPENAI_API_KEY in .env (same key as Phone), then restart Rover.'),
@@ -1676,6 +1700,7 @@ export async function generatePhotoGroupBaPairOpenai(groupId, { matchKey, viewpo
   const resolved = getPhotoGroupBaPrompts(groupId, {
     matchKey: key,
     viewpoint: vp,
+    occupancy,
     pairIndex: idx,
     serviceSlug: slug,
     before,
@@ -1686,7 +1711,10 @@ export async function generatePhotoGroupBaPairOpenai(groupId, { matchKey, viewpo
       openaiPromptsPathForGroupDir(dest.dir),
       key,
       resolved.viewpoint,
-      { before: resolved.originalBefore, after: resolved.originalAfter },
+      {
+        before: applyOccupancyToPrompt(resolved.originalBefore, occupancy),
+        after: applyOccupancyToPrompt(resolved.originalAfter, occupancy),
+      },
       { before: resolved.before, after: resolved.after },
     );
   }
@@ -1708,7 +1736,7 @@ export async function generatePhotoGroupBaPairOpenai(groupId, { matchKey, viewpo
 
 export function getPhotoGroupBaPrompts(
   groupId,
-  { matchKey, viewpoint, pairIndex, serviceSlug, before, after } = {},
+  { matchKey, viewpoint, occupancy: occupancyRaw, pairIndex, serviceSlug, before, after } = {},
 ) {
   const dest = getPhotoGroup(groupId);
   const key =
@@ -1722,6 +1750,7 @@ export function getPhotoGroupBaPrompts(
   const slug = pair.serviceSlug || serviceSlug || '';
   const idx = found.pairIndex || pair.pairIndex || Number(pairIndex) || 1;
   const vp = normalizeBaViewpoint(viewpoint);
+  const occupancy = normalizeOccupancy(occupancyRaw);
   const config = groupSiteConfig(dest);
   const setting = slotSettingKind({
     serviceName: pair.serviceName || '',
@@ -1736,6 +1765,7 @@ export function getPhotoGroupBaPrompts(
       niche: dest.niche,
       serviceName: pair.serviceName || dest.niche,
       viewpoint: vp,
+      occupancy,
       setting,
       config,
       forChatGpt: true,
@@ -1743,6 +1773,7 @@ export function getPhotoGroupBaPrompts(
     canonical = {
       key,
       viewpoint: vp,
+      occupancy,
       source: 'template',
       room: built.room,
       before: built.before,
@@ -1752,15 +1783,22 @@ export function getPhotoGroupBaPrompts(
   }
   const ov = getBaPromptOverride(groupOpenaiDoc(dest), key, vp);
   const used = pickBaPromptPair(canonical, ov, { before, after });
+  const fromBodyBefore = Boolean(String(before || '').trim());
+  const fromBodyAfter = Boolean(String(after || '').trim());
+  const usedBefore = fromBodyBefore ? used.before : applyOccupancyToPrompt(used.before, occupancy);
+  const usedAfter = fromBodyAfter ? used.after : applyOccupancyToPrompt(used.after, occupancy);
+  const canonBefore = applyOccupancyToPrompt(canonical.before, occupancy);
+  const canonAfter = applyOccupancyToPrompt(canonical.after, occupancy);
   return {
     ...canonical,
     key,
     viewpoint: vp,
+    occupancy,
     originalBefore: canonical.before,
     originalAfter: canonical.after,
-    before: used.before,
-    after: used.after,
-    overridden: used.before !== canonical.before || used.after !== canonical.after,
+    before: usedBefore,
+    after: usedAfter,
+    overridden: usedBefore !== canonBefore || usedAfter !== canonAfter,
     setting: canonical.setting || setting,
     chatgptUrl: 'https://chatgpt.com/',
   };
@@ -1768,32 +1806,38 @@ export function getPhotoGroupBaPrompts(
 
 export function savePhotoGroupBaOpenaiPrompt(
   groupId,
-  { matchKey, viewpoint, pairIndex, serviceSlug, before, after, restore } = {},
+  { matchKey, viewpoint, occupancy, pairIndex, serviceSlug, before, after, restore } = {},
 ) {
   const dest = getPhotoGroup(groupId);
+  const occ = normalizeOccupancy(occupancy);
   const current = getPhotoGroupBaPrompts(groupId, {
     matchKey,
     viewpoint,
+    occupancy: occ,
     pairIndex,
     serviceSlug,
   });
   const key = current.key || matchKey;
   const vp = current.viewpoint;
-  const originalBefore = current.originalBefore;
-  const originalAfter = current.originalAfter;
+  const canonBefore = applyOccupancyToPrompt(current.originalBefore, occ);
+  const canonAfter = applyOccupancyToPrompt(current.originalAfter, occ);
   let doc = groupOpenaiDoc(dest);
   const beforeText = String(before || '').trim();
   const afterText = String(after || '').trim();
-  const same =
-    beforeText === String(originalBefore || '').trim() &&
-    afterText === String(originalAfter || '').trim();
+  const same = beforeText === canonBefore && afterText === canonAfter;
   if (restore || same) {
     doc = clearBaPromptOverride(doc, key, vp);
   } else if (beforeText || afterText) {
     doc = setBaPromptOverride(doc, key, vp, { before: beforeText, after: afterText });
   }
   saveGroupOpenaiDoc(dest, doc);
-  return getPhotoGroupBaPrompts(groupId, { matchKey: key, viewpoint: vp, pairIndex, serviceSlug });
+  return getPhotoGroupBaPrompts(groupId, {
+    matchKey: key,
+    viewpoint: vp,
+    occupancy: occ,
+    pairIndex,
+    serviceSlug,
+  });
 }
 
 export function usePhotoGroupBaVariant(groupId, { matchKey, pairId, beforeFilename = '' } = {}) {
