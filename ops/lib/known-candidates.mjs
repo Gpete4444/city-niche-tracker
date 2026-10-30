@@ -11,6 +11,7 @@ import {
   listCandidates,
   loadMeta,
   pathsFor,
+  titleCaseNiche,
 } from './candidates.mjs';
 import {
   assertDeletableIds,
@@ -167,6 +168,20 @@ export function loadTrackedDecisions() {
   } catch {
     return [];
   }
+}
+
+/** Title-case Niche cells on tracked pass/hold rows. */
+export function backfillTrackedNicheTitleCase() {
+  const rows = loadTrackedDecisions();
+  let changed = 0;
+  const next = rows.map((row) => {
+    const niche = titleCaseNiche(row.niche);
+    if (niche === row.niche) return row;
+    changed += 1;
+    return { ...row, niche };
+  });
+  if (changed) writeTrackedDecisions(next);
+  return { rows: changed };
 }
 
 function writeTrackedDecisions(rows) {

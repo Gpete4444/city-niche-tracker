@@ -29,16 +29,22 @@ import {
   resolveStructurePageIds,
 } from './preview-fidelity.mjs';
 import { isMaterialsHeading } from '../../src/lib/is-materials-heading.mjs';
+import { applyStoredNichePhotoBlocks } from './niche-photo-blocks.mjs';
 import { buildRequiredLinksByFile, lintContentSeo } from './content-seo-lint.mjs';
+import { zoneLintContext } from './zone-site-diff.mjs';
 import {
   extractSocialProofSidecar,
   ensureRoverSocialProofSeed,
 } from './content-social-proof.mjs';
 import {
-  HOMEPAGE_DESIGNED_SECTIONS_WARNING,
+  homepageDesignedSectionWarning,
   applyHomepageDesignedSectionLiftToFiles,
+  healLocationFrontmatter,
+  healServiceFrontmatter,
+  locationPageHeadings,
   stampHomepageLiftOnDraftOps,
 } from './content-auto-fix.mjs';
+import { locationCountMatchesSite } from './template-contract.mjs';
 
 const ROOT = process.cwd();
 const CONTENT_ROOT = path.join(ROOT, 'src', 'content');
@@ -74,9 +80,54 @@ export function slugifyContentName(name) {
     .replace(/^-|-$/g, '');
 }
 
+function serviceFileSlug(rel) {
+  return String(rel || '')
+    .split('/')
+    .pop()
+    .replace(/\.md$/i, '');
+}
+
 /**
- * Drop service MD that Structure / Type B does not want.
+ * Slugs for services + commercialServices. Null when the config has no names yet,
+ * so an empty list does not wipe service pages.
+ * @param {object|null|undefined} config
+ * @returns {Set<string>|null}
+ */
+export function allowedServiceSlugSet(config) {
+  const names = [];
+  const seen = new Set();
+  for (const raw of [...(config?.services || []), ...(config?.commercialServices || [])]) {
+    const name = String(raw || '').trim();
+    if (!name) continue;
+    const key = name.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    names.push(name);
+  }
+  if (!names.length) return null;
+  const slugs = new Set(names.map((name) => slugifyContentName(name)).filter(Boolean));
+  return slugs.size ? slugs : null;
+}
+
+function stripRemovedServiceLinks(markdown, removedSlugs) {
+  if (!removedSlugs?.size) return String(markdown || '');
+  return String(markdown || '')
+    .split('\n')
+    .flatMap((line) => {
+      const next = line.replace(
+        /\[([^\]]*)\]\((?:\/)?services\/([a-z0-9-]+)\/?\)/g,
+        (full, _text, slug) => (removedSlugs.has(slug) ? '' : full),
+      );
+      if (/^\s*[-*]\s*$/.test(next)) return [];
+      return [next];
+    })
+    .join('\n');
+}
+
+/**
+ * Drop service MD that Structure / Type B / the current service list does not want.
  * - Structure without `services` page → remove all `services/*.md`
+ * - Site-config with at least one service name → remove services/*.md whose slug is not on that list
  * - Type B (`single_service`) with Services page → keep ≤1 (prefer primary site-config service slug)
  *
  * @param {Record<string, string>} files
@@ -91,12 +142,20 @@ export function pruneFilesToStructure(
   const wantsServices = !pages || pages.includes('services');
   const archetype = String(siteArchetype || siteConfig?.siteArchetype || 'multi_service');
   const isSingle = archetype === 'single_service';
-  const serviceKeys = Object.keys(out).filter((p) => p.startsWith('src/content/services/'));
+  let serviceKeys = Object.keys(out).filter((p) => p.startsWith('src/content/services/'));
   if (!serviceKeys.length) return out;
 
   if (!wantsServices) {
     for (const key of serviceKeys) delete out[key];
     return out;
+  }
+
+  const allowed = allowedServiceSlugSet(siteConfig);
+  if (allowed) {
+    for (const key of serviceKeys) {
+      if (!allowed.has(serviceFileSlug(key))) delete out[key];
+    }
+    serviceKeys = Object.keys(out).filter((p) => p.startsWith('src/content/services/'));
   }
 
   if (isSingle && serviceKeys.length > 1) {
@@ -110,6 +169,48 @@ export function pruneFilesToStructure(
     }
   }
   return out;
+}
+
+/**
+ * Drop service pages that are not on the accepted site-config list.
+ * Writes the draft and accepted content when a page is removed, and strips links to those slugs.
+ * Does nothing when the config has no service names. Does not clear the services write-batch stamp.
+ * @param {string} candidateId
+ * @returns {{ removed: string[] }}
+ */
+export function purgeUnusedServicePages(candidateId) {
+  const loaded = loadAcceptedSiteConfig(candidateId);
+  const config = loaded?.config;
+  if (!allowedServiceSlugSet(config)) return { removed: [] };
+  const pageIds = resolveStructurePageIds(candidateId);
+  const p = pathsFor(candidateId);
+  const removed = [];
+  for (const key of ['contentDraft', 'content']) {
+    const doc = readJson(p[key]);
+    if (!doc?.files || typeof doc.files !== 'object') continue;
+    const before = Object.keys(doc.files);
+    const nextFiles = pruneFilesToStructure(doc.files, {
+      pageIds,
+      siteConfig: config,
+      siteArchetype: config.siteArchetype,
+    });
+    const removedRels = before.filter(
+      (rel) => rel.startsWith('src/content/services/') && !Object.prototype.hasOwnProperty.call(nextFiles, rel),
+    );
+    if (!removedRels.length) continue;
+    const removedSlugs = new Set(removedRels.map(serviceFileSlug));
+    for (const rel of Object.keys(nextFiles)) {
+      nextFiles[rel] = stripRemovedServiceLinks(nextFiles[rel], removedSlugs);
+    }
+    doc.files = nextFiles;
+    if (Array.isArray(doc._ops?.fileList)) {
+      const live = new Set(Object.keys(nextFiles));
+      doc._ops.fileList = doc._ops.fileList.filter((rel) => live.has(rel));
+    }
+    writeJson(p[key], doc);
+    removed.push(...removedRels);
+  }
+  return { removed };
 }
 
 /** Delete every services/*.md on disk (Structure excluded Services pages). */
@@ -2155,7 +2256,11 @@ export function validateContentBundle(files, siteConfig, { mode = 'full', pageId
         const expected = `src/content/locations/${slug}.md`;
         if (!files[expected]) warnings.push(`Missing required file: ${expected}`);
       }
-    } else if (!resolvedPageIds && (locationFiles.length < 4 || locationFiles.length > 6)) {
+    } else if (
+      !resolvedPageIds &&
+      !locationCountMatchesSite(locationFiles.length, siteConfig) &&
+      (locationFiles.length < 4 || locationFiles.length > 6)
+    ) {
       warnings.push(`Location pages: got ${locationFiles.length}, prefer 4–6`);
     }
   } else if (wantsServices && isSingle && serviceFiles.length > 1) {
@@ -2208,7 +2313,7 @@ export function validateContentBundle(files, siteConfig, { mode = 'full', pageId
     if (rel.includes('/pages/')) {
       if (rel.endsWith('/index.md')) {
         const missingDesigned = ['whyChooseUs', 'process', 'faqs'].filter((key) => !fmHasKey(fm, key));
-        if (missingDesigned.length) warnings.push(HOMEPAGE_DESIGNED_SECTIONS_WARNING);
+        if (missingDesigned.length) warnings.push(homepageDesignedSectionWarning(missingDesigned));
       }
     } else if (rel.includes('/services/')) {
       if (!fmHasKey(fm, 'serviceName')) errors.push(`${rel}: missing serviceName`);
@@ -2251,6 +2356,31 @@ export function buildContentPrompt(candidateId) {
   // Main ```text fence + SITE CONFIG paste block
   const prompt = `${template}\n\nSITE CONFIG:\n${configJson}`;
   return { prompt, config };
+}
+
+/** Start a draft from accepted content so a later paste merges instead of replacing the site. */
+export function ensureContentDraftFromAccepted(candidateId) {
+  const p = pathsFor(candidateId);
+  const existing = readJson(p.contentDraft);
+  if (existing?.files && typeof existing.files === 'object' && Object.keys(existing.files).length) {
+    return existing;
+  }
+  const accepted = readJson(p.content);
+  if (!accepted?.files || typeof accepted.files !== 'object' || !Object.keys(accepted.files).length) {
+    return null;
+  }
+  const draft = {
+    files: accepted.files,
+    _ops: {
+      ...(accepted._ops && typeof accepted._ops === 'object' ? accepted._ops : {}),
+      savedAt: new Date().toISOString(),
+      source: 'accepted_clone',
+      fromAccepted: true,
+    },
+  };
+  writeJson(p.contentDraft, draft);
+  saveMeta(candidateId, { lastContentDraftAt: new Date().toISOString() });
+  return draft;
 }
 
 export function pasteContentDraft(candidateId, raw) {
@@ -2349,28 +2479,26 @@ function buildLocationStubMarkdown({ city, state, niche, primaryCity, businessNa
   const stateUp = String(state || '').trim().toUpperCase();
   const primary = String(primaryCity || city).trim() || city;
   const brand = String(businessName || '').trim();
+  const headings = locationPageHeadings({
+    city,
+    state: stateUp,
+    niche,
+    primaryCity: primary,
+  });
+  const { title, h1, description } = headings;
   const isPrimary =
     String(city || '')
       .trim()
       .toLowerCase() === String(primary).trim().toLowerCase();
-  let title;
-  let h1;
-  let description;
   let body;
   if (isPrimary) {
     // Differentiated from homepage head term "{niche} in {city}, {ST}"
-    title = `${niche} | ${city} homeowners`;
-    h1 = `${niche} for ${city}, ${stateUp} homeowners`;
-    description = `Local ${niche} for ${city}, ${stateUp} homeowners — clear estimates and careful workmanship. Request a free estimate.`;
     body = [
       `${city} neighborhoods are part of how ${brand || 'our team'} plans ${niche} work around ${primary}. From older streets to newer subdivisions, access, soil, and permit rules shape the right repair or trenchless option.`,
       `This page is for homeowners and property managers who want local context for ${city}, ${stateUp} — not a second copy of the main ${niche} homepage. Browse services for the work you need, then use the estimate form or call to schedule a camera-backed visit.`,
       `We will walk through options, timeline, and next steps before any work begins. Link back to the homepage for the full service menu, or jump to a nearby suburb page if you are just outside city limits.`,
     ].join('\n\n');
   } else {
-    title = `${niche} in ${city}, ${stateUp}`;
-    h1 = `${niche} in ${city}`;
-    description = `${niche} for ${city} homeowners and property owners near ${primary}. Request a free estimate.`;
     // Stock fingerprint detected by preview-fidelity bodyLooksLikeStub
     body = [
       `${city} is part of our ${primary} service area for ${niche}. We help homeowners and property managers with clear estimates, careful workmanship, and scheduling that fits busy households.`,
@@ -2544,21 +2672,23 @@ draft: false
 ${body}`;
 }
 
-/** Remove service pages whose serviceName is not in the allowed list. */
-export function pruneUnmatchedServices(siteServices) {
+/**
+ * Remove service pages whose serviceName is not in the allowed list.
+ * "&" and "and" are the same name, matching the content slug.
+ * @param {string[]} siteServices
+ * @param {string} [svcDir]
+ */
+export function pruneUnmatchedServices(siteServices, svcDir = path.join(CONTENT_ROOT, 'services')) {
   const pruned = [];
-  const svcDir = path.join(CONTENT_ROOT, 'services');
-  if (!existsSync(svcDir)) return pruned;
-  const allowed = new Set(
-    (siteServices || []).map((s) => String(s || '').trim().toLowerCase()).filter(Boolean),
-  );
+  if (!svcDir || !existsSync(svcDir)) return pruned;
+  const allowed = new Set((siteServices || []).map((s) => slugifyContentName(s)).filter(Boolean));
   if (!allowed.size) return pruned;
   for (const name of readdirSync(svcDir)) {
     if (!name.endsWith('.md') || name.startsWith('_')) continue;
     const abs = path.join(svcDir, name);
     const serviceName = readMdFrontmatterField(abs, 'serviceName');
     if (!serviceName) continue;
-    if (!allowed.has(String(serviceName).trim().toLowerCase())) {
+    if (!allowed.has(slugifyContentName(serviceName))) {
       unlinkSync(abs);
       pruned.push(`src/content/services/${name}`);
     }
@@ -2615,6 +2745,24 @@ export function seedServiceStubs(config) {
 }
 
 /**
+ * Move homepage Why / Process / FAQs that are already on a saved homepage into template fields.
+ * Leaves writeBatches stamped so a Write site re-run does not rewrite About or Contact.
+ */
+export function liftSavedHomepageDraft(candidateId) {
+  const p = pathsFor(candidateId);
+  const draft = readJson(p.contentDraft);
+  if (!draft?.files) return { changed: false };
+  const config = loadAcceptedSiteConfig(candidateId)?.config || {};
+  const outline = readJson(path.join(RESEARCH_DIR, `${p.id}-content-outline-package.json`)) || {};
+  const lifted = applyHomepageDesignedSectionLiftToFiles(draft.files, { config, outline });
+  if (!lifted.changed) return { changed: false };
+  draft.files = lifted.files;
+  draft._ops = stampHomepageLiftOnDraftOps(draft._ops, lifted);
+  writeJson(p.contentDraft, draft);
+  return { changed: true, detail: lifted.changes?.[0]?.detail || '' };
+}
+
+/**
  * Write draft Markdown into src/content/, prune leftovers not in the bundle.
  */
 export async function acceptContent(
@@ -2623,7 +2771,7 @@ export async function acceptContent(
 ) {
   const { config } = assertContentHandoffReady(candidateId);
   const p = pathsFor(candidateId);
-  const draft = readJson(p.contentDraft);
+  let draft = readJson(p.contentDraft);
   if (!draft?.files || typeof draft.files !== 'object') {
     const err = new Error('No content draft — paste Claude FILE blocks first');
     err.status = 400;
@@ -2676,6 +2824,10 @@ export async function acceptContent(
     }
   }
 
+  await applyStoredNichePhotoBlocks(candidateId);
+  const freshDraft = readJson(p.contentDraft);
+  if (freshDraft?.files) draft = freshDraft;
+
   const outlineForLift = readJson(path.join(RESEARCH_DIR, `${p.id}-content-outline-package.json`));
   const lifted = applyHomepageDesignedSectionLiftToFiles(draft.files, {
     config,
@@ -2685,6 +2837,9 @@ export async function acceptContent(
     draft.files = lifted.files;
     draft._ops = stampHomepageLiftOnDraftOps(draft._ops, lifted);
     writeJson(p.contentDraft, draft);
+    await applyStoredNichePhotoBlocks(candidateId);
+    const relifted = readJson(p.contentDraft);
+    if (relifted?.files) draft = relifted;
   }
 
   const files = pruneFilesToStructure(normalizeContentFilesMap(draft.files, config), {
@@ -2709,6 +2864,22 @@ export async function acceptContent(
   Object.assign(files, ensured.files);
   const preAssertLocationSeeded = ensured.seeded;
 
+  const locHeal = healLocationFrontmatter(files, config);
+  Object.assign(files, locHeal.files);
+  const locationHeals = locHeal.heals || [];
+  const svcHeal = healServiceFrontmatter(files, config);
+  Object.assign(files, svcHeal.files);
+  const serviceHeals = svcHeal.heals || [];
+  if (locHeal.changed || svcHeal.changed) {
+    draft.files = { ...(draft.files || {}), ...files };
+    draft._ops = {
+      ...(draft._ops || {}),
+      ...(locationHeals.length ? { locationHeals } : {}),
+      ...(serviceHeals.length ? { serviceHeals } : {}),
+    };
+    writeJson(p.contentDraft, draft);
+  }
+
   if (requireFull) {
     assertLaunchContentComplete(files, config, pageIds, {
       label: 'Accept',
@@ -2718,9 +2889,17 @@ export async function acceptContent(
 
   const check = validateContentBundle(files, config, { mode, pageIds });
   if (!check.ok) {
-    const err = new Error(`Content validation failed: ${check.errors.slice(0, 3).join('; ')}`);
+    const missingState = (check.errors || []).some((e) => /missing state/i.test(String(e)));
+    const noConfigState = !String(config.state || '').trim();
+    const err = new Error(
+      missingState && noConfigState
+        ? `Set State on Site-config, then Accept. ${check.errors.slice(0, 3).join('; ')}`
+        : `Content validation failed: ${check.errors.slice(0, 3).join('; ')}`,
+    );
     err.status = 400;
     err.check = check;
+    err.locationHeals = locationHeals;
+    err.serviceHeals = serviceHeals;
     throw err;
   }
   if (check.warnings.length && !ignoreWarnings) {
@@ -2767,6 +2946,7 @@ export async function acceptContent(
     sectionIds,
     homepageSections: outline?.homepageSections || config.homepageSections || [],
     serviceBandAssignments: outline?.serviceBandAssignments || {},
+    ...zoneLintContext(candidateId),
   });
   const criticalSeo = (seoLint?.findings || []).filter((f) => f.severity === 'critical');
   if (criticalSeo.length && !ignoreSeoWarnings) {
@@ -2883,8 +3063,10 @@ export async function acceptContent(
         : {}),
       ...(draftOps.writeBatches ? { writeBatches: draftOps.writeBatches } : {}),
       ...(draftOps.speechLint ? { speechLint: draftOps.speechLint } : {}),
-      ...(draftOps.seoLint ? { seoLint: draftOps.seoLint } : {}),
+      ...(seoLint ? { seoLint } : draftOps.seoLint ? { seoLint: draftOps.seoLint } : {}),
       ...(draftOps.autoFix ? { autoFix: draftOps.autoFix } : {}),
+      ...(locationHeals.length ? { locationHeals } : {}),
+      ...(serviceHeals.length ? { serviceHeals } : {}),
     },
   };
   writeJson(p.content, accepted);
@@ -2959,6 +3141,9 @@ export async function acceptContent(
     check,
     mode,
     galleryBa,
+    locationHeals,
+    serviceHeals,
+    seoLint,
     nextStep: accepted._ops.nextStep,
     candidate: getCandidateShell(candidateId),
   };

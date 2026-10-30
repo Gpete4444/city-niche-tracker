@@ -228,6 +228,8 @@ Pulls commercial listing candidates for the address finder from **LoopNet** and/
 ```env
 APIFY_TOKEN=
 APIFY_LOOPNET_ACTOR_ID=
+# Optional. Used when Solidcode’s latest build is still the July 31 1.0.2 actor, or a newer build returns no streets.
+# APIFY_LOOPNET_FALLBACK_ACTOR_ID=abotapi~loopnet-scraper
 # Optional. Listing URL → Space Availability suites. Default one-api~loopnet-scraper.
 # APIFY_LOOPNET_DETAILS_ACTOR_ID=one-api~loopnet-scraper
 APIFY_CREXI_ACTOR_ID=
@@ -241,7 +243,7 @@ APIFY_CREXI_ACTOR_ID=
 2. Sign up or log in; add billing / credits if prompted.
 3. Copy your **API token** into `APIFY_TOKEN`.
 4. Open the [Apify Store](https://apify.com/store). Prefer actors around ~$1.20–$1.50 per 1K results.
-5. **LoopNet:** open a LoopNet actor page (e.g. Solidcode). Copy the id under the title (`username/actor-name`) and paste into `APIFY_LOOPNET_ACTOR_ID` using the `~` form (`username~actor-name`).
+5. **LoopNet:** open a LoopNet actor page (e.g. Solidcode). Copy the id under the title (`username/actor-name`) and paste into `APIFY_LOOPNET_ACTOR_ID` using the `~` form (`username~actor-name`). Find tries that actor first. When it is Solidcode and the published build is still **1.0.2** from July 31, 2026, or a newer build returns no street addresses, Find uses `APIFY_LOOPNET_FALLBACK_ACTOR_ID` (default `abotapi~loopnet-scraper`) for that search. Listing details stay on `APIFY_LOOPNET_DETAILS_ACTOR_ID`.
 6. **Crexi (optional):** open [Solidcode Crexi scraper](https://apify.com/solidcode/crexi-scraper). Copy `solidcode/crexi-scraper` → set `APIFY_CREXI_ACTOR_ID=solidcode~crexi-scraper`.
 7. **Listing details (optional):** suite backfill / Find space tables use `APIFY_LOOPNET_DETAILS_ACTOR_ID` (default `one-api~loopnet-scraper`). Override only if you use a different details actor.
 8. Save `.env`, restart Rover.
@@ -516,11 +518,11 @@ CLOUDFLARE_API_TOKEN=…
 
 ---
 
-### 5e. Web3Forms email
+### 5e. Lead notify email
 
 #### What it’s for
 
-Default Gmail (or inbox) for Cloudflare Email Routing — where `leads@{domain}` is forwarded. Does **not** set Web3Forms Recipient Emails. Those must be `leads@{domain}` on each form; Cloudflare then forwards to this address.
+Gmail (or inbox) that receives every form lead. Rover sends from `leads@{domain}` to this address. Cloudflare Email Routing uses the same address as the `leads@` forward destination. It must be a verified Email Routing destination on the Cloudflare account.
 
 #### Required?
 
@@ -529,8 +531,10 @@ Default Gmail (or inbox) for Cloudflare Email Routing — where `leads@{domain}`
 #### Env variable names
 
 ```env
-WEB3FORMS_DEFAULT_NOTIFY_EMAIL=
+LEAD_NOTIFY_EMAIL=
 ```
+
+`WEB3FORMS_DEFAULT_NOTIFY_EMAIL` is still read when `LEAD_NOTIFY_EMAIL` is empty.
 
 #### Steps
 
@@ -541,12 +545,50 @@ WEB3FORMS_DEFAULT_NOTIFY_EMAIL=
 #### Where to paste
 
 ```env
-WEB3FORMS_DEFAULT_NOTIFY_EMAIL=you@gmail.com
+LEAD_NOTIFY_EMAIL=you@gmail.com
 ```
 
 #### How Settings shows ✓
 
-**Assemble & launch → Web3Forms email** is green when the email is set.
+**Assemble & launch → Lead notify email** is green when the email is set.
+
+---
+
+### 5f. Forms inbox
+
+#### What it’s for
+
+Phone/Form in Rover stores each lead. The live form posts to a shared Cloudflare Worker. The Worker saves the lead in D1 and emails the Lead notify address from `leads@{domain}`. Rover pulls that copy while the dashboard is open.
+
+#### Required?
+
+Optional. Phone calls work without it. Form totals stay at 0 until the inbox is set up and each site is shipped with the inbox URL.
+
+#### Token permissions
+
+On the same Cloudflare API token Launch uses, add:
+
+- Account → D1 → Edit
+- Account → Workers Scripts → Edit (Launch already needs this)
+
+#### Steps
+
+1. Restart Rover after the token change.
+2. Open **Phone/Form** and click **Set up inbox**. Rover creates the D1 database, deploys the worker, and saves the public URL under `research/forms-inbox.json`.
+3. Ship each launched site again. Assemble writes that URL into the contact form. Leads sent before that ship stay in Gmail only.
+4. To copy older Web3Forms emails into Phone/Form, open **Phone/Form** and click **Import past leads**. Sign in as the Gmail that received those leads. The Gmail login reuses the Search Console OAuth client and stores a separate token. One-time in Google Cloud: enable the [Gmail API](https://console.cloud.google.com/apis/library/gmail.googleapis.com), add redirect URI `http://127.0.0.1:8787/api/forms/gmail/callback`, and add scope `https://www.googleapis.com/auth/gmail.readonly` on the consent screen.
+
+#### Optional env override
+
+```env
+ROVER_FORMS_INGEST_URL=https://rover-forms.your-subdomain.workers.dev
+```
+
+Leave this unset to use the URL saved at setup. It may be the worker origin or the full `/submit` address.
+
+#### How Settings shows ✓
+
+**Assemble & launch → Forms inbox** is green after setup has saved a database id and an ingest URL.
 
 ---
 

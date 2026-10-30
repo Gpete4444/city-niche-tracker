@@ -246,32 +246,53 @@ export async function pushAssembledSiteToGithubAsync(siteRoot, opts = {}) {
   let created = false;
 
   if (!existing) {
-    const createArgs = [
-      'repo',
-      'create',
-      fullName,
-      isPrivate ? '--private' : '--public',
-      '--source=.',
-      '--remote=origin',
-      '--push',
-    ];
-    const createdRes = await runAsync('gh', createArgs, abs, { allowFail: true });
-    if (!createdRes.ok) {
-      // Repo may already exist remotely — add remote and push
-      if (/already exists|Name already exists/i.test(createdRes.stderr || '')) {
-        await runGitAsync(['remote', 'add', 'origin', `https://github.com/${fullName}.git`], abs, {
-          allowFail: true,
-        });
-        await pushMainWithLeaseAsync(abs, human);
-        human.push(`Used existing GitHub repo ${fullName} and pushed main.`);
-      } else {
-        const err = new Error(createdRes.stderr || `gh repo create ${fullName} failed`);
-        err.status = 500;
-        throw err;
-      }
+    const viewed = await runAsync(
+      'gh',
+      ['repo', 'view', fullName, '--json', 'url', '-q', '.url'],
+      abs,
+      { allowFail: true },
+    );
+    const missingRepo = /Could not resolve to a Repository|not found|HTTP 404/i.test(
+      `${viewed.stderr}\n${viewed.stdout}`,
+    );
+    if (viewed.ok) {
+      await runGitAsync(['remote', 'add', 'origin', `https://github.com/${fullName}.git`], abs, {
+        allowFail: true,
+      });
+      await pushMainWithLeaseAsync(abs, human);
+      human.push(`Used existing GitHub repo ${fullName} and pushed main.`);
+    } else if (!missingRepo) {
+      const err = new Error(viewed.stderr || `gh repo view ${fullName} failed`);
+      err.status = 500;
+      throw err;
     } else {
-      created = true;
-      human.push(`Created and pushed GitHub repo ${fullName}.`);
+      const createArgs = [
+        'repo',
+        'create',
+        fullName,
+        isPrivate ? '--private' : '--public',
+        '--source=.',
+        '--remote=origin',
+        '--push',
+      ];
+      const createdRes = await runAsync('gh', createArgs, abs, { allowFail: true });
+      if (!createdRes.ok) {
+        // Repo may already exist remotely — add remote and push
+        if (/already exists|Name already exists/i.test(createdRes.stderr || '')) {
+          await runGitAsync(['remote', 'add', 'origin', `https://github.com/${fullName}.git`], abs, {
+            allowFail: true,
+          });
+          await pushMainWithLeaseAsync(abs, human);
+          human.push(`Used existing GitHub repo ${fullName} and pushed main.`);
+        } else {
+          const err = new Error(createdRes.stderr || `gh repo create ${fullName} failed`);
+          err.status = 500;
+          throw err;
+        }
+      } else {
+        created = true;
+        human.push(`Created and pushed GitHub repo ${fullName}.`);
+      }
     }
     existing = (await remoteUrlAsync(abs)) || `https://github.com/${fullName}.git`;
   } else {

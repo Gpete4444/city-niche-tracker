@@ -1,5 +1,7 @@
 import {
   openaiBatchPendingInSnap,
+  openaiBatchUnresolvedIds,
+  openaiOpenBatchProgress,
   openaiBusyKeysStillActive,
   openaiJobBelongsHere,
   openaiJobIdsMissingFromSnap,
@@ -88,6 +90,38 @@ assertEqual(missing[0], 'j41', 'missing is the 41st');
 const handled = new Set(batchIds.slice(0, 40));
 const pending = openaiBatchPendingInSnap(batchIds, { handled, snapJobs: snap40 });
 assertEqual(pending.length, 0, 'missing id is not pending-in-snap');
+assertEqual(
+  openaiBatchUnresolvedIds(['j41', 'j1'], handled).join(','),
+  'j41',
+  'absent id stays unresolved',
+);
+assertEqual(
+  openaiBatchUnresolvedIds(['fresh-job'], new Set()).join(','),
+  'fresh-job',
+  'never-seen id stays unresolved',
+);
+assertEqual(
+  openaiBatchUnresolvedIds(['j1', 'j1'], new Set(['j1'])).length,
+  0,
+  'handled id is not unresolved',
+);
+
+const fresh = openaiOpenBatchProgress(['n1', 'n2'], snap40, new Set());
+assertEqual(fresh.running, 2, 'unlisted batch ids count as running');
+assertEqual(fresh.done, 0, 'unlisted batch has no done');
+assertEqual(fresh.total, 2, 'unlisted batch total ignores older snap jobs');
+assertEqual(fresh.active, 2, 'unlisted batch stays active');
+const half = openaiOpenBatchProgress(
+  ['n1', 'n2'],
+  [
+    { id: 'n1', status: 'done', phase: 'openai-photo' },
+    { id: 'old', status: 'done', phase: 'openai-photo' },
+  ],
+  new Set(['n1']),
+);
+assertEqual(half.done, 1, 'settled id counts done');
+assertEqual(half.running, 1, 'missing partner still running');
+assertEqual(half.total, 2, 'older done job stays out of this batch');
 assertEqual(
   openaiBusyKeysStillActive(['s1', 'gone'], jobs, { selectedId: 'pearland' }).join(','),
   'gone',

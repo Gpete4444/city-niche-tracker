@@ -37,7 +37,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/styles.css?v=20260917saCover" />
+  <link rel="stylesheet" href="/styles.css?v=20261029colFit" />
   <link rel="stylesheet" href="/brand/rover-loader.css" />
 </head>
 <body>
@@ -65,7 +65,7 @@
         <img class="top-brand-logo top-brand-logo--light" src="/brand/rover-logo-light.png" alt="" width="800" height="168" decoding="async" />
         <img class="top-brand-logo top-brand-logo--dark" src="/brand/rover-logo-dark.png" alt="" width="800" height="168" decoding="async" />
       </span>
-      <span class="top-version muted small" title="Rover product version">v2.4</span>
+      <span class="top-version muted small" title="Rover product version">v2.5</span>
       <div class="claude-mode-segment" role="group" aria-label="Claude pipeline mode">
         <button type="button" class="claude-mode-seg active" data-claude-mode="paste" id="claude-mode-paste" aria-label="Copy and paste">
           <span class="claude-mode-seg-full">Copy &amp; paste</span>
@@ -93,7 +93,7 @@
       <span class="nav-pipeline-sep" aria-hidden="true"></span>
       <button type="button" class="nav-btn nav-btn-map" data-view="map" aria-label="Map"><svg class="nav-icon" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><path fill="currentColor" d="M8 1.4a4.2 4.2 0 0 0-4.2 4.2c0 3.15 4.2 8.5 4.2 8.5s4.2-5.35 4.2-8.5A4.2 4.2 0 0 0 8 1.4zm0 5.7A1.5 1.5 0 1 1 8 4.1a1.5 1.5 0 0 1 0 3z"/></svg><span class="nav-label">Map</span></button>
       <button type="button" class="nav-btn" data-view="photo" aria-label="Photo"><svg class="nav-icon" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><path fill="currentColor" d="M2.2 3.4h2.1l.7-1.1h6l.7 1.1h2.1c.8 0 1.4.6 1.4 1.4v7.4c0 .8-.6 1.4-1.4 1.4H2.2c-.8 0-1.4-.6-1.4-1.4V4.8c0-.8.6-1.4 1.4-1.4zM8 12.1a3.2 3.2 0 1 0 0-6.4 3.2 3.2 0 0 0 0 6.4zm0-1.5a1.7 1.7 0 1 1 0-3.4 1.7 1.7 0 0 1 0 3.4z"/></svg><span class="nav-label">Photo</span></button>
-      <button type="button" class="nav-btn" data-view="phone" aria-label="Phone"><svg class="nav-icon" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><path fill="currentColor" d="M4.1 1.6c.3-.3.8-.4 1.2-.2l2 1c.4.2.6.6.6 1.1l-.2 2.1c0 .3-.2.6-.5.8L6 7.4a8.5 8.5 0 0 0 2.6 2.6l1-.1c.3-.1.6 0 .8.3l1.6 1.6c.3.3.4.8.2 1.2l-1 2c-.2.4-.6.6-1.1.6C5.8 15.6.4 10.2.4 5.1c0-.5.2-.9.6-1.1l3.1-2.4z"/></svg><span class="nav-label">Phone</span></button>
+      <button type="button" class="nav-btn" data-view="phone" aria-label="Phone/Form"><svg class="nav-icon" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><path fill="currentColor" d="M4.1 1.6c.3-.3.8-.4 1.2-.2l2 1c.4.2.6.6.6 1.1l-.2 2.1c0 .3-.2.6-.5.8L6 7.4a8.5 8.5 0 0 0 2.6 2.6l1-.1c.3-.1.6 0 .8.3l1.6 1.6c.3.3.4.8.2 1.2l-1 2c-.2.4-.6.6-1.1.6C5.8 15.6.4 10.2.4 5.1c0-.5.2-.9.6-1.1l3.1-2.4z"/></svg><span class="nav-label">Phone/Form</span></button>
     </nav>
     <div class="top-right">
       <div class="jobs-cluster">
@@ -483,6 +483,27 @@
         <button type="button" class="btn" id="gp-overlay-stop">Stop</button>
       </div>
     </div>
+    <div id="discovery-process-overlay" class="content-claude-job-overlay hidden" hidden aria-hidden="true">
+      <div class="rover-loading-card">
+        <div class="rover-loader rover-loader--dark" role="img" aria-label="Processing batch">
+          <svg class="rover-loader-mark" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" focusable="false" aria-hidden="true">
+            <circle class="rover-loader-dot" cx="32" cy="32" r="7.5" />
+            <g class="rover-loader-ring rover-loader-ring--inner">
+              <circle cx="32" cy="32" r="15" transform="rotate(-45 32 32)" />
+            </g>
+            <g class="rover-loader-ring rover-loader-ring--outer">
+              <circle cx="32" cy="32" r="24" transform="rotate(-11 32 32)" />
+            </g>
+          </svg>
+          <img class="rover-loader-word" src="/brand/rover-wordmark-dark.png" alt="" width="618" height="81" decoding="async" />
+        </div>
+        <p class="rover-loading-text" id="dp-overlay-title">Processing batch</p>
+        <div class="job-progress" style="width:min(22rem,90%)">
+          <div class="job-progress-track"><div class="job-progress-bar" id="dp-overlay-bar"></div></div>
+        </div>
+        <p class="muted small" id="dp-overlay-detail">Creating candidates…</p>
+      </div>
+    </div>
     <div class="discovery-sidebar-rail">
     <section class="panel discovery-filters" id="discovery-filters">
       <details
@@ -529,27 +550,32 @@
             </button>
           </div>
           <p class="muted disc-tool-blurb discovery-shotgun-only hidden">
-            One niche × one metro. Claude proposes a hub plus Cluster Cities; Census checks they exist. Hub city is optional.
+            One niche × one metro. Start a new zone, or reuse a zone you already painted. Hub city is optional for a new zone.
           </p>
           <label class="discovery-shotgun-only hidden">Cluster niche
             <input name="shotgunNiche" id="discovery-shotgun-niche" placeholder="Trenchless Sewer Pipe Lining" />
           </label>
-          <div class="form-row form-row-3 discovery-shotgun-only hidden">
-            <label>Miles from Hub <input name="clusterMiles" type="number" value="30" min="1" max="100" /></label>
+          <label class="discovery-shotgun-only hidden">Existing zone
+            <select name="reuseZoneId" id="discovery-reuse-zone">
+              <option value="">New zone</option>
+            </select>
+          </label>
+          <div class="form-row form-row-3 discovery-shotgun-only discovery-zone-new-only hidden">
+            <label>Miles from Hub <input name="clusterMiles" type="number" value="30" min="1" max="200" /></label>
             <span></span>
             <span></span>
           </div>
-          <div class="form-row form-row-3 discovery-shotgun-only hidden">
+          <div class="form-row form-row-3 discovery-shotgun-only discovery-zone-new-only hidden">
             <label>Hub min pop <input name="hubMinPop" type="number" value="60000" min="0" /></label>
             <label>Hub max pop <input name="hubMaxPop" type="number" value="200000" min="0" /></label>
             <span></span>
           </div>
-          <div class="form-row form-row-3 discovery-shotgun-only hidden">
+          <div class="form-row form-row-3 discovery-shotgun-only discovery-zone-new-only hidden">
             <label>Cluster Cities min pop <input name="citiesMinPop" type="number" value="2000" min="0" /></label>
             <label>Cluster Cities max pop <input name="citiesMaxPop" type="number" value="60000" min="0" /></label>
             <span></span>
           </div>
-          <div id="discovery-geo-rows" class="discovery-geo-rows">
+          <div id="discovery-geo-rows" class="discovery-geo-rows discovery-zone-new-only">
             <div class="form-row form-row-geo discovery-geo-row">
               <label class="field-state">State
                 <span class="suggest-wrap">
@@ -962,7 +988,7 @@
         <div class="discovery-shotgun-split">
           <div class="discovery-shotgun-left">
             <div id="discovery-shotgun-hubs"></div>
-            <p id="discovery-shotgun-legend" class="muted small hidden">Colors = Clusters 1–20. Labels prefix the Cluster number (hub is ★). Sticky palette: pick a Cluster, then click cities or right-drag a circle. × clears. Hub keeps a blue outline; fill follows Cluster if assigned. Zone slider is the outer radius. Pink = outside min/max pop. Dotted rings = every 20 mi out to 100.</p>
+            <p id="discovery-shotgun-legend" class="muted small hidden">Colors = Clusters 1–20. Labels prefix the Cluster number (hub is ★). Sticky palette: pick a Cluster, then click cities or right-drag a circle. × clears. Hub keeps a blue outline; fill follows Cluster if assigned. Zone slider is the outer radius. Pink = outside min/max pop. Dotted rings = every 20 mi out to 200.</p>
           </div>
           <div id="discovery-shotgun-map-slot">
             <div id="discovery-shotgun-map-pick" class="shotgun-map-pick">
@@ -971,7 +997,7 @@
                 <label><span class="sg-map-pick-lbl">Max</span> <input id="sg-map-max-pop" data-sg="max-pop" type="number" min="0" step="1000" aria-label="Max pop" /></label>
                 <label data-tip="Hide out of range cities"><input id="sg-map-hide-oor" data-sg="hide-oor" type="checkbox" /> <span class="sg-map-pick-lbl">Hide</span></label>
                 <label class="sg-map-radius" data-tip="Zone outer radius (miles)"><span class="sg-map-pick-lbl">Zone</span>
-                  <input id="sg-map-zone-miles" data-sg="zone-miles" type="range" min="1" max="100" step="1" value="30" aria-label="Zone radius miles" />
+                  <input id="sg-map-zone-miles" data-sg="zone-miles" type="range" min="1" max="200" step="1" value="30" aria-label="Zone radius miles" />
                   <span id="sg-map-zone-mi" data-sg="zone-mi" class="sg-map-zone-mi">30 mi</span>
                 </label>
                 <span class="sg-map-radius"><span class="sg-map-pick-lbl">Label</span>
@@ -994,8 +1020,12 @@
               </span>
               <span id="discovery-shotgun-map-pick-label" class="sg-map-pick-status hidden" data-sg="pick-label" hidden></span>
               <span class="sg-map-pick-right">
-                <span class="sg-map-tool-toggle" role="group" aria-label="Paint tool">
-                  <button type="button" class="btn btn-sm sg-map-tool" data-sg-tool="hub" aria-label="Set hub" data-tip="Set hub">★</button>
+                <span class="sg-map-command">
+                  <span class="sg-map-tool-toggle" role="group" aria-label="Paint tool">
+                    <button type="button" class="btn btn-sm sg-map-tool" data-sg-tool="hub" aria-label="Set hub" data-tip="Set hub">★</button>
+                    <span data-sg="clear-slot"></span>
+                  </span>
+                  <button type="button" class="btn btn-sm sg-map-undo" data-sg="undo" disabled>Undo</button>
                 </span>
                 <span id="sg-map-palette" class="sg-map-palette" data-sg="palette"></span>
                 <button
@@ -1094,12 +1124,16 @@
           <div class="muted">Portfolio, GSC traffic, pages, and keyword ranks</div>
         </div>
         <div class="candidates-head-actions">
+          <span id="sites-gsc-connection" class="gsc-connection is-disconnected" role="status" aria-live="polite" data-tip="Search Console is not connected. Click Connect GSC to sign in." aria-label="Search Console is not connected">
+            <span class="gsc-connection-dot" aria-hidden="true"></span>
+            <span class="gsc-connection-label">Not connected</span>
+          </span>
           <button type="button" id="sites-gsc-connect-btn" class="btn" data-tip="Connect Google Search Console (OAuth)">Connect GSC</button>
-          <button type="button" id="sites-gsc-sync-btn" class="btn" data-tip="Pull 28d clicks, top queries, and sitemap submitted counts from Search Console for selected rows">Sync GSC</button>
-          <button type="button" id="sites-index-check-btn" class="btn" data-tip="Inspect each sitemap URL in Search Console for selected rows (not the Pages report)">Check index</button>
+          <button type="button" id="sites-gsc-sync-btn" class="btn" data-tip="Connect GSC first" disabled>Sync GSC</button>
+          <button type="button" id="sites-index-check-btn" class="btn" data-tip="Connect GSC first" disabled>Check index</button>
           <button type="button" id="sites-rank-sync-btn" class="btn" data-tip="Weekly DataForSEO SERP rank check (Standard queue) for selected rows">Check ranks</button>
           <button type="button" id="sites-add-btn" class="btn primary" data-tip="Add a launched candidate by id (Run Launch first)">Add from candidate</button>
-          <button type="button" id="sites-w3-inboxes-btn" class="btn" data-tip="Web3Forms Recipient Emails must be leads@ this domain — copy the list">Form inboxes</button>
+          <button type="button" id="sites-w3-inboxes-btn" class="btn" data-tip="Public leads@ address for each site — Rover emails the routing destination from it">Lead addresses</button>
           <button type="button" id="sites-refresh-btn" class="btn">Refresh</button>
         </div>
       </div>
@@ -1183,6 +1217,23 @@
         </div>
       </div>
       <div class="table-wrap sites-table-wrap">
+        <div id="sites-table-loading" class="sites-table-loading hidden" hidden role="status" aria-live="polite" aria-busy="false">
+          <div class="rover-loading-card">
+            <div class="rover-loader rover-loader--dark" role="img" aria-label="Loading launched sites">
+              <svg class="rover-loader-mark" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" focusable="false" aria-hidden="true">
+                <circle class="rover-loader-dot" cx="32" cy="32" r="7.5" />
+                <g class="rover-loader-ring rover-loader-ring--inner">
+                  <circle cx="32" cy="32" r="15" transform="rotate(-45 32 32)" />
+                </g>
+                <g class="rover-loader-ring rover-loader-ring--outer">
+                  <circle cx="32" cy="32" r="24" transform="rotate(-11 32 32)" />
+                </g>
+              </svg>
+              <img class="rover-loader-word" src="/brand/rover-wordmark-dark.png" alt="" width="618" height="81" decoding="async" />
+            </div>
+            <p class="rover-loading-text">Loading launched sites…</p>
+          </div>
+        </div>
         <table id="sites-table">
           <thead></thead>
           <tbody></tbody>
@@ -1195,16 +1246,39 @@
     </aside>
   </main>
 
-  <main class="layout phone-layout hidden" id="view-phone">
-    <aside class="panel phone-sites-panel">
+  <main class="layout phone-layout layout-detail-collapsed hidden" id="view-phone" data-lead-mode="combined">
+    <section class="panel phone-toolbar">
       <div class="panel-head">
         <div>
-          <h1>Phone</h1>
-          <div class="muted">Twilio calls — voicemail while ranking, recordings, AI summaries</div>
+          <h1>Phone/Form</h1>
+          <div class="muted">Calls, form leads, and totals by zone</div>
+          <div id="lead-sync-status" class="lead-sync-status" role="status" aria-live="polite">
+            <span id="phone-sync-status" class="lead-sync-pill" data-state="idle" hidden>
+              <span class="lead-sync-spinner" aria-hidden="true"></span>
+              <span class="lead-sync-pill-label">Twilio</span>
+              <span class="lead-sync-pill-text"></span>
+            </span>
+            <span id="forms-sync-status" class="lead-sync-pill" data-state="idle" hidden>
+              <span class="lead-sync-spinner" aria-hidden="true"></span>
+              <span class="lead-sync-pill-label">Forms</span>
+              <span class="lead-sync-pill-text"></span>
+            </span>
+          </div>
         </div>
-        <button type="button" class="btn" id="phone-refresh-btn">Refresh</button>
+        <div class="phone-toolbar-actions">
+          <button type="button" class="btn" id="spam-keywords-btn">Spam keywords (0)</button>
+          <button type="button" class="btn" id="forms-import-btn">Import past leads</button>
+          <button type="button" class="btn" id="forms-setup-btn" hidden>Set up inbox</button>
+          <button type="button" class="btn" id="phone-refresh-btn">Refresh</button>
+        </div>
       </div>
-      <details class="phone-greeting-panel" id="phone-greeting-panel">
+      <div class="lead-mode-switch" role="tablist" aria-label="Phone and form views">
+        <button type="button" class="lead-mode-btn is-active" data-lead-mode="combined" role="tab" aria-selected="true">Combined</button>
+        <button type="button" class="lead-mode-btn" data-lead-mode="phone" role="tab" aria-selected="false">Phone</button>
+        <button type="button" class="lead-mode-btn" data-lead-mode="forms" role="tab" aria-selected="false">Forms</button>
+      </div>
+      <div id="lead-combined-stats" class="phone-glance lead-only-combined" role="group" aria-label="Portfolio totals"></div>
+      <details class="phone-greeting-panel lead-only-phone" id="phone-greeting-panel">
         <summary class="phone-greeting-summary">
           <span class="phone-greeting-summary-title">Ranking greeting</span>
           <span id="phone-greeting-status" class="muted small">Loading greeting…</span>
@@ -1223,45 +1297,200 @@
         </label>
         <button type="button" class="btn btn-sm" id="phone-greeting-save-fallback">Save spoken fallback</button>
       </details>
-      <div class="discovery-filters-bar">
-        <div class="discovery-filter-controls">
-          <input id="phone-filter-text" type="search" placeholder="Search site / number…" />
-          <select id="phone-filter-phase">
-            <option value="">Phase: all</option>
-            <option value="ranking">ranking</option>
-            <option value="rented">rented</option>
-          </select>
+      <div id="phone-stats-strip" class="phone-glance lead-only-phone" role="group" aria-label="Call filters"></div>
+      <div class="discovery-filter-controls phone-filters lead-only-phone">
+        <input id="phone-filter-text" type="search" placeholder="Search site, city, caller, summary…" />
+        <select id="phone-filter-site" aria-label="Site">
+          <option value="">All sites</option>
+        </select>
+        <select id="phone-filter-phase" aria-label="Phase">
+          <option value="">Phase: all</option>
+          <option value="ranking">ranking</option>
+          <option value="rented">rented</option>
+        </select>
+        <select id="phone-filter-status" aria-label="Status">
+          <option value="">Status: all</option>
+          <option value="Message">Message</option>
+          <option value="Empty">Empty</option>
+          <option value="Voicemail">Voicemail</option>
+          <option value="Missed">Missed</option>
+          <option value="Answered">Answered</option>
+        </select>
+        <input id="phone-filter-summary-exclude" type="text" placeholder="Exclude summary: spam, test" aria-label="Exclude summary words" />
+        <select id="phone-filter-niche" aria-label="Niche">
+          <option value="">Niche: all</option>
+        </select>
+        <select id="phone-filter-state" aria-label="State">
+          <option value="">State: all</option>
+        </select>
+        <select id="phone-filter-zone" aria-label="Zone">
+          <option value="">Zone: all</option>
+        </select>
+        <select id="phone-filter-cluster" aria-label="Cluster">
+          <option value="">Cluster: all</option>
+        </select>
+        <button type="button" class="btn" id="phone-spam-visibility" aria-pressed="false">Hide spam, empty, missed (0)</button>
+      </div>
+      <div class="discovery-filter-controls phone-filters lead-only-forms">
+        <input id="forms-filter-text" type="search" placeholder="Search site, name, phone, message…" />
+        <select id="forms-filter-site" aria-label="Site">
+          <option value="">All sites</option>
+        </select>
+        <select id="forms-filter-niche" aria-label="Niche">
+          <option value="">Niche: all</option>
+        </select>
+        <select id="forms-filter-state" aria-label="State">
+          <option value="">State: all</option>
+        </select>
+        <select id="forms-filter-zone" aria-label="Zone">
+          <option value="">Zone: all</option>
+        </select>
+        <select id="forms-filter-cluster" aria-label="Cluster">
+          <option value="">Cluster: all</option>
+        </select>
+        <button type="button" class="btn" id="forms-spam-visibility" aria-pressed="false">Hide spam (0)</button>
+      </div>
+    </section>
+    <section class="panel phone-calls-panel lead-only-combined" id="lead-combined-panel">
+      <div id="lead-combined-loading" class="lead-panel-loading hidden" hidden role="status" aria-live="polite" aria-busy="false">
+        <div class="rover-loading-card">
+          <div class="rover-loader rover-loader--dark" role="img" aria-label="Loading calls and form leads">
+            <svg class="rover-loader-mark" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" focusable="false" aria-hidden="true">
+              <circle class="rover-loader-dot" cx="32" cy="32" r="7.5" />
+              <g class="rover-loader-ring rover-loader-ring--inner">
+                <circle cx="32" cy="32" r="15" transform="rotate(-45 32 32)" />
+              </g>
+              <g class="rover-loader-ring rover-loader-ring--outer">
+                <circle cx="32" cy="32" r="24" transform="rotate(-11 32 32)" />
+              </g>
+            </svg>
+            <img class="rover-loader-word" src="/brand/rover-wordmark-dark.png" alt="" width="618" height="81" decoding="async" />
+          </div>
+          <p class="rover-loading-text">Loading calls and form leads…</p>
         </div>
       </div>
-      <div id="phone-sites-list" class="phone-sites-list"></div>
-    </aside>
-    <section class="panel phone-calls-panel">
-      <div class="panel-head phone-stats-head">
-        <div>
-          <div id="phone-scope-label" class="muted">All sites</div>
-          <div id="phone-sync-status" class="muted small" hidden></div>
-        </div>
-        <div id="phone-stats-strip" class="phone-stats-strip"></div>
+      <div class="phone-calls-wrap">
+        <table id="lead-combined-table" class="phone-calls-table lead-tree-table">
+          <thead>
+            <tr>
+              <th>Zone / Cluster / Site</th>
+              <th>Forms</th>
+              <th>Forms 7d</th>
+              <th>Phone</th>
+              <th>Phone 7d</th>
+              <th>Total</th>
+              <th>Total 7d</th>
+            </tr>
+          </thead>
+          <tbody id="lead-combined-list"></tbody>
+        </table>
+        <div id="lead-combined-empty" class="empty hidden">No launched sites yet.</div>
       </div>
-      <div class="table-wrap phone-table-wrap">
-        <table id="phone-calls-table">
+      <aside id="lead-combined-inbox" class="lead-combined-inbox" aria-label="Leads">
+        <div class="lead-inbox-head">
+          <h2 id="lead-combined-inbox-title">Total</h2>
+          <p id="lead-combined-inbox-count" class="muted small"></p>
+        </div>
+        <div id="lead-combined-inbox-list" class="lead-inbox-list"></div>
+        <div id="lead-combined-inbox-empty" class="empty hidden">No leads for this selection.</div>
+      </aside>
+      <aside id="lead-combined-chart" class="lead-combined-chart" aria-label="Lead progress">
+        <h2 id="lead-combined-chart-title">Total</h2>
+        <div id="lead-combined-chart-plot"></div>
+      </aside>
+    </section>
+    <section class="panel phone-calls-panel lead-only-phone" id="lead-phone-table">
+      <div id="phone-calls-loading" class="lead-panel-loading hidden" hidden role="status" aria-live="polite" aria-busy="false">
+        <div class="rover-loading-card">
+          <div class="rover-loader rover-loader--dark" role="img" aria-label="Syncing calls from Twilio">
+            <svg class="rover-loader-mark" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" focusable="false" aria-hidden="true">
+              <circle class="rover-loader-dot" cx="32" cy="32" r="7.5" />
+              <g class="rover-loader-ring rover-loader-ring--inner">
+                <circle cx="32" cy="32" r="15" transform="rotate(-45 32 32)" />
+              </g>
+              <g class="rover-loader-ring rover-loader-ring--outer">
+                <circle cx="32" cy="32" r="24" transform="rotate(-11 32 32)" />
+              </g>
+            </svg>
+            <img class="rover-loader-word" src="/brand/rover-wordmark-dark.png" alt="" width="618" height="81" decoding="async" />
+          </div>
+          <p class="rover-loading-text">Syncing calls from Twilio…</p>
+        </div>
+      </div>
+      <div class="phone-calls-wrap">
+        <table id="phone-calls-table" class="phone-calls-table">
           <thead>
             <tr>
               <th>When</th>
-              <th>From</th>
               <th>Status</th>
+              <th>Site</th>
+              <th>City</th>
+              <th>State</th>
+              <th>Niche</th>
+              <th>Zone</th>
+              <th>Cluster</th>
+              <th>Phase</th>
+              <th>Launched</th>
+              <th>Caller</th>
               <th>Duration</th>
               <th>Summary</th>
             </tr>
           </thead>
-          <tbody></tbody>
+          <tbody id="phone-calls-list"></tbody>
         </table>
+        <div id="phone-calls-empty" class="empty hidden">No calls yet for this scope.</div>
       </div>
-      <div id="phone-calls-empty" class="empty hidden">No calls yet for this scope.</div>
     </section>
-    <aside class="panel phone-detail-panel" id="phone-detail">
+    <aside class="panel phone-detail-panel lead-only-phone" id="phone-detail">
       <div id="phone-empty-detail" class="empty">Select a call to play recording and read the summary.</div>
       <div id="phone-detail-body" class="hidden"></div>
+    </aside>
+    <section class="panel phone-calls-panel lead-only-forms" id="lead-forms-table">
+      <div id="forms-submissions-loading" class="lead-panel-loading hidden" hidden role="status" aria-live="polite" aria-busy="false">
+        <div class="rover-loading-card">
+          <div class="rover-loader rover-loader--dark" role="img" aria-label="Syncing form leads">
+            <svg class="rover-loader-mark" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" focusable="false" aria-hidden="true">
+              <circle class="rover-loader-dot" cx="32" cy="32" r="7.5" />
+              <g class="rover-loader-ring rover-loader-ring--inner">
+                <circle cx="32" cy="32" r="15" transform="rotate(-45 32 32)" />
+              </g>
+              <g class="rover-loader-ring rover-loader-ring--outer">
+                <circle cx="32" cy="32" r="24" transform="rotate(-11 32 32)" />
+              </g>
+            </svg>
+            <img class="rover-loader-word" src="/brand/rover-wordmark-dark.png" alt="" width="618" height="81" decoding="async" />
+          </div>
+          <p class="rover-loading-text">Syncing form leads…</p>
+        </div>
+      </div>
+      <div class="phone-calls-wrap">
+        <table id="forms-submissions-table" class="phone-calls-table">
+          <thead>
+            <tr>
+              <th>When</th>
+              <th>Site</th>
+              <th>City</th>
+              <th>State</th>
+              <th>Niche</th>
+              <th>Zone</th>
+              <th>Cluster</th>
+              <th>Phase</th>
+              <th>Launched</th>
+              <th>Name</th>
+              <th>Phone</th>
+              <th>Email</th>
+              <th>Service</th>
+              <th>Message</th>
+            </tr>
+          </thead>
+          <tbody id="forms-submissions-list"></tbody>
+        </table>
+        <div id="forms-submissions-empty" class="empty hidden">No form submissions yet.</div>
+      </div>
+    </section>
+    <aside class="panel phone-detail-panel lead-only-forms" id="forms-detail">
+      <div id="forms-empty-detail" class="empty">Select a submission to read the message.</div>
+      <div id="forms-detail-body" class="hidden"></div>
     </aside>
   </main>
 
@@ -1428,7 +1657,7 @@
             <label><span class="sg-map-pick-lbl">Max</span> <input data-sg="max-pop" type="number" min="0" step="1000" aria-label="Max pop" /></label>
             <label data-tip="Hide out of range cities"><input data-sg="hide-oor" type="checkbox" /> <span class="sg-map-pick-lbl">Hide</span></label>
             <label class="sg-map-radius" data-tip="Zone outer radius (miles)"><span class="sg-map-pick-lbl">Zone</span>
-              <input data-sg="zone-miles" type="range" min="1" max="100" step="1" value="30" aria-label="Zone radius miles" />
+              <input data-sg="zone-miles" type="range" min="1" max="200" step="1" value="30" aria-label="Zone radius miles" />
               <span data-sg="zone-mi" class="sg-map-zone-mi">30 mi</span>
             </label>
             <span class="sg-map-radius"><span class="sg-map-pick-lbl">Label</span>
@@ -1441,8 +1670,12 @@
           </span>
           <span class="sg-map-pick-status hidden" data-sg="pick-label" hidden></span>
           <span class="sg-map-pick-right">
-            <span class="sg-map-tool-toggle" role="group" aria-label="Paint tool">
-              <button type="button" class="btn btn-sm sg-map-tool" data-sg-tool="hub" aria-label="Set hub" data-tip="Set hub">★</button>
+            <span class="sg-map-command">
+              <span class="sg-map-tool-toggle" role="group" aria-label="Paint tool">
+                <button type="button" class="btn btn-sm sg-map-tool" data-sg-tool="hub" aria-label="Set hub" data-tip="Set hub">★</button>
+                <span data-sg="clear-slot"></span>
+              </span>
+              <button type="button" class="btn btn-sm sg-map-undo" data-sg="undo" disabled>Undo</button>
             </span>
             <span class="sg-map-palette" data-sg="palette"></span>
           </span>
@@ -1455,6 +1688,6 @@
     </div>
   </div>
 
-  <script src="/app.js?v=20260918seeMore" type="module"></script>
+  <script src="/app.js?v=20261029loopnetWait" type="module"></script>
 </body>
 </html>

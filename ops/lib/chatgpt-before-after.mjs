@@ -8,6 +8,7 @@ import {
   writeFileSync,
   readdirSync,
   readFileSync,
+  statSync,
   unlinkSync,
   renameSync,
 } from 'node:fs';
@@ -15,6 +16,7 @@ import path from 'node:path';
 import { pathsFor, getCandidateDetail, getCandidateShell, saveMeta } from './candidates.mjs';
 import { loadAcceptedSiteConfig } from './content-markdown.mjs';
 import { syncSiteImagesToPublic } from './fill-site-images.mjs';
+import { baLogoCleanPath, forgetBaLogoMatching, readBaLogoState } from './ba-logo.mjs';
 import {
   IMAGE_TRAY_CAP,
   baSourceIsDuplicate,
@@ -1077,6 +1079,10 @@ function importServiceBeforeAfterPair(candidateId, body = {}) {
   const { beforeDecoded, afterDecoded, beforeOrigName, afterOrigName } = decodeImportPair(body);
   mkdirSync(p.siteImages, { recursive: true });
   archiveLiveBaPairToTray(candidateId, { serviceSlug: target.slug, pairIndex: 1 });
+  forgetBaLogoMatching(
+    candidateId,
+    new RegExp(`^svc-ba-${escapeRegExp(target.slug)}-\\d+-(before|after)\\.`, 'i'),
+  );
   deleteSvcBaFilesForSlug(
     [
       p.siteImages,
@@ -1197,6 +1203,10 @@ export function importBeforeAfterPair(candidateId, body = {}) {
     archiveLiveBaPairToTray(candidateId, { pairIndex: requested });
     unlinkMatching(p.siteImages, new RegExp(`^gallery-ba-${requested}-(before|after)\\.`, 'i'));
   }
+  forgetBaLogoMatching(
+    candidateId,
+    new RegExp(`^gallery-ba-${pairIndex}-(before|after)\\.`, 'i'),
+  );
   const beforeName = `gallery-ba-${pairIndex}-before.${beforeDecoded.ext}`;
   const afterName = `gallery-ba-${pairIndex}-after.${afterDecoded.ext}`;
   writeFileSync(path.join(p.siteImages, beforeName), beforeDecoded.buffer);
@@ -1314,6 +1324,10 @@ export function writeGeneratedBaPair(
 
   if (serviceSlug) {
     const target = resolveServiceTarget(candidateId, serviceSlug);
+    forgetBaLogoMatching(
+      candidateId,
+      new RegExp(`^svc-ba-${escapeRegExp(target.slug)}-\\d+-(before|after)\\.`, 'i'),
+    );
     unlinkMatching(
       p.siteImages,
       new RegExp(`^svc-ba-${escapeRegExp(target.slug)}-\\d+-(before|after)\\.`, 'i'),
@@ -1378,6 +1392,7 @@ export function writeGeneratedBaPair(
   }
 
   const idx = Math.max(1, Number(pairIndex) || 1);
+  forgetBaLogoMatching(candidateId, new RegExp(`^gallery-ba-${idx}-(before|after)\\.`, 'i'));
   unlinkMatching(p.siteImages, new RegExp(`^gallery-ba-${idx}-(before|after)\\.`, 'i'));
   const beforeName = `gallery-ba-${idx}-before.jpg`;
   const afterName = `gallery-ba-${idx}-after.jpg`;
@@ -1483,10 +1498,17 @@ export function listBeforeAfterStatus(candidateId) {
   const homePairs = homePairsFromDisk(candidateId);
   const homePrimary = homePairs[0] || { pairIndex: 1, before: null, after: null };
   const variantsDoc = readBaVariantsDoc(candidateId);
-  const stampPreview = (filename) =>
-    filename
-      ? `/api/candidates/${encodeURIComponent(p.id)}/images/file/${encodeURIComponent(filename)}?v=${encodeURIComponent(filename)}-${Date.now()}`
-      : null;
+  const stampPreview = (filename) => {
+    const name = path.basename(String(filename || ''));
+    if (!name || name === '.' || name === '..') return null;
+    let stamp = name;
+    try {
+      stamp = `${name}-${Math.round(statSync(path.join(p.siteImages, name)).mtimeMs)}`;
+    } catch {
+      stamp = name;
+    }
+    return `/api/candidates/${encodeURIComponent(p.id)}/images/file/${encodeURIComponent(name)}?v=${encodeURIComponent(stamp)}`;
+  };
   const plan = readImagesPlanDoc(candidateId);
   const attachVariants = (key, row) => {
     const variants = (variantsDoc[key] || [])
@@ -1570,6 +1592,7 @@ export function listBeforeAfterStatus(candidateId) {
     svcBeforeAfterEnabled: svcBaEnabled && servicesPageOn,
     services,
     flux: null,
+    baLogo: readBaLogoState(candidateId),
   };
 }
 
@@ -1716,6 +1739,66 @@ export function setBaPairMatchGrade(candidateId, matchKey, matchGrade) {
   };
 }
 
+/**
+ * Operator override for many before/after pairs. One variants-doc write.
+ * Incomplete pairs and uploads are skipped.
+ * @returns {{ applied: string[], skipped: { key: string, reason: string }[], status: object | null }}
+ */
+export function setBaPairsMatchGrade(candidateId, matchKeys, matchGrade) {
+  const grade = String(matchGrade || '').toLowerCase();
+  if (grade !== 'poor' && grade !== 'ok' && grade !== 'good') {
+    throw Object.assign(new Error('matchGrade must be poor, ok, or good'), { status: 400 });
+  }
+  const wanted = [];
+  const seen = new Set();
+  for (const raw of Array.isArray(matchKeys) ? matchKeys : []) {
+    const key = normalizeBaMatchKey(raw);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    wanted.push(key);
+  }
+  const doc = loadBaVariantsDoc(candidateId);
+  const all = { ...(doc._meta && typeof doc._meta === 'object' ? doc._meta : {}) };
+  const skipped = [];
+  const applied = [];
+  for (const key of wanted) {
+    if (!key.startsWith('svc:') && !key.startsWith('home:')) {
+      skipped.push({ key, reason: 'Unknown before/after pair' });
+      continue;
+    }
+    const parsed = resolveBaVariantTarget({ matchKey: key });
+    const live = findLiveBaFiles(candidateId, {
+      serviceSlug: parsed.serviceSlug,
+      pairIndex: parsed.pairIndex,
+    });
+    if (!live.before || !live.after) {
+      skipped.push({ key, reason: 'No before/after pair in this slot' });
+      continue;
+    }
+    const prior = all[parsed.key] || {};
+    if (prior.source === 'upload') {
+      skipped.push({ key: parsed.key, reason: 'Upload slots keep the upload marker' });
+      continue;
+    }
+    all[parsed.key] = {
+      ...prior,
+      matchGrade: grade,
+      matchTip: BA_MANUAL_GRADE_TIPS[grade],
+      matchGradeManual: true,
+    };
+    applied.push(parsed.key);
+  }
+  if (applied.length) {
+    doc._meta = all;
+    saveBaVariantsDoc(candidateId, doc);
+  }
+  return {
+    applied,
+    skipped,
+    status: applied.length ? listBeforeAfterStatus(candidateId) : null,
+  };
+}
+
 export const BA_VARIANT_CAP = IMAGE_TRAY_CAP;
 
 export function trimBaVariantList(dir, variants, cap = BA_VARIANT_CAP) {
@@ -1759,6 +1842,12 @@ export function findLiveBaFiles(candidateId, { serviceSlug, pairIndex } = {}) {
   };
 }
 
+function baArchiveSource(candidateId, filename) {
+  const clean = baLogoCleanPath(candidateId, filename);
+  if (clean && existsSync(clean)) return clean;
+  return path.join(pathsFor(candidateId).siteImages, filename);
+}
+
 /** Copy the live pair into the variant tray. Call before overwriting live files. */
 export function archiveLiveBaPairToTray(candidateId, { serviceSlug = '', pairIndex = 1 } = {}) {
   const p = pathsFor(candidateId);
@@ -1767,12 +1856,14 @@ export function archiveLiveBaPairToTray(candidateId, { serviceSlug = '', pairInd
   const key = baVariantKey({ serviceSlug, pairIndex });
   const doc = loadBaVariantsDoc(candidateId);
   const list = [...(doc[key] || [])];
+  const beforeAbs = live.before ? baArchiveSource(candidateId, live.before) : '';
+  const afterAbs = live.after ? baArchiveSource(candidateId, live.after) : '';
   if (
     baSourceIsDuplicate(
       p.siteImages,
       {
-        beforeAbs: live.before ? path.join(p.siteImages, live.before) : '',
-        afterAbs: live.after ? path.join(p.siteImages, live.after) : '',
+        beforeAbs,
+        afterAbs,
         beforeFilename: live.before,
         afterFilename: live.after,
       },
@@ -1792,10 +1883,10 @@ export function archiveLiveBaPairToTray(candidateId, { serviceSlug = '', pairInd
     ? `${prefix}-var-${stamp}-after${path.extname(live.after) || '.jpg'}`
     : null;
   if (beforeDest) {
-    copyFileSync(path.join(p.siteImages, live.before), path.join(p.siteImages, beforeDest));
+    copyFileSync(beforeAbs, path.join(p.siteImages, beforeDest));
   }
   if (afterDest) {
-    copyFileSync(path.join(p.siteImages, live.after), path.join(p.siteImages, afterDest));
+    copyFileSync(afterAbs, path.join(p.siteImages, afterDest));
   }
   doc[key] = pushBaTrayEntry(p.siteImages, list, {
     id: `var-${stamp}`,

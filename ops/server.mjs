@@ -37,6 +37,7 @@ import {
   setArchived,
   deleteCandidates,
   pathsFor,
+  titleCaseNiche,
   CANDIDATE_DECISIONS,
 } from './lib/candidates.mjs';
 import {
@@ -97,6 +98,7 @@ import {
   structureHasPhotosEnabled,
   listImageSlotStatus,
   setImageSlotMatchGrade,
+  setImageSlotsMatchGrade,
   repullImageSlot,
   uploadImageSlot,
   readSiteImageFile,
@@ -123,6 +125,12 @@ import {
   useGroupBaPairOnSlot,
 } from './lib/photo-groups.mjs';
 import {
+  backfillStoredServiceNameTitleCase,
+  buildNicheServiceList,
+  getNicheServiceList,
+  saveNicheServiceList,
+} from './lib/niche-service-lists.mjs';
+import {
   listPhotoLibrary,
   getPhotoGroupView,
   listRolePhotos,
@@ -144,6 +152,7 @@ import {
   getPhotoGroupBaPrompts,
   savePhotoGroupBaOpenaiPrompt,
 } from './lib/photo-library.mjs';
+import { applyStoredNichePhotoBlocks } from './lib/niche-photo-blocks.mjs';
 import { generateSiteLogo, useLogoVariant } from './lib/generate-site-logo.mjs';
 import { generateCoverageMapForCandidate, getCoverageMapProgress, useCoverageMapVariant } from './lib/generate-coverage-map.mjs';
 import {
@@ -152,7 +161,9 @@ import {
   resolveBaPromptsWithOverride,
   saveBaOpenaiPrompt,
   setBaPairMatchGrade,
+  setBaPairsMatchGrade,
 } from './lib/chatgpt-before-after.mjs';
+import { ensureBaLogo, setBaLogo } from './lib/ba-logo.mjs';
 import { buildSlotImagePrompt, saveSlotOpenaiPrompt } from './lib/chatgpt-slot-image.mjs';
 import {
   buildResearcherPrompt,
@@ -203,6 +214,7 @@ import {
 } from './lib/content-eight-pass.mjs';
 import {
   assertWriteSiteReady,
+  expandThinServicesUntilClear,
   runExpandThinLocationsJob,
   runWriteSiteJob,
 } from './lib/content-write-site.mjs';
@@ -212,6 +224,8 @@ import {
   getLaunchContentGapsForCandidate,
   isAssembleStale,
   launchFidelitySummary,
+  extraLocationPageNames,
+  pendingLocationPageNames,
 } from './lib/preview-fidelity.mjs';
 import { ensureAstroPreview, stopAstroPreview, ASTRO_PREVIEW_URL } from './lib/astro-preview.mjs';
 import {
@@ -274,6 +288,7 @@ import {
   runAssignCitiesJob,
   runFindHubsJob,
   runShotgunGeneratePackJob,
+  seedDiscoveryPackFromZone,
   selectShotgunHub,
   setShotgunMemberPaint,
   setShotgunMemberPaintMany,
@@ -284,6 +299,7 @@ import {
   attachShotgunToCandidates,
   clusterForCandidate,
   dissolveShotgunCluster,
+  findShotgunClusterByHub,
   formatShotgunSg,
   loadShotgunClusters,
   addClusterCity,
@@ -335,7 +351,7 @@ import {
 } from './lib/gsc-oauth.mjs';
 import { syncAllSitesGsc, syncSiteGsc } from './lib/gsc-sync.mjs';
 import { inspectSiteIndex } from './lib/gsc-index-inspect.mjs';
-import { checkAllSiteRanks, checkSiteRanks } from './lib/rank-track.mjs';
+import { checkAllSiteRanks, checkSiteRanks, getRankBatchProgress } from './lib/rank-track.mjs';
 import {
   provisionRankingNumber,
   setForwardToRenter,
@@ -358,10 +374,27 @@ import {
   handleRecordingWebhook,
   listPhoneCalls,
   phoneCallStats,
+  setPhoneCallLead,
+  setPhoneCallSpam,
   summarizePhoneCall,
   syncCallsFromTwilio,
 } from './lib/phone-calls.mjs';
 import { cloudflareConfigured } from './lib/cloudflare-launch.mjs';
+import {
+  ensureFormsInbox,
+  formsInboxStatus,
+  syncFormSubmissionsFromInbox,
+  syncSpamKeywords,
+} from './lib/forms-inbox.mjs';
+import { loadSpamKeywords, saveSpamKeywords } from './lib/spam-keywords.mjs';
+import { getFormSubmission, listFormSubmissions, setFormSpamOverride } from './lib/form-submissions.mjs';
+import { leadRollup } from './lib/forms-rollup.mjs';
+import {
+  completeGmailFormsOAuth,
+  getGmailFormsAuthStatus,
+  startGmailFormsOAuth,
+} from './lib/gmail-forms-oauth.mjs';
+import { importPastLeadsFromGmail } from './lib/import-gmail-forms.mjs';
 import { getShipStatus, getAssembledShipDiff, shipAssembledSite, buildAssembledSiteAsync } from './lib/ship-site.mjs';
 import { ghAuthStatus } from './lib/github-site.mjs';
 import {
@@ -415,7 +448,7 @@ import {
   assertDeletableIds,
   assertEvalPrerequisite,
 } from './lib/candidate-protection.mjs';
-import { existsSync, writeFileSync, readFileSync, readdirSync } from 'node:fs';
+import { existsSync, writeFileSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { getScoringRubric } from '../scripts/lib/scoring.mjs';
 
 loadEnvFile();
@@ -608,9 +641,16 @@ app.get('/api/health', (_req, res) => {
       ok: envSet('CLOUDFLARE_ACCOUNT_ID', 'CLOUDFLARE_API_TOKEN'),
     },
     {
-      name: 'Web3Forms email',
+      name: 'Lead notify email',
       group: 'Assemble & launch',
-      ok: envSet('WEB3FORMS_DEFAULT_NOTIFY_EMAIL'),
+      ok: Boolean(
+        String(process.env.LEAD_NOTIFY_EMAIL || process.env.WEB3FORMS_DEFAULT_NOTIFY_EMAIL || '').trim(),
+      ),
+    },
+    {
+      name: 'Forms inbox',
+      group: 'Assemble & launch',
+      ok: formsInboxStatus().ready,
     },
     // 6 · Phone
     {
@@ -1246,12 +1286,48 @@ app.post('/api/discovery/pack', (req, res) => {
           .split('|')
           .map((s) => s.trim())
           .filter(Boolean);
+    const reuseZoneId = String(body.reuseZoneId || '').trim();
+    let reuseSource = null;
+    if (reuseZoneId) {
+      if (!isClusterPack(body.packType)) {
+        throw Object.assign(new Error('Reuse a zone from Cluster Cities'), { status: 400 });
+      }
+      reuseSource =
+        loadShotgunClusters().clusters.find((c) => c.id === reuseZoneId) || null;
+      if (!reuseSource?.hub?.city || !reuseSource?.hub?.state) {
+        throw Object.assign(new Error('Zone not found'), { status: 404 });
+      }
+      const niche = titleCaseNiche(body.shotgunNiche || '');
+      const existing = niche
+        ? findShotgunClusterByHub(niche, reuseSource.hub.city, reuseSource.hub.state)
+        : null;
+      if (existing?.batchId) {
+        try {
+          const opened = getBatch(existing.batchId);
+          res.json({
+            existing: true,
+            batch: opened.batch,
+            cluster: {
+              id: existing.id,
+              sgNumber: existing.sgNumber,
+              name: existing.name,
+              niche: existing.niche,
+            },
+          });
+          return;
+        } catch {
+          /* batch folder is gone; seed attaches a new pack to this zone */
+        }
+      }
+    }
     const pack = createDiscoveryPack({
-      state: body.state,
-      regions,
+      state: reuseSource ? reuseSource.hub.state : body.state,
+      regions: reuseSource
+        ? [{ state: reuseSource.hub.state, cities: [reuseSource.hub.city] }]
+        : regions,
       niches,
       requiredNiches,
-      cities,
+      cities: reuseSource ? [reuseSource.hub.city] : cities,
       categories,
       minPopulation: body.minPopulation,
       maxPopulation: body.maxPopulation,
@@ -1268,11 +1344,49 @@ app.post('/api/discovery/pack', (req, res) => {
       mapPackPreference: body.mapPackPreference,
       packType: body.packType,
       shotgunNiche: body.shotgunNiche,
-      innerMiles: body.innerMiles,
-      outerMiles: body.outerMiles,
-      shotgunBands: body.shotgunBands,
+      innerMiles: reuseSource?.clusterMiles ?? body.innerMiles,
+      outerMiles: reuseSource?.clusterMiles ?? body.outerMiles,
+      shotgunBands: reuseSource?.bands || body.shotgunBands,
     });
-    res.json(pack);
+    if (!reuseSource) {
+      res.json(pack);
+      return;
+    }
+    try {
+      const seeded = seedDiscoveryPackFromZone(pack.batch.id, reuseSource.id);
+      if (seeded.discardNewBatch && seeded.batchId) {
+        rmSync(pack.batchDir, { recursive: true, force: true });
+        const opened = getBatch(seeded.batchId);
+        res.json({
+          existing: true,
+          batch: opened.batch,
+          cluster: {
+            id: seeded.cluster.id,
+            sgNumber: seeded.cluster.sgNumber,
+            name: seeded.cluster.name,
+            niche: seeded.cluster.niche,
+          },
+        });
+        return;
+      }
+      res.json({
+        ...pack,
+        existing: Boolean(seeded.existing),
+        cluster: {
+          id: seeded.cluster.id,
+          sgNumber: seeded.cluster.sgNumber,
+          name: seeded.cluster.name,
+          niche: seeded.cluster.niche,
+        },
+      });
+    } catch (error) {
+      try {
+        rmSync(pack.batchDir, { recursive: true, force: true });
+      } catch {
+        /* the pack folder may already be gone */
+      }
+      throw error;
+    }
   } catch (error) {
     sendError(res, error);
   }
@@ -1614,6 +1728,29 @@ app.get('/api/candidates/:id', (req, res) => {
     const raw = req.query.include;
     const include = raw == null || raw === '' ? [] : raw;
     const detail = getCandidateDetail(req.params.id, { include });
+    detail.pendingLocationPages = pendingLocationPageNames(detail);
+    detail.extraLocationPages = extraLocationPageNames(detail);
+    const attachedGroup = detail.photoGroupAttached;
+    const savedEmpty = attachedGroup?.preview?.targetEmpty;
+    if (
+      attachedGroup?.groupId &&
+      !attachedGroup.skipped &&
+      !Number.isFinite(Number(savedEmpty))
+    ) {
+      try {
+        const preview = previewPhotoGroup(req.params.id, {
+          groupIds: attachedGroup.groupIds || [attachedGroup.groupId],
+        });
+        attachedGroup.preview = {
+          ...(attachedGroup.preview || {}),
+          targetEmpty: preview.targetEmpty,
+          applied: preview.applied,
+          baApplied: preview.baApplied,
+        };
+      } catch {
+        /* leave the checkbox unchecked when the fill count cannot be read */
+      }
+    }
     res.json(attachShotgunFields(req.params.id, detail));
   } catch (error) {
     sendError(res, error);
@@ -2392,6 +2529,17 @@ app.post('/api/candidates/:id/content/accept', async (req, res) => {
               };
             }
           };
+          const skipStockImages = Boolean(body.skipStockImages);
+          const stockSkipped = {
+            ok: true,
+            skipped: true,
+            human: ['Images: stock pull skipped.'],
+          };
+          const withStockSkip = (prior) => ({
+            ...(prior || { ok: true }),
+            skipped: true,
+            human: [...(prior?.human || []), 'Images: stock pull skipped.'],
+          });
           const pullStock = async () => {
             console.log(`[accept] ${acceptId} pulling stock photos…`);
             try {
@@ -2413,21 +2561,30 @@ app.post('/api/candidates/:id/content/accept', async (req, res) => {
               };
             }
           };
+          const fillEmptySlots = async (prior) => {
+            const stock = await pullStock();
+            return {
+              ...stock,
+              human: [...(prior?.human || []), ...(stock?.human || [])],
+            };
+          };
           if (attached?.groupIds?.length) {
             images = await applyGroup(
               attached.groupIds,
               (attached.names || attached.groups?.map((g) => g.name) || [attached.name || attached.groupId]).join(' → '),
             );
+            images = skipStockImages ? withStockSkip(images) : await fillEmptySlots(images);
           } else if (skipDoc?.skipped) {
-            images = await pullStock();
+            images = skipStockImages ? stockSkipped : await pullStock();
           } else {
             const detail = getCandidateDetail(acceptId);
             const niche = detail.photoGroupNiche || detail.siteConfig?.niche || '';
             const master = findNicheMaster(niche);
             if (master?.id) {
               images = await applyGroup(master.id, master.name || `${niche} master`);
+              if (skipStockImages) images = withStockSkip(images);
             } else {
-              images = await pullStock();
+              images = skipStockImages ? stockSkipped : await pullStock();
             }
           }
         } else {
@@ -2524,6 +2681,44 @@ app.post('/api/candidates/:id/content/accept', async (req, res) => {
 app.get('/api/photo-groups', (req, res) => {
   try {
     res.json({ groups: listPhotoGroups({ niche: req.query?.niche || '' }) });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.get('/api/niche-service-lists', (req, res) => {
+  try {
+    const niche = String(req.query?.niche || '').trim();
+    if (!niche) {
+      throw Object.assign(new Error('Niche is required'), { status: 400 });
+    }
+    res.json({ list: getNicheServiceList(niche) });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.put('/api/niche-service-lists', (req, res) => {
+  try {
+    const body = req.body || {};
+    const list = saveNicheServiceList({
+      niche: body.niche,
+      services: body.services,
+      commercialServices: body.commercialServices,
+    });
+    res.json({ list });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/niche-service-lists/build', (req, res) => {
+  try {
+    const niche = String(req.body?.niche || '').trim();
+    if (!niche) {
+      throw Object.assign(new Error('Niche is required'), { status: 400 });
+    }
+    res.json(buildNicheServiceList(niche));
   } catch (error) {
     sendError(res, error);
   }
@@ -2953,6 +3148,33 @@ app.post('/api/candidates/:id/images/slots/:slotKey/match-grade', (req, res) => 
   }
 });
 
+app.post('/api/candidates/:id/images/match-grades', (req, res) => {
+  try {
+    const slotKeys = Array.isArray(req.body?.slotKeys) ? req.body.slotKeys : [];
+    const baKeys = Array.isArray(req.body?.baKeys) ? req.body.baKeys : [];
+    if (!slotKeys.length && !baKeys.length) {
+      const err = new Error('No images selected');
+      err.status = 400;
+      throw err;
+    }
+    const photos = slotKeys.length
+      ? setImageSlotsMatchGrade(req.params.id, slotKeys, req.body?.matchGrade)
+      : { applied: [], skipped: [], slots: [] };
+    const pairs = baKeys.length
+      ? setBaPairsMatchGrade(req.params.id, baKeys, req.body?.matchGrade)
+      : { applied: [], skipped: [], status: null };
+    res.json({
+      matchGrade: String(req.body?.matchGrade || '').toLowerCase(),
+      applied: photos.applied.length + pairs.applied.length,
+      skipped: [...photos.skipped, ...pairs.skipped],
+      slots: photos.slots || [],
+      baStatus: pairs.status || null,
+    });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
 app.post('/api/candidates/:id/images/slots/:slotKey/repull', async (req, res) => {
   try {
     assertLaunchedEditAllowed(req.params.id, req.body || {});
@@ -3188,9 +3410,25 @@ app.post('/api/candidates/:id/images/before-after/openai-prompt', (req, res) => 
   }
 });
 
-app.get('/api/candidates/:id/images/before-after-status', (req, res) => {
+app.get('/api/candidates/:id/images/before-after-status', async (req, res) => {
   try {
+    try {
+      await ensureBaLogo(req.params.id);
+    } catch {
+      /* Photos still load if the stamp cannot be written. */
+    }
     res.json({ ...listBeforeAfterStatus(req.params.id), openai: openaiImageStatus() });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/candidates/:id/images/before-after/logo', async (req, res) => {
+  try {
+    if (typeof req.body?.enabled !== 'boolean') {
+      throw Object.assign(new Error('enabled true or false required'), { status: 400 });
+    }
+    res.json(await setBaLogo(req.params.id, req.body.enabled));
   } catch (error) {
     sendError(res, error);
   }
@@ -3232,11 +3470,11 @@ app.post('/api/candidates/:id/images/before-after/match-grade', (req, res) => {
   }
 });
 
-app.post('/api/candidates/:id/images/before-after/variants/use', (req, res) => {
+app.post('/api/candidates/:id/images/before-after/variants/use', async (req, res) => {
   try {
     assertLaunchedEditAllowed(req.params.id, req.body || {});
     res.json(
-      useCandidateBaVariant(req.params.id, {
+      await useCandidateBaVariant(req.params.id, {
         pairId: req.body?.pairId || req.body?.id,
         matchKey: req.body?.matchKey || '',
         serviceSlug: req.body?.serviceSlug || '',
@@ -3249,11 +3487,11 @@ app.post('/api/candidates/:id/images/before-after/variants/use', (req, res) => {
   }
 });
 
-app.post('/api/candidates/:id/images/before-after/use-group-pair', (req, res) => {
+app.post('/api/candidates/:id/images/before-after/use-group-pair', async (req, res) => {
   try {
     assertLaunchedEditAllowed(req.params.id, req.body || {});
     res.json(
-      useGroupBaPairOnSlot(req.params.id, req.body?.matchKey || req.body?.key || '', {
+      await useGroupBaPairOnSlot(req.params.id, req.body?.matchKey || req.body?.key || '', {
         groupId: req.body?.groupId,
         beforeFilename: req.body?.beforeFilename,
         afterFilename: req.body?.afterFilename,
@@ -3264,10 +3502,12 @@ app.post('/api/candidates/:id/images/before-after/use-group-pair', (req, res) =>
   }
 });
 
-app.post('/api/candidates/:id/images/before-after-import', (req, res) => {
+app.post('/api/candidates/:id/images/before-after-import', async (req, res) => {
   try {
     assertLaunchedEditAllowed(req.params.id, req.body || {});
-    res.json(importBeforeAfterPair(req.params.id, req.body || {}));
+    const imported = importBeforeAfterPair(req.params.id, req.body || {});
+    await ensureBaLogo(req.params.id);
+    res.json(imported);
   } catch (error) {
     sendError(res, error);
   }
@@ -3489,7 +3729,38 @@ app.get('/api/candidates/:id/content/final-check/prompt', async (req, res) => {
   }
 });
 
-app.post('/api/candidates/:id/content/final-check', (req, res) => {
+async function expandThinServicesAfterPaste(candidateId) {
+  try {
+    requireAnthropicKey();
+  } catch {
+    return '';
+  }
+  try {
+    await expandThinServicesUntilClear(candidateId, {
+      costOverride: { candidateId, label: 'expandServices', accumulate: true },
+    });
+    return '';
+  } catch (error) {
+    return error?.message || 'Service expand failed';
+  }
+}
+
+function draftAfterServiceExpand(candidateId, pasted = {}) {
+  const detail = getCandidateDetail(candidateId);
+  const ops = detail?.contentDraft?._ops || {};
+  return {
+    ...pasted,
+    draft: detail?.contentDraft || pasted.draft,
+    check: ops.check || pasted.check,
+    contract: ops.contract || pasted.contract,
+    speechLint: ops.speechLint || pasted.speechLint,
+    seoLint: ops.seoLint || pasted.seoLint,
+    autoFix: ops.autoFix || pasted.autoFix,
+    candidate: getCandidateShell(candidateId),
+  };
+}
+
+app.post('/api/candidates/:id/content/final-check', async (req, res) => {
   try {
     assertLaunchedEditAllowed(req.params.id, req.body || {});
     const raw = req.body?.json ?? req.body?.text ?? req.body?.paste ?? '';
@@ -3515,14 +3786,17 @@ app.post('/api/candidates/:id/content/final-check', (req, res) => {
 
     if (text.includes('### FILE:')) {
       const pasted = pasteAgentContentDraft(req.params.id, text, { mode: 'full' });
+      await applyStoredNichePhotoBlocks(req.params.id);
+      const serviceExpandError = await expandThinServicesAfterPaste(req.params.id);
       const stamped = stampFinalCheck(req.params.id, {
         ok: true,
         summary: 'FILE fixes loaded',
       });
       syncWriteBatchesFromDraft(req.params.id);
       return res.json({
-        ...pasted,
+        ...draftAfterServiceExpand(req.params.id, pasted),
         finalCheck: true,
+        ...(serviceExpandError ? { serviceExpandError } : {}),
         candidate: stamped.candidate || getCandidateShell(req.params.id),
       });
     }
@@ -3721,14 +3995,18 @@ app.get('/api/candidates/:id/content/seo-lint', (req, res) => {
   }
 });
 
-app.post('/api/candidates/:id/content/agent-paste', (req, res) => {
+app.post('/api/candidates/:id/content/agent-paste', async (req, res) => {
   try {
     const body = req.body || {};
-    res.json(
-      pasteAgentContentDraft(req.params.id, body.text ?? body.markdown ?? '', {
-        mode: body.mode || 'homepage_first',
-      }),
-    );
+    const pasted = pasteAgentContentDraft(req.params.id, body.text ?? body.markdown ?? '', {
+      mode: body.mode || 'homepage_first',
+    });
+    await applyStoredNichePhotoBlocks(req.params.id);
+    const serviceExpandError = await expandThinServicesAfterPaste(req.params.id);
+    res.json({
+      ...draftAfterServiceExpand(req.params.id, pasted),
+      ...(serviceExpandError ? { serviceExpandError } : {}),
+    });
   } catch (error) {
     if (error.check || error.contract) {
       return res.status(error.status || 400).json({
@@ -4486,6 +4764,10 @@ app.post('/api/sites/:id/index-check', async (req, res) => {
   }
 });
 
+app.get('/api/ranks/progress', (req, res) => {
+  res.json(getRankBatchProgress());
+});
+
 app.post('/api/ranks/sync', async (req, res) => {
   try {
     const body = req.body || {};
@@ -4768,6 +5050,24 @@ app.get('/api/phone/calls', (req, res) => {
   }
 });
 
+app.patch('/api/phone/calls/:id/spam', (req, res) => {
+  try {
+    const call = setPhoneCallSpam(req.params.id, req.body?.spam);
+    res.json({ call, rollup: leadRollup() });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.patch('/api/phone/calls/:id/lead', (req, res) => {
+  try {
+    const call = setPhoneCallLead(req.params.id, req.body?.lead);
+    res.json({ call, rollup: leadRollup() });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
 app.get('/api/phone/calls/:id', (req, res) => {
   try {
     const call = getPhoneCall(req.params.id);
@@ -4862,10 +5162,184 @@ app.put('/api/phone/greeting/fallback', async (req, res) => {
   }
 });
 
+app.get('/api/spam-keywords', (_req, res) => {
+  try {
+    res.json({ keywords: loadSpamKeywords() });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.put('/api/spam-keywords', async (req, res) => {
+  try {
+    const keywords = saveSpamKeywords(req.body?.keywords);
+    let synced = false;
+    let syncError = '';
+    try {
+      synced = Boolean((await syncSpamKeywords(keywords)).synced);
+    } catch (error) {
+      syncError = error?.message || String(error);
+    }
+    res.json({
+      keywords,
+      synced,
+      syncError,
+      rollup: leadRollup(),
+      submissions: listFormSubmissions({ limit: 2000 }),
+    });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.get('/api/forms/status', (_req, res) => {
+  try {
+    res.json({ inbox: formsInboxStatus(), rollup: leadRollup() });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/forms/setup', async (_req, res) => {
+  try {
+    const inbox = await ensureFormsInbox();
+    res.json({ ok: true, inbox, rollup: leadRollup() });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/forms/sync', async (_req, res) => {
+  try {
+    const sync = await syncFormSubmissionsFromInbox();
+    res.json({
+      ok: true,
+      ...sync,
+      submissions: listFormSubmissions({ limit: 2000 }),
+      rollup: leadRollup(),
+    });
+  } catch (error) {
+    if (error.needsSetup) {
+      res.json({
+        ok: false,
+        needsSetup: true,
+        error: error.message,
+        inbox: formsInboxStatus(),
+        submissions: listFormSubmissions({ limit: 2000 }),
+        rollup: leadRollup(),
+      });
+      return;
+    }
+    sendError(res, error);
+  }
+});
+
+app.get('/api/forms/gmail/status', (_req, res) => {
+  try {
+    res.json(getGmailFormsAuthStatus());
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.get('/api/forms/gmail/start', (_req, res) => {
+  try {
+    res.json(startGmailFormsOAuth({ port: PORT }));
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.get('/api/forms/gmail/callback', async (req, res) => {
+  try {
+    const { code, state, error, error_description: errorDescription } = req.query || {};
+    if (error) {
+      return res
+        .status(400)
+        .type('html')
+        .send(
+          `<!doctype html><meta charset="utf-8"><title>Gmail connect failed</title>
+           <p>Google returned: ${String(errorDescription || error)}</p>
+           <p><a href="/#phone">Back to Rover</a></p>`,
+        );
+    }
+    await completeGmailFormsOAuth({ code: String(code || ''), state: String(state || '') });
+    res.type('html').send(
+      `<!doctype html><meta charset="utf-8"><title>Gmail connected</title>
+       <p>Gmail connected. You can close this tab.</p>
+       <script>
+         try { if (window.opener) window.opener.postMessage({ type: 'rover-gmail-forms-connected' }, '*'); } catch (e) {}
+         setTimeout(function () { window.location.href = '/#phone'; }, 800);
+       </script>
+       <p><a href="/#phone">Open Phone/Form</a></p>`,
+    );
+  } catch (error) {
+    res
+      .status(error.status || 500)
+      .type('html')
+      .send(
+        `<!doctype html><meta charset="utf-8"><title>Gmail connect failed</title>
+         <p>${String(error.message || error)}</p>
+         <p><a href="/#phone">Back to Rover</a></p>`,
+      );
+  }
+});
+
+app.post('/api/forms/gmail/import', async (_req, res) => {
+  try {
+    const imported = await importPastLeadsFromGmail();
+    res.json({
+      ...imported,
+      submissions: listFormSubmissions({ limit: 2000 }),
+      rollup: leadRollup(),
+      inbox: formsInboxStatus(),
+    });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.get('/api/forms/submissions', (_req, res) => {
+  try {
+    res.json({
+      submissions: listFormSubmissions({ limit: 2000 }),
+      rollup: leadRollup(),
+      inbox: formsInboxStatus(),
+    });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.patch('/api/forms/submissions/:id/spam', (req, res) => {
+  try {
+    const submission = setFormSpamOverride(req.params.id, req.body?.spam);
+    res.json({ submission, rollup: leadRollup() });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.get('/api/forms/submissions/:id', (req, res) => {
+  try {
+    const submission = getFormSubmission(req.params.id);
+    if (!submission) {
+      const err = new Error('Submission not found');
+      err.status = 404;
+      throw err;
+    }
+    res.json({ submission });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
 app.get('/api/phone/sites', (req, res) => {
   try {
+    const shotgunById = shotgunMembershipByCandidateId();
     const sites = listSitesWithPhone().map((s) => {
       const stats = phoneCallStats({ siteId: s.id });
+      const hit = s.candidateId ? shotgunById.get(s.candidateId) : null;
       return {
         id: s.id,
         businessName: s.businessName || s.niche || s.id,
@@ -4874,8 +5348,13 @@ app.get('/api/phone/sites', (req, res) => {
         state: s.state,
         status: s.status,
         e164: s.phoneTracking?.e164 || '',
+        twilioSid: s.phoneTracking?.twilioSid || '',
         phase: s.phoneTracking?.phase || 'none',
         forwardTo: s.phoneTracking?.forwardTo || '',
+        lastLaunchAt: s.lastLaunchAt || null,
+        shotgunClusterKey: hit?.clusterKey ?? null,
+        shotgunSg: hit?.shotgunSg ?? null,
+        sgNumber: hit?.sgNumber ?? null,
         stats,
       };
     });
@@ -5025,6 +5504,12 @@ const server = app.listen(PORT, HOST, () => {
     );
   } catch (err) {
     console.warn('Decision migrate skipped:', err.message || err);
+  }
+  try {
+    const r = backfillStoredServiceNameTitleCase();
+    if (r.files) console.log(`Service name title case: ${r.files} file(s)`);
+  } catch (err) {
+    console.warn('Service name title case skipped:', err.message || err);
   }
 });
 server.requestTimeout = 30 * 60 * 1000;

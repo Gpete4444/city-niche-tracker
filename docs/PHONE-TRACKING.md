@@ -101,7 +101,7 @@ US carriers may filter SMS from local DIDs (A2P/10DLC). Voicemail still records 
 | Number type | Static local DID (not session DNI) |
 | Whisper | “Call from {site}” to the **renter** on Dial |
 | Summaries | Async in Rover: download Twilio MP3 → OpenAI Whisper transcript → gpt-4o-mini summary (`OPENAI_API_KEY`) |
-| Launch | Unchanged — domain / email / Web3Forms |
+| Launch | Unchanged — domain / email / Rover form delivery |
 
 ## Stays human
 

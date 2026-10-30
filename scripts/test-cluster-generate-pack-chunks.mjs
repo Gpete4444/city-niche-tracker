@@ -81,6 +81,34 @@ assertEqual(new Set(merged.map((r) => `${r.City}|${r.State}`)).size, 73, 'merge 
 const parsed = parseGeneratePackCsv(`Here you go:\n\n${csvFor(seventyThree.slice(0, 3))}\n`);
 assertEqual(parsed.length, 3, 'parseGeneratePackCsv reads fenced-or-pasted CSV');
 
+const pipeHeader = DISCOVERY_CLAUDE_COLUMNS.map((col) => ` ${col} `).join('|');
+const pipeRow = DISCOVERY_CLAUDE_COLUMNS.map((col, idx) => {
+  if (idx === 0) return ' Concrete ';
+  if (idx === 1) return ' City1 ';
+  if (idx === 2) return ' TX ';
+  return ' x ';
+}).join('|');
+const pipeTable = `|${pipeHeader}|\n|${DISCOVERY_CLAUDE_COLUMNS.map(() => ' --- ').join('|')}|\n|${pipeRow}|`;
+const pipeParsed = parseGeneratePackCsv(`Notes first.\n\n${pipeTable}\n`);
+assertEqual(pipeParsed.length, 1, 'pipe table parses to data rows');
+assertEqual(pipeParsed[0].City, 'City1', 'pipe table city');
+assertEqual(pipeParsed[0].Niche, 'Concrete', 'pipe table niche');
+
+const headerless = csvFor(seventyThree.slice(0, 2)).split(/\r?\n/).slice(1).join('\n');
+const headerlessParsed = parseGeneratePackCsv(headerless);
+assertEqual(headerlessParsed.length, 2, 'headerless pinned rows parse');
+assertEqual(headerlessParsed[0].Niche, 'Concrete', 'headerless niche comes from the pinned columns');
+assertEqual(headerlessParsed[1].City, 'City2', 'headerless second city');
+
+let proseFailed = false;
+try {
+  parseGeneratePackCsv('I cannot produce a table. Here is a summary of the cities instead.');
+} catch (error) {
+  proseFailed =
+    /No CSV header found/.test(error.message) && /summary of the cities/.test(error.message);
+}
+assert(proseFailed, 'prose reply throws and includes an excerpt');
+
 const members = seventyThree.map((r, i) => ({
   city: r.City,
   state: r.State,
@@ -121,6 +149,32 @@ try {
 }
 assert(oneCityFails, '1-city truncate still fails the job');
 
+const formatCalls = [];
+const formatFilled = await fillGeneratePackRowChunks({
+  pinnedRows: fakePinned(1),
+  buildPrompt: () => 'PACK',
+  claudeMessagesFn: async ({ user }) => {
+    formatCalls.push(user);
+    if (formatCalls.length === 1) return { text: 'Just a summary of the city.', truncated: false };
+    return { text: csvFor(fakePinned(1)), truncated: false };
+  },
+});
+assertEqual(formatCalls.length, 2, 'missing header retries once');
+assert(/first line must start with Niche/.test(formatCalls[1]), 'retry suffix asks for a Niche header');
+assertEqual(formatFilled.rows.length, 1, 'format retry imports the second reply');
+
+let formatFails = false;
+try {
+  await fillGeneratePackRowChunks({
+    pinnedRows: fakePinned(1),
+    buildPrompt: () => 'PACK',
+    claudeMessagesFn: async () => ({ text: 'Still prose, no table here.', truncated: false }),
+  });
+} catch (error) {
+  formatFails = /No CSV header found/.test(error.message) && /Still prose/.test(error.message);
+}
+assert(formatFails, 'second missing header fails with an excerpt');
+
 const batchId = 'zz_test_genpack_chunks';
 const dir = path.join(process.cwd(), 'research', 'batches', batchId);
 try {
@@ -154,6 +208,10 @@ try {
   assertEqual((pinnedBlock.match(/,City\d+,TX,/g) || []).length, 20, 'PINNED_CSV has 20 cities');
   assert(!pinnedBlock.includes(',City21,TX,'), 'PINNED_CSV does not include city 21');
   assertEqual((siblingBlock.match(/City\d+, TX/g) || []).length, 73, 'SIBLING_CITIES lists all 73 members');
+  assert(/exactly one/i.test(prompt) && /```csv/.test(prompt), 'API prompt requires one csv fence');
+  assert(!/Max rows/i.test(prompt), 'API prompt does not mention Max rows');
+  assert(!/fill remaining rows/i.test(prompt), 'API prompt does not ask for catalog rows');
+  assert(/Seasonality:/.test(prompt) && /Ticket tiers:/.test(prompt), 'API prompt has seasonality and tiers');
   const preview = getShotgunCostPreview(batchId, 'shotgun-generate-pack');
   assert(/4 Claude calls/.test(preview.estimateLabel || ''), 'cost preview mentions 4 Claude calls');
 } finally {

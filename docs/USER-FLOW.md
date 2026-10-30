@@ -84,8 +84,7 @@ Assumptions: you know the product, reuse defaults / Preset C, trust Claude after
 | 3 · Prepare preview (Stage + Assemble)                   | ~5–10 sec    | ~2–4 min                | ~3 min          |
 | 3 · QA preview (spot-check key URLs)                     | ~1–2 min     | —                       | ~2 min          |
 | Buy domain + point NS at Cloudflare                      | ~3–5 min     | —                       | ~5 min          |
-| Create Web3Forms form (Recipient = leads@) + paste key    | ~30–60 sec   | —                       | ~1 min          |
-| 3 · Run launch (paste keys + Auto ship)                  | ~30–60 sec   | ~3–5 min                | ~5 min          |
+| 3 · Run launch (domain, destination, Auto ship)          | ~30–60 sec   | ~3–5 min                | ~5 min          |
 | Verify Gmail + smoke-test form                           | ~1 min       | *(email may lag)*       | ~1–2 min        |
 | **Website / Launch subtotal**                            | **~8 min**   | **~7 min**              | **~15 min**     |
 | **Launched**                                       |              |                         |                 |
@@ -249,7 +248,7 @@ Optional group organizer (not a Stage). Skipping Photo does not block Content, A
 
 **Site-Config · Service area** — Click a city on the map to add or remove coverage (reversible; remove also drops its Page). Non-Zone still uses the research-seed suburb list and a radius slider. Zone candidates have no radius ring: **Suggested location pages** = this primary plus the closest leftover (non-site) towns (one site each); **Also serving** = other coverage including Zone sibling cities and leftover towns another Zone site already Also-serves or already pages (overlap is allowed). Sibling cities cannot be pages. Turning **Page** on a leftover that already has a location page on another Zone site stays exclusive (confirm steals that page). Min pop defaults to 0 so leftover CDPs appear. Use the table **Page** button to turn a location page on or off.
 
-**Before Run launch (outside Rover):** buy/point domain NS · Email Routing so `leads@` exists · Web3Forms Recipient Emails = `leads@{domain}` · Gmail routing destination.
+**Before Run launch (outside Rover):** buy/point domain NS · Gmail Email Routing destination so Rover can email `leads@`.
 
 **Already live?** Prepare preview → **Push updates**.
 
@@ -270,7 +269,7 @@ Twilio calls — answered/missed, recordings, AI summaries. Numbers are provisio
 ## Still done by hand
 
 - Buy domain + point NS at Cloudflare  
-- Create Web3Forms form (Recipient Emails = `leads@{domain}`) + paste key  
+- Set the Email Routing destination (Gmail) so Rover can email leads  
 - Verify Email Routing in Gmail once  
 - One-time machine setup (`gh auth`, Cloudflare tokens in `.env`)
 

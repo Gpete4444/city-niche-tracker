@@ -10,6 +10,7 @@ import { updateLightJobProgress } from './rover-light-jobs.mjs';
 import { formatKnownCandidatesForPrompt } from './known-candidates.mjs';
 import {
   buildFilterBrief,
+  buildGeneratePackContext,
   createDiscoveryPack,
   DISCOVERY_CLAUDE_COLUMNS,
   DISCOVERY_COLUMNS,
@@ -18,7 +19,7 @@ import {
   normalizeFilters,
   rowsToCsv,
 } from './discovery.mjs';
-import { getCandidateShell } from './candidates.mjs';
+import { getCandidateShell, titleCaseNiche } from './candidates.mjs';
 import {
   annotateMembersWithPipeline,
   applyHubScanToDraft,
@@ -36,8 +37,10 @@ import {
   pruneMembersOutsideZone,
   centroidInsideZone,
   setZoneHub,
+  buildZoneReuseDraft,
   clusterName,
   listViableHubs,
+  loadShotgunClusters,
   loadShotgunDraft,
   membersFromAssign,
   mergeClaudeHub,
@@ -107,11 +110,11 @@ function draftFor(batchId) {
 }
 
 function nicheOf(batch, draft) {
-  return (
-    String(draft.niche || '').trim() ||
-    String(batch.filters?.shotgunNiche || '').trim() ||
-    String(batch.filters?.requiredNiches?.[0] || '').trim()
-  );
+  const raw =
+    String(draft?.niche || '').trim() ||
+    String(batch?.filters?.shotgunNiche || '').trim() ||
+    String(batch?.filters?.requiredNiches?.[0] || '').trim();
+  return titleCaseNiche(raw);
 }
 
 function shotgunKnown(batch) {
@@ -266,7 +269,8 @@ export function buildGeneratePackPrompt(batchId, { api = false, pinnedRows: pinn
     ? 'prompts/claude-shotgun-generate-pack-api.md'
     : 'prompts/claude-shotgun-generate-pack.md';
   return fillPrompt(file, {
-    FILTER_BRIEF: buildFilterBrief(f),
+    FILTER_BRIEF: api ? '' : buildFilterBrief(f),
+    PACK_CONTEXT: buildGeneratePackContext(f, niche),
     NICHE: niche,
     PINNED_CSV: csv.trimEnd(),
     SIBLING_CITIES: formatGeneratePackSiblings(annotated),
@@ -490,7 +494,11 @@ function keepCity(c, allow) {
 export function applyGeneratePackRows(batchId, members) {
   const { batch, dir, draft } = draftFor(batchId);
   const niche = nicheOf(batch, draft);
-  const annotated = annotateMembersWithPipeline(niche, members || draft.members || []);
+  const annotated = annotateMembersWithPipeline(
+    niche,
+    members || draft.members || [],
+    draft.clusterId,
+  );
   const cluster = upsertShotgunCluster({
     id: draft.clusterId,
     niche,
@@ -659,11 +667,16 @@ export function getShotgunWorkspace(batchId) {
       rings = { error: error.message };
     }
   }
-  const members = annotateMembersWithPipeline(niche, draft.members || []);
+  const members = annotateMembersWithPipeline(niche, draft.members || [], draft.clusterId);
+  let sgNumber = draft.sgNumber;
+  if (!sgNumber && draft.clusterId) {
+    const cluster = loadShotgunClusters().clusters.find((c) => c.id === draft.clusterId);
+    sgNumber = cluster?.sgNumber || null;
+  }
   const assigned = members.filter((m) => isPackMember(m));
   const picked = mergePickerHubs(draft.viableHubs, draft.hubs, draft.rejectedHubs);
   return {
-    draft: { ...draft, members },
+    draft: { ...draft, members, sgNumber: sgNumber || draft.sgNumber || null },
     pickerHubs: [...picked.claude, ...picked.censusExtras],
     claudeHubs: picked.claude,
     censusExtras: picked.censusExtras,
@@ -683,6 +696,109 @@ export function getShotgunWorkspace(batchId) {
     dir,
     batch,
   };
+}
+
+function zoneReuseShotgunDraft(planned, cluster) {
+  const s = normalizeShotgunSettings({
+    clusterMiles: cluster.clusterMiles ?? planned.clusterMiles,
+    bands: cluster.bands || planned.bands,
+  });
+  const hub = cluster.hub || planned.hub || {};
+  return {
+    ...emptyShotgunDraft({
+      shotgunNiche: cluster.niche || planned.niche,
+      clusterMiles: s.clusterMiles,
+      bands: s.bands,
+    }),
+    niche: cluster.niche || planned.niche,
+    step: 'pack',
+    hub: {
+      city: hub.city,
+      state: hub.state,
+      population: hub.population ?? null,
+      why: '',
+    },
+    clusterMiles: s.clusterMiles,
+    innerMiles: s.clusterMiles,
+    outerMiles: s.clusterMiles,
+    bands: s.bands,
+    members: cluster.members || planned.members || [],
+    clusterId: cluster.id,
+    groupId: cluster.groupId || null,
+    sgNumber: cluster.sgNumber,
+    reusedFromZoneId: planned.reusedFromZoneId || cluster.reusedFromZoneId || null,
+    source: 'zone-reuse',
+  };
+}
+
+function rememberZoneOnBatch(dir, batch, planned, cluster) {
+  const hub = cluster?.hub || planned?.hub || {};
+  const miles = cluster?.clusterMiles ?? planned?.clusterMiles;
+  const filters = {
+    ...(batch.filters || {}),
+    state: hub.state || batch.filters?.state || null,
+    states: hub.state ? [hub.state] : batch.filters?.states,
+    cities: hub.city ? [hub.city] : batch.filters?.cities,
+    shotgunNiche: cluster?.niche || planned?.niche || batch.filters?.shotgunNiche,
+    innerMiles: miles ?? batch.filters?.innerMiles,
+    outerMiles: miles ?? batch.filters?.outerMiles,
+    shotgunBands: cluster?.bands || planned?.bands || batch.filters?.shotgunBands,
+  };
+  const meta = { ...batch, filters };
+  writeFileSync(path.join(dir, 'meta.json'), `${JSON.stringify(meta, null, 2)}\n`, 'utf8');
+  return meta;
+}
+
+/**
+ * Copy a painted zone onto this pack: same hub and cluster keys, new niche, next zone number.
+ * Does not call selectShotgunHub — that rebuilds members and drops the paint.
+ * When this niche already has the hub, returns that zone instead of a second one.
+ */
+export function seedDiscoveryPackFromZone(batchId, sourceZoneId) {
+  const { batch, dir } = getBatch(batchId);
+  const sourceId = String(sourceZoneId || '').trim();
+  const source = loadShotgunClusters().clusters.find((c) => c.id === sourceId);
+  if (!source) {
+    throw Object.assign(new Error('Zone not found'), { status: 404 });
+  }
+  const niche = nicheOf(batch, { niche: batch.filters?.shotgunNiche });
+  const planned = buildZoneReuseDraft(source, niche);
+  if (planned.existing) {
+    const cluster = planned.cluster;
+    const existingBatchId = String(cluster.batchId || '').trim();
+    if (existingBatchId && existingBatchId !== batch.id) {
+      try {
+        getBatch(existingBatchId);
+        return { existing: true, cluster, batchId: existingBatchId, discardNewBatch: true };
+      } catch {
+        /* the old batch folder is gone; attach this pack to that zone */
+      }
+    }
+    const saved = upsertShotgunCluster({
+      id: cluster.id,
+      batchId: batch.id,
+    });
+    const draft = saveShotgunDraft(dir, zoneReuseShotgunDraft(planned, saved));
+    rememberZoneOnBatch(dir, batch, planned, saved);
+    return { existing: true, cluster: saved, draft, batchId: batch.id, discardNewBatch: false };
+  }
+  const cluster = upsertShotgunCluster({
+    niche: planned.niche,
+    name: planned.name,
+    hub: planned.hub,
+    clusterMiles: planned.clusterMiles,
+    innerMiles: planned.clusterMiles,
+    outerMiles: planned.clusterMiles,
+    bands: planned.bands,
+    members: planned.members,
+    batchId: batch.id,
+    source: 'zone-reuse',
+    sgNumber: planned.sgNumber,
+    reusedFromZoneId: planned.reusedFromZoneId,
+  });
+  const draft = saveShotgunDraft(dir, zoneReuseShotgunDraft(planned, cluster));
+  rememberZoneOnBatch(dir, batch, planned, cluster);
+  return { existing: false, cluster, draft, batchId: batch.id, discardNewBatch: false };
 }
 
 function moveShotgunHub(batchId, city, state, opts = {}) {

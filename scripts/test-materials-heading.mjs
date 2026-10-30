@@ -35,7 +35,9 @@ assert(isMaterialsHeading('Methods we use'), 'methods we use');
 assert(!isMaterialsHeading('Our Repair Process'), 'process is not materials');
 assert(!isProcessHeading('Materials and Methods'), 'materials is not process');
 assert(!isMaterialsHeading('What does a repair cost?'), 'cost is not materials');
+assert(!isMaterialsHeading('What do materials cost?'), 'cost heading that mentions materials stays out');
 assert(!isMaterialsHeading('How long does Concrete Lifting take?'), 'timeline is not materials');
+assert(!isMaterialsHeading('Permits for turf materials'), 'permit heading stays out');
 assert(
   isMaterialsHeading('Mudjacking and Foam Concrete Lifting Methods in Wylie, TX'),
   'SEO Methods-in-city homepage heading',
@@ -112,6 +114,55 @@ const homeProse = extractHomepageProseSections(wyliePage.replace(/^---[\s\S]*?--
 assert(
   homeProse.some((s) => s.id === 'materials' && /Methods in Wylie/i.test(s.heading)),
   'homepage classify treats Methods-in-city H2 as materials',
+);
+
+assert(
+  isMaterialsHeading('Turf and base materials built for Arizona sun'),
+  'mid-title materials heading',
+);
+
+const elMirageBullets = `- **Polyurethane-backed turf**: Backing resists the heat-driven breakdown that cheaper latex backing suffers after a couple Arizona summers.
+- **UV-stabilized yarn**: Fiber keeps its green color instead of fading to straw-yellow under months of direct sun.
+- **Angular drainage rock**: Base rock that locks together under compaction, unlike rounded gravel that shifts and settles.
+- **Zeolite infill**: Absorbs odor-causing ammonia, which matters more here since heat accelerates pet odor breakdown.
+- **Perforated turf backing**: Lets water and urine drain straight through instead of pooling on the surface.
+- **Heat-reflective infill**: Lowers surface temperature on play areas and walkways compared to standard silica sand infill.
+`;
+
+const elMiragePage = `---
+title: Test
+---
+Intro.
+
+## Turf and base materials built for Arizona sun
+
+The material choices below hold up under direct desert exposure.
+
+${elMirageBullets}
+`;
+
+const elMirageOptions = listMaterialOptions(elMiragePage);
+assertEqual(
+  elMirageOptions.map((o) => o.title),
+  [
+    'Polyurethane-backed turf',
+    'UV-stabilized yarn',
+    'Angular drainage rock',
+    'Zeolite infill',
+    'Perforated turf backing',
+    'Heat-reflective infill',
+  ],
+  'mid-title materials H2 yields six product titles',
+);
+assert(
+  /heat-driven breakdown/i.test(elMirageOptions[0].detail),
+  'first product detail is kept',
+);
+
+const elMirageProse = extractHomepageProseSections(elMiragePage.replace(/^---[\s\S]*?---\n?/, ''));
+assert(
+  elMirageProse.some((s) => s.id === 'materials' && /base materials built/i.test(s.heading)),
+  'homepage classify treats mid-title materials H2 as materials',
 );
 
 console.log('test-materials-heading: ok');

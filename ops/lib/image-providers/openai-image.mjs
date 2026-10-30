@@ -1,10 +1,14 @@
 /**
- * GPT Image 2 (OpenAI) for BA pairs and per-slot OpenAI generate. Same OPENAI_API_KEY as Phone.
+ * GPT Image (OpenAI) for BA pairs, per-slot generate, and transparent logos.
+ * Photos stay on gpt-image-2. Logos use gpt-image-2.5-flare (transparent PNG).
+ * Same OPENAI_API_KEY as Phone.
  */
 import { compressSiteJpeg } from '../image-jpeg.mjs';
 import { acquireOpenaiImageToken, parseOpenaiRetryAfterMs } from '../openai-image-rpm.mjs';
 
 export const OPENAI_IMAGE_MODEL = 'gpt-image-2';
+/** Text-to-image model that still accepts background: transparent. */
+export const OPENAI_LOGO_IMAGE_MODEL = 'gpt-image-2.5-flare';
 export const OPENAI_IMAGE_QUALITY = 'medium';
 export const OPENAI_IMAGE_SIZE = '1536x1024';
 
@@ -155,36 +159,65 @@ function imageBlob(buffer) {
 }
 
 /**
+ * JSON body for POST /v1/images/generations. Photos omit background.
  * @param {{
- *   prompt: string,
+ *   prompt?: string,
  *   size?: string,
  *   quality?: string,
  *   background?: string,
  *   outputFormat?: string,
- *   compress?: boolean,
+ *   model?: string,
  * }} opts
- * @returns {Promise<{ buffer: Buffer, provider: 'openai' }>}
  */
-export async function generateOpenaiImage({
+export function openaiGenerateBody({
   prompt,
   size = OPENAI_IMAGE_SIZE,
   quality = OPENAI_IMAGE_QUALITY,
   background,
   outputFormat,
-  compress = true,
+  model = OPENAI_IMAGE_MODEL,
 } = {}) {
-  const text = String(prompt || '').trim();
-  if (!text) throw Object.assign(new Error('prompt required'), { status: 400 });
-  const key = openaiKey();
   const body = {
-    model: OPENAI_IMAGE_MODEL,
-    prompt: text,
+    model: String(model || OPENAI_IMAGE_MODEL).trim() || OPENAI_IMAGE_MODEL,
+    prompt: String(prompt || '').trim(),
     quality,
     size,
     n: 1,
   };
   if (background) body.background = background;
   if (outputFormat) body.output_format = outputFormat;
+  return body;
+}
+
+/** Mark and mark+text logos. gpt-image-2 rejects background: transparent. */
+export function logoOpenaiImageRequest(prompt) {
+  return {
+    prompt,
+    size: '1024x1024',
+    model: OPENAI_LOGO_IMAGE_MODEL,
+    background: 'transparent',
+    outputFormat: 'png',
+    compress: false,
+  };
+}
+
+/**
+ * @param {{
+ *   prompt: string,
+ *   size?: string,
+ *   quality?: string,
+ *   background?: string,
+ *   outputFormat?: string,
+ *   model?: string,
+ *   compress?: boolean,
+ * }} opts
+ * @returns {Promise<{ buffer: Buffer, provider: 'openai' }>}
+ */
+export async function generateOpenaiImage(opts = {}) {
+  const { compress = true } = opts;
+  const body = openaiGenerateBody(opts);
+  if (!body.prompt) throw Object.assign(new Error('prompt required'), { status: 400 });
+  const key = openaiKey();
   const json = await fetchOpenaiImageJson(GEN_URL, {
     method: 'POST',
     headers: {

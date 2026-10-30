@@ -17,6 +17,13 @@ import path from 'node:path';
 import { addLastCost, pathsFor, RESEARCH_DIR } from './candidates.mjs';
 import { recordRoverApiSpend } from './rover-api-spend.mjs';
 import { loadAcceptedSiteConfig } from './content-markdown.mjs';
+import {
+  PHOTO_BLOCK_SLOT_SECTIONS,
+  getNichePhotoBlocks,
+  readStampedPhotoBlockSections,
+  readStampedPhotoBlockVersion,
+  shouldReplaceNicheMasterPhotoBlocks,
+} from './niche-photo-blocks.mjs';
 import { loadSectionRegistry } from './content-structure.mjs';
 import { configuredImageProviders } from './image-providers/registry.mjs';
 import {
@@ -1253,6 +1260,38 @@ export function upsertNicheMaster(candidateId) {
   const idx = structureIndexForCandidate(candidateId);
   const master = ensureMaster(niche);
   if (!master.sourceCandidateId) master.sourceCandidateId = candidateId;
+  const catalog = getNichePhotoBlocks(niche);
+  const replaceSections = new Set(readStampedPhotoBlockSections(candidateId));
+  if (
+    shouldReplaceNicheMasterPhotoBlocks({
+      masterVersion: master.photoBlockVersion,
+      siteVersion: readStampedPhotoBlockVersion(candidateId),
+      catalogVersion: catalog?.version,
+    })
+  ) {
+    const dropNames = new Set();
+    const kept = [];
+    for (const slot of master.slots || []) {
+      const section = String(slot?.sectionId || '');
+      if (PHOTO_BLOCK_SLOT_SECTIONS.has(section) && replaceSections.has(section)) {
+        if (slot.filename) dropNames.add(path.basename(String(slot.filename)));
+        for (const variant of slot.variants || []) {
+          if (variant?.filename) dropNames.add(path.basename(String(variant.filename)));
+        }
+        continue;
+      }
+      kept.push(slot);
+    }
+    const keptNames = new Set(
+      kept.map((slot) => path.basename(String(slot?.filename || ''))).filter(Boolean),
+    );
+    for (const name of dropNames) {
+      if (!name || keptNames.has(name)) continue;
+      unlinkQuiet(path.join(master.dir, name));
+    }
+    master.slots = kept;
+    master.photoBlockVersion = Number(catalog.version);
+  }
   const knownIds = new Set((master.slots || []).map((s) => s.photoId).filter(Boolean));
   let added = 0;
   let updated = 0;

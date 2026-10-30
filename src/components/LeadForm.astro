@@ -8,8 +8,7 @@ interface Props {
 
 const { heading = 'Get a free estimate', compact = false } = Astro.props;
 const hasTurnstile = Boolean(site.turnstileSiteKey);
-const hasPlaceholderKey =
-  /^(YOUR_|REPLACE_WEB3FORMS)/i.test(site.web3FormsAccessKey || '');
+const ingestUrl = site.formsIngestUrl || '';
 ---
 
 <section
@@ -22,7 +21,7 @@ const hasPlaceholderKey =
   aria-labelledby="form-heading"
 >
   <div class:list={[!compact && 'mx-auto max-w-5xl px-4 py-12 sm:px-6 sm:py-16']}>
-    <div class:list={['max-w-xl', !compact && 'mx-auto text-center']}>
+    <div data-rover-intro class:list={['max-w-xl', !compact && 'mx-auto text-center']}>
       <h2
         id="form-heading"
         class:list={[
@@ -42,12 +41,9 @@ const hasPlaceholderKey =
         'grid max-w-xl',
         compact ? 'mt-4 gap-3 lg:mt-5' : 'mx-auto mt-8 gap-4',
       ]}
-      action="https://api.web3forms.com/submit"
       method="POST"
+      data-rover-form
     >
-      <input type="hidden" name="access_key" value={site.web3FormsAccessKey} />
-      <input type="hidden" name="subject" value={`Lead: ${site.businessName}`} />
-      <input type="hidden" name="from_name" value={site.businessName} />
       <input type="checkbox" name="botcheck" class="hidden" tabindex="-1" autocomplete="off" />
 
       <div>
@@ -96,14 +92,14 @@ const hasPlaceholderKey =
         )
       }
 
-      <button type="submit" class:list={['btn-primary w-full', !compact && 'sm:w-auto']}>
+      <button type="submit" class:list={['btn-primary w-full disabled:cursor-wait disabled:opacity-70', !compact && 'sm:w-auto']}>
         {site.primaryCta}
       </button>
+      <p class="form-status text-sm text-ink" data-rover-status hidden></p>
       {
-        hasPlaceholderKey && (
+        !ingestUrl && (
           <p class="text-xs text-ink">
-            Web3Forms key is still a placeholder — form submissions will fail until you paste a real
-            key in site-config / Launch.
+            This form is not connected yet.
           </p>
         )
       }
@@ -112,3 +108,111 @@ const hasPlaceholderKey =
 </section>
 
 {hasTurnstile && <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer />}
+
+<script define:vars={{ ingestUrl, domain: site.domain, phone: site.phone || '' }}>
+  const bind = (form) => {
+    if (!(form instanceof HTMLFormElement) || form.dataset.roverInbox) return;
+    form.dataset.roverInbox = '1';
+    const status = form.querySelector('[data-rover-status]');
+    const button = form.querySelector('button[type="submit"]');
+    const label = button ? button.textContent : '';
+    const showThanks = () => {
+      const intro = form.closest('section')?.querySelector('[data-rover-intro]');
+      if (intro) intro.hidden = true;
+      form.hidden = true;
+      const note = document.createElement('p');
+      note.textContent = 'Thanks — we received your message.';
+      form.insertAdjacentElement('afterend', note);
+    };
+    const showError = (text) => {
+      if (status) {
+        status.hidden = false;
+        status.textContent = text;
+      }
+      if (button) {
+        button.disabled = false;
+        button.removeAttribute('aria-busy');
+        button.textContent = label;
+      }
+      form.dataset.roverInboxSent = '';
+    };
+    form.addEventListener('submit', (event) => {
+      event.preventDefault();
+      if (form.dataset.roverInboxSent === '1') return;
+      const data = new FormData(form);
+      if (String(data.get('botcheck') || '').trim()) {
+        showThanks();
+        return;
+      }
+      if (!ingestUrl) {
+        showError(phone ? `This form is not connected yet. Please call ${phone}.` : 'This form is not connected yet.');
+        return;
+      }
+      form.dataset.roverInboxSent = '1';
+      if (button) {
+        button.disabled = true;
+        button.setAttribute('aria-busy', 'true');
+        button.textContent = 'Sending…';
+      }
+      if (status) status.hidden = true;
+      const payload = {
+        domain,
+        deliver: true,
+        page_url: location.href,
+        name: String(data.get('name') || ''),
+        phone: String(data.get('phone') || ''),
+        email: String(data.get('email') || ''),
+        service: String(data.get('service') || ''),
+        message: String(data.get('message') || ''),
+      };
+      fetch(ingestUrl, {
+        method: 'POST',
+        mode: 'cors',
+        headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
+        body: JSON.stringify(payload),
+      })
+        .then(async (res) => {
+          let body = null;
+          try {
+            body = await res.json();
+          } catch {
+            body = null;
+          }
+          if (res.ok && body && body.ok !== false) {
+            showThanks();
+            return;
+          }
+          const code = body && body.error;
+          if (code === 'rate_limited') {
+            showError(
+              phone
+                ? `Too many messages from this network. Please call ${phone} or try again later.`
+                : 'Too many messages from this network. Please try again later.',
+            );
+            return;
+          }
+          if (body && body.stored) {
+            showError(
+              phone
+                ? `We saved your message but could not email it. Please call ${phone}.`
+                : 'We saved your message but could not email it. Please try again later.',
+            );
+            return;
+          }
+          showError(
+            phone
+              ? `We could not send your message. Please call ${phone}.`
+              : 'We could not send your message. Please try again.',
+          );
+        })
+        .catch(() => {
+          showError(
+            phone
+              ? `We could not send your message. Please call ${phone}.`
+              : 'We could not send your message. Please try again.',
+          );
+        });
+    });
+  };
+  document.querySelectorAll('form[data-rover-form]').forEach(bind);
+</script>

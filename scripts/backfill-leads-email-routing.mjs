@@ -1,5 +1,5 @@
 /**
- * Audit/fix Cloudflare Email Routing: leads@{domain} → WEB3FORMS_DEFAULT_NOTIFY_EMAIL.
+ * Audit/fix Cloudflare Email Routing: leads@{domain} → LEAD_NOTIFY_EMAIL.
  * Does not attach domains or ship sites.
  *
  * Run: node scripts/backfill-leads-email-routing.mjs
@@ -20,12 +20,12 @@ import {
 loadEnvFile();
 
 const dry = process.argv.includes('--dry');
-const dest = String(process.env.WEB3FORMS_DEFAULT_NOTIFY_EMAIL || '')
+const dest = String(process.env.LEAD_NOTIFY_EMAIL || process.env.WEB3FORMS_DEFAULT_NOTIFY_EMAIL || '')
   .trim()
   .toLowerCase();
 
 if (!dest || !dest.includes('@')) {
-  console.error('Set WEB3FORMS_DEFAULT_NOTIFY_EMAIL in .env');
+  console.error('Set LEAD_NOTIFY_EMAIL in .env');
   process.exit(1);
 }
 if (!cloudflareConfigured()) {

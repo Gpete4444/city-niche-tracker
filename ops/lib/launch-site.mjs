@@ -1,13 +1,13 @@
 /**
- * Orchestrate Rover launch: patch assembled site-config (Web3Forms / NAP / Turnstile),
+ * Orchestrate Rover launch: patch assembled site-config (NAP / leads email),
  * run Cloudflare helpers, set checklist meta flags.
  */
 
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { getCandidateDetail, pathsFor, saveMeta } from './candidates.mjs';
-import { getAssembleChecklist } from './assemble-site.mjs';
+import { getCandidateDetail, launchStampPatch, pathsFor, saveMeta } from './candidates.mjs';
+import { getAssembleChecklist, templateComponentsNewerThanAssembled, templateStaleLaunchError } from './assemble-site.mjs';
 import { loadAcceptedSiteConfig } from './content-markdown.mjs';
 import {
   cloudflareConfigured,
@@ -22,6 +22,7 @@ import {
   effectiveSiteConfigForLaunch,
   getSiteConfigDraft,
 } from './site-config.mjs';
+import { formsInboxStatus, formsIngestSubmitUrl, syncFormsAllowlist } from './forms-inbox.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
@@ -47,7 +48,7 @@ function resolveAssembledRoot(detail) {
 }
 
 function defaultNotifyEmail() {
-  return String(process.env.WEB3FORMS_DEFAULT_NOTIFY_EMAIL || '').trim();
+  return String(process.env.LEAD_NOTIFY_EMAIL || process.env.WEB3FORMS_DEFAULT_NOTIFY_EMAIL || '').trim();
 }
 
 export function isLaunchWeb3Placeholder(key) {
@@ -84,7 +85,7 @@ export function isLaunchPhonePlaceholder(phone) {
  * Hard blockers for Auto ship / first go-live.
  * @returns {{ id: string, label: string }[]}
  */
-export function collectLaunchBlockers(config = {}) {
+export function collectLaunchBlockers(config = {}, opts = {}) {
   const issues = [];
   if (isLaunchDomainPlaceholder(config.domain)) {
     issues.push({ id: 'domain', label: 'Domain still empty or example.com' });
@@ -95,10 +96,20 @@ export function collectLaunchBlockers(config = {}) {
       label: 'Phone still a placeholder (provision Twilio or set a real number)',
     });
   }
-  if (isLaunchWeb3Placeholder(config.web3FormsAccessKey)) {
+  const inboxReady =
+    opts.formsInboxReady !== undefined ? Boolean(opts.formsInboxReady) : formsInboxStatus().ready;
+  if (!inboxReady) {
     issues.push({
-      id: 'web3',
-      label: 'Web3Forms access key missing or placeholder — create at web3forms.com and paste',
+      id: 'forms',
+      label: 'Forms inbox is not set up. Open Phone/Form and click Set up inbox.',
+    });
+  }
+  const destination = String(opts.destinationEmail ?? defaultNotifyEmail() ?? '').trim();
+  if (!destination) {
+    issues.push({
+      id: 'destination',
+      label:
+        'Email Routing destination missing — set it in Launch or LEAD_NOTIFY_EMAIL',
     });
   }
   return issues;
@@ -137,6 +148,8 @@ export function patchLaunchSiteConfig(candidateId, patch = {}) {
   if (patch.turnstileSiteKey !== undefined) {
     next.turnstileSiteKey = String(patch.turnstileSiteKey || '').trim();
   }
+  const formsIngest = formsIngestSubmitUrl();
+  if (formsIngest) next.formsIngestUrl = formsIngest;
 
   Object.assign(next, ensureBusinessNameNotNiche(next));
   if (next.domain) {
@@ -222,6 +235,11 @@ export async function launchSite(candidateId, opts = {}) {
     throw err;
   }
 
+  if (opts.ship !== false) {
+    const stale = templateStaleLaunchError(assembledRoot);
+    if (stale) throw stale;
+  }
+
   const loaded = loadAcceptedSiteConfig(candidateId);
   const base = loaded?.config || {};
   const domain = normalizeDomain(opts.domain || base.domain);
@@ -253,11 +271,10 @@ export async function launchSite(candidateId, opts = {}) {
     turnstileSiteKey: opts.turnstileSiteKey,
   });
 
-  const web3Key = String(patched.config.web3FormsAccessKey || '').trim();
-  const formsDone = Boolean(web3Key) && !isLaunchWeb3Placeholder(web3Key);
+  const formsDone = formsInboxStatus().ready && Boolean(destinationEmail);
 
   const doShip = opts.ship !== false;
-  const blockers = collectLaunchBlockers(patched.config);
+  const blockers = collectLaunchBlockers(patched.config, { destinationEmail });
   if (doShip && blockers.length && opts.allowIncompleteLaunch !== true) {
     const err = new Error(
       `Launch blocked — fix before shipping: ${blockers.map((b) => b.label).join('; ')}`,
@@ -269,12 +286,14 @@ export async function launchSite(candidateId, opts = {}) {
   }
 
   const human = [];
-  if (!formsDone) {
-    human.push(
-      `Create a form at https://web3forms.com. Set Recipient Emails to ${email || 'the Leads email (leads@yourdomain)'}, not the Web3Forms account Gmail. Paste the access key into Launch, then re-run.`,
-    );
+  if (!formsInboxStatus().ready) {
+    human.push('Set up the forms inbox on Phone/Form, then re-run Launch so the contact form can deliver leads.');
+  } else if (!destinationEmail) {
+    human.push('Set the Email Routing destination so Rover can email the lead to your inbox.');
   } else {
-    human.push('Web3Forms key written to assembled site-config.');
+    human.push(
+      `Rover emails leads from ${email || `leads@${domain || 'the domain'}`} to ${destinationEmail}.`,
+    );
   }
   if (blockers.length && opts.allowIncompleteLaunch === true) {
     human.push(
@@ -321,7 +340,7 @@ export async function launchSite(candidateId, opts = {}) {
           leadsEmail: email.includes('@') ? email : `leads@${domain}`,
           destinationEmail,
           workerName,
-          createTurnstile: Boolean(opts.createTurnstile),
+          createTurnstile: false,
           attachDomain: opts.attachDomain !== false,
           setupEmail: opts.setupEmail !== false,
         });
@@ -350,13 +369,10 @@ export async function launchSite(candidateId, opts = {}) {
 
   const metaPatch = {
     formsDone,
+    notifyEmail: destinationEmail || null,
     launchDomain: domain || null,
+    ...launchStampPatch(detail.meta, { ok, at: new Date().toISOString() }),
   };
-  if (ok) {
-    metaPatch.lastLaunchAt = new Date().toISOString();
-  } else {
-    metaPatch.lastLaunchAttemptAt = new Date().toISOString();
-  }
 
   if (ship?.steps?.github?.fullName) {
     metaPatch.githubRepo = ship.steps.github.fullName;
@@ -394,6 +410,14 @@ export async function launchSite(candidateId, opts = {}) {
   const checklist = getAssembleChecklist(candidateId);
   const site = upsertSiteAfterLaunch(candidateId);
 
+  if (formsInboxStatus().ready) {
+    try {
+      await syncFormsAllowlist();
+    } catch (error) {
+      human.push(`Forms allowlist not updated: ${error.message}`);
+    }
+  }
+
   return {
     ok,
     candidateId,
@@ -425,7 +449,8 @@ export function getLaunchStatus(candidateId) {
   const config = effectiveSiteConfigForLaunch(accepted, draft);
   const assembledRoot = resolveAssembledRoot(detail);
   const web3 = String(config.web3FormsAccessKey || '').trim();
-  const blockers = collectLaunchBlockers(config);
+  const inbox = formsInboxStatus();
+  const blockers = collectLaunchBlockers(config, { formsInboxReady: inbox.ready });
   return {
     candidateId,
     cloudflareConfigured: cloudflareConfigured(),
@@ -441,6 +466,8 @@ export function getLaunchStatus(candidateId) {
     email: config.email || null,
     web3FormsRecipient: publicLeadsEmail(config.email, config.domain) || null,
     web3FormsAccessKeySet: Boolean(web3) && !isLaunchWeb3Placeholder(web3),
+    formsInboxReady: inbox.ready,
+    templateStale: Boolean(assembledRoot && templateComponentsNewerThanAssembled(assembledRoot)),
     turnstileSiteKeySet: Boolean(String(config.turnstileSiteKey || '').trim()),
     formsDone: Boolean(detail.meta?.formsDone),
     dnsDone: Boolean(detail.meta?.dnsDone),

@@ -62,6 +62,10 @@ assert(
   Object.values(ten).every((bands) => bands.includes('svcProcess') && bands.includes('svcFaqs')),
   'every service keeps process + FAQs',
 );
+assert(
+  Object.values(ten).every((bands) => bands.includes('svcMaterials')),
+  'every service keeps materials',
+);
 assert(ten['popcorn-ceiling-removal']?.includes('svcCost') || ten['popcorn-ceiling-removal']?.includes('svcTimeline'), 'popcorn gets cost or timeline from tokens/volume');
 assert(ten['water-damage-drywall-repair']?.includes('svcCodes'), 'water damage prefers permits');
 

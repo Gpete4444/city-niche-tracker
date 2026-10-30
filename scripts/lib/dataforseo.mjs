@@ -1,6 +1,7 @@
 import { readFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { featureCentroid, findPlaceFeatureLocal } from '../../ops/lib/geo-neighbors.mjs';
+import { commonPlaceName, foldPlaceLabel } from '../../ops/lib/place-common-names.mjs';
 import { requestJson } from './http-json.mjs';
 
 export const DATAFORSEO_API_ACCESS_URL = 'https://app.dataforseo.com/api-access';
@@ -299,7 +300,7 @@ export async function loadSerpLocations(root = process.cwd()) {
   );
 }
 
-export function resolveNamedLocation(locations, city, stateCode) {
+function lookupNamedLocation(locations, city, stateCode) {
   const state = US_STATE_NAMES[String(stateCode || '').toUpperCase()];
   if (!state || !city) return null;
   const list = Array.isArray(locations) ? locations : [];
@@ -322,6 +323,14 @@ export function resolveNamedLocation(locations, city, stateCode) {
       return namedCity.replace(/\./g, '').replace(/\s+/g, ' ').trim() === normalizedCity;
     }) ?? null
   );
+}
+
+export function resolveNamedLocation(locations, city, stateCode) {
+  const exact = lookupNamedLocation(locations, city, stateCode);
+  if (exact) return exact;
+  const common = commonPlaceName(city, stateCode);
+  if (!common || foldPlaceLabel(common) === foldPlaceLabel(city)) return null;
+  return lookupNamedLocation(locations, common, stateCode);
 }
 
 export function resolveAdsLocation(locations, city, stateCode) {

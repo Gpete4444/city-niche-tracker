@@ -7,12 +7,21 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { normalizePlaceName } from './census.mjs';
 import { loadPlacesLayer, placesGeojsonPath as sharedPlacesGeojsonPath } from './census-map-layers.mjs';
+import {
+  commonPlaceName,
+  equivalentPlaceNames,
+  PLACE_COMMON_NAMES,
+} from './place-common-names.mjs';
 
 const ROOT = process.cwd();
 const MAP_DIR = path.join(ROOT, 'data', 'census', 'map');
 const NEIGHBORS_PATH = path.join(MAP_DIR, 'place-neighbors.json');
 
 const EARTH_MI = 3958.7613;
+
+/** Service-area radius previews stay at 100. Cluster/zone maps use MAX_CLUSTER_MILES. */
+export const MAX_SERVICE_RADIUS_MILES = 100;
+export const MAX_CLUSTER_MILES = 200;
 const TOUCH_EPS_DEG = 0.00035; // ~40m — shared-border / float gap
 
 /** @type {Record<string, Array<{ name: string, state: string, population: number }>> | null} */
@@ -31,7 +40,12 @@ export function placesGeojsonPath() {
 }
 
 export function neighborKey(city, state) {
-  return `${normalizePlaceName(city)}|${String(state || '').trim().toUpperCase()}`;
+  const abbr = String(state || '').trim().toUpperCase();
+  return `${normalizePlaceName(commonPlaceName(city, abbr))}|${abbr}`;
+}
+
+function featureGeoid(f) {
+  return String(f?.properties?.geoid || f?.properties?.GEOID || '').trim();
 }
 
 /** Flatten GeoJSON rings to [lng,lat][]. */
@@ -230,7 +244,16 @@ export function buildPlaceNeighborsIndex(placesFc) {
   };
 
   for (const [, list] of byState) {
-    const withBbox = list
+    // Name-keyed graph: only the largest-bbox place per name|state contributes edges
+    // (do not merge Sunnyvale with a distant same-name CDP's neighbors).
+    const winnerByName = new Map();
+    for (const f of list) {
+      const k = neighborKey(f.properties?.name, f.properties?.state);
+      if (k === '|') continue;
+      const prev = winnerByName.get(k);
+      if (!prev || placeBboxArea(f) > placeBboxArea(prev)) winnerByName.set(k, f);
+    }
+    const withBbox = [...winnerByName.values()]
       .map((f) => ({ f, bbox: featureBbox(f) }))
       .filter((x) => x.bbox);
     for (let i = 0; i < withBbox.length; i++) {
@@ -266,17 +289,46 @@ export function loadPlaceNeighbors() {
     err.code = 'map_neighbors_missing';
     throw err;
   }
-  neighborsCache = JSON.parse(readFileSync(NEIGHBORS_PATH, 'utf8'));
+  neighborsCache = applyNeighborCommonNames(JSON.parse(readFileSync(NEIGHBORS_PATH, 'utf8')));
   return neighborsCache;
+}
+
+function placeNameNeedles(city, state) {
+  const needles = new Set();
+  for (const label of equivalentPlaceNames(city, state)) {
+    const needle = normalizePlaceName(label);
+    if (needle) needles.add(needle);
+  }
+  return needles;
+}
+
+/** Old neighbor files key the Census name. Point the common name at that list and relabel entries. */
+function applyNeighborCommonNames(graph) {
+  if (!graph || typeof graph !== 'object') return graph;
+  for (const rows of Object.values(graph)) {
+    if (!Array.isArray(rows)) continue;
+    for (const row of rows) {
+      if (!row || typeof row !== 'object') continue;
+      const next = commonPlaceName(row.name, row.state);
+      if (next && next !== row.name) row.name = next;
+    }
+  }
+  for (const alias of PLACE_COMMON_NAMES) {
+    const from = `${normalizePlaceName(alias.censusName)}|${alias.state}`;
+    const to = `${normalizePlaceName(alias.commonName)}|${alias.state}`;
+    if (graph[from] && !graph[to]) graph[to] = graph[from];
+  }
+  return graph;
 }
 
 export function findPlaceFeatureLocal(city, state) {
   const { byState } = loadPlaces();
   const abbr = String(state || '').trim().toUpperCase();
+  const needles = placeNameNeedles(city, abbr);
   const needle = normalizePlaceName(city);
-  if (!needle || !abbr) return null;
+  if (!needles.size || !abbr) return null;
   const list = byState.get(abbr) || [];
-  const exact = list.filter((f) => normalizePlaceName(f.properties?.name) === needle);
+  const exact = list.filter((f) => needles.has(normalizePlaceName(f.properties?.name)));
   if (exact.length === 1) return exact[0];
   if (exact.length > 1) {
     return exact.reduce((best, f) => (placeBboxArea(f) > placeBboxArea(best) ? f : best));
@@ -302,10 +354,10 @@ function placeBboxArea(feature) {
 function placeFeaturesNamed(city, state) {
   const { byState } = loadPlaces();
   const abbr = String(state || '').trim().toUpperCase();
-  const needle = normalizePlaceName(city);
-  if (!needle || !abbr) return [];
+  const needles = placeNameNeedles(city, abbr);
+  if (!needles.size || !abbr) return [];
   const list = byState.get(abbr) || [];
-  const exact = list.filter((f) => normalizePlaceName(f.properties?.name) === needle);
+  const exact = list.filter((f) => needles.has(normalizePlaceName(f.properties?.name)));
   if (exact.length) return exact;
   const one = findPlaceFeatureLocal(city, state);
   return one ? [one] : [];
@@ -330,7 +382,12 @@ export function adjacentPlaces(primaryCity, state, { minPop = 5000 } = {}) {
  *   radiusMiles: number
  * }}
  */
-export function placesIntersectingRadius(primaryCity, state, radiusMiles, { minPop = 5000, maxPop = null } = {}) {
+export function placesIntersectingRadius(
+  primaryCity,
+  state,
+  radiusMiles,
+  { minPop = 5000, maxPop = null, maxMiles = MAX_SERVICE_RADIUS_MILES } = {},
+) {
   const primary = findPlaceFeatureLocal(primaryCity, state);
   if (!primary) {
     const err = new Error(`No Census place match for ${primaryCity}, ${state}`);
@@ -344,7 +401,8 @@ export function placesIntersectingRadius(primaryCity, state, radiusMiles, { minP
     throw err;
   }
   const [lng, lat] = center;
-  const miles = Math.max(1, Math.min(100, Number(radiusMiles) || 15));
+  const mileCap = Math.max(1, Number(maxMiles) || MAX_SERVICE_RADIUS_MILES);
+  const miles = Math.max(1, Math.min(mileCap, Number(radiusMiles) || 15));
   const padLng = milesToDegLng(miles + 2, lat);
   const padLat = milesToDegLat(miles + 2);
   const bbox = [lng - padLng, lat - padLat, lng + padLng, lat + padLat];
@@ -357,7 +415,8 @@ export function placesIntersectingRadius(primaryCity, state, radiusMiles, { minP
   const candidates = [];
   const seen = new Set();
   const consider = (f) => {
-    const k = neighborKey(f.properties?.name, f.properties?.state);
+    const geoid = featureGeoid(f);
+    const k = geoid || `i:${candidates.length}`;
     if (seen.has(k)) return;
     seen.add(k);
     candidates.push(f);
@@ -372,14 +431,17 @@ export function placesIntersectingRadius(primaryCity, state, radiusMiles, { minP
 
   const places = [];
   const outFeatures = [];
+  const primaryGeoid = featureGeoid(primary);
   const primaryKey = neighborKey(primary.properties.name, primary.properties.state);
 
   for (const f of candidates) {
     const pop = Number(f.properties?.population) || 0;
     const name = f.properties?.name;
     const st = String(f.properties?.state || '').toUpperCase();
-    const key = neighborKey(name, st);
-    const isPrimary = key === primaryKey;
+    const geoid = featureGeoid(f);
+    const isPrimary = primaryGeoid
+      ? geoid === primaryGeoid
+      : neighborKey(name, st) === primaryKey;
     const inRadius =
       isPrimary || geometryIntersectsDisk(f.geometry, lng, lat, miles);
     if (!inRadius) continue;
@@ -482,10 +544,13 @@ export function shotgunRingPools(
 ) {
   const band = citiesBand || wave1 || { min: 8000, max: 60000 };
   const outerBand = citiesBand || wave2 || band;
-  const inner = Math.max(1, Math.min(100, Number(innerMiles) || 15));
-  const outer = Math.max(inner, Math.min(100, Number(outerMiles) || 30));
+  const inner = Math.max(1, Math.min(MAX_CLUSTER_MILES, Number(innerMiles) || 15));
+  const outer = Math.max(inner, Math.min(MAX_CLUSTER_MILES, Number(outerMiles) || 30));
   const minScan = Math.min(Number(band.min) || 0, Number(outerBand.min) || 0);
-  const scan = placesIntersectingRadius(primaryCity, state, outer, { minPop: minScan });
+  const scan = placesIntersectingRadius(primaryCity, state, outer, {
+    minPop: minScan,
+    maxMiles: MAX_CLUSTER_MILES,
+  });
   const [lng, lat] = scan.primary.center || [];
   const innerPool = [];
   const outerPool = [];

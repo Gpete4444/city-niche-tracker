@@ -269,6 +269,119 @@ export async function workerExists(scriptName) {
 }
 
 /**
+ * Which apex/www hostnames still need attaching to this Worker.
+ * A hostname already on this service is left alone. A hostname on a different service is a conflict, not a move.
+ * @param {Array<{ hostname?: string, service?: string }>} existing
+ * @param {{ apex?: string, www?: string, service?: string }} want
+ * @returns {{ missing: string[], already: string[], conflicts: { hostname: string, service: string }[] }}
+ */
+export function missingWorkerHostnames(existing, want = {}) {
+  const service = String(want.service || '').trim();
+  const rows = Array.isArray(existing) ? existing : [];
+  const hosts = [want.apex, want.www]
+    .map((host) => String(host || '').trim().toLowerCase())
+    .filter(Boolean);
+  const missing = [];
+  const already = [];
+  const conflicts = [];
+  for (const hostname of hosts) {
+    const hit = rows.find((row) => String(row?.hostname || '').trim().toLowerCase() === hostname);
+    if (!hit) {
+      missing.push(hostname);
+      continue;
+    }
+    const on = String(hit.service || '').trim();
+    if (!on || on === service) already.push(hostname);
+    else conflicts.push({ hostname, service: on });
+  }
+  return { missing, already, conflicts };
+}
+
+function isAttachableLaunchDomain(domain) {
+  const d = normalizeDomain(domain);
+  if (!d || !d.includes('.')) return false;
+  if (d === 'example.com' || d.endsWith('.example.com')) return false;
+  return true;
+}
+
+/**
+ * List Worker custom domains on the account.
+ */
+export async function listWorkerDomains() {
+  const { accountId } = getCloudflareCredentials();
+  const result = await cfFetch('GET', `/accounts/${accountId}/workers/domains?per_page=100`);
+  return Array.isArray(result) ? result : [];
+}
+
+/**
+ * Attach apex + www when those hostnames are not already on this Worker.
+ * Does not move a hostname off another Worker and does not touch Email Routing.
+ * A missing zone is reported and does not throw.
+ * @param {{ domain: string, workerName: string }} opts
+ */
+export async function ensureWorkerCustomDomains(opts) {
+  const domain = normalizeDomain(opts.domain);
+  const workerName = String(opts.workerName || '').trim();
+  const human = [];
+  if (!isAttachableLaunchDomain(domain) || !workerName) {
+    return { ok: false, skipped: true, reason: 'missing_domain', human, dnsDone: false };
+  }
+  if (!cloudflareConfigured()) {
+    return { ok: false, skipped: true, reason: 'no_credentials', human, dnsDone: false };
+  }
+  const zone = await findZone(domain);
+  if (!zone) {
+    human.push(`No Cloudflare zone for ${domain} — custom domain not attached.`);
+    return { ok: false, skipped: true, reason: 'no_zone', human, dnsDone: false, domain, workerName };
+  }
+  let existing = [];
+  try {
+    existing = await listWorkerDomains();
+  } catch (error) {
+    human.push(`Could not list Worker domains: ${error.message}`);
+    return { ok: false, error: error.message, human, dnsDone: false, domain, workerName };
+  }
+  const plan = missingWorkerHostnames(existing, {
+    apex: domain,
+    www: `www.${domain}`,
+    service: workerName,
+  });
+  for (const row of plan.conflicts) {
+    human.push(
+      `Custom domain ${row.hostname} is on Worker "${row.service}", not "${workerName}". Left it there.`,
+    );
+  }
+  const attached = [];
+  for (const hostname of plan.missing) {
+    try {
+      await attachWorkerCustomDomain({
+        hostname,
+        service: workerName,
+        zoneId: zone.id,
+        allowWww: hostname.startsWith('www.'),
+      });
+      attached.push(hostname);
+      human.push(`Attached custom domain ${hostname} → Worker "${workerName}".`);
+    } catch (error) {
+      human.push(`Custom domain attach failed for ${hostname}: ${error.message}`);
+    }
+  }
+  const apexOnWorker = plan.already.includes(domain) || attached.includes(domain);
+  const apexConflict = plan.conflicts.some((row) => row.hostname === domain);
+  return {
+    ok: apexOnWorker && !apexConflict,
+    domain,
+    workerName,
+    zoneId: zone.id,
+    attached,
+    already: plan.already,
+    conflicts: plan.conflicts,
+    human,
+    dnsDone: apexOnWorker && !apexConflict,
+  };
+}
+
+/**
  * Attach custom domain (hostname) to a Worker. Zone must be on Cloudflare.
  * @param {{ hostname: string, service: string, environment?: string, zoneId?: string }} opts
  */
@@ -447,7 +560,7 @@ export async function runCloudflareLaunch(opts) {
   if (setupEmail) {
     if (!destinationEmail) {
       human.push(
-        'Set Email Routing destination (Gmail) in Launch or WEB3FORMS_DEFAULT_NOTIFY_EMAIL in .env to create the leads@ rule.',
+        'Set Email Routing destination (Gmail) in Launch or LEAD_NOTIFY_EMAIL in .env to create the leads@ rule.',
       );
       steps.emailRouting = { skipped: true, reason: 'missing_destination' };
     } else {
@@ -499,7 +612,7 @@ export async function runCloudflareLaunch(opts) {
       steps.worker = { name: workerName, exists };
       if (!exists) {
         human.push(
-          `Worker "${workerName}" not found yet. Re-run Launch with Auto ship (or wait a few seconds after Wrangler deploy) to attach ${domain}.`,
+          `Worker "${workerName}" not found yet. The next Push updates attaches ${domain} after the Worker deploy succeeds.`,
         );
         steps.workerDomain = { skipped: true, reason: 'worker_missing' };
       } else {
@@ -539,22 +652,16 @@ export async function runCloudflareLaunch(opts) {
   }
 
   if (wantTurnstile) {
-    try {
-      steps.turnstile = await createTurnstileWidget(domain, `rr-${workerName || domain}`);
-    } catch (error) {
-      steps.turnstile = { error: error.message };
-      human.push(`Turnstile create failed: ${error.message}`);
-    }
+    human.push(
+      'Turnstile widgets are not created per site. The form uses a honeypot, the domain allowlist, and a per-IP rate limit.',
+    );
   }
 
   const emailOk =
     !setupEmail ||
     (Boolean(steps.leadsRule?.rule || steps.leadsRule?.created === false) &&
       !steps.leadsRule?.error);
-  const domainOk =
-    !attachDomain ||
-    Boolean(steps.workerDomain?.domain) ||
-    steps.workerDomain?.skipped;
+  const domainAttached = !attachDomain || Boolean(steps.workerDomain?.domain);
 
   return {
     ok: Boolean(zone) && (!setupEmail || emailOk || steps.destination),
@@ -566,6 +673,7 @@ export async function runCloudflareLaunch(opts) {
     steps,
     human,
     turnstileSiteKey: steps.turnstile?.sitekey || null,
+    domainAttached,
     dnsDone: Boolean(steps.workerDomain?.domain),
     emailRoutingDone: Boolean(steps.leadsRule?.rule && !steps.leadsRule?.error),
   };

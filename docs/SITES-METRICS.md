@@ -36,14 +36,14 @@ GOOGLE_GSC_CLIENT_SECRET=
 
 ## Operator actions
 
-Toolbar Sync GSC / Check index / Check ranks (and per-site Sync / Check) show a **progress bar** with `N/M · domain` while work runs; metrics buttons stay disabled until finished.
+Toolbar Sync GSC (and per-site Sync / Check) shows a **progress bar** with `N/M · domain` while work runs. Check index runs up to 4 sites at a time and shows `done/total` plus the domains in flight. Check ranks posts every selected keyword first and shows how many keywords are ready. Metrics buttons stay disabled until finished.
 
 | Button | What it does |
 | --- | --- |
 | Connect GSC | OAuth; stores refresh token in `research/gsc-oauth.json` (shows waiting progress until Google returns) |
 | Sync GSC | 28d clicks/impressions, top queries/pages, ~90d daily series, sitemap submitted count. Does **not** update Indexed. |
-| Check index | URL Inspection of each live sitemap URL (includes `/privacy`). First run ~5–30s per site; later runs skip URLs indexed in the last 7 days. |
-| Check ranks | All eligible sites; ≤5 keywords; Standard queue |
+| Check index | URL Inspection of each live sitemap URL (includes `/privacy`). Multi-site runs 4 sites at a time; URLs inside a site stay sequential. First run ~5–30s of inspection work per site; later runs skip URLs indexed in the last 7 days. |
+| Check ranks | DataForSEO Standard organic SERP (depth 20), up to 5 keywords. Multi-site posts every keyword first and collects them in one queue wait. Cost is unchanged. |
 | Per-site Sync / Check / keywords | Same, scoped to one row |
 
 Primary keyword defaults to `{niche} {city}` from hydrated site-config; edit up to 5 on the detail panel.

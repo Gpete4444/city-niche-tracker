@@ -17,6 +17,9 @@ pnpm-debug.log*
 .env
 .env.production
 
+# generated when Rover provisions the forms inbox
+ops/forms-worker/wrangler.local.json
+
 # local candidate research outputs (may contain paid API data)
 research/
 

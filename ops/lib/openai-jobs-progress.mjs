@@ -64,10 +64,13 @@ export function openaiJobIdsMissingFromSnap(jobIds, snapJobs) {
   return out;
 }
 
+function handledIdSet(handled) {
+  return handled instanceof Set ? handled : new Set([...(handled || [])].map((id) => String(id)));
+}
+
 /** Batch ids still in the snap and not yet handled (not pruned-missing). */
 export function openaiBatchPendingInSnap(jobIds, { handled, snapJobs } = {}) {
-  const handledSet =
-    handled instanceof Set ? handled : new Set([...(handled || [])].map((id) => String(id)));
+  const handledSet = handledIdSet(handled);
   const seen = new Set(
     (Array.isArray(snapJobs) ? snapJobs : []).map(openaiSnapJobId).filter(Boolean),
   );
@@ -75,6 +78,60 @@ export function openaiBatchPendingInSnap(jobIds, { handled, snapJobs } = {}) {
     const id = String(raw || '').trim();
     return Boolean(id) && seen.has(id) && !handledSet.has(id);
   });
+}
+
+/** Batch ids not yet settled. An id missing from the snapshot stays open until handled. */
+export function openaiBatchUnresolvedIds(jobIds, handled) {
+  const handledSet = handledIdSet(handled);
+  const out = [];
+  const used = new Set();
+  for (const raw of jobIds || []) {
+    const id = String(raw || '').trim();
+    if (!id || used.has(id) || handledSet.has(id)) continue;
+    used.add(id);
+    out.push(id);
+  }
+  return out;
+}
+
+/**
+ * Progress for one generate click. Ids not listed yet count as running.
+ * Older done jobs in the snapshot are ignored.
+ * @returns {{ running: number, queued: number, done: number, error: number, active: number, total: number }}
+ */
+export function openaiOpenBatchProgress(jobIds, snapJobs, handled) {
+  const handledSet = handledIdSet(handled);
+  const byId = new Map();
+  for (const job of Array.isArray(snapJobs) ? snapJobs : []) {
+    const id = openaiSnapJobId(job);
+    if (id && !byId.has(id)) byId.set(id, job);
+  }
+  const ids = [];
+  const used = new Set();
+  for (const raw of jobIds || []) {
+    const id = String(raw || '').trim();
+    if (!id || used.has(id)) continue;
+    used.add(id);
+    ids.push(id);
+  }
+  let running = 0;
+  let queued = 0;
+  let done = 0;
+  let error = 0;
+  for (const id of ids) {
+    const job = byId.get(id);
+    if (!job) {
+      if (handledSet.has(id)) done += 1;
+      else running += 1;
+      continue;
+    }
+    if (job.status === 'queued') queued += 1;
+    else if (job.status === 'done') done += 1;
+    else if (job.status === 'error') error += 1;
+    else running += 1;
+  }
+  const active = running + queued;
+  return { running, queued, done, error, active, total: ids.length };
 }
 
 /** Busy overlay keys with no running/queued OpenAI job in the snap. */

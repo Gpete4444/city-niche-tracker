@@ -125,7 +125,7 @@ Per site midpoints from [USER-FLOW.md](USER-FLOW.md) (**no** Discovery/Research)
 |-------|----:|--------:|-------------------------|
 | Site-Config | ~3 min | ~4 min | Overlap across wave |
 | Content | ~2 min | ~20 min | Full write ~15 min — main overlap win |
-| Launch | ~8 min | ~7 min | Domain/Web3Forms + serial ship |
+| Launch | ~8 min | ~7 min | Domain + serial ship |
 | **Per site** | **~13 min** | **~31 min** | |
 
 **10 sites hands-on:** ~130 min (~2.2 h) — daily **You** budget only.

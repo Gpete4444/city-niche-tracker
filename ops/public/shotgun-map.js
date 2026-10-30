@@ -1,15 +1,16 @@
 /**
  * Zone metro map: Cluster paint palette, Cluster prefix on labels, one Zone radius, 20 mi rings.
  */
-import { explodePlaceFeatures, isLargestPart } from './map-polygons.js?v=20260902mapFill';
+import { explodePlaceFeatures, isLargestPart, labelAnchorLngLat } from './map-polygons.js?v=20261022label';
 import {
   CLUSTER_MAX,
+  MAX_CLUSTER_MILES,
   cityMapLabel,
   clampClusterMiles,
   clusterColor,
   memberClusterKey,
   parseClusterKey,
-} from './shotgun-clusters.js?v=20260915purge';
+} from './shotgun-clusters.js?v=20261022miles';
 
 const LEAFLET_LOAD_MS = 8000;
 let lastPaintTool = 'cluster';
@@ -19,6 +20,20 @@ const LABEL_PX_MIN = 8;
 const LABEL_PX_MAX = 18;
 const LABEL_PX_DEFAULT = 12;
 const LABEL_PX_KEY = 'ops.sgLabelPx';
+const MAP_POP_KEY = 'ops.sgMapPop';
+
+/** Paint undo survives hub remounts. Keyed by discovery batch or zone id. */
+const undoSessions = new Map();
+
+function undoSession(scope) {
+  const key = String(scope || 'shotgun');
+  let session = undoSessions.get(key);
+  if (!session) {
+    session = { stack: [], sync: null };
+    undoSessions.set(key, session);
+  }
+  return session;
+}
 
 function clampLabelPx(raw) {
   const n = Math.round(Number(raw));
@@ -39,6 +54,32 @@ function readLabelPx() {
 function writeLabelPx(px) {
   try {
     localStorage.setItem(LABEL_PX_KEY, String(px));
+  } catch {
+    /* ignore */
+  }
+}
+
+function readSavedMapPop() {
+  try {
+    const raw = localStorage.getItem(MAP_POP_KEY);
+    if (raw == null || String(raw).trim() === '') return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') return null;
+    return {
+      min: parsed.min == null ? '' : String(parsed.min),
+      max: parsed.max == null ? '' : String(parsed.max),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function writeSavedMapPop(min, max) {
+  try {
+    localStorage.setItem(
+      MAP_POP_KEY,
+      JSON.stringify({ min: String(min ?? ''), max: String(max ?? '') }),
+    );
   } catch {
     /* ignore */
   }
@@ -138,7 +179,7 @@ function addMileRings(L, map, center) {
   const lat = Number(center?.[1]);
   const layers = [];
   if (!Number.isFinite(lng) || !Number.isFinite(lat)) return layers;
-  for (const miles of [20, 40, 60, 80, 100]) {
+  for (let miles = 20; miles <= MAX_CLUSTER_MILES; miles += 20) {
     layers.push(
       L.circle([lat, lng], {
         radius: miles * 1609.34,
@@ -335,13 +376,7 @@ function featureMiles(feature, center) {
   return haversineMi(center[0], center[1], lng / n, lat / n);
 }
 
-function labelAnchorLatLng(layer, feature) {
-  try {
-    const b = typeof layer.getBounds === 'function' ? layer.getBounds() : null;
-    if (b && b.isValid()) return b.getCenter();
-  } catch {
-    /* fall through */
-  }
+function vertexAverageLatLng(feature) {
   const geom = feature?.geometry;
   if (!geom || !Lref) return null;
   let rings = [];
@@ -370,6 +405,25 @@ function labelAnchorLatLng(layer, feature) {
   }
   if (!n) return null;
   return Lref.latLng(lat / n, lng / n);
+}
+
+function labelAnchorLatLng(layer, feature) {
+  let preferred = null;
+  try {
+    const b = typeof layer.getBounds === 'function' ? layer.getBounds() : null;
+    if (b && b.isValid()) preferred = b.getCenter();
+  } catch {
+    /* fall through */
+  }
+  if (!preferred) preferred = vertexAverageLatLng(feature);
+  const geom = feature?.geometry;
+  if (!preferred || !geom) return preferred;
+  const lng = Number(preferred.lng);
+  const lat = Number(preferred.lat);
+  if (!Number.isFinite(lng) || !Number.isFinite(lat)) return preferred;
+  const anchored = labelAnchorLngLat(geom, lng, lat);
+  if (!anchored || !Lref) return preferred;
+  return Lref.latLng(anchored[1], anchored[0]);
 }
 
 function membersMapFromWorkspace(workspace) {
@@ -426,6 +480,7 @@ function combinedPopDefaults(workspace) {
  *   onPaintMany?: (cities: {city:string,state:string}[], payload: object) => Promise<void> | void,
  *   onZoneMilesChange?: (miles: number, range?: object) => Promise<void> | void,
  *   onHandle?: (handle: object) => void,
+ *   undoScope?: string,
  * }} opts
  */
 export async function mountShotgunMap({
@@ -437,6 +492,7 @@ export async function mountShotgunMap({
   onPaintMany,
   onZoneMilesChange,
   onHandle,
+  undoScope,
 }) {
   if (!mapHost) return { destroy() {}, invalidateSize() {}, setMembers() {} };
   let hub = workspace?.draft?.hub;
@@ -456,6 +512,10 @@ export async function mountShotgunMap({
   const labelIncEl = q('[data-sg="label-inc"]');
   const labelDecEl = q('[data-sg="label-dec"]');
   const paletteEl = q('[data-sg="palette"]') || document.getElementById('sg-map-palette');
+  const undoEl = q('[data-sg="undo"]');
+  const clearSlotEl = () => q('[data-sg="clear-slot"]');
+  const undoScopeKey = String(undoScope || mapHost.id || 'shotgun');
+  let undoBusy = false;
   const toolEls = () => [...(labelHost.querySelectorAll('[data-sg-tool]') || [])];
   const zoneMilesEl = q('[data-sg="zone-miles"]') || document.getElementById('sg-map-zone-miles');
   const zoneMiEl = q('[data-sg="zone-mi"]') || document.getElementById('sg-map-zone-mi');
@@ -512,6 +572,12 @@ export async function mountShotgunMap({
   };
 
   function fillPopFields() {
+    const saved = readSavedMapPop();
+    if (saved) {
+      if (minPopEl && String(minPopEl.value).trim() === '') minPopEl.value = saved.min;
+      if (maxPopEl && String(maxPopEl.value).trim() === '') maxPopEl.value = saved.max;
+      return;
+    }
     const d = combinedPopDefaults(settingsWs);
     if (minPopEl && String(minPopEl.value).trim() === '') minPopEl.value = String(d.min);
     if (maxPopEl && String(maxPopEl.value).trim() === '') maxPopEl.value = String(d.max);
@@ -810,7 +876,8 @@ export async function mountShotgunMap({
   function renderPalette() {
     if (!paletteEl) return;
     paletteEl.innerHTML = '';
-    paletteEl.classList.toggle('sg-map-palette-idle', paintTool === 'hub');
+    const hubIdle = paintTool === 'hub';
+    paletteEl.classList.toggle('sg-map-palette-idle', hubIdle);
     const none = document.createElement('button');
     none.type = 'button';
     none.className = 'btn btn-sm sg-map-slot sg-map-slot-none';
@@ -819,12 +886,19 @@ export async function mountShotgunMap({
     const clearTip = 'Clear cluster';
     none.setAttribute('aria-label', clearTip);
     none.setAttribute('data-tip', clearTip);
-    none.classList.toggle('active', paintSlot === 0);
+    none.classList.toggle('active', paintSlot === 0 && !hubIdle);
     none.addEventListener('click', () => {
       setPaintTool('cluster');
       setPaintSlot(0);
     });
-    paletteEl.appendChild(none);
+    const clearSlot = clearSlotEl();
+    if (clearSlot) {
+      clearSlot.innerHTML = '';
+      clearSlot.classList.toggle('sg-map-palette-idle', hubIdle);
+      clearSlot.appendChild(none);
+    } else {
+      paletteEl.appendChild(none);
+    }
     const grid = document.createElement('div');
     grid.className = 'sg-map-palette-grid';
     for (let n = 1; n <= CLUSTER_MAX; n += 1) {
@@ -1009,20 +1083,138 @@ export async function mountShotgunMap({
     shotgunMapStatus(mapHost, geoError || rings.error || '');
   }
 
+  function previousClusterSlot(city, state) {
+    const info = members.get(placeKey(city, state));
+    return parseClusterKey(info?.clusterKey) || 0;
+  }
+
+  function captureClusterPaint(city, state) {
+    const prev = previousClusterSlot(city, state);
+    const want = parseClusterKey(paintSlot) || 0;
+    const next = !want || prev === want ? 0 : want;
+    if (next === prev) return null;
+    return { type: 'paint', city, state, slot: prev };
+  }
+
+  function capturePaintMany(cities) {
+    const want = parseClusterKey(paintSlot) || 0;
+    const changed = [];
+    for (const c of cities || []) {
+      if (!c?.city || !c?.state) continue;
+      const prev = previousClusterSlot(c.city, c.state);
+      if (prev === want) continue;
+      changed.push({ city: c.city, state: c.state, slot: prev });
+    }
+    if (!changed.length) return null;
+    if (changed.length === 1) return { type: 'paint', ...changed[0] };
+    return { type: 'paints', cities: changed };
+  }
+
+  function captureHubPaint(city, state) {
+    const key = placeKey(city, state);
+    const hubKey = placeKey(hub?.city, hub?.state);
+    if (!key || !hubKey || key === hubKey) return null;
+    return { type: 'hub', city: hub.city, state: hub.state };
+  }
+
+  function syncUndoButton() {
+    if (!undoEl) return;
+    const session = undoSession(undoScopeKey);
+    undoEl.disabled = undoBusy || session.stack.length === 0;
+  }
+
+  function pushUndo(entry) {
+    if (!entry) return;
+    undoSession(undoScopeKey).stack.push(entry);
+    syncUndoButton();
+  }
+
+  function dropUndo(entry) {
+    if (!entry) return;
+    const session = undoSession(undoScopeKey);
+    const idx = session.stack.lastIndexOf(entry);
+    if (idx >= 0) session.stack.splice(idx, 1);
+    (session.sync || syncUndoButton)();
+  }
+
+  async function replayUndo(entry) {
+    if (entry?.type === 'hub') {
+      if (!onPaint) return { error: new Error('Undo is unavailable'), restore: entry };
+      try {
+        await onPaint(entry.city, entry.state, { tool: 'hub', radiusMiles: outerMiles() });
+        return null;
+      } catch (error) {
+        return { error, restore: entry };
+      }
+    }
+    const cities =
+      entry?.type === 'paints'
+        ? entry.cities
+        : [{ city: entry?.city, state: entry?.state, slot: entry?.slot }];
+    for (let i = 0; i < cities.length; i += 1) {
+      const c = cities[i];
+      try {
+        if (!onPaint) throw new Error('Undo is unavailable');
+        await onPaint(c.city, c.state, {
+          tool: 'cluster',
+          slot: c.slot,
+          radiusMiles: outerMiles(),
+        });
+      } catch (error) {
+        const rest = cities.slice(i);
+        const restore =
+          rest.length === 1 ? { type: 'paint', ...rest[0] } : { type: 'paints', cities: rest };
+        return { error, restore };
+      }
+    }
+    return null;
+  }
+
+  async function onUndoClick() {
+    if (undoBusy) return;
+    const session = undoSession(undoScopeKey);
+    const entry = session.stack[session.stack.length - 1];
+    if (!entry) return;
+    session.stack.pop();
+    undoBusy = true;
+    syncUndoButton();
+    let failed = null;
+    try {
+      failed = await replayUndo(entry);
+    } catch (error) {
+      failed = { error, restore: entry };
+    }
+    undoBusy = false;
+    if (failed?.restore) {
+      undoSession(undoScopeKey).stack.push(failed.restore);
+      shotgunMapStatus(mapHost, failed.error?.message || 'Could not undo');
+    } else {
+      shotgunMapStatus(mapHost, '');
+    }
+    (undoSession(undoScopeKey).sync || syncUndoButton)();
+  }
+
+  undoSession(undoScopeKey).sync = syncUndoButton;
+  syncUndoButton();
+  undoEl?.addEventListener('click', onUndoClick);
+
   async function applyPaint(city, st) {
+    const entry = paintTool === 'hub' ? captureHubPaint(city, st) : captureClusterPaint(city, st);
+    if (entry) pushUndo(entry);
     const payload = {
       tool: paintTool,
       slot: paintSlot,
       radiusMiles: outerMiles(),
     };
     try {
-      if (onPaint) {
-        await onPaint(city, st, { ...payload, tool: paintTool === 'hub' ? 'hub' : 'cluster' });
-      } else {
+      if (!onPaint) {
+        dropUndo(entry);
         return;
       }
+      await onPaint(city, st, { ...payload, tool: paintTool === 'hub' ? 'hub' : 'cluster' });
       shotgunMapStatus(mapHost, '');
     } catch (error) {
+      dropUndo(entry);
       shotgunMapStatus(mapHost, error?.message || 'Could not update city');
     }
   }
@@ -1078,6 +1270,8 @@ export async function mountShotgunMap({
 
   async function applyPaintMany(cities) {
     if (!cities.length) return;
+    const entry = capturePaintMany(cities);
+    if (entry) pushUndo(entry);
     const payload = {
       tool: 'cluster',
       slot: paintSlot,
@@ -1091,10 +1285,12 @@ export async function mountShotgunMap({
           await onPaint(c.city, c.state, payload);
         }
       } else {
+        dropUndo(entry);
         return;
       }
       shotgunMapStatus(mapHost, '');
     } catch (error) {
+      dropUndo(entry);
       shotgunMapStatus(mapHost, error?.message || 'Could not update cities');
     }
   }
@@ -1182,6 +1378,7 @@ export async function mountShotgunMap({
     commitZoneMiles();
   };
   const onPopInput = () => {
+    writeSavedMapPop(minPopEl?.value ?? '', maxPopEl?.value ?? '');
     clearTimeout(popTimer);
     popTimer = setTimeout(() => {
       restyleAll();
@@ -1245,6 +1442,10 @@ export async function mountShotgunMap({
       clearTimeout(labelTimer);
       clearTimeout(popTimer);
       clearTimeout(radiusTimer);
+      undoEl?.removeEventListener('click', onUndoClick);
+      if (undoSession(undoScopeKey).sync === syncUndoButton) {
+        undoSession(undoScopeKey).sync = null;
+      }
       toolEls().forEach((b) => b.removeEventListener('click', onToolClick));
       document.removeEventListener('keydown', onKeyPaint);
       minPopEl?.removeEventListener('input', onPopInput);

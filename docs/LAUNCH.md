@@ -48,14 +48,11 @@ Statuses: `current` | `behind` | `no_remote` | `no_assembled` | `unknown`. Push 
 | --- | --- | --- |
 | Domain | From accepted site-config | Written into site-config; used for CF zone + custom domain |
 | Phone | From site-config | Written into site-config |
-| Leads email | From site-config (or `leads@{domain}`) | Written into site-config; used as Email Routing matcher **and** the required Web3Forms Recipient Emails address |
-| Web3Forms recipient | Copyable `leads@{domain}` (same as Leads email) | Paste into Web3Forms → Settings → Recipient Emails. Not the account Gmail. Rover does not write this (no form API) |
-| Email Routing destination | Prefills from `WEB3FORMS_DEFAULT_NOTIFY_EMAIL` if empty | Gmail (or inbox) that receives forwarded `leads@` mail. Does **not** change Web3Forms Recipient Emails |
-| Web3Forms access key | From site-config | Written into site-config; marks `formsDone` when real (not placeholder) |
-| Turnstile site key | From site-config / optional | Written into site-config |
+| Leads email | From site-config (or `leads@{domain}`) | Written into site-config; public address and the From address on form mail |
+| Email Routing destination | Prefills from `LEAD_NOTIFY_EMAIL` if empty | Gmail that receives every form lead. Also the `leads@` forward destination |
+| Turnstile site key | From site-config / optional | Written into site-config. Existing keys still render a widget. Launch does not create a widget per site |
 | **Auto ship** (GitHub + build + Worker deploy) | **On** | GitHub create/push, `npm` build, Wrangler deploy, Workers Builds connect |
 | **Run Cloudflare domain / email API** | **On** first go-live; **Off** when already live | Zone lookup, Email Routing, custom domain attach |
-| Create Turnstile widget | Off | Creates a CF Turnstile widget and writes the site key back |
 | Mark CF Worker project done | Off | Forces meta `cloudflarePagesDone` even without a successful deploy |
 
 When already live, **Push updates** is the primary button; **Run launch** remains available for key changes or intentional CF re-runs.
@@ -94,9 +91,9 @@ Writes NAP / form fields into:
 2. Assembled site: `{assembled}/src/config/site-config.json`
 3. Live template `src/config/site-config.json` **only if** `meta.siteConfigPath` is `src/config/site-config.json`
 
-Fields applied when non-empty: `domain`, `phone`, `email`, `businessName`, `web3FormsAccessKey`, `turnstileSiteKey`.
+Fields applied when non-empty: `domain`, `phone`, `email`, `businessName`, `turnstileSiteKey`.
 
-`formsDone` is true when the Web3Forms key is set and is **not** a placeholder (`REPLACE_WEB3FORMS_KEY` / `YOUR_WEB3FORMS_ACCESS_KEY`).
+`formsDone` is true when the forms inbox is set up and the Email Routing destination is set.
 
 ### 3.3 Auto ship (if checked)
 
@@ -137,7 +134,7 @@ Requires `CLOUDFLARE_ACCOUNT_ID` + `CLOUDFLARE_API_TOKEN`. Worker name = `meta.a
 4. **Custom domain**
    - Confirm Worker exists via `GET …/workers/scripts/{name}/settings` (assets-only Workers return empty on the bare script GET — that path is avoided)
    - Attach **apex** and **www** hostnames → Worker (`PUT/POST …/workers/domains`)
-5. **Turnstile** (only if Create Turnstile is checked) — create widget; write `turnstileSiteKey` back into site-config when created
+5. **Turnstile** — Launch does not create a widget per site. The form uses a honeypot, the domain allowlist, and a per-IP rate limit. An existing `turnstileSiteKey` still renders a widget.
 
 ### 3.5 Meta and build-package
 
@@ -146,7 +143,7 @@ After ship/CF, Launch saves candidate meta, including:
 | Flag / field | Meaning |
 | --- | --- |
 | `lastLaunchAt` | Timestamp of this Launch run |
-| `formsDone` | Real Web3Forms key present |
+| `formsDone` | Forms inbox ready and Email Routing destination set |
 | `launchDomain` | Domain used |
 | `githubRepo` / `githubRepoUrl` | From successful ship |
 | `cloudflarePagesDone` | Worker deploy succeeded, Worker exists, or “Mark CF done” checked |
@@ -167,22 +164,22 @@ If a build-package JSON exists for the candidate, refreshes `deploy.domain`, `de
 | Ship failed: … nothing to commit / Command failed: git commit | Older bug: clean tree treated as failure | Fixed — clean tree is success and push continues |
 | Worker "…" not found | Worker missing or existence check failed | Re-run Launch after Auto ship deploy; assets Worker check uses `/settings` |
 | No Cloudflare zone found | Domain not in this CF account | Add domain / point NS, then re-run |
-| Create a form at web3forms.com… | Key missing or placeholder | Set Recipient Emails to `leads@{domain}`, paste access key, re-run |
+| Forms inbox is not set up | Phone/Form has not provisioned the shared Worker | Open Phone/Form and click Set up inbox |
+| Email Routing destination missing | No Gmail for lead mail | Set the destination in Launch or `LEAD_NOTIFY_EMAIL` |
 
-Launch result modal summarizes ship ok/partial, Cloudflare ok/partial, and forms key set vs placeholder.
+Launch result modal summarizes ship ok/partial, Cloudflare ok/partial, and whether Rover form delivery is ready.
 
 ---
 
 ## 5. Human leftovers (never fully automated)
 
 1. **Buy the domain** and point nameservers at Cloudflare (zone must exist in the account)
-2. **Run Cloudflare email** so `leads@` exists (Email Routing destination = Gmail). Uncheck Auto ship the first time if you still need to create the form
-3. **Create** the Web3Forms form at [web3forms.com](https://web3forms.com). Set **Recipient Emails** to the site’s Leads email (`leads@{domain}`), not the Web3Forms account Gmail. Paste the access key (no public create-form API)
-4. **Verify** Email Routing destination once when it is new, then the Web3Forms `leads@` verify link (both land in Gmail)
-5. **Index the live site** — Search Console Domain property, submit `/sitemap.xml`, Request indexing on homepage + top service pages: [SITE-INDEXING.md](SITE-INDEXING.md)
-6. **One-time machine setup** (not per site):
+2. **Set the Email Routing destination** (usually Gmail) so Rover can send from `leads@` and Cloudflare can forward that address
+3. **Verify** the Email Routing destination once when it is new (the link lands in Gmail)
+4. **Index the live site** — Search Console Domain property, submit `/sitemap.xml`, Request indexing on homepage + top service pages: [SITE-INDEXING.md](SITE-INDEXING.md)
+5. **One-time machine setup** (not per site):
    - `gh auth login`
-   - `.env`: `GITHUB_OWNER`, `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN`, optional `WEB3FORMS_DEFAULT_NOTIFY_EMAIL`
+   - `.env`: `GITHUB_OWNER`, `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN`, optional `LEAD_NOTIFY_EMAIL`
    - Authorize Cloudflare Workers and Pages GitHub App once for push-to-rebuild
 
 ---
@@ -196,7 +193,7 @@ See [`.env.example`](../.env.example).
 | `CLOUDFLARE_ACCOUNT_ID` | Account for Wrangler + CF APIs |
 | `CLOUDFLARE_API_TOKEN` | **User** API token (account-owned tokens fail Builds API) |
 | `GITHUB_OWNER` | Org/user for per-site repos (optional if `gh` user / template remote resolves it) |
-| `WEB3FORMS_DEFAULT_NOTIFY_EMAIL` | Prefills Email Routing destination in Launch UI (Cloudflare only — not Web3Forms Recipient Emails) |
+| `LEAD_NOTIFY_EMAIL` | Prefills the Gmail that receives form leads |
 | `ASSEMBLED_SITES_DIR` | Where Assemble writes sibling sites (default `../rover-sites`) |
 | `TEMPLATE_GITHUB_REPO` | Optional; used to infer GitHub owner (default example `7D7D/Rover`) |
 
@@ -215,7 +212,7 @@ Suggested token permissions:
 
 There is usually **no** separate “Workers CI” row in the token UI; that name is API-internal. Keep **Workers Scripts** + **Workers Builds Configuration**.
 
-API calls are **$0**. You pay for the domain and stay on free tiers for typical static Workers + Email Routing + Web3Forms free-tier submissions.
+API calls are **$0**. You pay for the domain. Form mail to the verified Email Routing destination does not count toward Cloudflare’s daily sending quota.
 
 ---
 

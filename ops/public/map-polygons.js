@@ -135,3 +135,157 @@ export function explodeAndSortPlaceFeatures(input) {
     features: sortPlaceFeaturesLargestFirst(exploded.features || []),
   };
 }
+
+function pointInRing(lng, lat, ring) {
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const xi = Number(ring[i]?.[0]);
+    const yi = Number(ring[i]?.[1]);
+    const xj = Number(ring[j]?.[0]);
+    const yj = Number(ring[j]?.[1]);
+    if (![xi, yi, xj, yj].every(Number.isFinite)) continue;
+    const intersect = yi > lat !== yj > lat && lng < ((xj - xi) * (lat - yi)) / (yj - yi || 1e-12) + xi;
+    if (intersect) inside = !inside;
+  }
+  return inside;
+}
+
+function pointInPolygonCoords(lng, lat, coords) {
+  const rings = coords || [];
+  if (!rings.length || !pointInRing(lng, lat, rings[0])) return false;
+  for (let i = 1; i < rings.length; i += 1) {
+    if (pointInRing(lng, lat, rings[i])) return false;
+  }
+  return true;
+}
+
+function pointInGeometry(lng, lat, geometry) {
+  if (!geometry) return false;
+  if (geometry.type === 'Polygon') return pointInPolygonCoords(lng, lat, geometry.coordinates);
+  if (geometry.type === 'MultiPolygon') {
+    for (const poly of geometry.coordinates || []) {
+      if (pointInPolygonCoords(lng, lat, poly)) return true;
+    }
+  }
+  return false;
+}
+
+function polygonParts(geometry) {
+  if (geometry?.type === 'Polygon') return [geometry.coordinates];
+  if (geometry?.type === 'MultiPolygon') return geometry.coordinates || [];
+  return [];
+}
+
+function ringBbox(ring) {
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const pt of ring || []) {
+    const x = Number(pt?.[0]);
+    const y = Number(pt?.[1]);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+    if (x < minX) minX = x;
+    if (y < minY) minY = y;
+    if (x > maxX) maxX = x;
+    if (y > maxY) maxY = y;
+  }
+  if (!Number.isFinite(minX)) return null;
+  return [minX, minY, maxX, maxY];
+}
+
+function distPointToSeg(px, py, ax, ay, bx, by) {
+  const dx = bx - ax;
+  const dy = by - ay;
+  const len2 = dx * dx + dy * dy;
+  if (len2 === 0) return Math.hypot(px - ax, py - ay);
+  let t = ((px - ax) * dx + (py - ay) * dy) / len2;
+  t = Math.max(0, Math.min(1, t));
+  return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
+}
+
+function clearanceToRings(lng, lat, rings) {
+  let best = Infinity;
+  for (const ring of rings || []) {
+    if (!Array.isArray(ring) || ring.length < 2) continue;
+    for (let i = 0; i < ring.length; i += 1) {
+      const a = ring[i];
+      const b = ring[(i + 1) % ring.length];
+      if (!Array.isArray(a) || !Array.isArray(b) || a.length < 2 || b.length < 2) continue;
+      const d = distPointToSeg(lng, lat, Number(a[0]), Number(a[1]), Number(b[0]), Number(b[1]));
+      if (d < best) best = d;
+    }
+  }
+  return best;
+}
+
+/** Interior point of one polygon (outer ring + holes) nearest `lng0,lat0`. */
+function bestInteriorLngLat(coords, lng0, lat0) {
+  const bbox = ringBbox(coords?.[0]);
+  if (!bbox) return null;
+  let minX = bbox[0];
+  let minY = bbox[1];
+  let maxX = bbox[2];
+  let maxY = bbox[3];
+  const steps = 16;
+  let chosen = null;
+  for (let pass = 0; pass < 3; pass += 1) {
+    const spanX = maxX - minX;
+    const spanY = maxY - minY;
+    if (!(spanX > 0) && !(spanY > 0)) break;
+    const dx = spanX / steps || 0;
+    const dy = spanY / steps || 0;
+    const cell = Math.hypot(dx, dy) || 0;
+    const hits = [];
+    for (let ix = 0; ix <= steps; ix += 1) {
+      for (let iy = 0; iy <= steps; iy += 1) {
+        const lng = minX + dx * ix;
+        const lat = minY + dy * iy;
+        if (!pointInPolygonCoords(lng, lat, coords)) continue;
+        hits.push({ lng, lat, dist: Math.hypot(lng - lng0, lat - lat0) });
+      }
+    }
+    if (!hits.length) return chosen;
+    hits.sort((a, b) => a.dist - b.dist);
+    const limit = hits[0].dist + cell;
+    let pick = hits[0];
+    let pickClear = clearanceToRings(pick.lng, pick.lat, coords);
+    for (let i = 1; i < hits.length; i += 1) {
+      const hit = hits[i];
+      if (hit.dist > limit) break;
+      const clear = clearanceToRings(hit.lng, hit.lat, coords);
+      if (clear > pickClear) {
+        pick = hit;
+        pickClear = clear;
+      }
+    }
+    chosen = pick;
+    const padX = dx || spanX || 1e-6;
+    const padY = dy || spanY || 1e-6;
+    minX = pick.lng - padX;
+    maxX = pick.lng + padX;
+    minY = pick.lat - padY;
+    maxY = pick.lat + padY;
+  }
+  return chosen;
+}
+
+/**
+ * City-label anchor. Keeps the preferred center when it lies on the polygon.
+ * When that center falls outside (an L, a hole, a gap), returns a point on the
+ * city as close to the center as possible, inset slightly from the edge.
+ * @returns {[number, number] | null} GeoJSON [lng, lat]
+ */
+export function labelAnchorLngLat(geometry, preferredLng, preferredLat) {
+  const lng0 = Number(preferredLng);
+  const lat0 = Number(preferredLat);
+  if (!geometry || !Number.isFinite(lng0) || !Number.isFinite(lat0)) return null;
+  if (pointInGeometry(lng0, lat0, geometry)) return [lng0, lat0];
+  let best = null;
+  for (const coords of polygonParts(geometry)) {
+    const hit = bestInteriorLngLat(coords, lng0, lat0);
+    if (!hit) continue;
+    if (!best || hit.dist < best.dist) best = hit;
+  }
+  return best ? [best.lng, best.lat] : null;
+}

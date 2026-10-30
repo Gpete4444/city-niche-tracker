@@ -5,6 +5,7 @@
  */
 import {
   EXPAND_LOCATION_ATTEMPTS,
+  EXPAND_SERVICE_ATTEMPTS,
   LOCATION_WRITE_CHUNK,
   POLISH_EDITOR_ATTEMPTS,
   chunkList,
@@ -14,7 +15,9 @@ import {
   polishShouldSkipBecauseFinalStamped,
   polishSpeechShouldBlockWrite,
   polishThinLocationsShouldBlockWrite,
+  polishThinServicesShouldBlockWrite,
   thinLocationSeoFindings,
+  thinServiceSeoFindings,
   writeSitePolishDone,
 } from '../ops/lib/content-write-site.mjs';
 
@@ -27,6 +30,7 @@ function assert(ok, label) {
 
 assert(POLISH_EDITOR_ATTEMPTS === 3, 'editor retries three times');
 assert(EXPAND_LOCATION_ATTEMPTS === 2, 'expand locations twice');
+assert(EXPAND_SERVICE_ATTEMPTS === 2, 'expand services twice');
 assert(LOCATION_WRITE_CHUNK === 3, 'locations write in chunks of 3');
 assert(
   polishSpeechShouldBlockWrite({ speechN: 4, attempts: POLISH_EDITOR_ATTEMPTS }) === false,
@@ -60,6 +64,14 @@ assert(
   polishThinLocationsShouldBlockWrite({ thinLocationN: 0 }) === false,
   'no thin locations do not fail',
 );
+assert(
+  polishThinServicesShouldBlockWrite({ thinServiceN: 1 }) === true,
+  'leftover thin services fail Write site',
+);
+assert(
+  polishThinServicesShouldBlockWrite({ thinServiceN: 0 }) === false,
+  'no thin services do not fail',
+);
 
 const seoLint = {
   findings: [
@@ -69,7 +81,19 @@ const seoLint = {
 };
 assert(thinLocationSeoFindings(seoLint).length === 1, 'counts thin location findings');
 assert(leftoversFromLint(null, seoLint).thinLocationN === 1, 'leftovers expose thinLocationN');
+assert(leftoversFromLint(null, seoLint).thinServiceN === 0, 'location lint is not a thin service');
 assert(leftoversFromLint(null, seoLint).criticalSeoN === 1, 'leftovers count critical');
+const serviceSeo = {
+  findings: [
+    {
+      severity: 'critical',
+      rule: 'service_body_thin',
+      file: 'src/content/services/open-cell.md',
+    },
+  ],
+};
+assert(thinServiceSeoFindings(serviceSeo).length === 1, 'counts thin service findings');
+assert(leftoversFromLint(null, serviceSeo).thinServiceN === 1, 'leftovers expose thinServiceN');
 
 const chunks = chunkList(['a', 'b', 'c', 'd', 'e', 'f'], 3);
 assert(chunks.length === 2 && chunks[0].length === 3 && chunks[1].length === 3, 'chunk 6 into 3+3');

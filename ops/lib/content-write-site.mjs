@@ -37,8 +37,18 @@ import {
   outlineRefineGroups,
   pasteContentOutlinePackage,
   buildContinueWritePrompt,
+  refreshServiceBandAssignments,
 } from './content-structure.mjs';
-import { loadAcceptedSiteConfig } from './content-markdown.mjs';
+import {
+  ensureContentDraftFromAccepted,
+  liftSavedHomepageDraft,
+  loadAcceptedSiteConfig,
+  purgeUnusedServicePages,
+} from './content-markdown.mjs';
+import {
+  applyStoredNichePhotoBlocks,
+  ensureNichePhotoBlocksForCandidate,
+} from './niche-photo-blocks.mjs';
 import {
   cityContextPromptRules,
   compactCityContextForPrompt,
@@ -47,6 +57,7 @@ import {
 import { listImageSlots, structureHasPhotosEnabled } from './fill-site-images.mjs';
 import { listBaPromptSlots } from './chatgpt-before-after.mjs';
 import { updateLightJobProgress } from './rover-light-jobs.mjs';
+import { locationPagesNeedingWrite } from './preview-fidelity.mjs';
 
 const COST_KEY = (candidateId) => ({
   candidateId,
@@ -56,6 +67,7 @@ const COST_KEY = (candidateId) => ({
 
 export const POLISH_EDITOR_ATTEMPTS = 3;
 export const EXPAND_LOCATION_ATTEMPTS = 2;
+export const EXPAND_SERVICE_ATTEMPTS = 2;
 export const LOCATION_WRITE_CHUNK = 3;
 
 /** Speech leftovers never 422 Write site after Polish (advisory). */
@@ -69,11 +81,18 @@ export function thinLocationSeoFindings(seoLint) {
   );
 }
 
+export function thinServiceSeoFindings(seoLint) {
+  return (seoLint?.findings || []).filter(
+    (f) => f.severity === 'critical' && String(f.rule || '') === 'service_body_thin',
+  );
+}
+
 export function leftoversFromLint(speechLint, seoLint) {
   const speechN = speechLint?.findings?.length || 0;
   const criticalSeoN = (seoLint?.findings || []).filter((f) => f.severity === 'critical').length;
   const thinLocationN = thinLocationSeoFindings(seoLint).length;
-  return { speechN, criticalSeoN, thinLocationN, speechLint, seoLint };
+  const thinServiceN = thinServiceSeoFindings(seoLint).length;
+  return { speechN, criticalSeoN, thinLocationN, thinServiceN, speechLint, seoLint };
 }
 
 /** Editor runs while speech leftovers or any critical SEO remain (all attempts). */
@@ -88,6 +107,10 @@ export function polishShouldSkipBecauseFinalStamped({ lastFinalCheckAt, critical
 
 export function polishThinLocationsShouldBlockWrite({ thinLocationN = 0 } = {}) {
   return Number(thinLocationN) > 0;
+}
+
+export function polishThinServicesShouldBlockWrite({ thinServiceN = 0 } = {}) {
+  return Number(thinServiceN) > 0;
 }
 
 export function chunkList(items, size) {
@@ -351,7 +374,32 @@ function cacheSystemBlob(candidateId) {
   }
 }
 
+async function syncPhotoBlocks(candidateId, tick) {
+  const applied = await applyStoredNichePhotoBlocks(candidateId);
+  if (applied?.count && tick) {
+    tick(
+      `Photo blocks — updated ${applied.count} page${applied.count === 1 ? '' : 's'}`,
+    );
+  }
+  return applied;
+}
+
 async function runWrite(candidateId, signal, tick) {
+  const purged = purgeUnusedServicePages(candidateId);
+  if (purged.removed.length) {
+    tick(
+      `Removed ${purged.removed.length} service page${purged.removed.length === 1 ? '' : 's'} not on the service list`,
+    );
+  }
+  refreshServiceBandAssignments(candidateId);
+  const liftedHome = liftSavedHomepageDraft(candidateId);
+  if (liftedHome.changed) tick(liftedHome.detail || 'Homepage — placed designed sections into template fields');
+  const photoBlocks = await ensureNichePhotoBlocksForCandidate(candidateId, {
+    signal,
+    callClaude: (opts) => callClaude(candidateId, opts),
+  });
+  if (photoBlocks?.authored) tick('Photo blocks — saved shared steps for this niche');
+  await syncPhotoBlocks(candidateId, tick);
   const system = cacheSystemBlob(candidateId);
   const status = getWriteBatchStatus(candidateId);
   const batches = [];
@@ -375,6 +423,7 @@ async function runWrite(candidateId, signal, tick) {
       });
     }
     const pasted = pasteAgentContentDraft(candidateId, text, { mode: 'full' });
+    await syncPhotoBlocks(candidateId, tick);
     syncWriteBatchesFromDraft(candidateId);
     if (pasted?.skippedYaml?.length) {
       tick(
@@ -432,6 +481,7 @@ async function runWrite(candidateId, signal, tick) {
       });
     }
     pasteAgentContentDraft(candidateId, text, { mode: 'full' });
+    await syncPhotoBlocks(candidateId, tick);
     syncWriteBatchesFromDraft(candidateId);
     continues += 1;
   }
@@ -441,6 +491,32 @@ async function runWrite(candidateId, signal, tick) {
       new Error('Write batches still incomplete after continue — retry Write site'),
       { status: 500 },
     );
+  }
+
+  ensureContentDraftFromAccepted(candidateId);
+  const locationDetail = getCandidateDetail(candidateId);
+  const locationFiles =
+    locationDetail.contentDraft?.files || locationDetail.content?.files || {};
+  const needing = locationPagesNeedingWrite(locationDetail.siteConfig || {}, locationFiles);
+  if (needing.length) {
+    const paths = needing.map((page) => page.path);
+    const chunks = chunkList(paths, LOCATION_WRITE_CHUNK);
+    if (chunks.length <= 1) {
+      const built = await buildBatchedFullWritePrompt(candidateId, 'locations', { onlyFiles: paths });
+      await writeOne(
+        'locations',
+        built,
+        `Write — ${needing.map((page) => page.name).join(', ')}`,
+      );
+    } else {
+      for (let i = 0; i < chunks.length; i += 1) {
+        throwIfAborted(signal);
+        const part = await buildBatchedFullWritePrompt(candidateId, 'locations', {
+          onlyFiles: chunks[i],
+        });
+        await writeOne('locations', part, `Write — Location pages (${i + 1}/${chunks.length})`);
+      }
+    }
   }
 }
 
@@ -541,6 +617,98 @@ async function expandThinLocationsUntilClear(candidateId, { signal, tick, costOv
   return leftoversFromLint(lint.speechLint, lint.seoLint);
 }
 
+function throwThinServices(seoLint, { retryLabel = 'Retry Write site' } = {}) {
+  const thin = thinServiceSeoFindings(seoLint);
+  const names = thin.map((f) => f.file || 'service page').join(', ');
+  const err = Object.assign(
+    new Error(`Service pages still thin (${names}). ${retryLabel}.`),
+    { status: 422 },
+  );
+  err.seoLint = seoLint;
+  return err;
+}
+
+export function buildExpandThinServicesPrompt(candidateId, findings = []) {
+  const files = getCandidateDetail(candidateId)?.contentDraft?.files || {};
+  const want = [...new Set(
+    (findings || [])
+      .map((f) => String(f.file || '').trim())
+      .filter((rel) => /services\/.+\.md$/i.test(rel)),
+  )];
+  const rel = want[0];
+  const body = rel ? files[rel] : '';
+  if (!rel || !body) {
+    throw Object.assign(new Error('No thin service pages to expand'), { status: 400 });
+  }
+  let prefix = '';
+  try {
+    prefix = `${injectEightPassContext(candidateId).prefix}\n\n`;
+  } catch {
+    prefix = '';
+  }
+  const finding = (findings || []).find((f) => String(f.file || '').trim() === rel);
+  const prompt = `${prefix}You are expanding one thin service page. Return a single ### FILE: block for the path below.
+
+Rules:
+- Prose outside the process section and the materials section must be at least 600 words. Accept rejects under 450 words of that prose.
+- If the opening sentence stops mid-thought, replace it with a finished intro. Do not leave a fragment.
+- Keep the existing process and materials sections unchanged (same headings and bullets). Those lists belong to the niche photo blocks.
+- Keep existing frontmatter keys. Do not invent awards, prices, or neighborhoods.
+- Contractor speech. This page must stay distinct from sibling service pages.
+
+## Thin finding
+- ${rel}: ${finding?.excerpt || 'thin'}
+
+## Current FILE body
+### FILE: ${rel}
+${String(body).trim()}
+`;
+  return { prompt, files: [rel] };
+}
+
+async function runExpandThinServicePass(candidateId, { signal, finding, tick, costOverride } = {}) {
+  await syncPhotoBlocks(candidateId, tick);
+  const { prompt, files } = buildExpandThinServicesPrompt(candidateId, [finding]);
+  const label = String(files[0] || '').replace(/^src\/content\//, '');
+  tick?.(`Expand service — ${label}`);
+  throwIfAborted(signal);
+  const { text } = await claudeMessages({
+    user: prompt,
+    maxTokens: 16384,
+    temperature: 0.45,
+    signal,
+    costKey: costOverride || costKey(candidateId),
+  });
+  if (!String(text).includes('### FILE:')) {
+    throw Object.assign(new Error(`Expand service (${label}): Claude did not return a FILE block`), {
+      status: 500,
+    });
+  }
+  pasteAgentContentDraft(candidateId, text, { mode: 'full' });
+  await syncPhotoBlocks(candidateId, tick);
+  return getContentSpeechLint(candidateId);
+}
+
+export async function expandThinServicesUntilClear(candidateId, { signal, tick, costOverride } = {}) {
+  let lint = getContentSpeechLint(candidateId);
+  let thin = thinServiceSeoFindings(lint.seoLint);
+  for (let attempt = 1; attempt <= EXPAND_SERVICE_ATTEMPTS && thin.length; attempt += 1) {
+    tick?.(`Polish — expand services (${attempt}/${EXPAND_SERVICE_ATTEMPTS})`);
+    const batch = thin.slice();
+    for (const finding of batch) {
+      throwIfAborted(signal);
+      lint = await runExpandThinServicePass(candidateId, {
+        signal,
+        finding,
+        tick,
+        costOverride,
+      });
+    }
+    thin = thinServiceSeoFindings(lint.seoLint);
+  }
+  return leftoversFromLint(lint.speechLint, lint.seoLint);
+}
+
 async function runPolish(candidateId, signal, tick) {
   tick('Polish — Speech/SEO auto-fix');
   throwIfAborted(signal);
@@ -569,6 +737,7 @@ async function runPolish(candidateId, signal, tick) {
     });
     if (String(text).includes('### FILE:')) {
       pasteAgentContentDraft(candidateId, text, { mode: 'full' });
+      await syncPhotoBlocks(candidateId, tick);
     }
     lint = getContentSpeechLint(candidateId);
     left = leftoversFromLint(lint.speechLint, lint.seoLint);
@@ -588,8 +757,14 @@ async function runPolish(candidateId, signal, tick) {
   if (left.thinLocationN > 0) {
     left = await expandThinLocationsUntilClear(candidateId, { signal, tick });
   }
+  if (left.thinServiceN > 0) {
+    left = await expandThinServicesUntilClear(candidateId, { signal, tick });
+  }
   if (polishThinLocationsShouldBlockWrite(left)) {
     throw throwThinLocations(left.seoLint);
+  }
+  if (polishThinServicesShouldBlockWrite(left)) {
+    throw throwThinServices(left.seoLint);
   }
 
   const stamped = getCandidateDetail(candidateId).contentDraft?._ops?.lastFinalCheckAt;
@@ -614,6 +789,7 @@ async function runPolish(candidateId, signal, tick) {
     stampFinalCheck(candidateId, { ok: true, summary: parsed.value.summary || 'Claude ok' });
   } else if (String(text).includes('### FILE:')) {
     pasteAgentContentDraft(candidateId, text, { mode: 'full' });
+    await syncPhotoBlocks(candidateId, tick);
     stampFinalCheck(candidateId, { ok: true, summary: 'FILE fixes loaded' });
     syncWriteBatchesFromDraft(candidateId);
   } else {
@@ -629,6 +805,9 @@ async function runPolish(candidateId, signal, tick) {
   left = leftoversFromLint(lint.speechLint, lint.seoLint);
   if (polishThinLocationsShouldBlockWrite(left)) {
     throw throwThinLocations(left.seoLint);
+  }
+  if (polishThinServicesShouldBlockWrite(left)) {
+    throw throwThinServices(left.seoLint);
   }
 }
 
@@ -691,6 +870,7 @@ function missingImageQueryBaKeys(candidateId) {
 
 async function runImageQueries(candidateId, signal, tick) {
   if (!structureHasPhotosEnabled(candidateId)) return;
+  await syncPhotoBlocks(candidateId, tick);
   if (imagesPlanIsComplete(candidateId)) return;
   tick('Image queries');
 

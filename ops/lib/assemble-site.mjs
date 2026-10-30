@@ -26,6 +26,8 @@ import {
   ensureSocialProofOnSiteConfigFile,
 } from './content-social-proof.mjs';
 import { getStagingSummary } from './site-staging.mjs';
+import { formsIngestSubmitUrl } from './forms-inbox.mjs';
+import { pruneUnreferencedPublicImages } from './prune-public-images.mjs';
 import { isMainThread, Worker } from 'node:worker_threads';
 import { stopAssembledPreviewSync, stopAssembledPreview, killProcessesHoldingSitePath } from './assembled-preview.mjs';
 
@@ -540,6 +542,27 @@ export function syncAcceptedWeb3KeyToAssembled(candidateId, siteRoot) {
   return applyAcceptedWeb3KeyToSiteConfigFile(assembledCfg, accepted);
 }
 
+/** Bake the public forms-inbox URL into a site-config file. No-op when the inbox is not set up. */
+export function applyFormsIngestUrlToSiteConfigFile(configPath, url) {
+  const ingest = String(url || '').trim();
+  if (!ingest || !configPath || !existsSync(configPath)) {
+    return { copied: false, reason: ingest ? 'missing_file' : 'no_url' };
+  }
+  let existing;
+  try {
+    existing = JSON.parse(readFileSync(configPath, 'utf8'));
+  } catch {
+    return { copied: false, reason: 'invalid_json' };
+  }
+  if (!existing || typeof existing !== 'object' || Array.isArray(existing)) {
+    return { copied: false, reason: 'invalid_json' };
+  }
+  if (existing.formsIngestUrl === ingest) return { copied: false, reason: 'already' };
+  existing.formsIngestUrl = ingest;
+  writeJson(configPath, existing);
+  return { copied: true };
+}
+
 function runGit(args, cwd, { ignoreStdout = false } = {}) {
   const out = execFileSync('git', args, {
     cwd,
@@ -688,6 +711,24 @@ function shouldSkipCopy(name) {
   return false;
 }
 
+/**
+ * Template public/images accumulates every candidate's pulls. Copy only shared review avatars.
+ * Staging overlay supplies this candidate's site-images; prune drops anything still unreferenced.
+ * @param {string} name
+ * @param {string} [rel] parent path relative to the template root
+ */
+export function shouldSkipTemplatePublicImage(name, rel = '') {
+  const relPosix = String(rel || '').replace(/\\/g, '/');
+  if (relPosix === 'public/images') return name !== 'review-avatars';
+  if (
+    relPosix.startsWith('public/images/') &&
+    !relPosix.startsWith('public/images/review-avatars')
+  ) {
+    return true;
+  }
+  return false;
+}
+
 /** Stat that returns null when the path is gone or unreadable (dangling BA tray, race). */
 export function safeStat(abs) {
   if (!abs) return null;
@@ -742,7 +783,7 @@ export function copyTreeSkippingGaps(srcRoot, destRoot, { skipName = null } = {}
 /** Recursive copy of template → site dir (Astro site only; skips ops/research). */
 export function copyTemplateTree(destRoot) {
   copyTreeSkippingGaps(ROOT, destRoot, {
-    skipName: (name) => shouldSkipCopy(name),
+    skipName: (name, rel) => shouldSkipCopy(name) || shouldSkipTemplatePublicImage(name, rel),
   });
 }
 
@@ -764,57 +805,64 @@ const TEMPLATE_LAYOUT_WATCH = [
   'src/lib',
   'src/styles',
   'src/config',
+  'src/cf-assets-worker.js',
   'astro.config.mjs',
 ];
 
-function newestMtimeUnder(absDir) {
-  let max = 0;
-  if (!existsSync(absDir)) return 0;
+function templateFileNewerThanAssembled(templatePath, assembledPath) {
+  let st;
   try {
-    const rootSt = statSync(absDir);
-    if (rootSt.isFile()) return rootSt.mtimeMs;
+    st = statSync(templatePath);
   } catch {
-    return 0;
+    return false;
   }
-  const walk = (dir) => {
-    let entries;
+  if (st.isDirectory()) {
+    let names;
     try {
-      entries = readdirSync(dir);
+      names = readdirSync(templatePath);
     } catch {
-      return;
+      return false;
     }
-    for (const name of entries) {
-      const p = path.join(dir, name);
-      let st;
-      try {
-        st = statSync(p);
-      } catch {
-        continue;
-      }
-      if (st.isDirectory()) walk(p);
-      else if (st.isFile()) max = Math.max(max, st.mtimeMs);
-    }
-  };
-  walk(absDir);
-  return max;
+    return names.some((name) => {
+      if (shouldSkipCopy(name) || name === 'site-config.json') return false;
+      return templateFileNewerThanAssembled(path.join(templatePath, name), path.join(assembledPath, name));
+    });
+  }
+  if (!st.isFile()) return false;
+  let assembled;
+  try {
+    assembled = statSync(assembledPath);
+  } catch {
+    return true;
+  }
+  if (!assembled.isFile()) return true;
+  // 2s skew avoids false positives from near-simultaneous copies
+  return st.mtimeMs > assembled.mtimeMs + 2000;
 }
 
 /**
- * True when Rover template layout/code (src/ + astro.config.mjs) is newer than the assembled copy.
+ * True when a watched template file is newer than the same file in the assembled copy.
+ * site-config.json is candidate content (rewritten on stage and launch), so it is not part of this check.
+ * A later site-config write must not hide an older LeadForm or layout.
  * Refresh injects content only — stale components need a full assemble.
  * @param {string} siteRoot
  */
 export function templateComponentsNewerThanAssembled(siteRoot) {
   if (!existsSync(siteRoot)) return true;
-  let templateMax = 0;
-  let assembledMax = 0;
-  for (const rel of TEMPLATE_LAYOUT_WATCH) {
-    templateMax = Math.max(templateMax, newestMtimeUnder(path.join(ROOT, rel)));
-    assembledMax = Math.max(assembledMax, newestMtimeUnder(path.join(siteRoot, rel)));
-  }
-  if (!assembledMax) return true;
-  // 2s skew avoids false positives from near-simultaneous copies
-  return templateMax > assembledMax + 2000;
+  return TEMPLATE_LAYOUT_WATCH.some((rel) =>
+    templateFileNewerThanAssembled(path.join(ROOT, rel), path.join(siteRoot, rel)),
+  );
+}
+
+/** Thrown by Launch and Push updates when the assembled tree would ship an older template. */
+export function templateStaleLaunchError(siteRoot) {
+  if (!siteRoot || !templateComponentsNewerThanAssembled(siteRoot)) return null;
+  const err = new Error(
+    'Shared template is newer than this assemble. Run Prepare preview, then launch again.',
+  );
+  err.status = 400;
+  err.code = 'TEMPLATE_STALE';
+  return err;
 }
 
 /**
@@ -1073,7 +1121,7 @@ export function getAssembleChecklist(candidateId) {
       },
       {
         id: 'forms',
-        label: 'Paste real web3FormsAccessKey (+ optional Turnstile)',
+        label: 'Rover form delivery (forms inbox + Email Routing destination)',
         done: Boolean(detail.meta?.formsDone),
       },
       {
@@ -1212,6 +1260,9 @@ export function assembleSite(
   const acceptedConfig = loadAcceptedSiteConfig(candidateId)?.config || config;
   const stagingWeb3 = applyAcceptedWeb3KeyToSiteConfigFile(stagingCfg, acceptedConfig);
   const assembledWeb3 = applyAcceptedWeb3KeyToSiteConfigFile(assembledCfg, acceptedConfig);
+  const formsIngest = formsIngestSubmitUrl();
+  const stagingForms = applyFormsIngestUrlToSiteConfigFile(stagingCfg, formsIngest);
+  const assembledForms = applyFormsIngestUrlToSiteConfigFile(assembledCfg, formsIngest);
   // Template already copies public/images/review-avatars/; ensure dir exists after overlay
   const avatarsDir = path.join(siteRoot, 'public', 'images', 'review-avatars');
   const templateAvatars = path.join(ROOT, 'public', 'images', 'review-avatars');
@@ -1233,6 +1284,10 @@ export function assembleSite(
       }
     }
   }
+
+  const imagePrune = pruneUnreferencedPublicImages(siteRoot, {
+    templateImagesDir: path.join(ROOT, 'public', 'images'),
+  });
 
   writeJson(path.join(siteRoot, 'wrangler.json'), {
     name: slug,
@@ -1266,6 +1321,11 @@ export function assembleSite(
       staging: stagingWeb3,
       assembled: assembledWeb3,
     },
+    formsIngestSync: {
+      staging: stagingForms,
+      assembled: assembledForms,
+    },
+    imagePrune,
     previousSiteRoot: previousForCleanup,
     nextSteps: [
       `cd ${siteRoot}`,

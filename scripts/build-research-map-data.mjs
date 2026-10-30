@@ -28,6 +28,7 @@ import {
   loadAcsPlacePopByGeoid,
   acsPlacePopCsvPath,
 } from '../ops/lib/census.mjs';
+import { commonNameForGeoid, commonPlaceName } from '../ops/lib/place-common-names.mjs';
 import { writePlaceNeighborsIndex } from '../ops/lib/geo-neighbors.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -116,14 +117,15 @@ function simplifyGeometry(geometry) {
   return { ...geometry, coordinates: walk(geometry.coordinates) };
 }
 
-function displayPlaceName(raw) {
-  return String(raw || '')
+function displayPlaceName(raw, { state = '', geoid = '' } = {}) {
+  const stripped = String(raw || '')
     .replace(/\s+CDP$/i, '')
     .replace(/\s+urban county$/i, '')
     .replace(/\s+municipality$/i, '')
     // LSAD legal types are lowercase in NAMELSAD ("Park City city"); do not strip proper-name "City"
     .replace(/\s+(city|town|village|borough)$/, '')
     .trim();
+  return commonNameForGeoid(geoid) || commonPlaceName(stripped, state);
 }
 
 function csvEscape(value) {
@@ -178,7 +180,7 @@ async function ensureAcsPlacePopCsv(placeZipPath) {
     const geoid = String(props.GEOID || props.geoid || '');
     const pop = popByGeoid.get(geoid);
     if (pop == null) continue;
-    const display = displayPlaceName(props.NAME || props.NAMELSAD || '');
+    const display = displayPlaceName(props.NAME || props.NAMELSAD || '', { state, geoid });
     if (!display) continue;
     out.push([geoid, String(pop), csvEscape(display), state].join(','));
     kept += 1;
@@ -292,14 +294,23 @@ async function buildPlaces(placeZipPath, acsByGeoid) {
     if (!state || state === 'PR') continue;
     const geoid = String(props.GEOID || props.geoid || '');
     const cityNorm = normalizePlaceName(rawName);
-    let population = idx.byKey.get(`${cityNorm}|${state}`);
-    if (population == null) {
-      const alt = normalizePlaceName(props.NAMELSAD || '');
-      population = idx.byKey.get(`${alt}|${state}`);
-    }
-    if (population == null && geoid) {
+    let population = null;
+    if (geoid) {
       const acs = acsByGeoid.get(geoid);
       if (acs?.population != null) population = acs.population;
+      if (population == null && idx.byGeoid?.has(geoid)) {
+        population = idx.byGeoid.get(geoid);
+      }
+    }
+    const display = displayPlaceName(rawName, { state, geoid });
+    if (population == null) {
+      population =
+        idx.byKey.get(`${normalizePlaceName(display)}|${state}`) ??
+        idx.byKey.get(`${cityNorm}|${state}`);
+      if (population == null) {
+        const alt = normalizePlaceName(props.NAMELSAD || '');
+        population = idx.byKey.get(`${alt}|${state}`);
+      }
     }
     if (population == null) {
       unmatched += 1;
@@ -309,7 +320,7 @@ async function buildPlaces(placeZipPath, acsByGeoid) {
     features.push({
       type: 'Feature',
       properties: {
-        name: displayPlaceName(rawName),
+        name: display,
         state,
         population,
         geoid,

@@ -21,7 +21,7 @@ The top bar is always there.
 
 ### Version {#chrome-version}
 
-**v2.4** (or current) sits next to the Rover wordmark. That is the product version, not a candidate.
+**v2.5** (or current) sits next to the Rover wordmark. That is the product version, not a candidate.
 
 ### Stages {#chrome-stages}
 
@@ -171,10 +171,10 @@ In **API** mode, steps 2–8 are **Write site with Claude** (one job per candida
 2. **Review images** — grade slots, re-pull, generate, save/load photo groups. Niche master is first in the dropdown.
 3. **Prepare preview** — stages, assembles, builds, starts a local preview. A card covers the workspace (`Staging` through `Preview`). A waiting tab opens while it runs.
 4. **QA preview** — spot-check key URLs on the preview.
-5. **Run launch** — first go-live: Email Routing so `leads@` exists, then Web3Forms Recipient Emails = `leads@{domain}` (not the account Gmail); Auto ship is on by default.
+5. **Run launch** — first go-live: Email Routing so `leads@` exists and Rover emails that destination; Auto ship is on by default.
 6. **Push updates** — already live: ship GitHub + build + Worker only. Run **Prepare preview** first if content changed.
 
-**Before first launch (outside Rover):** buy the domain and point NS at Cloudflare; run Email Routing so `leads@` exists; create a Web3Forms form with Recipient Emails = `leads@{domain}`; have a Gmail for `leads@` routing.
+**Before first launch (outside Rover):** buy the domain and point NS at Cloudflare; have a Gmail for the Email Routing destination.
 
 ## Launched {#launched}
 
@@ -600,7 +600,7 @@ Most clicks are seconds. Wall-clock is Claude, DataForSEO, Prepare preview, and 
 ## Still done by hand {#manual}
 
 - Buy domain + point NS at Cloudflare
-- Create Web3Forms form (Recipient Emails = `leads@{domain}`) + paste the key
+- Set the Email Routing destination (Gmail) so Rover can email leads
 - Verify Email Routing in Gmail once
 - One-time machine setup (`gh auth`, Cloudflare tokens)
 - First-time Twilio Functions **Deploy All** (see [First-time Twilio setup](#phone-twilio-setup))

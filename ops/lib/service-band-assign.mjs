@@ -8,6 +8,7 @@ export const CORE_SERVICE_BANDS = [
   'svcIntro',
   'svcWhatsIncluded',
   'svcProcess',
+  'svcMaterials',
   'svcFaqs',
   'svcCta',
 ];
@@ -19,7 +20,6 @@ export const ROTATE_SERVICE_BANDS = [
   'svcCodes',
   'svcDiyVsPro',
   'svcTimeline',
-  'svcMaterials',
   'svcWhenToCall',
 ];
 

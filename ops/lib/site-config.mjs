@@ -9,10 +9,13 @@ import {
   getApprovedPackage,
   getCandidateDetail,
   getCandidateShell,
+  loadMeta,
   pathsFor,
   readPromptFile,
   saveMeta,
+  titleCaseNiche,
 } from './candidates.mjs';
+import { normalizeServiceNameList } from './niche-service-lists.mjs';
 import { buildGoogleStyleSocialProof, socialProofNeedsSeed } from '../../scripts/lib/review-seed.mjs';
 import {
   applyArchetypeDefaults,
@@ -666,8 +669,9 @@ function suburbNameFromItem(x) {
 /**
  * Real municipality names only: coerce objects, drop schema tokens / ids / duplicates / primary.
  * Empty list is fine — Service area fills targetSuburbs next.
+ * After Service area is saved, pass fillFromPack: false so an empty list stays empty.
  */
-export function normalizeTargetSuburbs(raw, { primaryCity, pack } = {}) {
+export function normalizeTargetSuburbs(raw, { primaryCity, pack, fillFromPack = true } = {}) {
   const primary = String(primaryCity || '').trim().toLowerCase();
   const seen = new Set();
   const out = [];
@@ -690,8 +694,26 @@ export function normalizeTargetSuburbs(raw, { primaryCity, pack } = {}) {
   };
 
   ingest(raw);
-  if (!out.length && pack) ingest(suburbsFromPack(pack));
+  if (!out.length && fillFromPack && pack) ingest(suburbsFromPack(pack));
   return out;
+}
+
+function serviceAreaAlreadySaved(candidateId) {
+  return Boolean(loadMeta(candidateId)?.lastServiceAreaAt);
+}
+
+/** Later site-config accepts must not replace a saved Service area choice. */
+function keepSavedServiceArea(clean, previous) {
+  if (!previous || typeof previous !== 'object') return;
+  clean.targetSuburbs = Array.isArray(previous.targetSuburbs) ? [...previous.targetSuburbs] : [];
+  if (Array.isArray(previous.coverageAreas)) clean.coverageAreas = previous.coverageAreas;
+  clean.alsoServing = Array.isArray(previous.alsoServing) ? [...previous.alsoServing] : [];
+  if (previous.serviceRadiusMiles != null && previous.serviceRadiusMiles !== '') {
+    clean.serviceRadiusMiles = previous.serviceRadiusMiles;
+  }
+  clean.clusterLocationPageOverrides = Array.isArray(previous.clusterLocationPageOverrides)
+    ? [...previous.clusterLocationPageOverrides]
+    : [];
 }
 
 /** Split semicolon/comma lists from ops form fields into string[]. */
@@ -1111,7 +1133,18 @@ function pickNonBlank(...candidates) {
 
 function servicesFromPack(pack) {
   if (!pack) return [];
-  return parseListField(pack.suggestedServices);
+  return normalizeServiceNameList(parseListField(pack.suggestedServices));
+}
+
+function titleCaseServiceFields(config) {
+  if (!config || typeof config !== 'object') return config;
+  for (const key of ['services', 'commercialServices']) {
+    if (!Array.isArray(config[key])) continue;
+    config[key] = config[key].map((item) =>
+      typeof item === 'string' ? titleCaseNiche(item) : item,
+    );
+  }
+  return config;
 }
 
 function suburbsFromPack(pack) {
@@ -1144,10 +1177,6 @@ export function scanSiteConfigPlaceholders(config) {
   checkStr('phone', c.phone, P.phone);
   checkStr('email', c.email, P.email);
   {
-    const key = String(c.web3FormsAccessKey ?? '').trim();
-    if (!key || WEB3_PLACEHOLDER_RE.test(key)) placeholders.push('web3FormsAccessKey');
-  }
-  {
     const s = String(c.primaryCta ?? '').trim();
     if (!s || looksTbd(s)) placeholders.push('primaryCta');
   }
@@ -1177,7 +1206,7 @@ export function scanSiteConfigPlaceholders(config) {
  * Merge pasted config + NAP + approved package, then fill remaining required fields.
  * @returns {{ config: object, placeholders: string[] }}
  */
-export function withSiteConfigPlaceholders(config, nap = {}, pack = null) {
+export function withSiteConfigPlaceholders(config, nap = {}, pack = null, { fillFromPack = true } = {}) {
   const P = SITE_CONFIG_PLACEHOLDERS;
   const base = { ...(config && typeof config === 'object' ? config : {}) };
   const filledKeys = [];
@@ -1215,6 +1244,7 @@ export function withSiteConfigPlaceholders(config, nap = {}, pack = null) {
   base.targetSuburbs = normalizeTargetSuburbs(base.targetSuburbs, {
     primaryCity: base.primaryCity,
     pack,
+    fillFromPack,
   });
 
   // Explicit placeholders for anything still missing
@@ -1300,6 +1330,7 @@ export function withSiteConfigPlaceholders(config, nap = {}, pack = null) {
 
 function writeDraftFile(candidateId, config, opsExtra = {}) {
   const p = pathsFor(candidateId);
+  titleCaseServiceFields(config);
   const suburbCheck = validateSuburbsForSiteConfig(config);
   const placeholders = scanSiteConfigPlaceholders(config);
   const draft = {
@@ -1332,7 +1363,9 @@ export function pasteSiteConfigDraft(candidateId, raw, nap = {}) {
     throw err;
   }
 
-  const { config, placeholders } = withSiteConfigPlaceholders(value, nap, pack);
+  const { config, placeholders } = withSiteConfigPlaceholders(value, nap, pack, {
+    fillFromPack: !serviceAreaAlreadySaved(candidateId),
+  });
   const { draft, suburbCheck } = writeDraftFile(candidateId, config, {
     source: 'paste',
     nap: {
@@ -1410,10 +1443,10 @@ export function updateSiteConfigDraft(candidateId, patch = {}, nap = {}) {
   }
   if (patch.targetSuburbs !== undefined) next.targetSuburbs = parseListField(patch.targetSuburbs);
   if (patch.services !== undefined) {
-    next.services = parseListField(patch.services).slice(0, 12);
+    next.services = normalizeServiceNameList(parseListField(patch.services));
   }
   if (patch.commercialServices !== undefined) {
-    const list = parseListField(patch.commercialServices).slice(0, 12);
+    const list = normalizeServiceNameList(parseListField(patch.commercialServices));
     next.commercialServices = list.length ? list : undefined;
   }
 
@@ -1442,7 +1475,9 @@ export function updateSiteConfigDraft(candidateId, patch = {}, nap = {}) {
   }
 
   const pack = getApprovedPackage(candidateId);
-  const { config, placeholders } = withSiteConfigPlaceholders(next, nap, pack);
+  const { config, placeholders } = withSiteConfigPlaceholders(next, nap, pack, {
+    fillFromPack: !serviceAreaAlreadySaved(candidateId),
+  });
   const { draft, suburbCheck } = writeDraftFile(candidateId, config, {
     source: 'edit',
     previousSource: prevOps?.source || null,
@@ -1478,6 +1513,8 @@ export function acceptSiteConfig(
   assertSiteConfigHandoffReady(candidateId, { allowNonPursue });
   const p = pathsFor(candidateId);
   const draftPath = p.siteConfigDraft;
+  const areaSaved = serviceAreaAlreadySaved(candidateId);
+  const previousAccepted = stripSiteConfigOps(readJson(p.siteConfig));
   const draft = readJson(draftPath);
   if (!draft) {
     const err = new Error('No site-config draft — paste JSON first');
@@ -1491,10 +1528,13 @@ export function acceptSiteConfig(
       ensureBusinessNameNotNiche(applyArchetypeDefaults(cleanRaw)),
     ),
   );
+  titleCaseServiceFields(clean);
   clean.targetSuburbs = normalizeTargetSuburbs(clean.targetSuburbs, {
     primaryCity: clean.primaryCity,
     pack,
+    fillFromPack: !areaSaved,
   });
+  if (areaSaved) keepSavedServiceArea(clean, previousAccepted);
   if (!isBlank(clean.domain)) {
     clean.email = publicLeadsEmail(clean.email, clean.domain);
   }

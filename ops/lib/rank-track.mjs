@@ -28,60 +28,164 @@ const MAX_QUEUE_WAIT_MS = 2 * 60 * 60 * 1000;
 const POLL_START_MS = 5000;
 const POLL_MAX_MS = 20000;
 const DEFAULT_DEPTH = 20;
+const TASK_POST_CHUNK = 100;
+const TASK_GET_LIMIT = 8;
+const READY_MISS_BEFORE_DIRECT = 3;
+const IN_PROGRESS_TASK_CODES = new Set([40601, 40602, 40101, 40102, 40103]);
+
+let rankBatchProgress = null;
+
+export function getRankBatchProgress() {
+  if (!rankBatchProgress) return { running: false };
+  return { ...rankBatchProgress };
+}
+
+function patchRankBatchProgress(patch) {
+  if (!rankBatchProgress) return;
+  Object.assign(rankBatchProgress, patch);
+}
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function fetchOrganicViaQueue(body, label = 'organic_serp') {
-  const postJson = await dataForSeoRequest(`${SERP_BASE}/task_post`, body, {
+function organicTaskPostFailure(task, label) {
+  if (!task?.id) return `${label}: task_post returned no task id`;
+  const code = Number(task.status_code);
+  if (code === 20100 || code === 20000) return null;
+  return `${label} task_post failed ${code}: ${task.status_message || 'unknown'}`;
+}
+
+/** One task_post for every keyword. Each task is created, or recorded as that keyword's error. */
+async function postOrganicTasks(bodies, label) {
+  const postJson = await dataForSeoRequest(`${SERP_BASE}/task_post`, bodies, {
     label: `${label}_post`,
   });
-  const postTask = postJson.tasks?.[0];
-  if (!postTask?.id) {
-    throw new Error(`${label}: task_post returned no task id`);
-  }
-  const postCost = Number(postTask.cost) || 0;
-  if (postTask.status_code !== 20100 && postTask.status_code !== 20000) {
-    throw new Error(
-      `${label} task_post failed ${postTask.status_code}: ${postTask.status_message}`,
-    );
-  }
+  const tasks = Array.isArray(postJson.tasks) ? postJson.tasks : [];
+  return bodies.map((body, index) => {
+    const tag = String(body?.tag ?? index);
+    const task =
+      tasks.find((row) => String(row?.data?.tag ?? row?.tag ?? '') === tag) || tasks[index];
+    const error = organicTaskPostFailure(task, label);
+    if (error) return { index, tag, error };
+    return {
+      index,
+      tag,
+      taskId: task.id,
+      postCost: Number(task.cost) || 0,
+      lastStatus: task.status_code,
+    };
+  });
+}
 
-  const taskId = postTask.id;
+function chunkList(items, size) {
+  const out = [];
+  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
+  return out;
+}
+
+async function mapPool(items, limit, fn) {
+  if (!items.length) return [];
+  const out = new Array(items.length);
+  let cursor = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (cursor < items.length) {
+      const index = cursor;
+      cursor += 1;
+      out[index] = await fn(items[index]);
+    }
+  });
+  await Promise.all(workers);
+  return out;
+}
+
+async function listReadyOrganicTaskIds() {
+  const json = await dataForSeoGet(`${SERP_BASE}/tasks_ready`);
+  const ids = [];
+  for (const task of json.tasks || []) {
+    for (const row of task.result || []) {
+      if (row?.id) ids.push(String(row.id));
+    }
+  }
+  return ids;
+}
+
+async function fetchOrganicJobs(jobs, label) {
+  const rows = await mapPool(jobs, TASK_GET_LIMIT, async (job) => {
+    try {
+      return { job, outcome: await readOrganicTask(job, label) };
+    } catch (error) {
+      return { job, outcome: { error: error.message || String(error) } };
+    }
+  });
+  const terminal = [];
+  for (const row of rows) {
+    if (row.outcome.pending) {
+      row.job.lastStatus = row.outcome.lastStatus;
+      continue;
+    }
+    terminal.push(row);
+  }
+  return terminal;
+}
+
+async function readOrganicTask(job, label) {
+  const getJson = await dataForSeoGet(`${SERP_BASE}/task_get/advanced/${job.taskId}`);
+  const task = getJson.tasks?.[0];
+  if (!task) {
+    return { error: `${label}: empty task_get for ${job.taskId}` };
+  }
+  const code = Number(task.status_code);
+  if (code === 20000) {
+    return {
+      result: task.result ?? [],
+      cost: job.postCost || Number(task.cost) || 0,
+    };
+  }
+  if (code >= 40000 && code < 50000 && !IN_PROGRESS_TASK_CODES.has(code)) {
+    return { error: `${label} task_get failed ${code}: ${task.status_message || ''}`.trim() };
+  }
+  if (code >= 50000) {
+    return { error: `${label} task_get failed ${code}: ${task.status_message || ''}`.trim() };
+  }
+  return { pending: true, lastStatus: code };
+}
+
+/** Poll every posted task id on one shared timer until each is ready or the queue cap hits. */
+async function pollOrganicTasks(jobs, label) {
+  const pending = jobs.map((job) => ({ ...job }));
+  const finished = new Map();
   const started = Date.now();
   let wait = POLL_START_MS;
-  let lastStatus = postTask.status_code;
-
-  while (Date.now() - started < MAX_QUEUE_WAIT_MS) {
+  while (pending.length && Date.now() - started < MAX_QUEUE_WAIT_MS) {
     await sleep(wait);
-    const getJson = await dataForSeoGet(`${SERP_BASE}/task_get/advanced/${taskId}`);
-    const task = getJson.tasks?.[0];
-    if (!task) {
-      throw new Error(`${label}: empty task_get for ${taskId}`);
-    }
-    lastStatus = task.status_code;
-    if (task.status_code === 20000) {
-      return {
-        result: task.result ?? [],
-        cost: postCost || Number(task.cost) || 0,
-      };
-    }
-    if (task.status_code >= 40000 && task.status_code < 50000) {
-      const inProgress = [40601, 40602, 40101, 40102, 40103].includes(task.status_code);
-      if (!inProgress) {
-        throw new Error(`${label} task_get failed ${task.status_code}: ${task.status_message}`);
+    const wave = await Promise.all(
+      pending.map(async (job) => {
+        try {
+          return { job, outcome: await readOrganicTask(job, label) };
+        } catch (error) {
+          return { job, outcome: { error: error.message || String(error) } };
+        }
+      }),
+    );
+    for (let i = pending.length - 1; i >= 0; i -= 1) {
+      const row = wave[i];
+      if (row.outcome.pending) {
+        pending[i].lastStatus = row.outcome.lastStatus;
+        continue;
       }
-    }
-    if (task.status_code >= 50000) {
-      throw new Error(`${label} task_get failed ${task.status_code}: ${task.status_message}`);
+      finished.set(row.job.index, row.outcome);
+      pending.splice(i, 1);
     }
     wait = Math.min(POLL_MAX_MS, Math.round(wait * 1.25));
   }
-
-  throw new Error(
-    `${label}: standard queue timed out after ${Math.round(MAX_QUEUE_WAIT_MS / 60000)}m (last status ${lastStatus})`,
-  );
+  const minutes = Math.round(MAX_QUEUE_WAIT_MS / 60000);
+  for (const job of pending) {
+    finished.set(job.index, {
+      error: `${label}: standard queue timed out after ${minutes}m (last status ${job.lastStatus ?? 'n/a'})`,
+    });
+  }
+  return finished;
 }
 
 function hostFromSite(site) {
@@ -121,7 +225,7 @@ export function findDomainOrganicPosition(items, targetHost) {
   return { position: null, urlMatched: null };
 }
 
-async function locationSpecForSite(site) {
+async function locationSpecForSite(site, locations = null) {
   const city = String(site.city || '').trim();
   const state = String(site.state || '').trim().toUpperCase();
   if (!city || !state) {
@@ -130,8 +234,8 @@ async function locationSpecForSite(site) {
       { status: 400 },
     );
   }
-  const locations = await loadSerpLocations();
-  const spec = resolveSerpTaskLocation(city, state, { locations });
+  const list = locations || (await loadSerpLocations());
+  const spec = resolveSerpTaskLocation(city, state, { locations: list });
   if (!spec) {
     throw Object.assign(
       new Error(`No SERP location for ${city}, ${state}`),
@@ -143,6 +247,7 @@ async function locationSpecForSite(site) {
 
 /**
  * Check all tracked keywords for one site (Standard queue, depth 20).
+ * Keywords are posted together and polled on one timer.
  */
 export async function checkSiteRanks(siteId, { depth = DEFAULT_DEPTH } = {}) {
   requireCredentials();
@@ -168,121 +273,325 @@ export async function checkSiteRanks(siteId, { depth = DEFAULT_DEPTH } = {}) {
   const locationSpec = await locationSpecForSite(site);
   const locationName = locationSpec.label;
   const checkedAt = new Date().toISOString();
+  const label = `rank_${siteId}`;
+  const locationPayload = serpLocationPayload(locationSpec);
+  const bodies = keywords.map((entry, index) => ({
+    keyword: entry.keyword,
+    ...locationPayload,
+    language_code: 'en',
+    device: 'desktop',
+    depth,
+    tag: String(index),
+  }));
+
+  const finished = new Map();
+  try {
+    const posted = await postOrganicTasks(bodies, label);
+    const queued = [];
+    for (const job of posted) {
+      if (job.error) finished.set(job.index, { error: job.error });
+      else queued.push(job);
+    }
+    const polled = await pollOrganicTasks(queued, label);
+    for (const [index, outcome] of polled) finished.set(index, outcome);
+  } catch (error) {
+    const message = error.message || String(error);
+    keywords.forEach((_, index) => finished.set(index, { error: message }));
+  }
+
+  return commitRankCheck({
+    metrics,
+    host,
+    keywords,
+    locationName,
+    checkedAt,
+    finished,
+    label,
+  });
+}
+
+function commitRankCheck({ metrics, host, keywords, locationName, checkedAt, finished, label }) {
   const keywordResults = [];
   let totalCost = 0;
   let lastError = null;
-
-  for (const entry of keywords) {
+  for (let index = 0; index < keywords.length; index += 1) {
+    const entry = keywords[index];
     const keyword = entry.keyword;
-    try {
-      // eslint-disable-next-line no-await-in-loop
-      const { result, cost } = await fetchOrganicViaQueue(
-        {
-          keyword,
-          ...serpLocationPayload(locationSpec),
-          language_code: 'en',
-          device: 'desktop',
-          depth,
-        },
-        `rank_${siteId}`,
-      );
-      totalCost += Number(cost) || 0;
-      const page = result?.[0] || {};
-      const { position, urlMatched } = findDomainOrganicPosition(page.items || [], host);
-      const pageNum = pageFromPosition(position);
-      const point = {
-        checkedAt,
-        position,
-        page: pageNum,
-        urlMatched,
-        serpLocation: locationName,
-        costUsd: Number(cost) || 0,
-      };
-
-      if (!metrics.ranks.byKeyword[keyword]) {
-        metrics.ranks.byKeyword[keyword] = { history: [] };
-      }
-      const hist = trimRankHistory([
-        ...(metrics.ranks.byKeyword[keyword].history || []),
-        point,
-      ]);
-      metrics.ranks.byKeyword[keyword].history = hist;
-
-      if (entry.isPrimary) {
-        metrics.ranks.primaryPosition = position;
-        metrics.ranks.primaryPage = pageNum;
-        metrics.ranks.primaryCheckedAt = checkedAt;
-      }
-
-      keywordResults.push({ keyword, isPrimary: Boolean(entry.isPrimary), ...point });
-    } catch (error) {
-      lastError = error.message || String(error);
+    const outcome = finished.get(index) || { error: `${label}: missing task result` };
+    if (outcome.error) {
+      lastError = outcome.error;
       keywordResults.push({
         keyword,
         isPrimary: Boolean(entry.isPrimary),
         error: lastError,
       });
+      continue;
     }
+    const cost = Number(outcome.cost) || 0;
+    totalCost += cost;
+    const page = outcome.result?.[0] || {};
+    const { position, urlMatched } = findDomainOrganicPosition(page.items || [], host);
+    const pageNum = pageFromPosition(position);
+    const point = {
+      checkedAt,
+      position,
+      page: pageNum,
+      urlMatched,
+      serpLocation: locationName,
+      costUsd: cost,
+    };
+
+    if (!metrics.ranks.byKeyword[keyword]) {
+      metrics.ranks.byKeyword[keyword] = { history: [] };
+    }
+    metrics.ranks.byKeyword[keyword].history = trimRankHistory([
+      ...(metrics.ranks.byKeyword[keyword].history || []),
+      point,
+    ]);
+
+    if (entry.isPrimary) {
+      metrics.ranks.primaryPosition = position;
+      metrics.ranks.primaryPage = pageNum;
+      metrics.ranks.primaryCheckedAt = checkedAt;
+    }
+
+    keywordResults.push({ keyword, isPrimary: Boolean(entry.isPrimary), ...point });
   }
 
   metrics.domain = host;
   metrics.ranks.lastCheckAt = checkedAt;
   metrics.ranks.syncError = lastError;
-  saveSiteMetrics(metrics);
-
+  const saved = saveSiteMetrics(metrics);
   return {
-    ok: keywordResults.every((r) => !r.error),
-    siteId,
+    ok: keywordResults.every((row) => !row.error),
+    siteId: metrics.siteId,
     domain: host,
     costUsd: totalCost,
     keywords: keywordResults,
-    metrics,
+    metrics: saved,
     error: lastError,
+    primaryPosition: saved.ranks?.primaryPosition ?? null,
+    primaryPage: saved.ranks?.primaryPage ?? null,
+  };
+}
+
+function rankResultRow(site, committed, error) {
+  if (!committed) {
+    return {
+      siteId: site.id,
+      domain: hostFromSite(site),
+      ok: false,
+      error: error || 'Rank check failed',
+    };
+  }
+  return {
+    siteId: site.id,
+    domain: committed.domain,
+    ok: Boolean(committed.ok),
+    primaryPosition: committed.primaryPosition ?? null,
+    primaryPage: committed.primaryPage ?? null,
+    costUsd: committed.costUsd,
+    error: committed.error || null,
   };
 }
 
 /**
- * Rank-check all eligible sites with domains + niche/city (or existing keywords).
+ * Post every selected site's keywords, then collect them on one Standard-queue wait.
  */
 export async function checkAllSiteRanks({ siteIds = null, depth = DEFAULT_DEPTH } = {}) {
   requireCredentials();
+  if (rankBatchProgress?.running) {
+    throw Object.assign(new Error('A rank check is already running'), { status: 409 });
+  }
+
   let sites = metricsEligibleSites().filter((s) => hostFromSite(s));
   if (Array.isArray(siteIds) && siteIds.length) {
     const want = new Set(siteIds);
     sites = sites.filter((s) => want.has(s.id));
   }
 
-  const results = [];
-  let costUsd = 0;
-  for (const site of sites) {
-    try {
-      // eslint-disable-next-line no-await-in-loop
-      const result = await checkSiteRanks(site.id, { depth });
-      costUsd += Number(result.costUsd) || 0;
-      results.push({
-        siteId: site.id,
-        domain: result.domain,
-        ok: Boolean(result.ok),
-        primaryPosition: result.metrics?.ranks?.primaryPosition ?? null,
-        primaryPage: result.metrics?.ranks?.primaryPage ?? null,
-        costUsd: result.costUsd,
-        error: result.error || null,
-      });
-    } catch (error) {
-      results.push({
-        siteId: site.id,
-        domain: hostFromSite(site),
-        ok: false,
-        error: error.message || String(error),
+  const checkedAt = new Date().toISOString();
+  rankBatchProgress = {
+    running: true,
+    keywordsTotal: 0,
+    keywordsPosted: 0,
+    keywordsReady: 0,
+    sitesTotal: sites.length,
+    sitesDone: 0,
+  };
+
+  try {
+    const locations = await loadSerpLocations();
+    const bundles = [];
+    const results = [];
+    const jobs = [];
+    let tagSerial = 0;
+
+    for (const site of sites) {
+      const host = hostFromSite(site);
+      let metrics = ensureSiteMetrics(site.id, { domain: host });
+      const ensured = ensurePrimaryKeyword(metrics, site);
+      metrics = ensured.metrics;
+      if (ensured.changed) metrics = saveSiteMetrics(metrics);
+      const keywords = metrics.rankKeywords || [];
+      if (!keywords.length) {
+        results.push(
+          rankResultRow(site, null, 'No rank keywords — set niche+city or edit keywords on the site'),
+        );
+        patchRankBatchProgress({ sitesDone: rankBatchProgress.sitesDone + 1 });
+        continue;
+      }
+      let locationSpec;
+      try {
+        locationSpec = await locationSpecForSite(site, locations);
+      } catch (error) {
+        results.push(rankResultRow(site, null, error.message || String(error)));
+        patchRankBatchProgress({ sitesDone: rankBatchProgress.sitesDone + 1 });
+        continue;
+      }
+      const bundle = {
+        site,
+        host,
+        metrics,
+        keywords,
+        locationName: locationSpec.label,
+        locationPayload: serpLocationPayload(locationSpec),
+        finished: new Map(),
+        label: `rank_${site.id}`,
+      };
+      bundles.push(bundle);
+      keywords.forEach((entry, index) => {
+        const tag = `k${tagSerial}`;
+        tagSerial += 1;
+        jobs.push({
+          tag,
+          siteId: site.id,
+          keywordIndex: index,
+          body: {
+            keyword: entry.keyword,
+            ...bundle.locationPayload,
+            language_code: 'en',
+            device: 'desktop',
+            depth,
+            tag,
+          },
+        });
       });
     }
-  }
 
-  return {
-    ok: true,
-    checked: results.filter((r) => r.ok).length,
-    failed: results.filter((r) => !r.ok).length,
-    costUsd,
-    results,
-  };
+    const bundleById = new Map(bundles.map((bundle) => [bundle.site.id, bundle]));
+    patchRankBatchProgress({ keywordsTotal: jobs.length });
+
+    const pending = [];
+    const noteReady = (job, outcome) => {
+      const bundle = bundleById.get(job.siteId);
+      if (!bundle || bundle.finished.has(job.keywordIndex)) return;
+      bundle.finished.set(job.keywordIndex, outcome);
+      patchRankBatchProgress({ keywordsReady: rankBatchProgress.keywordsReady + 1 });
+      if (bundle.finished.size < bundle.keywords.length) return;
+      const committed = commitRankCheck({
+        metrics: bundle.metrics,
+        host: bundle.host,
+        keywords: bundle.keywords,
+        locationName: bundle.locationName,
+        checkedAt,
+        finished: bundle.finished,
+        label: bundle.label,
+      });
+      results.push(rankResultRow(bundle.site, committed));
+      bundle.saved = true;
+      patchRankBatchProgress({ sitesDone: rankBatchProgress.sitesDone + 1 });
+    };
+
+    for (const chunk of chunkList(jobs, TASK_POST_CHUNK)) {
+      try {
+        const posted = await postOrganicTasks(
+          chunk.map((job) => job.body),
+          'rank_batch',
+        );
+        let accepted = 0;
+        posted.forEach((row, index) => {
+          const job = chunk[index];
+          if (row.error || !row.taskId) {
+            noteReady(job, { error: row.error || 'rank_batch: task_post returned no task id' });
+            return;
+          }
+          accepted += 1;
+          pending.push({
+            ...job,
+            taskId: row.taskId,
+            postCost: row.postCost,
+            lastStatus: row.lastStatus,
+          });
+        });
+        patchRankBatchProgress({
+          keywordsPosted: rankBatchProgress.keywordsPosted + accepted,
+        });
+      } catch (error) {
+        const message = error.message || String(error);
+        for (const job of chunk) noteReady(job, { error: message });
+      }
+    }
+
+    const pendingById = new Map(pending.map((job) => [String(job.taskId), job]));
+    const started = Date.now();
+    let wait = POLL_START_MS;
+    let readyMisses = 0;
+    while (pendingById.size && Date.now() - started < MAX_QUEUE_WAIT_MS) {
+      await sleep(wait);
+      let ours = [];
+      try {
+        const readyIds = await listReadyOrganicTaskIds();
+        const readySet = new Set(readyIds);
+        ours = [...pendingById.values()].filter((job) => readySet.has(String(job.taskId)));
+      } catch {
+        ours = [];
+      }
+      if (ours.length) readyMisses = 0;
+      else readyMisses += 1;
+      const toFetch = ours.length
+        ? ours
+        : readyMisses >= READY_MISS_BEFORE_DIRECT
+          ? [...pendingById.values()].slice(0, TASK_GET_LIMIT)
+          : [];
+      const terminal = await fetchOrganicJobs(toFetch, 'rank_batch');
+      for (const row of terminal) {
+        pendingById.delete(String(row.job.taskId));
+        noteReady(row.job, row.outcome);
+      }
+      wait = Math.min(POLL_MAX_MS, Math.round(wait * 1.25));
+    }
+
+    const minutes = Math.round(MAX_QUEUE_WAIT_MS / 60000);
+    for (const job of pendingById.values()) {
+      noteReady(job, {
+        error: `rank_batch: standard queue timed out after ${minutes}m (last status ${job.lastStatus ?? 'n/a'})`,
+      });
+    }
+    for (const bundle of bundles) {
+      if (bundle.saved) continue;
+      const committed = commitRankCheck({
+        metrics: bundle.metrics,
+        host: bundle.host,
+        keywords: bundle.keywords,
+        locationName: bundle.locationName,
+        checkedAt,
+        finished: bundle.finished,
+        label: bundle.label,
+      });
+      results.push(rankResultRow(bundle.site, committed));
+      patchRankBatchProgress({ sitesDone: rankBatchProgress.sitesDone + 1 });
+    }
+
+    const costUsd = results.reduce((sum, row) => sum + (Number(row.costUsd) || 0), 0);
+    return {
+      ok: true,
+      checked: results.filter((row) => row.ok).length,
+      failed: results.filter((row) => !row.ok).length,
+      costUsd,
+      results,
+    };
+  } finally {
+    rankBatchProgress = null;
+  }
 }

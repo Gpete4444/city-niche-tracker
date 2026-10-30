@@ -38,7 +38,11 @@ import {
   placeNameSetHas,
   setPlaceNameAliases,
   getPlaceNameAlias,
-} from './service-area-selection.mjs?v=20260919saMin';
+  featureLayerKey,
+  preferPlaceMeta,
+  placeFeatureMeta,
+  featuresToMergeByGeoid,
+} from './service-area-selection.mjs?v=20260921saGeoid';
 
 let Lref = null;
 
@@ -452,12 +456,17 @@ async function mountGeoSelectMap(opts) {
     });
   }
 
-  function rememberFeatureCenter(feature) {
+  function rememberPlaceFeature(feature) {
     const p = feature?.properties || {};
     if (!p.name) return;
+    const key = placeKey(p.name, p.state);
+    const next = placeFeatureMeta(feature);
+    const prev = placeMetaByKey.get(key);
+    if (prev && !preferPlaceMeta(prev, next)) return;
+    placeMetaByKey.set(key, next);
+    popByKey.set(key, next.pop);
     const c = geometryLngLat(feature.geometry);
-    if (!c) return;
-    centerByKey.set(placeKey(p.name, p.state), c);
+    if (c) centerByKey.set(key, c);
   }
 
   function isFartherLeftover(name, key) {
@@ -504,6 +513,8 @@ async function mountGeoSelectMap(opts) {
   let inRadiusKeys = new Set();
   /** @type {Map<string, number>} */
   let popByKey = new Map();
+  /** @type {Map<string, { isPrimary: boolean, area: number, pop: number }>} */
+  let placeMetaByKey = new Map();
   let primaryCenter = null;
   let map = null;
   let placesLayer = null;
@@ -1515,8 +1526,8 @@ async function mountGeoSelectMap(opts) {
     const keys = new Set();
     if (!placesLayer) return keys;
     placesLayer.eachLayer((layer) => {
-      const p = layer.feature?.properties || {};
-      if (p.name) keys.add(placeKey(p.name, p.state));
+      const k = featureLayerKey(layer.feature);
+      if (k) keys.add(k);
     });
     return keys;
   }
@@ -1578,16 +1589,8 @@ async function mountGeoSelectMap(opts) {
   function mergeInRadiusFeatures(features) {
     if (!placesLayer || !Array.isArray(features) || !features.length) return;
     const have = existingPlaceKeys();
-    const toAdd = [];
-    for (const f of features) {
-      const p = f?.properties || {};
-      const key = placeKey(p.name, p.state);
-      if (!p.name || have.has(key)) continue;
-      have.add(key);
-      popByKey.set(key, Number(p.population) || 0);
-      rememberFeatureCenter(f);
-      toAdd.push(f);
-    }
+    const { toAdd } = featuresToMergeByGeoid(features, have);
+    for (const f of toAdd) rememberPlaceFeature(f);
     if (!toAdd.length) return;
     const exploded = explodeAndSortPlaceFeatures({ type: 'FeatureCollection', features: toAdd });
     placesLayer.addData(exploded);
@@ -1828,10 +1831,9 @@ async function mountGeoSelectMap(opts) {
 
   function applyPlacesGeo(L, geo) {
     popByKey = new Map();
+    placeMetaByKey = new Map();
     for (const f of geo.features || []) {
-      const p = f.properties || {};
-      popByKey.set(placeKey(p.name, p.state), Number(p.population) || 0);
-      rememberFeatureCenter(f);
+      rememberPlaceFeature(f);
     }
     if (isDiscovery) {
       const pk = primaryCity ? placeKey(primaryCity, state) : '';

@@ -2,6 +2,7 @@
  * Advisory + critical SEO lint for content drafts (keyword/PAA/links).
  * Critical findings can block Accept unless ignoreSeoWarnings.
  */
+import { SERVICE_OWNED_MIN_WORDS, serviceThinReason } from './preview-fidelity.mjs';
 
 const TITLE_MAX = 60;
 
@@ -347,9 +348,12 @@ export function lintContentSeo(files, opts = {}) {
     minWords: Number(opts.locationMinWords) > 0 ? Number(opts.locationMinWords) : 450,
     strict: opts.strictLocationDepth !== false,
   });
+  lintServiceDepth(files, findings);
   lintMaterialsSpecificity(files, findings, {
     enabled: opts.materialsEnabled !== false,
   });
+  lintZoneSiblingCopy(files, findings, opts);
+  lintZoneSiblingLinks(files, findings, opts);
 
   const critical = findings.filter((f) => f.severity === 'critical');
   return { ok: critical.length === 0, findings };
@@ -419,6 +423,244 @@ function lintEducationalCoverage(files, findings, opts = {}) {
       rule: 'service_educational_coverage',
       excerpt: `Only ${hits.length}/${minSvc} service page(s) cover ${row.label}`,
       suggestion: `Keep ${row.label} on the homepage plus at least ${minSvc} service URL(s) (rotated — not every service).`,
+    });
+  }
+}
+
+function normPlaceName(value) {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function normSentence(value) {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function homeRelOf(files) {
+  return (
+    Object.keys(files || {}).find((p) => /(^|\/)pages\/index\.md$/i.test(p)) ||
+    'src/content/pages/index.md'
+  );
+}
+
+function unmarkedIntro(raw) {
+  const body = stripFrontmatter(raw);
+  const idx = body.search(/^##\s+/m);
+  return (idx < 0 ? body : body.slice(0, idx)).trim();
+}
+
+function titledSentences(raw) {
+  const t = String(raw || '');
+  const fmEnd = t.startsWith('---') ? t.indexOf('\n---', 3) : -1;
+  const fm = fmEnd > 0 ? t.slice(0, fmEnd) : '';
+  const out = [];
+  let title = '';
+  for (const line of fm.split('\n')) {
+    const tm = line.match(/^\s*-?\s*title:\s*(.+)$/);
+    const dm = line.match(/^\s*-?\s*description:\s*(.+)$/);
+    if (tm) title = unquote(tm[1]);
+    else if (dm && title) {
+      const sentence = normSentence(unquote(dm[1]));
+      if (sentence.length > 20) out.push(sentence);
+      title = '';
+    }
+  }
+  for (const match of stripFrontmatter(t).matchAll(/\*\*([^*]+)\*\*\s*[:—–-]\s*([^\n]+)/g)) {
+    const sentence = normSentence(match[2]);
+    if (sentence.length > 20) out.push(sentence);
+  }
+  return out;
+}
+
+function sharedSentenceCount(a, b) {
+  const right = new Set(b);
+  let n = 0;
+  for (const sentence of a) if (right.has(sentence)) n += 1;
+  return n;
+}
+
+function pageSnapshot(rel, raw) {
+  const body = stripFrontmatter(raw);
+  const paras = body
+    .split(/\n{2,}/)
+    .map((p) => p.trim())
+    .filter((p) => p && !p.startsWith('#'));
+  const lead = paras.slice(0, 2).join('\n\n');
+  return {
+    rel,
+    body,
+    words: countWords(body),
+    tokens: tokenSet(body),
+    leadTokens: tokenSet(lead),
+    sentences: titledSentences(raw),
+  };
+}
+
+/**
+ * Soft only. Neighboring Zone sites can share titles. The article under them should not match.
+ */
+function lintZoneSiblingCopy(files, findings, opts = {}) {
+  const siblings = (opts.zoneSiblings || []).filter(
+    (row) => row?.files && Object.keys(row.files).length,
+  );
+  if (!siblings.length) return;
+  const homeRel = homeRelOf(files);
+  const homeRaw = files?.[homeRel] || '';
+  const home = homeRaw ? pageSnapshot(homeRel, homeRaw) : null;
+  let emitted = 0;
+  const cap = 6;
+
+  for (const sibling of siblings) {
+    if (emitted >= cap) return;
+    const label = [sibling.city, sibling.state].filter(Boolean).join(', ') || sibling.candidateId || 'a Zone neighbor';
+    const sibHomeRel = homeRelOf(sibling.files);
+    const sibHomeRaw = sibling.files[sibHomeRel] || '';
+    if (home && sibHomeRaw) {
+      const other = pageSnapshot(sibHomeRel, sibHomeRaw);
+      const sim = jaccard(home.tokens, other.tokens);
+      const leadSim = jaccard(home.leadTokens, other.leadTokens);
+      const copied = sharedSentenceCount(home.sentences, other.sentences);
+      const bodyHit = home.words >= 80 && other.words >= 80 && sim >= 0.72;
+      const leadHit =
+        home.leadTokens.size >= 12 && other.leadTokens.size >= 12 && leadSim >= 0.55;
+      const sentenceHit = copied >= 3;
+      if (bodyHit || leadHit || sentenceHit) {
+        findings.push({
+          severity: 'soft',
+          file: homeRel,
+          rule: 'zone_homepage_near_duplicate',
+          excerpt: bodyHit
+            ? `Homepage is close to ${label} (~${Math.round(sim * 100)}% similar)`
+            : leadHit
+              ? `Homepage opening is close to ${label}`
+              : `${copied} process or materials sentences match ${label}`,
+          suggestion:
+            'Keep the shared step and material titles. Rewrite the homepage intro, cost section, and the sentence under each title for this city.',
+        });
+        emitted += 1;
+      }
+    }
+
+    for (const [rel, raw] of Object.entries(files || {})) {
+      if (emitted >= cap) return;
+      if (!/services\/[^/]+\.md$/i.test(rel)) continue;
+      const base = rel.split('/').pop();
+      const sibRel = Object.keys(sibling.files).find((p) => p.split('/').pop() === base);
+      if (!sibRel) continue;
+      const intro = unmarkedIntro(raw);
+      const otherIntro = unmarkedIntro(sibling.files[sibRel]);
+      if (countWords(intro) < 40 || countWords(otherIntro) < 40) continue;
+      const sim = jaccard(tokenSet(intro), tokenSet(otherIntro));
+      if (sim < 0.72) continue;
+      findings.push({
+        severity: 'soft',
+        file: rel,
+        rule: 'zone_service_intro_near_duplicate',
+        excerpt: `Service intro is close to ${label} (~${Math.round(sim * 100)}% similar)`,
+        suggestion: 'Rewrite this service intro for this city. Keep the service name and the shared step titles.',
+      });
+      emitted += 1;
+    }
+  }
+}
+
+function locationCityLabel(rel, raw) {
+  const match = String(raw || '').match(/^city:\s*(.+)$/m);
+  if (match) return unquote(match[1]);
+  return String(rel || '')
+    .split('/')
+    .pop()
+    .replace(/\.md$/i, '')
+    .replace(/-/g, ' ');
+}
+
+/**
+ * Soft only. Also-serving may name a neighbor town. A location page, a neighbor
+ * domain, or an "our other offices" list may not.
+ */
+function lintZoneSiblingLinks(files, findings, opts = {}) {
+  const siblings = (opts.zoneSiblings || []).filter((row) => row?.city || row?.domain);
+  if (!siblings.length) return;
+  const overrides = new Set((opts.zoneLocationOverrides || []).map((name) => normPlaceName(name)));
+  const phraseRe = /\bour other (offices|locations|cities|sites)\b|\bsister sites?\b|\bwebring\b/i;
+  let emitted = 0;
+  const cap = 8;
+
+  for (const [rel, raw] of Object.entries(files || {})) {
+    if (emitted >= cap) return;
+    const text = String(raw || '');
+    const lower = text.toLowerCase();
+    if (phraseRe.test(text)) {
+      findings.push({
+        severity: 'soft',
+        file: rel,
+        rule: 'zone_sibling_link',
+        excerpt: 'Mentions our other offices or a webring',
+        suggestion: 'Delete the list. Sibling cities are separate sites and do not link to each other.',
+      });
+      emitted += 1;
+    }
+    const domain = siblings
+      .map((row) => String(row.domain || '').trim().toLowerCase())
+      .find((host) => host.length > 4 && lower.includes(host));
+    if (domain && emitted < cap) {
+      findings.push({
+        severity: 'soft',
+        file: rel,
+        rule: 'zone_sibling_domain',
+        excerpt: `Names a Zone neighbor domain (${domain})`,
+        suggestion: 'Remove the neighbor URL. Do not send visitors to another site in this Zone.',
+      });
+      emitted += 1;
+    }
+
+    const claimed = siblings.find((row) => {
+      const city = normPlaceName(row.city);
+      if (!city || overrides.has(city)) return false;
+      if (/locations\/[^/]+\.md$/i.test(rel) && normPlaceName(locationCityLabel(rel, text)) === city) {
+        return true;
+      }
+      const slug = slugify(row.city);
+      return Boolean(slug) && lower.includes(`/locations/${slug}`);
+    });
+    if (claimed && emitted < cap) {
+      findings.push({
+        severity: 'soft',
+        file: rel,
+        rule: 'zone_sibling_location_page',
+        excerpt: `${claimed.city} is another site in this Zone`,
+        suggestion:
+          'Remove this location page and any link to it. Also-serving may name the town. A location page needs an explicit override.',
+      });
+      emitted += 1;
+    }
+  }
+}
+
+function lintServiceDepth(files, findings) {
+  for (const [rel, raw] of Object.entries(files || {})) {
+    if (!/services\/.+\.md$/i.test(rel)) continue;
+    const reason = serviceThinReason(rel, raw);
+    if (!reason) continue;
+    const excerpt = reason.cutOff
+      ? `Service intro is cut off (~${reason.words} words before process/materials)`
+      : reason.stub && !reason.short
+        ? `Service page is still a stub (~${reason.words} words before process/materials)`
+        : `Service body ~${reason.words} words before process/materials (min ${SERVICE_OWNED_MIN_WORDS})`;
+    findings.push({
+      severity: 'critical',
+      file: rel,
+      rule: 'service_body_thin',
+      excerpt,
+      suggestion:
+        'Expand the service intro and the page’s own sections to at least 600 words. Leave the process and materials lists as they are.',
     });
   }
 }

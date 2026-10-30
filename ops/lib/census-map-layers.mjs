@@ -6,6 +6,8 @@
 
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
+import { loadAcsPlacePopByGeoid } from './census.mjs';
+import { commonNameForGeoid } from './place-common-names.mjs';
 
 const ROOT = process.cwd();
 const MAP_DIR = path.join(ROOT, 'data', 'census', 'map');
@@ -68,6 +70,10 @@ export function loadMapLayer(layer, { required = false } = {}) {
   if (prev && prev.bytes === st.size && prev.mtimeMs === st.mtimeMs) return prev;
   const raw = JSON.parse(readFileSync(file, 'utf8'));
   const features = Array.isArray(raw?.features) ? raw.features : [];
+  if (key === 'places') {
+    applyPlacePopulationsByGeoid(features);
+    applyPlaceCommonNames(features);
+  }
   /** @type {Map<string, object[]>} */
   const byState = new Map();
   for (const f of features) {
@@ -91,4 +97,26 @@ export function loadMapLayer(layer, { required = false } = {}) {
 /** Places layer or 404 — used by service-area / coverage helpers. */
 export function loadPlacesLayer() {
   return loadMapLayer('places', { required: true });
+}
+
+function applyPlaceCommonNames(features) {
+  for (const f of features) {
+    const geoid = String(f?.properties?.geoid || f?.properties?.GEOID || '').trim();
+    const common = commonNameForGeoid(geoid);
+    if (!common || !f?.properties) continue;
+    f.properties.name = common;
+  }
+}
+
+/** Each GEOID keeps its own ACS count so same-name CDPs do not inherit the city pop. */
+function applyPlacePopulationsByGeoid(features) {
+  const acs = loadAcsPlacePopByGeoid();
+  if (!acs.size) return;
+  for (const f of features) {
+    const geoid = String(f?.properties?.geoid || f?.properties?.GEOID || '').trim();
+    if (!geoid) continue;
+    const row = acs.get(geoid);
+    if (row?.population == null || !f.properties) continue;
+    f.properties.population = row.population;
+  }
 }

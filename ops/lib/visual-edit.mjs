@@ -26,6 +26,7 @@ import { applyPaletteToBrand, getPalette, listPalettes } from '../../scripts/lib
 import { applyFontThemeToBrand, getFontTheme, listFontThemes } from '../../scripts/lib/site-fonts.mjs';
 import { lintContentSpeech } from './content-speech-lint.mjs';
 import { lintContentSeo } from './content-seo-lint.mjs';
+import { zoneLintContext } from './zone-site-diff.mjs';
 import { stageSiteContent } from './site-staging.mjs';
 import { assembleSite, templateComponentsNewerThanAssembled } from './assemble-site.mjs';
 import { buildAssembledSiteAsync, shipAssembledSite } from './ship-site.mjs';
@@ -699,6 +700,7 @@ export async function publishVisualEdit(candidateId, { ignoreSeoWarnings = false
     sectionIds: outline?.sectionIds || (outline?.sections || []).map((s) => s.id).filter(Boolean),
     homepageSections: outline?.homepageSections || config.homepageSections || [],
     serviceBandAssignments: outline?.serviceBandAssignments || {},
+    ...zoneLintContext(candidateId),
   });
   const criticalSeo = (seoLint?.findings || []).filter((f) => f.severity === 'critical');
   if (criticalSeo.length && !ignoreSeoWarnings) {

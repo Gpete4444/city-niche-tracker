@@ -1,7 +1,8 @@
 import {
   autoFixContentDraft,
+  homepageDesignedSectionWarning,
   liftHomepageDesignedSections,
-  HOMEPAGE_DESIGNED_SECTIONS_WARNING,
+  stampHomepageLiftOnDraftOps,
 } from '../ops/lib/content-auto-fix.mjs';
 import { validateContentBundle } from '../ops/lib/content-markdown.mjs';
 import { runTemplateContract } from '../ops/lib/template-contract.mjs';
@@ -78,12 +79,12 @@ assert(/rover-autofix-links/.test(lifted.body), 'autofix links kept after faq li
 const files = { 'src/content/pages/index.md': lifted.body };
 const check = validateContentBundle(files, config, { mode: 'homepage_first' });
 assert(
-  !check.warnings.some((w) => /Why \/ Process \/ FAQs/.test(w)),
+  !check.warnings.some((w) => /Homepage template fields are empty/.test(w)),
   'lifted homepage should not warn about designed sections',
 );
 const contract = runTemplateContract(files, config, { mode: 'homepage_first' });
 assert(
-  !contract.warnings.some((w) => /Why \/ Process \/ FAQs|intro heading is missing/.test(w)),
+  !contract.warnings.some((w) => /Homepage template fields are empty|intro heading is missing/.test(w)),
   'lifted homepage should pass template recommended keys',
 );
 
@@ -151,12 +152,13 @@ const failedCheck = validateContentBundle(
   config,
   { mode: 'homepage_first' },
 );
+const allMissingWarning = homepageDesignedSectionWarning(['whyChooseUs', 'process', 'faqs']);
 assert(
-  failedCheck.warnings.includes(HOMEPAGE_DESIGNED_SECTIONS_WARNING),
-  'leftover warning uses the operator sentence',
+  failedCheck.warnings.includes(allMissingWarning),
+  'leftover warning names every empty template field',
 );
 assert(
-  failedCheck.warnings.filter((w) => w === HOMEPAGE_DESIGNED_SECTIONS_WARNING).length === 1,
+  failedCheck.warnings.filter((w) => w === allMissingWarning).length === 1,
   'one designed-section warning only',
 );
 assert(
@@ -238,6 +240,234 @@ const rockwallContract = runTemplateContract(
 assert(
   !rockwallContract.warnings.some((w) => /Why \/ Process \/ FAQs/.test(w)),
   'plain-bullet Why lift should pass template recommended keys',
+);
+
+const tightFaqs = `---
+title: "Artificial Turf Installation in El Mirage, AZ"
+description: "Artificial turf installation in El Mirage, AZ for small yards. Free estimates."
+h1: "Artificial Turf Installation in El Mirage, AZ"
+sectionHeading: "artificial turf contractor near me for El Mirage homes and businesses"
+process:
+  - title: "Site evaluation"
+    description: "A technician inspects the area and discusses goals before any work begins."
+  - title: "Base compaction"
+    description: "A layered aggregate base is compacted to create a stable foundation."
+whyChooseUs:
+  - title: "Written estimates"
+    description: "Written estimates spell out base depth and turf product before work starts."
+  - title: "Same crew"
+    description: "The crew installs what it recommends, so the person on site did the estimate."
+---
+Intro stays on the page.
+
+## artificial grass installation El Mirage FAQs
+
+How much does it cost to install 1000 square feet of artificial turf?
+Expect roughly $7,000 to $11,000 for a standard 1,000 sqft install.
+
+How long does artificial turf take?
+Most backyard installs take 1 to 3 days from base prep through final brushing.
+
+## Get a free estimate in El Mirage
+
+Call for a written number.
+`;
+
+const tightConfig = { niche: 'artificial turf', primaryCity: 'El Mirage' };
+const tightLifted = liftHomepageDesignedSections(tightFaqs, { outline, config: tightConfig });
+assert(tightLifted.changed, 'tight question-then-answer FAQs should lift');
+assert(/^faqs:/m.test(tightLifted.body), 'tight FAQs write faqs frontmatter');
+assert(/How much does it cost to install 1000 square feet/.test(tightLifted.body), 'tight FAQ question preserved');
+assert(/Expect roughly \$7,000 to \$11,000/.test(tightLifted.body), 'tight FAQ answer preserved');
+assert(/How long does artificial turf take/.test(tightLifted.body), 'second tight FAQ question preserved');
+assert(!/## artificial grass installation El Mirage FAQs/.test(tightLifted.body), 'tight FAQ heading removed');
+assert(/## Get a free estimate in El Mirage/.test(tightLifted.body), 'following section kept after tight FAQ lift');
+assert(/^process:/m.test(tightLifted.body), 'existing process kept during tight FAQ lift');
+assert(/^whyChooseUs:/m.test(tightLifted.body), 'existing whyChooseUs kept during tight FAQ lift');
+const tightCheck = validateContentBundle(
+  { 'src/content/pages/index.md': tightLifted.body },
+  tightConfig,
+  { mode: 'full' },
+);
+assert(
+  !tightCheck.warnings.some((w) => /Homepage template fields are empty/.test(w)),
+  'tight FAQ lift should clear the designed-section warning',
+);
+const tightContract = runTemplateContract(
+  { 'src/content/pages/index.md': tightLifted.body },
+  tightConfig,
+  { mode: 'full' },
+);
+assert(
+  !tightContract.warnings.some((w) => /Homepage template fields are empty/.test(w)),
+  'tight FAQ lift should pass template recommended keys',
+);
+
+const processOnly = `---
+title: "Drywall Repair in Boise, ID"
+description: "Drywall repair in Boise, ID. Free estimates."
+h1: "Drywall Repair in Boise, ID"
+sectionHeading: "Drywall repair for Boise homes"
+process:
+  - title: "Initial Inspection"
+    description: "A technician examines the damaged area."
+  - title: "Area Protection"
+    description: "Furniture and flooring are covered."
+---
+Intro.
+
+## Why Boise homeowners choose us over a handyman
+
+We sample the texture first.
+`;
+const partialWarning = homepageDesignedSectionWarning(['whyChooseUs', 'faqs']);
+const partialCheck = validateContentBundle(
+  { 'src/content/pages/index.md': processOnly },
+  { niche: 'Drywall Repair', primaryCity: 'Boise' },
+  { mode: 'full' },
+);
+assert(partialCheck.warnings.includes(partialWarning), 'partial homepage names Why and FAQs only');
+assert(
+  !partialCheck.warnings.some((w) => /empty: .*Process/.test(w)),
+  'partial homepage does not call Process empty',
+);
+const partialContract = runTemplateContract(
+  { 'src/content/pages/index.md': processOnly },
+  { niche: 'Drywall Repair', primaryCity: 'Boise', siteArchetype: 'multi_service' },
+  { mode: 'full' },
+);
+assert(partialContract.warnings.includes(partialWarning), 'template contract names Why and FAQs only');
+const stamped = stampHomepageLiftOnDraftOps(
+  {
+    check: {
+      warnings: [
+        'Homepage is missing Why, Process, or FAQs. Click Write anyway to accept the pages as they are. Write site does not rewrite a homepage that is already saved.',
+      ],
+    },
+    contract: { warnings: [] },
+  },
+  { files: { 'src/content/pages/index.md': processOnly } },
+);
+assert(stamped.check.warnings.includes(partialWarning), 'stamp replaces the old sentence with the empty fields');
+assert(
+  !stamped.check.warnings.some((w) => /Write anyway/.test(w)),
+  'old Write anyway sentence is removed',
+);
+
+const oneTight = `---
+title: "Artificial Turf Installation in El Mirage, AZ"
+description: "Artificial turf installation in El Mirage, AZ for small yards. Free estimates."
+h1: "Artificial Turf Installation in El Mirage, AZ"
+sectionHeading: "Turf in El Mirage"
+process:
+  - title: "Site evaluation"
+    description: "A technician inspects the area and discusses goals before any work begins."
+  - title: "Base compaction"
+    description: "A layered aggregate base is compacted to create a stable foundation."
+whyChooseUs:
+  - title: "Written estimates"
+    description: "Written estimates spell out base depth and turf product before work starts."
+  - title: "Same crew"
+    description: "The crew installs what it recommends, so the person on site did the estimate."
+---
+Intro stays.
+
+## Turf FAQs
+
+How long does artificial turf take?
+Most backyard installs take 1 to 3 days.
+`;
+const oneLifted = liftHomepageDesignedSections(oneTight, { outline, config: tightConfig });
+assert(!/^faqs:/m.test(oneLifted.body), 'a single tight FAQ pair stays out of frontmatter');
+
+const whyParagraphs = `---
+title: "Drywall Repair in Boise, ID"
+description: "Drywall repair in Boise, ID. Free estimates."
+h1: "Drywall Repair in Boise, ID"
+sectionHeading: "Drywall repair for Boise homes"
+---
+Intro stays on the page.
+
+## Why Boise homeowners choose us over a handyman
+
+Boise Drywall Repair Pros samples the existing texture pattern before spraying anything new. Seams get properly embedded tape and multiple thin coats.
+
+Every job gets a written estimate by size and scope before work starts. We tell you up front how many visits a job needs.
+
+## What we fix
+
+Patching and texture matching.
+`;
+const whyParaLifted = liftHomepageDesignedSections(whyParagraphs, {
+  outline,
+  config: { niche: 'Drywall Repair', primaryCity: 'Boise' },
+});
+assert(whyParaLifted.changed, 'Why paragraphs should lift');
+assert(/^whyChooseUs:/m.test(whyParaLifted.body), 'Why paragraphs write whyChooseUs');
+assert(
+  (whyParaLifted.body.match(/- title:/g) || []).length >= 2,
+  'Why paragraphs become two items',
+);
+assert(/samples the existing texture pattern/.test(whyParaLifted.body), 'first Why paragraph kept');
+assert(/written estimate by size and scope/.test(whyParaLifted.body), 'second Why paragraph kept');
+assert(!/## Why Boise homeowners/.test(whyParaLifted.body), 'Why heading leaves the body');
+assert(/## What we fix/.test(whyParaLifted.body), 'following section kept after Why paragraph lift');
+
+const questionFaqs = `---
+title: "Drywall Repair in Boise, ID"
+description: "Drywall repair in Boise, ID. Free estimates."
+h1: "Drywall Repair in Boise, ID"
+sectionHeading: "Drywall repair for Boise homes"
+---
+Intro stays.
+
+## Drywall contractor Boise questions
+
+How much does Drywall Repair cost in Boise?
+Most patch jobs run $125–$900 depending on size and whether it's a wall or ceiling.
+
+How long does Drywall Repair take?
+A small patch can be done the same day. Larger jobs usually run 2–4 days.
+
+## Get a free estimate
+
+Call for a written number.
+`;
+const questionLifted = liftHomepageDesignedSections(questionFaqs, {
+  outline,
+  config: { niche: 'Drywall Repair', primaryCity: 'Boise' },
+});
+assert(questionLifted.changed, 'questions heading with pairs should lift');
+assert(/^faqs:/m.test(questionLifted.body), 'questions heading writes faqs');
+assert(/How much does Drywall Repair cost in Boise/.test(questionLifted.body), 'first question preserved');
+assert(/How long does Drywall Repair take/.test(questionLifted.body), 'second question preserved');
+assert(!/## Drywall contractor Boise questions/.test(questionLifted.body), 'questions heading leaves the body');
+assert(/## Get a free estimate/.test(questionLifted.body), 'following section kept after questions lift');
+
+const questionProse = `---
+title: "Drywall Repair in Boise, ID"
+description: "Drywall repair in Boise, ID. Free estimates."
+h1: "Drywall Repair in Boise, ID"
+sectionHeading: "Drywall repair for Boise homes"
+---
+Intro stays.
+
+## Questions to ask before hiring
+
+Ask about texture matching, drying time, and whether the crew will cover the floor. A written estimate should name the patch size before work starts.
+
+## Get a free estimate
+
+Call for a written number.
+`;
+const questionProseLifted = liftHomepageDesignedSections(questionProse, {
+  outline,
+  config: { niche: 'Drywall Repair', primaryCity: 'Boise' },
+});
+assert(!/^faqs:/m.test(questionProseLifted.body), 'prose questions heading stays out of faqs');
+assert(
+  /## Questions to ask before hiring/.test(questionProseLifted.body),
+  'prose questions heading stays in the body',
 );
 
 console.log('test-homepage-section-lift: ok');

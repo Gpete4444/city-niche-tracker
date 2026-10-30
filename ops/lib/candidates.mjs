@@ -48,6 +48,29 @@ export function slugifyCandidate({ niche, primaryCity, state }) {
   return base || `candidate-${Date.now()}`;
 }
 
+const NICHE_ACRONYMS = new Set(['hvac', 'ac', 'llc', 'inc', 'seo', 'led', 'pvc']);
+
+function titleCaseNichePiece(piece) {
+  if (!piece) return piece;
+  const lower = piece.toLowerCase();
+  if (NICHE_ACRONYMS.has(lower)) return piece.toUpperCase();
+  if (/^[A-Z]{2,}$/.test(piece)) return piece;
+  if (/[A-Z]/.test(piece)) return piece;
+  return piece.replace(/[a-z]/, (ch) => ch.toUpperCase());
+}
+
+/** First letter of each word (and hyphen part), including after an opening parenthesis. Existing capitals and short acronyms stay. */
+export function titleCaseNiche(raw) {
+  const s = String(raw ?? '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!s) return '';
+  return s
+    .split(' ')
+    .map((word) => word.split('-').map(titleCaseNichePiece).join('-'))
+    .join(' ');
+}
+
 export function pathsFor(id) {
   const safe = String(id).replace(/[^a-zA-Z0-9_-]/g, '');
   if (!safe) throw new Error('Invalid candidate id');
@@ -174,6 +197,19 @@ export function saveMeta(id, patch = {}) {
   const next = defaultMeta({ ...current, ...nextPatch, id: pathsFor(id).id });
   writeJson(pathsFor(id).meta, next);
   return next;
+}
+
+/**
+ * Meta patch for a launch or ship outcome.
+ * The first success sets lastLaunchAt. A later success does not move it.
+ * A failure records lastLaunchAttemptAt and leaves lastLaunchAt alone.
+ * @param {object | null | undefined} meta
+ * @param {{ ok?: boolean, at: string }} outcome
+ */
+export function launchStampPatch(meta, { ok, at }) {
+  if (!ok) return { lastLaunchAttemptAt: at };
+  if (meta?.lastLaunchAt) return {};
+  return { lastLaunchAt: at };
 }
 
 /** Stamp lastPhoneAt / hasSitePhone from skip, persist, or portfolio Twilio (in-memory). */
@@ -309,7 +345,7 @@ export function isCandidateNicheRenameLocked(id) {
  * After Eval 1, require confirmAfterEval — label only; SERP/scores/photos/site-config stay.
  */
 export function renameCandidateNiche(id, rawNiche, { confirmAfterEval = false } = {}) {
-  const niche = String(rawNiche || '').replace(/\s+/g, ' ').trim();
+  const niche = titleCaseNiche(rawNiche);
   if (!niche) {
     throw Object.assign(new Error('Niche is required'), { status: 400 });
   }
@@ -350,6 +386,42 @@ export function renameCandidateNiche(id, rawNiche, { confirmAfterEval = false } 
 
   invalidateCandidateListCache();
   return { ok: true, id: p.id, niche, confirmedAfterEval: Boolean(confirmAfterEval) };
+}
+
+function nicheFieldChanged(data) {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return null;
+  if (typeof data.niche !== 'string') return null;
+  const next = titleCaseNiche(data.niche);
+  if (!next || next === data.niche) return null;
+  return next;
+}
+
+/** Title-case niche on candidate meta, config, research, and discovery seed. Ids stay put. */
+export function backfillStoredCandidateNiches() {
+  ensureResearchDir();
+  const ids = new Set();
+  for (const name of readdirSync(RESEARCH_DIR)) {
+    if (name.endsWith('.meta.json')) ids.add(name.slice(0, -'.meta.json'.length));
+    else if (name.endsWith('.config.json')) ids.add(name.slice(0, -'.config.json'.length));
+  }
+  let files = 0;
+  for (const id of ids) {
+    let p;
+    try {
+      p = pathsFor(id);
+    } catch {
+      continue;
+    }
+    for (const file of [p.meta, p.config, p.research, p.discoverySeed]) {
+      if (!existsSync(file)) continue;
+      const data = readJson(file);
+      const next = nicheFieldChanged(data);
+      if (!next) continue;
+      writeJson(file, { ...data, niche: next });
+      files += 1;
+    }
+  }
+  return { candidates: ids.size, files };
 }
 
 export const CANDIDATE_DECISIONS = [
@@ -991,11 +1063,20 @@ export function getCandidateDetail(id, opts = undefined) {
       config: siteConfigAccepted || siteConfigDraft || config || {},
       outline: contentOutlinePackage || {},
     });
-    if (lifted.changed) {
+    const stampedOps = stampHomepageLiftOnDraftOps(contentDraft._ops, {
+      changes: lifted.changes || [],
+      files: lifted.files,
+    });
+    const warningsChanged =
+      JSON.stringify(contentDraft._ops?.check?.warnings || []) !==
+        JSON.stringify(stampedOps.check?.warnings || []) ||
+      JSON.stringify(contentDraft._ops?.contract?.warnings || []) !==
+        JSON.stringify(stampedOps.contract?.warnings || []);
+    if (lifted.changed || warningsChanged) {
       contentDraft = {
         ...contentDraft,
         files: lifted.files,
-        _ops: stampHomepageLiftOnDraftOps(contentDraft._ops, lifted),
+        _ops: stampedOps,
       };
       writeJson(p.contentDraft, contentDraft);
     }
@@ -1054,6 +1135,7 @@ export function getCandidateDetail(id, opts = undefined) {
       hasSiteConfig: Boolean(siteConfigAccepted) || existsSync(p.siteConfig),
       hasContentDraft: loadContent ? Boolean(contentDraft) : hasContentDraftFile,
       hasContent: loadContent ? Boolean(contentAccepted) : hasContentFile,
+      hasContentUnreadable: Boolean(loadContent && hasContentFile && !contentAccepted),
       hasContentResearch: loadContent ? Boolean(contentResearch) : existsSync(p.contentResearch),
       hasContentOutline: loadContent ? Boolean(contentOutline) : existsSync(p.contentOutline),
       hasContentBrief: Boolean(contentBrief),
@@ -1151,7 +1233,7 @@ export function getCandidateShell(id) {
 }
 
 export function createCandidate({
-  niche,
+  niche: rawNiche,
   primary,
   cluster = [],
   related = 10,
@@ -1163,6 +1245,7 @@ export function createCandidate({
   serpCache = null,
   discoverySeed = null,
 }) {
+  const niche = titleCaseNiche(rawNiche);
   if (!niche || !primary) throw new Error('niche and primary (City,ST) are required');
   const [city, state] = String(primary).split(',').map((s) => s.trim());
   if (!city || !state) throw new Error('primary must look like "Louisville,KY"');
@@ -1188,7 +1271,9 @@ export function createCandidate({
 
   writeJson(p.config, config);
   if (discoverySeed && typeof discoverySeed === 'object') {
-    writeJson(p.discoverySeed, discoverySeed);
+    const seed = Array.isArray(discoverySeed) ? discoverySeed : { ...discoverySeed };
+    if (!Array.isArray(seed) && typeof seed.niche === 'string') seed.niche = titleCaseNiche(seed.niche);
+    writeJson(p.discoverySeed, seed);
   }
   const metaPatch = {
     id,

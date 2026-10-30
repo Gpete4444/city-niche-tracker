@@ -10,12 +10,70 @@ import { RESEARCH_DIR } from './candidates.mjs';
 import { listSites, listSitesWithPhone } from './sites.mjs';
 import { ensureRankingVoicemailUrls } from './phone-tracking-twilio.mjs';
 import { ensureVoiceFunctionsDeployed } from './voicemail-greeting.mjs';
+import { callIsSpam, loadSpamKeywords } from './spam-keywords.mjs';
 
 const CALLS_FILE = path.join(RESEARCH_DIR, 'phone-calls.jsonl');
 const OPENAI_CHAT_URL = 'https://api.openai.com/v1/chat/completions';
 const OPENAI_TRANSCRIBE_URL = 'https://api.openai.com/v1/audio/transcriptions';
 const OPENAI_SUMMARY_MODEL = 'gpt-4o-mini';
 const OPENAI_TRANSCRIBE_MODEL = 'whisper-1';
+export const NO_MESSAGE_LEFT = 'No message was left.';
+
+const FILLER_WORDS = new Set([
+  'a',
+  'an',
+  'and',
+  'the',
+  'uh',
+  'um',
+  'hmm',
+  'hi',
+  'hey',
+  'hello',
+  'you',
+  'thanks',
+  'thank',
+  'bye',
+  'goodbye',
+  'ok',
+  'okay',
+  'yeah',
+  'yep',
+]);
+
+function transcriptWords(text) {
+  return String(text || '')
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** True when the caller said something besides filler or the voicemail beep prompt. */
+export function transcriptHasCallSubstance(transcript) {
+  let words = transcriptWords(transcript);
+  if (!words) return false;
+  words = words
+    .replace(/\bavailable at the tone\b/g, ' ')
+    .replace(/\bat the tone\b/g, ' ')
+    .replace(/\bplease record your message\b/g, ' ')
+    .replace(/\brecord your message\b/g, ' ')
+    .replace(/\bwhen you have finished recording you may hang up\b/g, ' ')
+    .replace(/\bwhen you have finished recording\b/g, ' ')
+    .replace(/\byou may hang up\b/g, ' ')
+    .replace(/\byou may\b/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!words) return false;
+  const parts = words.split(' ').filter(Boolean);
+  return parts.some((word) => !FILLER_WORDS.has(word));
+}
+
+function summaryFromModel(text) {
+  const summary = String(text || '').trim();
+  if (!summary || /^no message was left\.?$/i.test(summary)) return NO_MESSAGE_LEFT;
+  return summary;
+}
 
 function env(name) {
   return String(process.env[name] || '').trim();
@@ -154,6 +212,18 @@ function upsertCall( partial ) {
     summaryAt: partial.summaryAt || prev.summaryAt || null,
     kind: partial.kind !== undefined ? String(partial.kind || '') : prev.kind || '',
     error: partial.error !== undefined ? partial.error : prev.error || null,
+    spamOverride:
+      partial.spamOverride === true || partial.spamOverride === false
+        ? partial.spamOverride
+        : prev.spamOverride === true || prev.spamOverride === false
+          ? prev.spamOverride
+          : undefined,
+    lead:
+      partial.lead === true || partial.lead === false
+        ? partial.lead
+        : prev.lead === true || prev.lead === false
+          ? prev.lead
+          : undefined,
     updatedAt: new Date().toISOString(),
     createdAt: prev.createdAt || new Date().toISOString(),
   };
@@ -386,16 +456,74 @@ export function listPhoneCalls({ siteId = null, limit = 200 } = {}) {
   let rows = readAllCalls();
   if (siteId) rows = rows.filter((r) => r.siteId === siteId);
   rows.sort((a, b) => String(b.updatedAt || b.createdAt || '').localeCompare(String(a.updatedAt || a.createdAt || '')));
-  return rows.slice(0, Math.max(1, Math.min(1000, Number(limit) || 200)));
+  return flagCallSpam(rows.slice(0, Math.max(1, Math.min(1000, Number(limit) || 200))));
+}
+
+function flagCallSpam(rows) {
+  const keywords = loadSpamKeywords();
+  return rows.map((row) => ({ ...row, spam: callIsSpam(row, keywords) }));
 }
 
 export function getPhoneCall(idOrSid) {
   const key = String(idOrSid || '').trim();
-  return readAllCalls().find((r) => r.id === key || r.callSid === key) || null;
+  const row = readAllCalls().find((r) => r.id === key || r.callSid === key) || null;
+  return row ? flagCallSpam([row])[0] : null;
+}
+
+/** True when the call is a voicemail that left a real message. */
+export function callHasMessage(call) {
+  if (String(call?.kind || '') !== 'voicemail') return false;
+  const summary = String(call?.summary || '').trim();
+  if (!summary) return false;
+  return !/^no message was left\.?$/i.test(summary);
+}
+
+/** Combined phone totals count only messages explicitly marked as a lead. */
+export function callCountsAsCombinedLead(call) {
+  return call?.lead === true && callHasMessage(call);
+}
+
+export function setPhoneCallLead(idOrSid, lead) {
+  if (lead !== true && lead !== false) {
+    const err = new Error('lead must be true or false');
+    err.status = 400;
+    throw err;
+  }
+  const key = String(idOrSid || '').trim();
+  const row = readAllCalls().find((item) => item.id === key || item.callSid === key) || null;
+  if (!row?.callSid) {
+    const err = new Error('Call not found');
+    err.status = 404;
+    throw err;
+  }
+  if (!callHasMessage(row)) {
+    const err = new Error('Only voicemail messages can be marked as a lead');
+    err.status = 400;
+    throw err;
+  }
+  upsertCall({ callSid: row.callSid, lead });
+  return getPhoneCall(key);
+}
+
+export function setPhoneCallSpam(idOrSid, spam) {
+  if (spam !== true && spam !== false) {
+    const err = new Error('spam must be true or false');
+    err.status = 400;
+    throw err;
+  }
+  const key = String(idOrSid || '').trim();
+  const row = readAllCalls().find((item) => item.id === key || item.callSid === key) || null;
+  if (!row?.callSid) {
+    const err = new Error('Call not found');
+    err.status = 404;
+    throw err;
+  }
+  upsertCall({ callSid: row.callSid, spamOverride: spam });
+  return getPhoneCall(key);
 }
 
 export function phoneCallStats({ siteId = null } = {}) {
-  const rows = listPhoneCalls({ siteId, limit: 5000 });
+  const rows = listPhoneCalls({ siteId, limit: 5000 }).filter((row) => !row.spam);
   let answered = 0;
   let missed = 0;
   let talkSec = 0;
@@ -493,7 +621,9 @@ async function summarizeWithOpenAi(transcript, meta = {}) {
   const key = requireOpenAiKey();
   const model = env('OPENAI_PHONE_MODEL') || OPENAI_SUMMARY_MODEL;
   const siteLabel = meta.siteLabel || meta.siteId || 'ranking site';
-  const userContent = `Summarize this phone call between a potential customer and a local business in 3–5 short sentences. Focus on: what the caller wanted, urgency, and next steps. Do not invent details.
+  const userContent = `Summarize this voicemail or phone call so an operator can act on it. Be concise and useful. Include only what the transcript states: who called, what they want, and any phone number or next step they gave.
+
+Do not invent a job, urgency, appointment, quote, or callback. Do not use the business name to guess why they called. If the transcript has nothing of substance, reply with exactly: ${NO_MESSAGE_LEFT}
 
 Business / site: ${siteLabel}
 From: ${meta.from || 'unknown'}
@@ -521,7 +651,7 @@ ${transcript.slice(0, 24000)}`;
     );
   }
   const text = json.choices?.[0]?.message?.content;
-  return String(text || '').trim();
+  return summaryFromModel(text);
 }
 
 /**
@@ -550,15 +680,22 @@ export async function summarizePhoneCall(callSidOrId) {
         recordingUrl: row.recordingUrl,
       });
     }
-    if (!transcript) {
-      throw new Error('Empty transcript');
+    if (!transcript || !transcriptHasCallSubstance(transcript)) {
+      return upsertCall({
+        callSid: row.callSid,
+        transcript: transcript || row.transcript || '',
+        summary: NO_MESSAGE_LEFT,
+        summaryAt: new Date().toISOString(),
+        error: null,
+      });
     }
     const site = row.siteId ? listSites().find((s) => s.id === row.siteId) : null;
-    const summary = await summarizeWithOpenAi(transcript, {
+    let summary = await summarizeWithOpenAi(transcript, {
       siteId: row.siteId,
       siteLabel: site?.businessName || site?.niche || row.siteId,
       from: row.from,
     });
+    if (summary === NO_MESSAGE_LEFT) summary = String(transcript).trim();
     return upsertCall({
       callSid: row.callSid,
       transcript,
@@ -567,11 +704,46 @@ export async function summarizePhoneCall(callSidOrId) {
       error: null,
     });
   } catch (error) {
+    const message = error.message || String(error);
+    if (/empty transcript/i.test(message)) {
+      return upsertCall({
+        callSid: row.callSid,
+        summary: NO_MESSAGE_LEFT,
+        summaryAt: new Date().toISOString(),
+        error: null,
+      });
+    }
     return upsertCall({
       callSid: row.callSid,
-      error: error.message || String(error),
+      error: message,
     });
   }
+}
+
+/**
+ * Overwrite invented summaries. Empty recordings get the note. Real messages are summarized again.
+ */
+export async function replaceInventedPhoneSummaries() {
+  const rows = readAllCalls();
+  let noted = 0;
+  let resummarized = 0;
+  for (const row of rows) {
+    if (!row?.summary || !row.callSid) continue;
+    if (!transcriptHasCallSubstance(row.transcript || '')) {
+      if (row.summary === NO_MESSAGE_LEFT) continue;
+      upsertCall({
+        callSid: row.callSid,
+        summary: NO_MESSAGE_LEFT,
+        summaryAt: new Date().toISOString(),
+        error: null,
+      });
+      noted += 1;
+      continue;
+    }
+    await summarizePhoneCall(row.callSid);
+    resummarized += 1;
+  }
+  return { noted, resummarized };
 }
 
 /** Fire-and-forget summarize (does not throw to webhook). */

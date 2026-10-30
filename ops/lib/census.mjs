@@ -6,6 +6,7 @@
 
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
+import { commonPlaceName } from './place-common-names.mjs';
 
 const ROOT = process.cwd();
 
@@ -126,7 +127,8 @@ function parseCsvLine(line) {
 }
 
 function addPlaceRow(byKey, byState, cityLabel, abbr, pop) {
-  const cityNorm = normalizePlaceName(cityLabel);
+  const city = commonPlaceName(displayCityLabel(cityLabel), abbr);
+  const cityNorm = normalizePlaceName(city);
   if (!cityNorm || !abbr || pop == null) return false;
   const key = `${cityNorm}|${abbr}`;
   const prev = byKey.get(key);
@@ -134,7 +136,7 @@ function addPlaceRow(byKey, byState, cityLabel, abbr, pop) {
 
   if (!byState.has(abbr)) byState.set(abbr, []);
   byState.get(abbr).push({
-    city: displayCityLabel(cityLabel),
+    city,
     state: abbr,
     population: pop,
   });
@@ -255,7 +257,7 @@ export function loadCensusIndex() {
   for (const [geoid, row] of acsByGeoid) {
     byGeoid.set(geoid, row.population);
     if (!row.name || !row.state) continue;
-    const key = `${normalizePlaceName(row.name)}|${row.state}`;
+    const key = `${normalizePlaceName(commonPlaceName(row.name, row.state))}|${row.state}`;
     if (byKey.has(key)) continue;
     addPlaceRow(byKey, byState, row.name, row.state, row.population);
   }
@@ -282,7 +284,7 @@ export function lookupPopulation(city, state) {
   const abbr = String(state || '')
     .trim()
     .toUpperCase();
-  const cityNorm = normalizePlaceName(city);
+  const cityNorm = normalizePlaceName(commonPlaceName(city, abbr));
   if (!cityNorm) return null;
 
   const exact = idx.byKey.get(`${cityNorm}|${abbr}`);
@@ -322,19 +324,41 @@ export function normalizeStateAbbr(raw) {
   return fromName || null;
 }
 
-/** Static US states for State datalist (abbr + title-case name). */
+/** In-state empty browse lists that state's places A–Z. Typed menus stay short. */
+const SUGGEST_BROWSE_CAP = 2000;
+const SUGGEST_QUERY_CAP = 75;
+
+function placeLabelCompare(a, b) {
+  return (
+    String(a.city || '').localeCompare(String(b.city || ''), undefined, { sensitivity: 'base' }) ||
+    String(a.state || '').localeCompare(String(b.state || ''), undefined, { sensitivity: 'base' })
+  );
+}
+
+/** 0 exact, 1 prefix, 2 weaker substring. Empty query is one tier. */
+function placeMatchRank(city, needle) {
+  if (!needle) return 0;
+  const n = normalizePlaceName(city);
+  if (n === needle) return 0;
+  if (n.startsWith(needle) || n.includes(` ${needle}`)) return 1;
+  return 2;
+}
+
+/** Static US states for State datalist (abbr + title-case name), A–Z by abbreviation. */
 export function listUsStates() {
   return Object.entries(ABBR_TO_NAME)
     .map(([abbr, name]) => ({
       abbr,
       name: name.replace(/\b\w/g, (c) => c.toUpperCase()),
     }))
-    .sort((a, b) => a.name.localeCompare(b.name) || a.abbr.localeCompare(b.abbr));
+    .sort((a, b) => a.abbr.localeCompare(b.abbr) || a.name.localeCompare(b.name));
 }
 
 /**
  * Census place autocomplete. Optional state filter (abbr or name).
- * Empty/short queries rank by population; typed queries prefer exact → prefix → substring.
+ * Typed queries prefer exact → prefix → substring, then A–Z by city.
+ * Empty in-state browse is that state's places A–Z (cap 2000).
+ * Empty nationwide browse stays the largest cities.
  * @returns {{ ok: boolean, places: Array<{city:string,state:string,population:number}>, error?: string }}
  */
 export function suggestPlaces({ q = '', state = '', limit = 20 } = {}) {
@@ -342,10 +366,12 @@ export function suggestPlaces({ q = '', state = '', limit = 20 } = {}) {
   if (!idx.ok) {
     return { ok: false, places: [], error: idx.error || 'Census missing' };
   }
-  const max = Math.min(Math.max(Number(limit) || 20, 1), 75);
-  const needle = normalizePlaceName(q);
   const abbr = normalizeStateAbbr(state);
-  const shortQuery = !needle || needle.length < 2;
+  const needle = normalizePlaceName(abbr ? commonPlaceName(q, abbr) : q);
+  const inStateBrowse = Boolean(abbr) && !needle;
+  const nationwideBrowse = !abbr && !needle;
+  const cap = inStateBrowse ? SUGGEST_BROWSE_CAP : SUGGEST_QUERY_CAP;
+  const max = Math.min(Math.max(Number(limit) || 20, 1), cap);
 
   /** @type {Array<{city:string,state:string,population:number}>} */
   let pool = [];
@@ -368,26 +394,15 @@ export function suggestPlaces({ q = '', state = '', limit = 20 } = {}) {
     }
     scored.push(row);
   }
+  // Highest population first so dedupe keeps the larger place and the short metro label.
   scored.sort((a, b) => {
-    if (!shortQuery && needle) {
-      const an = normalizePlaceName(a.city);
-      const bn = normalizePlaceName(b.city);
-      const aExact = an === needle ? 0 : 1;
-      const bExact = bn === needle ? 0 : 1;
-      if (aExact !== bExact) return aExact - bExact;
-      const aPref = an.startsWith(needle) || an.includes(` ${needle}`) ? 0 : 1;
-      const bPref = bn.startsWith(needle) || bn.includes(` ${needle}`) ? 0 : 1;
-      if (aPref !== bPref) return aPref - bPref;
-    }
+    const rank = placeMatchRank(a.city, needle) - placeMatchRank(b.city, needle);
+    if (rank) return rank;
     const popDiff = (Number(b.population) || 0) - (Number(a.population) || 0);
     if (popDiff) return popDiff;
-    return (
-      String(a.city || '').localeCompare(String(b.city || '')) ||
-      String(a.state || '').localeCompare(String(b.state || ''))
-    );
+    return placeLabelCompare(a, b);
   });
 
-  // Dedupe by normalized city+state, keep highest pop; prefer short labels for metros
   const seen = new Set();
   const places = [];
   for (const row of scored) {
@@ -398,9 +413,17 @@ export function suggestPlaces({ q = '', state = '', limit = 20 } = {}) {
     if (seen.has(key)) continue;
     seen.add(key);
     places.push({ ...row, city: short });
-    if (places.length >= max) break;
   }
-  return { ok: true, places };
+  places.sort((a, b) => {
+    const rank = placeMatchRank(a.city, needle) - placeMatchRank(b.city, needle);
+    if (rank) return rank;
+    if (nationwideBrowse) {
+      const popDiff = (Number(b.population) || 0) - (Number(a.population) || 0);
+      if (popDiff) return popDiff;
+    }
+    return placeLabelCompare(a, b);
+  });
+  return { ok: true, places: places.slice(0, max) };
 }
 
 export function censusStatus() {

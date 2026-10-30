@@ -15,8 +15,16 @@ import {
   featureCentroid,
   placeInZoneRadius,
   toCoverageAreas,
+  MAX_CLUSTER_MILES,
 } from './geo-neighbors.mjs';
-import { RESEARCH_DIR, createCandidate, setArchived, pathsFor, deleteCandidates } from './candidates.mjs';
+import {
+  RESEARCH_DIR,
+  createCandidate,
+  deleteCandidates,
+  pathsFor,
+  setArchived,
+  titleCaseNiche,
+} from './candidates.mjs';
 import { candidateGeoKey, findCandidateByGeo, indexCandidatesByGeo } from './known-candidates.mjs';
 import {
   createGroup,
@@ -385,7 +393,7 @@ export const DEFAULT_SHOTGUN_MILES = { inner: 30, outer: 30 };
 export function clampClusterMiles(raw) {
   const n = Math.round(Number(raw));
   if (!Number.isFinite(n)) return DEFAULT_CLUSTER_MILES;
-  return Math.max(1, Math.min(100, n));
+  return Math.max(1, Math.min(MAX_CLUSTER_MILES, n));
 }
 
 export const CLUSTERS_FILE = path.join(RESEARCH_DIR, 'shotgun-clusters.json');
@@ -530,7 +538,7 @@ export function emptyShotgunDraft(filters = {}) {
   return {
     strategy: 'cluster',
     step: 'hub',
-    niche: String(filters.shotgunNiche || filters.requiredNiches?.[0] || '').trim(),
+    niche: titleCaseNiche(filters.shotgunNiche || filters.requiredNiches?.[0] || ''),
     hub: null,
     clusterMiles: s.clusterMiles,
     innerMiles: s.innerMiles,
@@ -807,7 +815,114 @@ function saveShotgunClusters(registry) {
   return loadShotgunClusters();
 }
 
+function retitleZoneLabel(label, oldNiche, nextNiche, hubCity, hubState) {
+  const text = String(label || '');
+  const oldAuto = clusterName(oldNiche, hubCity, hubState);
+  const newAuto = clusterName(nextNiche, hubCity, hubState);
+  if (!oldAuto || oldAuto === newAuto) return text;
+  if (text === oldAuto) return newAuto;
+  if (text.startsWith(`${oldAuto} ·`)) return newAuto + text.slice(oldAuto.length);
+  const oldPrefix = `Zone · ${oldNiche} ·`;
+  if (text.startsWith(oldPrefix)) return `Zone · ${nextNiche} ·${text.slice(oldPrefix.length)}`;
+  return text;
+}
+
+function syncLinkedZoneGroup(cluster) {
+  const desired = String(cluster?.name || '').trim();
+  if (!desired || !cluster?.groupId) return 0;
+  const registry = loadGroupsRegistry();
+  const group = (registry.groups || []).find((g) => g.id === cluster.groupId);
+  if (!group || group.name === desired) return 0;
+  try {
+    renameGroup(group.id, desired);
+    return 1;
+  } catch {
+    return 0;
+  }
+}
+
+function renameGroupsWithPrefix(oldNiche, nextNiche, oldAuto, newAuto) {
+  const oldPrefix = `Zone · ${oldNiche} ·`;
+  const newPrefix = `Zone · ${nextNiche} ·`;
+  if (oldPrefix === newPrefix) return 0;
+  const registry = loadGroupsRegistry();
+  let renamed = 0;
+  for (const group of registry.groups || []) {
+    const name = String(group.name || '');
+    let next = name;
+    if (oldAuto && newAuto && (name === oldAuto || name.startsWith(`${oldAuto} ·`))) {
+      next = name === oldAuto ? newAuto : newAuto + name.slice(oldAuto.length);
+    } else if (name.startsWith(oldPrefix)) {
+      next = newPrefix + name.slice(oldPrefix.length);
+    }
+    if (next === name) continue;
+    try {
+      renameGroup(group.id, next);
+      renamed += 1;
+    } catch {
+      /* missing group or name already taken */
+    }
+  }
+  return renamed;
+}
+
+/** Title-case zone niche, auto zone names, and batch shotgun.json niche fields. */
+export function backfillShotgunNicheTitleCase() {
+  const registry = loadShotgunClusters();
+  let clusters = 0;
+  let groups = 0;
+  for (const cluster of registry.clusters) {
+    const oldNiche = String(cluster.niche || '');
+    const nextNiche = titleCaseNiche(oldNiche);
+    if (!nextNiche || nextNiche === oldNiche) continue;
+    const hubCity = cluster.hub?.city || cluster.hub?.name || '';
+    const hubState = cluster.hub?.state || '';
+    const oldAuto = clusterName(oldNiche, hubCity, hubState);
+    const newAuto = clusterName(nextNiche, hubCity, hubState);
+    cluster.niche = nextNiche;
+    cluster.name = retitleZoneLabel(cluster.name, oldNiche, nextNiche, hubCity, hubState);
+    groups += renameGroupsWithPrefix(oldNiche, nextNiche, oldAuto, newAuto);
+    clusters += 1;
+  }
+  for (const cluster of registry.clusters) {
+    groups += syncLinkedZoneGroup(cluster);
+  }
+  if (clusters) saveShotgunClusters(registry);
+
+  let drafts = 0;
+  const batchesDir = path.join(RESEARCH_DIR, 'batches');
+  if (existsSync(batchesDir)) {
+    for (const ent of readdirSync(batchesDir, { withFileTypes: true })) {
+      if (!ent.isDirectory()) continue;
+      const file = shotgunPathForBatch(path.join(batchesDir, ent.name));
+      if (!existsSync(file)) continue;
+      const draft = readJson(file, null);
+      if (!draft || typeof draft !== 'object') continue;
+      let dirty = false;
+      if (typeof draft.niche === 'string') {
+        const next = titleCaseNiche(draft.niche);
+        if (next !== draft.niche) {
+          draft.niche = next;
+          dirty = true;
+        }
+      }
+      if (Array.isArray(draft.requiredNiches)) {
+        const next = draft.requiredNiches.map((item) => titleCaseNiche(item));
+        if (next.some((item, i) => item !== draft.requiredNiches[i])) {
+          draft.requiredNiches = next;
+          dirty = true;
+        }
+      }
+      if (!dirty) continue;
+      writeJson(file, draft);
+      drafts += 1;
+    }
+  }
+  return { clusters, groups, drafts };
+}
+
 function writeClaimedGeos(clusters) {
+  if (clustersFileOverride) return;
   const rows = [];
   const seen = new Set();
   for (const c of clusters) {
@@ -856,6 +971,105 @@ export function findShotgunMember(niche, city, state) {
     }
   }
   return null;
+}
+
+/** Painted cities only: hub, plus members that already have a cluster number. */
+export function membersForZoneReuse(source) {
+  const hub = source?.hub && typeof source.hub === 'object' ? source.hub : null;
+  const out = [];
+  const seen = new Set();
+  const add = (raw, asHub) => {
+    const m = normalizeMember(raw);
+    if (!m?.city || !m?.state) return;
+    const key = placeKey(m.city, m.state);
+    if (!key || seen.has(key)) return;
+    const clusterKey = memberClusterKey(m);
+    if (!asHub && clusterKey < 1) return;
+    seen.add(key);
+    out.push({
+      city: String(m.city).trim(),
+      state: String(m.state).trim().toUpperCase(),
+      role: asHub ? 'hub' : 'member',
+      clusterKey: clusterKey >= 1 ? clusterKey : null,
+      population: m.population ?? (asHub ? hub?.population ?? null : null),
+      miles: asHub ? 0 : (m.miles ?? null),
+      pinned: !asHub,
+      source: 'zone-reuse',
+    });
+  };
+  if (hub?.city && hub?.state) {
+    const hubMember = (source.members || []).find(
+      (m) => placeKey(m?.city, m?.state) === placeKey(hub.city, hub.state),
+    );
+    add(
+      {
+        city: hub.city,
+        state: hub.state,
+        role: 'hub',
+        clusterKey: hubMember?.clusterKey ?? null,
+        population: hubMember?.population ?? hub.population ?? null,
+        miles: 0,
+      },
+      true,
+    );
+  }
+  for (const raw of source?.members || []) {
+    const role = normalizeClusterRole(normalizeMember(raw)?.role);
+    add(raw, role === 'hub');
+  }
+  return out;
+}
+
+/**
+ * Plan a new zone from a painted one. Same hub and cluster keys, next zone number.
+ * Opens the existing zone when this niche already uses that hub.
+ * Throws when a painted city is already in a different zone for this niche.
+ */
+export function buildZoneReuseDraft(source, niche) {
+  const label = titleCaseNiche(niche);
+  if (!label) {
+    throw Object.assign(new Error('Cluster niche is required'), { status: 400 });
+  }
+  const hub = source?.hub;
+  if (!hub?.city || !hub?.state) {
+    throw Object.assign(new Error('That zone has no hub'), { status: 400 });
+  }
+  const existing = findShotgunClusterByHub(label, hub.city, hub.state);
+  if (existing) return { existing: true, cluster: existing };
+  const members = membersForZoneReuse(source);
+  if (!members.some((m) => m.role === 'hub')) {
+    throw Object.assign(new Error('That zone has no hub'), { status: 400 });
+  }
+  const hits = [];
+  for (const m of members) {
+    const hit = findShotgunMember(label, m.city, m.state);
+    if (!hit) continue;
+    hits.push(`${m.city}, ${m.state} is already in ${hit.cluster?.name || 'another zone'}`);
+  }
+  if (hits.length) {
+    throw Object.assign(new Error(hits.slice(0, 3).join('; ')), { status: 400 });
+  }
+  const settings = normalizeShotgunSettings({
+    clusterMiles: source.clusterMiles ?? source.outerMiles ?? source.innerMiles,
+    bands: source.bands,
+  });
+  const registry = loadShotgunClusters();
+  return {
+    existing: false,
+    niche: label,
+    name: clusterName(label, hub.city, hub.state),
+    sgNumber: nextShotgunSgNumber(registry.clusters),
+    hub: {
+      city: String(hub.city).trim(),
+      state: String(hub.state).trim().toUpperCase(),
+      population: hub.population ?? null,
+      why: '',
+    },
+    clusterMiles: settings.clusterMiles,
+    bands: settings.bands,
+    members,
+    reusedFromZoneId: source.id || null,
+  };
 }
 
 export function clusterName(niche, hubCity, state) {
@@ -1550,18 +1764,20 @@ function annotatePipeline(row) {
   return { ...row, pipelineStage: stage };
 }
 
-export function annotateMembersWithPipeline(niche, members) {
+export function annotateMembersWithPipeline(niche, members, ownClusterId = null) {
+  const own = ownClusterId || null;
   return (members || []).map((m) => {
     const row = normalizeMember(m);
     const existing = lookupPipelineCity(niche, row.city, row.state);
     const other = findShotgunMember(niche, row.city, row.state);
+    const ownId = m.clusterId || own || null;
     return {
       ...row,
       candidateId: existing?.id || row.candidateId || null,
       pipelineStage: existing?.pipelineStage || null,
       archived: Boolean(existing?.archived),
       passed: String(existing?.decision || '').toLowerCase() === 'pass',
-      otherClusterId: other && other.cluster.id !== m.clusterId ? other.cluster.id : null,
+      otherClusterId: other && other.cluster.id !== ownId ? other.cluster.id : null,
     };
   });
 }

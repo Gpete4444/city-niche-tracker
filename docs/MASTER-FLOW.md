@@ -2,7 +2,7 @@
 
 Shareable overview of the full project: how a market becomes a live lead-gen site, and which tools do which work.
 
-**What this is:** **Rover** finds local niches worth ranking for, then ships a static lead-gen website per market (rank-and-rent style). You rent the site (or its leads) to a local operator. One **master template** plus the local **Rover dashboard** drive the pipeline; each live site is its **own GitHub repo** hosted on **Cloudflare Workers**. Forms go through **Web3Forms**; `leads@` mail uses **Cloudflare Email Routing**.
+**What this is:** **Rover** finds local niches worth ranking for, then ships a static lead-gen website per market (rank-and-rent style). You rent the site (or its leads) to a local operator. One **master template** plus the local **Rover dashboard** drive the pipeline; each live site is its **own GitHub repo** hosted on **Cloudflare Workers**. The shared forms Worker stores each lead and emails it from `leads@{domain}` to one Gmail. **Cloudflare Email Routing** forwards that same address.
 
 **Operator funnel (Discovery → Research → Website Builder → Launched Sites):** see [PIPELINE-STAGES.md](PIPELINE-STAGES.md).  
 **Operator manual (screens and buttons):** [USER-GUIDE.md](USER-GUIDE.md). Time estimates: [USER-FLOW.md](USER-FLOW.md).
@@ -77,10 +77,8 @@ flowchart TB
 
     subgraph launch [9 Launch]
       direction TB
-      l1["Buy domain and point NS — human"] --> l2["Create Web3Forms form — human"]
-      l2 --> l3["Paste access key in Rover Launch"]
-      l3 --> l4["Rover Launch Email Routing and custom domain"]
-      l4 --> l5["Verify Gmail destination — human"]
+      l1["Buy domain and point NS — human"] --> l2["Rover Launch Email Routing and custom domain"]
+      l2 --> l3["Verify Gmail destination — human"]
     end
 
     subgraph live [10 Live / rent]
@@ -109,14 +107,13 @@ Open on GitHub or [mermaid.live](https://mermaid.live) to view the rendered boxe
 | **6 · Stage preview** | Stage **full** site (all Structure-selected pages including every service/location FILE) into `site-staging/`, then Assemble + open **every** preview sitemap URL on :4322. Re-Assemble after every Stage (stale warning if skipped). | Catch wrong market/content before Launch — preview must match what ships. |
 | **7 · Assemble** | Copy template + inject staging into `rover-sites/{slug}`. | Isolate each domain in its own folder/repo (clone-per-site). |
 | **8 · GitHub + CF Worker** | First go-live: Launch Auto ship. Later updates: **Push updates** (ship only) after Prepare preview. | Cheap global hosting with one Worker project per site — no per-site terminal. |
-| **9 · Launch** | Email Routing (`leads@` → Gmail); create Web3Forms form with Recipient Emails = `leads@{domain}`; paste key; Rover ships + attaches domain. Full button reference: [LAUNCH.md](LAUNCH.md). | Go live on the real domain with working form and `leads@` inbox. |
-| **10 · Live / rent** | Leads hit inbox/form; hand site or leads to a local renter. Track inventory on the **Sites** tab (rent status, pricing, payment method, CF/Web3Forms links). Day-one indexing (GSC, sitemap, Request indexing): [SITE-INDEXING.md](SITE-INDEXING.md). | The business model: ranked site → rented asset. |
+| **9 · Launch** | Email Routing (`leads@` → Gmail); Rover ships and attaches the domain. The form Worker emails that Gmail from `leads@`. Full button reference: [LAUNCH.md](LAUNCH.md). | Go live on the real domain with working form and `leads@` inbox. |
+| **10 · Live / rent** | Leads hit Gmail and Phone/Form; hand site or leads to a local renter. Track inventory on the **Sites** tab (rent status, pricing, payment method, Cloudflare links). Day-one indexing (GSC, sitemap, Request indexing): [SITE-INDEXING.md](SITE-INDEXING.md). | The business model: ranked site → rented asset. |
 
 ### Still human (API cannot fully automate)
 
 - **Buy the domain** and point nameservers at Cloudflare (step 9).
-- **Create** a Web3Forms form with Recipient Emails = `leads@{domain}` (not the account Gmail) and paste the access key (step 9).
-- **Verify** Email Routing destination once, then the Web3Forms `leads@` verify link (step 9).
+- **Verify** the Email Routing destination once (step 9).
 - **One-time machine setup:** `gh auth login` + `.env` (`GITHUB_OWNER`, `CLOUDFLARE_*`) — not per site.
 
 Detailed runbook: [ASSEMBLE-AND-LAUNCH.md](ASSEMBLE-AND-LAUNCH.md). **Run launch** button reference: [LAUNCH.md](LAUNCH.md). After go-live indexing: [SITE-INDEXING.md](SITE-INDEXING.md).
@@ -136,8 +133,8 @@ Detailed runbook: [ASSEMBLE-AND-LAUNCH.md](ASSEMBLE-AND-LAUNCH.md). **Run launch
 | GitHub | Template repo + one repo per live site |
 | Cloudflare Workers | Host/build/deploy static site |
 | Cloudflare Email Routing | `leads@` → inbox |
-| Cloudflare Turnstile | Optional form spam protection |
-| Web3Forms | Contact form → email |
+| Cloudflare Turnstile | Optional widget on sites that already have a key. Launch does not create one per site |
+| Rover forms Worker | Contact form → D1 + email from `leads@` |
 | Domain registrar | Buy/point domain nameservers |
 | Gmail (or inbox) | Receive forwarded `leads@` mail (forms + mailto) |
 | Wrangler / CF Builds | `npx wrangler deploy` in CI |
@@ -160,7 +157,7 @@ Detailed runbook: [ASSEMBLE-AND-LAUNCH.md](ASSEMBLE-AND-LAUNCH.md). **Run launch
 | Cloudflare Workers | | | | | | | | X | X | X |
 | Cloudflare Email Routing | | | | | | | | | X | X |
 | Cloudflare Turnstile | | | | | | | | | X | X |
-| Web3Forms | | | | | | | | | X | X |
+| Rover forms Worker | | | | | | | | | X | X |
 | Domain registrar | | | | | | | | X | X | |
 | Gmail (or inbox) | | | | | | | | | X | X |
 | Wrangler / CF Builds | | | | | | | | X | | |
@@ -186,8 +183,8 @@ Estimates align with Rover pre-run modals ([`ops/lib/cost-estimates.mjs`](../ops
 | 5 Content | Claude researcher / outline / writer | ~$0.20–$2.00 est. | Largest Claude spend; homepage-first is cheaper than full suite |
 | 6–7 Stage / Assemble | Rover, Astro, local machine | $0 | No paid API |
 | 8 Ship | GitHub, CF Workers, Wrangler | $0 on free tiers | Still buy domain separately |
-| 9 Launch | Web3Forms, CF Email Routing, Turnstile, registrar | Domain ~$10–15/yr; APIs $0 | Web3Forms free ~250 submissions/mo |
-| 10 Live / rent | Web3Forms, Email Routing, Gmail | $0 until form volume / paid CF | Call tracking: Twilio intelligence — see [`docs/PHONE-TRACKING.md`](PHONE-TRACKING.md); not in this cost table |
+| 9 Launch | Rover forms Worker, CF Email Routing, registrar | Domain ~$10–15/yr; APIs $0 | Mail to the verified destination is free |
+| 10 Live / rent | Rover forms Worker, Email Routing, Gmail | $0 until paid CF | Call tracking: Twilio intelligence — see [`docs/PHONE-TRACKING.md`](PHONE-TRACKING.md); not in this cost table |
 
 ### Per-tool billing
 
@@ -203,7 +200,7 @@ Estimates align with Rover pre-run modals ([`ops/lib/cost-estimates.mjs`](../ops
 | CF Email Routing | Free inbound | $0 |
 | CF Turnstile | Free typical | $0 |
 | CF Management API | No per-call fee | $0 |
-| Web3Forms | Free ~250/mo; paid ~$5–18+/mo | $0 until over free |
+| Rover forms Worker | Cloudflare Email Service to one verified destination | $0 |
 | Domain registrar | Annual | ~$10–15/site/year |
 | Gmail | Free | $0 |
 

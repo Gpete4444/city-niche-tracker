@@ -37,6 +37,7 @@ import {
   resolveBaPromptsWithOverride,
   saveLastBaPrompts,
 } from './chatgpt-before-after.mjs';
+import { ensureBaLogo } from './ba-logo.mjs';
 import {
   OPENAI_IMAGE_COST,
   openaiImageKeySet,
@@ -55,10 +56,12 @@ function openaiUnconfiguredError() {
 }
 
 function safeName(s) {
+  // 96 keeps the step number on long service keys. A 48-character cut made
+  // steps 1–6 of one service share a file name, so the list could not tell them apart.
   return String(s || 'slot')
     .replace(/[^\w.-]+/g, '-')
     .replace(/^-|-$/g, '')
-    .slice(0, 48);
+    .slice(0, 96);
 }
 
 function trimVariants(dir, variants, cap = VARIANT_CAP) {
@@ -69,7 +72,8 @@ function slotStatusPayload(candidateId, slotKey) {
   return { slot: imageSlotCardStatus(candidateId, slotKey), openai: openaiImageStatus() };
 }
 
-export function baStatusPayload(candidateId, { serviceSlug = '', pairIndex = 1 } = {}) {
+export async function baStatusPayload(candidateId, { serviceSlug = '', pairIndex = 1 } = {}) {
+  await ensureBaLogo(candidateId);
   const status = listBeforeAfterStatus(candidateId);
   status.openai = openaiImageStatus();
   const pair = pickBaStatusPair(status, { serviceSlug, pairIndex });
@@ -323,12 +327,12 @@ export async function generateCandidateBaPairOpenai(
     ok: true,
     scope: written.scope,
     files: written.files,
-    status: baStatusPayload(candidateId, { serviceSlug: slug, pairIndex }),
+    status: await baStatusPayload(candidateId, { serviceSlug: slug, pairIndex }),
     human: [`Generated OpenAI before/after pair${serviceName ? ` for ${serviceName}` : ''}.`],
   };
 }
 
-export function useCandidateBaVariant(
+export async function useCandidateBaVariant(
   candidateId,
   { pairId, matchKey = '', serviceSlug = '', pairIndex = 1, beforeFilename = '' } = {},
 ) {
@@ -411,5 +415,5 @@ export function useCandidateBaVariant(
     doc[key] = trimVariants(p.siteImages, list);
   }
   saveBaVariantsDoc(candidateId, doc);
-  return { ok: true, status: baStatusPayload(candidateId, { serviceSlug: slug, pairIndex: idxN }) };
+  return { ok: true, status: await baStatusPayload(candidateId, { serviceSlug: slug, pairIndex: idxN }) };
 }

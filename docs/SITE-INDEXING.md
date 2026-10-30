@@ -59,13 +59,14 @@ Google emails when a **new reason type first appears** on a property — not on 
 
 | GSC reason | Expected on Rover sites? | What to do |
 | --- | --- | --- |
-| **Alternate page with proper canonical tag** | Yes, if Google still fetched `http://` HTML before Always Use HTTPS | Confirm the HTTPS canonical is the one indexed. Do **not** Validate fix. |
-| **Page with redirect** | Yes — `http://` → `https://`, slashless → trailing slash, `www` → apex | Healthy. Google will keep probing `http://`. Do **not** Validate fix. |
+| **Alternate page with proper canonical tag** | No for `www` after the worker 301. An old crawl can still list it until it ages out. | Do **not** Validate fix. Do not add a second page. |
+| **Page with redirect** | Yes — one email per new property. `http://` → `https://`, slashless → trailing slash, `www` → apex | Healthy. Google will keep probing those URLs. Do **not** Validate fix. |
+| **Not found (404)** | Only for URLs that are not on the site (old or guessed). Sitemap and on-site links must be 200. | Ignore. Do **not** Validate fix and do not invent a page for the URL. |
 | **Crawled – currently not indexed** | Sometimes on new domains / thin location URLs | Wait; unique copy; citations. Only worry if **money pages** stay here for weeks. |
 | **Discovered – currently not indexed** | New URLs Google has not crawled yet | Normal for long-tail; don’t bulk Request indexing. |
 | **5xx, noindex, robots.txt, sitemap listing the wrong host** | No — fix immediately | Real blockers. |
 
-Launch turns on zone **Always Use HTTPS**, Full SSL, and HSTS when the API token has Zone Settings Edit (soft-skip otherwise). The Worker also **301s `http://` → `https://`** so HTTP HTML is not served even without that permission. Launch attaches **www** plus apex to the Worker. Sites use **trailing slashes everywhere** (`https://{domain}/about/`, homepage `https://{domain}/`). Coverage-map cities without a real `/locations/{id}/` page link to `/contact/` — they must not invent location URLs. `*.workers.dev` sends `X-Robots-Tag: noindex`.
+Launch turns on zone **Always Use HTTPS**, Full SSL, and HSTS when the API token has Zone Settings Edit (soft-skip otherwise). The Worker **301s `http://` → `https://`, `www` → apex, and slashless HTML paths → a trailing slash** in one hop, so those URLs never serve HTML. Launch still attaches **www** plus apex so the www hostname can redirect instead of failing DNS. Sites use **trailing slashes everywhere** (`https://{domain}/about/`, homepage `https://{domain}/`). Coverage-map cities without a real `/locations/{id}/` page link to `/contact/` — they must not invent location URLs. `*.workers.dev` sends `X-Robots-Tag: noindex`.
 
 Real problems: 5xx, accidental `noindex`, robots blocks, sitemap URLs that are not the HTTPS canonical, or crawled-not-indexed on the **homepage / top services** for weeks.
 
@@ -96,7 +97,8 @@ After **Run launch** (or **Push updates** when already live), open **Website →
 | Homepage indexed; services trickling in | Normal — keep internal links strong; don’t spam requests |
 | Many URLs **Discovered — currently not indexed** past ~21 days | Improve depth/uniqueness, internal links, earn a real backlink — **don’t** bulk Request indexing |
 | **Crawled — currently not indexed** | Quality / usefulness signal; fix content or consolidate thin pages. Coverage-map towns without a location page must link to `/contact/`, not a fake `/locations/` URL. |
-| **Alternate page / Page with redirect** on `http://` or slashless URLs | Expected after HTTPS + trailing-slash 301s — do not Validate fix |
+| **Page with redirect** on `http://`, slashless, or `www` | Expected — do not Validate fix |
+| **Alternate page with proper canonical tag** or **Not found (404)** on a URL that is not in the sitemap | Old or guessed URL — do not Validate fix and do not add a page |
 | Sitemap “Success” but Indexed count stuck near zero | Recheck `noindex`, canonicals, soft 404s, wrong host in sitemap |
 | After **Push updates** (content/template change) | Rely on accurate `lastmod`; Request indexing only for edited money pages |
 

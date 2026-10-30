@@ -97,20 +97,21 @@ Assemble already writes `wrangler.json` with `"assets": { "directory": "./dist" 
 
 If install fails with `npm ci` / lockfile out of sync, regenerate `package-lock.json` in the template (`npm install`), re-assemble, and re-run Launch.
 
-## 5. Rover Launch (ship + Cloudflare API + Web3Forms paste)
+## 5. Rover Launch (ship + Cloudflare Email Routing)
 
-After Assemble, use Rover → Content → **Launch**:
+After Assemble, use Rover → Website → **Launch**:
 
-1. Set domain / `leads@` / Email Routing destination (Gmail). Run Cloudflare so `leads@` exists
-2. Create a **Web3Forms** form ([web3forms.com](https://web3forms.com) — no public create-form API). Set **Recipient Emails** to `leads@{domain}`, not the account Gmail. Paste the access key
-3. Leave **Auto ship** and **Run Cloudflare domain / email API** checked
-4. **Run launch**
+1. Set domain / `leads@` / Email Routing destination (Gmail)
+2. Leave **Auto ship** and **Run Cloudflare domain / email API** checked
+3. **Run launch**
+
+The live form posts to the shared Rover forms Worker. That Worker stores the lead and emails the destination from `leads@{domain}`.
 
 **Full step-by-step reference (UI fields, pipeline, soft-fails, env, meta flags):** [LAUNCH.md](LAUNCH.md).
 
 Summary of what Launch does:
 
-- Writes NAP + Web3Forms (+ optional Turnstile) into the **assembled** `src/config/site-config.json` (and research copy)
+- Writes NAP into the **assembled** `src/config/site-config.json` (and research copy)
 - Auto ship: GitHub repo + build + Wrangler deploy + Workers Builds connect (§4)
 - Cloudflare: Email Routing (`leads@` → destination) + custom domain attach to the Worker
 - Sets checklist meta flags (`formsDone`, `dnsDone`, `emailRoutingDone`, …)
@@ -130,25 +131,25 @@ CLI:
 npm run launch-site -- <candidateId>
 npm run launch-site -- <candidateId> --skip-cloudflare
 npm run launch-site -- <candidateId> --skip-ship
-npm run launch-site -- <candidateId> --turnstile --destination=you@gmail.com
+npm run launch-site -- <candidateId> --destination=you@gmail.com
 ```
 
 ### Human leftovers (API cannot do these)
 
 1. **Buy the domain** / point nameservers at Cloudflare (zone must exist in your account)
 2. **Verify** Email Routing destination once (click link in Gmail) when the destination is new
-3. **Create** the Web3Forms form with Recipient Emails = `leads@{domain}` (not the account Gmail) and paste the key
-4. **One-time** machine setup: `gh auth login` + `.env` (`GITHUB_OWNER`, `CLOUDFLARE_*`) — not per site
+3. **One-time** machine setup: `gh auth login` + `.env` (`GITHUB_OWNER`, `CLOUDFLARE_*`, `LEAD_NOTIFY_EMAIL`) — not per site
 
 ### Cost
 
-Cloudflare and Web3Forms **API calls are $0**. You pay domains (~$10–15/yr) and stay on free tiers for typical static + Email Routing + ~250 Web3Forms submissions/mo.
+Cloudflare **API calls are $0**. You pay domains (~$10–15/yr). Form mail to the verified destination does not count toward the daily sending quota.
 
 ## 6. Forms notes
 
-- Site form already posts to `https://api.web3forms.com/submit` via `LeadForm.astro`
-- Placeholders `YOUR_*` and `REPLACE_WEB3FORMS_*` show the demo banner
-- Optional `turnstileSiteKey` from Launch or Site config edit
+- `LeadForm.astro` posts only to the Rover forms Worker (`formsIngestUrl`)
+- The Worker stores the lead, then emails `leads@{domain}` → the Email Routing destination
+- A failed email stays in Phone/Form and the page shows an error
+- Optional `turnstileSiteKey` still renders a widget on sites that already have one. Launch does not create a widget per site
 
 Never commit real keys to the **template** master if demos use placeholders.
 

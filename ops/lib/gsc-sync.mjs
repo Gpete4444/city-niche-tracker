@@ -93,9 +93,28 @@ export function buildSearchAnalyticsQueryBody({ startDate, endDate, dimensions =
   return body;
 }
 
+const GSC_PROPERTIES_CACHE_MS = 60_000;
+let gscPropertiesCache = null;
+let gscPropertiesInFlight = null;
+
+/** Property list shared by parallel Check index calls. Fresh for 60s; in-flight callers share one fetch. */
 export async function listGscProperties() {
-  const json = await gscFetch('/sites');
-  return Array.isArray(json?.siteEntry) ? json.siteEntry : [];
+  const now = Date.now();
+  if (gscPropertiesCache && now - gscPropertiesCache.at < GSC_PROPERTIES_CACHE_MS) {
+    return gscPropertiesCache.entries;
+  }
+  if (!gscPropertiesInFlight) {
+    gscPropertiesInFlight = gscFetch('/sites')
+      .then((json) => {
+        const entries = Array.isArray(json?.siteEntry) ? json.siteEntry : [];
+        gscPropertiesCache = { at: Date.now(), entries };
+        return entries;
+      })
+      .finally(() => {
+        gscPropertiesInFlight = null;
+      });
+  }
+  return gscPropertiesInFlight;
 }
 
 async function querySearchAnalytics(propertyUrl, { startDate, endDate, dimensions = [] }) {

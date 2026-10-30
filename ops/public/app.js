@@ -26,20 +26,20 @@ import {
   ensureResearchMapReady,
   invalidateResearchMapSize,
   openResearchMap,
-} from './research-map.js?v=20260902mapFill';
+} from './research-map.js?v=20261028alphaMenus';
 import {
   mountServiceAreaMap,
   mountDiscoveryCitiesMap,
   setServiceAreaTableMode,
   setDiscoveryTableMapMode,
-} from './service-area-map.js?v=20260918saSib';
+} from './service-area-map.js?v=20260921saGeoid';
 import {
   remoteRefreshTouchesZone,
   serviceAreaClaimMaps,
   zoneServiceAreaBroadcastIds,
   zoneServiceAreaClusterId,
 } from './zone-service-area-sync.mjs?v=20260917saLive';
-import { mountShotgunMap } from './shotgun-map.js?v=20260915touch';
+import { mountShotgunMap } from './shotgun-map.js?v=20261022pop';
 import {
   clusterColor,
   cityMapLabel,
@@ -63,13 +63,14 @@ import {
   writeSiteTrackHoldsLease,
 } from '/write-site-overlay-track.mjs?v=20260908wsLive';
 import {
-  openaiBatchPendingInSnap,
+  openaiBatchUnresolvedIds,
+  openaiOpenBatchProgress,
   openaiBusyKeysStillActive,
   openaiJobIdsMissingFromSnap,
   openaiJobsNeedingWatch,
   openaiJobsProgressFromSnap,
   openaiSlotOverlayCaption,
-} from '/openai-jobs-progress.mjs?v=20260916oaMiss';
+} from '/openai-jobs-progress.mjs?v=20261028openaiLoad';
 import { reviewSlotServiceSubtitle } from '/review-slot-service-subtitle.mjs?v=20260908svcSub';
 import {
   mergeCandidateDetail,
@@ -657,7 +658,33 @@ const state = {
     selectedCallId: null,
     filterText: '',
     filterPhase: '',
+    filterNiche: '',
+    filterState: '',
+    filterZone: '',
+    filterCluster: '',
+    filterStatus: '',
+    filterSummaryExclude: '',
+    glance: '',
+    showSpam: true,
+    sort: { key: 'when', dir: -1 },
     greeting: null,
+    mode: 'combined',
+    combinedOpen: { zones: {}, clusters: {} },
+    combinedInboxOpen: null,
+    rollup: { totals: { forms: 0, forms7d: 0, calls: 0, calls7d: 0 }, sites: [] },
+    inbox: null,
+    spamKeywords: [],
+    forms: {
+      submissions: [],
+      selectedId: null,
+      filterText: '',
+      filterNiche: '',
+      filterState: '',
+      filterZone: '',
+      filterCluster: '',
+      filterSite: '',
+      sort: { key: 'when', dir: -1 },
+    },
   },
   photoLib: {
     niches: [],
@@ -672,7 +699,7 @@ const state = {
     selectedChecks: {},
   },
   imageMatchFilter: 'all',
-  /** Review images source filter: all | stock | openai */
+  /** Review images source filter: all | stock | openai | photo-group */
   imageSourceFilter: 'all',
   /** Review images title search (case-insensitive substring). */
   imageTitleFilter: '',
@@ -1202,7 +1229,7 @@ function launchResultDetailsHtml(result) {
   const cfOk = result.cloudflare?.ok
     ? 'Cloudflare domain/email ran'
     : 'Cloudflare domain/email skipped or incomplete';
-  return `<p>${esc(shipOk)}. ${esc(cfOk)}. Forms key: ${result.formsDone ? 'set' : 'still placeholder'}.</p>
+  return `<p>${esc(shipOk)}. ${esc(cfOk)}. Form delivery: ${result.formsDone ? 'Rover' : 'not ready'}.</p>
           <ul class="narrative-list">${human || '<li>No extra notes</li>'}</ul>
           ${
             result.assembledConfigPath
@@ -1214,7 +1241,7 @@ function launchResultDetailsHtml(result) {
               ? `<p class="muted">Repo: <a href="${esc(result.ship.steps.github.repoUrl)}" target="_blank" rel="noopener">${esc(result.ship.steps.github.fullName)}</a></p>`
               : ''
           }
-          <p class="muted"><strong>After launch:</strong> verify Gmail once if Email Routing is new; click the Web3Forms verify link for leads@ if you just changed Recipient Emails; smoke-test the live form; then use <strong>Website → Indexing</strong> for Search Console + sitemap.</p>`;
+          <p class="muted"><strong>After launch:</strong> verify Gmail once if Email Routing is new; smoke-test the live form; then use <strong>Website → Indexing</strong> for Search Console + sitemap.</p>`;
 }
 
 function launchSiteDisplayName(result) {
@@ -1302,9 +1329,26 @@ const jobSyncedBarOn = {
 /** jobId → { candidateId, groupId, slotKey, kind } */
 const openaiJobWatch = new Map();
 const openaiJobHandled = new Set();
+/** Missing ids with a settle fetch already in flight. */
+const openaiJobResolving = new Set();
+/** Clicks waiting for the generate request to return a job list. */
+let openaiAwaitingJobList = 0;
 /** @type {{ jobIds: string[], candidateId?: string, groupId?: string, failures: string[], announced: boolean }[]} */
 const openaiBatches = [];
 let openaiCommitChain = Promise.resolve();
+
+function openaiChromeHeld() {
+  if (openaiAwaitingJobList > 0) return true;
+  return openaiBatches.some((batch) => !batch.announced);
+}
+
+function disarmOpenaiGenerateWait() {
+  openaiAwaitingJobList = Math.max(0, openaiAwaitingJobList - 1);
+}
+
+function enqueueOpenaiCardRefresh(fn) {
+  return enqueueOpenaiCommit(fn);
+}
 
 function enqueueOpenaiCommit(fn) {
   const run = openaiCommitChain.then(() => fn());
@@ -1320,14 +1364,18 @@ function watchOpenaiJobList(jobs, { candidateId, groupId } = {}) {
   for (const row of jobs || []) {
     const jobId = String(row.jobId || row.id || '').trim();
     if (!jobId) continue;
-    ids.push(jobId);
+    const alreadyOpen = openaiBatches.some((b) => !b.announced && b.jobIds.includes(jobId));
     openaiJobHandled.delete(jobId);
+    openaiJobResolving.delete(jobId);
     openaiJobWatch.set(jobId, {
       candidateId: candidateId || row.candidateId || null,
       groupId: groupId || null,
       slotKey: row.slotKey || row.matchKey || null,
       kind: row.kind || null,
     });
+    const key = row.slotKey || row.matchKey;
+    if (key) beginSlotBusy(key, null, { scroll: false });
+    if (!alreadyOpen) ids.push(jobId);
   }
   if (ids.length) {
     openaiBatches.push({
@@ -1345,35 +1393,42 @@ async function resolveMissingOpenaiJob(id) {
   const jobId = String(id || '').trim();
   if (!jobId) return;
   const meta = openaiJobWatch.get(jobId);
+  let job = null;
   try {
     const packed = await api(`/api/light-jobs/${encodeURIComponent(jobId)}`);
-    const job = packed?.job;
-    if (job && (job.status === 'running' || job.status === 'queued')) {
-      openaiJobHandled.delete(jobId);
-      return;
-    }
-    if (job && (job.status === 'done' || job.status === 'error')) {
-      if (job.status === 'error') {
-        const batch = openaiBatches.find((b) => b.jobIds.includes(jobId));
-        const key = job.slotKey || job.matchKey || meta?.slotKey || jobId;
-        if (batch) batch.failures.push(`${key}: ${job.error || 'Generate failed'}`);
-      }
-      await consumeOpenaiJobFinish({ ...job, id: jobId });
-      return;
-    }
+    job = packed?.job || null;
   } catch {
-    /* pruned / 404 */
+    job = null;
   }
-  if (meta) {
-    await consumeOpenaiJobFinish({
-      id: jobId,
-      status: 'done',
-      slotKey: meta.slotKey,
-      matchKey: meta.slotKey,
-    });
+  if (openaiJobHandled.has(jobId)) return;
+  if (job && (job.status === 'running' || job.status === 'queued')) {
+    const key = job.slotKey || job.matchKey || meta?.slotKey;
+    if (key) beginSlotBusy(key, null, { scroll: false });
     return;
   }
-  openaiJobWatch.delete(jobId);
+  openaiJobHandled.add(jobId);
+  const settledKey = job?.slotKey || job?.matchKey || meta?.slotKey;
+  if (settledKey) releaseSlotBusy(settledKey);
+  if (job && job.status === 'error') {
+    const batch = openaiBatches.find((b) => b.jobIds.includes(jobId));
+    const key = settledKey || jobId;
+    if (batch) batch.failures.push(`${key}: ${job.error || 'Generate failed'}`);
+  }
+  if (job && (job.status === 'done' || job.status === 'error')) {
+    enqueueOpenaiCardRefresh(() => consumeOpenaiJobFinish({ ...job, id: jobId }));
+  } else if (meta) {
+    enqueueOpenaiCardRefresh(() =>
+      consumeOpenaiJobFinish({
+        id: jobId,
+        status: 'done',
+        slotKey: meta.slotKey,
+        matchKey: meta.slotKey,
+      }),
+    );
+  } else {
+    openaiJobWatch.delete(jobId);
+  }
+  announceSettledOpenaiBatches();
 }
 
 function sweepStaleOpenaiGenerateChrome(snap = state.lightJobsSnap) {
@@ -1388,15 +1443,9 @@ function sweepStaleOpenaiGenerateChrome(snap = state.lightJobsSnap) {
   });
   const pending = openaiBatches.reduce((n, batch) => {
     if (batch.announced) return n;
-    return (
-      n +
-      openaiBatchPendingInSnap(batch.jobIds, {
-        handled: openaiJobHandled,
-        snapJobs: openai,
-      }).length
-    );
+    return n + openaiBatchUnresolvedIds(batch.jobIds, openaiJobHandled).length;
   }, 0);
-  if (snapProgress.active || pending) return false;
+  if (snapProgress.active || pending || openaiAwaitingJobList > 0) return false;
   jobSyncedBarOn.openai = false;
   setImagesProgress(false);
   if (reviewImagesWorkDepth > 0) return true;
@@ -1455,6 +1504,34 @@ async function consumeOpenaiJobFinish(job) {
   await settleSlotBusy(slotKey);
 }
 
+function announceSettledOpenaiBatches() {
+  for (const batch of openaiBatches) {
+    if (batch.announced) continue;
+    if (openaiBatchUnresolvedIds(batch.jobIds, openaiJobHandled).length) continue;
+    batch.announced = true;
+    const failures = [...batch.failures];
+    const n = batch.jobIds.length;
+    enqueueOpenaiCommit(async () => {
+      const stillOpen = openaiBatches.some((b) => !b.announced);
+      if (!stillOpen && !openaiChromeHeld()) {
+        jobSyncedBarOn.openai = false;
+        setImagesProgress(false);
+      }
+      if (failures.length) {
+        if (!(await showGenerateFailures(failures))) {
+          announceBanner(
+            `Generated with ${failures.length} error${failures.length === 1 ? '' : 's'}.`,
+            { tone: 'warn' },
+          );
+        }
+      } else {
+        announceBanner(`Generated ${n} OpenAI job${n === 1 ? '' : 's'}.`);
+      }
+      refreshImageWallets({ fresh: true });
+    });
+  }
+}
+
 function syncOpenaiGenerateFromSnap(snap) {
   const jobs = snap?.jobs || [];
   const cid = state.selectedId;
@@ -1489,64 +1566,46 @@ function syncOpenaiGenerateFromSnap(snap) {
     if (!openaiJobWatch.has(id) || openaiJobHandled.has(id)) continue;
     if (j.status !== 'done' && j.status !== 'error') continue;
     openaiJobHandled.add(id);
+    const meta = openaiJobWatch.get(id);
+    const key = j.slotKey || j.matchKey || meta?.slotKey;
+    if (key) releaseSlotBusy(key);
     if (j.status === 'error') {
       const batch = openaiBatches.find((b) => b.jobIds.includes(id));
-      const meta = openaiJobWatch.get(id);
-      const key = j.slotKey || j.matchKey || meta?.slotKey || id;
-      if (batch) batch.failures.push(`${key}: ${j.error || 'Generate failed'}`);
+      if (batch) batch.failures.push(`${key || id}: ${j.error || 'Generate failed'}`);
     }
-    enqueueOpenaiCommit(() => consumeOpenaiJobFinish(j));
+    enqueueOpenaiCardRefresh(() => consumeOpenaiJobFinish(j));
   }
   const batchIds = openaiBatches.flatMap((b) => b.jobIds);
   const missing = openaiJobIdsMissingFromSnap(
-    batchIds.filter((id) => !openaiJobHandled.has(id)),
+    batchIds.filter((id) => !openaiJobHandled.has(id) && !openaiJobResolving.has(id)),
     openai,
   );
   for (const id of missing) {
-    openaiJobHandled.add(id);
-    enqueueOpenaiCommit(() => resolveMissingOpenaiJob(id));
+    openaiJobResolving.add(id);
+    void resolveMissingOpenaiJob(id).finally(() => {
+      openaiJobResolving.delete(id);
+    });
   }
+  announceSettledOpenaiBatches();
+  const openIds = [];
   let pending = 0;
-  let total = 0;
   for (const batch of openaiBatches) {
     if (batch.announced) continue;
-    const remaining = openaiBatchPendingInSnap(batch.jobIds, {
-      handled: openaiJobHandled,
-      snapJobs: openai,
-    });
-    pending += remaining.length;
-    total += batch.jobIds.length;
-    if (!remaining.length) {
-      batch.announced = true;
-      const failures = [...batch.failures];
-      const n = batch.jobIds.length;
-      enqueueOpenaiCommit(async () => {
-        jobSyncedBarOn.openai = false;
-        setImagesProgress(false);
-        if (failures.length) {
-          if (!(await showGenerateFailures(failures))) {
-            announceBanner(
-              `Generated with ${failures.length} error${failures.length === 1 ? '' : 's'}.`,
-              { tone: 'warn' },
-            );
-          }
-        } else {
-          announceBanner(`Generated ${n} OpenAI job${n === 1 ? '' : 's'}.`);
-        }
-        refreshImageWallets({ fresh: true });
-      });
-    }
+    pending += openaiBatchUnresolvedIds(batch.jobIds, openaiJobHandled).length;
+    openIds.push(...batch.jobIds);
   }
   const snapProgress = openaiJobsProgressFromSnap(jobs, {
     selectedId: cid,
     photoGroupKey: pgKey,
   });
-  if (snapProgress.active) {
+  if (pending) {
+    jobSyncedBarOn.openai = true;
+    paintOpenaiSnapProgress(openaiOpenBatchProgress(openIds, openai, openaiJobHandled));
+  } else if (snapProgress.active) {
     jobSyncedBarOn.openai = true;
     paintOpenaiSnapProgress(snapProgress);
-  } else if (pending) {
+  } else if (openaiAwaitingJobList > 0) {
     jobSyncedBarOn.openai = true;
-    paintOpenaiBatchProgress(Math.max(0, total - pending), total);
   } else {
     sweepStaleOpenaiGenerateChrome(snap);
   }
@@ -1680,6 +1739,20 @@ function beginSlotBusy(key, cardEl, { scroll = true } = {}) {
   }
 }
 
+function releaseSlotBusy(key) {
+  const id = String(key || '').trim();
+  if (!id) return;
+  const raw = id.replace(/^ba:/, '');
+  const keys = [...new Set([id, raw, raw && !id.startsWith('ba:') ? `ba:${raw}` : ''].filter(Boolean))];
+  const next = { ...(state.imageSlotBusyKeys || {}) };
+  for (const k of keys) {
+    delete next[k];
+    const card = findGeneratingSlotCard(k);
+    if (card) setSlotGenerateOverlay(card, false);
+  }
+  state.imageSlotBusyKeys = next;
+}
+
 function restoreSlotBusyOverlays() {
   for (const key of slotBusyKeyList()) {
     const card = findGeneratingSlotCard(key);
@@ -1719,10 +1792,7 @@ async function settleSlotBusy(key) {
   for (const k of keys) {
     try {
       const card = findGeneratingSlotCard(k);
-      if (card) {
-        setSlotGenerateOverlay(card, true);
-        await waitSlotThumbLoaded(card);
-      }
+      if (card) await waitSlotThumbLoaded(card);
       const live = findGeneratingSlotCard(k);
       if (live) setSlotGenerateOverlay(live, false);
     } finally {
@@ -1740,6 +1810,7 @@ let reviewImagesWorkDepth = 0;
 
 function hideReviewImagesProgress() {
   if (reviewImagesWorkDepth > 0) return;
+  if (openaiChromeHeld()) return;
   setImagesProgress(false);
 }
 
@@ -4243,15 +4314,27 @@ function syncSitesDetailVisibility() {
 
 function syncPhoneDetailVisibility() {
   const layout = document.getElementById('view-phone');
-  // Always keep the far-right call detail column visible (empty state when no call).
-  layout?.classList.remove('layout-detail-collapsed');
+  const mode = state.phone?.mode || 'combined';
+  if (layout) layout.dataset.leadMode = mode;
+  const open =
+    mode === 'phone'
+      ? Boolean(state.phone?.selectedCallId)
+      : mode === 'forms'
+        ? Boolean(state.phone?.forms?.selectedId)
+        : false;
+  layout?.classList.toggle('layout-detail-collapsed', !open);
+  document.querySelectorAll('.lead-mode-btn').forEach((btn) => {
+    const on = btn.dataset.leadMode === mode;
+    btn.classList.toggle('is-active', on);
+    btn.setAttribute('aria-selected', on ? 'true' : 'false');
+  });
 }
 
 /** Click empty table/panel chrome to clear row selection (not rows, controls, or thead). */
 const TABLE_DESELECT_IGNORE =
   'thead, input, select, button, a, label, textarea, .col-resize-handle, .candidate-bulk-details, .discovery-filters-bar, .sites-filters, .discovery-flow, .sites-gsc-status, .phone-calls-toolbar, #sa-map-canvas, .sa-map-canvas-host, .leaflet-container, .cand-niche, .cand-niche-input';
 const TABLE_DESELECT_ROW =
-  'tr[data-id], tr[data-call-id], tr[data-row-idx]';
+  'tr[data-id], tr[data-call-id], tr[data-form-id], tr[data-row-idx], .phone-call-row';
 
 function eventPath(e) {
   if (typeof e.composedPath === 'function') {
@@ -4305,6 +4388,7 @@ function clearCandidateRowSelection() {
   syncCandidatesDetailVisibility();
   renderList();
   renderActions();
+  persistUiRestore();
 }
 
 function clearSitesRowSelection() {
@@ -4312,6 +4396,13 @@ function clearSitesRowSelection() {
   state.selectedSiteId = null;
   renderSitesTable();
   renderSitesDetail();
+}
+
+function clearFormSelection() {
+  if (!state.phone?.forms?.selectedId) return;
+  state.phone.forms.selectedId = null;
+  renderFormsTable();
+  renderFormsDetail();
 }
 
 function clearPhoneCallSelection() {
@@ -5370,6 +5461,7 @@ async function selectCandidate(id) {
     renderList();
     renderMultiDetail();
     renderActions();
+    persistUiRestore();
     return;
   }
   // Keep checkbox selection aligned with the open detail (avoids Accept hitting another id)
@@ -5388,6 +5480,8 @@ async function selectCandidate(id) {
   } catch (error) {
     if (error?.name === 'AbortError') return;
     throw error;
+  } finally {
+    persistUiRestore();
   }
 }
 
@@ -5508,7 +5602,9 @@ function updateTabCompletion() {
     if (key === 'content') {
       done = isWebsiteTrackComplete(state.detail, 2);
       draft =
-        (Boolean(f.hasContentDraft) || Boolean(f.hasContentBrief)) && !f.hasContent;
+        !f.hasContentUnreadable &&
+        (Boolean(f.hasContentDraft) || Boolean(f.hasContentBrief)) &&
+        !f.hasContent;
     }
     if (key === 'website') {
       const meta = state.detail?.meta || {};
@@ -5692,6 +5788,142 @@ function stashClaudeUiRestore() {
     sessionStorage.setItem(CLAUDE_UI_RESTORE_KEY, JSON.stringify(payload));
   } catch {
     /* ignore */
+  }
+}
+
+const UI_RESTORE_KEY = 'ops.uiRestore';
+let uiRestoreQuiet = false;
+
+function peekUiRestore() {
+  try {
+    const raw = sessionStorage.getItem(UI_RESTORE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function persistUiRestore() {
+  if (uiRestoreQuiet) return;
+  const payload = {
+    view: state.view,
+    tab: state.tab,
+    selectedId: state.selectedId || null,
+    selectedIds: [...state.selectedIds],
+    candidateDecisionFilter: state.candidateDecisionFilter || '',
+    candidateBatchFilter: state.candidateBatchFilter || '',
+    candidateGroupFilter: state.candidateGroupFilter || '',
+    candidateZoneFilter: state.candidateZoneFilter || '',
+    candidateClusterFilter: state.candidateClusterFilter || '',
+    candidateVisibilityFilter: state.candidateVisibilityFilter || 'active',
+    candidateTextFilter: state.candidateTextFilter || '',
+    discoveryBatchId: state.discoveryBatchId || null,
+    discoveryFilters: { ...state.discoveryFilters },
+    siteFilters: { ...state.siteFilters },
+  };
+  try {
+    sessionStorage.setItem(UI_RESTORE_KEY, JSON.stringify(payload));
+  } catch {
+    /* ignore */
+  }
+}
+
+function setControlValue(id, value) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const next = value == null ? '' : String(value);
+  if (el.value !== next) el.value = next;
+}
+
+function syncUiRestoreControls() {
+  setControlValue('candidate-decision-filter', state.candidateDecisionFilter);
+  setControlValue('candidate-batch-filter', state.candidateBatchFilter);
+  setControlValue('candidate-group-filter', state.candidateGroupFilter);
+  setControlValue('candidate-zone-filter', state.candidateZoneFilter);
+  setControlValue('candidate-cluster-filter', state.candidateClusterFilter);
+  setControlValue('candidate-visibility-filter', state.candidateVisibilityFilter || 'active');
+  setControlValue('candidate-filter-text', state.candidateTextFilter);
+  setControlValue('discovery-filter-text', state.discoveryFilters?.text);
+  setControlValue('discovery-filter-human', state.discoveryFilters?.human);
+  setControlValue('discovery-filter-rec', state.discoveryFilters?.rec);
+  setControlValue('discovery-filter-mappack', state.discoveryFilters?.mapPack);
+  setControlValue('discovery-filter-role', state.discoveryFilters?.role);
+  setControlValue('sites-filter-text', state.siteFilters?.text);
+  setControlValue('sites-filter-status', state.siteFilters?.status);
+  setControlValue('sites-filter-state', state.siteFilters?.state);
+  setControlValue('sites-filter-group', state.siteFilters?.group);
+  setControlValue('sites-zone-filter', state.siteFilters?.zone);
+  setControlValue('sites-cluster-filter', state.siteFilters?.cluster);
+}
+
+function applyUiFilterSnapshot(snap) {
+  if (!snap || typeof snap !== 'object') return;
+  uiRestoreQuiet = true;
+  try {
+    if (typeof snap.tab === 'string' && snap.tab.trim()) state.tab = snap.tab.trim();
+    const str = (v, fallback = '') => (typeof v === 'string' ? v : fallback);
+    state.candidateDecisionFilter = str(snap.candidateDecisionFilter);
+    state.candidateBatchFilter = str(snap.candidateBatchFilter);
+    state.candidateGroupFilter = str(snap.candidateGroupFilter);
+    state.candidateZoneFilter = str(snap.candidateZoneFilter);
+    state.candidateClusterFilter = str(snap.candidateClusterFilter);
+    state.candidateVisibilityFilter = str(snap.candidateVisibilityFilter, 'active') || 'active';
+    state.candidateTextFilter = str(snap.candidateTextFilter);
+    if (snap.discoveryBatchId != null && String(snap.discoveryBatchId).trim()) {
+      state.discoveryBatchId = String(snap.discoveryBatchId).trim();
+    }
+    if (snap.discoveryFilters && typeof snap.discoveryFilters === 'object') {
+      const d = snap.discoveryFilters;
+      state.discoveryFilters = {
+        text: str(d.text),
+        human: str(d.human),
+        rec: str(d.rec),
+        mapPack: str(d.mapPack),
+        role: str(d.role),
+      };
+    }
+    if (snap.siteFilters && typeof snap.siteFilters === 'object') {
+      const s = snap.siteFilters;
+      state.siteFilters = {
+        text: str(s.text),
+        status: str(s.status),
+        state: str(s.state),
+        group: str(s.group),
+        zone: str(s.zone),
+        cluster: str(s.cluster),
+      };
+    }
+    syncUiRestoreControls();
+  } finally {
+    uiRestoreQuiet = false;
+  }
+}
+
+async function applyUiSelectionRestore(snap) {
+  if (!snap || typeof snap !== 'object') return;
+  if (snap.tab && !state.tab) state.tab = snap.tab;
+  const ids = Array.isArray(snap.selectedIds)
+    ? snap.selectedIds.map((id) => String(id || '').trim()).filter(Boolean)
+    : [];
+  const selectedId = String(snap.selectedId || ids[0] || '').trim();
+  if (!isCandidatesShellView(state.view)) return;
+  try {
+    if (ids.length > 1) {
+      state.selectedIds = new Set(ids);
+      state.selectedId = selectedId || ids[0];
+      renderList();
+      renderMultiDetail();
+      renderActions();
+      persistUiRestore();
+      return;
+    }
+    if (selectedId) {
+      await selectCandidate(selectedId);
+    }
+  } catch {
+    /* candidate may have been deleted */
   }
 }
 
@@ -8337,7 +8569,7 @@ function saveSiteConfigNapFromForm(candidateId) {
   const nap = {
     domain: document.getElementById('sc-domain')?.value?.trim() || prev.domain || '',
     businessName: document.getElementById('sc-business')?.value?.trim() || prev.businessName || '',
-    phone: document.getElementById('sc-phone')?.value?.trim() || prev.phone || '',
+    phone: phoneToE164(document.getElementById('sc-phone')?.value?.trim() || prev.phone || ''),
     email: document.getElementById('sc-email')?.value?.trim() || prev.email || '',
     radiusMiles: document.getElementById('sc-radius')?.value?.trim() || prev.radiusMiles || '15',
     addressStreet:
@@ -8626,7 +8858,89 @@ function writeDomainPickToNap(
   return nap;
 }
 
-function siteConfigAcceptedSummaryHtml(accepted) {
+function formatPageNameList(names) {
+  const list = (names || []).map((name) => String(name || '').trim()).filter(Boolean);
+  if (list.length <= 1) return esc(list[0] || '');
+  if (list.length === 2) return `${esc(list[0])} and ${esc(list[1])}`;
+  return `${list.slice(0, -1).map((name) => esc(name)).join(', ')}, and ${esc(list[list.length - 1])}`;
+}
+
+function siteConfigNextStep({
+  accepted,
+  detail,
+  hasContent,
+  launched,
+  serviceAreaDone,
+  phoneDone,
+}) {
+  const suburbs = (Array.isArray(accepted?.targetSuburbs) ? accepted.targetSuburbs : [])
+    .map((name) => String(name || '').trim())
+    .filter(Boolean);
+  const serviceAreaSaved = Boolean(detail?.meta?.lastServiceAreaAt) || serviceAreaDone;
+  const pending = Array.isArray(detail?.pendingLocationPages) ? detail.pendingLocationPages : [];
+  const extras = Array.isArray(detail?.extraLocationPages) ? detail.extraLocationPages : [];
+  if (!serviceAreaSaved) {
+    return {
+      kind: 'service-area',
+      html: `Open <strong>Service area</strong>, mark the cities you want as pages, and accept.`,
+    };
+  }
+  if (!hasContent) {
+    if (!phoneDone) {
+      return {
+        kind: 'phone',
+        html: `Click <strong>Provision phone number</strong>, or <strong>Skip</strong>.`,
+      };
+    }
+    return {
+      kind: 'write-site',
+      html: `Click <strong>2 · Content</strong>, then <strong>Write site with Claude</strong>.`,
+    };
+  }
+  const configAt = String(detail?.meta?.lastSiteConfigAt || '');
+  const contentAt = String(detail?.meta?.lastContentAt || '');
+  if (configAt && contentAt && configAt > contentAt) {
+    const push = launched
+      ? ` Then click <strong>3 · Launch</strong> and <strong>Push updates</strong>.`
+      : '';
+    return {
+      kind: 'rewrite',
+      html: `Click <strong>2 · Content</strong>, then <strong>Write site with Claude</strong>. When that finishes, click <strong>Accept content</strong>.${push}`,
+    };
+  }
+  if (!suburbs.length) {
+    const primary = String(accepted?.primaryCity || accepted?.city || 'the primary city').trim();
+    const remove = extras.length ? ` Prepare removes ${formatPageNameList(extras)}.` : '';
+    const ship = launched
+      ? `Click <strong>3 · Launch</strong>, then <strong>Prepare preview</strong>, then <strong>Push updates</strong>.${remove}`
+      : `Click <strong>3 · Launch</strong>, then <strong>Prepare preview</strong>.${remove}`;
+    return {
+      kind: 'primary-only',
+      html: `<strong>Only ${esc(primary)} is a location page.</strong> ${ship}`,
+    };
+  }
+  if (pending.length) {
+    const push = launched
+      ? ` Then click <strong>3 · Launch</strong> and <strong>Push updates</strong>.`
+      : '';
+    return {
+      kind: 'write-pages',
+      html: `<strong>Write ${formatPageNameList(pending)}.</strong> Click <strong>2 · Content</strong>, then <strong>Write site with Claude</strong>. When that finishes, click <strong>Accept content</strong>.${push}`,
+    };
+  }
+  if (launched) {
+    return {
+      kind: 'push',
+      html: `Click <strong>3 · Launch</strong>, then <strong>Push updates</strong>.`,
+    };
+  }
+  return {
+    kind: 'prepare',
+    html: `Click <strong>3 · Launch</strong>, then <strong>Prepare preview</strong>.`,
+  };
+}
+
+function siteConfigAcceptedSummaryHtml(accepted, nextStepHtml) {
   if (!accepted) return '';
   const bits = [accepted.businessName, accepted.primaryCity || accepted.city, accepted.state]
     .map((x) => String(x || '').trim())
@@ -8635,7 +8949,7 @@ function siteConfigAcceptedSummaryHtml(accepted) {
   return statusLineHtml(
     `Accepted${bits.length ? `: <strong>${esc(bits.join(' · '))}</strong>` : ''}${
       domain ? ` · <code>${esc(domain)}</code>` : ''
-    }. Continue on the <strong>Content</strong> tab.`,
+    }. ${nextStepHtml}`,
   );
 }
 
@@ -8775,6 +9089,297 @@ function commitCaSvcCustomInput(input) {
   refreshCaSvcListOrder(wrap);
 }
 
+function reviewServicesNiche() {
+  const d = state.detail;
+  return String(d?.siteConfig?.niche || d?.siteConfigDraft?.niche || d?.niche || '').trim();
+}
+
+function visibleNicheServiceNames(ranked, removed, limit = 12) {
+  const skip = new Set(
+    (removed || []).map((name) => String(name || '').trim().toLowerCase()).filter(Boolean),
+  );
+  const out = [];
+  for (const name of ranked || []) {
+    const label = String(name || '').trim();
+    if (!label || skip.has(label.toLowerCase())) continue;
+    out.push(label);
+    if (out.length >= limit) break;
+  }
+  return out;
+}
+
+function nicheServiceNameItemsHtml(names, { removable = false, listKey = '' } = {}) {
+  const list = (names || []).map((n) => String(n || '').trim()).filter(Boolean);
+  if (!list.length) return '<li class="muted">None</li>';
+  return list
+    .map((n) => {
+      if (!removable) return `<li>${esc(n)}</li>`;
+      return `<li><span class="niche-svc-compare-row"><span>${esc(n)}</span><button type="button" class="btn niche-svc-remove" data-niche-svc-remove="${esc(listKey)}" data-niche-svc-name="${esc(n)}" data-tip="Drop this name and show the next ranked one.">Remove</button></span></li>`;
+    })
+    .join('');
+}
+
+function nicheServiceListCompareHtml(current, other, { heading, note, removable = false } = {}) {
+  const col = (title, services, commercial, canRemove) => `<div>
+      <p style="margin:0 0 0.35rem"><strong>${esc(title)}</strong></p>
+      <p class="muted small" style="margin:0">Residential</p>
+      <ol>${nicheServiceNameItemsHtml(services, { removable: canRemove, listKey: 'services' })}</ol>
+      <p class="muted small" style="margin:0">Commercial</p>
+      <ol>${nicheServiceNameItemsHtml(commercial, { removable: canRemove, listKey: 'commercialServices' })}</ol>
+    </div>`;
+  const rightTitle = heading || `Saved for ${other?.niche || 'this niche'}`;
+  return `<div class="niche-svc-compare">
+    ${col('On this site', current?.services, current?.commercialServices, false)}
+    ${col(rightTitle, other?.services, other?.commercialServices, removable)}
+  </div>
+  <p class="muted small">${esc(note || 'Apply replaces the names on this site. Accept is still a separate step.')}</p>`;
+}
+
+function replaceCaSvcChoiceList(listKey, names) {
+  const root =
+    document.getElementById('ca-svc-choice-draft') ||
+    document.getElementById('ca-svc-choice-accepted');
+  const listEl = root?.querySelector(`.ca-svc-choice-list[data-list="${listKey}"]`);
+  if (!listEl) return;
+  listEl.querySelectorAll('[data-svc-row]').forEach((row) => row.remove());
+  const html = (names || []).map((n) => caSvcChoiceRowHtml(n, listKey)).join('');
+  const custom = listEl.querySelector('.ca-svc-custom');
+  if (custom) custom.insertAdjacentHTML('beforebegin', html);
+  else listEl.insertAdjacentHTML('beforeend', html);
+  refreshCaSvcListOrder(listEl);
+}
+
+function ensureNicheServiceList(niche) {
+  const key = String(niche || '').trim().toLowerCase();
+  if (!key) return Promise.resolve(null);
+  if (state._nicheServiceListKey === key && state._nicheServiceListFetched) {
+    return Promise.resolve(state._nicheServiceList || null);
+  }
+  if (state._nicheServiceListPromiseKey === key && state._nicheServiceListPromise) {
+    return state._nicheServiceListPromise;
+  }
+  const promise = api(`/api/niche-service-lists?niche=${encodeURIComponent(niche)}`)
+    .then((data) => {
+      const list = data?.list || null;
+      if (String(reviewServicesNiche() || '').trim().toLowerCase() === key) {
+        state._nicheServiceList = list;
+        state._nicheServiceListKey = key;
+        state._nicheServiceListFetched = true;
+      }
+      return list;
+    })
+    .finally(() => {
+      if (state._nicheServiceListPromiseKey === key) {
+        state._nicheServiceListPromise = null;
+        state._nicheServiceListPromiseKey = '';
+      }
+    });
+  state._nicheServiceListPromise = promise;
+  state._nicheServiceListPromiseKey = key;
+  return promise;
+}
+
+function syncNicheServiceLoadButton(list) {
+  const loadBtn = document.getElementById('niche-svc-load');
+  if (!loadBtn) return;
+  const ready = Boolean(list?.services?.length);
+  loadBtn.disabled = !ready;
+  loadBtn.dataset.tip = ready
+    ? 'Compare the saved niche list with this site. Apply replaces the names.'
+    : 'No saved list for this niche yet.';
+}
+
+function buildNicheSourceNote(built) {
+  const siteCount = Number(built?.siteCount) || 0;
+  const researchCount = Number(built?.researchCount) || 0;
+  const bits = [];
+  if (siteCount) bits.push(`${siteCount} site list${siteCount === 1 ? '' : 's'}`);
+  if (researchCount) bits.push(`${researchCount} research suggestion${researchCount === 1 ? '' : 's'}`);
+  const source = bits.length ? `${bits.join(' and ')}. ` : '';
+  return `${source}Apply replaces the names on this site. Save niche default if you want to keep this master. Accept is still a separate step. Remove a name to bring the next ranked name into the list.`;
+}
+
+function wireNicheServiceListButtons() {
+  const loadBtn = document.getElementById('niche-svc-load');
+  const buildBtn = document.getElementById('niche-svc-build');
+  const saveBtn = document.getElementById('niche-svc-save');
+  if (!loadBtn || !buildBtn || !saveBtn) return;
+  const niche = reviewServicesNiche();
+  if (!niche) {
+    loadBtn.disabled = true;
+    buildBtn.disabled = true;
+    saveBtn.disabled = true;
+    return;
+  }
+  ensureNicheServiceList(niche)
+    .then((list) => {
+      if (reviewServicesNiche() !== niche) return;
+      syncNicheServiceLoadButton(list);
+    })
+    .catch(() => {
+      if (reviewServicesNiche() !== niche) return;
+      syncNicheServiceLoadButton(null);
+    });
+
+  loadBtn.addEventListener('click', async () => {
+    const saved = await ensureNicheServiceList(reviewServicesNiche()).catch(() => null);
+    if (!saved?.services?.length) {
+      await showModal({
+        title: 'No niche default',
+        confirmLabel: 'OK',
+        hideCancel: true,
+        bodyHtml: '<p>Save a niche default from a site in this niche first.</p>',
+      });
+      return;
+    }
+    const current = collectServicesChoiceFromUi() || { services: [], commercialServices: [] };
+    const ok = await showModal({
+      title: 'Load niche default?',
+      confirmLabel: 'Apply',
+      cancelLabel: 'Cancel',
+      bodyHtml: nicheServiceListCompareHtml(current, saved),
+    });
+    if (!ok) return;
+    replaceCaSvcChoiceList('residential', saved.services || []);
+    replaceCaSvcChoiceList('commercial', saved.commercialServices || []);
+    announceBanner(`Loaded ${saved.niche} service names. Accept to keep them on this site.`);
+  });
+
+  buildBtn.addEventListener('click', async () => {
+    const currentNiche = reviewServicesNiche();
+    if (!currentNiche) {
+      await showModal({
+        title: 'No niche',
+        confirmLabel: 'OK',
+        hideCancel: true,
+        bodyHtml: '<p>This site has no niche to build a list for.</p>',
+      });
+      return;
+    }
+    let built;
+    try {
+      built = await api('/api/niche-service-lists/build', {
+        method: 'POST',
+        body: JSON.stringify({ niche: currentNiche }),
+      });
+    } catch (error) {
+      await showModal({
+        title: 'Build failed',
+        confirmLabel: 'OK',
+        hideCancel: true,
+        bodyHtml: `<p>${esc(error.message)}</p>`,
+      });
+      return;
+    }
+    if (!built?.cityCount || built.cityCount < 2 || !built.services?.length) {
+      await showModal({
+        title: 'Not enough cities yet',
+        confirmLabel: 'OK',
+        hideCancel: true,
+        bodyHtml:
+          '<p>No other cities in this niche have a service list yet. Save this city as the start.</p>',
+      });
+      return;
+    }
+    const current = collectServicesChoiceFromUi() || { services: [], commercialServices: [] };
+    const removed = { services: [], commercialServices: [] };
+    const visibleBuilt = () => ({
+      niche: built.niche,
+      services: visibleNicheServiceNames(built.services, removed.services),
+      commercialServices: visibleNicheServiceNames(built.commercialServices, removed.commercialServices),
+    });
+    const compareHtml = () =>
+      nicheServiceListCompareHtml(current, visibleBuilt(), {
+        heading: `Built from ${built.cityCount} cities`,
+        note: buildNicheSourceNote(built),
+        removable: true,
+      });
+    const ok = await showModal({
+      title: 'Build from niche?',
+      confirmLabel: 'Apply',
+      cancelLabel: 'Cancel',
+      bodyHtml: compareHtml(),
+      afterOpen(bodyEl) {
+        if (bodyEl._nicheSvcRemove) bodyEl.removeEventListener('click', bodyEl._nicheSvcRemove);
+        const onClick = (event) => {
+          const btn = event.target?.closest?.('[data-niche-svc-remove]');
+          if (!btn || !bodyEl.contains(btn)) return;
+          event.preventDefault();
+          const listKey = btn.getAttribute('data-niche-svc-remove');
+          const name = btn.getAttribute('data-niche-svc-name');
+          if (!removed[listKey] || !name) return;
+          removed[listKey].push(name);
+          bodyEl.innerHTML = compareHtml();
+        };
+        bodyEl._nicheSvcRemove = onClick;
+        bodyEl.addEventListener('click', onClick);
+      },
+    });
+    if (!ok) return;
+    const chosen = visibleBuilt();
+    replaceCaSvcChoiceList('residential', chosen.services);
+    replaceCaSvcChoiceList('commercial', chosen.commercialServices);
+    announceBanner(
+      `Applied names built from ${built.cityCount} cities. Save niche default to keep them.`,
+    );
+  });
+
+  saveBtn.addEventListener('click', async () => {
+    const currentNiche = reviewServicesNiche();
+    const lists = collectServicesChoiceFromUi();
+    if (!currentNiche) {
+      await showModal({
+        title: 'No niche',
+        confirmLabel: 'OK',
+        hideCancel: true,
+        bodyHtml: '<p>This site has no niche to save a default for.</p>',
+      });
+      return;
+    }
+    if (!lists?.services?.length) {
+      await showModal({
+        title: 'No residential services selected',
+        confirmLabel: 'OK',
+        hideCancel: true,
+        bodyHtml: '<p>Check at least one residential service before saving a niche default.</p>',
+      });
+      return;
+    }
+    const existing = await ensureNicheServiceList(currentNiche).catch(() => null);
+    if (existing?.services?.length) {
+      const ok = await showModal({
+        title: `Replace the saved ${existing.niche} list?`,
+        confirmLabel: 'Save',
+        bodyHtml:
+          '<p>This overwrites the niche default. Sites that already accepted their own lists stay as they are until you Load and Accept.</p>',
+      });
+      if (!ok) return;
+    }
+    try {
+      const data = await api('/api/niche-service-lists', {
+        method: 'PUT',
+        body: JSON.stringify({
+          niche: currentNiche,
+          services: lists.services,
+          commercialServices: lists.commercialServices,
+        }),
+      });
+      state._nicheServiceList = data.list || null;
+      state._nicheServiceListKey = currentNiche.trim().toLowerCase();
+      state._nicheServiceListFetched = true;
+      syncNicheServiceLoadButton(state._nicheServiceList);
+      announceBanner(`Saved niche default for ${data.list?.niche || currentNiche}.`);
+    } catch (error) {
+      await showModal({
+        title: 'Save failed',
+        confirmLabel: 'OK',
+        hideCancel: true,
+        bodyHtml: `<p>${esc(error.message)}</p>`,
+      });
+    }
+  });
+}
+
 function wireServicesChoiceInputs() {
   const root =
     document.getElementById('ca-svc-choice-draft') ||
@@ -8805,6 +9410,7 @@ function wireServicesChoiceInputs() {
     e.preventDefault();
     moveCaSvcRow(btn);
   });
+  wireNicheServiceListButtons();
 }
 
 /**
@@ -8830,6 +9436,11 @@ function siteConfigServicesChoiceHtml({
         <button type="button" class="btn" id="${esc(residentialId)}" data-tip="Write checked residential as primary services; clear commercialServices (one What we do grid).">Residential Only</button>
         <button type="button" class="btn primary" id="${esc(bothId)}" data-tip="Write both checked lists — homepage Residential + Commercial grids when commercial is non-empty.">Residential + Commercial</button>
         <button type="button" class="btn" id="${esc(commercialId)}" data-tip="Promote checked commercial to primary services; clear commercialServices (one What we do grid).">Commercial Only</button>
+      </div>
+      <div class="ca-svc-choice-actions ca-svc-choice-actions--niche">
+        <button type="button" class="btn" id="niche-svc-load" disabled data-tip="No saved list for this niche yet.">Load niche default</button>
+        <button type="button" class="btn" id="niche-svc-build" data-tip="Rank names from site lists and each city's research suggestions. Apply replaces the checkboxes. Save stores the master.">Build from niche</button>
+        <button type="button" class="btn" id="niche-svc-save" data-tip="Save the checked residential and commercial names as this niche’s default.">Save niche default</button>
       </div>`;
 
   const heading = asStepBody
@@ -9460,6 +10071,11 @@ function baSearchReportBodyHtml(pkg, { title = 'Last search', failed = false } =
       cost.placesEstUsd,
     )} · Total ~${baFormatUsd(placesTotal || cost.totalEstUsd)}</div>
     ${
+      pkg?.lastSearchQuery?.loopnet?.usedFallback
+        ? `<div class="muted small" style="margin-top:0.25rem">LoopNet used the backup scraper.</div>`
+        : ''
+    }
+    ${
       stats.placesBudgetReached || kind === 'places_budget'
         ? `<div class="muted small" style="margin-top:0.25rem">Places budget: <strong>${esc(
             String(places),
@@ -9631,9 +10247,19 @@ function renderSiteConfig() {
         : '1 Colors & fonts → 2 Address → 3 Domain → 4 Business details → 5 Paste & edit draft → 6 Review services & Accept → 7 Service area → 8 Provision phone → Content.',
     }),
   );
+  const nextStep = accepted
+    ? siteConfigNextStep({
+        accepted,
+        detail: d,
+        hasContent: Boolean(f.hasContent),
+        launched: isSelectedLaunched(),
+        serviceAreaDone,
+        phoneDone,
+      })
+    : null;
   if (isSelectedLaunched()) {
     parts.push(
-      `<div class="callout warn"><strong>Already launched.</strong> Site-config changes here will not match the live site until you Push updates. Mutating actions ask for confirmation.</div>`,
+      `<div class="callout warn"><strong>Already launched.</strong> Site-config changes here will not match the live site until you Push updates.</div>`,
     );
   }
 
@@ -9662,7 +10288,7 @@ function renderSiteConfig() {
   }
 
   if (accepted) {
-    parts.push(siteConfigAcceptedSummaryHtml(accepted));
+    parts.push(siteConfigAcceptedSummaryHtml(accepted, nextStep.html));
     const dw = domainBrandMismatchClient(accepted.domain, {
       niche: accepted.niche,
       businessName: accepted.businessName,
@@ -10056,7 +10682,7 @@ function renderSiteConfig() {
 
   const selectedBanner = baSel
     ? `<div class="callout" style="margin-top:0.5rem"><strong>Selected:</strong> ${esc(
-        baSel.street,
+        baRowDisplayStreet(baSel),
       )}, ${esc(baSel.city)}, ${esc(baSel.state)} ${esc(baSel.zip)}</div>`
     : baPkg?.skipped
       ? `<div class="callout" style="margin-top:0.5rem">Address skipped — street left blank for site-config.</div>`
@@ -10354,7 +10980,7 @@ function renderSiteConfig() {
             <span>Phone</span>
             <button type="button" class="tip-info" data-tip="Optional Claude seed. Ranking number is set in step ${phoneStep} and replaces this on the live site-config." aria-label="About draft Phone">i</button>
           </span>
-          <input id="sc-edit-phone" type="text" value="${esc(draft.phone || '')}" placeholder="Optional — provision in step ${phoneStep}" />
+          <input id="sc-edit-phone" type="text" value="${esc(formatDisplayPhone(draft.phone || ''))}" placeholder="Optional — provision in step ${phoneStep}" />
         </label>
         <label>Email <input id="sc-edit-email" type="email" value="${esc(draft.email || '')}" /></label>
         <label class="site-config-span2">Tagline <input id="sc-edit-tagline" type="text" value="${esc(draft.tagline || '')}" /></label>
@@ -10374,14 +11000,7 @@ function renderSiteConfig() {
             svcN ? ` Currently showing ${esc(String(showCards))} of ${esc(String(svcN))} on homepage.` : ''
           }</span>
         </label>
-        <label>
-          <span class="label-with-tip-head">
-            <span>Web3Forms key</span>
-            <a href="https://web3forms.com/" target="_blank" rel="noopener">Get key</a>
-          </span>
-          <input id="sc-edit-web3" type="text" value="${esc(draft.web3FormsAccessKey || '')}" placeholder="Required for contact forms" />
-        </label>
-        <label>Turnstile site key <input id="sc-edit-turnstile" type="text" value="${esc(draft.turnstileSiteKey || '')}" placeholder="optional" /></label>
+        <label>Turnstile site key <input id="sc-edit-turnstile" type="text" value="${esc(draft.turnstileSiteKey || '')}" placeholder="optional — existing sites only" /></label>
       </div>
       <div class="narrative-actions" style="justify-content:flex-end;margin-top:1rem">
         <button type="button" class="btn primary" id="site-config-save-draft-btn" data-tip="Save edits without Accept">Save draft</button>
@@ -10428,7 +11047,7 @@ function renderSiteConfig() {
                 apiMode ? '7' : '8'
               } (Provision phone) and replaces this on the live site-config." aria-label="About Phone">i</button>
             </span>
-            <input id="sc-phone" type="text" value="${esc(nap.phone || '')}" placeholder="Optional — provision in step ${
+            <input id="sc-phone" type="text" value="${esc(formatDisplayPhone(nap.phone || ''))}" placeholder="Optional — provision in step ${
               apiMode ? '7' : '8'
             }" />
           </label>
@@ -10561,9 +11180,9 @@ function renderSiteConfig() {
           }</p>
           ${
             serviceAreaDone
-              ? `<p class="muted small">Saved · ${esc(String(covN))} coverage · ${esc(String(pageN))} location pages · ${esc(
-                  String(accepted.serviceRadiusMiles ?? ''),
-                )} mi — reopen to edit.</p>`
+              ? `<p class="muted small">Saved · ${esc(String(covN))} coverage · ${
+                  pageN ? `${esc(String(pageN))} location pages` : 'primary page only'
+                } · ${esc(String(accepted.serviceRadiusMiles ?? ''))} mi — reopen to edit.</p>`
               : ''
           }
           <p class="sa-refresh-row"><button type="button" class="btn" id="sa-refresh-claims">Refresh</button> <span class="muted small">Check Zone duplicates and refill location pages.</span></p>
@@ -10574,7 +11193,7 @@ function renderSiteConfig() {
   );
 
   const phoneTrackingHint = accepted?.phone
-    ? `<p class="muted small">Current site-config phone: <code>${esc(accepted.phone)}</code></p>`
+    ? `<p class="muted small">Current site-config phone: <code>${esc(formatDisplayPhone(accepted.phone))}</code></p>`
     : '';
   const alreadyProvisioned = Boolean(state.sitePhoneProvisioned?.[d?.id]);
   parts.push(
@@ -11060,6 +11679,9 @@ function openClaudeAiBtnHtml({ disabled = false, sm = false, id = '', tip = '' }
 function photoGroupPreviewBodyHtml(preview, { attach = false } = {}) {
   const unused = Number(preview?.unused || 0);
   const empty = Number(preview?.targetEmpty || 0);
+  const filled = Number(preview?.applied || 0) + Number(preview?.baApplied || 0);
+  const total = filled + empty;
+  const fillClass = filled === total ? 'is-full' : 'is-short';
   const similar = Number(preview?.similarTray || 0);
   const trayTotal = Number(preview?.tray || 0) + Number(preview?.baTray || 0);
   const leftover = Math.max(0, trayTotal - similar);
@@ -11078,8 +11700,9 @@ function photoGroupPreviewBodyHtml(preview, { attach = false } = {}) {
     <p>Group <strong>${esc(names)}</strong>${
       preview?.group?.niche ? ` · ${esc(preview.group.niche)}` : ''
     }.</p>
+    <p class="pg-fill-total ${fillClass}"><strong>${esc(String(filled))} of ${esc(String(total))}</strong> filled</p>
     <ul class="narrative-list">
-      <li>${esc(String(preview?.applied || 0))} stock slots will be filled</li>
+      <li>${esc(String(preview?.applied || 0))} photos from this group will be copied</li>
       <li>${esc(String(preview?.baApplied || 0))} ChatGPT before/after pairs</li>
       ${
         leftover
@@ -11286,6 +11909,41 @@ function seoLintFindingsHtml(seoLint) {
   )} finding(s)${critNote}</summary><ul class="speech-lint-list">${items}</ul></details>`;
 }
 
+function isHealableContentError(line) {
+  return /missing frontmatter key "(?:title|description|h1)"|missing "(?:title|description|h1|serviceName)"|missing serviceName|missing (?:city|state)\b/i.test(
+    String(line || ''),
+  );
+}
+
+function configuredLocationCityCount(config) {
+  const cities = [];
+  const add = (name) => {
+    const city = String(name || '').trim().toLowerCase();
+    if (!city || cities.includes(city)) return;
+    cities.push(city);
+  };
+  add(config?.primaryCity);
+  for (const suburb of config?.targetSuburbs || []) add(suburb);
+  return cities.length;
+}
+
+function isMatchingLocationCountWarning(line, config) {
+  const match = String(line || '').match(/^(?:Locations|Location pages): got (\d+), prefer /);
+  if (!match) return false;
+  const configured = configuredLocationCityCount(config);
+  return configured >= 1 && Number(match[1]) === configured;
+}
+
+function locationHealNoteHtml(heals) {
+  const rows = Array.isArray(heals) ? heals : [];
+  if (!rows.length) return '';
+  const bits = rows.map((h) => {
+    const file = String(h.file || '').replace(/^src\/content\/(?:locations|services)\//i, '');
+    return `${h.field} ${h.value} on ${file}`;
+  });
+  return `<p class="muted">Auto-filled: ${esc(bits.join('; '))}</p>`;
+}
+
 function autoFixSummaryHtml(autoFix) {
   if (!autoFix?.changeCount) return '';
   const changes = autoFix.changes || [];
@@ -11480,10 +12138,15 @@ function nextContentStepAfterImages(d) {
   return 'accept';
 }
 
-function contentUpNextHtml(stepDone, ready, { secCount = 0, outlineConfirmed = false, outlineDrafted = false, photosOn = true, apiMode = false, writeSiteDone = false } = {}) {
+function contentUnreadableCalloutHtml() {
+  return `<div class="callout warn"><strong>Accepted content is on disk but Rover cannot read it.</strong> The file is not valid JSON, so this track does not count the write.</div>`;
+}
+
+function contentUpNextHtml(stepDone, ready, { secCount = 0, outlineConfirmed = false, outlineDrafted = false, photosOn = true, apiMode = false, writeSiteDone = false, contentUnreadable = false } = {}) {
   if (!ready) {
     return `<div class="callout warn">Accept <strong>Site config</strong> first (business NAP, services, suburbs).</div>`;
   }
+  if (contentUnreadable) return contentUnreadableCalloutHtml();
   const structureBits = [
     'Structure checklist',
     secCount ? `${esc(String(secCount))} sections` : '',
@@ -11546,7 +12209,7 @@ function contentUpNextHtml(stepDone, ready, { secCount = 0, outlineConfirmed = f
   return statusLineHtml(`${upNext}${structureLine ? ` · ${structureLine}` : ''}`);
 }
 
-function contentPassStripHtml(stepDone, currentId, { photosOn = true, apiMode = false } = {}) {
+function contentPassStripHtml(stepDone, currentId, { photosOn = true, apiMode = false, contentUnreadable = false } = {}) {
   const labels = apiMode
     ? [
         ['structure', 'Structure'],
@@ -11572,8 +12235,8 @@ function contentPassStripHtml(stepDone, currentId, { photosOn = true, apiMode = 
       ];
   const chips = labels
     .map(([id, label]) => {
-      const done = Boolean(stepDone[id]);
-      const cur = currentId === id && !done;
+      const done = Boolean(id === 'accept' ? stepDone.accepted : stepDone[id]);
+      const cur = currentId === id && !done && !(contentUnreadable && (id === 'writeSite' || id === 'write'));
       const cls = done ? 'is-done' : cur ? 'is-current' : 'is-todo';
       return `<span class="content-pass-chip ${cls}">${done ? '✓ ' : ''}${esc(label)}</span>`;
     })
@@ -12571,8 +13234,8 @@ function citationsChecklistHtml(cfg = {}) {
   </div>`;
 }
 
-/** Preflight issues for Launch step (domain / phone / web3). */
-function launchPreflightIssues({ domain, phone, web3FormsAccessKey }) {
+/** Preflight issues for Launch step (domain / phone / forms inbox / notify email). */
+function launchPreflightIssues({ domain, phone, destinationEmail, formsInboxReady }) {
   const issues = [];
   if (isLaunchDomainPlaceholder(domain)) {
     issues.push({ id: 'domain', label: 'Domain still empty or example.com' });
@@ -12580,10 +13243,16 @@ function launchPreflightIssues({ domain, phone, web3FormsAccessKey }) {
   if (isLaunchPhonePlaceholder(phone)) {
     issues.push({ id: 'phone', label: 'Phone still a placeholder (set under Advanced or Site config)' });
   }
-  if (isLaunchWeb3Placeholder(web3FormsAccessKey)) {
+  if (formsInboxReady === false) {
     issues.push({
-      id: 'web3',
-      label: 'Web3Forms access key missing or placeholder — create at web3forms.com and paste',
+      id: 'forms',
+      label: 'Forms inbox is not set up. Open Phone/Form and click Set up inbox.',
+    });
+  }
+  if (destinationEmail !== undefined && !String(destinationEmail || '').trim()) {
+    issues.push({
+      id: 'destination',
+      label: 'Email Routing destination missing — set it in Launch or LEAD_NOTIFY_EMAIL',
     });
   }
   return issues;
@@ -12678,14 +13347,13 @@ function collectLaunchFormValues() {
   return {
     domain: document.getElementById('ca-launch-domain')?.value?.trim() || '',
     businessName: document.getElementById('ca-launch-business')?.value?.trim() || '',
-    phone: document.getElementById('ca-launch-phone')?.value?.trim() || '',
+    phone: phoneToE164(document.getElementById('ca-launch-phone')?.value?.trim() || ''),
     email: document.getElementById('ca-launch-email')?.value?.trim() || '',
     destinationEmail: document.getElementById('ca-launch-dest')?.value?.trim() || '',
-    web3FormsAccessKey: document.getElementById('ca-launch-web3')?.value?.trim() || '',
     turnstileSiteKey: document.getElementById('ca-launch-turnstile')?.value?.trim() || '',
     ship: Boolean(document.getElementById('ca-launch-ship')?.checked),
     runCloudflare: Boolean(document.getElementById('ca-launch-run-cf')?.checked),
-    createTurnstile: Boolean(document.getElementById('ca-launch-create-turnstile')?.checked),
+    formsInboxReady: state.launchInboxReady,
     markCloudflareProjectDone: Boolean(document.getElementById('ca-launch-mark-cf')?.checked),
   };
 }
@@ -12757,8 +13425,48 @@ function structureSectionRowHtml(s, selectedSections, photos) {
   </div>`;
 }
 
+function structureActivePresetId(structure) {
+  const presetId = String(structure?.presetId || '').trim();
+  if (presetId) return presetId;
+  const saved =
+    structure &&
+    structure.status !== 'empty' &&
+    Array.isArray(structure.pages) &&
+    structure.pages.length > 0;
+  return saved ? '' : 'C';
+}
+
+function presetSelectionFromCatalog(catalog, presetId) {
+  const preset = (catalog?.presets || []).find((p) => p.id === presetId);
+  if (!preset) return null;
+  const sectionById = new Map((catalog.sections || []).map((s) => [s.id, s]));
+  const photos = {};
+  for (const [sid, on] of Object.entries(preset.photos || {})) {
+    if (!on) continue;
+    const def = sectionById.get(sid);
+    photos[sid] = { enabled: true, count: def?.maxImages || 1 };
+  }
+  return {
+    pages: preset.pages || [],
+    sections: preset.sections || [],
+    photos,
+    presetId: preset.id,
+    status: 'empty',
+  };
+}
+
+function structureViewForChecklist(structure, catalog) {
+  const saved =
+    structure &&
+    structure.status !== 'empty' &&
+    Array.isArray(structure.pages) &&
+    structure.pages.length > 0;
+  if (saved) return structure;
+  return presetSelectionFromCatalog(catalog, 'C') || catalog?.defaults || structure || {};
+}
+
 function structureChecklistHtml(d, catalog) {
-  const structure = d?.contentStructure || {};
+  const structure = structureViewForChecklist(d?.contentStructure, catalog);
   const defaults = catalog?.defaults || { pages: [], sections: [], photos: {} };
   const selectedPages = new Set(structure.pages?.length ? structure.pages : defaults.pages || []);
   const selectedSections = new Set(
@@ -12769,14 +13477,17 @@ function structureChecklistHtml(d, catalog) {
   const sections = catalog?.sections || [];
   const presets = catalog?.presets || [];
   const loadError = state.contentStructureCatalogError;
+  const activePresetId = structureActivePresetId(structure);
 
   const presetBtns = presets
-    .map(
-      (p) =>
-        `<button type="button" class="btn btn-sm structure-preset" data-preset="${esc(
-          p.id,
-        )}" data-tip="${esc(p.tip || p.name)}">${esc(p.label)}</button>`,
-    )
+    .map((p) => {
+      const selected = activePresetId && p.id === activePresetId;
+      return `<button type="button" class="btn btn-sm structure-preset${
+        selected ? ' is-selected' : ''
+      }" data-preset="${esc(p.id)}" data-tip="${esc(p.tip || p.name)}" aria-pressed="${
+        selected ? 'true' : 'false'
+      }">${esc(p.label)}</button>`;
+    })
     .join('');
 
   const pageChecks = pages
@@ -13086,10 +13797,11 @@ function renderContent() {
   );
   if (isSelectedLaunched()) {
     parts.push(
-      `<div class="callout warn"><strong>Already launched.</strong> Content/structure changes here will not match the live site until you Push updates. Mutating actions ask for confirmation. Use Website → Revert to restore from GitHub.</div>`,
+      `<div class="callout warn"><strong>Already launched.</strong> Content/structure changes here will not match the live site until you Push updates. Use Website → Revert to restore from GitHub.</div>`,
     );
   }
   const secCount = outlinePkg?.sectionIds?.length || structure?.sections?.length || 0;
+  const contentUnreadable = Boolean(d?.stageFlags?.hasContentUnreadable);
   parts.push(
     contentUpNextHtml(stepDone, ready, {
       secCount,
@@ -13098,9 +13810,10 @@ function renderContent() {
       photosOn,
       apiMode,
       writeSiteDone,
+      contentUnreadable,
     }),
   );
-  parts.push(contentPassStripHtml(stepDone, currentId, { photosOn, apiMode }));
+  parts.push(contentPassStripHtml(stepDone, currentId, { photosOn, apiMode, contentUnreadable }));
 
   parts.push(
     contentStepHtml({
@@ -13129,16 +13842,18 @@ function renderContent() {
         title: 'Write site with Claude',
         done: writeSiteDone,
         open: openId === 'writeSite',
-        current: currentId === 'writeSite' && !writeSiteDone,
+        current: currentId === 'writeSite' && !writeSiteDone && !contentUnreadable,
         locked: !structureDone || !ready,
         info: 'One job per candidate: Site research → Brief → Outline → Full write → Polish → Image queries when photos are on. Up to six candidates can Write site at once. Skips steps already loaded. Stop keeps files written so far.',
         bodyHtml: `
           ${
-            writeSiteDone
-              ? `<div class="callout"><strong>Write site complete</strong>${
-                  spent != null ? ` · last run ${esc(formatMoney(spent))}` : ''
-                }</div>`
-              : `<p class="disc-tool-blurb">Anthropic API writes the site from Structure. Confirm cost, then wait on the overlay (or watch Light).</p>`
+            contentUnreadable
+              ? contentUnreadableCalloutHtml()
+              : writeSiteDone
+                ? `<div class="callout"><strong>Write site complete</strong>${
+                    spent != null ? ` · last run ${esc(formatMoney(spent))}` : ''
+                  }</div>`
+                : `<p class="disc-tool-blurb">Anthropic API writes the site from Structure. Confirm cost, then wait on the overlay (or watch Light).</p>`
           }
           ${
             writeSiteDone && leftoverN
@@ -13152,7 +13867,7 @@ function renderContent() {
           <div class="narrative-actions" style="flex-wrap:wrap;gap:0.4rem">
             <button type="button" class="btn primary" id="cs-write-site" ${
               structureDone && ready && !wsBusy ? '' : 'disabled'
-            }>${writeSiteDone ? 'Re-run Write site' : 'Write site with Claude'}</button>
+            }>${writeSiteDone || contentUnreadable ? 'Re-run Write site' : 'Write site with Claude'}</button>
           </div>`,
       }),
     );
@@ -13303,10 +14018,11 @@ function renderContent() {
       title: 'Full write (batched · Pass 3)',
       done: writeDone,
       open: openId === 'write',
-      current: currentId === 'write' && !writeDone,
+      current: currentId === 'write' && !writeDone && !contentUnreadable,
       locked: !outlineDone,
       info: 'Pass 3 — batch by page group for tone variance. All enabled batches required. Prefer batches over Copy all (truncation risk).',
       bodyHtml: `
+        ${contentUnreadable ? contentUnreadableCalloutHtml() : ''}
         ${incompleteDraftCalloutHtml(d)}
         ${
           wantServices && !haveServices
@@ -13669,18 +14385,57 @@ function renderContent() {
             : ''
         }
         <div class="narrative-actions" style="justify-content:flex-end">
+          ${
+            photosOn
+              ? `<label class="check" style="margin-right:auto" data-tip="Leave on to skip Unsplash, Pexels, and Pixabay. A loaded photo group or niche master still copies. Logo and the coverage map still run."><input type="checkbox" id="content-accept-skip-stock"${
+                  photoGroupAttached &&
+                  d?.photoGroupAttached?.preview != null &&
+                  Number(d.photoGroupAttached.preview.targetEmpty) === 0
+                    ? ' checked'
+                    : ''
+                } /> Skip stock image pull</label>`
+              : ''
+          }
           <button type="button" class="btn primary" id="content-accept-btn" data-tip="Accept draft — write files into src/content/" ${
             acceptReady ? '' : 'disabled'
           }>Accept content</button>
         </div>
-        ${check?.errors?.length ? `<div class="callout warn"><strong>Errors:</strong> ${esc(check.errors.join('; '))}</div>` : ''}
+        ${(() => {
+          const siteForLocations = d?.siteConfig || d?.siteConfigDraft || {};
+          const warnings = [
+            ...new Set([...(check?.warnings || []), ...(contract?.warnings || [])]),
+          ].filter((line) => !isMatchingLocationCountWarning(line, siteForLocations));
+          const isHomepageSectionWarning = (line) =>
+            /could not be rebuilt from the page|missing Why, Process, or FAQs|Homepage template fields are empty/i.test(
+              String(line || ''),
+            );
+          const homepageWarning = warnings.find(isHomepageSectionWarning);
+          const otherWarnings = warnings.filter((line) => !isHomepageSectionWarning(line));
+          const healableErrors = (check?.errors || []).filter(isHealableContentError);
+          const blockingErrors = (check?.errors || []).filter((line) => !isHealableContentError(line));
+          const healableList = healableErrors.map((line) => `<li>${esc(line)}</li>`).join('');
+          return `
         ${
-          check?.warnings?.length || contract?.warnings?.length
-            ? `<div class="callout warn"><strong>Warnings:</strong> ${esc(
-                [...new Set([...(check?.warnings || []), ...(contract?.warnings || [])])].join('; '),
-              )}</div>`
+          healableErrors.length
+            ? `<div class="callout warn"><strong>Click Accept content.</strong> Rover fills these missing keys, then writes the files.<ul class="narrative-list">${healableList}</ul></div>`
             : ''
         }
+        ${
+          blockingErrors.length
+            ? `<div class="callout danger"><strong>Errors:</strong> ${esc(blockingErrors.join('; '))}</div>`
+            : ''
+        }
+        ${
+          homepageWarning
+            ? `<div class="callout warn"><strong>Warnings:</strong> ${esc(homepageWarning)}</div>`
+            : ''
+        }
+        ${
+          otherWarnings.length
+            ? `<div class="callout warn"><strong>Warnings:</strong> ${esc(otherWarnings.join('; '))}</div>`
+            : ''
+        }`;
+        })()}
         ${(() => {
           const written = accepted?._ops?.written;
           const paths =
@@ -13834,7 +14589,7 @@ function imagesSlotMatchesTitle(slot, q) {
 }
 
 function imagesSourceFilterId(activeFilter) {
-  return ['all', 'stock', 'openai'].includes(activeFilter) ? activeFilter : 'all';
+  return ['all', 'stock', 'openai', 'photo-group'].includes(activeFilter) ? activeFilter : 'all';
 }
 
 function imagesSlotSourceKind(slot) {
@@ -14444,12 +15199,177 @@ function selectedGenerateCostLine(nSlots, nPairs) {
 }
 
 function countSlotsBySource(slots) {
-  const out = { stock: 0, openai: 0 };
+  const out = { stock: 0, openai: 0, photoGroup: 0 };
   for (const s of slots || []) {
     const k = imagesSlotSourceKind(s);
     if (k === 'stock' || k === 'openai') out[k] += 1;
+    else if (k === 'photo-group') out.photoGroup += 1;
   }
   return out;
+}
+
+function reviewViewpointKeyFromCheckId(checkId) {
+  const id = String(checkId || '');
+  return id.startsWith('ba:') ? id.slice(3) : id;
+}
+
+function selectedReviewCheckIds() {
+  const checks = state.imageSlotChecks || {};
+  return Object.keys(checks).filter((id) => checks[id]);
+}
+
+function reviewSelectionAgrees(kind) {
+  const ids = selectedReviewCheckIds();
+  if (!ids.length) return '';
+  const values = ids.map((id) => {
+    const key = reviewViewpointKeyFromCheckId(id);
+    return kind === 'occupancy' ? getBaOccupancy(key) : getBaViewpoint(key);
+  });
+  return values.every((value) => value === values[0]) ? values[0] : '';
+}
+
+function visibleReviewCheckCount() {
+  const grid = document.getElementById('ca-image-slots-grid');
+  if (!grid) return 0;
+  return grid.querySelectorAll('.image-slot-card .slot-check-input').length;
+}
+
+function reviewCardForCheckId(root, checkId) {
+  const id = String(checkId || '');
+  if (!root) return null;
+  if (id.startsWith('ba:')) {
+    return root.querySelector(
+      `.photo-ba-card[data-match-key="${CSS.escape(reviewViewpointKeyFromCheckId(id))}"]`,
+    );
+  }
+  return root.querySelector(`.image-slot-card[data-slot-key="${CSS.escape(id)}"]`);
+}
+
+function applyReviewSelectionScene(root, { viewpoint, occupancy } = {}) {
+  const ids = selectedReviewCheckIds();
+  if (!ids.length) return;
+  for (const id of ids) {
+    const key = reviewViewpointKeyFromCheckId(id);
+    const card = reviewCardForCheckId(root, id);
+    if (card) stashSlotPromptDraft(card);
+    if (viewpoint) {
+      const next = setBaViewpoint(key, viewpoint);
+      card?.querySelectorAll('[data-ba-viewpoint]').forEach((button) => {
+        button.classList.toggle('active', button.dataset.baViewpoint === next);
+      });
+    }
+    if (occupancy) {
+      const next = setBaOccupancy(key, occupancy);
+      card?.querySelectorAll('[data-ba-occupancy]').forEach((button) => {
+        button.classList.toggle('active', button.dataset.baOccupancy === next);
+      });
+    }
+    if (card) fillBaPromptsPanel(card);
+  }
+  renderReviewFluxToolbar();
+}
+
+async function applyReviewSelectionGrade(candidateId, grade) {
+  const selected = selectedReviewCheckIds();
+  const slotKeys = selected.filter((id) => !String(id).startsWith('ba:'));
+  const baKeys = selected.filter((id) => String(id).startsWith('ba:')).map((id) => String(id).slice(3));
+  if (!slotKeys.length && !baKeys.length) return;
+  let data;
+  try {
+    data = await withReviewImagesWork({ label: 'Updating match…' }, () =>
+      api(`/api/candidates/${encodeURIComponent(candidateId)}/images/match-grades`, {
+        method: 'POST',
+        body: JSON.stringify({ matchGrade: grade, slotKeys, baKeys }),
+      }),
+    );
+  } catch (error) {
+    await showModal({
+      title: 'Could not set match grade',
+      confirmLabel: 'OK',
+      hideCancel: true,
+      bodyHtml: `<p>${esc(error.message)}</p>`,
+    });
+    return;
+  }
+  const applied = Number(data?.applied) || 0;
+  const skipped = Array.isArray(data?.skipped) ? data.skipped : [];
+  if (!applied) {
+    const reasons = [...new Set(skipped.map((row) => row?.reason).filter(Boolean))];
+    await showModal({
+      title: 'Could not set match grade',
+      confirmLabel: 'OK',
+      hideCancel: true,
+      bodyHtml: `<p>${esc(reasons.join(' ') || 'No selected photo can be graded.')}</p>`,
+    });
+    return;
+  }
+  if (data.baStatus) state.reviewBa = data.baStatus;
+  for (const slot of data.slots || []) upsertReviewSlotState(slot);
+  paintReviewImageSlotsFromState(candidateId, { renderToolbar: true });
+  if (skipped.length) {
+    showToast(`${skipped.length} left unchanged (empty or upload).`, { tone: 'warn' });
+  }
+}
+
+function reviewSelectionGrade() {
+  const grades = selectedReviewCheckIds()
+    .map(reviewCheckMatchGrade)
+    .filter((grade) => grade === 'poor' || grade === 'ok' || grade === 'good');
+  if (!grades.length) return '';
+  return grades.every((grade) => grade === grades[0]) ? grades[0] : '';
+}
+
+function reviewCheckMatchGrade(checkId) {
+  const id = String(checkId || '');
+  if (id.startsWith('ba:')) {
+    const raw = id.slice(3);
+    const pair = listReviewBaPairs(state.reviewBa).find((row) => {
+      const key = row.matchKey || (row.slug ? `svc:${row.slug}` : `home:${row.pairIndex || 1}`);
+      return key === raw;
+    });
+    return imagesSlotGrade(pair ? baPairAsReviewSlot(pair) : null);
+  }
+  const slot = (state.reviewImageSlots || []).find((row) => row.key === id);
+  return imagesSlotGrade(slot);
+}
+
+function reviewBulkGradeHtml(n) {
+  const disabled = n < 1 ? ' disabled' : '';
+  const current = reviewSelectionGrade();
+  const seg = (grade, label) => {
+    const active = current === grade;
+    return `<button type="button" class="ads-mode-seg${active ? ' active' : ''}" data-review-bulk-grade="${esc(
+      grade,
+    )}"${disabled}>${imagesMatchDotHtml(grade, '', { tipped: false })}${esc(label)}</button>`;
+  };
+  return `<span class="ads-mode-segment review-bulk-scene review-bulk-grade" role="group" aria-label="Set selected photos to Poor, Ok, or Good" ${tipAttr(
+    'Poor, Ok, or Good for every selected photo and before/after',
+  )}>
+    ${seg('poor', 'Poor')}
+    ${seg('ok', 'Ok')}
+    ${seg('good', 'Good')}
+  </span>`;
+}
+
+function reviewBulkSceneHtml(n) {
+  const disabled = n < 1 ? ' disabled' : '';
+  const viewpoint = reviewSelectionAgrees('viewpoint');
+  const occupancy = reviewSelectionAgrees('occupancy');
+  const seg = (attr, value, label, active) =>
+    `<button type="button" class="ads-mode-seg${active ? ' active' : ''}" ${attr}="${esc(value)}"${disabled}>${esc(label)}</button>`;
+  return `<span class="ads-mode-segment review-bulk-scene" role="group" aria-label="Set selected photos to inside or outside" ${tipAttr(
+    'Inside or Outside for every selected photo and before/after',
+  )}>
+    ${seg('data-review-bulk-viewpoint', 'inside', 'Inside', viewpoint === 'inside')}
+    ${seg('data-review-bulk-viewpoint', 'outside', 'Outside', viewpoint === 'outside')}
+  </span>
+  <span class="ads-mode-segment review-bulk-scene" role="group" aria-label="Set selected photos to people or no people" ${tipAttr(
+    'No People or People for every selected photo and before/after',
+  )}>
+    ${seg('data-review-bulk-occupancy', 'none', 'No People', occupancy === 'none')}
+    ${seg('data-review-bulk-occupancy', 'people', 'People', occupancy === 'people')}
+  </span>
+  ${reviewBulkGradeHtml(n)}`;
 }
 
 function fluxToolbarHtml({
@@ -14460,6 +15380,7 @@ function fluxToolbarHtml({
   repull = false,
   sourceCounts = null,
   titleSearch = false,
+  bulkScene = false,
 }) {
   const n = nSlots + nPairs;
   const openaiExtra = n < 1 ? ' disabled' : '';
@@ -14468,11 +15389,17 @@ function fluxToolbarHtml({
         nSlots < 1 ? ' disabled' : ''
       }>Re-pull</button>`
     : '';
+  const selectBtn = bulkScene
+    ? `<button type="button" class="btn btn-sm flux-select-all" data-tip="Select every photo and before/after currently shown"${
+        visibleReviewCheckCount() < 1 ? ' disabled' : ''
+      }>Select all</button>`
+    : '';
   const unselectBtn = `<button type="button" class="btn btn-sm flux-unselect-all" data-tip="Clear every selected photo and before/after"${
     n < 1 ? ' disabled' : ''
   }>Unselect all</button>`;
+  const bulkSceneHtml = bulkScene ? reviewBulkSceneHtml(n) : '';
   const source = imagesSourceFilterId(state.imageSourceFilter);
-  const counts = sourceCounts || { stock: 0, openai: 0 };
+  const counts = sourceCounts || { stock: 0, openai: 0, photoGroup: 0 };
   const sourceBtn = (filterId, label, tip) => {
     const pressed = source === filterId;
     return `<button type="button" class="btn btn-sm review-source-filter${
@@ -14490,6 +15417,10 @@ function fluxToolbarHtml({
         'openai',
         `OpenAI ${counts.openai}`,
         'Show OpenAI photos only — click again for all',
+      )}${sourceBtn(
+        'photo-group',
+        `Photo group ${counts.photoGroup || 0}`,
+        'Show photo-group photos only — click again for all',
       )}</span>`
     : '';
   const titleSearchHtml = titleSearch
@@ -14497,7 +15428,9 @@ function fluxToolbarHtml({
     : '';
   return `<div class="flux-toolbar" id="${esc(id)}">
     <span class="review-selected-count">Selected images ${esc(String(n))}</span>
+    ${selectBtn}
     ${unselectBtn}
+    ${bulkSceneHtml}
     ${sourceBtns}
     <span class="flux-toolbar-sep" role="separator" aria-hidden="true"></span>
     <span class="flux-toolbar-generate-label">Generate</span>
@@ -14744,6 +15677,25 @@ function imagesSlotsShellHtml() {
   </div>`;
 }
 
+function reviewBaLogoControls(baStatus) {
+  const logo = baStatus?.baLogo || {};
+  const hasLogo = Boolean(logo.hasLogo);
+  const on = logo.enabled !== false && hasLogo;
+  const blocked = !hasLogo;
+  const note = !hasLogo ? 'Generate a logo first.' : '';
+  const tip =
+    note || (on ? 'Logo is on every before-and-after photo' : 'Logo is off these before-and-after photos');
+  const dis = blocked ? 'disabled' : '';
+  return `<div class="ca-ba-logo-bar">
+      <h4 class="ca-image-slot-section-title">Before &amp; after</h4>
+      <div class="ca-ba-logo-actions">
+        <button type="button" class="btn btn-sm${on && !blocked ? ' primary' : ''}" data-ba-logo="on" ${dis} data-tip="${esc(tip)}" aria-pressed="${on && !blocked ? 'true' : 'false'}">Add logo</button>
+        <button type="button" class="btn btn-sm" data-ba-logo="off" ${dis} data-tip="${esc(tip)}">Remove logo</button>
+        ${note ? `<span class="muted ca-ba-logo-note">${esc(note)}</span>` : ''}
+      </div>
+    </div>`;
+}
+
 function reviewBaCardsHtml(
   candidateId,
   baStatus,
@@ -14763,7 +15715,7 @@ function reviewBaCardsHtml(
     .join('');
   if (!cards) return '';
   return `<section class="ca-image-slot-section" data-section-group="beforeAfter">
-      <h4 class="ca-image-slot-section-title">Before &amp; after</h4>
+      ${reviewBaLogoControls(baStatus)}
       <div class="ca-image-slot-section-grid">${cards}</div>
     </section>`;
 }
@@ -14795,6 +15747,7 @@ function renderReviewFluxToolbar() {
     repull: true,
     sourceCounts,
     titleSearch: true,
+    bulkScene: true,
   });
 }
 
@@ -15056,21 +16009,40 @@ function paintOpenaiSnapProgress(progress) {
   if (queued) bits.push(`${queued} queued`);
   const detail = bits.join(', ') || 'Working…';
   const multi = total > 1;
-  setImagesProgress(true, {
+  const paint = {
     label: multi ? `OpenAI photos ${done} / ${total}` : running ? 'Generating OpenAI photo…' : 'OpenAI photo queued…',
     detail,
-    current: done,
-    total,
-  });
+  };
+  if (done > 0) {
+    paint.current = done;
+    paint.total = total;
+  }
+  setImagesProgress(true, paint);
 }
 
-function paintOpenaiBatchProgress(done, total) {
-  setImagesProgress(true, {
-    label: `Images loading ${done}`,
-    detail: `Images loading ${done}`,
-    current: done,
-    total,
-  });
+function paintOpenaiGenerateStart(count) {
+  const n = Math.max(0, Number(count) || 0);
+  if (!n) return false;
+  openaiAwaitingJobList += 1;
+  jobSyncedBarOn.openai = true;
+  paintOpenaiSnapProgress({ running: n, done: 0, total: n });
+  return true;
+}
+
+function releaseUnmatchedGenerateSlots(wantedKeys, jobs) {
+  const matched = new Set();
+  for (const row of jobs || []) {
+    const key = String(row?.slotKey || row?.matchKey || '').trim();
+    if (!key) continue;
+    matched.add(key);
+    matched.add(key.replace(/^ba:/, ''));
+    if (!key.startsWith('ba:')) matched.add(`ba:${key}`);
+  }
+  for (const key of wantedKeys || []) {
+    const id = String(key || '').trim();
+    if (!id || matched.has(id)) continue;
+    releaseSlotBusy(id);
+  }
 }
 
 async function postOpenaiGenerate(url, body) {
@@ -15135,7 +16107,7 @@ async function generateReviewSelected(candidateId) {
     });
     beginSlotBusy(baId, null, { scroll: false });
   }
-  paintOpenaiBatchProgress(0, n);
+  const armed = paintOpenaiGenerateStart(n);
   try {
     const out = await postOpenaiGenerate(
       `/api/candidates/${encodeURIComponent(candidateId)}/images/generate-openai`,
@@ -15145,9 +16117,12 @@ async function generateReviewSelected(candidateId) {
         prompts,
       }),
     );
-    watchOpenaiJobList(out.jobs || [], { candidateId });
-    syncOpenaiGenerateFromSnap(state.lightJobsSnap || { jobs: out.jobs || [] });
+    const jobs = out.jobs || [];
+    watchOpenaiJobList(jobs, { candidateId });
+    releaseUnmatchedGenerateSlots([...slotKeys, ...baKeys], jobs);
+    syncOpenaiGenerateFromSnap(state.lightJobsSnap || { jobs });
   } catch (error) {
+    jobSyncedBarOn.openai = false;
     await settleSlotBusy();
     setImagesProgress(false);
     await showModal({
@@ -15156,6 +16131,8 @@ async function generateReviewSelected(candidateId) {
       hideCancel: true,
       bodyHtml: `<p>${esc(error.message)}</p>`,
     });
+  } finally {
+    if (armed) disarmOpenaiGenerateWait();
   }
 }
 
@@ -15250,6 +16227,123 @@ function upsertReviewBaPair(pair) {
   state.reviewBa = ba;
 }
 
+function reviewHtmlElement(html) {
+  const wrap = document.createElement('template');
+  wrap.innerHTML = String(html || '').trim();
+  return wrap.content.firstElementChild;
+}
+
+function reviewSectionEl(grid, groupKey) {
+  const raw = String(groupKey || '');
+  const escaped =
+    typeof CSS !== 'undefined' && typeof CSS.escape === 'function'
+      ? CSS.escape(raw)
+      : raw.replace(/"/g, '\\"');
+  return grid.querySelector(`.ca-image-slot-section[data-section-group="${escaped}"]`);
+}
+
+function currentReviewImageFilters() {
+  return {
+    filter: imagesMatchFilterId(state.imageMatchFilter),
+    sourceFilter: imagesSourceFilterId(state.imageSourceFilter),
+    titleQ: state.imageTitleFilter || '',
+  };
+}
+
+function reviewStillVisible(slot) {
+  const { filter, sourceFilter, titleQ } = currentReviewImageFilters();
+  return (
+    imagesSlotMatchesFilter(slot, filter) &&
+    imagesSlotMatchesSource(slot, sourceFilter) &&
+    imagesSlotMatchesTitle(slot, titleQ)
+  );
+}
+
+function reviewBaPairVisible(pair) {
+  const { filter, sourceFilter, titleQ } = currentReviewImageFilters();
+  const slot = baPairAsReviewSlot(pair);
+  return (
+    imagesSlotMatchesFilter(slot, filter) &&
+    imagesSlotMatchesSource(slot, sourceFilter) &&
+    imagesTextMatchesTitle(
+      [reviewBaTitle(pair), pair.slotDescription].filter(Boolean).join(' '),
+      titleQ,
+    )
+  );
+}
+
+function paintReviewImageTotals() {
+  const totalsEl = document.getElementById('ca-image-slots-totals');
+  if (!totalsEl) return;
+  const { filter } = currentReviewImageFilters();
+  const slots = state.reviewImageSlots || [];
+  const baList = listReviewBaPairs(state.reviewBa);
+  totalsEl.innerHTML = imagesMatchTotalsHtml(
+    mergeMatchTotals(reviewPhotoMatchTotals(slots), baList),
+    filter,
+  );
+}
+
+function swapReviewCard(existing, html) {
+  const next = reviewHtmlElement(html);
+  if (!existing || !next) return false;
+  existing.replaceWith(next);
+  return true;
+}
+
+function insertReviewSlotCard(grid, slot) {
+  const gKey = slot.sectionGroup || slot.sectionId || 'other';
+  const section = reviewSectionEl(grid, gKey);
+  if (section) {
+    const host = section.querySelector('.ca-image-slot-section-grid');
+    const card = reviewHtmlElement(imagesSlotCardHtml(slot));
+    if (host && card) host.append(card);
+    return;
+  }
+  const sectionEl = reviewHtmlElement(
+    imageSlotSectionHtml(
+      { key: gKey, label: slot.sectionLabel || slot.sectionId || gKey },
+      imagesSlotCardHtml(slot),
+    ),
+  );
+  if (!sectionEl) return;
+  const ba = reviewSectionEl(grid, 'beforeAfter');
+  if (ba) ba.before(sectionEl);
+  else grid.append(sectionEl);
+}
+
+function insertReviewBaCard(grid, candidateId, pair) {
+  const section = reviewSectionEl(grid, 'beforeAfter');
+  if (section) {
+    const host = section.querySelector('.ca-image-slot-section-grid');
+    const card = reviewHtmlElement(reviewBaCardHtml(candidateId, pair));
+    if (host && card) host.append(card);
+    return;
+  }
+  const { filter, sourceFilter, titleQ } = currentReviewImageFilters();
+  const sectionEl = reviewHtmlElement(
+    reviewBaCardsHtml(candidateId, state.reviewBa, { filter, sourceFilter, titleQ }),
+  );
+  if (sectionEl) grid.append(sectionEl);
+}
+
+function patchOneReviewCard(grid, existing, visible, html, insert) {
+  if (!grid.querySelector('.ca-image-slot-section') && !existing) return false;
+  if (!visible) {
+    if (existing) existing.remove();
+    return true;
+  }
+  if (existing) return swapReviewCard(existing, html);
+  insert();
+  return true;
+}
+
+function finishReviewCardPatch() {
+  paintReviewImageTotals();
+  renderReviewFluxToolbar();
+  restoreSlotBusyOverlays();
+}
+
 function patchReviewImageCard(candidateId, { slotKey, slot, baPair } = {}) {
   const grid = document.getElementById('ca-image-slots-grid');
   if (!grid) return false;
@@ -15257,12 +16351,31 @@ function patchReviewImageCard(candidateId, { slotKey, slot, baPair } = {}) {
   if (pair || String(slotKey || '').startsWith('ba:')) {
     if (!pair) return false;
     upsertReviewBaPair(pair);
-    paintReviewImageSlotsFromState(candidateId, { renderToolbar: true });
+    const matchKey = baPairAsReviewSlot(pair).key.replace(/^ba:/, '');
+    const existing = grid.querySelector(reviewCardAttrSel('data-match-key', matchKey));
+    const ok = patchOneReviewCard(
+      grid,
+      existing,
+      reviewBaPairVisible(pair),
+      reviewBaCardHtml(candidateId, pair),
+      () => insertReviewBaCard(grid, candidateId, pair),
+    );
+    if (!ok) return false;
+    finishReviewCardPatch();
     return true;
   }
   if (slot?.key) {
     upsertReviewSlotState(slot);
-    paintReviewImageSlotsFromState(candidateId, { renderToolbar: true });
+    const existing = grid.querySelector(reviewCardAttrSel('data-slot-key', slot.key));
+    const ok = patchOneReviewCard(
+      grid,
+      existing,
+      reviewStillVisible(slot),
+      imagesSlotCardHtml(slot),
+      () => insertReviewSlotCard(grid, slot),
+    );
+    if (!ok) return false;
+    finishReviewCardPatch();
     return true;
   }
   return false;
@@ -15328,6 +16441,7 @@ function paintReviewImageSlotsFromState(candidateId, { matchTotals = null, rende
       const sourceLabels = {
         stock: 'No stock photos.',
         openai: 'No OpenAI photos.',
+        'photo-group': 'No photo-group photos.',
       };
       filterEmpty.textContent = imagesTitleQuery(titleQ)
         ? 'No matching titles.'
@@ -15556,6 +16670,30 @@ function wireImageSlotActions(candidateId, _refreshFn) {
   });
 
   root.addEventListener('click', async (ev) => {
+    const logoBtn = ev.target.closest('[data-ba-logo]');
+    if (logoBtn && root.contains(logoBtn)) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      if (logoBtn.disabled) return;
+      const enabled = logoBtn.getAttribute('data-ba-logo') === 'on';
+      try {
+        await withReviewImagesWork({ label: enabled ? 'Adding logo…' : 'Removing logo…' }, () =>
+          api(`/api/candidates/${encodeURIComponent(candidateId)}/images/before-after/logo`, {
+            method: 'POST',
+            body: JSON.stringify({ enabled }),
+          }),
+        );
+        await refreshImageSlotsGrid(candidateId);
+      } catch (error) {
+        await showModal({
+          title: 'Could not update logo',
+          confirmLabel: 'OK',
+          hideCancel: true,
+          bodyHtml: `<p>${esc(error.message)}</p>`,
+        });
+      }
+      return;
+    }
     const gradeBtn = ev.target.closest('[data-slot-grade-cycle]');
     if (gradeBtn && root.contains(gradeBtn)) {
       ev.preventDefault();
@@ -15610,6 +16748,22 @@ function wireImageSlotActions(candidateId, _refreshFn) {
       toggleSelectReviewGrade(selectBtn.getAttribute('data-grade-select'));
       return;
     }
+    const selectAll = ev.target.closest('.flux-select-all');
+    if (selectAll && root.contains(selectAll)) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      if (selectAll.disabled) return;
+      const checks = { ...(state.imageSlotChecks || {}) };
+      root.querySelectorAll('#ca-image-slots-grid .image-slot-card .slot-check-input').forEach((input) => {
+        const id = input.getAttribute('data-check-id');
+        if (!id) return;
+        checks[id] = true;
+        input.checked = true;
+      });
+      state.imageSlotChecks = checks;
+      renderReviewFluxToolbar();
+      return;
+    }
     const unselectAll = ev.target.closest('.flux-unselect-all');
     if (unselectAll && root.contains(unselectAll)) {
       ev.preventDefault();
@@ -15620,6 +16774,37 @@ function wireImageSlotActions(candidateId, _refreshFn) {
         el.checked = false;
       });
       renderReviewFluxToolbar();
+      return;
+    }
+    const bulkViewpoint = ev.target.closest('[data-review-bulk-viewpoint]');
+    if (bulkViewpoint && root.contains(bulkViewpoint)) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      if (bulkViewpoint.disabled) return;
+      applyReviewSelectionScene(root, { viewpoint: bulkViewpoint.getAttribute('data-review-bulk-viewpoint') });
+      return;
+    }
+    const bulkOccupancy = ev.target.closest('[data-review-bulk-occupancy]');
+    if (bulkOccupancy && root.contains(bulkOccupancy)) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      if (bulkOccupancy.disabled) return;
+      applyReviewSelectionScene(root, { occupancy: bulkOccupancy.getAttribute('data-review-bulk-occupancy') });
+      return;
+    }
+    const bulkGrade = ev.target.closest('[data-review-bulk-grade]');
+    if (bulkGrade && root.contains(bulkGrade)) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      if (bulkGrade.disabled) return;
+      const grade = bulkGrade.getAttribute('data-review-bulk-grade');
+      if (grade !== 'poor' && grade !== 'ok' && grade !== 'good') return;
+      bulkGrade.disabled = true;
+      try {
+        await applyReviewSelectionGrade(candidateId, grade);
+      } finally {
+        renderReviewFluxToolbar();
+      }
       return;
     }
     const selectedRepull = ev.target.closest('.review-selected-repull');
@@ -15716,33 +16901,45 @@ function wireImageSlotActions(candidateId, _refreshFn) {
           const { matchKey, serviceSlug: slug, pairIndex } = baTargetFromGenerateEl(openaiBtn);
           const card = openaiBtn.closest('.image-slot-card');
           beginSlotBusy(matchKey, card);
-          const out = await postOpenaiGenerate(
-            `/api/candidates/${encodeURIComponent(candidateId)}/images/before-after-generate-openai`,
-            withLaunchedConfirmBody({
-              ...promptBodyFromCard(card, { pair: true }),
-              matchKey,
-              serviceSlug: slug,
-              pairIndex,
-            }),
-          );
-          watchOpenaiJobList(out.jobs || [{ jobId: out.jobId, slotKey: matchKey, kind: 'pair' }], {
-            candidateId,
-          });
+          const armed = paintOpenaiGenerateStart(1);
+          try {
+            const out = await postOpenaiGenerate(
+              `/api/candidates/${encodeURIComponent(candidateId)}/images/before-after-generate-openai`,
+              withLaunchedConfirmBody({
+                ...promptBodyFromCard(card, { pair: true }),
+                matchKey,
+                serviceSlug: slug,
+                pairIndex,
+              }),
+            );
+            watchOpenaiJobList(out.jobs || [{ jobId: out.jobId, slotKey: matchKey, kind: 'pair' }], {
+              candidateId,
+            });
+            syncOpenaiGenerateFromSnap(state.lightJobsSnap);
+          } finally {
+            if (armed) disarmOpenaiGenerateWait();
+          }
         } else {
           const slotKey = openaiBtn.getAttribute('data-slot-key');
           if (!slotKey) return;
           const card = openaiBtn.closest('.image-slot-card');
           beginSlotBusy(slotKey, card);
-          const out = await postOpenaiGenerate(
-            `/api/candidates/${encodeURIComponent(candidateId)}/images/slots/${encodeURIComponent(slotKey)}/generate-openai`,
-            withLaunchedConfirmBody(promptBodyFromCard(card)),
-          );
-          watchOpenaiJobList(out.jobs || [{ jobId: out.jobId, slotKey, kind: 'photo' }], {
-            candidateId,
-          });
+          const armed = paintOpenaiGenerateStart(1);
+          try {
+            const out = await postOpenaiGenerate(
+              `/api/candidates/${encodeURIComponent(candidateId)}/images/slots/${encodeURIComponent(slotKey)}/generate-openai`,
+              withLaunchedConfirmBody(promptBodyFromCard(card)),
+            );
+            watchOpenaiJobList(out.jobs || [{ jobId: out.jobId, slotKey, kind: 'photo' }], {
+              candidateId,
+            });
+            syncOpenaiGenerateFromSnap(state.lightJobsSnap);
+          } finally {
+            if (armed) disarmOpenaiGenerateWait();
+          }
         }
-        syncOpenaiGenerateFromSnap(state.lightJobsSnap);
       } catch (error) {
+        jobSyncedBarOn.openai = false;
         setImagesProgress(false);
         await settleSlotBusy();
         await showModal({
@@ -16085,7 +17282,7 @@ function renderWebsite() {
   );
   if (flags.launched) {
     parts.push(
-      `<div class="callout warn"><strong>Already launched.</strong> Edits here change Rover’s working copy only — the live site will not match until you <strong>Push updates</strong>. Mutating actions ask for confirmation. Use <strong>Revert</strong> below to restore from the current launched GitHub site.</div>`,
+      `<div class="callout warn"><strong>Already launched.</strong> Edits here change Rover’s working copy only — the live site will not match until you <strong>Push updates</strong>. Use <strong>Revert</strong> below to restore from the current launched GitHub site.</div>`,
     );
   }
   const phoneRaw = String(cfg.phone || '').trim();
@@ -16093,7 +17290,7 @@ function renderWebsite() {
   const launchIssues = launchPreflightIssues({
     domain: cfg.domain,
     phone: cfg.phone,
-    web3FormsAccessKey: cfg.web3FormsAccessKey,
+    formsInboxReady: state.launchInboxReady,
   });
   if (phoneIsPlaceholder) {
     parts.push(
@@ -16332,23 +17529,23 @@ function renderWebsite() {
       current: currentId === 'launch' && !flags.launched,
       info: flags.alreadyLive
         ? 'Already live: Prepare preview first, then Push updates (GitHub + build + Worker). Run launch only when you need to change keys or re-run Cloudflare domain/email.'
-        : 'Before Run launch: buy/point domain NS at Cloudflare, set Email Routing destination so leads@ exists, then create the Web3Forms form with Recipient Emails = leads@yourdomain (not the account Gmail). After: verify Gmail once if new.',
+        : 'Before Run launch: buy/point domain NS at Cloudflare and set the Email Routing destination so leads@ exists. Rover emails that destination from leads@. After: verify Gmail once if new.',
       bodyHtml: `
         ${
           assembleStale
             ? `<div class="callout warn">Assemble is stale vs Stage — run <strong>Prepare preview</strong> again before Launch or Push updates.</div>`
             : ''
         }
+        <div id="ca-template-stale" class="callout warn" hidden>The shared template is newer than this assemble. Run <strong>Prepare preview</strong>, then launch again.</div>
         ${
           flags.alreadyLive
             ? ''
             : `<div class="callout"><strong>Before Run launch</strong>
           <ol class="narrative-list">
             <li>Buy the domain and point nameservers to Cloudflare (zone must exist in this account)</li>
-            <li>Set Email Routing destination (Gmail) below. Run launch with Auto ship off first if you still need to create the form — that creates <code>leads@</code> forwarding</li>
-            <li>Create a form at <a href="https://web3forms.com" target="_blank" rel="noopener">web3forms.com</a>. Set Recipient Emails to the Web3Forms recipient below (<code>leads@</code> this domain), not the Web3Forms account Gmail. Paste the access key</li>
+            <li>Set the Email Routing destination (Gmail) below. Launch creates <code>leads@</code> forwarding and Rover sends form leads there</li>
           </ol>
-          <p class="muted" style="margin:0.35rem 0 0">Then Run launch with Auto ship on. After: click Cloudflare’s verify link in Gmail once if the destination is new; click the Web3Forms verify link for <code>leads@</code>; smoke-test the live form.</p>
+          <p class="muted" style="margin:0.35rem 0 0">Then Run launch with Auto ship on. After: click Cloudflare’s verify link in Gmail once if the destination is new, then smoke-test the live form.</p>
         </div>`
         }
         ${launchPreflightHtml(launchIssues)}
@@ -16374,38 +17571,19 @@ function renderWebsite() {
               <span>Phone</span>
               <button type="button" class="tip-info" data-tip="Click-to-call number written into site-config at launch." aria-label="About Phone">i</button>
             </span>
-            <input id="ca-launch-phone" type="text" value="${esc(cfg.phone || '')}" placeholder="+1…" />
+            <input id="ca-launch-phone" type="text" value="${esc(formatDisplayPhone(cfg.phone || ''))}" placeholder="+1…" />
           </label>
-          <label>
-            <span class="label-with-tip-head">
-              <span>Web3Forms access key</span>
-              <button type="button" class="tip-info" data-tip="Form access key from web3forms.com — delivers lead form submissions. Recipient Emails on that form must be the Web3Forms recipient below (leads@), not the account Gmail." aria-label="About Web3Forms access key">i</button>
-              <a href="https://web3forms.com/" target="_blank" rel="noopener">Get key</a>
-            </span>
-            <input id="ca-launch-web3" type="text" value="${esc(cfg.web3FormsAccessKey || '')}" placeholder="Paste from web3forms.com" />
-          </label>
-          <div class="ca-launch-w3-recipient-row">
-            <span class="label-with-tip-head">
-              <span>Web3Forms recipient</span>
-              <button type="button" class="tip-info" data-tip="Paste this into Web3Forms → Settings → Recipient Emails. Not the account Gmail. Cloudflare then forwards leads@ to the Email Routing destination." aria-label="About Web3Forms recipient">i</button>
-            </span>
-            <p class="muted" style="margin:0.25rem 0 0">
-              <code id="ca-launch-w3-recipient">${esc(launchWeb3FormsRecipient(cfg.email, cfg.domain) || 'leads@yourdomain.com')}</code>
-              <button type="button" class="btn btn-sm" id="ca-launch-w3-copy">Copy</button>
-              Set Recipient Emails to this address — not the Web3Forms account Gmail.
-            </p>
-          </div>
           <label>
             <span class="label-with-tip-head">
               <span>Leads email</span>
-              <button type="button" class="tip-info" data-tip="Public site leads address (usually leads@yourdomain.com) — shown in footer, contact, and schema. Same address as Web3Forms Recipient Emails. Not your personal Gmail." aria-label="About Leads email">i</button>
+              <button type="button" class="tip-info" data-tip="Public site leads address (usually leads@yourdomain.com) — shown in footer, contact, and schema. Rover sends form mail from this address. Not your personal Gmail." aria-label="About Leads email">i</button>
             </span>
             <input id="ca-launch-email" type="email" value="${esc(cfg.email || '')}" placeholder="leads@yourdomain.com" />
           </label>
           <label>
             <span class="label-with-tip-head">
               <span>Email Routing destination</span>
-              <button type="button" class="tip-info" data-tip="Where Cloudflare forwards leads@ (usually your Gmail). Does not change Web3Forms Recipient Emails — those must be leads@ this domain." aria-label="About Email Routing destination">i</button>
+              <button type="button" class="tip-info" data-tip="Where Rover emails each lead, and where Cloudflare forwards leads@. Usually your Gmail. One destination for every site." aria-label="About Email Routing destination">i</button>
             </span>
             <input id="ca-launch-dest" type="email" value="" placeholder="your@gmail.com" />
           </label>
@@ -16435,12 +17613,6 @@ function renderWebsite() {
               : 'Attaches the Worker custom domain and forwards leads@ to your Gmail. Requires the domain zone already in this Cloudflare account (buy/point NS first). Leave on when launching a new domain.',
           })}
           ${launchOptCheckboxHtml({
-            id: 'ca-launch-create-turnstile',
-            label: 'Create Turnstile widget',
-            ariaLabel: 'About Create Turnstile widget',
-            tip: 'Adds a spam/bot check to the contact form. Leave off unless you want that protection — most launches don’t need it.',
-          })}
-          ${launchOptCheckboxHtml({
             id: 'ca-launch-mark-cf',
             label: 'Mark CF Worker project done',
             ariaLabel: 'About Mark CF Worker project done',
@@ -16450,7 +17622,7 @@ function renderWebsite() {
         <div class="narrative-actions">
           ${
             flags.alreadyLive
-              ? `<button type="button" class="btn primary" id="ca-push-updates" data-tip="Prepare preview first, then push assembled site to GitHub + build + Cloudflare Worker. Skips first-time domain/email setup." ${flags.assembled ? '' : 'disabled'}>Push updates</button>
+              ? `<button type="button" class="btn primary" id="ca-push-updates" data-tip="Prepare preview first, then push assembled site to GitHub + build + Cloudflare Worker. Skips Email Routing. Attaches the custom domain after deploy if it is not on the Worker yet." ${flags.assembled ? '' : 'disabled'}>Push updates</button>
           <button type="button" class="btn" id="ca-launch" data-tip="Full launch: patch keys + optional ship + optional CF domain/email" ${flags.assembled ? '' : 'disabled'}>Run launch</button>
           <button type="button" class="btn danger" id="ca-reset-launch" data-tip="Delete the GitHub repo and Cloudflare Worker for the current domain, clear launch flags, then you can Run launch on a different domain.">Relaunch with a different domain</button>`
               : `<button type="button" class="btn primary" id="ca-launch" data-tip="Ship + CF helpers" ${flags.assembled ? '' : 'disabled'}>Run launch</button>`
@@ -16472,7 +17644,7 @@ function renderWebsite() {
         <p class="muted">${
           flags.alreadyLive
             ? 'Push updates = ship only (GitHub + build + Worker). Re-assemble via Prepare preview when template/content changed.'
-            : 'Create the form at <a href="https://web3forms.com" target="_blank" rel="noopener">web3forms.com</a> with Recipient Emails = leads@ this domain · Email Routing destination is Cloudflare only · after: verify Gmail once if new'
+            : 'Email Routing destination is the Gmail that receives leads · after: verify Gmail once if new, then smoke-test the form'
         }</p>
         </div>`,
     }),
@@ -16501,6 +17673,7 @@ function renderWebsite() {
             <li>Indexing → Sitemaps → submit the sitemap URL once (do not resubmit daily).</li>
             <li>URL Inspection → <strong>Request indexing</strong> on the homepage and top 2–3 money pages only.</li>
             <li>Wait — monitor Page indexing; don’t thrash resubmits.</li>
+            <li>A “Page with redirect” email is the http, slashless, and www 301s working. Do not click Validate fix. Ignore 404 emails for URLs that are not on the site. Act on 5xx, noindex, or robots blocks.</li>
           </ol>
         </div>
         <p class="muted" style="margin:0.65rem 0 0.35rem">Also after launch: verify Gmail once if Email Routing is new; smoke-test the live form; use Launch’s <strong>Download NAP CSV</strong> for citations / GBP.</p>
@@ -17127,7 +18300,15 @@ function wireContentTab(d) {
       const max = maxById.get(el.value) || 3;
       photos[el.value] = { enabled: true, count: max };
     }
-    return { pages, sections, photos };
+    const presetId = document.querySelector('.structure-preset.is-selected')?.dataset.preset || null;
+    return { pages, sections, photos, presetId };
+  };
+
+  const clearStructurePresetSelection = () => {
+    document.querySelectorAll('.structure-preset.is-selected').forEach((btn) => {
+      btn.classList.remove('is-selected');
+      btn.setAttribute('aria-pressed', 'false');
+    });
   };
 
   const syncStructurePhotoToggles = () => {
@@ -17203,15 +18384,20 @@ function wireContentTab(d) {
 
   document.querySelectorAll('input[name="structure-section"]').forEach((el) => {
     el.addEventListener('change', () => {
+      clearStructurePresetSelection();
       if (el.value === 'process' || el.value === 'offerProcess') syncProcessOfferExclusion();
       syncStructurePhotoToggles();
     });
   });
   document.querySelectorAll('input[name="structure-page"]').forEach((el) => {
     el.addEventListener('change', () => {
+      clearStructurePresetSelection();
       syncStructurePageGroups();
       syncProcessOfferExclusion();
     });
+  });
+  document.querySelectorAll('input[name="structure-photo"]').forEach((el) => {
+    el.addEventListener('change', clearStructurePresetSelection);
   });
   syncProcessOfferExclusion();
 
@@ -17296,11 +18482,16 @@ function wireContentTab(d) {
         method: 'POST',
         body: JSON.stringify(withLaunchedConfirmBody(selection)),
       });
-      await refresh(result.candidate, 'fieldResearch');
+      const nextStep = effectiveClaudeUiMode() === 'api' ? 'writeSite' : 'fieldResearch';
+      await refresh(result.candidate, nextStep);
       if (result.warnings?.length) {
         announceBanner(result.warnings.join(' '), { tone: 'warn' });
       } else {
-        announceBanner('Outline composed — Site research next.');
+        announceBanner(
+          nextStep === 'writeSite'
+            ? 'Outline composed — Write site next.'
+            : 'Outline composed — Site research next.',
+        );
       }
     } catch (error) {
       await showModal({
@@ -17709,11 +18900,14 @@ function wireContentTab(d) {
         const proofHtml = proofN
           ? `<p class="muted">Also seeded ${esc(String(proofN))} placeholder review(s) into site-config — replace with real reviews before launch.</p>`
           : '';
+        const expandNote = result.serviceExpandError
+          ? `<p>${esc(result.serviceExpandError)}</p>`
+          : '';
         await showModal({
           title: 'Partial draft loaded',
           confirmLabel: 'OK',
           hideCancel: true,
-          bodyHtml: `${incompleteHtml}${proofHtml}
+          bodyHtml: `${incompleteHtml}${expandNote}${proofHtml}
           <p class="muted">Auto-fixed ${esc(String(fixN))} (${esc(String(fixSpeech))} speech · ${esc(
             String(fixSeo),
           )} SEO) · remaining ${esc(String(speechN))} speech · ${esc(String(seoN))} SEO.</p>`,
@@ -17740,11 +18934,14 @@ function wireContentTab(d) {
           compact: false,
           showContinueControls: true,
         });
+        const expandNote = result.serviceExpandError
+          ? `<p>${esc(result.serviceExpandError)}</p>`
+          : '';
         await showModal({
           title: 'Draft needs rewrite',
           confirmLabel: 'OK',
           hideCancel: true,
-          bodyHtml: `${incompleteHtml}
+          bodyHtml: `${incompleteHtml}${expandNote}
           <p class="muted">Files loaded, but Accept will reject stub/thin service or location pages until you continue-write them.</p>`,
           afterOpen: (body) => {
             body.querySelectorAll('.js-copy-continue-prompt').forEach((btn) => {
@@ -18010,6 +19207,19 @@ function wireContentTab(d) {
     }
   };
 
+  function launchGapPageName(rel) {
+    const base = String(rel || '')
+      .split('/')
+      .pop()
+      .replace(/\.md$/i, '');
+    if (!base) return String(rel || '');
+    return base
+      .split('-')
+      .filter(Boolean)
+      .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(' ');
+  }
+
   document.getElementById('ca-prepare-preview')?.addEventListener('click', async () => {
     state.preparePreviewHold = true;
     state.preparePreviewJobId = null;
@@ -18038,28 +19248,41 @@ function wireContentTab(d) {
       );
       let forcePrepare = false;
       if (!gaps.ok) {
-        const gapPaths = [...(gaps.missing || []), ...(gaps.stubs || [])];
-        const proceed = await showModal({
-          title: 'Content not launch-ready',
-          confirmLabel: 'Prepare anyway',
-          cancelLabel: 'Cancel',
-          danger: true,
-          bodyHtml: `<p>${esc(gaps.error || 'Stub or missing location/service pages.')}</p>
-            <p class="muted">Continue write / Accept full pages first to avoid wasting Prepare time. Staging still enforces this gate if you force.</p>
-            ${
-              gapPaths.length
-                ? `<ul class="narrative-list">${gapPaths
-                    .slice(0, 16)
-                    .map((m) => `<li><code>${esc(String(m))}</code></li>`)
-                    .join('')}</ul>`
-                : ''
-            }`,
+        const gapPaths = [...(gaps.missing || []), ...(gaps.stubs || [])].filter((rel) =>
+          String(rel).startsWith('src/'),
+        );
+        const pageNames = gapPaths.slice(0, 16).map(launchGapPageName);
+        const nextStep = gaps.nextStep === 'write' ? 'write' : 'accept';
+        const list = pageNames.length
+          ? `<ul class="narrative-list">${pageNames.map((name) => `<li>${esc(name)}</li>`).join('')}</ul>`
+          : '';
+        const bodyHtml =
+          nextStep === 'accept'
+            ? `<p><strong>Accept the new pages.</strong> These pages are written and still in the draft.</p>
+            ${list}
+            <p>Click <strong>2 · Content</strong>, then <strong>Accept content</strong>. After that, click <strong>Prepare preview</strong> again.</p>`
+            : `<p><strong>Write the missing pages.</strong> These pages are missing or too short.</p>
+            ${list}
+            <p>Click <strong>2 · Content</strong>, then <strong>Write site with Claude</strong>. When that finishes, click <strong>Accept content</strong>, then <strong>Prepare preview</strong> again.</p>`;
+        const go = await showModal({
+          title: nextStep === 'accept' ? 'Accept the new pages' : 'Write the missing pages',
+          confirmLabel: 'Go to Content',
+          cancelLabel: 'Close',
+          bodyHtml,
         });
-        if (!proceed) {
-          abortPrepareUi();
-          return;
-        }
-        forcePrepare = true;
+        abortPrepareUi();
+        if (!go) return;
+        const stepId = nextStep === 'write' ? 'writeSite' : 'accept';
+        state.tab = 'content';
+        state.contentSoftCurrent = null;
+        state.contentFollowCurrent = null;
+        state.contentOpenStep = null;
+        persistUiRestore();
+        await ensureDetailSlices(id, slicesForTab('content'));
+        renderDetail();
+        state.contentOpenStep = stepId;
+        renderDetail();
+        return;
       }
 
       if (!(await confirmLaunchedSiteChange('Prepare preview'))) {
@@ -18545,7 +19768,7 @@ function wireContentTab(d) {
   });
 
   document.getElementById('ca-visual-edit')?.addEventListener('click', async () => {
-    await openVisualEditor(id, { api, esc, showModal });
+    await openVisualEditor(id, { api, esc, showModal, formatDisplayPhone, phoneToE164 });
   });
 
   document.getElementById('ca-checklist')?.addEventListener('click', async () => {
@@ -18575,12 +19798,10 @@ function wireContentTab(d) {
       const st = await api(`/api/candidates/${encodeURIComponent(id)}/launch`);
       const dest = document.getElementById('ca-launch-dest');
       if (dest && !dest.value && st.defaultNotifyEmail) dest.value = st.defaultNotifyEmail;
-      if (st.web3FormsRecipient) {
-        const rec = document.getElementById('ca-launch-w3-recipient');
-        if (rec) rec.textContent = st.web3FormsRecipient;
-      } else {
-        syncLaunchWeb3Recipient();
-      }
+      state.launchInboxReady = st.formsInboxReady !== false;
+      state.templateStale = Boolean(st.templateStale);
+      const templateNote = document.getElementById('ca-template-stale');
+      if (templateNote) templateNote.hidden = !state.templateStale;
       return st;
     } catch {
       return null;
@@ -18867,7 +20088,7 @@ function wireContentTab(d) {
         `gh authenticated: ${ship ? (ship.ghAuthenticated ? 'yes' : 'no — run gh auth login once') : 'unknown'}`,
         `GitHub owner: ${ship?.githubOwner || 'set GITHUB_OWNER in .env'}`,
         `CF credentials: ${st.cloudflareConfigured ? 'yes' : 'missing in .env'}`,
-        `Web3Forms key: ${st.web3FormsAccessKeySet ? 'set' : 'placeholder / missing'}`,
+        `Forms inbox: ${st.formsInboxReady ? 'ready' : 'not set up'}`,
         `CF Worker project: ${st.cloudflarePagesDone ? '✓' : '○'}`,
         `DNS / custom domain: ${st.dnsDone ? '✓' : '○'}`,
         `Forms: ${st.formsDone ? '✓' : '○'}`,
@@ -18884,7 +20105,7 @@ function wireContentTab(d) {
         bodyHtml: `<ul class="narrative-list">${flags}</ul>
           <p class="muted">Slug: <code>${esc(st.assembledSiteSlug || '—')}</code>
           · path: <code>${esc(st.assembledSitePath || '—')}</code></p>
-          <p class="muted">Human leftovers: buy/point domain NS → Cloudflare; run Email Routing so leads@ exists; create Web3Forms form with Recipient Emails = leads@ this domain (not the account Gmail); after — verify Email Routing destination once and the Web3Forms leads@ verify link. One-time machine: <code>gh auth login</code> + <code>GITHUB_OWNER</code> + <code>CLOUDFLARE_*</code>.</p>`,
+          <p class="muted">Human leftovers: buy/point domain NS → Cloudflare; run Email Routing so leads@ exists; after — verify the Email Routing destination once and smoke-test the form. One-time machine: <code>gh auth login</code> + <code>GITHUB_OWNER</code> + <code>CLOUDFLARE_*</code>.</p>`,
       });
     } catch (error) {
       await showModal({ title: 'Failed', confirmLabel: 'OK', bodyHtml: `<p>${esc(error.message)}</p>` });
@@ -18892,6 +20113,17 @@ function wireContentTab(d) {
   });
 
   document.getElementById('ca-push-updates')?.addEventListener('click', async () => {
+    const launchStatus = await fillLaunchDefaults();
+    if (launchStatus?.templateStale) {
+      await showModal({
+        title: 'Prepare preview required',
+        confirmLabel: 'OK',
+        hideCancel: true,
+        bodyHtml:
+          '<p>The shared template is newer than this assemble. Run <strong>Prepare preview</strong>, then launch again.</p>',
+      });
+      return;
+    }
     if (isAssembleStaleClient(state.detail)) {
       const proceed = await showModal({
         title: 'Assemble is stale',
@@ -18952,6 +20184,17 @@ function wireContentTab(d) {
   });
 
   document.getElementById('ca-launch')?.addEventListener('click', async () => {
+    const launchStatus = await fillLaunchDefaults();
+    if (launchStatus?.templateStale && document.getElementById('ca-launch-ship')?.checked !== false) {
+      await showModal({
+        title: 'Prepare preview required',
+        confirmLabel: 'OK',
+        hideCancel: true,
+        bodyHtml:
+          '<p>The shared template is newer than this assemble. Run <strong>Prepare preview</strong>, then launch again.</p>',
+      });
+      return;
+    }
     if (isAssembleStaleClient(state.detail)) {
       const proceed = await showModal({
         title: 'Assemble is stale',
@@ -18973,7 +20216,7 @@ function wireContentTab(d) {
         confirmLabel: 'Ship incomplete anyway',
         cancelLabel: 'Cancel',
         danger: true,
-        bodyHtml: `<p>Auto ship requires a real domain, phone, Web3Forms key, and non-placeholder reviews:</p>
+        bodyHtml: `<p>Auto ship requires a real domain, phone, forms inbox, and Email Routing destination:</p>
           <ul class="narrative-list">${issues.map((i) => `<li>${esc(i.label)}</li>`).join('')}</ul>
           <p class="muted">Fix these above, or confirm you intentionally want to ship incomplete (forms/NAP may be broken on the live site).</p>`,
       });
@@ -19062,12 +20305,16 @@ function wireContentTab(d) {
   if (acceptBtn) {
     acceptBtn.addEventListener('click', async () => {
       const ignoreSeo = Boolean(document.getElementById('content-accept-seo-override')?.checked);
+      const skipStock = Boolean(document.getElementById('content-accept-skip-stock')?.checked);
+      const stockLine = skipStock
+        ? '<p>Stock photos will not be pulled. Logo and the coverage map still run.</p>'
+        : '<p>Empty photo slots are filled from stock. Logo and the coverage map still run.</p>';
       const ok = await showModal({
         title: 'Accept content?',
         confirmLabel: 'Write src/content/',
         bodyHtml: ignoreSeo
-          ? '<p>Accepts the draft into <code>src/content/</code> <strong>with SEO warnings overridden</strong>.</p>'
-          : '<p>Accepts the candidate draft into shared <code>src/content/</code> (backs up existing Markdown, prunes leftovers not in the bundle).</p>',
+          ? `<p>Accepts the draft into <code>src/content/</code> <strong>with SEO warnings overridden</strong>.</p>${stockLine}`
+          : `<p>Accepts the candidate draft into shared <code>src/content/</code> (backs up existing Markdown, prunes leftovers not in the bundle).</p>${stockLine}`,
       });
       if (!ok) return;
       if (!(await confirmLaunchedSiteChange('Accept content'))) return;
@@ -19086,19 +20333,32 @@ function wireContentTab(d) {
         };
         let result;
         try {
-          result = await runAccept(withLaunchedConfirmBody({ ignoreSeoWarnings: ignoreSeo }));
+          result = await runAccept(
+            withLaunchedConfirmBody({ ignoreSeoWarnings: ignoreSeo, skipStockImages: skipStock }),
+          );
         } catch (error) {
           if (error.message?.includes('ignoreWarnings') || error.check?.warnings?.length) {
             hideAcceptOverlay();
+            const warningLines = Array.isArray(error.check?.warnings)
+              ? error.check.warnings.filter(Boolean)
+              : [];
             const force = await showModal({
               title: 'Content warnings',
-              confirmLabel: 'Write anyway',
-              bodyHtml: `<p>${esc(error.message)}</p>`,
+              confirmLabel: 'Accept content',
+              bodyHtml: warningLines.length
+                ? `<ul class="narrative-list">${warningLines
+                    .map((line) => `<li>${esc(line)}</li>`)
+                    .join('')}</ul>`
+                : '<p>Accept content publishes this draft as it is.</p>',
             });
             if (!force) throw error;
             showAcceptOverlayStarting();
             result = await runAccept(
-              withLaunchedConfirmBody({ ignoreWarnings: true, ignoreSeoWarnings: ignoreSeo }),
+              withLaunchedConfirmBody({
+                ignoreWarnings: true,
+                ignoreSeoWarnings: ignoreSeo,
+                skipStockImages: skipStock,
+              }),
             );
           } else if (error.message?.includes('ignoreSeoWarnings') || error.seoLint) {
             hideAcceptOverlay();
@@ -19109,7 +20369,9 @@ function wireContentTab(d) {
             });
             if (!force) throw error;
             showAcceptOverlayStarting();
-            result = await runAccept(withLaunchedConfirmBody({ ignoreSeoWarnings: true }));
+            result = await runAccept(
+              withLaunchedConfirmBody({ ignoreSeoWarnings: true, skipStockImages: skipStock }),
+            );
           } else {
             throw error;
           }
@@ -19161,6 +20423,16 @@ function wireContentTab(d) {
         const imageWarn = result.images?.warning
           ? `<p class="callout warn">${esc(result.images.warning)}</p>`
           : '';
+        const zoneSeo = (result.seoLint?.findings || []).filter((f) =>
+          String(f.rule || '').startsWith('zone_'),
+        );
+        const zoneSeoWarn = zoneSeo.length
+          ? `<div class="callout warn"><strong>Zone notes</strong> — Accept still finished. These do not block the next site.
+          <ul class="narrative-list">${zoneSeo
+            .slice(0, 6)
+            .map((f) => `<li>${esc(f.excerpt || f.rule)}</li>`)
+            .join('')}</ul></div>`
+          : '';
         const failedSlotRows = failedSlots
           .map(
             (s) =>
@@ -19193,7 +20465,8 @@ function wireContentTab(d) {
           title: 'Content accepted',
           confirmLabel: 'OK',
           bodyHtml: `<p>Wrote <strong>${esc(String(result.written?.length || 0))}</strong> file(s) to <code>src/content/</code>.</p>
-          ${imageWarn}${imageFailGuide}${imageLines}${assetChecklistHtml}${mapWarn}
+          ${locationHealNoteHtml([...(result.locationHeals || []), ...(result.serviceHeals || [])])}
+          ${imageWarn}${zoneSeoWarn}${imageFailGuide}${imageLines}${assetChecklistHtml}${mapWarn}
           <p><strong>Up next:</strong> <strong>Website</strong> → Logo &amp; Map → Review images → <strong>Prepare preview</strong> (full Stage + Assemble + open :4322).</p>`,
         });
       } catch (error) {
@@ -19218,11 +20491,21 @@ function wireContentTab(d) {
               showContinueControls: true,
             })
           : '';
+        const yamlFm = /missing (state|city)|Set State on Site-config|frontmatter/i.test(
+          String(error.message || ''),
+        );
+        const yamlList =
+          yamlFm && !isLaunchGap && Array.isArray(error.check?.errors) && error.check.errors.length
+            ? `<ul class="narrative-list">${error.check.errors
+                .slice(0, 8)
+                .map((e) => `<li><code>${esc(String(e))}</code></li>`)
+                .join('')}</ul>`
+            : '';
         await showModal({
           title: 'Accept failed',
           confirmLabel: 'OK',
           hideCancel: true,
-          bodyHtml: `<p>${esc(error.message)}</p>${gapHtml}`,
+          bodyHtml: `<p>${esc(error.message)}</p>${yamlList}${gapHtml}`,
           afterOpen: (body) => {
             body.querySelectorAll('.js-copy-continue-prompt').forEach((btn) => {
               btn.addEventListener('click', () => copyContinueWritePrompt(id));
@@ -19236,6 +20519,14 @@ function wireContentTab(d) {
       }
     });
   }
+}
+
+function prospectDomainCell(prospect) {
+  const host = String(prospect?.domain || '').trim();
+  if (!host) return '—';
+  const site = String(prospect?.website || '').trim();
+  const href = /^https?:\/\//i.test(site) ? site : `https://${host}`;
+  return `<a href="${esc(href)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">${esc(host)}</a>`;
 }
 
 function renderProspects() {
@@ -19279,7 +20570,7 @@ function renderProspects() {
         extraTip: 'Higher = better outreach fit for Rover.',
       }),
       esc(x.name),
-      esc(x.domain || '—'),
+      prospectDomainCell(x),
       esc(x.rating ?? '—'),
       esc(x.reviewsCount ?? '—'),
       esc(x.reviewBand),
@@ -19760,7 +21051,7 @@ function wireSiteConfigTab(d) {
           title: 'Address search failed',
           confirmLabel: 'OK',
           hideCancel: true,
-          bodyHtml: `<p>${esc(error.message)}</p><p class="muted">You can still use Manual commercial, home paste, or Skip. Check APIFY_* and GOOGLE_MAPS_API_KEY in .env for Find.</p>`,
+          bodyHtml: `<p>${esc(error.message)}</p><p class="muted">You can still use Manual commercial, home paste, or Skip.</p>`,
         });
       }
     } finally {
@@ -20281,7 +21572,7 @@ function wireSiteConfigTab(d) {
         const patch = {
           businessName: document.getElementById('sc-edit-businessName')?.value?.trim() || '',
           domain: document.getElementById('sc-edit-domain')?.value?.trim() || '',
-          phone: document.getElementById('sc-edit-phone')?.value?.trim() || '',
+          phone: phoneToE164(document.getElementById('sc-edit-phone')?.value?.trim() || ''),
           email: document.getElementById('sc-edit-email')?.value?.trim() || '',
           tagline: document.getElementById('sc-edit-tagline')?.value?.trim() || '',
           primaryCta: document.getElementById('sc-edit-primaryCta')?.value?.trim() || '',
@@ -20289,7 +21580,6 @@ function wireSiteConfigTab(d) {
           primaryCity: document.getElementById('sc-edit-primaryCity')?.value?.trim() || '',
           state: document.getElementById('sc-edit-state')?.value?.trim() || '',
           serviceRadiusMiles: document.getElementById('sc-edit-radius')?.value?.trim() || '',
-          web3FormsAccessKey: document.getElementById('sc-edit-web3')?.value?.trim() || '',
           turnstileSiteKey: document.getElementById('sc-edit-turnstile')?.value?.trim() || '',
           targetSuburbs: document.getElementById('sc-edit-suburbs')?.value || '',
           services: document.getElementById('sc-edit-services')?.value || '',
@@ -20406,7 +21696,7 @@ function wireSiteConfigTab(d) {
                 nap.businessName ||
                 '',
               domain: document.getElementById('sc-edit-domain')?.value?.trim() || nap.domain || '',
-              phone: document.getElementById('sc-edit-phone')?.value?.trim() || nap.phone || '',
+              phone: phoneToE164(document.getElementById('sc-edit-phone')?.value?.trim() || nap.phone || ''),
               email: document.getElementById('sc-edit-email')?.value?.trim() || nap.email || '',
               tagline: document.getElementById('sc-edit-tagline')?.value?.trim() || '',
               primaryCta: document.getElementById('sc-edit-primaryCta')?.value?.trim() || '',
@@ -20415,7 +21705,6 @@ function wireSiteConfigTab(d) {
               state: document.getElementById('sc-edit-state')?.value?.trim() || '',
               serviceRadiusMiles:
                 document.getElementById('sc-edit-radius')?.value?.trim() || nap.radiusMiles || '',
-              web3FormsAccessKey: document.getElementById('sc-edit-web3')?.value?.trim() || '',
               turnstileSiteKey: document.getElementById('sc-edit-turnstile')?.value?.trim() || '',
               targetSuburbs: document.getElementById('sc-edit-suburbs')?.value || '',
               services: document.getElementById('sc-edit-services')?.value || '',
@@ -20473,7 +21762,6 @@ function wireSiteConfigTab(d) {
           ['domain', document.getElementById('sc-edit-domain')?.value, 'example.com'],
           ['phone', document.getElementById('sc-edit-phone')?.value, '+1XXXXXXXXXX'],
           ['email', document.getElementById('sc-edit-email')?.value, 'leads@example.com'],
-          ['web3FormsAccessKey', document.getElementById('sc-edit-web3')?.value, 'REPLACE_WEB3FORMS_KEY'],
         ];
         remaining = checks.filter(([_, v, known]) => isPh(v, known)).map(([k]) => k);
       }
@@ -20677,7 +21965,7 @@ function wireSiteConfigTab(d) {
         title: 'Number provisioned',
         confirmLabel: 'OK',
         hideCancel: true,
-        bodyHtml: `<p><strong>${esc(result.provisioned?.phone || result.provisioned?.e164 || '')}</strong> written to site-config.</p>
+        bodyHtml: `<p><strong>${esc(formatDisplayPhone(result.provisioned?.phone || result.provisioned?.e164 || ''))}</strong> written to site-config.</p>
           <p class="muted small">Continue Content, then Website Prepare / Launch. Use Launched → Update site phone number if you need to re-ship later.</p>`,
       });
     } catch (error) {
@@ -20689,7 +21977,7 @@ function wireSiteConfigTab(d) {
         bodyHtml: `<p>${esc(error.message)}</p>${
           error.twilioSid
             ? `<p class="muted small">Twilio SID: <code>${esc(error.twilioSid)}</code>${
-                error.e164 ? ` · ${esc(error.e164)}` : ''
+                error.e164 ? ` · ${esc(formatDisplayPhone(error.e164))}` : ''
               }. Do not buy again until this SID is resolved in Twilio Console.</p>`
             : ''
         }`,
@@ -20734,7 +22022,7 @@ function wireSiteConfigTab(d) {
       const row = data.site;
       const pt = row?.phoneTracking;
       if (pt?.provider === 'twilio' && pt.twilioSid) {
-        status.textContent = `Twilio ${pt.e164 || ''} provisioned${
+        status.textContent = `Twilio ${formatDisplayPhone(pt.e164 || '')} provisioned${
           pt.provisionedAt ? ` · ${String(pt.provisionedAt).slice(0, 10)}` : ''
         }`;
         if (btn) btn.disabled = true;
@@ -21203,7 +22491,8 @@ function wireUi() {
     clearCandidateRowSelection,
   );
   wireTableDeselectOnEmpty(document.querySelector('.sites-table-panel'), clearSitesRowSelection);
-  wireTableDeselectOnEmpty(document.querySelector('.phone-calls-panel'), clearPhoneCallSelection);
+  wireTableDeselectOnEmpty(document.getElementById('lead-phone-table'), clearPhoneCallSelection);
+  wireTableDeselectOnEmpty(document.getElementById('lead-forms-table'), clearFormSelection);
   wireTableDeselectOnEmpty(
     document.querySelector('.discovery-table-panel'),
     clearDiscoveryRowSelection,
@@ -21241,35 +22530,42 @@ function wireUi() {
     state.candidateDecisionFilter = e.target.value;
     renderList();
     renderActions();
+    persistUiRestore();
   });
   document.getElementById('candidate-batch-filter')?.addEventListener('change', (e) => {
     state.candidateBatchFilter = e.target.value;
     renderList();
     renderActions();
+    persistUiRestore();
   });
   document.getElementById('candidate-group-filter')?.addEventListener('change', (e) => {
     state.candidateGroupFilter = e.target.value;
     renderList();
     renderActions();
+    persistUiRestore();
   });
   document.getElementById('candidate-zone-filter')?.addEventListener('change', (e) => {
     state.candidateZoneFilter = e.target.value;
     renderList();
     renderActions();
+    persistUiRestore();
   });
   document.getElementById('candidate-cluster-filter')?.addEventListener('change', (e) => {
     state.candidateClusterFilter = e.target.value;
     renderList();
     renderActions();
+    persistUiRestore();
   });
   document.getElementById('candidate-visibility-filter')?.addEventListener('change', (e) => {
     state.candidateVisibilityFilter = e.target.value || 'active';
     renderList();
     renderActions();
+    persistUiRestore();
   });
   document.getElementById('candidate-filter-text')?.addEventListener('input', (e) => {
     state.candidateTextFilter = e.target.value;
     renderList();
+    persistUiRestore();
   });
   document.getElementById('candidate-select-filtered')?.addEventListener('click', () => {
     if (candidateSelectionLocked()) return;
@@ -21277,6 +22573,7 @@ function wireUi() {
     renderList();
     renderActions();
     if (state.selectedIds.size > 1) renderMultiDetail();
+    persistUiRestore();
   });
   document.getElementById('candidate-clear-selection')?.addEventListener('click', () => {
     clearCandidateRowSelection();
@@ -21376,6 +22673,7 @@ function wireUi() {
   document.querySelectorAll('.tab').forEach((tab) => {
     tab.addEventListener('click', () => {
       state.tab = tab.dataset.tab;
+      persistUiRestore();
       const id = state.selectedId;
       void (async () => {
         if (id) await ensureDetailSlices(id, slicesForTab(state.tab));
@@ -21484,6 +22782,7 @@ function setView(view) {
   } else if (!document.querySelector('.discovery-table-panel')?.classList.contains('shotgun-hub-on')) {
     closeDiscoveryCitiesMap();
   }
+  persistUiRestore();
 }
 
 const SITE_TABLE_COLS = [
@@ -21524,15 +22823,59 @@ function formatSitesChartAxis(v, yFormat) {
   return String(Math.round(n));
 }
 
+/** Round step of 1, 2, 5, or 10 × 10^n. Labels are integers, so the step is at least 1. */
+function chartNiceStep(range, targetCount = 4) {
+  const rough = range / Math.max(targetCount, 1);
+  if (!(rough > 0)) return 1;
+  const pow = 10 ** Math.floor(Math.log10(rough));
+  const err = rough / pow;
+  const nice = err <= 1.5 ? 1 : err <= 3 ? 2 : err <= 7 ? 5 : 10;
+  return Math.max(1, nice * pow);
+}
+
+function chartYTicks(yMin, yMax, yFormat) {
+  const range = yMax - yMin;
+  if (!(range > 0)) return [yMin];
+  const step = chartNiceStep(range, 4);
+  const start = Math.ceil(yMin / step - 1e-9);
+  const end = Math.floor(yMax / step + 1e-9);
+  const ticks = [];
+  const seen = new Set();
+  for (let i = start; i <= end && ticks.length < 8; i += 1) {
+    const value = i * step;
+    const label = formatSitesChartAxis(value, yFormat);
+    if (!label || seen.has(label)) continue;
+    seen.add(label);
+    ticks.push(value);
+  }
+  return ticks.length ? ticks : [yMin, yMax];
+}
+
+function chartYAxisMarkup({ yTicks, yFormat, yAt, w, h, pad }) {
+  const baseline = h - pad.b;
+  return yTicks
+    .map((value) => {
+      const y = yAt(value);
+      const onBase = Math.abs(y - baseline) < 1;
+      const line = onBase
+        ? ''
+        : `<line x1="${pad.l}" y1="${y.toFixed(1)}" x2="${w - pad.r}" y2="${y.toFixed(1)}" stroke="currentColor" stroke-opacity="0.18" stroke-dasharray="3 3" />`;
+      const labelY = Math.min(h - 4, Math.max(9, y));
+      return `${line}<text x="${(pad.l - 4).toFixed(1)}" y="${labelY.toFixed(1)}" fill="currentColor" font-size="10" opacity="0.55" text-anchor="end" dominant-baseline="middle">${esc(formatSitesChartAxis(value, yFormat))}</text>`;
+    })
+    .join('');
+}
+
 /**
  * Simple multi-series SVG line chart.
  * series: [{ label, color, points: [{ y }] }] — null/NaN y dropped.
- * opts: { yLabel, height, yFormat: 'number'|'percent', invertY, minPoints }
+ * opts: { yLabel, width, height, yFormat: 'number'|'percent', invertY, minPoints, xStart, xEnd, xTicks }
+ * xTicks: [{ index, text }] drawn along the x-axis. xStart/xEnd are the two-label fallback.
  */
 function renderSvgLineChart(
   container,
   seriesList,
-  { yLabel = '', height = 110, yFormat = 'number', invertY = false, minPoints = 2 } = {},
+  { yLabel = '', width = 320, height = 110, yFormat = 'number', invertY = false, minPoints = 2, xStart = '', xEnd = '', xTicks = [] } = {},
 ) {
   if (!container) return;
 
@@ -21561,9 +22904,10 @@ function renderSvgLineChart(
     return;
   }
 
-  const w = 320;
-  const h = height;
-  const pad = { t: 14, r: 10, b: 12, l: 34 };
+  const w = Math.max(40, Math.round(width) || 320);
+  const h = Math.max(40, Math.round(height) || 110);
+  const axisTicks = (xTicks || []).filter((tick) => tick && tick.text);
+  const pad = { t: 14, r: 10, b: axisTicks.length || xStart || xEnd ? 26 : 12, l: 34 };
   const allY = series.flatMap((s) => s.points.map((p) => p.y));
   let yMin = Math.min(...allY);
   let yMax = Math.max(...allY);
@@ -21593,7 +22937,12 @@ function renderSvgLineChart(
       yMin = 0;
     }
   }
+  if (!invertY && yFormat !== 'percent' && Math.min(...allY) >= 0) yMin = Math.max(0, yMin);
   if (yMax <= yMin) yMax = yMin + 1;
+
+  const yTicks = chartYTicks(yMin, yMax, yFormat);
+  const widestTick = Math.max(2, ...yTicks.map((value) => formatSitesChartAxis(value, yFormat).length));
+  pad.l = Math.max(34, Math.ceil(8 + widestTick * 6.2));
 
   const maxPts = Math.max(...series.map((s) => s.points.length));
   const xAt = (i, len) =>
@@ -21603,10 +22952,6 @@ function renderSvgLineChart(
     const norm = invertY ? t : 1 - t;
     return pad.t + norm * (h - pad.t - pad.b);
   };
-
-  // Axis labels: top of plot = better for invertY (lower rank), else higher value
-  const topLabel = invertY ? formatSitesChartAxis(yMin, yFormat) : formatSitesChartAxis(yMax, yFormat);
-  const botLabel = invertY ? formatSitesChartAxis(yMax, yFormat) : formatSitesChartAxis(yMin, yFormat);
 
   const paths = series
     .map((s) => {
@@ -21652,9 +22997,9 @@ function renderSvgLineChart(
     )}">
       <line x1="${pad.l}" y1="${pad.t}" x2="${pad.l}" y2="${h - pad.b}" stroke="currentColor" stroke-opacity="0.12" />
       <line x1="${pad.l}" y1="${h - pad.b}" x2="${w - pad.r}" y2="${h - pad.b}" stroke="currentColor" stroke-opacity="0.12" />
+      ${chartYAxisMarkup({ yTicks, yFormat, yAt, w, h, pad })}
       ${paths}${dots}
-      <text x="4" y="${pad.t + 3}" fill="currentColor" font-size="10" opacity="0.55">${esc(topLabel)}</text>
-      <text x="4" y="${h - pad.b + 3}" fill="currentColor" font-size="10" opacity="0.55">${esc(botLabel)}</text>
+      ${chartXAxisLabels({ axisTicks, xStart, xEnd, maxPts, xAt, w, h, pad })}
     </svg>
   </div>
   <ul class="sites-chart-legend">${legend}</ul>`;
@@ -21719,34 +23064,96 @@ async function showGscReconnectModal(error) {
   });
 }
 
+function gscSignedIn() {
+  const g = state.gscStatus || {};
+  return Boolean(g.configured && g.connected);
+}
+
+const GSC_SYNC_TIP =
+  'Pull 28d clicks, top queries, and sitemap submitted counts from Search Console for selected rows';
+const GSC_INDEX_TIP =
+  'Inspect each sitemap URL in Search Console for selected rows (not the Pages report)';
+const GSC_CONNECT_FIRST_TIP = 'Connect GSC first';
+
+function renderGscConnectionPill() {
+  const el = document.getElementById('sites-gsc-connection');
+  if (!el) return;
+  const label = el.querySelector('.gsc-connection-label');
+  const g = state.gscStatus || {};
+  el.classList.remove('is-connected', 'is-disconnected', 'is-unconfigured');
+  let text = 'Not connected';
+  let tip = 'Search Console is not connected. Click Connect GSC to sign in.';
+  let cls = 'is-disconnected';
+  if (state.gscStatus && !g.configured) {
+    text = 'GSC not set up';
+    tip = 'Set GOOGLE_GSC_CLIENT_ID and GOOGLE_GSC_CLIENT_SECRET in .env.';
+    cls = 'is-unconfigured';
+  } else if (g.connected) {
+    text = 'Connected';
+    tip = g.email ? `Connected as ${g.email}` : 'Search Console is connected';
+    cls = 'is-connected';
+  }
+  el.classList.add(cls);
+  if (label) label.textContent = text;
+  el.setAttribute('data-tip', tip);
+  el.setAttribute('aria-label', tip);
+}
+
+function applyGscMetricsButtonState() {
+  const busy = Boolean(state.sitesMetricsBusy);
+  const ready = gscSignedIn();
+  const g = state.gscStatus || {};
+  const blockedTip = state.gscStatus && !g.configured ? 'Set up GSC OAuth in .env first' : GSC_CONNECT_FIRST_TIP;
+  const pairs = [
+    ['sites-gsc-sync-btn', ready ? GSC_SYNC_TIP : blockedTip],
+    ['sites-index-check-btn', ready ? GSC_INDEX_TIP : blockedTip],
+    ['sites-gsc-sync-one', ready ? GSC_SYNC_TIP : blockedTip],
+    ['sites-index-check-one', ready ? GSC_INDEX_TIP : blockedTip],
+  ];
+  for (const [id, tip] of pairs) {
+    const el = document.getElementById(id);
+    if (!el) continue;
+    el.disabled = busy || !ready;
+    el.setAttribute('data-tip', tip);
+  }
+}
+
 function updateSitesGscConnectButton() {
   const connectBtn = document.getElementById('sites-gsc-connect-btn');
-  if (!connectBtn) return;
   const g = state.gscStatus || {};
-  connectBtn.textContent = g.connected ? 'Reconnect GSC' : 'Connect GSC';
-  connectBtn.classList.remove('hidden');
-  connectBtn.hidden = false;
-  if (!g.configured) {
-    connectBtn.disabled = true;
-    return;
+  if (connectBtn) {
+    connectBtn.textContent = g.connected ? 'Reconnect GSC' : 'Connect GSC';
+    connectBtn.classList.remove('hidden');
+    connectBtn.hidden = false;
+    connectBtn.setAttribute(
+      'data-tip',
+      g.connected
+        ? 'Sign in again if the Search Console login expired'
+        : 'Connect Google Search Console (OAuth)',
+    );
+    if (!g.configured) connectBtn.disabled = true;
+    else connectBtn.disabled = Boolean(state.sitesMetricsBusy);
   }
-  connectBtn.disabled = Boolean(state.sitesMetricsBusy);
+  renderGscConnectionPill();
+  applyGscMetricsButtonState();
 }
 
 function renderSitesGscStatus() {
   const el = document.getElementById('sites-gsc-status');
-  if (!el) return;
   const g = state.gscStatus || {};
-  if (!g.configured) {
-    el.textContent =
-      'GSC: set GOOGLE_GSC_CLIENT_ID + GOOGLE_GSC_CLIENT_SECRET in .env (Desktop OAuth). Redirect: ' +
-      (g.redirectUri || 'http://127.0.0.1:8787/api/gsc/oauth/callback');
-  } else if (g.connected) {
-    el.textContent = `GSC: connected${g.email ? ` (${g.email})` : ''}${
-      g.updatedAt ? ` · ${String(g.updatedAt).slice(0, 16).replace('T', ' ')}` : ''
-    }. Use Reconnect GSC if sync says the login expired.`;
-  } else {
-    el.textContent = `GSC: not connected · redirect URI must be allowed: ${g.redirectUri || ''}`;
+  if (el) {
+    if (state.gscStatus && !g.configured) {
+      el.textContent =
+        'GSC: set GOOGLE_GSC_CLIENT_ID + GOOGLE_GSC_CLIENT_SECRET in .env (Desktop OAuth). Redirect: ' +
+        (g.redirectUri || 'http://127.0.0.1:8787/api/gsc/oauth/callback');
+    } else if (g.connected) {
+      const when = g.updatedAt ? String(g.updatedAt).slice(0, 16).replace('T', ' ') : '';
+      el.textContent = `Signed in${g.email ? ` as ${g.email}` : ''}${when ? ` · ${when}` : ''}.`;
+    } else {
+      el.textContent = `Not connected. Click Connect GSC to sign in. Redirect URI must be allowed: ${
+        g.redirectUri || ''
+      }`;
+    }
   }
   updateSitesGscConnectButton();
 }
@@ -21999,40 +23406,53 @@ async function checkSitesRanksSequential(siteList) {
   await withSitesMetricsBusy(
     {
       label: 'Checking ranks (Standard queue)…',
-      detail: `0/${sites.length} — can take several minutes`,
+      detail: `0/${sites.length} sites`,
       pct: 0,
     },
     async ({ setProgress }) => {
-      for (let i = 0; i < sites.length; i += 1) {
-        const s = sites[i];
-        const label = siteMetricsDomainLabel(s);
+      let timer = null;
+      const paint = (progress) => {
+        const kwTotal = Number(progress?.keywordsTotal) || 0;
+        const kwReady = Number(progress?.keywordsReady) || 0;
+        const sitesDone = Number(progress?.sitesDone) || 0;
+        const sitesTotal = Number(progress?.sitesTotal) || sites.length;
+        const detail = kwTotal
+          ? `${kwReady}/${kwTotal} keywords ready · ${sitesDone}/${sitesTotal} sites`
+          : `${sitesDone}/${sitesTotal} sites`;
+        const pct = kwTotal
+          ? Math.round((kwReady / kwTotal) * 100)
+          : sitesTotal
+            ? Math.round((sitesDone / sitesTotal) * 100)
+            : 0;
         setProgress({
           label: 'Checking ranks (Standard queue)…',
-          detail: `${i + 1}/${sites.length} · ${label}`,
-          pct: Math.round(((i + 0.5) / sites.length) * 100),
+          detail,
+          pct,
         });
-        try {
-          const result = await api(`/api/sites/${encodeURIComponent(s.id)}/rank-check`, {
-            method: 'POST',
-            body: JSON.stringify({}),
-          });
-          costUsd += Number(result.costUsd) || 0;
-          if (result.ok) checked += 1;
-          else {
-            failed += 1;
-            errors.push(`${label}: ${result.error || 'finished with errors'}`);
-          }
-        } catch (error) {
-          failed += 1;
-          errors.push(`${label}: ${error.message || error}`);
+      };
+      try {
+        timer = setInterval(() => {
+          api('/api/ranks/progress')
+            .then((progress) => {
+              if (progress?.running) paint(progress);
+            })
+            .catch(() => {});
+        }, 2000);
+        const result = await api('/api/ranks/sync', {
+          method: 'POST',
+          body: JSON.stringify({ siteIds: sites.map((site) => site.id) }),
+        });
+        checked = Number(result.checked) || 0;
+        failed = Number(result.failed) || 0;
+        costUsd = Number(result.costUsd) || 0;
+        for (const row of result.results || []) {
+          if (row.ok) continue;
+          errors.push(`${row.domain || row.siteId}: ${row.error || 'finished with errors'}`);
         }
-        setProgress({
-          label: 'Checking ranks (Standard queue)…',
-          detail: `${i + 1}/${sites.length} · ${label}`,
-          pct: Math.round(((i + 1) / sites.length) * 100),
-        });
+        await loadSites();
+      } finally {
+        if (timer) clearInterval(timer);
       }
-      await loadSites();
     },
   );
   await showModal({
@@ -22050,6 +23470,8 @@ async function checkSitesRanksSequential(siteList) {
     }`,
   });
 }
+
+const INDEX_CHECK_CONCURRENCY = 4;
 
 async function checkSitesIndexSequential(siteList) {
   const sites = siteList || sitesMetricsEligible();
@@ -22075,16 +23497,30 @@ async function checkSitesIndexSequential(siteList) {
       pct: 0,
     },
     async ({ setProgress }) => {
-      for (let i = 0; i < sites.length; i += 1) {
-        const s = sites[i];
-        const label = siteMetricsDomainLabel(s);
+      const running = [];
+      let cursor = 0;
+      let done = 0;
+      let stop = false;
+
+      const paint = () => {
+        const names = running.map((job) => job.label).join(', ');
+        const inflight = running.length
+          ? ` · ${running.length} running${names ? ` · ${names}` : ''}`
+          : '';
         setProgress({
           label: 'Checking index…',
-          detail: `${i + 1}/${sites.length} · ${label}`,
-          pct: Math.round(((i + 0.5) / sites.length) * 100),
+          detail: `${done}/${sites.length}${inflight}`,
+          pct: Math.round((done / sites.length) * 100),
         });
+      };
+
+      const runOne = async (site) => {
+        const label = siteMetricsDomainLabel(site);
+        const job = { label };
+        running.push(job);
+        paint();
         try {
-          const result = await api(`/api/sites/${encodeURIComponent(s.id)}/index-check`, {
+          const result = await api(`/api/sites/${encodeURIComponent(site.id)}/index-check`, {
             method: 'POST',
             body: JSON.stringify({}),
           });
@@ -22097,18 +23533,30 @@ async function checkSitesIndexSequential(siteList) {
           }
         } catch (error) {
           if (isGscAuthRevokedError(error)) {
-            authRevoked = error;
-            break;
+            if (!authRevoked) authRevoked = error;
+            stop = true;
+            return;
           }
           failed += 1;
           errors.push(`${label}: ${error.message || error}`);
+        } finally {
+          const idx = running.indexOf(job);
+          if (idx >= 0) running.splice(idx, 1);
+          done += 1;
+          paint();
         }
-        setProgress({
-          label: 'Checking index…',
-          detail: `${i + 1}/${sites.length} · ${label}`,
-          pct: Math.round(((i + 1) / sites.length) * 100),
-        });
-      }
+      };
+
+      const worker = async () => {
+        while (!stop && cursor < sites.length) {
+          const site = sites[cursor];
+          cursor += 1;
+          await runOne(site);
+        }
+      };
+
+      const workers = Math.min(INDEX_CHECK_CONCURRENCY, sites.length);
+      await Promise.all(Array.from({ length: workers }, () => worker()));
       await loadSites();
     },
   );
@@ -22130,26 +23578,86 @@ async function checkSitesIndexSequential(siteList) {
   });
 }
 
-async function loadSites() {
-  const data = await api('/api/sites');
-  state.sites = data.sites || [];
-  state.launchedGroups = data.groups || [];
-  const knownSiteIds = new Set(state.sites.map((s) => s.id));
-  for (const id of [...state.selectedSiteIds]) {
-    if (!knownSiteIds.has(id)) state.selectedSiteIds.delete(id);
+let sitesLoadInFlight = null;
+
+function sitesTableHasRows() {
+  return Boolean(document.querySelector('#sites-table tbody tr[data-id]'));
+}
+
+function setSitesTableLoading(visible) {
+  const wrap = document.querySelector('#view-sites .sites-table-wrap');
+  const card = document.getElementById('sites-table-loading');
+  if (wrap) wrap.classList.toggle('is-loading', Boolean(visible));
+  if (!card) return;
+  card.classList.toggle('hidden', !visible);
+  card.hidden = !visible;
+  card.setAttribute('aria-busy', visible ? 'true' : 'false');
+}
+
+function renderSitesLoadError(message) {
+  setSitesTableLoading(false);
+  const table = document.getElementById('sites-table');
+  const tbody = table?.querySelector('tbody');
+  const thead = table?.querySelector('thead');
+  if (thead) thead.innerHTML = '';
+  if (tbody) {
+    const detail = String(message || 'Unknown error');
+    tbody.innerHTML = `<tr><td class="muted">Could not load launched sites. ${esc(detail)}</td></tr>`;
   }
-  state.siteStatuses = data.statuses || [];
-  state.sitePaymentMethods = data.paymentMethods || [];
-  state.siteBillingCycles = data.billingCycles || [];
-  state.gscStatus = data.gsc || null;
-  state.sitesPortfolio = data.portfolio || { traffic: [], ranks: [] };
-  fillSitesStateFilter();
-  fillLaunchedGroupSelects();
-  fillZoneNumberFilters();
-  renderSitesGscStatus();
-  renderSitesPortfolioCharts();
-  renderSitesTable();
-  renderSitesDetail();
+  const countEl = document.getElementById('sites-filter-count');
+  if (countEl) countEl.textContent = '';
+}
+
+async function loadSites() {
+  if (sitesLoadInFlight) return sitesLoadInFlight;
+  const showPlaceholder = !sitesTableHasRows();
+  if (showPlaceholder) {
+    setSitesTableLoading(true);
+    const countEl = document.getElementById('sites-filter-count');
+    if (countEl) countEl.textContent = 'Loading…';
+  } else {
+    const countEl = document.getElementById('sites-filter-count');
+    if (countEl) countEl.textContent = 'Refreshing…';
+  }
+  sitesLoadInFlight = (async () => {
+    try {
+      const data = await api('/api/sites');
+      state.sites = data.sites || [];
+      state.launchedGroups = data.groups || [];
+      const knownSiteIds = new Set(state.sites.map((s) => s.id));
+      for (const id of [...state.selectedSiteIds]) {
+        if (!knownSiteIds.has(id)) state.selectedSiteIds.delete(id);
+      }
+      state.siteStatuses = data.statuses || [];
+      state.sitePaymentMethods = data.paymentMethods || [];
+      state.siteBillingCycles = data.billingCycles || [];
+      state.gscStatus = data.gsc || null;
+      state.sitesPortfolio = data.portfolio || { traffic: [], ranks: [] };
+      setSitesTableLoading(false);
+      fillSitesStateFilter();
+      fillLaunchedGroupSelects();
+      fillZoneNumberFilters();
+      renderSitesGscStatus();
+      renderSitesPortfolioCharts();
+      renderSitesTable();
+      renderSitesDetail();
+    } catch (error) {
+      setSitesTableLoading(false);
+      if (showPlaceholder) {
+        renderSitesLoadError(error?.message);
+      } else {
+        try {
+          renderSitesTable();
+        } catch {
+          /* keep the rows already on screen */
+        }
+      }
+      throw error;
+    } finally {
+      sitesLoadInFlight = null;
+    }
+  })();
+  return sitesLoadInFlight;
 }
 
 function fillSitesStateFilter() {
@@ -22322,8 +23830,7 @@ function renderGscQueriesTableHtml(s) {
   const queries = gsc.topQueries || [];
   const pages = gsc.topPages || [];
   return `
-      <h3 class="sites-kw-heading">GSC queries (28d)</h3>
-      <p class="muted small">Queries that earned impressions. Empty on new domains until Google has search traffic. Coverage / “why not indexed” reasons are GSC UI only. Use <strong>Check index</strong> for sitemap URL status.</p>
+      <h3 class="sites-kw-heading heading-with-info"><span>GSC queries (28d)</span><button type="button" class="tip-info" data-tip="Queries that earned impressions. Empty until Google has search traffic. Coverage reasons are in Google Search Console. Use Check index for sitemap URLs." aria-label="About GSC queries">i</button></h3>
       <div class="sites-gsc-table-wrap">
         <table class="sites-gsc-table">
           <thead><tr><th>Query</th><th>Clicks</th><th>Impr</th><th>CTR</th><th>Pos</th></tr></thead>
@@ -22643,7 +24150,7 @@ async function publishSitePhoneFromSites(s) {
         bodyHtml: `<p>Stage → Assemble finished${
           buildOk ? '' : ' (build reported a problem — check Website)'
         }. Assembled site-config includes the new phone.</p>
-          <p>This listing is <strong>not live yet</strong>. Finish first go-live with <strong>Website → Run launch</strong> (domain / email / Web3Forms). Launch is not run from Launched.</p>`,
+          <p>This listing is <strong>not live yet</strong>. Finish first go-live with <strong>Website → Run launch</strong> (domain / email). Launch is not run from Launched.</p>`,
       });
       if (goWebsite) {
         setView('website-builder');
@@ -22677,7 +24184,7 @@ async function publishSitePhoneFromSites(s) {
       hideCancel: true,
       bodyHtml: `<p>Stage → Assemble complete for <code>${esc(id)}</code>.</p>
         <p>${esc(shipLine)}</p>
-        <p class="muted small">Live CTAs should show <code>${esc(s.phoneTracking?.e164 || s.phone || '')}</code> after Cloudflare finishes the deploy.</p>`,
+        <p class="muted small">Live CTAs should show <code>${esc(formatDisplayPhone(s.phoneTracking?.e164 || s.phone || ''))}</code> after Cloudflare finishes the deploy.</p>`,
     });
   } catch (error) {
     await showModal({
@@ -22727,9 +24234,9 @@ function renderSitesDetail() {
     <div class="sites-detail-head">
       <div class="sites-detail-head-main">
         <h2>${esc(s.businessName || s.niche || s.domain || 'Site')}</h2>
-        <p class="muted">${esc([s.city, s.state].filter(Boolean).join(', '))}${
-          s.candidateId ? ` · <code>${esc(s.candidateId)}</code>` : ''
-        }</p>
+        <p class="muted"${
+          s.candidateId ? ` data-tip="Candidate ${esc(s.candidateId)}"` : ''
+        }>${esc([s.city, s.state].filter(Boolean).join(', ') || '—')}</p>
       </div>
       ${
         s.candidateId
@@ -22742,7 +24249,6 @@ function renderSitesDetail() {
     <div class="sites-detail-links muted small">
       ${s.liveUrl ? `<a href="${esc(s.liveUrl)}" target="_blank" rel="noopener">Live</a>` : ''}
       ${s.cloudflareDashboardUrl ? `<a href="${esc(s.cloudflareDashboardUrl)}" target="_blank" rel="noopener">Cloudflare</a>` : ''}
-      ${s.web3FormsDashboardUrl ? `<a href="${esc(s.web3FormsDashboardUrl)}" target="_blank" rel="noopener">Web3Forms</a>${s.web3FormsAccessKeySet ? ' · key set' : ' · no key'}` : ''}
       ${s.githubRepoUrl ? `<a href="${esc(s.githubRepoUrl)}" target="_blank" rel="noopener">GitHub</a>` : ''}
       ${
         s.gscPropertyUrl
@@ -22752,9 +24258,9 @@ function renderSitesDetail() {
     </div>
     ${
       s.web3FormsRecipient
-        ? `<p class="muted small">Web3Forms recipient: <code id="sites-w3-recipient">${esc(s.web3FormsRecipient)}</code>
+        ? `<p class="muted small sites-w3-recipient"><code id="sites-w3-recipient">${esc(s.web3FormsRecipient)}</code>
            <button type="button" class="btn btn-sm" id="sites-w3-copy">Copy</button>
-           Set Recipient Emails to this address — not the Web3Forms account Gmail. Cloudflare then forwards to the Email Routing destination.</p>`
+           <button type="button" class="tip-info" data-tip="Public leads@ address. Rover emails the routing destination from this address." aria-label="About leads address">i</button></p>`
         : ''
     }
     ${
@@ -22799,8 +24305,8 @@ function renderSitesDetail() {
         <button type="button" class="btn primary btn-sm" id="sites-kw-save">Save keywords</button>
         <button type="button" class="btn btn-sm" id="sites-kw-add">Add keyword</button>
         <button type="button" class="btn btn-sm" id="sites-rank-check-one">Check ranks</button>
-        <button type="button" class="btn btn-sm" id="sites-index-check-one">Check index</button>
-        <button type="button" class="btn btn-sm" id="sites-gsc-sync-one">Sync GSC</button>
+        <button type="button" class="btn btn-sm" id="sites-index-check-one"${gscSignedIn() && !state.sitesMetricsBusy ? '' : ' disabled'}>Check index</button>
+        <button type="button" class="btn btn-sm" id="sites-gsc-sync-one"${gscSignedIn() && !state.sitesMetricsBusy ? '' : ' disabled'}>Sync GSC</button>
       </div>
     </div>
     <form id="sites-edit-form" class="sites-edit-form">
@@ -22829,7 +24335,7 @@ function renderSitesDetail() {
       </div>
       <div class="sites-field-row">
         <label>Email <input name="renterEmail" type="email" value="${esc(r.email || '')}" /></label>
-        <label>Phone <input name="renterPhone" type="text" value="${esc(r.phone || '')}" /></label>
+        <label>Phone <input name="renterPhone" type="text" value="${esc(formatDisplayPhone(r.phone || ''))}" /></label>
       </div>
       <label class="sites-field-span">Renter notes <textarea name="renterNotes" rows="2">${esc(r.notes || '')}</textarea></label>
       <label class="sites-field-span">Site notes <textarea name="notes" rows="2">${esc(s.notes || '')}</textarea></label>
@@ -22837,27 +24343,21 @@ function renderSitesDetail() {
         <button type="submit" class="btn primary">Save</button>
       </div>
     </form>
-    <p class="muted small sites-nap-line">Site NAP: ${esc(s.phone || '—')} · ${esc(s.email || '—')}${
-      s.launchCostUsd != null ? ` · Launch costs ~${esc(formatMoney(s.launchCostUsd))}` : ''
-    }</p>
+    <p class="muted small sites-nap-line"${
+      s.launchCostUsd != null ? ` data-tip="Launch costs ~${esc(formatMoney(s.launchCostUsd))}"` : ''
+    }>Site NAP: ${esc(formatDisplayPhone(s.phone || '—'))} · ${esc(s.email || '—')}</p>
     <div class="sites-phone-tracking">
       <h3>Phone tracking</h3>
       ${
         s.phoneTracking?.provider === 'twilio' && s.phoneTracking?.e164
-          ? `<p class="muted small">Twilio <code>${esc(s.phoneTracking.e164)}</code>${
+          ? `<p class="muted small">${esc(formatDisplayPhone(s.phoneTracking.e164))}${
               s.phoneTracking.phase ? ` · ${esc(s.phoneTracking.phase)}` : ''
-            }${
-              s.phoneTracking.provisionedAt
-                ? ` · ${esc(String(s.phoneTracking.provisionedAt).slice(0, 10))}`
-                : ''
-            }${
+            } · ${
               s.phoneTracking.forwardTo
-                ? ` · → ${esc(s.phoneTracking.forwardTo)}`
-                : s.phoneTracking.phase === 'ranking'
-                  ? ' · voicemail'
-                  : ''
+                ? esc(formatDisplayPhone(s.phoneTracking.forwardTo))
+                : 'voicemail'
             }</p>`
-          : `<p class="muted small">No ranking DID yet (~$1.15/mo). Ranking calls take a voicemail and text <code>TWILIO_FORWARD_TO</code>.</p>`
+          : `<p class="muted small">No number yet</p>`
       }
       <div class="sites-phone-actions">
         <label class="sites-phone-area muted small">
@@ -22868,7 +24368,7 @@ function renderSitesDetail() {
           !s.candidateId || (s.phoneTracking?.provider === 'twilio' && s.phoneTracking?.twilioSid)
             ? 'disabled'
             : ''
-        }>Provision</button>
+        } data-tip="Buys a local number (~$1.15/mo). Ranking calls take a voicemail and text you.">Provision</button>
         <button type="button" class="btn btn-sm" id="sites-update-site-phone" ${
           s.candidateId && s.phoneTracking?.provider === 'twilio' && s.phoneTracking?.twilioSid
             ? ''
@@ -22889,15 +24389,12 @@ function renderSitesDetail() {
       ${
         !s.candidateId
           ? `<p class="muted small">Link a candidate first (accepted site-config required).</p>`
-          : s.phoneTracking?.provider === 'twilio' && s.phoneTracking?.twilioSid
-            ? `<p class="muted small">After provision, use <strong>Update site phone</strong> to push NAP. First go-live still needs Website → Run launch.</p>`
-            : ''
+          : ''
       }
     </div>
     <div class="sites-danger-zone">
       <h3>Remove</h3>
-      <p class="muted small">Removes this listing from Launched only. Research candidate and live site are kept.</p>
-      <button type="button" class="btn danger solid" id="sites-delete-btn">Remove from Sites</button>
+      <button type="button" class="btn danger solid" id="sites-delete-btn" data-tip="Removes this Launched row only. The candidate and the live site stay.">Remove from Sites</button>
     </div>
   `;
 
@@ -23165,7 +24662,7 @@ function renderSitesDetail() {
       });
       if (!go) return;
     }
-    await openVisualEditor(s.candidateId, { api, esc, showModal });
+    await openVisualEditor(s.candidateId, { api, esc, showModal, formatDisplayPhone, phoneToE164 });
   });
 
   document.getElementById('sites-provision-twilio')?.addEventListener('click', async () => {
@@ -23199,7 +24696,7 @@ function renderSitesDetail() {
       await showModal({
         title: 'Number provisioned',
         confirmLabel: 'OK',
-        bodyHtml: `<p><strong>${esc(result.provisioned?.phone || result.provisioned?.e164 || '')}</strong> written to site-config.</p>
+        bodyHtml: `<p><strong>${esc(formatDisplayPhone(result.provisioned?.phone || result.provisioned?.e164 || ''))}</strong> written to site-config.</p>
           <p class="muted small">Next: click <strong>Update site phone number</strong> to Stage → Assemble (and Push if already live).</p>`,
       });
     } catch (error) {
@@ -23209,7 +24706,7 @@ function renderSitesDetail() {
         bodyHtml: `<p>${esc(error.message)}</p>${
           error.twilioSid
             ? `<p class="muted small">Twilio SID: <code>${esc(error.twilioSid)}</code>${
-                error.e164 ? ` · ${esc(error.e164)}` : ''
+                error.e164 ? ` · ${esc(formatDisplayPhone(error.e164))}` : ''
               }. Do not buy again until this SID is resolved in Twilio Console.</p>`
             : ''
         }`,
@@ -23224,7 +24721,7 @@ function renderSitesDetail() {
       title: 'Update site phone number?',
       confirmLabel: alreadyLive ? 'Prepare + Push' : 'Prepare package',
       bodyHtml: alreadyLive
-        ? `<p>Runs Stage → Assemble (with ship when credentials allow) and <strong>Push updates</strong> if ship did not finish — so live CTAs show <code>${esc(s.phoneTracking.e164 || s.phone || '')}</code>.</p>
+        ? `<p>Runs Stage → Assemble (with ship when credentials allow) and <strong>Push updates</strong> if ship did not finish — so live CTAs show <code>${esc(formatDisplayPhone(s.phoneTracking.e164 || s.phone || ''))}</code>.</p>
            <p class="muted small">Can take several minutes.</p>`
         : `<p>Runs Stage → Assemble so the assembled package has the new phone.</p>
            <p class="muted small">This site is not live yet — after Prepare you still need <strong>Website → Run launch</strong> for first go-live (domain / email). Launch is not run from here.</p>`,
@@ -23239,7 +24736,7 @@ function renderSitesDetail() {
     const ok = await showModal({
       title: 'Forward to renter?',
       confirmLabel: 'Update Twilio',
-      bodyHtml: `<p>Keeps the same tracking DID <code>${esc(s.phoneTracking.e164 || '')}</code> and dials <code>${esc(s.renter.phone)}</code> instead of your ranking forward.</p>
+      bodyHtml: `<p>Keeps the same tracking DID <code>${esc(formatDisplayPhone(s.phoneTracking.e164 || ''))}</code> and dials <code>${esc(formatDisplayPhone(s.renter.phone))}</code> instead of your ranking forward.</p>
         <p class="muted small">Sets phone phase to <strong>rented</strong>. Whisper still plays to whoever answers.</p>`,
     });
     if (!ok) return;
@@ -23256,7 +24753,7 @@ function renderSitesDetail() {
       await showModal({
         title: 'Forward updated',
         confirmLabel: 'OK',
-        bodyHtml: `<p>Now forwarding to <code>${esc(result.forward?.forwardTo || s.renter.phone)}</code>.</p>`,
+        bodyHtml: `<p>Now forwarding to <code>${esc(formatDisplayPhone(result.forward?.forwardTo || s.renter.phone))}</code>.</p>`,
       });
     } catch (error) {
       await showModal({
@@ -23292,7 +24789,7 @@ function renderSitesDetail() {
         businessName: fd.get('renterBusinessName'),
         contactName: fd.get('renterContactName'),
         email: fd.get('renterEmail'),
-        phone: fd.get('renterPhone'),
+        phone: phoneToE164(fd.get('renterPhone')),
         notes: fd.get('renterNotes'),
       },
     };
@@ -23331,7 +24828,7 @@ function renderSitesDetail() {
           <li>Metrics history for this site id may remain on disk (orphaned).</li>
           ${
             hasTwilio
-              ? `<li>Twilio DID <code>${esc(s.phoneTracking.e164 || s.phoneTracking.twilioSid)}</code> is <strong>not</strong> released by this action.</li>`
+              ? `<li>Twilio DID <code>${esc(formatDisplayPhone(s.phoneTracking.e164 || s.phoneTracking.twilioSid))}</code> is <strong>not</strong> released by this action.</li>`
               : ''
           }
         </ul>
@@ -23362,6 +24859,44 @@ function renderSitesDetail() {
       });
     }
   });
+  applyGscMetricsButtonState();
+}
+
+function phoneDigits(value) {
+  return String(value || '').replace(/\D/g, '');
+}
+
+function formatDisplayPhone(value) {
+  const trimmed = String(value ?? '').trim();
+  if (!trimmed || trimmed === '—' || /X/i.test(trimmed)) return trimmed;
+  const digits = phoneDigits(trimmed);
+  let national = '';
+  if (digits.length === 11 && digits.startsWith('1')) national = digits.slice(1);
+  else if (digits.length === 10) national = digits;
+  else return trimmed;
+  return `+1 ${national.slice(0, 3)}-${national.slice(3, 6)}-${national.slice(6)}`;
+}
+
+function formatNationalPhoneInput(value) {
+  const digits = phoneDigits(value);
+  const national = digits.length === 11 && digits.startsWith('1') ? digits.slice(1, 11) : digits.slice(0, 10);
+  if (national.length <= 3) return national;
+  if (national.length <= 6) return `${national.slice(0, 3)}-${national.slice(3)}`;
+  return `${national.slice(0, 3)}-${national.slice(3, 6)}-${national.slice(6, 10)}`;
+}
+
+function phoneToE164(value) {
+  const raw = String(value ?? '').trim();
+  if (!raw || /X/i.test(raw)) return raw;
+  const digits = phoneDigits(raw);
+  if (digits.length === 11 && digits.startsWith('1')) return `+${digits}`;
+  if (digits.length === 10) return `+1${digits}`;
+  if (/^\+[1-9]\d{7,14}$/.test(raw)) return raw;
+  return raw;
+}
+
+function formatPhonesInText(value) {
+  return String(value ?? '').replace(/\+1\d{10}/g, (match) => formatDisplayPhone(match));
 }
 
 function formatPhoneDuration(sec) {
@@ -23387,8 +24922,17 @@ function formatPhoneWhen(iso) {
   }
 }
 
+function phoneVoicemailSummaryIsEmpty(summary) {
+  return /^no message was left\.?$/i.test(String(summary || '').trim());
+}
+
 function phoneAnsweredLabel(call) {
-  if (call?.kind === 'voicemail') return { text: 'Voicemail', cls: 'voicemail' };
+  if (call?.kind === 'voicemail') {
+    const summary = String(call.summary || '').trim();
+    if (!summary) return { text: 'Voicemail', cls: 'voicemail' };
+    if (phoneVoicemailSummaryIsEmpty(summary)) return { text: 'Empty', cls: 'voicemail-empty' };
+    return { text: 'Message', cls: 'voicemail-message' };
+  }
   if (call?.answered === true) return { text: 'Answered', cls: 'answered' };
   if (call?.answered === false) return { text: 'Missed', cls: 'missed' };
   const st = String(call?.status || '').toLowerCase();
@@ -23641,15 +25185,18 @@ async function generatePhotoSelected() {
     baItems.push({ matchKey: id, ...prompts[id] });
     beginSlotBusy(id, null, { scroll: false });
   }
-  paintOpenaiBatchProgress(0, n);
+  const armed = paintOpenaiGenerateStart(n);
   try {
     const out = await postOpenaiGenerate(
       `/api/photo-groups/${encodeURIComponent(lib.groupId)}/generate-openai`,
       { slotKeys: slotIds, baItems, prompts },
     );
-    watchOpenaiJobList(out.jobs || [], { groupId: lib.groupId, candidateId: `photo-group:${lib.groupId}` });
-    syncOpenaiGenerateFromSnap(state.lightJobsSnap || { jobs: out.jobs || [] });
+    const jobs = out.jobs || [];
+    watchOpenaiJobList(jobs, { groupId: lib.groupId, candidateId: `photo-group:${lib.groupId}` });
+    releaseUnmatchedGenerateSlots([...slotIds, ...baIds], jobs);
+    syncOpenaiGenerateFromSnap(state.lightJobsSnap || { jobs });
   } catch (error) {
+    jobSyncedBarOn.openai = false;
     await settleSlotBusy();
     setImagesProgress(false);
     await showModal({
@@ -23658,6 +25205,8 @@ async function generatePhotoSelected() {
       hideCancel: true,
       bodyHtml: `<p>${esc(error.message)}</p>`,
     });
+  } finally {
+    if (armed) disarmOpenaiGenerateWait();
   }
 }
 
@@ -23836,11 +25385,16 @@ async function loadPhotoGroupView() {
     lib.rolePhotos = [];
     return;
   }
-  lib.view = await api(`/api/photo-groups/${encodeURIComponent(lib.groupId)}`);
-  rememberOpenaiStatus(lib.view);
-  if (lib.view?.openai) lib.flux = lib.view.openai;
-  if (lib.selectedMatchKey) {
-    await loadPhotoSwapRail();
+  beginPhotoLoading();
+  try {
+    lib.view = await api(`/api/photo-groups/${encodeURIComponent(lib.groupId)}`);
+    rememberOpenaiStatus(lib.view);
+    if (lib.view?.openai) lib.flux = lib.view.openai;
+    if (lib.selectedMatchKey) {
+      await loadPhotoSwapRail();
+    }
+  } finally {
+    endPhotoLoading();
   }
 }
 
@@ -23852,6 +25406,7 @@ async function loadPhotoView() {
     state.detail?.photoGroupNiche ||
     state.detail?.siteConfig?.niche ||
     '';
+  beginPhotoLoading();
   try {
     const data = await api(
       `/api/photo-library${preferred ? `?niche=${encodeURIComponent(preferred)}` : ''}`,
@@ -23879,6 +25434,8 @@ async function loadPhotoView() {
     if (body) {
       body.innerHTML = `<div class="empty">${esc(error.message || 'Could not load Photo')}</div>`;
     }
+  } finally {
+    endPhotoLoading();
   }
 }
 
@@ -24230,20 +25787,27 @@ function wirePhotoUi() {
         const matchKey = openaiBtn.getAttribute('data-match-key') || '';
         const card = openaiBtn.closest('.image-slot-card');
         beginSlotBusy(matchKey, card);
-        const url = isPair
-          ? `/api/photo-groups/${encodeURIComponent(lib.groupId)}/before-after/generate-openai`
-          : `/api/photo-groups/${encodeURIComponent(lib.groupId)}/slots/generate-openai`;
-        const out = await postOpenaiGenerate(url, {
-          matchKey,
-          kind: isPair ? 'pair' : 'photo',
-          ...promptBodyFromCard(card, { pair: isPair }),
-        });
-        watchOpenaiJobList(out.jobs || [{ jobId: out.jobId, slotKey: matchKey, matchKey }], {
-          groupId: lib.groupId,
-          candidateId: `photo-group:${lib.groupId}`,
-        });
-        syncOpenaiGenerateFromSnap(state.lightJobsSnap);
+        const armed = paintOpenaiGenerateStart(1);
+        try {
+          const url = isPair
+            ? `/api/photo-groups/${encodeURIComponent(lib.groupId)}/before-after/generate-openai`
+            : `/api/photo-groups/${encodeURIComponent(lib.groupId)}/slots/generate-openai`;
+          const out = await postOpenaiGenerate(url, {
+            matchKey,
+            kind: isPair ? 'pair' : 'photo',
+            ...promptBodyFromCard(card, { pair: isPair }),
+          });
+          watchOpenaiJobList(out.jobs || [{ jobId: out.jobId, slotKey: matchKey, matchKey }], {
+            groupId: lib.groupId,
+            candidateId: `photo-group:${lib.groupId}`,
+          });
+          syncOpenaiGenerateFromSnap(state.lightJobsSnap);
+        } finally {
+          if (armed) disarmOpenaiGenerateWait();
+        }
       } catch (error) {
+        jobSyncedBarOn.openai = false;
+        setImagesProgress(false);
         await settleSlotBusy();
         await showModal({
           title: 'Generate failed',
@@ -24674,69 +26238,220 @@ function wirePhotoUi() {
   });
 }
 
-let phoneLoadOverlay = 0;
+let photoLoadOverlay = 0;
 
-async function loadPhoneView() {
-  phoneLoadOverlay += 1;
+function beginPhotoLoading() {
+  photoLoadOverlay += 1;
   showAppBootLoading('Loading…');
-  const syncStatus = document.getElementById('phone-sync-status');
-  if (syncStatus) {
-    syncStatus.hidden = false;
-    syncStatus.textContent = 'Syncing from Twilio…';
+}
+
+function endPhotoLoading() {
+  photoLoadOverlay -= 1;
+  if (photoLoadOverlay <= 0) {
+    photoLoadOverlay = 0;
+    hideAppBootLoading();
   }
-  let syncError = null;
-  try {
+}
+
+/** @type {Promise<void> | null} */
+let phoneSyncInFlight = null;
+let formsSyncInFlight = null;
+const leadSync = {
+  phone: { phase: 'idle', text: '' },
+  forms: { phase: 'idle', text: '' },
+  phoneLocalReady: false,
+  formsLocalReady: false,
+};
+
+function leadSourceBusy(which) {
+  const phase = leadSync[which]?.phase;
+  return phase === 'loading' || phase === 'syncing';
+}
+
+function setLeadPanelLoading(panelId, cardId, visible) {
+  const panel = document.getElementById(panelId);
+  const card = document.getElementById(cardId);
+  if (panel) panel.classList.toggle('is-lead-loading', Boolean(visible));
+  if (!card) return;
+  card.classList.toggle('hidden', !visible);
+  card.hidden = !visible;
+  card.setAttribute('aria-busy', visible ? 'true' : 'false');
+}
+
+function paintLeadSyncPill(id, status) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const phase = status?.phase || 'idle';
+  const text = String(status?.text || '').trim();
+  const show = phase !== 'idle' && Boolean(text);
+  el.hidden = !show;
+  el.classList.toggle('hidden', !show);
+  el.dataset.state = phase === 'loading' || phase === 'syncing' ? 'working' : phase;
+  const label = el.querySelector('.lead-sync-pill-text');
+  if (label) label.textContent = text;
+}
+
+function paintLeadSync() {
+  paintLeadSyncPill('phone-sync-status', leadSync.phone);
+  paintLeadSyncPill('forms-sync-status', leadSync.forms);
+  const phoneLoading = !(state.phone.calls || []).length && leadSourceBusy('phone');
+  const formsLoading = !(state.phone.forms.submissions || []).length && leadSourceBusy('forms');
+  const combinedLoading = !leadSync.phoneLocalReady || !leadSync.formsLocalReady;
+  setLeadPanelLoading('lead-phone-table', 'phone-calls-loading', phoneLoading);
+  setLeadPanelLoading('lead-forms-table', 'forms-submissions-loading', formsLoading);
+  setLeadPanelLoading('lead-combined-panel', 'lead-combined-loading', combinedLoading);
+}
+
+function setLeadSync(which, phase, text) {
+  const wasBusy = leadSourceBusy(which);
+  leadSync[which] = { phase, text: String(text || '') };
+  paintLeadSync();
+  if (wasBusy !== leadSourceBusy(which)) {
+    if (which === 'phone') renderPhoneCalls();
+    else renderFormsTable();
+  }
+}
+
+function phoneCallsQuery(siteId = state.phone.selectedSiteId) {
+  const params = new URLSearchParams({ limit: '1000' });
+  if (siteId) params.set('siteId', siteId);
+  return `?${params.toString()}`;
+}
+
+function phoneSyncStatusText(syncRes) {
+  const n = Number(syncRes?.upserted || 0);
+  const q = Number(syncRes?.summarizedQueued || 0);
+  return n || q
+    ? `Synced ${n} call${n === 1 ? '' : 's'} from Twilio${q ? ` · ${q} summar${q === 1 ? 'y' : 'ies'} queued` : ''}`
+    : 'Synced with Twilio — no new calls in range';
+}
+
+async function loadPhoneLocal() {
+  const siteId = state.phone.selectedSiteId;
+  const [sitesRes, callsRes] = await Promise.all([
+    api('/api/phone/sites'),
+    api(`/api/phone/calls${phoneCallsQuery(siteId)}`),
+  ]);
+  if (state.phone.selectedSiteId !== siteId) return;
+  state.phone.sites = sitesRes.sites || [];
+  state.phone.calls = callsRes.calls || [];
+  state.phone.stats = callsRes.stats || sitesRes.stats || null;
+  renderPhoneSites();
+  renderPhoneStats();
+  renderPhoneCalls();
+  renderPhoneDetail();
+}
+
+async function loadPhoneCallsLocal() {
+  const siteId = state.phone.selectedSiteId;
+  const callsRes = await api(`/api/phone/calls${phoneCallsQuery(siteId)}`);
+  if (state.phone.selectedSiteId !== siteId) return;
+  state.phone.calls = callsRes.calls || [];
+  if (callsRes.stats) state.phone.stats = callsRes.stats;
+  renderPhoneSites();
+  renderPhoneStats();
+  renderPhoneCalls();
+  renderPhoneDetail();
+}
+
+function syncPhoneFromTwilio() {
+  if (phoneSyncInFlight) return phoneSyncInFlight;
+  const siteIdAtStart = state.phone.selectedSiteId;
+  setLeadSync('phone', 'syncing', 'Syncing calls…');
+  phoneSyncInFlight = (async () => {
     try {
       const syncBody = {};
-      if (state.phone.selectedSiteId) syncBody.siteId = state.phone.selectedSiteId;
+      if (siteIdAtStart) syncBody.siteId = siteIdAtStart;
       const syncRes = await api('/api/phone/sync', {
         method: 'POST',
         body: JSON.stringify(syncBody),
       });
-      if (syncStatus) {
-        const n = Number(syncRes.upserted || 0);
-        const q = Number(syncRes.summarizedQueued || 0);
-        syncStatus.textContent =
-          n || q
-            ? `Synced ${n} call${n === 1 ? '' : 's'} from Twilio${q ? ` · ${q} summar${q === 1 ? 'y' : 'ies'} queued` : ''}`
-            : 'Synced with Twilio — no new calls in range';
+      if (state.view === 'phone' && state.phone.selectedSiteId === siteIdAtStart) {
+        await loadPhoneLocal();
       }
+      setLeadSync('phone', 'done', phoneSyncStatusText(syncRes));
     } catch (error) {
-      syncError = error?.message || String(error);
-      if (syncStatus) {
-        syncStatus.textContent = `Sync skipped: ${syncError}`;
-      }
+      setLeadSync('phone', 'error', `Sync skipped: ${error?.message || error}`);
+    } finally {
+      phoneSyncInFlight = null;
     }
+  })();
+  return phoneSyncInFlight;
+}
 
-    try {
-      const sitesRes = await api('/api/phone/sites');
-      state.phone.sites = sitesRes.sites || [];
-      const q = state.phone.selectedSiteId
-        ? `?siteId=${encodeURIComponent(state.phone.selectedSiteId)}`
-        : '';
-      const callsRes = await api(`/api/phone/calls${q}`);
-      state.phone.calls = callsRes.calls || [];
-      state.phone.stats = callsRes.stats || sitesRes.stats || null;
-    } catch (error) {
-      if (syncStatus && !syncError) {
-        syncStatus.hidden = false;
-        syncStatus.textContent = error?.message || 'Failed to load calls';
-      }
-      throw error;
-    }
-
-    renderPhoneSites();
-    renderPhoneStats();
-    renderPhoneCalls();
-    renderPhoneDetail();
-    await loadPhoneGreeting().catch(() => {});
-  } finally {
-    phoneLoadOverlay -= 1;
-    if (phoneLoadOverlay <= 0) {
-      phoneLoadOverlay = 0;
-      hideAppBootLoading();
-    }
+async function loadPhoneView({ sync = true } = {}) {
+  if (!(state.phone.calls || []).length && !leadSourceBusy('phone')) {
+    leadSync.phone = { phase: 'loading', text: 'Loading calls…' };
   }
+  if (!(state.phone.forms.submissions || []).length && !leadSourceBusy('forms')) {
+    leadSync.forms = { phase: 'loading', text: 'Loading form leads…' };
+  }
+  paintLeadSync();
+  try {
+    await Promise.all([
+      loadPhoneLocal(),
+      loadFormsLocal().catch((error) => {
+        leadSync.forms = { phase: 'error', text: error?.message || 'Failed to load form leads' };
+      }),
+      loadSpamKeywordList().catch(() => {}),
+      loadPhoneGreeting().catch(() => {}),
+    ]);
+    leadSync.phoneLocalReady = true;
+    leadSync.formsLocalReady = true;
+  } catch (error) {
+    leadSync.phoneLocalReady = true;
+    leadSync.phone = { phase: 'error', text: error?.message || 'Failed to load calls' };
+    paintLeadSync();
+    renderPhoneCalls();
+    renderFormsTable();
+    renderCombinedTree();
+    throw error;
+  }
+  if (leadSync.phone.phase === 'loading') leadSync.phone = { phase: 'idle', text: '' };
+  if (leadSync.forms.phase === 'loading') leadSync.forms = { phase: 'idle', text: '' };
+  paintLeadSync();
+  renderPhoneCalls();
+  renderFormsTable();
+  renderCombinedTree();
+  syncPhoneDetailVisibility();
+  if (sync) {
+    void syncPhoneFromTwilio();
+    void syncFormsFromInbox();
+  }
+}
+
+async function loadFormsLocal() {
+  const res = await api('/api/forms/submissions');
+  state.phone.forms.submissions = res.submissions || [];
+  if (res.rollup) state.phone.rollup = res.rollup;
+  if (res.inbox) state.phone.inbox = res.inbox;
+  renderLeadModes();
+}
+
+function syncFormsFromInbox() {
+  if (formsSyncInFlight) return formsSyncInFlight;
+  setLeadSync('forms', 'syncing', 'Syncing form leads…');
+  formsSyncInFlight = (async () => {
+    try {
+      const res = await api('/api/forms/sync', { method: 'POST', body: JSON.stringify({}) });
+      state.phone.forms.submissions = res.submissions || [];
+      if (res.rollup) state.phone.rollup = res.rollup;
+      if (res.inbox) state.phone.inbox = res.inbox;
+      setLeadSync(
+        'forms',
+        res.needsSetup ? 'info' : 'done',
+        res.needsSetup
+          ? 'Forms inbox is not set up yet.'
+          : `Forms synced${res.added ? ` · ${res.added} new` : ''}`,
+      );
+      renderLeadModes();
+    } catch (error) {
+      setLeadSync('forms', 'error', `Forms sync skipped: ${error?.message || error}`);
+    } finally {
+      formsSyncInFlight = null;
+    }
+  })();
+  return formsSyncInFlight;
 }
 
 async function loadPhoneGreeting() {
@@ -24782,107 +26497,875 @@ function renderPhoneGreeting() {
   }
 }
 
-function filteredPhoneSites() {
+function phoneTwilioConfigureUrl(sid) {
+  const id = String(sid || '').trim();
+  if (!id) return '';
+  return `https://console.twilio.com/us1/develop/phone-numbers/manage/incoming/${encodeURIComponent(id)}/configure`;
+}
+
+function phoneCallInstant(call) {
+  return call?.startedAt || call?.endedAt || call?.createdAt || '';
+}
+
+function phoneSiteForCall(call) {
+  const id = String(call?.siteId || '');
+  if (!id) return null;
+  return (state.phone.sites || []).find((s) => s.id === id) || null;
+}
+
+function phoneCallHasRecording(call) {
+  return Boolean(call?.recordingSid || call?.recordingUrl);
+}
+
+function phoneNeedsSummary(call) {
+  return phoneCallHasRecording(call) && !call?.summary;
+}
+
+function phoneCallMatchesText(call) {
   const text = String(state.phone.filterText || '')
     .trim()
     .toLowerCase();
+  if (!text) return true;
+  const site = phoneSiteForCall(call);
+  const hay = [
+    site?.businessName,
+    site?.niche,
+    site?.city,
+    site?.state,
+    site?.e164,
+    site?.phase,
+    call?.from,
+    call?.to,
+    call?.summary,
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+  return hay.includes(text);
+}
+
+function phoneCallMatchesPhase(call) {
   const phase = String(state.phone.filterPhase || '').trim();
-  return (state.phone.sites || []).filter((s) => {
-    if (phase && s.phase !== phase) return false;
-    if (!text) return true;
-    const hay = `${s.businessName || ''} ${s.niche || ''} ${s.e164 || ''} ${s.city || ''} ${s.state || ''}`.toLowerCase();
-    return hay.includes(text);
+  if (!phase) return true;
+  return phoneSiteForCall(call)?.phase === phase;
+}
+
+function phoneCallMatchesNiche(call) {
+  const niche = String(state.phone.filterNiche || '');
+  if (!niche) return true;
+  return String(phoneSiteForCall(call)?.niche || '') === niche;
+}
+
+function phoneCallMatchesState(call) {
+  const st = String(state.phone.filterState || '')
+    .trim()
+    .toUpperCase();
+  if (!st) return true;
+  return (
+    String(phoneSiteForCall(call)?.state || '')
+      .trim()
+      .toUpperCase() === st
+  );
+}
+
+function phoneZoneNumber(site) {
+  const n = Number(site?.sgNumber ?? site?.shotgunSg);
+  return Number.isFinite(n) && n >= 1 ? n : 0;
+}
+
+function phoneCallMatchesZone(call) {
+  const zoneF = String(state.phone.filterZone || '');
+  if (!zoneF) return true;
+  return String(phoneZoneNumber(phoneSiteForCall(call))) === zoneF;
+}
+
+function phoneCallMatchesCluster(call) {
+  const clusterF = String(state.phone.filterCluster || '');
+  if (!clusterF) return true;
+  const key = rowClusterKey(phoneSiteForCall(call));
+  if (clusterF === '0') return !key;
+  return String(key) === clusterF;
+}
+
+function phoneCallMatchesStatus(call) {
+  const status = String(state.phone.filterStatus || '').trim();
+  if (!status) return true;
+  return phoneAnsweredLabel(call).text === status;
+}
+
+function phoneSummaryExcludeTerms() {
+  return String(state.phone.filterSummaryExclude || '')
+    .split(',')
+    .map((part) => part.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+function phoneCallMatchesSummaryExclude(call) {
+  const terms = phoneSummaryExcludeTerms();
+  if (!terms.length) return true;
+  const summary = String(call?.summary || '').toLowerCase();
+  return !terms.some((term) => summary.includes(term));
+}
+
+function phoneCallsInScope() {
+  return (state.phone.calls || []).filter(
+    (call) =>
+      phoneCallMatchesPhase(call) &&
+      phoneCallMatchesText(call) &&
+      phoneCallMatchesNiche(call) &&
+      phoneCallMatchesState(call) &&
+      phoneCallMatchesZone(call) &&
+      phoneCallMatchesCluster(call) &&
+      phoneCallMatchesStatus(call) &&
+      phoneCallMatchesSummaryExclude(call),
+  );
+}
+
+function phoneCallIsMissed(call) {
+  return call?.kind !== 'voicemail' && phoneAnsweredLabel(call).cls === 'missed';
+}
+
+function phoneCallIsEmpty(call) {
+  return phoneAnsweredLabel(call).text === 'Empty';
+}
+
+function phoneCallIsHiddenNoise(call) {
+  return Boolean(call?.spam) || phoneCallIsEmpty(call) || phoneCallIsMissed(call);
+}
+
+function phoneSortValue(call, key) {
+  const site = phoneSiteForCall(call);
+  if (key === 'when') return phoneCallInstant(call) || null;
+  if (key === 'status') return phoneAnsweredLabel(call).text || null;
+  if (key === 'site') return site?.businessName || site?.niche || null;
+  if (key === 'city') return site?.city || null;
+  if (key === 'state') return site?.state || null;
+  if (key === 'niche') return site?.niche || null;
+  if (key === 'zone') {
+    const n = phoneZoneNumber(site);
+    return n >= 1 ? n : null;
+  }
+  if (key === 'cluster') {
+    const n = rowClusterKey(site);
+    return n >= 1 ? n : null;
+  }
+  if (key === 'phase') {
+    const phase = site?.phase;
+    return phase && phase !== 'none' ? phase : null;
+  }
+  if (key === 'launched') return site?.lastLaunchAt || null;
+  if (key === 'caller') return call?.from || null;
+  if (key === 'duration') {
+    const n = Number(call?.durationSec || call?.recordingDurationSec);
+    return Number.isFinite(n) ? n : null;
+  }
+  if (key === 'summary') return phoneSummaryPreview(call) || null;
+  return null;
+}
+
+function phoneCallsMatchingGlance(rows = phoneCallsInScope()) {
+  const glance = state.phone.glance || '';
+  if (glance === 'voicemail') return rows.filter((call) => call.kind === 'voicemail');
+  if (glance === 'missed') return rows.filter(phoneCallIsMissed);
+  if (glance === 'needs-summary') return rows.filter(phoneNeedsSummary);
+  return rows;
+}
+
+function filteredPhoneCalls() {
+  let rows = phoneCallsMatchingGlance();
+  if (!state.phone.showSpam) rows = rows.filter((call) => !phoneCallIsHiddenNoise(call));
+  const { key, dir } = state.phone.sort || { key: 'when', dir: -1 };
+  return [...rows].sort((a, b) => {
+    const av = phoneSortValue(a, key);
+    const bv = phoneSortValue(b, key);
+    if (av != null || bv != null) {
+      if (av == null) return 1;
+      if (bv == null) return -1;
+      const cmp =
+        typeof av === 'number' && typeof bv === 'number'
+          ? (av - bv) * dir
+          : String(av).localeCompare(String(bv), undefined, { sensitivity: 'base' }) * dir;
+      if (cmp) return cmp;
+    }
+    return String(phoneCallInstant(b)).localeCompare(String(phoneCallInstant(a)));
   });
 }
 
+function formatPhoneRelative(iso) {
+  const t = Date.parse(iso || '');
+  if (!Number.isFinite(t)) return '—';
+  const sec = Math.round((Date.now() - t) / 1000);
+  if (sec < 45) return 'just now';
+  const min = Math.round(sec / 60);
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.round(min / 60);
+  if (hr < 36) return `${hr}h ago`;
+  const day = Math.round(hr / 24);
+  if (day < 14) return `${day}d ago`;
+  return formatPhoneWhen(iso);
+}
+
+function phoneSummaryPreview(call) {
+  const line =
+    String(call?.summary || '')
+      .split(/\r?\n/)
+      .map((part) => part.trim())
+      .find(Boolean) || '';
+  if (!line) return '';
+  return line.replace(/\s+/g, ' ');
+}
+
+function phoneSiteOptionLabel(site) {
+  const name = site.businessName || site.niche || site.id;
+  const place = [site.city, site.state].filter(Boolean).join(', ');
+  return place ? `${name} · ${place}` : name;
+}
+
+function fillPhoneFilterSelect(id, current, options, onClear) {
+  const sel = document.getElementById(id);
+  if (!sel) return;
+  const blank = sel.querySelector('option[value=""]');
+  const label = blank ? blank.textContent : '';
+  const opts = [`<option value="">${esc(label)}</option>`];
+  for (const opt of options) {
+    opts.push(`<option value="${esc(opt.value)}">${esc(opt.label)}</option>`);
+  }
+  sel.innerHTML = opts.join('');
+  const ok = !current || options.some((opt) => String(opt.value) === String(current));
+  if (!ok) {
+    onClear();
+    sel.value = '';
+  } else {
+    sel.value = current || '';
+  }
+}
+
 function renderPhoneSites() {
-  const root = document.getElementById('phone-sites-list');
-  if (!root) return;
-  const rows = filteredPhoneSites();
-  const allActive = !state.phone.selectedSiteId;
-  const parts = [
-    `<button type="button" class="phone-site-row${allActive ? ' active' : ''}" data-phone-site="">
-      <span class="phone-site-name">All sites</span>
-      <span class="phone-site-meta muted small">Portfolio scope</span>
-    </button>`,
-  ];
-  for (const s of rows) {
-    const st = s.stats || {};
-    const active = state.phone.selectedSiteId === s.id ? ' active' : '';
-    parts.push(`<button type="button" class="phone-site-row${active}" data-phone-site="${esc(s.id)}">
-      <span class="phone-site-name">${esc(s.businessName || s.niche || s.id)}</span>
-      <span class="phone-site-meta muted small">${esc(s.e164 || '—')} · ${esc(s.phase || '—')}</span>
-      <span class="phone-site-meta muted small">${Number(st.answered || 0)} answered · ${Number(st.missed || 0)} missed</span>
-    </button>`);
+  const sel = document.getElementById('phone-filter-site');
+  if (!sel) return;
+  const current = state.phone.selectedSiteId || '';
+  const sites = [...(state.phone.sites || [])].sort((a, b) =>
+    phoneSiteOptionLabel(a).localeCompare(phoneSiteOptionLabel(b), undefined, { sensitivity: 'base' }),
+  );
+  const opts = ['<option value="">All sites</option>'];
+  for (const site of sites) {
+    opts.push(`<option value="${esc(site.id)}">${esc(phoneSiteOptionLabel(site))}</option>`);
   }
-  if (!rows.length) {
-    parts.push(`<p class="muted small" style="padding:0.5rem">No Twilio DIDs yet — provision from Launched.</p>`);
+  sel.innerHTML = opts.join('');
+  sel.value = sites.some((site) => site.id === current) ? current : '';
+  if (sel.value !== current) state.phone.selectedSiteId = sel.value || null;
+
+  const niches = [...new Set(sites.map((site) => String(site.niche || '').trim()).filter(Boolean))].sort((a, b) =>
+    a.localeCompare(b, undefined, { sensitivity: 'base' }),
+  );
+  const states = [...new Set(sites.map((site) => String(site.state || '').trim().toUpperCase()).filter(Boolean))].sort();
+  const zones = [...new Set(sites.map((site) => phoneZoneNumber(site)).filter(Boolean))].sort((a, b) => a - b);
+  const clusters = [...new Set(sites.map((site) => rowClusterKey(site)).filter(Boolean))].sort((a, b) => a - b);
+  const hasUnassigned = sites.some((site) => !rowClusterKey(site));
+  fillPhoneFilterSelect(
+    'phone-filter-niche',
+    state.phone.filterNiche,
+    niches.map((value) => ({ value, label: value })),
+    () => {
+      state.phone.filterNiche = '';
+    },
+  );
+  fillPhoneFilterSelect(
+    'phone-filter-state',
+    state.phone.filterState,
+    states.map((value) => ({ value, label: value })),
+    () => {
+      state.phone.filterState = '';
+    },
+  );
+  fillPhoneFilterSelect(
+    'phone-filter-zone',
+    state.phone.filterZone,
+    zones.map((n) => ({ value: String(n), label: formatZnDisplay(n) })),
+    () => {
+      state.phone.filterZone = '';
+    },
+  );
+  fillPhoneFilterSelect(
+    'phone-filter-cluster',
+    state.phone.filterCluster,
+    [
+      ...(hasUnassigned ? [{ value: '0', label: 'Unassigned' }] : []),
+      ...clusters.map((n) => ({ value: String(n), label: `Cluster ${n}` })),
+    ],
+    () => {
+      state.phone.filterCluster = '';
+    },
+  );
+}
+
+function spamVisibilityLabel(count, { phone = false } = {}) {
+  const noun = phone ? 'spam, empty, missed' : 'spam';
+  const verb = state.phone.showSpam ? 'Hide' : 'Show';
+  return `${verb} ${noun} (${Number(count) || 0})`;
+}
+
+function renderSpamVisibility() {
+  const hidden = !state.phone.showSpam;
+  const phoneBtn = document.getElementById('phone-spam-visibility');
+  const formsBtn = document.getElementById('forms-spam-visibility');
+  if (phoneBtn) {
+    const count = phoneCallsMatchingGlance().filter(phoneCallIsHiddenNoise).length;
+    phoneBtn.textContent = spamVisibilityLabel(count, { phone: true });
+    phoneBtn.setAttribute('aria-pressed', hidden ? 'true' : 'false');
   }
-  root.innerHTML = parts.join('');
-  root.querySelectorAll('[data-phone-site]').forEach((btn) => {
-    btn.addEventListener('click', async () => {
-      const id = btn.getAttribute('data-phone-site') || '';
-      state.phone.selectedSiteId = id || null;
-      state.phone.selectedCallId = null;
-      try {
-        await loadPhoneView();
-      } catch (error) {
-        console.warn(error);
-      }
+  if (formsBtn) {
+    const count = formSubmissionsInScope().filter((row) => row.spam).length;
+    formsBtn.textContent = spamVisibilityLabel(count);
+    formsBtn.setAttribute('aria-pressed', hidden ? 'true' : 'false');
+  }
+}
+
+function toggleSpamVisibility() {
+  state.phone.showSpam = !state.phone.showSpam;
+  renderPhoneCalls();
+  renderPhoneDetail();
+  renderFormsTable();
+  renderFormsDetail();
+}
+
+function spamLabel(isSpam) {
+  return isSpam ? ' <span class="spam-chip">Spam</span>' : '';
+}
+
+function spamToggleButton(kind, id, isSpam) {
+  const label = isSpam ? 'Not spam' : 'Mark spam';
+  return `<button type="button" class="btn btn-sm spam-toggle" data-spam-kind="${kind}" data-spam-id="${esc(id)}" data-spam-next="${isSpam ? 'false' : 'true'}">${label}</button>`;
+}
+
+function phoneCallHasMessage(call) {
+  return (
+    call?.kind === 'voicemail' &&
+    Boolean(String(call.summary || '').trim()) &&
+    !phoneVoicemailSummaryIsEmpty(call.summary)
+  );
+}
+
+function leadLabel(isLead) {
+  return isLead ? ' <span class="lead-chip">Lead</span>' : '';
+}
+
+function leadToggleButton(id, isLead) {
+  const label = isLead ? 'Not a lead' : 'Lead';
+  return `<button type="button" class="btn btn-sm lead-toggle" data-lead-id="${esc(id)}" data-lead-next="${isLead ? 'false' : 'true'}">${label}</button>`;
+}
+
+function leadControls(call, id) {
+  if (!phoneCallHasMessage(call)) return '';
+  const isLead = call.lead === true;
+  return `${leadLabel(isLead)} ${leadToggleButton(id, isLead)}`;
+}
+
+function bindSpamToggles(root) {
+  root?.querySelectorAll('.spam-toggle').forEach((btn) => {
+    btn.addEventListener('click', (event) => {
+      event.stopPropagation();
+      toggleSpamRecord(btn).catch((error) => {
+        setLeadSync('forms', 'error', error?.message || 'Could not update spam');
+      });
     });
   });
+}
+
+function bindLeadToggles(root) {
+  root?.querySelectorAll('.lead-toggle').forEach((btn) => {
+    btn.addEventListener('click', (event) => {
+      event.stopPropagation();
+      toggleLeadRecord(btn).catch((error) => {
+        setLeadSync('forms', 'error', error?.message || 'Could not update lead');
+      });
+    });
+  });
+}
+
+async function toggleSpamRecord(btn) {
+  const kind = btn.dataset.spamKind;
+  const id = btn.dataset.spamId;
+  const spam = btn.dataset.spamNext === 'true';
+  btn.disabled = true;
+  const path =
+    kind === 'call'
+      ? `/api/phone/calls/${encodeURIComponent(id)}/spam`
+      : `/api/forms/submissions/${encodeURIComponent(id)}/spam`;
+  const res = await api(path, { method: 'PATCH', body: JSON.stringify({ spam }) });
+  if (res.rollup) state.phone.rollup = res.rollup;
+  if (kind === 'call' && res.call) {
+    const idx = (state.phone.calls || []).findIndex(
+      (call) => call.id === res.call.id || call.callSid === res.call.callSid || call.id === id || call.callSid === id,
+    );
+    if (idx >= 0) state.phone.calls[idx] = res.call;
+    renderPhoneStats();
+    renderPhoneCalls();
+    renderPhoneDetail();
+  }
+  if (kind === 'form' && res.submission) {
+    const idx = (state.phone.forms.submissions || []).findIndex((row) => row.id === res.submission.id);
+    if (idx >= 0) state.phone.forms.submissions[idx] = res.submission;
+    renderFormsTable();
+    renderFormsDetail();
+  }
+  renderCombinedStats();
+  renderCombinedTree();
+}
+
+async function toggleLeadRecord(btn) {
+  const id = btn.dataset.leadId;
+  const lead = btn.dataset.leadNext === 'true';
+  btn.disabled = true;
+  const res = await api(`/api/phone/calls/${encodeURIComponent(id)}/lead`, {
+    method: 'PATCH',
+    body: JSON.stringify({ lead }),
+  });
+  if (res.rollup) state.phone.rollup = res.rollup;
+  if (res.call) {
+    const idx = (state.phone.calls || []).findIndex(
+      (call) => call.id === res.call.id || call.callSid === res.call.callSid || call.id === id || call.callSid === id,
+    );
+    if (idx >= 0) state.phone.calls[idx] = res.call;
+    renderPhoneStats();
+    renderPhoneCalls();
+    renderPhoneDetail();
+  }
+  renderCombinedStats();
+  renderCombinedTree();
+}
+
+function renderSpamKeywords() {
+  const btn = document.getElementById('spam-keywords-btn');
+  if (!btn) return;
+  const count = (state.phone.spamKeywords || []).length;
+  btn.textContent = `Spam keywords (${count})`;
+}
+
+function spamKeywordRowHtml(value = '') {
+  return `<div class="spam-keyword-row">
+    <input type="text" maxlength="80" value="${esc(value)}" autocomplete="off" spellcheck="false" aria-label="Spam phrase" />
+    <button type="button" class="btn btn-sm" data-spam-remove>Remove</button>
+  </div>`;
+}
+
+function bindSpamKeywordEditor(root) {
+  const rows = root.querySelector('#spam-keyword-rows');
+  const addRow = () => {
+    if (!rows) return;
+    rows.insertAdjacentHTML('beforeend', spamKeywordRowHtml(''));
+    rows.querySelector('.spam-keyword-row:last-child input')?.focus();
+  };
+  root.querySelector('#spam-keyword-add')?.addEventListener('click', addRow);
+  rows?.addEventListener('click', (event) => {
+    const btn = event.target.closest('[data-spam-remove]');
+    if (!btn) return;
+    btn.closest('.spam-keyword-row')?.remove();
+  });
+  rows?.addEventListener('keydown', (event) => {
+    if (event.key !== 'Enter' || !event.target.matches('input')) return;
+    event.preventDefault();
+    addRow();
+  });
+}
+
+async function openSpamKeywordEditor() {
+  const rows = (state.phone.spamKeywords || []).map((keyword) => spamKeywordRowHtml(keyword)).join('');
+  const saved = await showModal({
+    title: 'Spam keywords',
+    confirmLabel: 'Save',
+    cancelLabel: 'Cancel',
+    bodyHtml: `<div id="spam-keyword-editor" class="spam-keyword-editor">
+      <div id="spam-keyword-rows" class="spam-keyword-rows">${rows}</div>
+      <button type="button" class="btn btn-sm" id="spam-keyword-add">Add phrase</button>
+      <p class="muted small">Phrases match whole words, ignoring case. Empty rows are dropped on save.</p>
+    </div>`,
+    afterOpen: bindSpamKeywordEditor,
+  });
+  if (!saved) return;
+  const editor = document.getElementById('spam-keyword-rows');
+  if (!editor) return;
+  const phrases = [...editor.querySelectorAll('input')].map((input) => input.value);
+  await saveSpamKeywordList(phrases);
+}
+
+async function loadSpamKeywordList() {
+  const res = await api('/api/spam-keywords');
+  state.phone.spamKeywords = res.keywords || [];
+  renderSpamKeywords();
+}
+
+async function saveSpamKeywordList(keywords) {
+  const res = await api('/api/spam-keywords', {
+    method: 'PUT',
+    body: JSON.stringify({ keywords }),
+  });
+  state.phone.spamKeywords = res.keywords || [];
+  if (res.rollup) state.phone.rollup = res.rollup;
+  if (res.submissions) state.phone.forms.submissions = res.submissions;
+  renderSpamKeywords();
+  await loadPhoneCallsLocal();
+  renderLeadModes();
+  showToast(
+    res.synced
+      ? 'Spam keywords saved.'
+      : `Spam keywords saved here.${res.syncError ? ` Live sites were not updated: ${res.syncError}` : ' Live sites were not updated.'}`,
+    { tone: res.synced ? 'ok' : 'warn' },
+  );
 }
 
 function renderPhoneStats() {
   const strip = document.getElementById('phone-stats-strip');
-  const label = document.getElementById('phone-scope-label');
-  if (label) {
-    if (!state.phone.selectedSiteId) label.textContent = 'All sites';
-    else {
-      const site = (state.phone.sites || []).find((s) => s.id === state.phone.selectedSiteId);
-      label.textContent = site?.businessName || site?.niche || state.phone.selectedSiteId;
-    }
-  }
   if (!strip) return;
-  const st = state.phone.stats || {};
-  const rate = st.answerRate != null ? `${Math.round(Number(st.answerRate) * 100)}%` : '—';
-  strip.innerHTML = `
-    <span>Answered <strong>${Number(st.answered || 0)}</strong></span>
-    <span>Missed <strong>${Number(st.missed || 0)}</strong></span>
-    <span>Answer rate <strong>${esc(rate)}</strong></span>
-    <span>Talk min <strong>${Number(st.talkMinutes || 0)}</strong></span>
-    <span>Summaries <strong>${Number(st.withSummary || 0)}</strong></span>
-  `;
+  const scope = phoneCallsInScope().filter((call) => !call.spam);
+  const counts = {
+    voicemail: scope.filter((call) => call.kind === 'voicemail').length,
+    missed: scope.filter(phoneCallIsMissed).length,
+    'needs-summary': scope.filter(phoneNeedsSummary).length,
+  };
+  const buttons = [
+    ['voicemail', 'Voicemail'],
+    ['missed', 'Missed'],
+    ['needs-summary', 'Needs summary'],
+  ];
+  strip.innerHTML = buttons
+    .map(([id, label]) => {
+      const active = state.phone.glance === id ? ' is-active' : '';
+      const pressed = state.phone.glance === id ? 'true' : 'false';
+      return `<button type="button" class="phone-glance-btn${active}" data-phone-glance="${id}" aria-pressed="${pressed}">${label} <strong>${counts[id]}</strong></button>`;
+    })
+    .join('');
+}
+
+function phoneCell(value) {
+  const text = String(value ?? '').trim();
+  return text ? esc(text) : '—';
+}
+
+const PHONE_CALL_COLS = [
+  { key: 'when', label: 'When' },
+  { key: 'status', label: 'Status' },
+  { key: 'site', label: 'Site' },
+  { key: 'city', label: 'City' },
+  { key: 'state', label: 'State' },
+  { key: 'niche', label: 'Niche' },
+  { key: 'zone', label: 'Zone' },
+  { key: 'cluster', label: 'Cluster' },
+  { key: 'phase', label: 'Phase' },
+  { key: 'launched', label: 'Launched' },
+  { key: 'caller', label: 'Caller' },
+  { key: 'duration', label: 'Duration' },
+  { key: 'summary', label: 'Summary' },
+];
+
+function renderPhoneCallHeaders() {
+  const thead = document.querySelector('#phone-calls-table thead');
+  if (!thead) return;
+  const { key: sortKey, dir } = state.phone.sort || { key: 'when', dir: -1 };
+  thead.innerHTML = `<tr>${PHONE_CALL_COLS.map((col) => {
+    const arrow = sortKey === col.key ? (dir > 0 ? ' ↑' : ' ↓') : '';
+    return `<th class="sortable" data-sort="${esc(col.key)}">${esc(col.label)}${arrow}</th>`;
+  }).join('')}</tr>`;
+  thead.querySelectorAll('th.sortable').forEach((th) => {
+    th.addEventListener('click', () => {
+      const key = th.dataset.sort;
+      if (state.phone.sort?.key === key) state.phone.sort.dir *= -1;
+      else state.phone.sort = { key, dir: key === 'when' || key === 'launched' ? -1 : 1 };
+      renderPhoneCalls();
+    });
+  });
 }
 
 function renderPhoneCalls() {
-  const tbody = document.querySelector('#phone-calls-table tbody');
+  const list = document.getElementById('phone-calls-list');
   const empty = document.getElementById('phone-calls-empty');
-  if (!tbody) return;
-  const calls = state.phone.calls || [];
-  if (empty) empty.classList.toggle('hidden', calls.length > 0);
-  tbody.innerHTML = calls
-    .map((c) => {
-      const chip = phoneAnsweredLabel(c);
-      const when = formatPhoneWhen(c.endedAt || c.startedAt || c.createdAt || c.updatedAt);
-      const active = state.phone.selectedCallId === c.id || state.phone.selectedCallId === c.callSid;
-      return `<tr data-call-id="${esc(c.id || c.callSid)}" class="${active ? 'active' : ''}">
-        <td>${esc(when)}</td>
-        <td>${esc(c.from || '—')}</td>
-        <td><span class="phone-status-chip ${chip.cls}">${esc(chip.text)}</span></td>
-        <td>${esc(formatPhoneDuration(c.durationSec || c.recordingDurationSec))}</td>
-        <td>${c.summary ? '✓' : c.error ? '!' : '—'}</td>
+  const table = document.getElementById('phone-calls-table');
+  if (!list) return;
+  renderPhoneCallHeaders();
+  const calls = filteredPhoneCalls();
+  const visibleIds = new Set(calls.map((call) => call.id || call.callSid));
+  if (state.phone.selectedCallId && !visibleIds.has(state.phone.selectedCallId)) {
+    state.phone.selectedCallId = null;
+    renderPhoneDetail();
+  }
+  if (empty) {
+    const noSites = !(state.phone.sites || []).length;
+    const spamHidden =
+      !state.phone.showSpam && phoneCallsMatchingGlance().some(phoneCallIsHiddenNoise);
+    const filtered = Boolean(
+      state.phone.glance ||
+        state.phone.filterText ||
+        state.phone.filterPhase ||
+        state.phone.filterNiche ||
+        state.phone.filterState ||
+        state.phone.filterZone ||
+        state.phone.filterCluster ||
+        state.phone.filterStatus ||
+        phoneSummaryExcludeTerms().length ||
+        spamHidden,
+    );
+    const waiting = !(state.phone.calls || []).length && leadSourceBusy('phone');
+    empty.textContent = noSites
+      ? 'No Twilio numbers yet — provision from Launched.'
+      : filtered
+        ? 'No calls match these filters.'
+        : 'No calls yet for this scope.';
+    empty.classList.toggle('hidden', calls.length > 0 || waiting);
+  }
+  table?.classList.toggle('hidden', calls.length === 0);
+  const wrap = list.closest('.phone-calls-wrap');
+  const scrollTop = wrap?.scrollTop || 0;
+  list.innerHTML = calls
+    .map((call) => {
+      const id = call.id || call.callSid;
+      const chip = phoneAnsweredLabel(call);
+      const site = phoneSiteForCall(call);
+      const whenIso = phoneCallInstant(call);
+      const active =
+        state.phone.selectedCallId === call.id || state.phone.selectedCallId === call.callSid
+          ? ' active'
+          : '';
+      const name = site?.businessName || site?.niche || 'Unknown site';
+      const preview = formatPhonesInText(phoneSummaryPreview(call));
+      const summaryHtml = preview
+        ? `<td class="phone-call-summary"><span title="${esc(preview)}">${esc(preview)}</span></td>`
+        : `<td class="phone-call-summary is-empty"><span>No summary</span></td>`;
+      const rec = phoneCallHasRecording(call)
+        ? ` <span class="phone-rec-mark" aria-label="Recording">Rec</span>`
+        : '';
+      const zone = site ? formatZnDisplay(phoneZoneNumber(site)) : '';
+      const cluster = site ? rowClusterKey(site) : 0;
+      const phase = site?.phase && site.phase !== 'none' ? site.phase : '';
+      return `<tr class="phone-call-row${active}" data-call-id="${esc(id)}">
+        <td class="phone-call-when" title="${esc(formatPhoneWhen(whenIso))}">${esc(formatPhoneRelative(whenIso))}</td>
+        <td><span class="phone-status-chip ${chip.cls}">${esc(chip.text)}</span>${spamLabel(call.spam)} ${spamToggleButton('call', id, call.spam)}${leadControls(call, id)}</td>
+        <td class="phone-call-site">${esc(name)}</td>
+        <td>${phoneCell(site?.city)}</td>
+        <td>${phoneCell(site?.state)}</td>
+        <td>${phoneCell(site?.niche)}</td>
+        <td>${zone ? esc(zone) : '—'}</td>
+        <td>${cluster ? esc(String(cluster)) : '—'}</td>
+        <td>${phase ? esc(phase) : '—'}</td>
+        <td>${esc(formatSiteDate(site?.lastLaunchAt))}</td>
+        <td>${esc(formatDisplayPhone(call.from || '—'))}</td>
+        <td>${esc(formatPhoneDuration(call.durationSec || call.recordingDurationSec))}${rec}</td>
+        ${summaryHtml}
       </tr>`;
     })
     .join('');
-  tbody.querySelectorAll('tr[data-call-id]').forEach((tr) => {
-    tr.addEventListener('click', () => {
-      state.phone.selectedCallId = tr.getAttribute('data-call-id');
+  if (wrap) wrap.scrollTop = scrollTop;
+  list.querySelectorAll('.phone-call-row').forEach((row) => {
+    row.addEventListener('click', (event) => {
+      if (event.target.closest('.spam-toggle') || event.target.closest('.lead-toggle')) return;
+      state.phone.selectedCallId = row.getAttribute('data-call-id');
       renderPhoneCalls();
       renderPhoneDetail();
     });
   });
-  enableTableColumnResize(document.getElementById('phone-calls-table'));
+  bindSpamToggles(list);
+  bindLeadToggles(list);
+  renderSpamVisibility();
+}
+
+function leadInboxField(label, valueHtml) {
+  return `<p class="lead-inbox-field"><strong>${esc(label)}</strong> ${valueHtml}</p>`;
+}
+
+function leadInboxBlock(label, text) {
+  return `<p class="lead-inbox-field"><strong>${esc(label)}</strong></p><p class="lead-inbox-copy">${esc(text || '')}</p>`;
+}
+
+function phoneDetailMarkup(call, { includeForward = true, compact = false } = {}) {
+  const chip = phoneAnsweredLabel(call);
+  const site = phoneSiteForCall(call);
+  const hasRec = phoneCallHasRecording(call);
+  const siteName = site?.businessName || site?.niche || 'Unknown site';
+  const place = [site?.city, site?.state].filter(Boolean).join(', ');
+  const numberRaw = site?.e164 || call.to || '—';
+  const number = formatDisplayPhone(numberRaw);
+  const phase = site?.phase || '';
+  const forward = site?.forwardTo || call.forwardTo || '';
+  const forwardShown = forward ? formatDisplayPhone(forward) : '';
+  const twilioUrl = phoneTwilioConfigureUrl(site?.twilioSid);
+  const siteMeta = [number, phase, site ? `forwards to ${forwardShown || 'voicemail'}` : forwardShown ? `forwards to ${forwardShown}` : '']
+    .filter(Boolean)
+    .join(' · ');
+  const openSiteAttr = includeForward ? 'id="phone-open-site"' : 'data-phone-open-site';
+  const resummarizeAttr = includeForward ? 'id="phone-resummarize"' : 'data-phone-resummarize';
+  if (compact) {
+    return `<div class="lead-inbox-detail">
+      ${leadInboxField('Date/Time Received', esc(formatPhoneWhen(phoneCallInstant(call) || call.updatedAt)))}
+      ${leadInboxField('Caller', esc(formatDisplayPhone(call.from || '—')))}
+      ${leadInboxField('Duration', esc(formatPhoneDuration(call.durationSec || call.recordingDurationSec)))}
+      <p class="lead-inbox-actions"><span class="phone-status-chip ${chip.cls}">${esc(chip.text)}</span>
+        ${spamLabel(call.spam)}
+        ${spamToggleButton('call', call.id || call.callSid, call.spam)}${leadControls(call, call.id || call.callSid)}
+        ${
+          twilioUrl
+            ? `<a class="btn btn-sm" href="${esc(twilioUrl)}" target="_blank" rel="noopener">Open in Twilio</a>`
+            : ''
+        }
+        ${call.siteId ? `<button type="button" class="btn btn-sm" ${openSiteAttr}>Open site</button>` : ''}
+      </p>
+      ${
+        hasRec
+          ? `<audio controls preload="metadata" src="/api/phone/calls/${encodeURIComponent(call.id || call.callSid)}/recording"></audio>`
+          : `<p class="lead-inbox-field muted">No recording on this call.</p>`
+      }
+      ${
+        call.summary
+          ? leadInboxBlock('Summary', formatPhonesInText(call.summary))
+          : `<p class="lead-inbox-field"><strong>Summary</strong></p><p class="lead-inbox-copy muted">${call.error ? esc(call.error) : 'No summary yet.'}
+             <button type="button" class="btn btn-sm" ${resummarizeAttr} ${hasRec ? '' : 'disabled'}>Generate summary</button></p>`
+      }
+      <details>
+        <summary class="muted">Transcript</summary>
+        <pre class="phone-transcript">${esc(formatPhonesInText(call.transcript || '—'))}</pre>
+      </details>
+    </div>`;
+  }
+  return `
+    <div class="phone-detail-head">
+      <h2>${esc(siteName)}</h2>
+      <p class="muted small">${esc(place || '—')}</p>
+      <p class="muted small phone-detail-number">${esc(siteMeta)}${
+        twilioUrl
+          ? ` <a class="btn btn-sm"${includeForward ? ' id="phone-open-twilio"' : ''} href="${esc(twilioUrl)}" target="_blank" rel="noopener">Open in Twilio</a>`
+          : ''
+      }</p>
+    </div>
+    ${
+      includeForward && site?.id && site?.twilioSid
+        ? `<form class="phone-forward" id="phone-forward-form">
+            <label class="phone-forward-label" for="phone-forward-to">New forward number
+              <span class="phone-forward-control">
+                <span class="phone-forward-prefix">+1</span>
+                <input id="phone-forward-to" type="tel" inputmode="numeric" autocomplete="off" value="${esc(formatNationalPhoneInput(forward))}" aria-label="New forward number" />
+              </span>
+            </label>
+            <button type="submit" class="btn btn-sm" id="phone-forward-save">Save to Twilio</button>
+          </form>`
+        : ''
+    }
+    <p class="muted small">${esc(formatPhoneWhen(phoneCallInstant(call) || call.updatedAt))} · ${esc(formatDisplayPhone(call.from || '—'))}</p>
+    <p><span class="phone-status-chip ${chip.cls}">${esc(chip.text)}</span>${spamLabel(call.spam)}
+      ${spamToggleButton('call', call.id || call.callSid, call.spam)}${leadControls(call, call.id || call.callSid)}
+      · ${esc(formatPhoneDuration(call.durationSec || call.recordingDurationSec))}</p>
+    ${
+      hasRec
+        ? `<audio controls preload="metadata" src="/api/phone/calls/${encodeURIComponent(call.id || call.callSid)}/recording"></audio>`
+        : `<p class="muted small">No recording on this call.</p>`
+    }
+    <h3>Summary</h3>
+    ${
+      call.summary
+        ? `<p class="phone-summary">${esc(formatPhonesInText(call.summary))}</p>`
+        : `<p class="muted small">${call.error ? esc(call.error) : 'No summary yet — appears a few minutes after hangup when recording + webhook are configured.'}</p>
+           <button type="button" class="btn" ${resummarizeAttr} ${hasRec ? '' : 'disabled'}>Generate summary</button>`
+    }
+    <details>
+      <summary class="muted small">Transcript</summary>
+      <pre class="phone-transcript">${esc(formatPhonesInText(call.transcript || '—'))}</pre>
+    </details>
+    <div class="narrative-actions" style="margin-top:0.75rem">
+      ${
+        call.siteId
+          ? `<button type="button" class="btn" ${openSiteAttr}>Open site in Launched</button>`
+          : ''
+      }
+    </div>
+  `;
+}
+
+function bindPhoneDetail(root, call, { includeForward = true } = {}) {
+  if (!root || !call) return;
+  const site = phoneSiteForCall(call);
+  const number = formatDisplayPhone(site?.e164 || call.to || '—');
+  const forwardPhase = site?.phase === 'rented' || site?.phase === 'ranking' ? site.phase : '';
+  bindSpamToggles(root);
+  bindLeadToggles(root);
+  root.querySelector('#phone-open-site, [data-phone-open-site]')?.addEventListener('click', () => {
+    if (!call.siteId) return;
+    state.selectedSiteId = call.siteId;
+    setView('launched-sites');
+  });
+  if (includeForward) {
+    root.querySelector('#phone-forward-to')?.addEventListener('input', (e) => {
+      const next = formatNationalPhoneInput(e.target.value);
+      if (e.target.value !== next) e.target.value = next;
+    });
+    root.querySelector('#phone-forward-form')?.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      if (!site?.id) return;
+      const national = phoneDigits(root.querySelector('#phone-forward-to')?.value || '');
+      if (national.length !== 10) {
+        await showModal({
+          title: 'Enter a number',
+          confirmLabel: 'OK',
+          hideCancel: true,
+          bodyHtml: '<p>Type the 10-digit phone number this tracking number should dial.</p>',
+        });
+        return;
+      }
+      const forwardTo = `+1${national}`;
+      const ok = await showModal({
+        title: 'Update forward?',
+        confirmLabel: 'Save to Twilio',
+        bodyHtml: `<p>Keep <code>${esc(number)}</code> and dial <code>${esc(formatDisplayPhone(forwardTo))}</code>.</p>
+          <p class="muted small">Phase stays <strong>${esc(forwardPhase || site.phase || 'ranking')}</strong>. Rover updates this number’s Twilio voice webhook.</p>`,
+      });
+      if (!ok) return;
+      try {
+        const result = await api(`/api/sites/${encodeURIComponent(site.id)}/phone/forward`, {
+          method: 'POST',
+          body: JSON.stringify({
+            confirm: true,
+            forwardTo,
+            ...(forwardPhase ? { phase: forwardPhase } : {}),
+          }),
+        });
+        const row = (state.phone.sites || []).find((s) => s.id === site.id);
+        const pt = result.site?.phoneTracking || result.forward?.phoneTracking;
+        if (row) {
+          row.forwardTo = pt?.forwardTo || result.forward?.forwardTo || forwardTo;
+          if (pt?.phase) row.phase = pt.phase;
+        }
+        renderPhoneCalls();
+        renderPhoneDetail();
+        showToast('Forward updated.');
+      } catch (error) {
+        await showModal({
+          title: 'Forward failed',
+          confirmLabel: 'OK',
+          hideCancel: true,
+          bodyHtml: `<p>${esc(error.message)}</p>`,
+        });
+      }
+    });
+  }
+  root.querySelector('#phone-resummarize, [data-phone-resummarize]')?.addEventListener('click', async () => {
+    try {
+      const result = await api(`/api/phone/calls/${encodeURIComponent(call.id || call.callSid)}/summarize`, {
+        method: 'POST',
+        body: JSON.stringify({}),
+      });
+      const idx = state.phone.calls.findIndex(
+        (c) => c.id === call.id || c.callSid === call.callSid,
+      );
+      if (idx >= 0 && result.call) state.phone.calls[idx] = result.call;
+      else await loadPhoneView();
+      renderPhoneCalls();
+      renderPhoneDetail();
+      renderPhoneStats();
+      renderCombinedInbox();
+    } catch (error) {
+      await showModal({
+        title: 'Summary failed',
+        confirmLabel: 'OK',
+        bodyHtml: `<p>${esc(error.message)}</p>`,
+      });
+    }
+  });
 }
 
 function renderPhoneDetail() {
@@ -24901,81 +27384,925 @@ function renderPhoneDetail() {
   }
   empty.classList.add('hidden');
   body.classList.remove('hidden');
-  const chip = phoneAnsweredLabel(call);
-  const site = (state.phone.sites || []).find((s) => s.id === call.siteId);
-  const hasRec = Boolean(call.recordingSid || call.recordingUrl);
-  body.innerHTML = `
-    <div class="sites-detail-head">
-      <h2>${esc(formatPhoneWhen(call.endedAt || call.startedAt || call.createdAt))}</h2>
-      <p class="muted small">${esc(call.from || '—')} → ${esc(call.to || '—')}</p>
-    </div>
-    <p><span class="phone-status-chip ${chip.cls}">${esc(chip.text)}</span>
-      · ${esc(formatPhoneDuration(call.durationSec || call.recordingDurationSec))}
-      ${call.kind === 'voicemail' ? ' · voicemail' : call.forwardTo ? ` · forward ${esc(call.forwardTo)}` : ''}</p>
-    ${
-      hasRec
-        ? `<audio controls preload="metadata" src="/api/phone/calls/${encodeURIComponent(call.id || call.callSid)}/recording"></audio>`
-        : `<p class="muted small">No recording on this call.</p>`
-    }
-    <h3>Summary</h3>
-    ${
-      call.summary
-        ? `<p class="phone-summary">${esc(call.summary)}</p>`
-        : `<p class="muted small">${call.error ? esc(call.error) : 'No summary yet — appears a few minutes after hangup when recording + webhook are configured.'}</p>
-           <button type="button" class="btn" id="phone-resummarize" ${hasRec ? '' : 'disabled'}>Generate summary</button>`
-    }
-    <details>
-      <summary class="muted small">Transcript</summary>
-      <pre class="phone-transcript">${esc(call.transcript || '—')}</pre>
-    </details>
-    <div class="narrative-actions" style="margin-top:0.75rem">
-      ${
-        call.siteId
-          ? `<button type="button" class="btn" id="phone-open-site">Open site in Launched</button>`
-          : ''
+  body.innerHTML = phoneDetailMarkup(call);
+  bindPhoneDetail(body, call);
+}
+
+function renderLeadModes() {
+  renderCombinedStats();
+  renderCombinedTree();
+  renderFormsFilters();
+  renderFormsTable();
+  renderFormsDetail();
+  renderFormsInboxButton();
+  syncPhoneDetailVisibility();
+}
+
+async function importPastGmailLeads({ connected = false } = {}) {
+  const btn = document.getElementById('forms-import-btn');
+  if (btn) btn.disabled = true;
+  setLeadSync('forms', 'syncing', connected ? 'Importing past leads…' : 'Checking Gmail…');
+  try {
+    if (!connected) {
+      const gmail = await api('/api/forms/gmail/status');
+      if (!gmail.connected) {
+        const started = await api('/api/forms/gmail/start');
+        setLeadSync('forms', 'info', 'Sign in as paulthiriot@gmail.com in the Google window.');
+        window.open(started.authUrl, 'rover-gmail-forms-oauth', 'width=520,height=720');
+        return;
       }
-    </div>
-  `;
-  document.getElementById('phone-open-site')?.addEventListener('click', () => {
-    if (!call.siteId) return;
-    state.selectedSiteId = call.siteId;
-    setView('launched-sites');
+    }
+    setLeadSync('forms', 'syncing', 'Importing past leads…');
+    const res = await api('/api/forms/gmail/import', { method: 'POST', body: JSON.stringify({}) });
+    state.phone.forms.submissions = res.submissions || [];
+    if (res.rollup) state.phone.rollup = res.rollup;
+    if (res.inbox) state.phone.inbox = res.inbox;
+    setLeadSync(
+      'forms',
+      'done',
+      `Imported ${res.added || 0} past leads · ${res.matched || 0} matched · ${res.skipped || 0} skipped`,
+    );
+    renderLeadModes();
+  } catch (error) {
+    setLeadSync('forms', 'error', error?.message || 'Past lead import failed');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+function renderFormsInboxButton() {
+  const btn = document.getElementById('forms-setup-btn');
+  if (!btn) return;
+  btn.hidden = Boolean(state.phone.inbox?.ready);
+}
+
+function renderCombinedStats() {
+  const strip = document.getElementById('lead-combined-stats');
+  if (!strip) return;
+  const totals = state.phone.rollup?.totals || { forms: 0, forms7d: 0, calls: 0, calls7d: 0 };
+  const bits = [
+    ['Forms', totals.forms],
+    ['Forms, 7 days', totals.forms7d],
+    ['Phone', totals.calls],
+    ['Phone, 7 days', totals.calls7d],
+  ];
+  strip.innerHTML = bits
+    .map(
+      ([label, count]) =>
+        `<span class="phone-glance-btn">${esc(label)} <strong>${Number(count) || 0}</strong></span>`,
+    )
+    .join('');
+}
+
+function leadSiteZoneKey(site) {
+  return site?.zoneId || '__none__';
+}
+
+function leadSiteClusterId(site) {
+  const clusterNum = Number(site?.clusterKey) || 0;
+  return `${leadSiteZoneKey(site)}:${clusterNum || 'unassigned'}`;
+}
+
+function leadRowSelected(kind, id = '') {
+  const selected = state.phone.combinedSelected || { kind: 'total', id: '' };
+  return selected.kind === kind && String(selected.id || '') === String(id || '');
+}
+
+function leadClusterTitle(clusterNum, siteCount) {
+  const name = clusterNum ? `Cluster ${clusterNum}` : 'Unassigned';
+  const count = Number(siteCount) || 0;
+  return `${name} · ${count} ${count === 1 ? 'site' : 'sites'}`;
+}
+
+function leadSelection() {
+  const sites = state.phone.rollup?.sites || [];
+  const selected = state.phone.combinedSelected || { kind: 'total', id: '' };
+  if (selected.kind === 'site') {
+    const site = sites.find((row) => row.id === selected.id);
+    if (site) return { title: site.businessName || site.domain || site.id, sites: [site] };
+  }
+  if (selected.kind === 'zone') {
+    const rows = sites.filter((row) => leadSiteZoneKey(row) === selected.id);
+    if (rows.length) {
+      const zone = rows[0];
+      const title = zone.zoneNumber
+        ? `${formatZnDisplay(zone.zoneNumber)}${zone.zoneName ? ` · ${zone.zoneName}` : ''}`
+        : 'No zone';
+      return { title, sites: rows };
+    }
+  }
+  if (selected.kind === 'cluster') {
+    const rows = sites.filter((row) => leadSiteClusterId(row) === selected.id);
+    if (rows.length) {
+      const clusterNum = Number(rows[0].clusterKey) || 0;
+      return { title: leadClusterTitle(clusterNum, rows.length), sites: rows };
+    }
+  }
+  return { title: 'Total', sites };
+}
+
+function formatLeadChartDay(day) {
+  const [year, month, date] = String(day || '').split('-').map(Number);
+  if (!year || !month || !date) return '';
+  return new Date(year, month - 1, date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
+
+function chartXAxisLabels({ axisTicks, xStart, xEnd, maxPts, xAt, w, h, pad }) {
+  const ticks = axisTicks.length
+    ? axisTicks
+    : [
+        xStart ? { index: 0, text: xStart } : null,
+        xEnd ? { index: Math.max(maxPts - 1, 0), text: xEnd } : null,
+      ].filter(Boolean);
+  return ticks
+    .map((tick, i) => {
+      const x = axisTicks.length ? xAt(tick.index, maxPts) : i === 0 ? pad.l : w - pad.r;
+      const anchor = i === 0 ? 'start' : i === ticks.length - 1 ? 'end' : 'middle';
+      return `<text x="${x.toFixed(1)}" y="${h - 4}" fill="currentColor" font-size="10" opacity="0.55" text-anchor="${anchor}">${esc(tick.text)}</text>`;
+    })
+    .join('');
+}
+
+function leadChartDateTicks(days, width) {
+  const count = days.length;
+  if (!count) return [];
+  if (count === 1) return [{ index: 0, text: formatLeadChartDay(days[0]) }];
+  const inner = Math.max(80, width - 44);
+  const slots = Math.max(2, Math.min(count, Math.floor(inner / 72)));
+  const ticks = [];
+  const seen = new Set();
+  for (let slot = 0; slot < slots; slot += 1) {
+    const index = slot === slots - 1 ? count - 1 : Math.round((slot * (count - 1)) / (slots - 1));
+    if (seen.has(index)) continue;
+    seen.add(index);
+    const text = formatLeadChartDay(days[index]);
+    if (text) ticks.push({ index, text });
+  }
+  return ticks;
+}
+
+function leadChartColor(name, fallback) {
+  const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  return value || fallback;
+}
+
+let leadChartFrame = 0;
+
+function watchLeadChartSize() {
+  const plot = document.getElementById('lead-combined-chart-plot');
+  if (!plot || plot.dataset.chartWatch === '1' || typeof ResizeObserver === 'undefined') return;
+  plot.dataset.chartWatch = '1';
+  const observer = new ResizeObserver(() => {
+    cancelAnimationFrame(leadChartFrame);
+    leadChartFrame = requestAnimationFrame(() => renderCombinedChart());
   });
-  document.getElementById('phone-resummarize')?.addEventListener('click', async () => {
-    try {
-      const result = await api(`/api/phone/calls/${encodeURIComponent(call.id || call.callSid)}/summarize`, {
-        method: 'POST',
-        body: JSON.stringify({}),
-      });
-      const idx = state.phone.calls.findIndex(
-        (c) => c.id === call.id || c.callSid === call.callSid,
-      );
-      if (idx >= 0 && result.call) state.phone.calls[idx] = result.call;
-      else await loadPhoneView();
-      renderPhoneCalls();
-      renderPhoneDetail();
-      renderPhoneStats();
-    } catch (error) {
-      await showModal({
-        title: 'Summary failed',
-        confirmLabel: 'OK',
-        bodyHtml: `<p>${esc(error.message)}</p>`,
+  observer.observe(plot);
+}
+
+function leadChartDrawSize(plot) {
+  const inner = plot.querySelector('.sites-chart-plot');
+  const measured = !!(inner && inner.clientWidth >= 40 && inner.clientHeight >= 40);
+  const rawWidth = measured ? inner.clientWidth : plot.clientWidth;
+  const rawHeight = measured ? inner.clientHeight : plot.clientHeight - 32;
+  return {
+    width: Math.max(0, Math.round(rawWidth / 4) * 4),
+    height: Math.max(0, Math.round(rawHeight / 4) * 4),
+    measured,
+  };
+}
+
+function renderCombinedChart() {
+  const title = document.getElementById('lead-combined-chart-title');
+  const plot = document.getElementById('lead-combined-chart-plot');
+  if (!plot) return;
+  watchLeadChartSize();
+  const selection = leadSelection();
+  if (title) title.textContent = selection.title;
+  const { width, height, measured } = leadChartDrawSize(plot);
+  if (width < 40 || height < 40) return;
+  const series = state.phone.rollup?.series || { days: [], bySite: {} };
+  const days = series.days || [];
+  const formsDaily = days.map(() => 0);
+  const callsDaily = days.map(() => 0);
+  for (const site of selection.sites) {
+    const row = series.bySite?.[site.id];
+    if (!row) continue;
+    days.forEach((_, index) => {
+      formsDaily[index] += Number(row.forms?.[index]) || 0;
+      callsDaily[index] += Number(row.calls?.[index]) || 0;
+    });
+  }
+  let forms = 0;
+  let calls = 0;
+  const formPoints = [];
+  const callPoints = [];
+  const totalPoints = [];
+  days.forEach((_, index) => {
+    forms += formsDaily[index];
+    calls += callsDaily[index];
+    formPoints.push({ y: forms });
+    callPoints.push({ y: calls });
+    totalPoints.push({ y: forms + calls });
+  });
+  const last = totalPoints.at(-1)?.y ?? 0;
+  const xTicks = leadChartDateTicks(days, width);
+  const key = `${width}x${height}:${selection.title}:${days[0] || ''}:${days.at(-1) || ''}:${xTicks.length}:${last}`;
+  if (plot.dataset.chartKey === key) return;
+  plot.dataset.chartKey = key;
+  renderSvgLineChart(
+    plot,
+    [
+      { label: 'Phone', color: leadChartColor('--accent', '#1d4ed8'), points: callPoints },
+      { label: 'Forms', color: leadChartColor('--good', '#166534'), points: formPoints },
+      { label: 'Total', color: leadChartColor('--ink', '#1c1917'), points: totalPoints },
+    ],
+    {
+      yLabel: selection.title,
+      width,
+      height,
+      yFormat: 'number',
+      minPoints: 1,
+      xTicks,
+    },
+  );
+  if (!measured) requestAnimationFrame(() => renderCombinedChart());
+}
+
+function selectCombinedRow(kind, id = '') {
+  state.phone.combinedSelected = { kind, id };
+  renderCombinedTree();
+}
+
+function leadZoneOpen(id) {
+  const value = state.phone.combinedOpen?.zones?.[id];
+  return value === undefined ? true : Boolean(value);
+}
+
+function leadClusterOpen(id) {
+  const value = state.phone.combinedOpen?.clusters?.[id];
+  return value === undefined ? false : Boolean(value);
+}
+
+function leadCountCells(row) {
+  const forms = Number(row.forms) || 0;
+  const forms7d = Number(row.forms7d) || 0;
+  const calls = Number(row.calls) || 0;
+  const calls7d = Number(row.calls7d) || 0;
+  return `<td class="lead-tree-count">${forms}</td><td class="lead-tree-count">${forms7d}</td><td class="lead-tree-count">${calls}</td><td class="lead-tree-count">${calls7d}</td><td class="lead-tree-count lead-tree-sum">${forms + calls}</td><td class="lead-tree-count lead-tree-sum">${forms7d + calls7d}</td>`;
+}
+
+function sumLeadCounts(rows) {
+  return rows.reduce(
+    (sum, row) => {
+      sum.forms += Number(row.forms) || 0;
+      sum.forms7d += Number(row.forms7d) || 0;
+      sum.calls += Number(row.calls) || 0;
+      sum.calls7d += Number(row.calls7d) || 0;
+      return sum;
+    },
+    { forms: 0, forms7d: 0, calls: 0, calls7d: 0 },
+  );
+}
+
+function renderCombinedTree() {
+  const list = document.getElementById('lead-combined-list');
+  const empty = document.getElementById('lead-combined-empty');
+  const table = document.getElementById('lead-combined-table');
+  if (!list) return;
+  const sites = state.phone.rollup?.sites || [];
+  const waiting = !leadSync.phoneLocalReady || !leadSync.formsLocalReady;
+  if (empty) empty.classList.toggle('hidden', waiting || sites.length > 0);
+  table?.classList.toggle('hidden', waiting || sites.length === 0);
+  const zones = new Map();
+  for (const site of sites) {
+    const zoneKey = site.zoneId || '__none__';
+    if (!zones.has(zoneKey)) {
+      zones.set(zoneKey, {
+        key: zoneKey,
+        number: site.zoneNumber || 0,
+        name: site.zoneName || '',
+        clusters: new Map(),
       });
     }
+    const zone = zones.get(zoneKey);
+    const clusterNum = site.clusterKey || 0;
+    const clusterId = `${zoneKey}:${clusterNum || 'unassigned'}`;
+    if (!zone.clusters.has(clusterId)) {
+      zone.clusters.set(clusterId, { id: clusterId, key: clusterNum, sites: [] });
+    }
+    zone.clusters.get(clusterId).sites.push(site);
+  }
+  const zoneList = [...zones.values()].sort((a, b) => {
+    if (!a.number && b.number) return 1;
+    if (a.number && !b.number) return -1;
+    return a.number - b.number || String(a.name).localeCompare(String(b.name));
+  });
+  const html = [];
+  const totals = state.phone.rollup?.totals || sumLeadCounts(sites);
+  const selectedClass = (kind, id = '') => (leadRowSelected(kind, id) ? ' is-selected' : '');
+  html.push(`<tr class="lead-tree-total${selectedClass('total')}" data-lead-kind="total">
+    <td class="lead-tree-name">Total</td>
+    ${leadCountCells(totals)}
+  </tr>`);
+  for (const zone of zoneList) {
+    const zoneSites = [...zone.clusters.values()].flatMap((cluster) => cluster.sites);
+    const zoneOpen = leadZoneOpen(zone.key);
+    const zoneLabel = zone.number
+      ? `${formatZnDisplay(zone.number)}${zone.name ? ` · ${zone.name}` : ''}`
+      : 'No zone';
+    html.push(`<tr class="lead-tree-zone${selectedClass('zone', zone.key)}" data-lead-kind="zone" data-lead-id="${esc(zone.key)}">
+      <td class="lead-tree-name"><button type="button" class="lead-tree-toggle" data-lead-toggle="zone" data-lead-id="${esc(zone.key)}" aria-expanded="${zoneOpen ? 'true' : 'false'}" title="${esc(zoneLabel)}"><span class="lead-tree-chevron">${zoneOpen ? '▾' : '▸'}</span><span class="lead-tree-label">${esc(zoneLabel)}</span></button></td>
+      ${leadCountCells(sumLeadCounts(zoneSites))}
+    </tr>`);
+    if (!zoneOpen) continue;
+    const clusters = [...zone.clusters.values()].sort((a, b) => {
+      if (!a.key && b.key) return 1;
+      if (a.key && !b.key) return -1;
+      return a.key - b.key;
+    });
+    for (const cluster of clusters) {
+      const clusterOpen = leadClusterOpen(cluster.id);
+      const clusterLabel = leadClusterTitle(cluster.key, cluster.sites.length);
+      html.push(`<tr class="lead-tree-cluster${selectedClass('cluster', cluster.id)}" data-lead-kind="cluster" data-lead-id="${esc(cluster.id)}">
+        <td class="lead-tree-name"><button type="button" class="lead-tree-toggle" data-lead-toggle="cluster" data-lead-id="${esc(cluster.id)}" aria-expanded="${clusterOpen ? 'true' : 'false'}" title="${esc(clusterLabel)}"><span class="lead-tree-chevron">${clusterOpen ? '▾' : '▸'}</span><span class="lead-tree-label">${esc(clusterLabel)}</span></button></td>
+        ${leadCountCells(sumLeadCounts(cluster.sites))}
+      </tr>`);
+      if (!clusterOpen) continue;
+      const siteRows = cluster.sites
+        .slice()
+        .sort((a, b) => String(a.businessName).localeCompare(String(b.businessName), undefined, { sensitivity: 'base' }));
+      for (const site of siteRows) {
+        html.push(`<tr class="lead-tree-site${selectedClass('site', site.id)}" data-lead-kind="site" data-lead-id="${esc(site.id)}">
+          <td class="lead-tree-name" title="${esc(site.businessName || site.domain || site.id)}">${esc(site.businessName || site.domain || site.id)}</td>
+          ${leadCountCells(site)}
+        </tr>`);
+      }
+    }
+  }
+  const wrap = list.closest('.phone-calls-wrap');
+  const scrollTop = wrap?.scrollTop || 0;
+  list.innerHTML = html.join('');
+  if (wrap) wrap.scrollTop = scrollTop;
+  list.querySelectorAll('.lead-tree-toggle').forEach((btn) => {
+    btn.addEventListener('click', (event) => {
+      if (!event.target.closest('.lead-tree-chevron')) return;
+      event.stopPropagation();
+      const id = btn.dataset.leadId;
+      if (btn.dataset.leadToggle === 'zone') state.phone.combinedOpen.zones[id] = !leadZoneOpen(id);
+      else state.phone.combinedOpen.clusters[id] = !leadClusterOpen(id);
+      renderCombinedTree();
+    });
+  });
+  list.querySelectorAll('tr[data-lead-kind]').forEach((row) => {
+    row.addEventListener('click', () => {
+      selectCombinedRow(row.dataset.leadKind, row.dataset.leadId || '');
+    });
+  });
+  renderCombinedChart();
+  renderCombinedInbox();
+}
+
+function callInboxSiteName(call) {
+  const rollup = (state.phone.rollup?.sites || []).find(
+    (site) => String(site.id) === String(call?.siteId || ''),
+  );
+  if (rollup) return rollup.businessName || rollup.domain || rollup.id;
+  const site = phoneSiteForCall(call);
+  return site?.businessName || site?.niche || 'Unknown site';
+}
+
+function leadInboxDomain(value) {
+  let domain = String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/^https?:\/\//, '')
+    .replace(/\/.*$/, '')
+    .replace(/:\d+$/, '');
+  if (domain.startsWith('www.')) domain = domain.slice(4);
+  return domain;
+}
+
+function formInboxPreview(row) {
+  const name = String(row?.name || '').trim();
+  const message = formMessagePreview(row);
+  if (name && message) return `${name} — ${message}`;
+  return name || message || 'No message';
+}
+
+function combinedInboxItems() {
+  const selection = leadSelection();
+  const siteIds = new Set(selection.sites.map((site) => String(site.id)));
+  const domains = new Set(selection.sites.map((site) => leadInboxDomain(site.domain)).filter(Boolean));
+  const items = [];
+  for (const call of state.phone.calls || []) {
+    if (call?.lead !== true || !phoneCallHasMessage(call)) continue;
+    if (!siteIds.has(String(call.siteId || ''))) continue;
+    const instant = phoneCallInstant(call);
+    items.push({
+      kind: 'call',
+      id: String(call.id || call.callSid || ''),
+      at: Date.parse(instant || '') || 0,
+      when: formatPhoneRelative(instant),
+      siteName: callInboxSiteName(call),
+      preview: phoneSummaryPreview(call) || 'No summary',
+      previewEmpty: !phoneSummaryPreview(call),
+      call,
+    });
+  }
+  for (const row of state.phone.forms.submissions || []) {
+    if (row?.spam) continue;
+    const domain = leadInboxDomain(row.domain);
+    if (!domain || !domains.has(domain)) continue;
+    const site =
+      selection.sites.find((item) => leadInboxDomain(item.domain) === domain) || formSiteForSubmission(row);
+    const preview = formInboxPreview(row);
+    items.push({
+      kind: 'form',
+      id: String(row.id || ''),
+      at: Date.parse(row.submittedAt || '') || 0,
+      when: formatPhoneRelative(row.submittedAt),
+      siteName: site?.businessName || site?.domain || row.domain || 'Unknown site',
+      preview,
+      previewEmpty: preview === 'No message',
+      row,
+    });
+  }
+  items.sort((a, b) => b.at - a.at || String(b.id).localeCompare(String(a.id)));
+  return { title: selection.title, items };
+}
+
+function renderCombinedInbox({ revealOpen = false } = {}) {
+  const list = document.getElementById('lead-combined-inbox-list');
+  const empty = document.getElementById('lead-combined-inbox-empty');
+  const title = document.getElementById('lead-combined-inbox-title');
+  const count = document.getElementById('lead-combined-inbox-count');
+  if (!list) return;
+  const { title: selectionTitle, items } = combinedInboxItems();
+  const open = state.phone.combinedInboxOpen;
+  if (open && !items.some((item) => item.kind === open.kind && item.id === open.id)) {
+    state.phone.combinedInboxOpen = null;
+  }
+  const active = state.phone.combinedInboxOpen;
+  if (title) title.textContent = selectionTitle;
+  if (count) count.textContent = `${items.length} lead${items.length === 1 ? '' : 's'}`;
+  if (empty) empty.classList.toggle('hidden', items.length > 0);
+  list.classList.toggle('hidden', items.length === 0);
+  const scrollTop = list.scrollTop;
+  list.innerHTML = items
+    .map((item) => {
+      const isOpen = active && active.kind === item.kind && active.id === item.id;
+      const kindLabel = item.kind === 'call' ? 'Phone' : 'Form';
+      const body = isOpen
+        ? `<div class="lead-inbox-body">${
+            item.kind === 'call'
+              ? phoneDetailMarkup(item.call, { includeForward: false, compact: true })
+              : formDetailMarkup(item.row, { compact: true })
+          }</div>`
+        : '';
+      return `<article class="lead-inbox-item${isOpen ? ' is-open' : ''}" data-inbox-kind="${esc(item.kind)}" data-inbox-id="${esc(item.id)}">
+        <button type="button" class="lead-inbox-summary" aria-expanded="${isOpen ? 'true' : 'false'}">
+          <span class="lead-inbox-kind">${kindLabel}</span>
+          <span class="lead-inbox-when">${esc(item.when)}</span>
+          <span class="lead-inbox-site" title="${esc(item.siteName)}">${esc(item.siteName)}</span>
+          <span class="lead-inbox-preview${item.previewEmpty ? ' is-empty' : ''}" title="${esc(item.preview)}">${esc(item.preview)}</span>
+        </button>
+        ${body}
+      </article>`;
+    })
+    .join('');
+  list.scrollTop = scrollTop;
+  list.querySelectorAll('.lead-inbox-summary').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const item = btn.closest('[data-inbox-kind]');
+      if (!item) return;
+      const kind = item.dataset.inboxKind;
+      const id = item.dataset.inboxId || '';
+      const current = state.phone.combinedInboxOpen;
+      const next = current && current.kind === kind && current.id === id ? null : { kind, id };
+      state.phone.combinedInboxOpen = next;
+      renderCombinedInbox({ revealOpen: Boolean(next) });
+    });
+  });
+  const openBody = list.querySelector('.lead-inbox-item.is-open .lead-inbox-body');
+  if (openBody && active) {
+    const openItem = items.find((item) => item.kind === active.kind && item.id === active.id);
+    if (openItem?.kind === 'call') bindPhoneDetail(openBody, openItem.call, { includeForward: false });
+    else if (openItem?.kind === 'form') bindFormDetail(openBody);
+  }
+  if (revealOpen && openBody) {
+    const item = openBody.closest('.lead-inbox-item');
+    if (item) {
+      const itemRect = item.getBoundingClientRect();
+      const listRect = list.getBoundingClientRect();
+      if (itemRect.top < listRect.top) list.scrollTop -= listRect.top - itemRect.top;
+      else if (itemRect.bottom > listRect.bottom) list.scrollTop += itemRect.bottom - listRect.bottom;
+    }
+  }
+}
+
+function formSiteForSubmission(submission) {
+  const domain = String(submission?.domain || '').trim().toLowerCase();
+  if (!domain) return null;
+  return (state.phone.rollup?.sites || []).find((site) => String(site.domain || '').toLowerCase() === domain) || null;
+}
+
+function formMessagePreview(submission) {
+  return String(submission?.message || '').replace(/\s+/g, ' ').trim();
+}
+
+function formSubmissionsInScope() {
+  const forms = state.phone.forms;
+  let rows = state.phone.forms.submissions || [];
+  const text = String(forms.filterText || '').trim().toLowerCase();
+  if (text) {
+    rows = rows.filter((row) => {
+      const site = formSiteForSubmission(row);
+      const hay = [site?.businessName, site?.city, site?.niche, row.name, row.phone, row.email, row.service, row.message, row.domain]
+        .join(' ')
+        .toLowerCase();
+      return hay.includes(text);
+    });
+  }
+  if (forms.filterSite) {
+    const site = (state.phone.rollup?.sites || []).find((item) => item.id === forms.filterSite);
+    const domain = String(site?.domain || '').toLowerCase();
+    rows = rows.filter((row) => String(row.domain || '').toLowerCase() === domain);
+  }
+  if (forms.filterNiche) {
+    rows = rows.filter((row) => String(formSiteForSubmission(row)?.niche || '') === forms.filterNiche);
+  }
+  if (forms.filterState) {
+    rows = rows.filter(
+      (row) => String(formSiteForSubmission(row)?.state || '').toUpperCase() === forms.filterState.toUpperCase(),
+    );
+  }
+  if (forms.filterZone) {
+    rows = rows.filter((row) => String(formSiteForSubmission(row)?.zoneNumber || 0) === forms.filterZone);
+  }
+  if (forms.filterCluster) {
+    rows = rows.filter((row) => {
+      const key = formSiteForSubmission(row)?.clusterKey || 0;
+      if (forms.filterCluster === '0') return !key;
+      return String(key) === forms.filterCluster;
+    });
+  }
+  return rows;
+}
+
+function filteredFormSubmissions() {
+  const forms = state.phone.forms;
+  let rows = formSubmissionsInScope();
+  if (!state.phone.showSpam) rows = rows.filter((row) => !row.spam);
+  const { key, dir } = forms.sort || { key: 'when', dir: -1 };
+  return rows.slice().sort((a, b) => {
+    const av = formSortValue(a, key);
+    const bv = formSortValue(b, key);
+    if (av == null && bv == null) return 0;
+    if (av == null) return 1;
+    if (bv == null) return -1;
+    const cmp =
+      typeof av === 'number' && typeof bv === 'number'
+        ? av - bv
+        : String(av).localeCompare(String(bv), undefined, { sensitivity: 'base' });
+    return cmp * dir;
   });
 }
 
+function formSortValue(row, key) {
+  const site = formSiteForSubmission(row);
+  if (key === 'when') return Date.parse(row.submittedAt || '') || 0;
+  if (key === 'site') return site?.businessName || row.domain || '';
+  if (key === 'city') return site?.city || '';
+  if (key === 'state') return site?.state || '';
+  if (key === 'niche') return site?.niche || '';
+  if (key === 'zone') return site?.zoneNumber || 0;
+  if (key === 'cluster') return site?.clusterKey || 0;
+  if (key === 'phase') return site?.phase || '';
+  if (key === 'launched') return Date.parse(site?.lastLaunchAt || '') || 0;
+  if (key === 'name') return row.name || '';
+  if (key === 'phone') return row.phone || '';
+  if (key === 'email') return row.email || '';
+  if (key === 'service') return row.service || '';
+  if (key === 'message') return formMessagePreview(row);
+  return '';
+}
+
+const FORM_SUBMISSION_COLS = [
+  { key: 'when', label: 'When' },
+  { key: 'site', label: 'Site' },
+  { key: 'city', label: 'City' },
+  { key: 'state', label: 'State' },
+  { key: 'niche', label: 'Niche' },
+  { key: 'zone', label: 'Zone' },
+  { key: 'cluster', label: 'Cluster' },
+  { key: 'phase', label: 'Phase' },
+  { key: 'launched', label: 'Launched' },
+  { key: 'name', label: 'Name' },
+  { key: 'phone', label: 'Phone' },
+  { key: 'email', label: 'Email' },
+  { key: 'service', label: 'Service' },
+  { key: 'message', label: 'Message' },
+];
+
+function renderFormsFilters() {
+  const sites = [...(state.phone.rollup?.sites || [])].sort((a, b) =>
+    String(a.businessName || '').localeCompare(String(b.businessName || ''), undefined, { sensitivity: 'base' }),
+  );
+  const forms = state.phone.forms;
+  fillPhoneFilterSelect(
+    'forms-filter-site',
+    forms.filterSite,
+    sites.map((site) => ({ value: site.id, label: site.businessName || site.domain || site.id })),
+    () => {
+      forms.filterSite = '';
+    },
+  );
+  const niches = [...new Set(sites.map((site) => String(site.niche || '').trim()).filter(Boolean))].sort((a, b) =>
+    a.localeCompare(b, undefined, { sensitivity: 'base' }),
+  );
+  const states = [...new Set(sites.map((site) => String(site.state || '').trim().toUpperCase()).filter(Boolean))].sort();
+  const zones = [...new Set(sites.map((site) => site.zoneNumber).filter(Boolean))].sort((a, b) => a - b);
+  const clusters = [...new Set(sites.map((site) => site.clusterKey).filter(Boolean))].sort((a, b) => a - b);
+  const hasUnassigned = sites.some((site) => !site.clusterKey);
+  fillPhoneFilterSelect(
+    'forms-filter-niche',
+    forms.filterNiche,
+    niches.map((value) => ({ value, label: value })),
+    () => {
+      forms.filterNiche = '';
+    },
+  );
+  fillPhoneFilterSelect(
+    'forms-filter-state',
+    forms.filterState,
+    states.map((value) => ({ value, label: value })),
+    () => {
+      forms.filterState = '';
+    },
+  );
+  fillPhoneFilterSelect(
+    'forms-filter-zone',
+    forms.filterZone,
+    zones.map((n) => ({ value: String(n), label: formatZnDisplay(n) })),
+    () => {
+      forms.filterZone = '';
+    },
+  );
+  fillPhoneFilterSelect(
+    'forms-filter-cluster',
+    forms.filterCluster,
+    [
+      ...(hasUnassigned ? [{ value: '0', label: 'Unassigned' }] : []),
+      ...clusters.map((n) => ({ value: String(n), label: `Cluster ${n}` })),
+    ],
+    () => {
+      forms.filterCluster = '';
+    },
+  );
+}
+
+function renderFormHeaders() {
+  const thead = document.querySelector('#forms-submissions-table thead');
+  if (!thead) return;
+  const { key: sortKey, dir } = state.phone.forms.sort || { key: 'when', dir: -1 };
+  thead.innerHTML = `<tr>${FORM_SUBMISSION_COLS.map((col) => {
+    const arrow = sortKey === col.key ? (dir > 0 ? ' ↑' : ' ↓') : '';
+    return `<th class="sortable" data-sort="${esc(col.key)}">${esc(col.label)}${arrow}</th>`;
+  }).join('')}</tr>`;
+  thead.querySelectorAll('th.sortable').forEach((th) => {
+    th.addEventListener('click', () => {
+      const key = th.dataset.sort;
+      if (state.phone.forms.sort?.key === key) state.phone.forms.sort.dir *= -1;
+      else state.phone.forms.sort = { key, dir: key === 'when' || key === 'launched' ? -1 : 1 };
+      renderFormsTable();
+    });
+  });
+}
+
+function renderFormsTable() {
+  const list = document.getElementById('forms-submissions-list');
+  const empty = document.getElementById('forms-submissions-empty');
+  const table = document.getElementById('forms-submissions-table');
+  if (!list) return;
+  renderFormHeaders();
+  const rows = filteredFormSubmissions();
+  const visible = new Set(rows.map((row) => row.id));
+  if (state.phone.forms.selectedId && !visible.has(state.phone.forms.selectedId)) {
+    state.phone.forms.selectedId = null;
+    renderFormsDetail();
+  }
+  if (empty) {
+    const spamHidden = !state.phone.showSpam && formSubmissionsInScope().some((row) => row.spam);
+    const filtered = Boolean(
+      state.phone.forms.filterText ||
+        state.phone.forms.filterSite ||
+        state.phone.forms.filterNiche ||
+        state.phone.forms.filterState ||
+        state.phone.forms.filterZone ||
+        state.phone.forms.filterCluster ||
+        spamHidden,
+    );
+    const waiting = !(state.phone.forms.submissions || []).length && leadSourceBusy('forms');
+    empty.textContent = filtered ? 'No submissions match these filters.' : 'No form submissions yet.';
+    empty.classList.toggle('hidden', rows.length > 0 || waiting);
+  }
+  table?.classList.toggle('hidden', rows.length === 0);
+  list.innerHTML = rows
+    .map((row) => {
+      const site = formSiteForSubmission(row);
+      const active = state.phone.forms.selectedId === row.id ? ' active' : '';
+      const preview = formMessagePreview(row);
+      const zone = site?.zoneNumber ? formatZnDisplay(site.zoneNumber) : '';
+      return `<tr class="phone-call-row" data-form-id="${esc(row.id)}">
+        <td class="phone-call-when" title="${esc(formatPhoneWhen(row.submittedAt))}">${esc(formatPhoneRelative(row.submittedAt))}</td>
+        <td>${esc(site?.businessName || row.domain || '—')}</td>
+        <td>${phoneCell(site?.city)}</td>
+        <td>${phoneCell(site?.state)}</td>
+        <td>${phoneCell(site?.niche)}</td>
+        <td>${zone ? esc(zone) : '—'}</td>
+        <td>${site?.clusterKey ? esc(String(site.clusterKey)) : '—'}</td>
+        <td>${phoneCell(site?.phase)}</td>
+        <td>${esc(formatSiteDate(site?.lastLaunchAt))}</td>
+        <td>${phoneCell(row.name)}${spamLabel(row.spam)} ${spamToggleButton('form', row.id, row.spam)}</td>
+        <td>${esc(formatDisplayPhone(row.phone || '—'))}</td>
+        <td>${phoneCell(row.email)}</td>
+        <td>${phoneCell(row.service)}</td>
+        <td class="phone-call-summary${preview ? '' : ' is-empty'}"><span title="${esc(preview)}">${esc(preview || 'No message')}</span></td>
+      </tr>`;
+    })
+    .join('');
+  list.querySelectorAll('tr[data-form-id]').forEach((tr) => {
+    tr.addEventListener('click', (event) => {
+      if (event.target.closest('.spam-toggle')) return;
+      state.phone.forms.selectedId = tr.getAttribute('data-form-id');
+      renderFormsTable();
+      renderFormsDetail();
+    });
+  });
+  bindSpamToggles(list);
+  renderSpamVisibility();
+}
+
+function formDetailMarkup(row, { compact = false } = {}) {
+  const site = formSiteForSubmission(row);
+  if (compact) {
+    const email = String(row.email || '').trim() || '—';
+    return `<div class="lead-inbox-detail">
+      ${leadInboxField('Date/Time Received', esc(formatPhoneWhen(row.submittedAt)))}
+      ${leadInboxField('Customer Name', esc(row.name || '—'))}
+      ${leadInboxField('Phone', esc(formatDisplayPhone(row.phone || '—')))}
+      ${leadInboxField('Email', esc(email))}
+      ${leadInboxField('Service', esc(row.service || '—'))}
+      <p class="lead-inbox-actions">${spamLabel(row.spam)} ${spamToggleButton('form', row.id, row.spam)}</p>
+      ${leadInboxBlock('Message', row.message || '')}
+      ${row.pageUrl ? leadInboxField('Page', `<a href="${esc(row.pageUrl)}" target="_blank" rel="noopener">${esc(row.pageUrl)}</a>`) : ''}
+    </div>`;
+  }
+  return `<h2>${esc(row.name || 'Submission')}${spamLabel(row.spam)}</h2>
+    <p>${spamToggleButton('form', row.id, row.spam)}</p>
+    <p class="muted small">${esc(formatPhoneWhen(row.submittedAt))}</p>
+    <p>${esc(site?.businessName || row.domain || '')}</p>
+    <p>Phone: ${esc(formatDisplayPhone(row.phone || '—'))}</p>
+    <p>Email: ${phoneCell(row.email)}</p>
+    <p>Service: ${phoneCell(row.service)}</p>
+    <p style="white-space:pre-wrap">${esc(row.message || '')}</p>
+    ${row.pageUrl ? `<p><a href="${esc(row.pageUrl)}" target="_blank" rel="noopener">${esc(row.pageUrl)}</a></p>` : ''}`;
+}
+
+function bindFormDetail(root) {
+  bindSpamToggles(root);
+}
+
+function renderFormsDetail() {
+  const empty = document.getElementById('forms-empty-detail');
+  const body = document.getElementById('forms-detail-body');
+  if (!empty || !body) return;
+  const row = (state.phone.forms.submissions || []).find((item) => item.id === state.phone.forms.selectedId);
+  syncPhoneDetailVisibility();
+  if (!row) {
+    empty.classList.remove('hidden');
+    body.classList.add('hidden');
+    body.innerHTML = '';
+    return;
+  }
+  empty.classList.add('hidden');
+  body.classList.remove('hidden');
+  body.innerHTML = formDetailMarkup(row);
+  bindFormDetail(body);
+}
+
+function setLeadMode(mode) {
+  state.phone.mode = mode === 'phone' || mode === 'forms' ? mode : 'combined';
+  syncPhoneDetailVisibility();
+}
+
 function wirePhoneUi() {
+  document.querySelectorAll('.lead-mode-btn').forEach((btn) => {
+    btn.addEventListener('click', () => setLeadMode(btn.dataset.leadMode));
+  });
+  document.getElementById('spam-keywords-btn')?.addEventListener('click', () => {
+    openSpamKeywordEditor().catch((error) => {
+      showToast(error?.message || 'Could not save spam keywords', { tone: 'err' });
+    });
+  });
+  document.getElementById('phone-spam-visibility')?.addEventListener('click', toggleSpamVisibility);
+  document.getElementById('forms-spam-visibility')?.addEventListener('click', toggleSpamVisibility);
+  document.getElementById('forms-import-btn')?.addEventListener('click', () => {
+    importPastGmailLeads().catch(() => {});
+  });
+  window.addEventListener('message', (event) => {
+    if (event?.data?.type === 'rover-gmail-forms-connected') {
+      importPastGmailLeads({ connected: true }).catch(() => {});
+    }
+  });
+  document.getElementById('forms-setup-btn')?.addEventListener('click', async () => {
+    const btn = document.getElementById('forms-setup-btn');
+    if (btn) btn.disabled = true;
+    setLeadSync('forms', 'syncing', 'Setting up forms inbox…');
+    try {
+      const res = await api('/api/forms/setup', { method: 'POST', body: JSON.stringify({}) });
+      state.phone.inbox = res.inbox || null;
+      if (res.rollup) state.phone.rollup = res.rollup;
+      setLeadSync(
+        'forms',
+        'done',
+        state.phone.inbox?.ingestUrl ? `Inbox ready · ${state.phone.inbox.ingestUrl}` : 'Inbox ready',
+      );
+      renderLeadModes();
+      void syncFormsFromInbox();
+    } catch (error) {
+      setLeadSync('forms', 'error', error?.message || 'Forms inbox setup failed');
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  });
+  document.getElementById('forms-filter-text')?.addEventListener('input', (e) => {
+    state.phone.forms.filterText = e.target.value;
+    renderFormsTable();
+  });
+  for (const [id, key] of [
+    ['forms-filter-site', 'filterSite'],
+    ['forms-filter-niche', 'filterNiche'],
+    ['forms-filter-state', 'filterState'],
+    ['forms-filter-zone', 'filterZone'],
+    ['forms-filter-cluster', 'filterCluster'],
+  ]) {
+    document.getElementById(id)?.addEventListener('change', (e) => {
+      state.phone.forms[key] = e.target.value;
+      renderFormsTable();
+    });
+  }
   document.getElementById('phone-refresh-btn')?.addEventListener('click', () => {
     loadPhoneView().catch(() => {});
   });
   document.getElementById('phone-filter-text')?.addEventListener('input', (e) => {
     state.phone.filterText = e.target.value;
-    renderPhoneSites();
+    renderPhoneStats();
+    renderPhoneCalls();
   });
   document.getElementById('phone-filter-phase')?.addEventListener('change', (e) => {
     state.phone.filterPhase = e.target.value;
-    renderPhoneSites();
+    renderPhoneStats();
+    renderPhoneCalls();
+  });
+  document.getElementById('phone-filter-status')?.addEventListener('change', (e) => {
+    state.phone.filterStatus = e.target.value;
+    renderPhoneStats();
+    renderPhoneCalls();
+  });
+  document.getElementById('phone-filter-summary-exclude')?.addEventListener('input', (e) => {
+    state.phone.filterSummaryExclude = e.target.value;
+    renderPhoneStats();
+    renderPhoneCalls();
+  });
+  for (const [id, key] of [
+    ['phone-filter-niche', 'filterNiche'],
+    ['phone-filter-state', 'filterState'],
+    ['phone-filter-zone', 'filterZone'],
+    ['phone-filter-cluster', 'filterCluster'],
+  ]) {
+    document.getElementById(id)?.addEventListener('change', (e) => {
+      state.phone[key] = e.target.value;
+      renderPhoneStats();
+      renderPhoneCalls();
+    });
+  }
+  document.getElementById('phone-filter-site')?.addEventListener('change', async (e) => {
+    state.phone.selectedSiteId = e.target.value || null;
+    state.phone.selectedCallId = null;
+    try {
+      await loadPhoneCallsLocal();
+    } catch (error) {
+      console.warn(error);
+    }
+  });
+  document.getElementById('phone-stats-strip')?.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-phone-glance]');
+    if (!btn) return;
+    const next = btn.getAttribute('data-phone-glance') || '';
+    state.phone.glance = state.phone.glance === next ? '' : next;
+    renderPhoneStats();
+    renderPhoneCalls();
   });
   document.getElementById('phone-greeting-file')?.addEventListener('change', async (e) => {
     const file = e.target.files?.[0];
@@ -25076,11 +28403,10 @@ async function showWeb3FormsInboxList() {
     .join('');
   const text = rows.map((r) => `${r.name}\t${r.recipient}`).join('\n');
   await showModal({
-    title: 'Web3Forms form inboxes',
+    title: 'Lead addresses',
     confirmLabel: 'Copy list',
     cancelLabel: 'Close',
-    bodyHtml: `<p>Set each form’s Recipient Emails to <code>leads@</code> that domain — not the Web3Forms account Gmail. Cloudflare then forwards to the Email Routing destination.</p>
-      <p class="muted"><a href="https://app.web3forms.com/" target="_blank" rel="noopener">Open Web3Forms dashboard</a></p>
+    bodyHtml: `<p>Rover sends each form lead from <code>leads@</code> that domain to the Email Routing destination.</p>
       <ol class="narrative-list">${list || '<li>No launched sites with a domain yet.</li>'}</ol>`,
   }).then(async (ok) => {
     if (!ok || !text) return;
@@ -25103,26 +28429,32 @@ function wireSitesUi() {
   document.getElementById('sites-filter-text')?.addEventListener('input', (e) => {
     state.siteFilters.text = e.target.value;
     renderSitesTable();
+    persistUiRestore();
   });
   document.getElementById('sites-filter-status')?.addEventListener('change', (e) => {
     state.siteFilters.status = e.target.value;
     renderSitesTable();
+    persistUiRestore();
   });
   document.getElementById('sites-filter-state')?.addEventListener('change', (e) => {
     state.siteFilters.state = e.target.value;
     renderSitesTable();
+    persistUiRestore();
   });
   document.getElementById('sites-filter-group')?.addEventListener('change', (e) => {
     state.siteFilters.group = e.target.value;
     renderSitesTable();
+    persistUiRestore();
   });
   document.getElementById('sites-zone-filter')?.addEventListener('change', (e) => {
     state.siteFilters.zone = e.target.value;
     renderSitesTable();
+    persistUiRestore();
   });
   document.getElementById('sites-cluster-filter')?.addEventListener('change', (e) => {
     state.siteFilters.cluster = e.target.value;
     renderSitesTable();
+    persistUiRestore();
   });
   document.getElementById('sites-select-filtered')?.addEventListener('click', () => {
     for (const s of filteredSites()) state.selectedSiteIds.add(s.id);
@@ -25215,7 +28547,7 @@ function wireSitesUi() {
     const go = await showModal({
       title: `Check index for ${n} selected site${n === 1 ? '' : 's'}?`,
       confirmLabel: 'Check index',
-      bodyHtml: `<p>Inspects each sitemap URL in Search Console (URL Inspection). First run is about 5–30 seconds per site; later runs skip URLs indexed in the last 7 days. This is not the GSC Pages report.</p>`,
+      bodyHtml: `<p>Inspects each sitemap URL in Search Console (URL Inspection). Selected sites run up to 4 at a time. A cold run is still about 5–30 seconds of inspection work per site; later runs skip URLs indexed in the last 7 days. This is not the GSC Pages report.</p>`,
     });
     if (!go) return;
     try {
@@ -25243,7 +28575,7 @@ function wireSitesUi() {
     const go = await showModal({
       title: `Check ranks for ${n} selected site${n === 1 ? '' : 's'}?`,
       confirmLabel: 'Run Standard queue',
-      bodyHtml: `<p>Uses DataForSEO <strong>Standard</strong> organic SERP (depth 20) for up to 5 keywords per live/building site. Progress shows each site; can take several minutes.</p>`,
+      bodyHtml: `<p>Uses DataForSEO <strong>Standard</strong> organic SERP (depth 20) for up to 5 keywords per site. The whole selection is posted together and waits on the Standard queue once. Cost is unchanged.</p>`,
     });
     if (!go) return;
     try {
@@ -25484,7 +28816,7 @@ function bindDiscoveryPlaceAutofill() {
     const st = normalizeDiscoveryStateInput(stateInput?.value || '');
     const reqId = ++cityReq;
     try {
-      const qs = new URLSearchParams({ q, state: st, limit: '40' });
+      const qs = new URLSearchParams({ q, state: st, limit: !q && st ? '2000' : '40' });
       const data = await api(`/api/discovery/places?${qs.toString()}`);
       if (reqId !== cityReq) return;
       const places = data?.places || [];
@@ -27370,6 +30702,7 @@ async function selectDiscoveryBatch(id) {
   if (batchSel && batchSel.value !== data.batch.id) {
     batchSel.value = data.batch.id;
   }
+  persistUiRestore();
   const logEl = document.getElementById('discovery-process-log');
   if (logEl) {
     const lp = data.batch.lastProcess;
@@ -27507,9 +30840,55 @@ async function startShotgunGeneratePackFromUi() {
   showToast('Copy the Generate pack prompt, then import Claude’s CSV.');
 }
 
+function syncReuseZoneFields() {
+  const shotgun = isClusterPackType(state.discoveryPackType);
+  const reuse = shotgun && Boolean(document.getElementById('discovery-reuse-zone')?.value);
+  document.querySelectorAll('.discovery-zone-new-only').forEach((el) => {
+    if (el.classList.contains('discovery-shotgun-only')) {
+      el.classList.toggle('hidden', !shotgun || reuse);
+    } else {
+      el.classList.toggle('hidden', reuse);
+    }
+  });
+  if (reuse) document.getElementById('discovery-map-controls')?.classList.add('hidden');
+}
+
+async function loadReuseZoneOptions() {
+  const select = document.getElementById('discovery-reuse-zone');
+  if (!select) return;
+  const current = select.value;
+  let clusters = [];
+  try {
+    const data = await api('/api/shotgun-clusters');
+    clusters = Array.isArray(data?.clusters) ? data.clusters : [];
+  } catch {
+    clusters = [];
+  }
+  const rows = clusters
+    .filter((c) => c?.id && c.hub?.city && c.hub?.state)
+    .sort(
+      (a, b) =>
+        Number(a.sgNumber) - Number(b.sgNumber) ||
+        String(a.niche || '').localeCompare(String(b.niche || '')),
+    );
+  const html = ['<option value="">New zone</option>'];
+  for (const c of rows) {
+    const label = [formatZnDisplay(c.sgNumber), c.hub.state, c.hub.city, c.niche]
+      .filter(Boolean)
+      .join(' · ');
+    html.push(`<option value="${esc(c.id)}">${esc(label)}</option>`);
+  }
+  select.innerHTML = html.join('');
+  if (current && rows.some((c) => c.id === current)) select.value = current;
+  syncReuseZoneFields();
+}
+
 function setDiscoveryPackType(type) {
   state.discoveryPackType = isClusterPackType(type) ? 'cluster' : 'single';
   syncDiscoveryPackTypeUi();
+  if (state.discoveryPackType === 'cluster') {
+    loadReuseZoneOptions().catch(() => {});
+  }
 }
 
 function syncDiscoveryPackTypeUi() {
@@ -27531,6 +30910,7 @@ function syncDiscoveryPackTypeUi() {
   if (roleFilter) roleFilter.classList.toggle('hidden', !shotgun && !discoveryBatchIsShotgun());
   const submit = document.querySelector('#discovery-form button[type="submit"]');
   if (submit) submit.textContent = shotgun ? 'Create Cluster pack' : 'Generate Discovery pack';
+  syncReuseZoneFields();
 }
 
 async function loadShotgunWorkspace(batchId = state.discoveryBatchId) {
@@ -28026,9 +31406,10 @@ async function renderShotgunWorkspace() {
   const packBtnLabel = hasPackRows
     ? `Re-run Generate pack from ${esc(draft.hub?.city || 'hub')} (${newCount} cities)`
     : `Generate pack from ${esc(draft.hub?.city || 'hub')} (${newCount} cities)`;
+  const zoneLabel = formatZnDisplay(draft.sgNumber);
   const selectedLine = draft.hub
     ? `<div class="sg-hub-lock">
-        <p><strong>${esc(draft.hub.city)}, ${esc(draft.hub.state)}</strong> · Hub
+        <p><strong>${zoneLabel ? `${esc(zoneLabel)} · ` : ''}${esc(draft.hub.city)}, ${esc(draft.hub.state)}</strong> · Hub
         · ${members.filter((m) => {
           const r = String(m.role || '').toLowerCase();
           return r !== 'hub' && r !== 'main' && (shotgunIsCityRole(m.role, m) || memberClusterKey(m));
@@ -28097,6 +31478,7 @@ async function renderShotgunWorkspace() {
         slot: document.getElementById('discovery-shotgun-map-slot'),
         api,
         workspace: ws,
+        undoScope: `discovery:${state.discoveryBatchId || ''}`,
         onHandle: (h) => {
           shotgunMapMount = h;
         },
@@ -28563,6 +31945,7 @@ async function openZoneMapModal(zoneId, { focusCity, focusState } = {}) {
       slot,
       api,
       workspace: ws,
+      undoScope: `zone:${id}`,
       onHandle: (h) => {
         zoneMapMount = h;
       },
@@ -28756,9 +32139,6 @@ function wireDiscoveryUi() {
       if (btn.dataset.view === 'discovery') {
         loadDiscoveryBatches().catch(() => {});
       }
-      if (btn.dataset.view === 'launched-sites' || btn.dataset.view === 'sites') {
-        loadSites().catch(() => {});
-      }
       if (btn.dataset.view === 'phone') {
         loadPhoneView().catch(() => {});
       }
@@ -28824,6 +32204,9 @@ function wireDiscoveryUi() {
   document.getElementById('discovery-pack-shotgun')?.addEventListener('click', () => {
     setDiscoveryPackType('cluster');
   });
+  document.getElementById('discovery-reuse-zone')?.addEventListener('change', () => {
+    syncReuseZoneFields();
+  });
   document.getElementById('discovery-form').addEventListener('submit', async (event) => {
     event.preventDefault();
     const fd = new FormData(event.target);
@@ -28851,15 +32234,19 @@ function wireDiscoveryUi() {
     }
     const regions = collectDiscoveryPackRegions();
     const cities = regions.flatMap((r) => r.cities);
+    const reuseZoneId = isClusterPackType(state.discoveryPackType)
+      ? String(fd.get('reuseZoneId') || '').trim()
+      : '';
     try {
       const pack = await api('/api/discovery/pack', {
         method: 'POST',
         body: JSON.stringify({
-          state: regions[0]?.state || '',
-          regions,
+          state: reuseZoneId ? '' : regions[0]?.state || '',
+          regions: reuseZoneId ? [] : regions,
           niches,
           requiredNiches,
-          cities,
+          cities: reuseZoneId ? [] : cities,
+          reuseZoneId,
           categories: [...event.target.querySelectorAll('input[name="category"]:checked')].map(
             (el) => el.value,
           ),
@@ -28891,6 +32278,14 @@ function wireDiscoveryUi() {
       });
       state.lastDiscoveryPack = pack;
       state.discoveryBatchId = pack.batch.id;
+      if (pack.existing) {
+        const zn = formatZnDisplay(pack.cluster?.sgNumber);
+        showToast(
+          zn
+            ? `${zn} already covers this niche on this hub`
+            : 'This niche already has a zone on this hub',
+        );
+      }
       state.discoveryClaudeSent = false;
       updateDiscoveryStepChecks(pack.batch, state.discoveryRows);
       if (isClusterPackType(state.discoveryPackType) && effectiveClaudeUiMode() === 'api') {
@@ -29312,10 +32707,12 @@ function wireDiscoveryUi() {
     document.getElementById(id)?.addEventListener('input', (e) => {
       state.discoveryFilters[key] = e.target.value;
       renderDiscoveryTable();
+      persistUiRestore();
     });
     document.getElementById(id)?.addEventListener('change', (e) => {
       state.discoveryFilters[key] = e.target.value;
       renderDiscoveryTable();
+      persistUiRestore();
     });
   };
   bindFilter('discovery-filter-text', 'text');
@@ -29550,9 +32947,23 @@ function wireDiscoveryUi() {
         <p class="muted">Ignore skips this batch without blocking rediscovery. Pass tracks (anti-dupe) without Candidates.</p>`,
     });
     if (!ok) return;
+    const processDetail = document.getElementById('dp-overlay-detail');
+    if (processDetail) {
+      const pending = withDecision.length;
+      processDetail.textContent =
+        pursueCount && evalRunMode === 'all'
+          ? `Creating candidates (${pending})… SERP / Volume starts after candidates are created.`
+          : `Creating candidates (${pending})…`;
+    }
+    setRoverJobOverlayVisible('discovery-process-overlay', true);
+    await new Promise((resolve) => {
+      requestAnimationFrame(() => requestAnimationFrame(resolve));
+    });
+    let result;
+    let processError = null;
     try {
       const batchId = state.discoveryBatchId;
-      const result = await api(
+      result = await api(
         `/api/discovery/batches/${encodeURIComponent(batchId)}/process`,
         {
           method: 'POST',
@@ -29564,6 +32975,21 @@ function wireDiscoveryUi() {
         }),
         },
       );
+    } catch (error) {
+      processError = error;
+    } finally {
+      setRoverJobOverlayVisible('discovery-process-overlay', false);
+    }
+    if (processError) {
+      await showModal({
+        title: 'Process failed',
+        confirmLabel: 'OK',
+        bodyHtml: `<p>${esc(processError.message)}</p>`,
+      });
+      return;
+    }
+    try {
+      const batchId = state.discoveryBatchId;
       state.discoveryRows = result.rows;
       renderDiscoveryTable();
       await loadCandidates();
@@ -29733,8 +33159,15 @@ try {
   wireUi();
   syncClaudeModeToggle();
   renderDiscoverySourceLegend();
-  const restorePeek = peekClaudeUiRestore();
-  const restoreView = CLAUDE_UI_VIEWS.has(restorePeek?.view) ? restorePeek.view : 'discovery';
+  const claudePeek = peekClaudeUiRestore();
+  const uiPeek = peekUiRestore();
+  applyUiFilterSnapshot(uiPeek);
+  if (claudePeek?.tab) state.tab = claudePeek.tab;
+  const restoreView = CLAUDE_UI_VIEWS.has(claudePeek?.view)
+    ? claudePeek.view
+    : CLAUDE_UI_VIEWS.has(uiPeek?.view)
+      ? uiPeek.view
+      : 'discovery';
   setView(restoreView);
   try {
     await loadDiscoveryPresets();
@@ -29743,9 +33176,19 @@ try {
     /* discovery optional until server restart */
   }
   await loadCandidates();
+  syncUiRestoreControls();
+  const wantBatch = String(uiPeek?.discoveryBatchId || state.discoveryBatchId || '').trim();
+  if (wantBatch && (state.discoveryBatches || []).some((b) => b.id === wantBatch)) {
+    try {
+      await selectDiscoveryBatch(wantBatch);
+    } catch {
+      /* batch may have been deleted */
+    }
+  }
+  if (claudePeek) await applyClaudeUiRestore();
+  else await applyUiSelectionRestore(uiPeek);
 } finally {
   hideAppBootLoading();
 }
 startJobStreamLeader();
 wireCandidatesBroadcast();
-await applyClaudeUiRestore();

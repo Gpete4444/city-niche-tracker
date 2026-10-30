@@ -66,7 +66,9 @@ assert(parsePreviewHopPort('Local http://127.0.0.1:4322/', 4322) == null, 'same-
 const watch = assemble.match(/TEMPLATE_LAYOUT_WATCH\s*=\s*\[([\s\S]*?)\]/);
 assert(watch, 'TEMPLATE_LAYOUT_WATCH is defined');
 assert(/['"]astro\.config\.mjs['"]/.test(watch[1]), 'watch list includes astro.config.mjs');
-assert(/rootSt\.isFile\(\)/.test(assemble), 'newestMtimeUnder handles files (astro.config.mjs)');
+assert(/st\.isFile\(\)/.test(assemble), 'template mtime compare handles files (astro.config.mjs)');
+assert(/shouldSkipCopy\(name\)/.test(assemble), 'template mtime compare skips files assemble does not copy');
+assert(/name === 'site-config\.json'/.test(assemble), 'template mtime compare ignores working site-config.json');
 
 assert(/preview:\s*\{\s*strictPort:\s*true\s*\}/.test(astroConfig), 'astro.config preview.strictPort');
 assert(/server:\s*\{\s*strictPort:\s*true\s*\}/.test(astroConfig), 'astro.config server.strictPort');

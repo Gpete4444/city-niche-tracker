@@ -247,6 +247,8 @@ export const siteConfigSchema = z.object({
   email: z.string().email(),
   web3FormsAccessKey: z.string().min(1),
   turnstileSiteKey: z.string().optional().default(''),
+  /** Public Rover forms inbox endpoint. Empty until the inbox is set up and the site is assembled. */
+  formsIngestUrl: z.string().optional().default(''),
   primaryCta: z.string().min(1),
   /** Residential / primary services (display order = priority; typically volume-ranked at generation). */
   services: z.array(z.string().min(1)).min(1).max(12),

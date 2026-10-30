@@ -6,15 +6,28 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { spawn, spawnSync } from 'node:child_process';
 import path from 'node:path';
-import { getCandidateDetail, getCandidateShell, saveMeta } from './candidates.mjs';
+import { getCandidateDetail, getCandidateShell, launchStampPatch, saveMeta } from './candidates.mjs';
 import {
   depsHashMarkerMatches,
   getAssembleChecklist,
   hashPackageDeps,
   syncAcceptedWeb3KeyToAssembled,
+  templateStaleLaunchError,
   writeDepsHashMarker,
 } from './assemble-site.mjs';
-import { cloudflareConfigured, cfFetch, getCloudflareCredentials } from './cloudflare-launch.mjs';
+import {
+  countFilesRecursive,
+  distExceedsWorkersFreeLimit,
+  pruneUnreferencedPublicImages,
+  WORKERS_FREE_STATIC_FILE_LIMIT,
+} from './prune-public-images.mjs';
+import {
+  cloudflareConfigured,
+  cfFetch,
+  ensureWorkerCustomDomains,
+  getCloudflareCredentials,
+} from './cloudflare-launch.mjs';
+import { formsInboxStatus, syncFormsAllowlist } from './forms-inbox.mjs';
 import {
   pushAssembledSiteToGithubAsync,
   ghAvailable,
@@ -366,11 +379,25 @@ export async function shipAssembledSite(candidateId, opts = {}) {
     throw err;
   }
 
+  const stale = templateStaleLaunchError(assembledRoot);
+  if (stale) throw stale;
+
   const slug = detail.meta?.assembledSiteSlug || path.basename(assembledRoot);
   const web3Sync = syncAcceptedWeb3KeyToAssembled(candidateId, assembledRoot);
   const human = [];
   if (web3Sync.copied) human.push('Copied accepted Web3Forms key onto assembled site-config.');
-  const steps = {};
+  const imagePrune = pruneUnreferencedPublicImages(assembledRoot, {
+    templateImagesDir: path.join(ROOT, 'public', 'images'),
+  });
+  human.push(
+    `Pruned ${imagePrune.removed} unused public image${imagePrune.removed === 1 ? '' : 's'} (kept ${imagePrune.kept}).`,
+  );
+  if (imagePrune.locked) {
+    human.push(
+      `${imagePrune.locked} public image${imagePrune.locked === 1 ? '' : 's'} could not be removed (file locked).`,
+    );
+  }
+  const steps = { images: imagePrune };
   const onProgress = typeof opts.onProgress === 'function' ? opts.onProgress : null;
   const planned = listShipProgressSteps(opts);
   const total = planned.length;
@@ -426,13 +453,20 @@ export async function shipAssembledSite(candidateId, opts = {}) {
     human.push('Skipped Wrangler deploy.');
   } else {
     tick('Wrangler deploy…');
-    try {
-      steps.deploy = await deployAssembledWithWranglerAsync(assembledRoot);
-      human.push(`Deployed Worker "${slug}" with Wrangler.`);
-    } catch (error) {
-      steps.deploy = { ok: false, error: error.message };
-      human.push(`Wrangler deploy failed: ${error.message}`);
-      // Continue — GitHub may still be useful
+    const distFiles = countFilesRecursive(path.join(assembledRoot, 'dist'));
+    if (distExceedsWorkersFreeLimit(distFiles)) {
+      const message = `Deploy skipped: dist has ${distFiles} static files, over the Workers Free limit of ${WORKERS_FREE_STATIC_FILE_LIMIT}.`;
+      steps.deploy = { ok: false, error: message, distFiles };
+      human.push(message);
+    } else {
+      try {
+        steps.deploy = await deployAssembledWithWranglerAsync(assembledRoot);
+        human.push(`Deployed Worker "${slug}" with Wrangler.`);
+      } catch (error) {
+        steps.deploy = { ok: false, error: error.message };
+        human.push(`Wrangler deploy failed: ${error.message}`);
+        // Continue — GitHub may still be useful
+      }
     }
   }
 
@@ -449,19 +483,44 @@ export async function shipAssembledSite(candidateId, opts = {}) {
     human.push(...(steps.builds.human || []));
   }
 
+  const shippedAt = new Date().toISOString();
+  const shipOk = Boolean(steps.github?.ok) && (opts.skipDeploy || Boolean(steps.deploy?.ok));
   const metaPatch = {
-    lastShipAt: new Date().toISOString(),
+    lastShipAt: shippedAt,
     githubRepo: steps.github?.fullName || detail.meta?.githubRepo || null,
     githubRepoUrl: steps.github?.repoUrl || detail.meta?.githubRepoUrl || null,
+    ...(shipOk ? launchStampPatch(detail.meta, { ok: true, at: shippedAt }) : {}),
   };
   if (steps.deploy?.ok) {
     metaPatch.cloudflarePagesDone = true;
     metaPatch.cfProject = slug;
+    if (cloudflareConfigured()) {
+      const launchDomain = detail.meta?.launchDomain || detail.siteConfig?.domain || '';
+      try {
+        steps.domain = await ensureWorkerCustomDomains({
+          domain: launchDomain,
+          workerName: slug,
+        });
+        human.push(...(steps.domain.human || []));
+        if (steps.domain?.dnsDone) metaPatch.dnsDone = true;
+      } catch (error) {
+        steps.domain = { ok: false, error: error.message };
+        human.push(`Custom domain attach failed: ${error.message}`);
+      }
+    }
   }
   saveMeta(candidateId, metaPatch);
 
+  if (shipOk && formsInboxStatus().ready) {
+    try {
+      await syncFormsAllowlist();
+    } catch (error) {
+      human.push(`Forms allowlist not updated: ${error.message}`);
+    }
+  }
+
   return {
-    ok: Boolean(steps.github?.ok) && (opts.skipDeploy || Boolean(steps.deploy?.ok)),
+    ok: shipOk,
     candidateId,
     slug,
     assembledSitePath: assembledRoot,

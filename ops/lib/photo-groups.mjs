@@ -33,6 +33,7 @@ import {
   stampBaPairMeta,
   writeGeneratedBaPair,
 } from './chatgpt-before-after.mjs';
+import { baLogoCleanPath, ensureBaLogo, forgetBaLogoMatching } from './ba-logo.mjs';
 import { loadAcceptedSiteConfig } from './content-markdown.mjs';
 import { getContentStructure } from './content-structure.mjs';
 import {
@@ -40,10 +41,12 @@ import {
   imageSlotCardStatus,
   listImageSlots,
   promoteFirstTrayIntoEmptySlots,
+  readCandidateContentFiles,
   saveSlotIntoManifest,
   syncSiteImagesToPublicAsync,
   pushImageSlotTrayEntry,
 } from './fill-site-images.mjs';
+import { applyPhotoBlocksToFiles, getNichePhotoBlocks } from './niche-photo-blocks.mjs';
 import { baStatusPayload, useImageSlotVariant } from './openai-generate.mjs';
 import { baSourceIsDuplicate, slotSourceIsDuplicate } from './image-tray.mjs';
 
@@ -194,6 +197,7 @@ export function persistPhotoGroupRecord(group) {
     slotCount: slots.length,
     baPairCount: (beforeAfter.home || []).length + (beforeAfter.services || []).length,
     sourceCandidateId: group.sourceCandidateId || prev.sourceCandidateId || null,
+    photoBlockVersion: Number(group.photoBlockVersion || prev.photoBlockVersion) || null,
     roles: rolesFromGroupSlots(slots, beforeAfter),
   };
   const groups = (loadIndex().groups || []).filter((g) => g.id !== meta.id);
@@ -391,7 +395,7 @@ export function listAttachedGroupBaPairs(candidateId) {
   };
 }
 
-export function useGroupBaPairOnSlot(
+export async function useGroupBaPairOnSlot(
   candidateId,
   matchKey,
   { groupId, beforeFilename, afterFilename } = {},
@@ -411,8 +415,8 @@ export function useGroupBaPairOnSlot(
   if (key.startsWith('ba:')) key = key.slice(3);
   const parsed = resolveBaVariantTarget({ matchKey: key });
   const group = getPhotoGroup(gid);
-  const beforeAbs = path.join(group.dir, wantBefore);
-  const afterAbs = path.join(group.dir, wantAfter);
+  const beforeAbs = groupBaSourceFile(group, wantBefore);
+  const afterAbs = groupBaSourceFile(group, wantAfter);
   if (!existsSync(beforeAbs) || !existsSync(afterAbs)) {
     throw Object.assign(new Error('Pair not found in photo group'), { status: 404 });
   }
@@ -420,6 +424,13 @@ export function useGroupBaPairOnSlot(
     serviceSlug: parsed.serviceSlug,
     pairIndex: parsed.pairIndex,
   });
+  const forgetRe = parsed.serviceSlug
+    ? new RegExp(
+        `^svc-ba-${String(parsed.serviceSlug).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}-\\d+-(before|after)\\.`,
+        'i',
+      )
+    : new RegExp(`^gallery-ba-${parsed.pairIndex || 1}-(before|after)\\.`, 'i');
+  forgetBaLogoMatching(candidateId, forgetRe, { allowLaunched: true });
   writeGeneratedBaPair(candidateId, {
     serviceSlug: parsed.serviceSlug,
     pairIndex: parsed.pairIndex,
@@ -433,9 +444,10 @@ export function useGroupBaPairOnSlot(
     matchTip: 'Loaded from photo group',
     matchGradeManual: false,
   });
+  await ensureBaLogo(candidateId, { allowLaunched: true });
   return {
     ok: true,
-    status: baStatusPayload(candidateId, {
+    status: await baStatusPayload(candidateId, {
       serviceSlug: parsed.serviceSlug,
       pairIndex: parsed.pairIndex,
     }),
@@ -947,15 +959,20 @@ export function savePhotoGroup(candidateId, name, { replaceExisting = false } = 
   }
 
   const diskBa = collectBaFromDisk(p.siteImages);
+  const baStoreFile = (filename) => {
+    const clean = baLogoCleanPath(candidateId, filename);
+    if (clean && existsSync(clean)) return clean;
+    return path.join(p.siteImages, filename);
+  };
   const targets = listConfiguredServiceTargets(candidateId);
   const beforeAfter = { home: [], services: [] };
   for (const pair of diskBa.home) {
     copies.push({
-      from: path.join(p.siteImages, pair.before.filename),
+      from: baStoreFile(pair.before.filename),
       destName: pair.before.filename,
     });
     copies.push({
-      from: path.join(p.siteImages, pair.after.filename),
+      from: baStoreFile(pair.after.filename),
       destName: pair.after.filename,
     });
     beforeAfter.home.push({
@@ -967,11 +984,11 @@ export function savePhotoGroup(candidateId, name, { replaceExisting = false } = 
   for (const pair of diskBa.services) {
     const hit = targets.find((t) => t.slug === pair.serviceSlug);
     copies.push({
-      from: path.join(p.siteImages, pair.before.filename),
+      from: baStoreFile(pair.before.filename),
       destName: pair.before.filename,
     });
     copies.push({
-      from: path.join(p.siteImages, pair.after.filename),
+      from: baStoreFile(pair.after.filename),
       destName: pair.after.filename,
     });
     beforeAfter.services.push({
@@ -1078,8 +1095,10 @@ export function promoteFirstTrayIntoEmptyPlan(plan) {
   return plan;
 }
 
-function planMatchesMulti(candidateId, groups) {
-  const targetSlots = listImageSlots(candidateId);
+function planMatchesMulti(candidateId, groups, contentFiles = null) {
+  const targetSlots = contentFiles
+    ? listImageSlots(candidateId, { contentFiles })
+    : listImageSlots(candidateId);
   const slotByKey = new Map();
   for (const slot of targetSlots) {
     const k = matchKeyForSlot(slot);
@@ -1314,12 +1333,26 @@ function loadGroupsOrThrow(groupIds) {
   return ids.map((id) => getPhotoGroup(id));
 }
 
+/**
+ * Copy of the content Accept will splice, or null when the niche has no catalog
+ * or the pages already match it. Does not write the candidate.
+ */
+export function contentFilesForPhotoGroupPreview(candidateId) {
+  const files = readCandidateContentFiles(candidateId);
+  if (!files) return null;
+  const catalog = getNichePhotoBlocks(nicheOf(candidateId));
+  if (!catalog?.version) return null;
+  const applied = applyPhotoBlocksToFiles(files, catalog, getContentStructure(candidateId));
+  if (!applied.changed) return null;
+  return applied.files;
+}
+
 export function previewPhotoGroup(candidateId, groupIdOrBody) {
   const ids = normalizePhotoGroupIds(
     typeof groupIdOrBody === 'string' ? { groupId: groupIdOrBody } : groupIdOrBody || {},
   );
   const groups = loadGroupsOrThrow(ids);
-  const plan = planMatchesMulti(candidateId, groups);
+  const plan = planMatchesMulti(candidateId, groups, contentFilesForPhotoGroupPreview(candidateId));
   const first = groups[0];
   return {
     ok: true,
@@ -1389,14 +1422,24 @@ function copyGroupFile(groupDir, filename, destDir, destName, { unique = false }
 
 const COPY_YIELD_EVERY = 8;
 
+function groupBaSourceFile(group, filename) {
+  const name = path.basename(String(filename || ''));
+  const sourceId = String(group?.sourceCandidateId || '').trim();
+  if (sourceId) {
+    const clean = baLogoCleanPath(sourceId, name);
+    if (clean && existsSync(clean)) return clean;
+  }
+  return path.join(group.dir, name);
+}
+
 async function copyGroupFileAsync(
   groupDir,
   filename,
   destDir,
   destName,
-  { unique = false, yieldCounter = null } = {},
+  { unique = false, yieldCounter = null, fromAbs = '' } = {},
 ) {
-  const from = path.join(groupDir, filename);
+  const from = fromAbs || path.join(groupDir, filename);
   if (!existsSync(from)) return null;
   mkdirSync(destDir, { recursive: true });
   let toName = destName || filename;
@@ -1577,6 +1620,7 @@ export async function applyPhotoGroups(candidateId, groupIds) {
   };
 
   if (homeBaEnabled(candidateId) && plan.baApplied.some((x) => x.kind === 'home')) {
+    forgetBaLogoMatching(candidateId, /^gallery-ba-\d+-(before|after)\./i, { allowLaunched: true });
     for (const dir of [p.siteImages, publicImages, stagingImages]) {
       deleteMatching(dir, /^gallery-ba-/i);
     }
@@ -1586,9 +1630,11 @@ export async function applyPhotoGroups(candidateId, groupIds) {
       const afterName = `gallery-ba-${n}-after.${row.pair.after.ext || 'jpg'}`;
       await copyGroupFileAsync(row.group.dir, row.pair.before.filename, p.siteImages, beforeName, {
         yieldCounter,
+        fromAbs: groupBaSourceFile(row.group, row.pair.before.filename),
       });
       await copyGroupFileAsync(row.group.dir, row.pair.after.filename, p.siteImages, afterName, {
         yieldCounter,
+        fromAbs: groupBaSourceFile(row.group, row.pair.after.filename),
       });
       stampBaPairMeta(candidateId, baVariantKey({ pairIndex: n }), {
         source: 'photo-group',
@@ -1601,6 +1647,12 @@ export async function applyPhotoGroups(candidateId, groupIds) {
 
   if (svcBaEnabled(candidateId)) {
     for (const row of plan.baApplied.filter((x) => x.kind === 'service')) {
+      const slugRe = String(row.serviceSlug || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      forgetBaLogoMatching(
+        candidateId,
+        new RegExp(`^svc-ba-${slugRe}-\\d+-(before|after)\\.`, 'i'),
+        { allowLaunched: true },
+      );
       const re = new RegExp(`^svc-ba-${row.serviceSlug}-`, 'i');
       for (const dir of [p.siteImages, publicImages, stagingImages]) {
         deleteMatching(dir, re);
@@ -1609,9 +1661,11 @@ export async function applyPhotoGroups(candidateId, groupIds) {
       const afterName = `svc-ba-${row.serviceSlug}-1-after.${row.pair.after.ext || 'jpg'}`;
       await copyGroupFileAsync(row.group.dir, row.pair.before.filename, p.siteImages, beforeName, {
         yieldCounter,
+        fromAbs: groupBaSourceFile(row.group, row.pair.before.filename),
       });
       await copyGroupFileAsync(row.group.dir, row.pair.after.filename, p.siteImages, afterName, {
         yieldCounter,
+        fromAbs: groupBaSourceFile(row.group, row.pair.after.filename),
       });
       stampBaPairMeta(candidateId, baVariantKey({ serviceSlug: row.serviceSlug }), {
         source: 'photo-group',
@@ -1636,8 +1690,8 @@ export async function applyPhotoGroups(candidateId, groupIds) {
       pairIndex: row.pairIndex || 1,
     });
     const existing = baTrayByKey.get(key) || [];
-    const beforeAbs = path.join(row.group.dir, path.basename(String(row.pair.before.filename || '')));
-    const afterAbs = path.join(row.group.dir, path.basename(String(row.pair.after.filename || '')));
+    const beforeAbs = groupBaSourceFile(row.group, row.pair.before.filename);
+    const afterAbs = groupBaSourceFile(row.group, row.pair.after.filename);
     if (
       baSourceIsDuplicate(
         p.siteImages,
@@ -1661,14 +1715,14 @@ export async function applyPhotoGroups(candidateId, groupIds) {
       row.pair.before.filename,
       p.siteImages,
       `${prefix}-pg${row.rank}-before.${row.pair.before.ext || 'jpg'}`,
-      { unique: true, yieldCounter },
+      { unique: true, yieldCounter, fromAbs: beforeAbs },
     );
     const afterName = await copyGroupFileAsync(
       row.group.dir,
       row.pair.after.filename,
       p.siteImages,
       `${prefix}-pg${row.rank}-after.${row.pair.after.ext || 'jpg'}`,
-      { unique: true, yieldCounter },
+      { unique: true, yieldCounter, fromAbs: afterAbs },
     );
     const trayEntry = baTrayEntryFromCopies(beforeName, afterName, {
       source: 'photo-group',
@@ -1719,6 +1773,7 @@ export async function applyPhotoGroups(candidateId, groupIds) {
   promoteFirstTrayIntoEmptySlots(candidateId, { sync: false });
   const afterPromote = loadManifest(candidateId);
   persistAttachedPhotoGroups(candidateId, groups, { groups: plan.groups });
+  await ensureBaLogo(candidateId, { sync: false, allowLaunched: true });
 
   const synced = await syncSiteImagesToPublicAsync(candidateId);
   const contentUpdate = applyImagesToContentFiles(
@@ -1752,7 +1807,7 @@ export async function applyPhotoGroups(candidateId, groupIds) {
     groups: plan.groups,
     candidate: getCandidateShell(candidateId),
     human: [
-      `Photo groups ${names}: ${plan.applied.length} stock slots loaded` +
+      `Photo groups ${names}: ${plan.applied.length} photos copied from the group` +
         (plan.baApplied.length ? `, ${plan.baApplied.length} before/after pairs` : '') +
         (plan.tray.length + plan.baTray.length
           ? `, ${plan.tray.length + plan.baTray.length} added to trays`

@@ -8,20 +8,21 @@ import { site } from '../../config/site';
 import {
   allConfiguredServiceNames,
   filterServicesByNames,
+  serviceNameKey,
 } from '../../lib/services-for-site';
 import { parseServiceBody } from '../../lib/service-body';
 import { servicePath } from '../../lib/site-path';
 
 export async function getStaticPaths() {
   const services = await getCollection('services');
-  const allowed = new Set(
-    allConfiguredServiceNames(site).map((n) => n.trim().toLowerCase()),
-  );
+  const allowed = new Set(allConfiguredServiceNames(site).map((n) => serviceNameKey(n)));
   return services
     .filter((entry) => !entry.data.draft)
     .filter((entry) => {
       if (!allowed.size) return true;
-      return allowed.has(String(entry.data.serviceName || '').trim().toLowerCase());
+      const nameKey = serviceNameKey(String(entry.data.serviceName || ''));
+      const idKey = serviceNameKey(entry.id);
+      return allowed.has(nameKey) || allowed.has(idKey);
     })
     .map((entry) => ({
       params: { slug: entry.id },

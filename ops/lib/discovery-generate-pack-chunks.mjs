@@ -1,7 +1,13 @@
 /**
  * Cluster Generate pack: split pinned cities across Claude calls, merge once.
  */
-import { extractCsvFromChatPaste, parseCsv } from './discovery.mjs';
+import {
+  DISCOVERY_CLAUDE_COLUMNS,
+  extractCsvFromChatPaste,
+  parseCsv,
+  parseCsvRecords,
+  rowsToCsv,
+} from './discovery.mjs';
 import { placeKey } from './shotgun.mjs';
 
 export const GENERATE_PACK_CHUNK = 20;
@@ -30,10 +36,52 @@ export function formatGeneratePackSiblings(members) {
   return lines.join('\n') || '(none)';
 }
 
-export function parseGeneratePackCsv(text) {
-  const extracted = extractCsvFromChatPaste(text);
-  return parseCsv(extracted);
+function fenceBodies(text) {
+  const raw = String(text || '').replace(/^\uFEFF/, '');
+  const bodies = [];
+  const re = /```(?:csv|text)?\s*\r?\n([\s\S]*?)```/gi;
+  let match = re.exec(raw);
+  while (match) {
+    bodies.push(match[1]);
+    match = re.exec(raw);
+  }
+  return bodies.length ? bodies : [raw];
 }
+
+/** Data rows with no header, same width as the pinned template. Cluster pack only. */
+function headerlessPinnedCsv(text) {
+  const width = DISCOVERY_CLAUDE_COLUMNS.length;
+  const headerNames = new Set(DISCOVERY_CLAUDE_COLUMNS.map((col) => col.toLowerCase()));
+  for (const body of fenceBodies(text)) {
+    const records = parseCsvRecords(body);
+    if (!records.length || !records.every((row) => row.length === width)) continue;
+    const firstCell = String(records[0][0] || '').trim().toLowerCase();
+    if (headerNames.has(firstCell)) continue;
+    const rows = records.map((cells) => {
+      const obj = {};
+      DISCOVERY_CLAUDE_COLUMNS.forEach((col, idx) => {
+        obj[col] = cells[idx] ?? '';
+      });
+      return obj;
+    });
+    return rowsToCsv(rows, DISCOVERY_CLAUDE_COLUMNS);
+  }
+  return null;
+}
+
+export function parseGeneratePackCsv(text) {
+  try {
+    return parseCsv(extractCsvFromChatPaste(text));
+  } catch (err) {
+    if (!/No CSV header found/.test(String(err?.message || ''))) throw err;
+    const recovered = headerlessPinnedCsv(text);
+    if (!recovered) throw err;
+    return parseCsv(recovered);
+  }
+}
+
+const FORMAT_RETRY_SUFFIX =
+  '\n\nYour previous reply had no CSV header. Reply with only one ```csv fence. The first line must start with Niche,';
 
 export function mergeGeneratePackRows(chunks) {
   const byKey = new Map();
@@ -56,6 +104,7 @@ function throwIfAborted(signal) {
 /**
  * Sequential Claude fills. Retry a truncated chunk once; then split in half.
  * Fails only if a 1-city chunk still hits the token cap.
+ * A reply with no CSV header is retried once before the job fails.
  *
  * @param {{
  *   pinnedRows: object[],
@@ -72,7 +121,11 @@ export async function fillGeneratePackRowChunks({
   signal,
   onChunk,
 } = {}) {
-  const work = chunkPinnedRows(pinnedRows).map((rows) => ({ rows, retried: false }));
+  const work = chunkPinnedRows(pinnedRows).map((rows) => ({
+    rows,
+    retried: false,
+    formatRetried: false,
+  }));
   if (!work.length) {
     return { rows: [], costUsd: 0, usage: null, calls: 0 };
   }
@@ -91,8 +144,11 @@ export async function fillGeneratePackRowChunks({
       cities: item.rows.length,
       retry: item.retried,
     });
+    const user = item.formatRetried
+      ? `${buildPrompt(item.rows)}${FORMAT_RETRY_SUFFIX}`
+      : buildPrompt(item.rows);
     const result = await claudeMessagesFn({
-      user: buildPrompt(item.rows),
+      user,
       maxTokens: generatePackChunkMaxTokens(item.rows.length),
       effort: 'low',
       signal,
@@ -103,7 +159,7 @@ export async function fillGeneratePackRowChunks({
     outputTokens += Number(result?.usage?.output_tokens) || 0;
     if (result?.truncated) {
       if (!item.retried) {
-        work[i] = { rows: item.rows, retried: true };
+        work[i] = { rows: item.rows, retried: true, formatRetried: Boolean(item.formatRetried) };
         continue;
       }
       if (item.rows.length <= 1) {
@@ -115,12 +171,21 @@ export async function fillGeneratePackRowChunks({
       work.splice(
         i,
         1,
-        { rows: item.rows.slice(0, mid), retried: false },
-        { rows: item.rows.slice(mid), retried: false },
+        { rows: item.rows.slice(0, mid), retried: false, formatRetried: false },
+        { rows: item.rows.slice(mid), retried: false, formatRetried: false },
       );
       continue;
     }
-    const parsed = parseGeneratePackCsv(result?.text || '');
+    let parsed;
+    try {
+      parsed = parseGeneratePackCsv(result?.text || '');
+    } catch (err) {
+      if (!item.formatRetried && /No CSV header found/.test(String(err?.message || ''))) {
+        work[i] = { rows: item.rows, retried: Boolean(item.retried), formatRetried: true };
+        continue;
+      }
+      throw err;
+    }
     if (!parsed.length) {
       throw Object.assign(new Error('CSV has no data rows'), { status: 400 });
     }

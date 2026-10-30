@@ -6,10 +6,30 @@ import { readFileSync, existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { getArchetype, normalizeArchetype } from '../../scripts/lib/site-archetypes.mjs';
-import { HOMEPAGE_DESIGNED_SECTIONS_WARNING } from './content-auto-fix.mjs';
+import { homepageDesignedSectionWarning } from './content-auto-fix.mjs';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const CONTRACT_PATH = path.join(ROOT, 'scripts', 'lib', 'template-contract.json');
+
+/** Primary city plus target suburbs, duplicates removed. */
+export function configuredLocationCityCount(siteConfig = {}) {
+  const cities = [];
+  const add = (name) => {
+    const city = String(name || '').trim();
+    if (!city) return;
+    if (cities.some((c) => c.toLowerCase() === city.toLowerCase())) return;
+    cities.push(city);
+  };
+  add(siteConfig?.primaryCity);
+  for (const suburb of siteConfig?.targetSuburbs || []) add(suburb);
+  return cities.length;
+}
+
+/** True when the location files already match the site's city list (at least one). */
+export function locationCountMatchesSite(locationFileCount, siteConfig) {
+  const configured = configuredLocationCityCount(siteConfig);
+  return configured >= 1 && Number(locationFileCount) === configured;
+}
 
 function slugifyContentName(name) {
   return String(name || '')
@@ -66,8 +86,11 @@ export function runTemplateContract(files, siteConfig, { mode = 'full', pageIds 
       const missingRecommended = (contract.homepageRecommended || []).filter(
         (key) => !fmHasKey(split.frontmatter, key),
       );
-      if (missingRecommended.some((key) => ['whyChooseUs', 'process', 'faqs'].includes(key))) {
-        warnings.push(HOMEPAGE_DESIGNED_SECTIONS_WARNING);
+      const missingDesigned = missingRecommended.filter((key) =>
+        ['whyChooseUs', 'process', 'faqs'].includes(key),
+      );
+      if (missingDesigned.length) {
+        warnings.push(homepageDesignedSectionWarning(missingDesigned));
       } else if (missingRecommended.includes('sectionHeading')) {
         warnings.push('Homepage intro heading is missing. Re-run Write site.');
       }
@@ -101,7 +124,10 @@ export function runTemplateContract(files, siteConfig, { mode = 'full', pageIds 
 
     const minLoc = archRules.minLocations ?? arch.minLocations ?? 4;
     const maxLoc = archRules.maxLocations ?? arch.maxLocations ?? 6;
-    if (locationFiles.length < minLoc || locationFiles.length > maxLoc) {
+    if (
+      !locationCountMatchesSite(locationFiles.length, siteConfig) &&
+      (locationFiles.length < minLoc || locationFiles.length > maxLoc)
+    ) {
       warnings.push(`Locations: got ${locationFiles.length}, prefer ${minLoc}–${maxLoc}`);
     }
   } else if (

@@ -102,7 +102,7 @@ Items intentionally deferred. Do not block shipping on these.
 |------|--------|
 | Discovery → site-config → content → Website (stage/assemble/launch) | Working |
 | Assemble auto build + optional auto-ship + assembled preview :4322 | Working |
-| CF domain / Email Routing / forms Launch helpers | Working (Rover Launch; Web3Forms key still paste) |
+| CF domain / Email Routing / forms Launch helpers | Working (Rover Launch emails from `leads@`) |
 | Images / design / Ippei SEO compare | Images pipeline remainder done (Pull scoring + omit FM + slot Re-pull/Upload); design polish + Ippei compare still parked |
 | City cluster / SERP / distance | Parked above |
 | Interactive research Map tab | Done (Rover Map tab; rebuild GeoJSON with `npm run build-research-map`) |

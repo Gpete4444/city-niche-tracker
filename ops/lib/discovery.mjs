@@ -12,12 +12,20 @@ import {
 import path from 'node:path';
 import { lookupPopulation, censusStatus, listUsStates } from './census.mjs';
 import { applyRecommendations, DISCOVERY_DECISIONS } from './discovery-recommend.mjs';
-import { createCandidate, setDecision, pathsFor, saveMeta } from './candidates.mjs';
+import {
+  backfillStoredCandidateNiches,
+  createCandidate,
+  pathsFor,
+  saveMeta,
+  setDecision,
+  titleCaseNiche,
+} from './candidates.mjs';
 import {
   findCandidateByGeo,
   formatKnownCandidatesForPrompt,
   knownCandidatesCount,
   regenerateKnownCandidates,
+  backfillTrackedNicheTitleCase,
   upsertTrackedDecision,
   removeTrackedDecision,
 } from './known-candidates.mjs';
@@ -43,6 +51,7 @@ import {
   normalizeShotgunSettings,
   saveShotgunDraft,
   shotgunDraftHubCount,
+  backfillShotgunNicheTitleCase,
   upsertShotgunCluster,
 } from './shotgun.mjs';
 
@@ -227,8 +236,8 @@ export function rowsToCsv(rows, columns = DISCOVERY_COLUMNS) {
   return `${lines.join('\n')}\n`;
 }
 
-/** Minimal CSV parser supporting quotes and newlines inside quotes. */
-export function parseCsv(text) {
+/** CSV records (quotes and newlines inside quotes). Empty rows are dropped. */
+export function parseCsvRecords(text) {
   const rows = [];
   let row = [];
   let cell = '';
@@ -278,16 +287,42 @@ export function parseCsv(text) {
   }
   row.push(cell);
   if (row.some((c) => String(c).trim() !== '')) rows.push(row);
+  return rows;
+}
 
-  if (!rows.length) return [];
-  const headers = rows[0].map((h) => String(h).trim());
-  return rows.slice(1).map((cells) => {
+function parseCsvObjects(text) {
+  const records = parseCsvRecords(text);
+  if (!records.length) return { columns: [], rows: [] };
+  const columns = records[0].map((h) => String(h).trim());
+  const rows = records.slice(1).map((cells) => {
     const obj = {};
-    headers.forEach((h, idx) => {
+    columns.forEach((h, idx) => {
       obj[h] = cells[idx] ?? '';
     });
     return obj;
   });
+  return { columns, rows };
+}
+
+function titleCaseNicheRow(row, columns) {
+  const obj = { ...row };
+  let changed = false;
+  for (const h of columns) {
+    if (!/^niche$/i.test(h)) continue;
+    const next = titleCaseNiche(obj[h]);
+    if (next !== obj[h]) {
+      obj[h] = next;
+      changed = true;
+    }
+  }
+  return { row: obj, changed };
+}
+
+/** Minimal CSV parser supporting quotes and newlines inside quotes. */
+export function parseCsv(text) {
+  const { columns, rows } = parseCsvObjects(text);
+  if (!columns.length) return [];
+  return rows.map((row) => titleCaseNicheRow(row, columns).row);
 }
 
 function readPromptTemplate(relativePath) {
@@ -300,7 +335,7 @@ function normalizeNicheList(rawList) {
   const out = [];
   const seen = new Set();
   for (const item of rawList || []) {
-    const n = String(item || '').trim();
+    const n = titleCaseNiche(item);
     if (!n) continue;
     const key = n.toLowerCase();
     if (seen.has(key)) continue;
@@ -399,7 +434,7 @@ export function normalizeFilters(filters = {}) {
     mapPackPreference,
     minJobCost: Number.isFinite(minJobCost) && minJobCost > 0 ? minJobCost : null,
     packType: normalizePackType(filters.packType),
-    shotgunNiche: String(filters.shotgunNiche || filters.requiredNiches?.[0] || '').trim(),
+    shotgunNiche: titleCaseNiche(filters.shotgunNiche || requiredNiches[0] || ''),
     clusterMiles: Number(filters.clusterMiles ?? filters.outerMiles ?? filters.innerMiles) || undefined,
     innerMiles: Number(filters.innerMiles) || undefined,
     outerMiles: Number(filters.outerMiles) || undefined,
@@ -457,6 +492,17 @@ function tiersLabel(tiers) {
   const set = new Set(tiers);
   const picked = order.filter((t) => set.has(t)).map((t) => t[0].toUpperCase() + t.slice(1));
   return picked.length ? picked.join(' / ') : 'Platinum / Gold (default)';
+}
+
+/** Niche, seasonality, and tiers only — cluster Generate pack must not see row-picking rules. */
+export function buildGeneratePackContext(filters = {}, niche = '') {
+  const f = normalizeFilters(filters);
+  const name = String(niche || f.shotgunNiche || '').trim() || '(none)';
+  return [
+    `Niche: **${name}**`,
+    `Seasonality: ${seasonalityLabel(f.seasonality)}`,
+    `Ticket tiers: ${tiersLabel(f.tiers)}`,
+  ].join('\n');
 }
 
 function mapPackLabel(v) {
@@ -871,7 +917,65 @@ function isDiscoveryCsvHeaderLine(line) {
   return /^"?Niche"?\s*,/i.test(String(line || '').trim());
 }
 
-/** Pull CSV out of Claude chat paste (DONE header, fences, or bare CSV). */
+/** Markdown table row. Comma-CSV lines that merely contain a pipe stay comma-CSV. */
+function pipeRowCells(line) {
+  const s = String(line || '').trim();
+  if (!s.includes('|')) return null;
+  if (!s.startsWith('|') && s.includes(',')) return null;
+  const cells = s.split('|').map((c) => c.trim());
+  if (cells[0] === '') cells.shift();
+  if (cells.length && cells[cells.length - 1] === '') cells.pop();
+  if (cells.length < 2) return null;
+  if (cells.every((c) => /^:?-{3,}:?$/.test(c))) return { separator: true, cells };
+  return { separator: false, cells };
+}
+
+function pipeLineIsNicheHeader(line) {
+  const pipe = pipeRowCells(line);
+  if (!pipe || pipe.separator) return false;
+  return isDiscoveryCsvHeaderLine(pipe.cells.map(csvEscape).join(','));
+}
+
+function csvFromPipeOrComma(block) {
+  const lines = String(block || '').split(/\r?\n/);
+  const start = lines.findIndex((l) => isDiscoveryCsvHeaderLine(l) || pipeLineIsNicheHeader(l));
+  if (start < 0) return null;
+  const pipeHeader = pipeLineIsNicheHeader(lines[start]) && !isDiscoveryCsvHeaderLine(lines[start]);
+  if (!pipeHeader) {
+    const body = lines.slice(start);
+    while (body.length && !String(body[body.length - 1]).trim()) body.pop();
+    return body.join('\n');
+  }
+  const out = [];
+  for (let i = start; i < lines.length; i += 1) {
+    if (!String(lines[i]).trim()) continue;
+    const pipe = pipeRowCells(lines[i]);
+    if (!pipe) break;
+    if (pipe.separator) continue;
+    out.push(pipe.cells.map(csvEscape).join(','));
+  }
+  return out.length ? out.join('\n') : null;
+}
+
+function fenceBodies(raw) {
+  const bodies = [];
+  const re = /```(?:csv|text)?\s*\r?\n([\s\S]*?)```/gi;
+  let match = re.exec(raw);
+  while (match) {
+    bodies.push(match[1]);
+    match = re.exec(raw);
+  }
+  return bodies;
+}
+
+function claudeReplyExcerpt(raw) {
+  const s = String(raw || '').replace(/\s+/g, ' ').trim();
+  if (!s) return '';
+  const max = 160;
+  return s.length > max ? `${s.slice(0, max - 3)}...` : s;
+}
+
+/** Pull CSV out of Claude chat paste (DONE header, fences, pipe table, or bare CSV). */
 export function extractCsvFromChatPaste(text) {
   const raw = String(text || '').replace(/^\uFEFF/, '');
   if (!raw.trim()) {
@@ -880,25 +984,19 @@ export function extractCsvFromChatPaste(text) {
     throw err;
   }
 
-  const fence = raw.match(/```(?:csv|text)?\s*\r?\n([\s\S]*?)```/i);
-  if (fence) {
-    const inner = fence[1].trim();
-    if (isDiscoveryCsvHeaderLine(inner.split(/\r?\n/)[0]) || /^"?Niche"?\s*,/im.test(inner)) {
-      return inner;
-    }
+  for (const inner of fenceBodies(raw)) {
+    const csv = csvFromPipeOrComma(inner);
+    if (csv) return csv;
   }
+  const csv = csvFromPipeOrComma(raw);
+  if (csv) return csv;
 
-  const lines = raw.split(/\r?\n/);
-  let start = lines.findIndex((l) => isDiscoveryCsvHeaderLine(l));
-  if (start < 0) {
-    const err = new Error('No CSV header found (expected a line starting with Niche, or "Niche",)');
-    err.status = 400;
-    throw err;
-  }
-  // Drop trailing DONE-only noise already above; keep from header to end, trim trailing blanks
-  const body = lines.slice(start);
-  while (body.length && !String(body[body.length - 1]).trim()) body.pop();
-  return body.join('\n');
+  const excerpt = claudeReplyExcerpt(raw);
+  const err = new Error(
+    `No CSV header found (expected a line starting with Niche, or "Niche",). Claude replied: "${excerpt}"`,
+  );
+  err.status = 400;
+  throw err;
 }
 
 export function rowKey(row) {
@@ -1677,6 +1775,86 @@ export function reopenDiscoveryRows(batchId, indices = []) {
   };
   writeJson(path.join(dir, 'meta.json'), meta);
   return { batch: meta, rows, reopened };
+}
+
+function titleCaseBatchFilters(filters) {
+  let changed = false;
+  if (typeof filters.shotgunNiche === 'string') {
+    const next = titleCaseNiche(filters.shotgunNiche);
+    if (next !== filters.shotgunNiche) {
+      filters.shotgunNiche = next;
+      changed = true;
+    }
+  }
+  for (const key of ['requiredNiches', 'niches']) {
+    if (!Array.isArray(filters[key])) continue;
+    const next = filters[key].map((item) => titleCaseNiche(item));
+    if (next.some((item, i) => item !== filters[key][i])) {
+      filters[key] = next;
+      changed = true;
+    }
+  }
+  return changed;
+}
+
+function backfillDiscoveryBatchNiches() {
+  if (!existsSync(BATCHES_DIR)) return { files: 0 };
+  let files = 0;
+  for (const name of readdirSync(BATCHES_DIR)) {
+    const dir = path.join(BATCHES_DIR, name);
+    let entries;
+    try {
+      entries = readdirSync(dir);
+    } catch {
+      continue;
+    }
+    const metaPath = path.join(dir, 'meta.json');
+    if (existsSync(metaPath)) {
+      const meta = readJson(metaPath);
+      if (meta?.filters && titleCaseBatchFilters(meta.filters)) {
+        writeJson(metaPath, meta);
+        files += 1;
+      }
+    }
+    for (const file of entries) {
+      if (!file.endsWith('.csv')) continue;
+      const full = path.join(dir, file);
+      let text;
+      try {
+        text = readFileSync(full, 'utf8');
+      } catch {
+        continue;
+      }
+      const { columns, rows } = parseCsvObjects(text);
+      if (!columns.some((h) => /^niche$/i.test(h))) continue;
+      let changed = false;
+      const next = rows.map((row) => {
+        const result = titleCaseNicheRow(row, columns);
+        if (result.changed) changed = true;
+        return result.row;
+      });
+      if (!changed) continue;
+      writeFileSync(full, rowsToCsv(next, columns), 'utf8');
+      files += 1;
+    }
+  }
+  return { files };
+}
+
+/** Title-case stored niches on candidates, discovery batches, zones, and the known-candidate index. */
+export function backfillStoredNicheTitleCase() {
+  const candidates = backfillStoredCandidateNiches();
+  const batches = backfillDiscoveryBatchNiches();
+  const shotgun = backfillShotgunNicheTitleCase();
+  const tracked = backfillTrackedNicheTitleCase();
+  const known = regenerateKnownCandidates();
+  return {
+    candidates,
+    batches,
+    shotgun,
+    tracked,
+    knownCount: known.count,
+  };
 }
 
 export function discoveryPresets() {

@@ -9,6 +9,7 @@ import {
   OPENAI_IMAGE_COST,
   openaiImageKeySet,
   generateOpenaiImage,
+  logoOpenaiImageRequest,
 } from './image-providers/openai-image.mjs';
 import { buildOpenaiLogoPrompt } from './logo-prompt.mjs';
 
@@ -220,13 +221,7 @@ export async function generateSiteLogo(candidateId, { mode, prompt } = {}) {
       { encoding: 'utf8' },
     );
   } else {
-    const { buffer } = await generateOpenaiImage({
-      prompt: usedPrompt,
-      size: '1024x1024',
-      background: 'transparent',
-      outputFormat: 'png',
-      compress: false,
-    });
+    const { buffer } = await generateOpenaiImage(logoOpenaiImageRequest(usedPrompt));
     archiveLiveLogoToTray(candidateId);
     filename = 'logo.png';
     abs = writeLiveLogoFile(candidateId, filename, buffer);

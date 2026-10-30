@@ -754,7 +754,7 @@ function wireSuggest() {
     const st = normalizeStateInput(stateSelect?.value || '');
     const reqId = ++cityReq;
     try {
-      const qs = new URLSearchParams({ q, limit: '50' });
+      const qs = new URLSearchParams({ q, limit: !q && st ? '2000' : '50' });
       if (st) qs.set('state', st);
       const data = await deps.api(`/api/discovery/places?${qs.toString()}`);
       if (reqId !== cityReq) return;

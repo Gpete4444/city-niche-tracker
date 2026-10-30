@@ -26,4 +26,10 @@ export {
   placeNameSetHas,
   setPlaceNameAliases,
   getPlaceNameAlias,
+  featureGeoid,
+  featureLayerKey,
+  featureBboxArea,
+  preferPlaceMeta,
+  placeFeatureMeta,
+  featuresToMergeByGeoid,
 } from '../public/service-area-selection.mjs';

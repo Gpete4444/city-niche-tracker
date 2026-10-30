@@ -3,11 +3,14 @@
  */
 
 import {
+  closeSync,
   copyFileSync,
   existsSync,
   mkdirSync,
+  openSync,
   readdirSync,
   readFileSync,
+  statSync,
   unlinkSync,
   writeFileSync,
 } from 'node:fs';
@@ -82,6 +85,11 @@ export function structureHasPhotosEnabled(candidateId) {
   const structure = getContentStructure(candidateId);
   const photos = structure?.photos || {};
   return Object.values(photos).some((p) => p && p.enabled);
+}
+
+function homepageMarkdownFromFiles(files) {
+  const indexKey = Object.keys(files || {}).find((k) => /pages\/index\.md$/i.test(k));
+  return indexKey ? String(files[indexKey] || '') : '';
 }
 
 function loadHomepageMarkdown(candidateId) {
@@ -294,12 +302,19 @@ function listMaterialOptionTitles(md) {
   return listMaterialOptions(md).map((row) => row.title);
 }
 
-function loadCandidateContentFiles(candidateId) {
+/** Accepted content, else the draft. Null when this candidate has no content file yet. */
+export function readCandidateContentFiles(candidateId) {
   const p = pathsFor(candidateId);
   for (const key of ['content', 'contentDraft']) {
     const doc = readJson(p[key]);
     if (doc?.files && typeof doc.files === 'object') return doc.files;
   }
+  return null;
+}
+
+function loadCandidateContentFiles(candidateId) {
+  const fromDoc = readCandidateContentFiles(candidateId);
+  if (fromDoc) return fromDoc;
   const files = {};
   const svcDir = path.join(ROOT, 'src', 'content', 'services');
   if (existsSync(svcDir)) {
@@ -330,7 +345,9 @@ function serviceSlugFromRel(rel) {
 /**
  * Build fill slots from structure photos + outline images (+ service page heroes).
  */
-export function listImageSlots(candidateId) {
+export function listImageSlots(candidateId, options = {}) {
+  const contentOverride =
+    options.contentFiles && typeof options.contentFiles === 'object' ? options.contentFiles : null;
   const structure = getContentStructure(candidateId);
   const outline = getContentOutlinePackage(candidateId);
   const registry = loadSectionRegistry();
@@ -353,7 +370,10 @@ export function listImageSlots(candidateId) {
     seenSvcHero.add(key);
     svcHeroServiceNames.push(n);
   }
-  const homepageMd = loadHomepageMarkdown(candidateId);
+  const homepageMd = contentOverride
+    ? homepageMarkdownFromFiles(contentOverride)
+    : loadHomepageMarkdown(candidateId);
+  const contentFiles = contentOverride || loadCandidateContentFiles(candidateId);
   const processStepCount = countProcessStepsInMarkdown(homepageMd);
   const homeProcessSteps = listProcessStepsFromFrontmatter(homepageMd);
   const homeMaterialOptions = listMaterialOptions(homepageMd);
@@ -424,7 +444,6 @@ export function listImageSlots(candidateId) {
   if (photos.svcMaterials?.enabled && (structure?.pages || []).includes('services')) {
     const def = sectionById.get('svcMaterials');
     const max = def?.maxImages || 6;
-    const contentFiles = loadCandidateContentFiles(candidateId);
     const serviceRels = Object.keys(contentFiles)
       .filter((k) => /content\/services\/[^/]+\.md$/i.test(k))
       .sort();
@@ -471,7 +490,6 @@ export function listImageSlots(candidateId) {
   if (photos.svcProcess?.enabled && (structure?.pages || []).includes('services')) {
     const def = sectionById.get('svcProcess');
     const max = def?.maxImages || 8;
-    const contentFiles = loadCandidateContentFiles(candidateId);
     const serviceRels = Object.keys(contentFiles)
       .filter((k) => /content\/services\/[^/]+\.md$/i.test(k))
       .sort();
@@ -526,7 +544,7 @@ export function listImageSlots(candidateId) {
     );
     const svcHeroSlots = [];
     const max = Math.min(svcHeroServiceNames.length, 24);
-    const blurbs = serviceBlurbsByName(loadCandidateContentFiles(candidateId));
+    const blurbs = serviceBlurbsByName(contentFiles);
     for (let i = 0; i < max; i += 1) {
       const name = svcHeroServiceNames[i];
       const slotDescription = blurbs.get(name.toLowerCase()) || '';
@@ -1748,33 +1766,323 @@ export function loadManifest(candidateId) {
   );
 }
 
+/** File names written before the longer cap. Steps of a long service share this prefix. */
+export const OPENAI_SLOT_FILENAME_PREFIX_LEN = 48;
+
+export function openaiSlotFilenamePrefix(key, max = OPENAI_SLOT_FILENAME_PREFIX_LEN) {
+  return (
+    String(key || 'slot')
+      .replace(/[^\w.-]+/g, '-')
+      .replace(/^-|-$/g, '')
+      .slice(0, max) || 'slot'
+  );
+}
+
+/**
+ * Which empty cards can take an on-disk OpenAI file.
+ * A prefix shared by more than one card is skipped so a step does not get a sibling's photo.
+ * @param {{
+ *   slots: { key: string, index?: number, sectionId?: string, label?: string, serviceName?: string, serviceSlug?: string, materialTitle?: string, processTitle?: string, queryHint?: string }[],
+ *   files: { name: string, mtimeMs?: number }[],
+ *   liveByKey?: Record<string, string>,
+ * }} input
+ */
+export function planUnlinkedOpenaiReattach({ slots, files, liveByKey = {} } = {}) {
+  const list = Array.isArray(slots) ? slots : [];
+  const prefixCounts = new Map();
+  for (const slot of list) {
+    const prefix = openaiSlotFilenamePrefix(slot?.key);
+    prefixCounts.set(prefix, (prefixCounts.get(prefix) || 0) + 1);
+  }
+  const usedLive = new Set(
+    Object.values(liveByKey || {})
+      .map((name) => path.basename(String(name || '')))
+      .filter(Boolean),
+  );
+  const disk = (Array.isArray(files) ? files : [])
+    .map((file) => ({
+      name: path.basename(String(file?.name || '')),
+      mtimeMs: Number(file?.mtimeMs) || 0,
+    }))
+    .filter((file) => file.name);
+  let kept = 0;
+  let skippedShared = 0;
+  let skippedNoFile = 0;
+  const restored = [];
+  for (const slot of list) {
+    const key = String(slot?.key || '');
+    if (!key) continue;
+    const liveName = path.basename(String(liveByKey[key] || ''));
+    if (liveName && disk.some((file) => file.name === liveName)) {
+      kept += 1;
+      continue;
+    }
+    const prefix = openaiSlotFilenamePrefix(key);
+    if ((prefixCounts.get(prefix) || 0) !== 1) {
+      skippedShared += 1;
+      continue;
+    }
+    const hits = disk
+      .filter(
+        (file) =>
+          file.name.startsWith(`${prefix}-openai-`) &&
+          file.name.toLowerCase().endsWith('.jpg') &&
+          !usedLive.has(file.name),
+      )
+      .sort((a, b) => b.mtimeMs - a.mtimeMs || b.name.localeCompare(a.name));
+    if (!hits.length) {
+      skippedNoFile += 1;
+      continue;
+    }
+    const newest = hits[0];
+    usedLive.add(newest.name);
+    restored.push({
+      key,
+      slot,
+      filename: newest.name,
+      tray: hits.slice(1).map((file) => file.name),
+    });
+  }
+  return { kept, restored, skippedShared, skippedNoFile };
+}
+
+/** Service-page list that holds this card's photo, in step order. */
+export function pageImageListKey(sectionId) {
+  if (sectionId === 'svcMaterials') return 'materialsImages';
+  if (sectionId === 'svcProcess') return 'processImages';
+  return '';
+}
+
+/**
+ * Empty cards whose service page already names a file at that step.
+ * A blank or missing row stays empty. A file already live on another card is not reused.
+ * @param {{
+ *   slots: { key: string, index?: number, sectionId?: string, serviceSlug?: string }[],
+ *   liveByKey?: Record<string, string>,
+ *   diskNames?: string[],
+ *   pageLists?: Record<string, string[]>,
+ * }} input
+ */
+export function planPageNamedReattach({
+  slots,
+  liveByKey = {},
+  diskNames = [],
+  pageLists = {},
+} = {}) {
+  const disk = new Set(
+    (Array.isArray(diskNames) ? diskNames : []).map((name) => path.basename(String(name || ''))).filter(Boolean),
+  );
+  const used = new Set(
+    Object.values(liveByKey || {})
+      .map((name) => path.basename(String(name || '')))
+      .filter(Boolean),
+  );
+  let kept = 0;
+  let skipped = 0;
+  const restored = [];
+  for (const slot of Array.isArray(slots) ? slots : []) {
+    const key = String(slot?.key || '');
+    if (!key) continue;
+    const liveName = path.basename(String(liveByKey[key] || ''));
+    if (liveName && disk.has(liveName)) {
+      kept += 1;
+      continue;
+    }
+    const listKey = pageImageListKey(slot?.sectionId);
+    const slug = String(slot?.serviceSlug || '').trim().toLowerCase();
+    const rows = listKey && slug ? pageLists[`${slug}|${listKey}`] || [] : [];
+    const named = path.basename(String(rows[Math.max(1, Number(slot?.index) || 1) - 1] || ''));
+    if (!named || !disk.has(named) || used.has(named)) {
+      skipped += 1;
+      continue;
+    }
+    used.add(named);
+    restored.push({
+      key,
+      slot,
+      filename: named,
+      source: /openai/i.test(named) ? 'openai' : '',
+    });
+  }
+  return { kept, restored, skipped };
+}
+
+function frontmatterImageFilenames(markdown, key) {
+  const split = String(markdown || '').match(/^---\r?\n([\s\S]*?)\r?\n---/);
+  if (!split) return [];
+  const lines = split[1].split(/\r?\n/);
+  const start = lines.findIndex((line) => new RegExp(`^${key}\\s*:`).test(line));
+  if (start < 0) return [];
+  const rows = [];
+  for (let i = start + 1; i < lines.length; i += 1) {
+    if (/^[A-Za-z_][\w]*\s*:/.test(lines[i])) break;
+    const src = lines[i].match(/^\s*-\s*src:\s*(.*)$/);
+    if (!src) continue;
+    let raw = src[1].trim();
+    if (raw.startsWith('"') && raw.endsWith('"')) {
+      try {
+        raw = JSON.parse(raw);
+      } catch {
+        raw = raw.slice(1, -1);
+      }
+    } else if (raw.startsWith("'") && raw.endsWith("'")) {
+      raw = raw.slice(1, -1);
+    }
+    rows.push(path.basename(String(raw || '')));
+  }
+  return rows;
+}
+
+function loadServicePageImageLists(candidateId) {
+  const p = pathsFor(candidateId);
+  const contentPath = existsSync(p.content) ? p.content : existsSync(p.contentDraft) ? p.contentDraft : '';
+  const doc = contentPath ? readJson(contentPath) : null;
+  const lists = {};
+  for (const [rel, markdown] of Object.entries(doc?.files || {})) {
+    const match = String(rel).replace(/\\/g, '/').match(/content\/services\/([^/]+)\.md$/i);
+    if (!match) continue;
+    const slug = match[1].toLowerCase();
+    for (const key of ['materialsImages', 'processImages']) {
+      lists[`${slug}|${key}`] = frontmatterImageFilenames(markdown, key);
+    }
+  }
+  return lists;
+}
+
+/**
+ * Place photos on list rows by slot.index (1-based). A missing index keeps the row already there.
+ * @param {{ src?: string, alt?: string }[]} existingRows
+ * @param {{ index?: number, filename?: string, src?: string, alt?: string }[]} slots
+ */
+export function mergeImageListByIndex(existingRows, slots) {
+  const rows = (Array.isArray(existingRows) ? existingRows : []).map((row) =>
+    row && row.src ? { src: String(row.src), alt: String(row.alt || '') } : null,
+  );
+  const incoming = Array.isArray(slots) ? slots : [];
+  const indexed = incoming.filter((slot) => Number(slot?.index) >= 1);
+  const source =
+    indexed.length === incoming.length
+      ? indexed
+      : incoming.map((slot, i) => ({ ...slot, index: i + 1 }));
+  for (const slot of source) {
+    if (!slot?.filename && !slot?.src) continue;
+    const at = Math.max(1, Number(slot.index) || 1) - 1;
+    while (rows.length <= at) rows.push(null);
+    const filename = String(slot.filename || slot.src || '');
+    const src = filename.startsWith('/images/') ? filename : `/images/${path.basename(filename)}`;
+    rows[at] = { src, alt: String(slot.alt || '') };
+  }
+  while (rows.length && !rows[rows.length - 1]?.src) rows.pop();
+  return rows;
+}
+
+function unquoteYamlScalar(raw) {
+  const text = String(raw || '').trim();
+  if (text.startsWith('"') && text.endsWith('"')) {
+    try {
+      return JSON.parse(text);
+    } catch {
+      return text.slice(1, -1);
+    }
+  }
+  if (text.startsWith("'") && text.endsWith("'")) return text.slice(1, -1);
+  return text;
+}
+
+function parseFmImageRows(lines) {
+  const rows = [];
+  let current = null;
+  for (const line of lines) {
+    const src = line.match(/^\s*-\s*src:\s*(.*)$/);
+    if (src) {
+      if (current) rows.push(current);
+      current = { src: unquoteYamlScalar(src[1]), alt: '' };
+      continue;
+    }
+    const alt = line.match(/^\s*alt:\s*(.*)$/);
+    if (alt && current) current.alt = unquoteYamlScalar(alt[1]);
+  }
+  if (current) rows.push(current);
+  return rows;
+}
+
+/** Cross-process lock so two image workers cannot drop each other's list entries. */
+export function withFileLock(lockPath, fn) {
+  mkdirSync(path.dirname(lockPath), { recursive: true });
+  const started = Date.now();
+  let fd;
+  while (fd === undefined) {
+    try {
+      fd = openSync(lockPath, 'wx');
+    } catch (error) {
+      if (error?.code !== 'EEXIST') throw error;
+      try {
+        const age = Date.now() - statSync(lockPath).mtimeMs;
+        if (age > 30_000) unlinkSync(lockPath);
+      } catch {
+        /* the other process released it */
+      }
+      if (Date.now() - started > 60_000) {
+        throw Object.assign(new Error('Image list is busy'), { status: 503, code: 'manifest-lock' });
+      }
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25);
+    }
+  }
+  try {
+    return fn();
+  } finally {
+    try {
+      closeSync(fd);
+    } catch {
+      /* already closed */
+    }
+    try {
+      unlinkSync(lockPath);
+    } catch {
+      /* already released */
+    }
+  }
+}
+
+function withManifestLock(candidateId, fn) {
+  const lockPath = `${pathsFor(candidateId).imagesManifest}.lock`;
+  return withFileLock(lockPath, fn);
+}
+
 function persistIncrementalManifest(candidateId, { entry, usedIds, sourceCounts, replace }) {
   if (!entry?.key || !entry.filename) return;
-  const p = pathsFor(candidateId);
-  const prev = loadManifest(candidateId);
-  const slots = { ...(prev.slots || {}), [entry.key]: entry };
-  const files = Object.values(slots)
-    .filter((s) => s?.filename)
-    .map((s) => ({
-      filename: s.filename,
-      src: s.src,
-      sectionId: s.sectionId,
-      provider: s.provider,
-      photoId: s.photoId,
-      photographer: s.photographer,
-      pageUrl: s.pageUrl,
-      attribution: s.attribution,
-      serviceName: s.serviceName || null,
-    }));
-  writeJson(p.imagesManifest, {
-    version: 1,
-    candidateId: p.id,
-    usedIds: [...usedIds],
-    files,
-    slots,
-    sources: { ...sourceCounts },
-    pulledAt: new Date().toISOString(),
-    replace: Boolean(replace),
+  withManifestLock(candidateId, () => {
+    const p = pathsFor(candidateId);
+    const prev = loadManifest(candidateId);
+    const slots = { ...(prev.slots || {}), [entry.key]: entry };
+    const files = Object.values(slots)
+      .filter((s) => s?.filename)
+      .map((s) => ({
+        filename: s.filename,
+        src: s.src,
+        sectionId: s.sectionId,
+        provider: s.provider,
+        photoId: s.photoId,
+        photographer: s.photographer,
+        pageUrl: s.pageUrl,
+        attribution: s.attribution,
+        serviceName: s.serviceName || null,
+        source: s.source || null,
+      }));
+    const ids = new Set([...(prev.usedIds || []), ...(usedIds || [])]);
+    writeJson(p.imagesManifest, {
+      version: 1,
+      candidateId: p.id,
+      usedIds: [...ids],
+      files,
+      slots,
+      sources: { ...(prev.sources || {}), ...(sourceCounts || {}) },
+      pulledAt: new Date().toISOString(),
+      replace: Boolean(replace),
+      baLogo: prev.baLogo,
+      baLogoStamped: prev.baLogoStamped,
+      baLogoPlate: prev.baLogoPlate,
+    });
   });
 }
 
@@ -1933,7 +2241,10 @@ export function applyImagesToContentFiles(candidateId, filledSlots) {
       const start = itemStarts[i].index;
       const end = i + 1 < itemStarts.length ? itemStarts[i + 1].index : block.length;
       let item = block.slice(start, end);
-      const slot = sorted[i];
+      const slot =
+        sorted.some((row) => Number(row?.index) >= 1)
+          ? sorted.find((row) => Number(row?.index) === i + 1)
+          : sorted[i];
       if (slot?.filename) {
         const imgBlock = processImageYamlBlock(slot, processItemKeyIndent(item));
         if (/^[ \t]+image:/m.test(item)) {
@@ -1955,12 +2266,22 @@ export function applyImagesToContentFiles(candidateId, filledSlots) {
    */
   const setFmImageList = (md, key, slots) => {
     if (!slots.length) return md;
-    const lines = [...slots]
-      .sort((a, b) => (a.index || 0) - (b.index || 0))
-      .map(
-        (s) =>
-          `  - src: ${JSON.stringify(`/images/${s.filename}`)}\n    alt: ${JSON.stringify(s.alt || altFromSrc(s.filename))}`,
-      );
+    const splitEarly = String(md || '').match(/^---\r?\n([\s\S]*?)\r?\n---/);
+    let existingRows = [];
+    if (splitEarly) {
+      const fmLines = splitEarly[1].split(/\r?\n/);
+      const start = fmLines.findIndex((line) => new RegExp(`^${key}\\s*:`).test(line));
+      if (start >= 0) {
+        let end = start + 1;
+        while (end < fmLines.length && !/^[A-Za-z_][\w]*\s*:/.test(fmLines[end])) end += 1;
+        existingRows = parseFmImageRows(fmLines.slice(start + 1, end));
+      }
+    }
+    const lines = mergeImageListByIndex(existingRows, slots).map((row) => {
+      if (!row?.src) return `  - src: ""\n    alt: ""`;
+      return `  - src: ${JSON.stringify(row.src)}\n    alt: ${JSON.stringify(row.alt || altFromSrc(row.src))}`;
+    });
+    if (!lines.some((line) => !line.includes('src: ""'))) return md;
     const block = `${key}:\n${lines.join('\n')}`;
     const split = String(md || '').match(/^---\r?\n([\s\S]*?)\r?\n---(\r?\n[\s\S]*)?$/);
     if (!split) return md;
@@ -2161,7 +2482,10 @@ function clearPullStatus(candidateId) {
  * @param {string} candidateId
  * @param {{ replace?: boolean, onProgress?: (p: { done: number, total: number, detail: string }) => void }} [opts]
  */
-export async function fillSiteImages(candidateId, { replace = false, onProgress } = {}) {
+export async function fillSiteImages(
+  candidateId,
+  { replace = false, onProgress, onlySlotKeys = null, blockedPhotoIds = null } = {},
+) {
   const p = pathsFor(candidateId);
   const providers = configuredImageProviders();
   const providerStatus = imageProvidersStatus();
@@ -2189,10 +2513,16 @@ export async function fillSiteImages(candidateId, { replace = false, onProgress 
     throw err;
   }
 
-  const slots = listImageSlots(candidateId);
+  const slots = listImageSlots(candidateId).filter((slot) => {
+    if (!Array.isArray(onlySlotKeys) || !onlySlotKeys.length) return true;
+    return onlySlotKeys.map(String).includes(String(slot.key));
+  });
   const manifest = loadManifest(candidateId);
   // Full replace: do not block on prior photoIds (they exhaust overlapping Unsplash pages).
   const usedIds = replace ? new Set() : new Set(manifest.usedIds || []);
+  for (const id of blockedPhotoIds || []) {
+    if (id) usedIds.add(String(id));
+  }
   const usedFilenames = replace
     ? new Set()
     : new Set(
@@ -2470,6 +2800,10 @@ export async function fillSiteImages(candidateId, { replace = false, onProgress 
     pulledAt: new Date().toISOString(),
     replace,
   };
+  const logoKeep = loadManifest(candidateId);
+  nextManifest.baLogo = logoKeep.baLogo;
+  nextManifest.baLogoStamped = logoKeep.baLogoStamped;
+  nextManifest.baLogoPlate = logoKeep.baLogoPlate;
   writeJson(p.imagesManifest, nextManifest);
 
   const synced = await syncSiteImagesToPublicAsync(candidateId);
@@ -2974,49 +3308,345 @@ export function setImageSlotMatchGrade(candidateId, slotKey, matchGrade) {
   };
 }
 
-export function saveSlotIntoManifest(candidateId, entry, { replaceFilename = null } = {}) {
-  const p = pathsFor(candidateId);
+function imageSlotCardsForKeys(candidateId, keys) {
+  const wanted = Array.isArray(keys) ? keys : [];
+  if (!wanted.length) return [];
+  const byKey = new Map(listImageSlots(candidateId).map((slot) => [slot.key, slot]));
   const manifest = loadManifest(candidateId);
-  const slots = { ...(manifest.slots || {}) };
-  if (replaceFilename && replaceFilename !== entry.filename) {
-    // Drop old file from files list; leave on disk unless same path
+  const p = pathsFor(candidateId);
+  const registry = loadSectionRegistry();
+  const cards = [];
+  for (const key of wanted) {
+    const slot = byKey.get(key);
+    if (!slot) continue;
+    cards.push(mapImageSlotCard(candidateId, slot, manifest.slots?.[key] || null, p, registry));
   }
-  slots[entry.key] = entry;
-  const usedIds = new Set(manifest.usedIds || []);
-  if (entry.photoId) usedIds.add(entry.photoId);
-  const filesMap = new Map(
-    (manifest.files || []).filter((f) => f?.filename).map((f) => [f.filename, f]),
-  );
-  // Remove prior slot filename from files if replaced
-  const prior = manifest.slots?.[entry.key];
-  if (prior?.filename && prior.filename !== entry.filename) {
-    filesMap.delete(prior.filename);
+  return cards;
+}
+
+/**
+ * Operator override for many Review slots. One manifest write.
+ * Empty slots and uploads are skipped.
+ * @returns {{ grade: string, applied: string[], skipped: { key: string, reason: string }[], slots: object[] }}
+ */
+export function setImageSlotsMatchGrade(candidateId, slotKeys, matchGrade) {
+  const grade = String(matchGrade || '').toLowerCase();
+  if (grade !== 'poor' && grade !== 'ok' && grade !== 'good') {
+    const err = new Error('matchGrade must be poor, ok, or good');
+    err.status = 400;
+    throw err;
   }
-  if (entry.filename) {
-    filesMap.set(entry.filename, {
-      filename: entry.filename,
-      src: entry.src,
-      sectionId: entry.sectionId,
-      provider: entry.provider || null,
-      photoId: entry.photoId || null,
-      photographer: entry.photographer || null,
-      pageUrl: entry.pageUrl || null,
-      attribution: entry.attribution || null,
-      serviceName: entry.serviceName || null,
-      source: entry.source || null,
+  const wanted = [
+    ...new Set(
+      (Array.isArray(slotKeys) ? slotKeys : []).map((key) => String(key || '').trim()).filter(Boolean),
+    ),
+  ];
+  const known = new Map(listImageSlots(candidateId).map((slot) => [slot.key, slot]));
+  const p = pathsFor(candidateId);
+  const skipped = [];
+  const applied = [];
+  withManifestLock(candidateId, () => {
+    const manifest = loadManifest(candidateId);
+    const slots = { ...(manifest.slots || {}) };
+    let changed = false;
+    for (const key of wanted) {
+      if (!known.has(key)) {
+        skipped.push({ key, reason: 'Unknown image slot' });
+        continue;
+      }
+      const prior = slots[key] || {};
+      const filename = prior.filename ? path.basename(String(prior.filename)) : '';
+      const onDisk = Boolean(filename && existsSync(path.join(p.siteImages, filename)));
+      if (!onDisk) {
+        skipped.push({ key, reason: 'No photo in this slot' });
+        continue;
+      }
+      let source = prior.source || null;
+      if (!source && prior.provider) source = 'stock';
+      if (source === 'upload') {
+        skipped.push({ key, reason: 'Upload slots keep the upload marker' });
+        continue;
+      }
+      slots[key] = {
+        ...prior,
+        key,
+        matchGrade: grade,
+        matchTip: MANUAL_GRADE_TIPS[grade],
+        matchGradeManual: true,
+      };
+      applied.push(key);
+      changed = true;
+    }
+    if (!changed) return;
+    writeJson(p.imagesManifest, {
+      ...manifest,
+      version: 1,
+      candidateId: p.id,
+      slots,
+      pulledAt: new Date().toISOString(),
     });
-  }
-  const next = {
-    ...manifest,
-    version: 1,
-    candidateId: p.id,
-    usedIds: [...usedIds],
-    files: [...filesMap.values()],
-    slots,
-    pulledAt: new Date().toISOString(),
+  });
+  return {
+    grade,
+    applied,
+    skipped,
+    slots: imageSlotCardsForKeys(candidateId, applied),
   };
-  writeJson(p.imagesManifest, next);
-  return next;
+}
+
+export function saveSlotIntoManifest(candidateId, entry, { replaceFilename = null } = {}) {
+  return withManifestLock(candidateId, () => {
+    const p = pathsFor(candidateId);
+    const manifest = loadManifest(candidateId);
+    const slots = { ...(manifest.slots || {}) };
+    if (replaceFilename && replaceFilename !== entry.filename) {
+      // Drop old file from files list; leave on disk unless same path
+    }
+    slots[entry.key] = entry;
+    const usedIds = new Set(manifest.usedIds || []);
+    if (entry.photoId) usedIds.add(entry.photoId);
+    const filesMap = new Map(
+      (manifest.files || []).filter((f) => f?.filename).map((f) => [f.filename, f]),
+    );
+    const prior = manifest.slots?.[entry.key];
+    if (prior?.filename && prior.filename !== entry.filename) {
+      filesMap.delete(prior.filename);
+    }
+    if (entry.filename) {
+      filesMap.set(entry.filename, {
+        filename: entry.filename,
+        src: entry.src,
+        sectionId: entry.sectionId,
+        provider: entry.provider || null,
+        photoId: entry.photoId || null,
+        photographer: entry.photographer || null,
+        pageUrl: entry.pageUrl || null,
+        attribution: entry.attribution || null,
+        serviceName: entry.serviceName || null,
+        source: entry.source || null,
+      });
+    }
+    const next = {
+      ...manifest,
+      version: 1,
+      candidateId: p.id,
+      usedIds: [...usedIds],
+      files: [...filesMap.values()],
+      slots,
+      pulledAt: new Date().toISOString(),
+    };
+    writeJson(p.imagesManifest, next);
+    return next;
+  });
+}
+
+/**
+ * Point empty Review cards at an OpenAI file when that file name matches only one card.
+ * Shared prefixes stay blank. Cards that already have a file on disk stay as they are.
+ */
+export function reattachUnlinkedOpenaiFiles(candidateId) {
+  const p = pathsFor(candidateId);
+  const structureSlots = listImageSlots(candidateId);
+  const names = existsSync(p.siteImages) ? readdirSync(p.siteImages) : [];
+  const files = names.map((name) => {
+    let mtimeMs = 0;
+    try {
+      mtimeMs = statSync(path.join(p.siteImages, name)).mtimeMs;
+    } catch {
+      mtimeMs = 0;
+    }
+    return { name, mtimeMs };
+  });
+  const locked = withManifestLock(candidateId, () => {
+    const manifest = loadManifest(candidateId);
+    const liveByKey = {};
+    for (const slot of structureSlots) {
+      const filename = manifest.slots?.[slot.key]?.filename;
+      const base = filename ? path.basename(String(filename)) : '';
+      if (base && existsSync(path.join(p.siteImages, base))) liveByKey[slot.key] = base;
+    }
+    const plan = planUnlinkedOpenaiReattach({ slots: structureSlots, files, liveByKey });
+    const slots = { ...(manifest.slots || {}) };
+    for (const row of plan.restored) {
+      const slot = row.slot;
+      const prior = slots[row.key] || {};
+      let variants = [...(prior.variants || [])];
+      const older = [...row.tray].reverse();
+      for (const name of older) {
+        variants = pushSlotTrayEntry(
+          p.siteImages,
+          variants,
+          { filename: name, source: 'openai', provider: 'openai' },
+          { liveFilename: row.filename, cap: IMAGE_TRAY_CAP },
+        );
+      }
+      slots[row.key] = {
+        ...prior,
+        key: row.key,
+        sectionId: prior.sectionId || slot.sectionId,
+        index: slot.index,
+        filename: row.filename,
+        src: `/images/${row.filename}`,
+        alt: prior.alt || `${slot.label || slot.sectionId || 'Photo'} photo`,
+        provider: 'openai',
+        source: 'openai',
+        photoId: prior.photoId || `openai:${row.key}:reattach`,
+        photographer: prior.photographer || null,
+        pageUrl: prior.pageUrl || null,
+        query: prior.query || slot.queryHint || slot.label || null,
+        score: prior.score ?? null,
+        matchGrade: prior.matchGrade || 'ok',
+        matchTip: 'AI-generated (GPT Image 2 (OpenAI))',
+        attribution: 'GPT Image 2 (OpenAI)',
+        serviceName: slot.serviceName || prior.serviceName || null,
+        serviceSlug: slot.serviceSlug || prior.serviceSlug || null,
+        materialTitle: slot.materialTitle || prior.materialTitle || null,
+        processTitle: slot.processTitle || prior.processTitle || null,
+        label: slot.label || prior.label || null,
+        variants,
+      };
+    }
+    const usedIds = new Set(manifest.usedIds || []);
+    for (const row of plan.restored) {
+      const photoId = slots[row.key]?.photoId;
+      if (photoId) usedIds.add(photoId);
+    }
+    const fileRows = Object.values(slots)
+      .filter((entry) => entry?.filename)
+      .map((entry) => ({
+        filename: entry.filename,
+        src: entry.src,
+        sectionId: entry.sectionId,
+        provider: entry.provider || null,
+        photoId: entry.photoId || null,
+        photographer: entry.photographer || null,
+        pageUrl: entry.pageUrl || null,
+        attribution: entry.attribution || null,
+        serviceName: entry.serviceName || null,
+        source: entry.source || null,
+      }));
+    const next = {
+      ...manifest,
+      version: 1,
+      candidateId: p.id,
+      usedIds: [...usedIds],
+      files: fileRows,
+      slots,
+      pulledAt: new Date().toISOString(),
+    };
+    writeJson(p.imagesManifest, next);
+    return {
+      kept: plan.kept,
+      restored: plan.restored.length,
+      skippedShared: plan.skippedShared,
+      skippedNoFile: plan.skippedNoFile,
+      filled: Object.values(slots).filter((entry) => entry?.filename),
+    };
+  });
+  const contentUpdate = applyImagesToContentFiles(candidateId, locked.filled);
+  const synced = syncSiteImagesToPublic(candidateId);
+  return {
+    kept: locked.kept,
+    restored: locked.restored,
+    skippedShared: locked.skippedShared,
+    skippedNoFile: locked.skippedNoFile,
+    contentUpdate,
+    synced,
+  };
+}
+
+/**
+ * Point empty service materials and process cards at the file the page already names.
+ * Does not borrow a leftover file when that step's row is blank.
+ */
+export function reattachPageNamedFiles(candidateId) {
+  const p = pathsFor(candidateId);
+  const structureSlots = listImageSlots(candidateId);
+  const diskNames = existsSync(p.siteImages) ? readdirSync(p.siteImages) : [];
+  const pageLists = loadServicePageImageLists(candidateId);
+  const locked = withManifestLock(candidateId, () => {
+    const manifest = loadManifest(candidateId);
+    const liveByKey = {};
+    for (const slot of structureSlots) {
+      const filename = manifest.slots?.[slot.key]?.filename;
+      const base = filename ? path.basename(String(filename)) : '';
+      if (base && existsSync(path.join(p.siteImages, base))) liveByKey[slot.key] = base;
+    }
+    const plan = planPageNamedReattach({
+      slots: structureSlots,
+      liveByKey,
+      diskNames,
+      pageLists,
+    });
+    const slots = { ...(manifest.slots || {}) };
+    for (const row of plan.restored) {
+      const slot = row.slot;
+      const prior = slots[row.key] || {};
+      const source = row.source || prior.source || null;
+      slots[row.key] = {
+        ...prior,
+        key: row.key,
+        sectionId: prior.sectionId || slot.sectionId,
+        index: slot.index,
+        filename: row.filename,
+        src: `/images/${row.filename}`,
+        alt: prior.alt || `${slot.label || slot.sectionId || 'Photo'} photo`,
+        provider: source === 'openai' ? 'openai' : prior.provider || null,
+        source,
+        photoId: prior.photoId || (source === 'openai' ? `openai:${row.key}:page` : null),
+        photographer: prior.photographer || null,
+        pageUrl: prior.pageUrl || null,
+        query: prior.query || slot.queryHint || slot.label || null,
+        score: prior.score ?? null,
+        matchGrade: prior.matchGrade || 'ok',
+        matchTip:
+          source === 'openai'
+            ? 'AI-generated (GPT Image 2 (OpenAI))'
+            : prior.matchTip || 'Loaded from the service page',
+        attribution: source === 'openai' ? 'GPT Image 2 (OpenAI)' : prior.attribution || null,
+        serviceName: slot.serviceName || prior.serviceName || null,
+        serviceSlug: slot.serviceSlug || prior.serviceSlug || null,
+        materialTitle: slot.materialTitle || prior.materialTitle || null,
+        processTitle: slot.processTitle || prior.processTitle || null,
+        label: slot.label || prior.label || null,
+        variants: prior.variants || [],
+      };
+    }
+    const usedIds = new Set(manifest.usedIds || []);
+    for (const row of plan.restored) {
+      const photoId = slots[row.key]?.photoId;
+      if (photoId) usedIds.add(photoId);
+    }
+    const fileRows = Object.values(slots)
+      .filter((entry) => entry?.filename)
+      .map((entry) => ({
+        filename: entry.filename,
+        src: entry.src,
+        sectionId: entry.sectionId,
+        provider: entry.provider || null,
+        photoId: entry.photoId || null,
+        photographer: entry.photographer || null,
+        pageUrl: entry.pageUrl || null,
+        attribution: entry.attribution || null,
+        serviceName: entry.serviceName || null,
+        source: entry.source || null,
+      }));
+    writeJson(p.imagesManifest, {
+      ...manifest,
+      version: 1,
+      candidateId: p.id,
+      usedIds: [...usedIds],
+      files: fileRows,
+      slots,
+      pulledAt: new Date().toISOString(),
+    });
+    return {
+      kept: plan.kept,
+      restored: plan.restored.length,
+      skipped: plan.skipped,
+    };
+  });
+  return locked;
 }
 
 export const SLOT_VARIANT_CAP = IMAGE_TRAY_CAP;

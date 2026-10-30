@@ -4,12 +4,23 @@
  * and homepage Why / Process / FAQ body dumps. No LLM.
  */
 
-export const HOMEPAGE_DESIGNED_SECTIONS_WARNING =
-  'Homepage Why / Process / FAQs could not be rebuilt from the page. Re-run Write site.';
+const DESIGNED_SECTION_FIELDS = [
+  ['whyChooseUs', 'Why'],
+  ['process', 'Process'],
+  ['faqs', 'FAQs'],
+];
+
+/** Name only the short homepage template fields. */
+export function homepageDesignedSectionWarning(keys) {
+  const want = new Set(Array.isArray(keys) ? keys : []);
+  const labels = DESIGNED_SECTION_FIELDS.filter(([key]) => want.has(key)).map(([, label]) => label);
+  if (!labels.length) return '';
+  return `Homepage template fields are empty: ${labels.join(', ')}. Accept content publishes this draft as it is.`;
+}
 
 const HOMEPAGE_INDEX_RE = /(^|\/)pages\/index\.md$/i;
 const DESIGNED_SECTION_WARNING_RE =
-  /homepage usually needs|usually needs "(?:whyChooseUs|process|faqs|sectionHeading)"|could not be rebuilt from the page|intro heading is missing/i;
+  /homepage usually needs|usually needs "(?:whyChooseUs|process|faqs|sectionHeading)"|could not be rebuilt from the page|missing Why, Process, or FAQs|Homepage template fields are empty|intro heading is missing/i;
 
 import { existsSync } from 'node:fs';
 import path from 'node:path';
@@ -213,6 +224,28 @@ export function autoFixContentDraft(files, opts = {}) {
     }
 
     next[rel] = body;
+  }
+
+  const locHeal = healLocationFrontmatter(next, config);
+  Object.assign(next, locHeal.files);
+  for (const h of locHeal.heals) {
+    changes.push({
+      file: h.file,
+      rule: 'location_frontmatter',
+      kind: 'seo',
+      detail: `Filled ${h.field} ${h.value}`,
+    });
+  }
+
+  const svcHeal = healServiceFrontmatter(next, config);
+  Object.assign(next, svcHeal.files);
+  for (const h of svcHeal.heals) {
+    changes.push({
+      file: h.file,
+      rule: 'service_frontmatter',
+      kind: 'seo',
+      detail: `Filled ${h.field} ${h.value}`,
+    });
   }
 
   // Link injection after speech fixes so we operate on final bodies
@@ -881,7 +914,7 @@ function fmScalar(fm, key) {
 
 function countFmListItems(fm, key) {
   const text = String(fm || '');
-  const startRe = new RegExp(`^${key}\\s*:\\s*(.*)$`, 'm');
+  const startRe = new RegExp(`^${key}[ \\t]*:[ \\t]*(.*)$`, 'm');
   const start = text.match(startRe);
   if (!start) return 0;
   const after = text.slice(text.indexOf(start[0]) + start[0].length);
@@ -906,7 +939,7 @@ function looksLikeProcessSectionHeading(heading) {
 }
 
 function looksLikeFaqsHeading(heading) {
-  return /\bfaqs?\b|frequently asked/i.test(String(heading || ''));
+  return /\bfaqs?\b|frequently asked|\bquestions\b/i.test(String(heading || ''));
 }
 
 function classifyDesignedHeading(heading) {
@@ -1022,7 +1055,18 @@ function parseTitleDescItems(text) {
     if (!title) continue;
     fromPlain.push({ title, description: sentenceCaseLine(desc) });
   }
-  return fromPlain.length >= 2 ? fromPlain : items;
+  if (fromPlain.length >= 2) return fromPlain;
+
+  const fromParagraphs = raw
+    .split(/\n{2,}/)
+    .map((para) => para.replace(/\s+/g, ' ').trim())
+    .filter((para) => para && !isAutofixOrNavJunk(para) && !/^#{1,3}\s/.test(para) && wordCount(para) >= 8)
+    .map((para) => ({
+      title: titleFromPlainReason(para),
+      description: sentenceCaseLine(para),
+    }))
+    .filter((item) => item.title && item.description);
+  return fromParagraphs.length >= 2 ? fromParagraphs : items;
 }
 
 function isAutofixOrNavJunk(para) {
@@ -1099,6 +1143,29 @@ function parseFaqItems(text) {
     if (question && answer) pairs.push({ question, answer });
     i = j - 1;
   }
+  if (pairs.length >= 2) return pairs;
+
+  const tight = [];
+  for (const block of paras) {
+    const lines = block
+      .split('\n')
+      .map((line) => line.trim())
+      .filter(Boolean);
+    if (lines.length < 2) continue;
+    const question = lines[0]
+      .replace(/^[-*•]\s+/, '')
+      .replace(/^#{1,3}\s+/, '')
+      .replace(/\*+/g, '')
+      .trim();
+    if (!looksLikeFaqQuestion(question)) continue;
+    const answer = lines
+      .slice(1)
+      .join(' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (question && answer) tight.push({ question, answer });
+  }
+  if (tight.length >= 2) return tight;
   return pairs;
 }
 
@@ -1147,6 +1214,206 @@ function replaceFmScalar(fm, key, value) {
   const re = new RegExp(`^${key}\\s*:.*\\n?`, 'm');
   if (re.test(fm)) return fm.replace(re, line);
   return `${String(fm).replace(/\s+$/, '')}\n${line}`;
+}
+
+function slugifyLocationName(name) {
+  return String(name || '')
+    .toLowerCase()
+    .replace(/&/g, ' and ')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '');
+}
+
+function configuredLocationCities(config = {}) {
+  const cities = [];
+  const primaryCity = String(config?.primaryCity || '').trim();
+  if (primaryCity) cities.push(primaryCity);
+  for (const suburb of config?.targetSuburbs || []) {
+    const city = String(suburb || '').trim();
+    if (!city) continue;
+    if (cities.some((c) => c.toLowerCase() === city.toLowerCase())) continue;
+    cities.push(city);
+  }
+  return cities;
+}
+
+function cityForLocationSlug(slug, config) {
+  const needle = String(slug || '')
+    .trim()
+    .toLowerCase();
+  if (!needle) return '';
+  for (const city of configuredLocationCities(config)) {
+    if (slugifyLocationName(city) === needle) return city;
+  }
+  return '';
+}
+
+function humanizeLocationSlug(slug) {
+  return String(slug || '')
+    .split('-')
+    .filter(Boolean)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(' ');
+}
+
+/**
+ * Title, h1, and description for a location page. Same wording as a seeded stub.
+ * Suburb h1 is "{niche} in {city}". Primary h1 is "{niche} for {city}, {ST} homeowners".
+ */
+export function locationPageHeadings({ city, state, niche, primaryCity } = {}) {
+  const place = String(city || '').trim();
+  const stateUp = String(state || '').trim().toUpperCase();
+  const offer = String(niche || 'Local services').trim() || 'Local services';
+  const primary = String(primaryCity || place).trim() || place;
+  const isPrimary = place.toLowerCase() === String(primary).trim().toLowerCase();
+  if (isPrimary) {
+    return {
+      title: `${offer} | ${place} homeowners`,
+      h1: `${offer} for ${place}, ${stateUp} homeowners`,
+      description: `Local ${offer} for ${place}, ${stateUp} homeowners — clear estimates and careful workmanship. Request a free estimate.`,
+    };
+  }
+  return {
+    title: `${offer} in ${place}, ${stateUp}`,
+    h1: `${offer} in ${place}`,
+    description: `${offer} for ${place} homeowners and property owners near ${primary}. Request a free estimate.`,
+  };
+}
+
+/**
+ * Fill missing location city/state from site-config, then missing title/description/h1.
+ * Does not invent a state, and does not replace a heading that is already written.
+ * @returns {{ files: Record<string,string>, heals: Array<{ file: string, field: string, value: string }>, changed: boolean }}
+ */
+export function healLocationFrontmatter(files = {}, config = {}) {
+  const next = { ...(files || {}) };
+  const heals = [];
+  const state = String(config?.state || '')
+    .trim()
+    .toUpperCase();
+
+  for (const [rel, raw] of Object.entries(next)) {
+    const norm = String(rel || '').replace(/\\/g, '/');
+    const m = norm.match(/^src\/content\/locations\/([^/]+)\.md$/i);
+    if (!m || !raw || typeof raw !== 'string') continue;
+    const slug = m[1];
+    if (slug.startsWith('_')) continue;
+
+    const { fm, body } = splitFrontmatter(raw);
+    if (fm == null) continue;
+
+    let nextFm = fm;
+    let changed = false;
+
+    if (!fmScalar(nextFm, 'city')) {
+      const city = cityForLocationSlug(slug, config) || humanizeLocationSlug(slug);
+      if (city) {
+        nextFm = replaceFmScalar(nextFm, 'city', city);
+        heals.push({ file: norm, field: 'city', value: city });
+        changed = true;
+      }
+    }
+
+    if (!fmScalar(nextFm, 'state') && state) {
+      nextFm = replaceFmScalar(nextFm, 'state', state);
+      heals.push({ file: norm, field: 'state', value: state });
+      changed = true;
+    }
+
+    const cityName = fmScalar(nextFm, 'city');
+    const stateName = fmScalar(nextFm, 'state');
+    if (cityName && stateName) {
+      const headings = locationPageHeadings({
+        city: cityName,
+        state: stateName,
+        niche: config?.niche,
+        primaryCity: config?.primaryCity,
+      });
+      for (const field of ['title', 'description', 'h1']) {
+        if (fmScalar(nextFm, field)) continue;
+        nextFm = replaceFmScalar(nextFm, field, headings[field]);
+        heals.push({ file: norm, field, value: headings[field] });
+        changed = true;
+      }
+    }
+
+    if (changed) next[rel] = joinFrontmatter(nextFm, body);
+  }
+
+  return { files: next, heals, changed: heals.length > 0 };
+}
+
+function configuredServiceNameForSlug(slug, config = {}) {
+  const key = slugify(slug);
+  if (!key) return '';
+  const names = [
+    ...(Array.isArray(config?.services) ? config.services : []),
+    ...(Array.isArray(config?.commercialServices) ? config.commercialServices : []),
+  ];
+  for (const name of names) {
+    const text = String(name || '').trim();
+    if (text && slugify(text) === key) return text;
+  }
+  return '';
+}
+
+/**
+ * Fill missing serviceName from the site list, then missing h1/title/description.
+ * Does not invent a name for a slug that is not on the list, and does not replace
+ * a heading that is already written. h1 matches a seeded stub: the service name.
+ * @returns {{ files: Record<string,string>, heals: Array<{ file: string, field: string, value: string }>, changed: boolean }}
+ */
+export function healServiceFrontmatter(files = {}, config = {}) {
+  const next = { ...(files || {}) };
+  const heals = [];
+  const primaryCity = String(config?.primaryCity || '').trim();
+
+  for (const [rel, raw] of Object.entries(next)) {
+    const norm = String(rel || '').replace(/\\/g, '/');
+    const m = norm.match(/^src\/content\/services\/([^/]+)\.md$/i);
+    if (!m || !raw || typeof raw !== 'string') continue;
+    const slug = m[1];
+    if (slug.startsWith('_')) continue;
+
+    const { fm, body } = splitFrontmatter(raw);
+    if (fm == null) continue;
+
+    let nextFm = fm;
+    let changed = false;
+    const configured = configuredServiceNameForSlug(slug, config);
+
+    if (!fmScalar(nextFm, 'serviceName') && configured) {
+      nextFm = replaceFmScalar(nextFm, 'serviceName', configured);
+      heals.push({ file: norm, field: 'serviceName', value: configured });
+      changed = true;
+    }
+
+    const serviceName = fmScalar(nextFm, 'serviceName');
+    if (serviceName && !fmScalar(nextFm, 'h1')) {
+      nextFm = replaceFmScalar(nextFm, 'h1', serviceName);
+      heals.push({ file: norm, field: 'h1', value: serviceName });
+      changed = true;
+    }
+
+    if (serviceName && primaryCity) {
+      if (!fmScalar(nextFm, 'title')) {
+        const title = `${serviceName} in ${primaryCity}`;
+        nextFm = replaceFmScalar(nextFm, 'title', title);
+        heals.push({ file: norm, field: 'title', value: title });
+        changed = true;
+      }
+      if (!fmScalar(nextFm, 'description')) {
+        const description = `${serviceName} for homeowners in ${primaryCity} and nearby cities. Request a free estimate.`;
+        nextFm = replaceFmScalar(nextFm, 'description', description);
+        heals.push({ file: norm, field: 'description', value: description });
+        changed = true;
+      }
+    }
+
+    if (changed) next[rel] = joinFrontmatter(nextFm, body);
+  }
+
+  return { files: next, heals, changed: heals.length > 0 };
 }
 
 function homepageIntroHeadingFromOutline(outline, config) {
@@ -1279,10 +1546,13 @@ export function stampHomepageLiftOnDraftOps(ops, { changes = [], files } = {}) {
   }
   const index = files?.['src/content/pages/index.md'] || files?.['src\\content\\pages\\index.md'] || '';
   const { fm } = splitFrontmatter(index);
-  const stillMissing = ['whyChooseUs', 'process', 'faqs'].some((key) => countFmListItems(fm, key) < 2);
+  const shortKeys = DESIGNED_SECTION_FIELDS.map(([key]) => key).filter(
+    (key) => countFmListItems(fm, key) < 2,
+  );
+  const warning = homepageDesignedSectionWarning(shortKeys);
   const prune = (arr) => {
     const kept = (arr || []).filter((w) => !isDesignedSectionWarning(w));
-    if (stillMissing) kept.push(HOMEPAGE_DESIGNED_SECTIONS_WARNING);
+    if (warning) kept.push(warning);
     return [...new Set(kept)];
   };
   if (next.check && typeof next.check === 'object') {

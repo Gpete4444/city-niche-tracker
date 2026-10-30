@@ -304,6 +304,79 @@ export function siblingAlsoServingAddedStatus({ name } = {}) {
   return `Added ${city} as Also serving. Cluster site — coverage only, never a location page.`;
 }
 
+/** Layer identity: Census GEOID, else name|state. */
+export function featureGeoid(feature) {
+  return String(feature?.properties?.geoid || feature?.properties?.GEOID || '').trim();
+}
+
+export function featureLayerKey(feature) {
+  const geoid = featureGeoid(feature);
+  if (geoid) return `g:${geoid}`;
+  const p = feature?.properties || {};
+  const name = String(p.name || '').trim();
+  if (!name) return '';
+  return `n:${name.toLowerCase()}|${String(p.state || '').trim().toUpperCase()}`;
+}
+
+export function featureBboxArea(feature) {
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  const walk = (coords) => {
+    if (!coords) return;
+    if (typeof coords[0] === 'number') {
+      const x = Number(coords[0]);
+      const y = Number(coords[1]);
+      if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+      if (x < minX) minX = x;
+      if (y < minY) minY = y;
+      if (x > maxX) maxX = x;
+      if (y > maxY) maxY = y;
+      return;
+    }
+    for (const c of coords) walk(c);
+  };
+  walk(feature?.geometry?.coordinates);
+  if (!Number.isFinite(minX)) return 0;
+  return Math.max(0, maxX - minX) * Math.max(0, maxY - minY);
+}
+
+/** True when next should replace prev for name|state pop/center (primary, else larger, else higher pop). */
+export function preferPlaceMeta(prev, next) {
+  if (!prev) return true;
+  if (next.isPrimary && !prev.isPrimary) return true;
+  if (prev.isPrimary && !next.isPrimary) return false;
+  if (next.area > prev.area) return true;
+  if (next.area < prev.area) return false;
+  return next.pop > prev.pop;
+}
+
+export function placeFeatureMeta(feature) {
+  const p = feature?.properties || {};
+  return {
+    isPrimary: Boolean(p.isPrimary),
+    area: featureBboxArea(feature),
+    pop: Number(p.population) || 0,
+  };
+}
+
+/**
+ * Keep every GEOID when merging coverage-preview layers.
+ * `have` is a Set of featureLayerKey values (not name|state).
+ */
+export function featuresToMergeByGeoid(features, have) {
+  const nextHave = new Set(have);
+  const toAdd = [];
+  for (const f of features || []) {
+    const key = featureLayerKey(f);
+    if (!key || nextHave.has(key)) continue;
+    nextHave.add(key);
+    toAdd.push(f);
+  }
+  return { toAdd, have: nextHave };
+}
+
 /**
  * Coverage SVG / site-config miles from selected-city distances to the primary.
  * @param {{ distances?: number[], fallback?: number }} args

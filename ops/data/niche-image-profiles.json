@@ -515,6 +515,107 @@
       },
       "autoSeeded": false,
       "llmEnrichedAt": "2026-09-16T23:58:32.820Z"
+    },
+    {
+      "id": "artificial-turf",
+      "match": "artificial\\s+turf",
+      "boost": [
+        "artificial turf installation",
+        "synthetic grass backyard",
+        "turf seaming installation",
+        "putting green turf",
+        "pet turf backyard",
+        "turf infill brushing",
+        "artificial grass base compaction",
+        "turf patio courtyard"
+      ],
+      "tokens": [
+        "turf",
+        "synthetic grass",
+        "artificial grass",
+        "infill",
+        "seam",
+        "putting green",
+        "base rock",
+        "decomposed granite",
+        "pile",
+        "backing",
+        "artificial",
+        "small",
+        "yard",
+        "grass",
+        "pet",
+        "friendly",
+        "affordable",
+        "packages",
+        "backyard",
+        "putting",
+        "greens",
+        "synthetic",
+        "play",
+        "areas",
+        "patios",
+        "courtyards"
+      ],
+      "requireNicheHit": true,
+      "kindHints": {
+        "hero": "finished artificial turf backyard installation",
+        "intro": "residential yard with artificial turf",
+        "process": "installing artificial turf base and seams",
+        "materials": "artificial turf roll infill close up",
+        "other": "synthetic grass commercial landscape"
+      },
+      "autoSeeded": false,
+      "llmEnrichedAt": "2026-10-23T19:28:58.580Z"
+    },
+    {
+      "id": "spray-foam-insulation",
+      "match": "Spray\\s+Foam\\s+Insulation",
+      "boost": [
+        "spray foam insulation attic",
+        "closed-cell spray foam wall",
+        "open-cell spray foam ceiling",
+        "crawlspace encapsulation vapor barrier",
+        "spray foam insulation rig",
+        "warehouse spray foam insulation",
+        "spray foam insulation contractor",
+        "attic spray foam application"
+      ],
+      "tokens": [
+        "spray foam",
+        "insulation",
+        "closed-cell",
+        "open-cell",
+        "crawlspace",
+        "encapsulation",
+        "vapor barrier",
+        "attic",
+        "foam",
+        "rim joist",
+        "spray",
+        "closed",
+        "cell",
+        "open",
+        "new",
+        "construction",
+        "consultations",
+        "energy",
+        "audit",
+        "rebate",
+        "assistance",
+        "garage",
+        "basement"
+      ],
+      "requireNicheHit": true,
+      "kindHints": {
+        "hero": "spray foam insulation installed in attic",
+        "intro": "residential spray foam insulation wall cavity",
+        "process": "technician spraying foam insulation in attic",
+        "materials": "spray foam insulation drum and hose equipment",
+        "other": "spray foam insulation commercial warehouse ceiling"
+      },
+      "autoSeeded": false,
+      "llmEnrichedAt": "2026-10-30T21:06:11.085Z"
     }
   ]
 }

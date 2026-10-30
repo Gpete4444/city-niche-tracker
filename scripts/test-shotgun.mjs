@@ -278,10 +278,11 @@ assertEqual(emptyShotgunDraft().waveCount, undefined, 'draft has no waveCount');
 assertEqual(nextShotgunSgNumber([{ sgNumber: 1 }, { sgNumber: 3 }]), 4, 'next after max');
 assertEqual(clampClusterMiles(30), 30, 'clamp default miles');
 assertEqual(clampClusterMiles(1), 1, 'clamp min miles');
-assertEqual(clampClusterMiles(100), 100, 'clamp max miles');
+assertEqual(clampClusterMiles(100), 100, 'clamp 100 miles');
+assertEqual(clampClusterMiles(200), 200, 'clamp max miles');
 assertEqual(clampClusterMiles(0), 1, 'clamp below min miles');
-assertEqual(clampClusterMiles(250), 100, 'clamp above max miles');
-assertEqual(emptyShotgunDraft({ clusterMiles: 250 }).clusterMiles, 100, 'draft miles clamped');
+assertEqual(clampClusterMiles(250), 200, 'clamp above max miles');
+assertEqual(emptyShotgunDraft({ clusterMiles: 250 }).clusterMiles, 200, 'draft miles clamped');
 assertEqual(emptyShotgunDraft({ clusterMiles: 12 }).innerMiles, 12, 'draft inner follows cluster');
 assertEqual(emptyShotgunDraft().waveMiles, undefined, 'draft has no waveMiles');
 

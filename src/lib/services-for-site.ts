@@ -36,10 +36,18 @@ type SiteServices = Pick<
   'services' | 'commercialServices' | 'primaryCity' | 'niche' | 'homepageServicesLimit'
 >;
 
-function norm(s: string) {
+/** Same key as a content slug: "&" and "and" are one name. */
+export function serviceNameKey(s: string) {
   return String(s || '')
     .trim()
-    .toLowerCase();
+    .toLowerCase()
+    .replace(/&/g, ' and ')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '');
+}
+
+function norm(s: string) {
+  return serviceNameKey(s);
 }
 
 /** Prefer cardImage; fall back to hero when card art is missing (avoids empty chrome). */
@@ -59,8 +67,30 @@ function nameSet(names: string[] | undefined): Set<string> {
   return new Set((names || []).map(norm).filter(Boolean));
 }
 
+function indexLiveServices<T extends ServiceEntryLike>(live: T[]) {
+  const byName = new Map<string, T>();
+  const byId = new Map<string, T>();
+  for (const entry of live) {
+    const nameKey = norm(entry.data.serviceName);
+    if (nameKey && !byName.has(nameKey)) byName.set(nameKey, entry);
+    const idKey = norm(entry.id);
+    if (idKey && !byId.has(idKey)) byId.set(idKey, entry);
+  }
+  return { byName, byId };
+}
+
+/** serviceName wins. The file id matches when the page name dropped a parenthetical. */
+function matchService<T extends ServiceEntryLike>(
+  indexes: { byName: Map<string, T>; byId: Map<string, T> },
+  name: string,
+): T | undefined {
+  const key = norm(name);
+  if (!key) return undefined;
+  return indexes.byName.get(key) || indexes.byId.get(key);
+}
+
 /**
- * Keep non-draft entries whose serviceName is in the given name list.
+ * Keep non-draft entries whose serviceName or file id is in the given name list.
  * Preserves list order when matching by name; falls back to MD order when filtering only.
  */
 export function filterServicesByNames<T extends ServiceEntryLike>(
@@ -70,13 +100,20 @@ export function filterServicesByNames<T extends ServiceEntryLike>(
   const allowed = nameSet(names);
   const live = (entries || []).filter((e) => !e.data.draft);
   if (!allowed.size) return [];
-  const byName = new Map(live.map((e) => [norm(e.data.serviceName), e]));
+  const indexes = indexLiveServices(live);
   const ordered: T[] = [];
+  const seen = new Set<T>();
   for (const name of names || []) {
-    const hit = byName.get(norm(name));
-    if (hit) ordered.push(hit);
+    const hit = matchService(indexes, name);
+    if (!hit || seen.has(hit)) continue;
+    seen.add(hit);
+    ordered.push(hit);
   }
-  return ordered.length ? ordered : live.filter((e) => allowed.has(norm(e.data.serviceName))).sort(byOrder);
+  return ordered.length
+    ? ordered
+    : live
+        .filter((e) => allowed.has(norm(e.data.serviceName)) || allowed.has(norm(e.id)))
+        .sort(byOrder);
 }
 
 /** Residential services only (site.services). */
@@ -104,9 +141,9 @@ function cardsFromNames(
 
   const filtered = filterServicesByNames(entries, sliceNames);
   if (filtered.length) {
-    const byName = new Map(filtered.map((e) => [norm(e.data.serviceName), e]));
+    const indexes = indexLiveServices(filtered);
     return sliceNames.map((name) => {
-      const e = byName.get(norm(name));
+      const e = matchService(indexes, name);
       if (e) {
         return {
           id: e.id,

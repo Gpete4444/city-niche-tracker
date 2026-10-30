@@ -1906,6 +1906,80 @@ function isSolidcodeLoopnetActor(actorId) {
   return /solidcode/i.test(String(actorId || '')) && /loopnet/i.test(String(actorId || ''));
 }
 
+/** Build that cannot read LoopNet search pages. A later build number, or a rebuild after this instant, is current. */
+const SOLIDCODE_STALE_BUILD_NUMBER = '1.0.2';
+const SOLIDCODE_STALE_FINISHED_AT_MS = Date.parse('2026-07-31T18:56:12.708Z');
+const DEFAULT_LOOPNET_FALLBACK_ACTOR = 'abotapi~loopnet-scraper';
+/** Build ids that returned no streets. Cleared when the process restarts. */
+const failedSolidcodeBuildIds = new Set();
+
+export function solidcodeLoopnetBuildIsCurrent(actorRecord) {
+  const latest = actorRecord?.taggedBuilds?.latest;
+  if (!latest) return false;
+  const buildNumber = String(latest.buildNumber || '');
+  const finishedAt = Date.parse(latest.finishedAt || '');
+  if (buildNumber === SOLIDCODE_STALE_BUILD_NUMBER) {
+    return Number.isFinite(finishedAt) && finishedAt > SOLIDCODE_STALE_FINISHED_AT_MS;
+  }
+  return Boolean(buildNumber);
+}
+
+/**
+ * Solidcode runs only when its latest build is newer than the July 31 1.0.2 build
+ * and that build has not already come back with no streets.
+ * A non-Solidcode actor id always runs as the only scraper.
+ * A failed actor lookup still tries Solidcode once.
+ */
+export function loopnetPrimaryDecision(actorId, actorRecord, rememberedBuildIds = failedSolidcodeBuildIds) {
+  if (!isSolidcodeLoopnetActor(actorId)) {
+    return { usePrimary: true, reason: 'custom-actor', buildId: '' };
+  }
+  if (!actorRecord) {
+    return { usePrimary: true, reason: 'lookup-failed', buildId: '' };
+  }
+  const buildId = String(actorRecord?.taggedBuilds?.latest?.buildId || '');
+  if (!solidcodeLoopnetBuildIsCurrent(actorRecord)) {
+    return { usePrimary: false, reason: 'stale-build', buildId };
+  }
+  if (buildId && rememberedBuildIds.has(buildId)) {
+    return { usePrimary: false, reason: 'remembered-fail', buildId };
+  }
+  return { usePrimary: true, reason: 'current', buildId };
+}
+
+function rememberFailedSolidcodeBuild(buildId) {
+  const id = String(buildId || '').trim();
+  if (id) failedSolidcodeBuildIds.add(id);
+}
+
+function loopnetLeaseSearchUrls(city, state) {
+  const slug = loopnetLocationSlug(city, state);
+  return [
+    `https://www.loopnet.com/search/office-space/${slug}/for-lease/`,
+    `https://www.loopnet.com/search/retail-space/${slug}/for-lease/`,
+  ];
+}
+
+async function fetchApifyActorRecord(actorId) {
+  try {
+    const res = await fetch(`${APIFY_BASE}/acts/${encodeURIComponent(actorId)}`);
+    if (!res.ok) return null;
+    const json = await res.json();
+    return json?.data || null;
+  } catch {
+    return null;
+  }
+}
+
+function combineLoopnetErrors(primaryError, fallbackError) {
+  const message = `LoopNet Solidcode: ${primaryError?.message || primaryError}. LoopNet backup: ${fallbackError?.message || fallbackError}`;
+  const status = fallbackError?.status || primaryError?.status || 502;
+  return Object.assign(new Error(message), {
+    status,
+    apifyHttpStatus: fallbackError?.apifyHttpStatus || primaryError?.apifyHttpStatus,
+  });
+}
+
 /**
  * Parse "123 Main St, Omaha, NE 68102" (solidcode search `name` without enrichDetails).
  */
@@ -2085,10 +2159,7 @@ function buildApifyLoopnetInput({ city, state, max, actorId }) {
   const locationHuman = state ? `${city}, ${state}` : city;
   const slug = loopnetLocationSlug(city, state);
   if (isSolidcodeLoopnetActor(actorId)) {
-    const searchUrls = [
-      `https://www.loopnet.com/search/office-space/${slug}/for-lease/`,
-      `https://www.loopnet.com/search/retail-space/${slug}/for-lease/`,
-    ];
+    const searchUrls = loopnetLeaseSearchUrls(city, state);
     return {
       input: {
         searchUrls,
@@ -2133,6 +2204,39 @@ function buildApifyLoopnetInput({ city, state, max, actorId }) {
       transactionType: 'for-lease',
       propertyTypes: ['office', 'retail'],
       source: SOURCE_LOOPNET,
+    },
+  };
+}
+
+/** Backup LoopNet search: same office + retail lease URLs, one run, streets from listing pages. */
+export function buildApifyAbotapiLoopnetInput({ city, state, max, actorId }) {
+  const locationHuman = state ? `${city}, ${state}` : city;
+  const slug = loopnetLocationSlug(city, state);
+  const searchUrls = loopnetLeaseSearchUrls(city, state);
+  const perUrl = Math.max(1, Number(max) || DEFAULT_MAX_LISTINGS_LOOPNET);
+  const maxListings = perUrl * searchUrls.length;
+  const fallbackActorId = String(actorId || env('APIFY_LOOPNET_FALLBACK_ACTOR_ID') || DEFAULT_LOOPNET_FALLBACK_ACTOR);
+  return {
+    input: {
+      mode: 'url',
+      site: 'com',
+      urls: searchUrls,
+      fetchDetails: true,
+      maxListings,
+    },
+    query: {
+      city,
+      state,
+      location: locationHuman,
+      locationSlug: slug,
+      actorId: fallbackActorId,
+      max,
+      maxListings,
+      searchUrls,
+      transactionType: 'for-lease',
+      propertyTypes: ['office', 'retail'],
+      source: SOURCE_LOOPNET,
+      usedFallback: true,
     },
   };
 }
@@ -2421,9 +2525,10 @@ async function runApifyActorPull({
   actorEnvKey,
   buildInput,
   label,
+  actorId: actorIdOverride,
 }) {
   const token = env('APIFY_TOKEN');
-  const actorId = env(actorEnvKey);
+  const actorId = String(actorIdOverride || env(actorEnvKey) || '').trim();
   if (!token || !actorId) {
     throw Object.assign(
       new Error(
@@ -2456,16 +2561,18 @@ async function runApifyActorPull({
     );
   }
   let run = startJson.data || startJson;
+  try {
+    run = await finishApifySearchRun(token, run, label);
+  } catch (error) {
+    const usage = await fetchApifyRunUsageUsd(token, run);
+    throw Object.assign(error, { status: error.status || 502, query, apify: { ...usage, actorId } });
+  }
   const runStatus = String(run.status || '').toUpperCase();
   if (runStatus && runStatus !== 'SUCCEEDED') {
     const usage = await fetchApifyRunUsageUsd(token, run);
-    const hint =
-      runStatus === 'RUNNING'
-        ? ' (wait timed out — try again or lower ADDRESS_SEARCH_MAX_LISTINGS)'
-        : '';
     throw Object.assign(
       new Error(
-        `${label} Apify run ${runStatus}${run.statusMessage ? `: ${run.statusMessage}` : ''}${hint}`,
+        `${label} Apify run ${runStatus}${run.statusMessage ? `: ${run.statusMessage}` : ''}`,
       ),
       { status: 502, query, apify: { ...usage, actorId } },
     );
@@ -2513,6 +2620,11 @@ async function runApifyActorPull({
     const retryJson = await retryRes.json().catch(() => ({}));
     if (retryRes.ok) {
       let retryRun = retryJson.data || retryJson;
+      try {
+        retryRun = await finishApifySearchRun(token, retryRun, label);
+      } catch {
+        retryRun = retryJson.data || retryJson;
+      }
       const retryStatus = String(retryRun.status || '').toUpperCase();
       if (retryStatus === 'SUCCEEDED' && retryRun.defaultDatasetId) {
         const retryItemsRes = await fetch(
@@ -2547,16 +2659,65 @@ async function runApifyActorPull({
   return { listings, query, apify };
 }
 
-export async function runApifyLoopnet({ city, state, max }) {
-  return runApifyActorPull({
+async function runLoopnetFallback({ city, state, max, reason }) {
+  const actorId = env('APIFY_LOOPNET_FALLBACK_ACTOR_ID') || DEFAULT_LOOPNET_FALLBACK_ACTOR;
+  const result = await runApifyActorPull({
     city,
     state,
     max,
     source: SOURCE_LOOPNET,
-    actorEnvKey: 'APIFY_LOOPNET_ACTOR_ID',
-    buildInput: buildApifyLoopnetInput,
-    label: 'LoopNet',
+    actorEnvKey: 'APIFY_LOOPNET_FALLBACK_ACTOR_ID',
+    actorId,
+    buildInput: buildApifyAbotapiLoopnetInput,
+    label: 'LoopNet backup',
   });
+  return {
+    ...result,
+    query: { ...(result.query || {}), usedFallback: true, fallbackReason: reason, actorId },
+  };
+}
+
+export async function runApifyLoopnet({ city, state, max }) {
+  const actorId = env('APIFY_LOOPNET_ACTOR_ID');
+  const pullPrimary = () =>
+    runApifyActorPull({
+      city,
+      state,
+      max,
+      source: SOURCE_LOOPNET,
+      actorEnvKey: 'APIFY_LOOPNET_ACTOR_ID',
+      buildInput: buildApifyLoopnetInput,
+      label: 'LoopNet',
+    });
+  if (!isSolidcodeLoopnetActor(actorId)) return pullPrimary();
+
+  const actorRecord = await fetchApifyActorRecord(actorId);
+  const decision = loopnetPrimaryDecision(actorId, actorRecord);
+  if (!decision.usePrimary) {
+    return runLoopnetFallback({ city, state, max, reason: decision.reason });
+  }
+
+  let primary;
+  try {
+    primary = await pullPrimary();
+  } catch (primaryError) {
+    rememberFailedSolidcodeBuild(decision.buildId);
+    try {
+      return await runLoopnetFallback({ city, state, max, reason: 'primary-failed' });
+    } catch (fallbackError) {
+      throw combineLoopnetErrors(primaryError, fallbackError);
+    }
+  }
+  if ((primary.listings || []).some((row) => row.street)) return primary;
+  rememberFailedSolidcodeBuild(decision.buildId);
+  try {
+    return await runLoopnetFallback({ city, state, max, reason: 'no-streets' });
+  } catch (fallbackError) {
+    throw combineLoopnetErrors(
+      Object.assign(new Error('returned no street addresses'), { status: 502 }),
+      fallbackError,
+    );
+  }
 }
 
 export async function runApifyCrexi({ city, state, max }) {
@@ -2573,20 +2734,36 @@ export async function runApifyCrexi({ city, state, max }) {
 
 const DEFAULT_LOOPNET_DETAILS_ACTOR = 'one-api~loopnet-scraper';
 const APIFY_RUN_POLL_MS = 5000;
+/** One listing-detail page. */
 const APIFY_RUN_MAX_WAIT_MS = 180000;
+/** Office + retail search with listing pages. Apify's waitForFinish cap returns READY while the run is still queued. */
+const APIFY_SEARCH_RUN_MAX_WAIT_MS = 8 * 60 * 1000;
 
-async function waitForApifyRun(token, run, label = 'Apify') {
+async function finishApifySearchRun(token, run, label) {
+  const status = String(run?.status || '').toUpperCase();
+  if (status !== 'READY' && status !== 'RUNNING') return run;
+  return waitForApifyRun(token, run, label, APIFY_SEARCH_RUN_MAX_WAIT_MS);
+}
+
+async function waitForApifyRun(token, run, label = 'Apify', maxWaitMs = APIFY_RUN_MAX_WAIT_MS) {
   let data = run && typeof run === 'object' ? run : {};
   const started = Date.now();
+  const limit = Number(maxWaitMs) > 0 ? Number(maxWaitMs) : APIFY_RUN_MAX_WAIT_MS;
   while (true) {
     const status = String(data.status || '').toUpperCase();
     if (status === 'SUCCEEDED') return data;
     if (['FAILED', 'ABORTED', 'TIMED-OUT', 'TIMEDOUT'].includes(status)) {
-      throw new Error(`${label} run ${status}${data.statusMessage ? `: ${data.statusMessage}` : ''}`);
+      throw Object.assign(
+        new Error(`${label} Apify run ${status}${data.statusMessage ? `: ${data.statusMessage}` : ''}`),
+        { status: 502 },
+      );
     }
-    if (!data.id) throw new Error(`${label} run missing id`);
-    if (Date.now() - started > APIFY_RUN_MAX_WAIT_MS) {
-      throw new Error(`${label} run still ${status || 'unknown'} after ${APIFY_RUN_MAX_WAIT_MS / 1000}s`);
+    if (!data.id) throw Object.assign(new Error(`${label} Apify run missing id`), { status: 502 });
+    if (Date.now() - started > limit) {
+      throw Object.assign(
+        new Error(`${label} Apify run still ${status || 'unknown'} after ${Math.round(limit / 1000)}s`),
+        { status: 502 },
+      );
     }
     await new Promise((r) => setTimeout(r, APIFY_RUN_POLL_MS));
     const res = await fetch(`${APIFY_BASE}/actor-runs/${encodeURIComponent(data.id)}`, {

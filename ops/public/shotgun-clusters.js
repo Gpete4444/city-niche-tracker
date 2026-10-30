@@ -2,6 +2,9 @@
 
 export const CLUSTER_MAX = 20;
 
+/** Keep in sync with ops/lib/geo-neighbors.mjs MAX_CLUSTER_MILES. */
+export const MAX_CLUSTER_MILES = 200;
+
 /** 1-based Cluster 1…20 fills. */
 export const CLUSTER_COLORS = [
   '#059669',
@@ -95,7 +98,7 @@ export function memberClusterKey(m) {
 export function clampClusterMiles(raw) {
   const n = Math.round(Number(raw));
   if (!Number.isFinite(n)) return 30;
-  return Math.max(1, Math.min(100, n));
+  return Math.max(1, Math.min(MAX_CLUSTER_MILES, n));
 }
 
 export function cityMapLabel(name, clusterKey, { hub = false } = {}) {

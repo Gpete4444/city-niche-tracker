@@ -36,6 +36,7 @@ import {
 } from './content-seo-lint.mjs';
 import { autoFixContentDraft } from './content-auto-fix.mjs';
 import { getContentOutlinePackage } from './content-structure.mjs';
+import { zoneLintContext } from './zone-site-diff.mjs';
 import { resolveStructurePageIds } from './preview-fidelity.mjs';
 import {
   applyArchetypeDefaults,
@@ -846,6 +847,7 @@ function runDraftContentLints(candidateId, files, config) {
     sectionIds: outline.sectionIds || (outline.sections || []).map((s) => s.id).filter(Boolean),
     homepageSections: outline.homepageSections || config.homepageSections || [],
     serviceBandAssignments: outline.serviceBandAssignments || {},
+    ...zoneLintContext(candidateId),
   });
   return { speechLint, seoLint };
 }
@@ -914,6 +916,11 @@ export function pasteAgentContentDraft(candidateId, raw, { mode = 'homepage_firs
       lastFinalCheckAt: priorDraft?._ops?.lastFinalCheckAt || null,
       lastFinalCheckOk: priorDraft?._ops?.lastFinalCheckOk,
       lastFinalCheckSummary: priorDraft?._ops?.lastFinalCheckSummary,
+      lastImagesPlanAt: priorDraft?._ops?.lastImagesPlanAt || null,
+      lastImagesPlanSlotCount: priorDraft?._ops?.lastImagesPlanSlotCount ?? null,
+      lastImagesPlanBaCount: priorDraft?._ops?.lastImagesPlanBaCount ?? null,
+      photoBlockVersion: priorDraft?._ops?.photoBlockVersion,
+      photoBlockSections: priorDraft?._ops?.photoBlockSections,
       skippedYaml,
     },
   });

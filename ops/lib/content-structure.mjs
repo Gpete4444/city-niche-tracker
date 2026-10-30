@@ -14,6 +14,7 @@ import {
 import { loadAcceptedSiteConfig } from './content-markdown.mjs';
 import { persistCoercedAcceptedSiteConfig } from './site-config.mjs';
 import { shotgunDoNotLinkBlock } from './shotgun.mjs';
+import { formatZoneSiblingDigestForCandidate } from './zone-site-diff.mjs';
 import { parseJsonLoose } from './claude.mjs';
 import {
   buildCityContextPackage,
@@ -26,6 +27,7 @@ import {
   assignServiceBands,
   formatServiceBandRulesMarkdown,
 } from './service-band-assign.mjs';
+import { formatNichePhotoBlockPrompt, getNichePhotoBlocks } from './niche-photo-blocks.mjs';
 import { buildLocationAngles, formatLocationAnglesMarkdown } from './location-angles.mjs';
 import {
   assignBookendPolicy,
@@ -194,6 +196,20 @@ export function attachRankingOutlineExtras(outline, config = {}, extras = {}) {
   return outline;
 }
 
+/** Rebuild service-band assignments from the current service list and save the outline. */
+export function refreshServiceBandAssignments(candidateId) {
+  const outline = getContentOutlinePackage(candidateId);
+  if (!outline || typeof outline !== 'object') return null;
+  const config = loadAcceptedSiteConfig(candidateId)?.config || {};
+  attachRankingOutlineExtras(outline, config, {
+    candidateId,
+    cityContext: getCachedCityContext(candidateId),
+    fieldResearch: readFieldResearchRecord(candidateId),
+  });
+  writeJson(outlinePath(candidateId), outline);
+  return outline.serviceBandAssignments || null;
+}
+
 function configuredSuburbNames(config = {}) {
   const names = [];
   const primary = String(config.primaryCity || '').trim();
@@ -356,7 +372,7 @@ export function applyPreset(presetId) {
 }
 
 export function getDefaultStructureSelection() {
-  return normalizeSelection({});
+  return applyPreset('C');
 }
 
 export function getContentStructure(candidateId) {
@@ -1036,6 +1052,7 @@ Pass 3: vary sentence length across sections; prefer commas over em dashes; hono
 **NAP:** use site-config phone, email, and businessName literally. Never invent numbers or leave placeholders like +1XXXXXXXXXX / leads@example.com.
 
 ${shotgunDoNotLinkBlock(candidateId)}
+${formatZoneSiblingDigestForCandidate(candidateId)}
 ## Site config
 \`\`\`json
 ${JSON.stringify(config, null, 2)}
@@ -1096,7 +1113,7 @@ ${formatBookendPolicyMarkdown(outline.bookendPolicy || {})}
 - title, description, h1
 - sectionHeading (intro H2)
 - whyChooseUs: [{ title, description }] when whyChooseUs section enabled
-- process: [{ title, description, image? }] when process/offerProcess enabled — prefer **4, 6, or 8** steps so the last grid row is full; each \`description\` = one **sentence** (~8–14 words, capital letter, period), not a lowercase caption or paragraph
+- process: [{ title, description, image? }] when process/offerProcess enabled — **exactly 6** steps when a niche photo block list is present (those titles); otherwise prefer **4, 6, or 8** steps so the last grid row is full; each \`description\` = one **sentence** (~8–14 words, capital letter, period), not a lowercase caption or paragraph. When the title comes from the niche photo block list, keep that product and rewrite the description with this city's housing or climate
 - faqs: [{ question, answer }] when faqs enabled
 - gallery: [{ src, alt }] when beforeAfter/gallery photos enabled
 - materialsImages: [{ src, alt }] is Pull-owned when materials photos are on — omit or preserve existing; do not invent image paths. Ranking builds pull materials thumbs for compact media rows.
@@ -1123,7 +1140,7 @@ heroImage:
 - Body:
   1. Unmarked intro: max ~2 concise paragraphs (service-first; one natural city mention OK). **Do not emit \`##\` for svcIntro.**
   2. A \`##\` heading only for bands assigned to this FILE in serviceBandAssignments (except svcIntro). Do **not** emit cost / DIY / permits / timeline / materials / when-to-call unless that FILE was assigned that band.
-- Process (when enabled): prefer **4, 6, or 8** steps; each step its own markdown list line \`- **Title** — short description\` (description ~8–14 words; timing cue OK). Never concatenate multiple steps into one paragraph. No body images — thumbs come from Pull \`processImages\` frontmatter (one per step, same compact cards as homepage)
+- Process (when enabled): exactly **6** steps when a niche photo block list is present (use those titles); otherwise prefer **4, 6, or 8** steps. Each step its own markdown list line \`- **Title** — short description\` (description ~8–14 words; timing cue OK). Never concatenate multiple steps into one paragraph. No body images — thumbs come from Pull \`processImages\` frontmatter (one per step, same compact cards as homepage)
 - What’s included / Scope (when enabled): **at least 3 real scope bullets specific to this serviceName** (methods, materials, verification — e.g. CIPP = candidacy camera + liner cure + post-CCTV; camera inspection = full pass + findings write-up). Do **not** use the same generic “labor/materials/cleanup” trio on every service. Optional add-ons and Customer prep may follow as extra bullets — never leave the section with only Optional / Customer prep lines
 - FAQs (when enabled): question line ending with \`?\`, then answer paragraph(s) before the next question
 - Cost (when enabled): 3–5 bullets \`**Tier** — $low–$high, what’s included\` (one em dash, then a comma; ballparks, not a fixed quote)
@@ -1131,7 +1148,7 @@ heroImage:
 - DIY vs pro (when enabled): \`### DIY\` first, then \`### Hire a pro\`, each with balanced bullets
 - Timeline (when enabled): stage bullets \`**Stage title**: duration\` where duration is a complete phrase (\`same day\`, \`1–2 days\`, \`3–7 days\`). Keep en-dashes in ranges. Never write hedges like \"or next day\" / \"usually\" / \"in most cases\" / \"varies by city\" that can drop mid-phrase
 - Before/after (when enabled): short problem → solution text lines only; photos live on the **homepage** gallery — do not invent image paths; optionally link to \`/\` for photo examples
-- Materials (when enabled): short intro + **exactly 3 or 6** option bullets (choose **6** when research/entities support six distinct products/methods; otherwise **3**; never 4, 5, 7, or 8); each bullet \`**Product/system name**:\` then **1–2 sentences** (why it matters, climate/use cue from City context when available, durable outcome). Concrete product/system/method titles (not “professional grade” alone). No body images — Pull supplies \`materialsImages\` thumbs for compact text+photo rows
+- Materials (when enabled): short intro + **exactly 6** option bullets when a niche photo block list is present (use those titles); otherwise **exactly 3 or 6** (choose **6** when research/entities support six distinct products/methods; otherwise **3**; never 4, 5, 7, or 8). Each bullet \`**Product/system name**:\` then **1–2 sentences**. Concrete product/system/method titles (not “professional grade” alone). Keep a locked title, and put this city's housing or climate in the sentence under it. No body images — Pull supplies \`materialsImages\` thumbs for compact text+photo rows
 
 ## Frontmatter expectations (about.md)
 - title, description, h1
@@ -1171,6 +1188,8 @@ heroImage:
 13. **Service cards:** do not repeat “in ${config.primaryCity || '{city}'}${config.state ? `, ${config.state}` : ''}” on every service description. Name the work, when it is needed, and the outcome.
 ${buildLinkChecklistMarkdown(outline, config)}
 
+${formatNichePhotoBlockPrompt(getNichePhotoBlocks(config.niche))}
+
 Return ONLY the ### FILE blocks.`;
 
   return { prompt, outline, config, requiredFileCount: requiredCount, cityContext: cityCompact };
@@ -1195,6 +1214,7 @@ export async function buildContinueWritePrompt(candidateId) {
 
   persistCoercedAcceptedSiteConfig(candidateId);
   const config = loadAcceptedSiteConfig(candidateId)?.config || {};
+  refreshServiceBandAssignments(candidateId);
   const pageIds = resolveStructurePageIds(candidateId);
   const detail = getCandidateDetail(candidateId);
   const files = detail?.contentDraft?.files || {};
@@ -1260,6 +1280,7 @@ export async function buildContinueWritePrompt(candidateId) {
 Finish an incomplete Full write. Emit **only** the FILE paths listed below. Rover **merges** them into the existing draft — do not recap files already loaded, and do not invent extra paths.
 
 ${shotgunDoNotLinkBlock(candidateId)}
+${formatZoneSiblingDigestForCandidate(candidateId)}
 ## Site config
 \`\`\`json
 ${JSON.stringify(config, null, 2)}
@@ -1324,6 +1345,8 @@ ${
 - Primary city (\`${config.primaryCity || 'primary'}\`): do **not** reuse homepage “${config.niche || 'niche'} in ${config.primaryCity || 'city'}, ST” — prefer niche + city for homeowners / business serving city
 - Suburb cities: “${config.niche || 'niche'} in {suburb}, ${config.state || 'ST'}”
 - No seed stub phrasing (“is part of our … service area…”, “neighborhoods are part of how … plans…”)
+
+${formatNichePhotoBlockPrompt(getNichePhotoBlocks(config.niche))}
 
 ## Rules
 1. Honor enabled outline sections for each page type in this list; skip disabled ones.

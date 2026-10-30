@@ -4,8 +4,13 @@
 
 import { existsSync } from 'node:fs';
 import { normalizePlaceName } from './census.mjs';
+import { commonPlaceName } from './place-common-names.mjs';
 import { layerGeojsonPath, loadMapLayer } from './census-map-layers.mjs';
-import { featureBbox } from './geo-neighbors.mjs';
+import { featureBbox, findPlaceFeatureLocal } from './geo-neighbors.mjs';
+
+function featureGeoid(f) {
+  return String(f?.properties?.geoid || f?.properties?.GEOID || '').trim();
+}
 
 function loadLayer(layer) {
   return loadMapLayer(layer);
@@ -67,7 +72,8 @@ export function getMapGeojson(opts = {}) {
     const seen = new Set();
     for (const abbr of stateList) {
       for (const f of loaded.byState.get(abbr) || []) {
-        const k = `${f.properties?.name}|${f.properties?.state}`;
+        const geoid = featureGeoid(f);
+        const k = geoid || `i:${source.length}`;
         if (seen.has(k)) continue;
         seen.add(k);
         source.push(f);
@@ -165,7 +171,7 @@ export function findPlaceFeatures(places, { max = PLACES_BATCH_MAX } = {}) {
     const city = String(p?.city || p?.name || '').trim();
     const state = String(p?.state || '').trim();
     if (!city || !state) continue;
-    const key = `${normalizePlaceName(city)}|${state.toUpperCase()}`;
+    const key = `${normalizePlaceName(commonPlaceName(city, state))}|${state.toUpperCase()}`;
     if (seen.has(key)) continue;
     seen.add(key);
     const feature = findPlaceFeature(city, state);
@@ -179,24 +185,9 @@ export function findPlaceFeatures(places, { max = PLACES_BATCH_MAX } = {}) {
   };
 }
 
-/** Find a place feature by city + state (for Show / Candidates zoom). */
+/** Find a place feature by city + state (for Show / Candidates zoom). Largest bbox wins on name ties. */
 export function findPlaceFeature(city, state) {
   const loaded = loadLayer('places');
   if (!loaded) return null;
-  const abbr = String(state || '')
-    .trim()
-    .toUpperCase();
-  const needle = normalizePlaceName(city);
-  if (!needle || !abbr) return null;
-  const inState = loaded.features.filter(
-    (f) => String(f.properties?.state || '').toUpperCase() === abbr,
-  );
-  const exact = inState.find((f) => normalizePlaceName(f.properties?.name) === needle);
-  if (exact) return exact;
-  // Multi-word prefix only (e.g. "Salt Lake" → "Salt Lake City"); never bare "Park" → "Park City"
-  if (!needle.includes(' ')) return null;
-  const prefixes = inState.filter((f) =>
-    normalizePlaceName(f.properties?.name).startsWith(`${needle} `),
-  );
-  return prefixes.length === 1 ? prefixes[0] : null;
+  return findPlaceFeatureLocal(city, state);
 }

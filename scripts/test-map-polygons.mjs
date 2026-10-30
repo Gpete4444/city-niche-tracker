@@ -9,6 +9,7 @@ import {
   isSliverPart,
   isLargestPart,
   featurePolygonArea,
+  labelAnchorLngLat,
   SLIVER_AREA_FRACTION,
 } from '../ops/public/map-polygons.js';
 
@@ -85,5 +86,35 @@ assert(
 );
 const paintedNames = painted.features.map((f) => f.properties.name);
 assert(paintedNames.indexOf('Melissa') < paintedNames.indexOf('Anna'), 'Melissa paints before Anna');
+
+const rect = { type: 'Polygon', coordinates: [ring(0, 0, 4, 2)] };
+const rectAnchor = labelAnchorLngLat(rect, 2, 1);
+assertEqual(rectAnchor[0], 2, 'rectangle label stays on center lng');
+assertEqual(rectAnchor[1], 1, 'rectangle label stays on center lat');
+
+/** L: base y=0..1 across x=0..3, stem x=0..1 up to y=3. Bbox center (1.5, 1.5) is outside. */
+const ell = {
+  type: 'Polygon',
+  coordinates: [[[0, 0], [3, 0], [3, 1], [1, 1], [1, 3], [0, 3], [0, 0]]],
+};
+const ellAnchor = labelAnchorLngLat(ell, 1.5, 1.5);
+assert(ellAnchor, 'L label has an anchor');
+const onEll =
+  (ellAnchor[0] >= 0 && ellAnchor[0] <= 3 && ellAnchor[1] >= 0 && ellAnchor[1] <= 1) ||
+  (ellAnchor[0] >= 0 && ellAnchor[0] <= 1 && ellAnchor[1] >= 0 && ellAnchor[1] <= 3);
+assert(onEll, 'L label sits on the city');
+const ellDist = Math.hypot(ellAnchor[0] - 1.5, ellAnchor[1] - 1.5);
+assert(ellDist < 1.2, 'L label stays near the bbox center');
+assert(ellDist < Math.hypot(0.2 - 1.5, 2.8 - 1.5), 'L label is closer than the far tip');
+
+const holed = {
+  type: 'Polygon',
+  coordinates: [ring(0, 0, 10, 10), ring(4, 4, 6, 6)],
+};
+const holeAnchor = labelAnchorLngLat(holed, 5, 5);
+assert(holeAnchor, 'hole label has an anchor');
+const inHole = holeAnchor[0] > 4 && holeAnchor[0] < 6 && holeAnchor[1] > 4 && holeAnchor[1] < 6;
+assert(!inHole, 'label moves out of the hole onto the city');
+assert(Math.hypot(holeAnchor[0] - 5, holeAnchor[1] - 5) < 2, 'hole label stays near the center');
 
 console.log('test-map-polygons: ok');

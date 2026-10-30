@@ -17,6 +17,7 @@ const watch = src.match(/TEMPLATE_LAYOUT_WATCH\s*=\s*\[([\s\S]*?)\]/);
 assert(watch, 'TEMPLATE_LAYOUT_WATCH is defined');
 assert(/['"]src\/config['"]/.test(watch[1]), 'watch list includes src/config');
 assert(/['"]astro\.config\.mjs['"]/.test(watch[1]), 'watch list includes astro.config.mjs');
+assert(/['"]src\/cf-assets-worker\.js['"]/.test(watch[1]), 'watch list includes the assets worker');
 assert(/['"]src\/components['"]/.test(watch[1]), 'watch list still includes src/components');
 
 console.log('test-assemble-template-watch: ok');

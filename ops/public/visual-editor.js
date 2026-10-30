@@ -516,7 +516,7 @@ function renderNap() {
     if (n) n.value = v || '';
   };
   set('ve-nap-name', c.businessName);
-  set('ve-nap-phone', c.phone);
+  set('ve-nap-phone', deps.formatDisplayPhone ? deps.formatDisplayPhone(c.phone) : c.phone);
   set('ve-nap-email', c.email);
   set('ve-nap-cta', c.primaryCta);
   set('ve-nap-tagline', c.tagline);
@@ -1008,7 +1008,7 @@ function closeEditor() {
 async function applyNap() {
   const patches = [
     { type: 'config', key: 'businessName', value: el('ve-nap-name')?.value || '' },
-    { type: 'config', key: 'phone', value: el('ve-nap-phone')?.value || '' },
+    { type: 'config', key: 'phone', value: deps.phoneToE164 ? deps.phoneToE164(el('ve-nap-phone')?.value || '') : el('ve-nap-phone')?.value || '' },
     { type: 'config', key: 'email', value: el('ve-nap-email')?.value || '' },
     { type: 'config', key: 'primaryCta', value: el('ve-nap-cta')?.value || '' },
     { type: 'config', key: 'tagline', value: el('ve-nap-tagline')?.value || '' },
@@ -1042,8 +1042,8 @@ function wireOnce() {
   });
 }
 
-export async function openVisualEditor(id, { api, esc, showModal }) {
-  deps = { api, esc, showModal };
+export async function openVisualEditor(id, { api, esc, showModal, formatDisplayPhone, phoneToE164 }) {
+  deps = { api, esc, showModal, formatDisplayPhone, phoneToE164 };
   candidateId = id;
   selected = null;
   dirty = false;
