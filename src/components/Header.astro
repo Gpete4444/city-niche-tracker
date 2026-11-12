@@ -8,6 +8,7 @@ import {
 } from '../lib/services-for-site';
 import { ve } from '../lib/visual-edit';
 import { locationPath, servicePath, sitePath } from '../lib/site-path';
+import { leadNiche } from '../lib/content-body';
 import PhoneIcon from './PhoneIcon.astro';
 
 const services = filterServicesByNames(
@@ -21,10 +22,12 @@ const locations = filterLocationsForSite(
 
 const showServicesNav = siteShowsServicesNav() && services.length > 0;
 const showAreasNav = locations.length > 0;
-const brandSubtitle =
+const brandSubtitle = leadNiche(
   site.businessName.toLowerCase().includes(site.niche.toLowerCase())
     ? `${site.primaryCity}, ${site.state}`
-    : `${site.niche} · ${site.primaryCity}, ${site.state}`;
+    : `${site.niche} · ${site.primaryCity}, ${site.state}`,
+  site.niche,
+);
 
 const navLinkClass =
   'whitespace-nowrap rounded-md px-2 py-1.5 text-sm font-medium text-ink/80 hover:bg-brand/5 hover:text-brand';

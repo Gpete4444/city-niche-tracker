@@ -1776,17 +1776,7 @@ async function mountGeoSelectMap(opts) {
           }).addTo(map);
         }
         if ((fit || !didFit) && map) {
-          if (circleLayer) {
-            map.fitBounds(circleLayer.getBounds().pad(0.2));
-          } else {
-            const pts = [];
-            for (const [key] of selected) {
-              const c = centerByKey.get(key);
-              if (c) pts.push([c[1], c[0]]);
-            }
-            if (pts.length >= 2) map.fitBounds(L.latLngBounds(pts).pad(0.25));
-            else map.setView([lat, lng], 10);
-          }
+          await fitCurrentFrame();
           didFit = true;
           await scheduleInvalidateSize();
         }
@@ -1799,6 +1789,30 @@ async function mountGeoSelectMap(opts) {
       emitSelection();
     } finally {
       if (!destroyed) setRadiusBusy(false);
+    }
+  }
+
+  /** Same frame as a radius refresh fit: circle when present, otherwise selected cities. */
+  async function fitCurrentFrame() {
+    if (!map || destroyed) return;
+    const L = await ensureLeaflet();
+    if (!map || destroyed) return;
+    if (circleLayer) {
+      const bounds = circleLayer.getBounds();
+      if (bounds?.isValid?.()) map.fitBounds(bounds.pad(0.2));
+      return;
+    }
+    const pts = [];
+    for (const [key] of selected) {
+      const c = centerByKey.get(key);
+      if (c) pts.push([c[1], c[0]]);
+    }
+    if (pts.length >= 2) {
+      map.fitBounds(L.latLngBounds(pts).pad(0.25));
+      return;
+    }
+    if (primaryCenter && Array.isArray(primaryCenter) && primaryCenter.length === 2) {
+      map.setView([primaryCenter[1], primaryCenter[0]], 10);
     }
   }
 
@@ -1993,6 +2007,10 @@ async function mountGeoSelectMap(opts) {
     },
     invalidateSize() {
       return scheduleInvalidateSize();
+    },
+    /** Reframe selected cities after the map column grows. Not tied to zoom. */
+    refit() {
+      return fitCurrentFrame();
     },
     /** Live-update Min/Max pop while map is open. */
     setPopRange(opts) {

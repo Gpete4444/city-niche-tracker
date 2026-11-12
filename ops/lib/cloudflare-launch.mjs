@@ -473,7 +473,7 @@ export async function createTurnstileWidget(domain, name) {
   const { accountId } = getCloudflareCredentials();
   const apex = normalizeDomain(domain);
   const result = await cfFetch('POST', `/accounts/${accountId}/challenges/widgets`, {
-    sites: [apex, `www.${apex}`],
+    domains: [apex],
     mode: 'managed',
     name: name || `rr-${apex}`,
   });
@@ -481,6 +481,58 @@ export async function createTurnstileWidget(domain, name) {
     sitekey: result?.sitekey || result?.id || null,
     secret: result?.secret || null,
     widget: result,
+  };
+}
+
+function turnstileWidgetDomains(widget) {
+  const raw = widget?.domains || widget?.sites || [];
+  return (Array.isArray(raw) ? raw : [])
+    .map((item) => normalizeDomain(item))
+    .filter(Boolean);
+}
+
+/** Account Turnstile widgets. The free plan caps this list at 20. */
+export async function listTurnstileWidgets() {
+  const { accountId } = getCloudflareCredentials();
+  const result = await cfFetch('GET', `/accounts/${accountId}/challenges/widgets`);
+  if (Array.isArray(result)) return result;
+  if (Array.isArray(result?.widgets)) return result.widgets;
+  return [];
+}
+
+/**
+ * One managed widget for an apex domain. www is covered by the apex hostname.
+ * An existing widget's secret is rotated so the caller can store the current secret.
+ * The secret is returned once and must not be written into site-config.
+ */
+export async function ensureManagedTurnstileWidget(domain, name) {
+  const apex = normalizeDomain(domain);
+  if (!apex || apex === 'example.com') {
+    const err = new Error('A real domain is required for Turnstile');
+    err.status = 400;
+    throw err;
+  }
+  const { accountId } = getCloudflareCredentials();
+  const widgets = await listTurnstileWidgets();
+  const existing = widgets.find((widget) => turnstileWidgetDomains(widget).includes(apex));
+  if (existing?.sitekey) {
+    const rotated = await cfFetch(
+      'POST',
+      `/accounts/${accountId}/challenges/widgets/${encodeURIComponent(existing.sitekey)}/rotate_secret`,
+    );
+    return {
+      sitekey: existing.sitekey,
+      secret: rotated?.secret || null,
+      created: false,
+      rotated: true,
+    };
+  }
+  const created = await createTurnstileWidget(apex, name || `rover-pilot-${apex}`);
+  return {
+    sitekey: created.sitekey,
+    secret: created.secret,
+    created: true,
+    rotated: false,
   };
 }
 

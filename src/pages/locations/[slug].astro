@@ -5,6 +5,7 @@ import Hero from '../../components/Hero.astro';
 import LeadForm from '../../components/LeadForm.astro';
 import ServiceCards from '../../components/ServiceCards.astro';
 import { site } from '../../config/site';
+import { leadNiche } from '../../lib/content-body';
 import { filterLocationsForSite } from '../../lib/locations-for-site';
 
 export async function getStaticPaths() {
@@ -33,7 +34,10 @@ const indexEntry = await getEntry('pages', 'index');
     h1={entry.data.h1}
     supporting={
       entry.data.description ||
-      `${site.niche} for homeowners and property managers in ${entry.data.city}, ${entry.data.state}.`
+      leadNiche(
+        `${site.niche} for homeowners and property managers in ${entry.data.city}, ${entry.data.state}.`,
+        site.niche,
+      )
     }
     image={entry.data.heroImage}
   />

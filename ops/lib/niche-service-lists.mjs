@@ -48,6 +48,18 @@ export function getNicheServiceList(niche, filePath = STORE_FILE) {
   return store.lists[label.toLowerCase()] || null;
 }
 
+/** Homepage “What we do” card count. Blank input stays unset; a number clamps to 1–12. */
+export function normalizeHomepageServicesLimit(raw) {
+  if (raw == null || raw === '') return null;
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return null;
+  return Math.min(12, Math.max(1, Math.floor(n)));
+}
+
+function nicheRecordLimit(record) {
+  return normalizeHomepageServicesLimit(record?.homepageServicesLimit);
+}
+
 export function saveNicheServiceList(
   { niche, services, commercialServices } = {},
   filePath = STORE_FILE,
@@ -65,15 +77,89 @@ export function saveNicheServiceList(
     );
   }
   const store = readStore(filePath);
+  const prev = store.lists[label.toLowerCase()];
   const record = {
     niche: label,
     services: nextServices,
     commercialServices: nextCommercial,
     updatedAt: new Date().toISOString(),
   };
+  const keptLimit = nicheRecordLimit(prev);
+  if (keptLimit != null) record.homepageServicesLimit = keptLimit;
   store.lists[label.toLowerCase()] = record;
   writeStore(filePath, store);
   return record;
+}
+
+/** Store the card count even when this niche has no service-name list yet. */
+export function setNicheHomepageServicesLimit(
+  { niche, homepageServicesLimit } = {},
+  filePath = STORE_FILE,
+) {
+  const label = titleCaseNiche(niche);
+  if (!label) {
+    throw Object.assign(new Error('Niche is required'), { status: 400 });
+  }
+  const limit = normalizeHomepageServicesLimit(homepageServicesLimit);
+  if (limit == null) {
+    throw Object.assign(new Error('Enter a homepage card count from 1 to 12.'), { status: 400 });
+  }
+  const store = readStore(filePath);
+  const prev = store.lists[label.toLowerCase()] || {};
+  const record = {
+    niche: label,
+    services: Array.isArray(prev.services) ? prev.services : [],
+    commercialServices: Array.isArray(prev.commercialServices) ? prev.commercialServices : [],
+    homepageServicesLimit: limit,
+    updatedAt: new Date().toISOString(),
+  };
+  store.lists[label.toLowerCase()] = record;
+  writeStore(filePath, store);
+  return record;
+}
+
+/**
+ * Write the clamped card count onto this niche’s draft and accepted site configs.
+ * Page copy and the shared template stay untouched.
+ */
+export function applyHomepageServicesLimitToNicheConfigs(
+  niche,
+  rawLimit,
+  { researchDir = RESEARCH_DIR } = {},
+) {
+  const label = titleCaseNiche(niche);
+  if (!label) {
+    throw Object.assign(new Error('Niche is required'), { status: 400 });
+  }
+  const limit = normalizeHomepageServicesLimit(rawLimit);
+  if (limit == null) {
+    throw Object.assign(new Error('Enter a homepage card count from 1 to 12.'), { status: 400 });
+  }
+  const files = [];
+  if (!existsSync(researchDir)) return { homepageServicesLimit: limit, files };
+  const nicheKey = label.toLowerCase();
+  for (const name of readdirSync(researchDir)) {
+    if (name.startsWith('_')) continue;
+    if (!name.endsWith('-site-config.json') && !name.endsWith('-site-config.draft.json')) continue;
+    const filePath = path.join(researchDir, name);
+    const data = readConfigFile(filePath);
+    if (!data) continue;
+    if (titleCaseNiche(data.niche).toLowerCase() !== nicheKey) continue;
+    if (data.homepageServicesLimit === limit) continue;
+    data.homepageServicesLimit = limit;
+    writeFileSync(filePath, `${JSON.stringify(data, null, 2)}\n`, 'utf8');
+    files.push(name);
+  }
+  return { homepageServicesLimit: limit, files };
+}
+
+/** New drafts take the niche card count over whatever the model returned. */
+export function stampNicheHomepageServicesLimit(config, filePath = STORE_FILE) {
+  if (!config || typeof config !== 'object') return config;
+  const limit = nicheRecordLimit(getNicheServiceList(config.niche, filePath));
+  if (limit == null) return config;
+  config.homepageServicesLimit = limit;
+  return config;
 }
 
 function readConfigFile(filePath) {

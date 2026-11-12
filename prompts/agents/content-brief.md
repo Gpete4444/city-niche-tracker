@@ -27,6 +27,8 @@ FIELD RESEARCH (required — already loaded in Rover)
 OPERATOR NOTES
 {{OPERATOR_NOTES}}
 
+{{ZONE_GUIDE}}
+
 CITY CONTEXT
 {{CITY_CONTEXT_BLOCK}}
 

@@ -37,7 +37,7 @@ import {
 import { autoFixContentDraft } from './content-auto-fix.mjs';
 import { getContentOutlinePackage } from './content-structure.mjs';
 import { zoneLintContext } from './zone-site-diff.mjs';
-import { resolveStructurePageIds } from './preview-fidelity.mjs';
+import { expectedLaunchContentPaths, resolveStructurePageIds } from './preview-fidelity.mjs';
 import {
   applyArchetypeDefaults,
   getArchetype,
@@ -859,7 +859,9 @@ export function pasteAgentContentDraft(candidateId, raw, { mode = 'homepage_firs
   const config = resolveSiteConfigWithArchetype(candidateId);
   const pageIds = resolveStructurePageIds(candidateId);
   const extracted = extractSocialProofSidecar(raw);
-  const parsed = parseContentFileBlocks(extracted.textWithoutSidecar);
+  const parsed = parseContentFileBlocks(extracted.textWithoutSidecar, {
+    expectedPaths: expectedLaunchContentPaths(config, pageIds),
+  });
   const pastedRels = Object.keys(parsed || {});
   const p = pathsFor(candidateId);
   const priorDraft = readJson(p.contentDraft);

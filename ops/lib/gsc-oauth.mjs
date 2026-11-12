@@ -12,10 +12,16 @@ import crypto from 'node:crypto';
 import { RESEARCH_DIR } from './candidates.mjs';
 
 export const GSC_AUTH_REVOKED = 'GSC_AUTH_REVOKED';
+export const GSC_SCOPE_INSUFFICIENT = 'GSC_SCOPE_INSUFFICIENT';
 
 const TOKEN_FILE = path.join(RESEARCH_DIR, 'gsc-oauth.json');
 const PENDING_FILE = path.join(RESEARCH_DIR, 'gsc-oauth-pending.json');
-const SCOPES = ['https://www.googleapis.com/auth/webmasters.readonly'];
+/** Full webmasters (read + sitemap submit) and Site Verification (DNS TXT). Re-consent required for older readonly tokens. */
+export const GSC_OAUTH_SCOPES = [
+  'https://www.googleapis.com/auth/webmasters',
+  'https://www.googleapis.com/auth/siteverification',
+];
+const SCOPES = GSC_OAUTH_SCOPES;
 const AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
 const TOKEN_URL = 'https://oauth2.googleapis.com/token';
 
@@ -52,6 +58,29 @@ export function gscAuthRevokedError(message) {
   return Object.assign(
     new Error(message || 'GSC login expired — reconnect Google Search Console on Launched.'),
     { status: 401, code: GSC_AUTH_REVOKED },
+  );
+}
+
+/** Exact scope tokens. `webmasters` must not match the `webmasters.readonly` prefix. */
+export function gscHasIndexingScopes(scope) {
+  const list = String(scope || '')
+    .split(/\s+/)
+    .filter(Boolean);
+  return (
+    list.includes('https://www.googleapis.com/auth/webmasters') &&
+    list.includes('https://www.googleapis.com/auth/siteverification')
+  );
+}
+
+export function isGscInsufficientScope(error) {
+  const status = Number(error?.status);
+  if (status !== 403 && status !== 401) return false;
+  const reason = String(
+    error?.details?.error?.errors?.[0]?.reason || error?.details?.error?.status || '',
+  );
+  const msg = `${error?.message || ''} ${reason}`;
+  return /insufficient authentication scopes|insufficientPermissions|ACCESS_TOKEN_SCOPE_INSUFFICIENT/i.test(
+    msg,
   );
 }
 
@@ -103,6 +132,7 @@ export function getGscAuthStatus() {
     connected,
     email: tokens?.email || null,
     scope: tokens?.scope || null,
+    indexingScopes: gscHasIndexingScopes(tokens?.scope),
     updatedAt: tokens?.updatedAt || null,
     redirectUri: gscRedirectUri(),
     clientIdSet: Boolean(String(process.env.GOOGLE_GSC_CLIENT_ID || '').trim()),

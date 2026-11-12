@@ -3,6 +3,7 @@
  * Keep in lockstep with process: SEO-prefixed titles still count.
  */
 
+import { isCostHeading } from './is-cost-heading.mjs';
 import { isProcessHeading } from './is-process-heading.mjs';
 
 function normTitle(s) {
@@ -27,7 +28,7 @@ export function isMaterialsHeading(heading) {
   const t = normTitle(heading);
   if (!t) return false;
   if (isProcessHeading(t)) return false;
-  if (/\bcost\b|pricing|how much/.test(t)) return false;
+  if (isCostHeading(t)) return false;
   if (/^how long\b|\btimeline\b/.test(t)) return false;
   if (/\bpermits?\b/.test(t)) return false;
   if (/\bmaterials\b/.test(t)) return true;

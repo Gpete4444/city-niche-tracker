@@ -9,6 +9,7 @@ import {
   saveMeta,
   saveNarrativeDraft,
 } from './candidates.mjs';
+import { zoneGuideBlockForCandidate } from './zone-guide.mjs';
 import { estimateClaudeCostUsd } from './cost-estimates.mjs';
 import { recordRoverApiSpend } from './rover-api-spend.mjs';
 
@@ -85,9 +86,42 @@ export { parseJsonLoose };
 const ANTHROPIC_RETRY_ATTEMPTS = 6;
 const ANTHROPIC_RETRY_CAP_MS = 60_000;
 
+const ANTHROPIC_RETRYABLE_STATUSES = new Set([429, 500, 502, 503, 504, 520, 529]);
+
 export function isAnthropicRetryableStatus(status) {
-  const n = Number(status);
-  return n === 429 || n === 529;
+  return ANTHROPIC_RETRYABLE_STATUSES.has(Number(status));
+}
+
+const TRANSIENT_FETCH_CODES = new Set([
+  'ECONNRESET',
+  'ECONNREFUSED',
+  'ETIMEDOUT',
+  'EAI_AGAIN',
+  'ENOTFOUND',
+  'EPIPE',
+  'UND_ERR_CONNECT_TIMEOUT',
+  'UND_ERR_SOCKET',
+  'UND_ERR_HEADERS_TIMEOUT',
+  'UND_ERR_BODY_TIMEOUT',
+  'UND_ERR_CONNECT',
+]);
+
+/** Dropped connection or timeout. Stop and abort are not retried. */
+export function isTransientFetchError(error) {
+  if (!error || error.cancelled || error.name === 'AbortError') return false;
+  const codes = [];
+  const walk = (err, depth) => {
+    if (!err || depth > 3) return;
+    codes.push(String(err.code || '').toUpperCase());
+    if (err.cause) walk(err.cause, depth + 1);
+    if (Array.isArray(err.errors)) {
+      for (const child of err.errors) walk(child, depth + 1);
+    }
+  };
+  walk(error, 0);
+  if (codes.some((code) => TRANSIENT_FETCH_CODES.has(code))) return true;
+  const msg = `${error.message || ''} ${error.cause?.message || ''}`;
+  return /fetch failed|socket hang up|ECONNRESET|ECONNREFUSED|ETIMEDOUT|timed out|timeout/i.test(msg);
 }
 
 /**
@@ -302,6 +336,11 @@ export async function claudeMessages(opts = {}) {
       if (error?.name === 'AbortError' || opts.signal?.aborted || error?.cancelled) {
         throw Object.assign(new Error('Stopped'), { status: 499, cancelled: true });
       }
+      if (isTransientFetchError(error) && attempt < ANTHROPIC_RETRY_ATTEMPTS - 1) {
+        const delay = anthropicRetryDelayMs(attempt);
+        await retrySleep(delay, opts.signal);
+        continue;
+      }
       throw error;
     }
     json = await response.json().catch(() => ({}));
@@ -314,6 +353,9 @@ export async function claudeMessages(opts = {}) {
         throw new Error(
           'This Anthropic key needs a workspace. Set ANTHROPIC_WORKSPACE_ID in .env to the wrkspc_… id from Console → Settings → Workspaces, then restart Rover.',
         );
+      }
+      if (Number(response.status) === 520 && !json?.error?.message) {
+        throw new Error("Anthropic's connection dropped. Try this step again.");
       }
       throw new Error(`Anthropic HTTP ${response.status}: ${raw}`);
     }
@@ -359,7 +401,9 @@ export async function generateNarrativeDraft(candidateId) {
       '{{PASTE_OUTPUT_OF_npm_run_research-candidate}}',
       JSON.stringify(detail.research, null, 2),
     )
-    .replace('{{DISCOVERY_NARRATIVE_SEED}}', seedBlock);
+    .replace('{{DISCOVERY_NARRATIVE_SEED}}', seedBlock)
+    .split('{{ZONE_GUIDE}}')
+    .join(zoneGuideBlockForCandidate(candidateId, 'full'));
 
   const { text, parsed, usage, costUsd, costNote, costSource } = await claudeMessages({
     user: userContent,

@@ -149,7 +149,7 @@ Cloudflare **API calls are $0**. You pay domains (~$10–15/yr). Form mail to th
 - `LeadForm.astro` posts only to the Rover forms Worker (`formsIngestUrl`)
 - The Worker stores the lead, then emails `leads@{domain}` → the Email Routing destination
 - A failed email stays in Phone/Form and the page shows an error
-- Optional `turnstileSiteKey` still renders a widget on sites that already have one. Launch does not create a widget per site
+- Launch does not create a Turnstile widget. The form uses a honeypot, the domain allowlist, and a per-IP rate limit. See [TURNSTILE.md](TURNSTILE.md).
 
 Never commit real keys to the **template** master if demos use placeholders.
 

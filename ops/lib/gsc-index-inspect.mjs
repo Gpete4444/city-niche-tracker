@@ -16,6 +16,18 @@ import { getSite } from './sites.mjs';
 export const INSPECT_PASS_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 export const SITEMAP_FETCH_TIMEOUT_MS = 15_000;
 
+let indexCheckCancelGen = 0;
+
+/** Stop in-flight Check index runs before their next sitemap URL. */
+export function bumpIndexCheckCancel() {
+  indexCheckCancelGen += 1;
+  return indexCheckCancelGen;
+}
+
+export function indexCheckCancelToken() {
+  return indexCheckCancelGen;
+}
+
 const CONTENT_REL_RE = /^src\/content\/(pages|services|locations)\/([^/]+)\.mdx?$/i;
 
 function sleep(ms) {
@@ -286,8 +298,14 @@ export async function inspectSiteIndex(siteId, { properties = null, now = Date.n
   let cached = 0;
   let fetched = 0;
   const errors = [];
+  const cancelToken = indexCheckCancelToken();
+  let stopped = false;
 
   for (const url of sitemapUrls) {
+    if (indexCheckCancelToken() !== cancelToken) {
+      stopped = true;
+      break;
+    }
     if (shouldReuseCachedPass(prev[url], now)) {
       nextByUrl[url] = prev[url];
       cached += 1;
@@ -338,6 +356,7 @@ export async function inspectSiteIndex(siteId, { properties = null, now = Date.n
     inspectFetched: fetched,
     sitemapSource: sitemapError ? 'fallback' : 'live',
     error: metrics.gsc.inspectError,
+    stopped,
     metrics,
   };
 }

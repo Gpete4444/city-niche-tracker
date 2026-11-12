@@ -13,6 +13,8 @@ Candidate context:
 - State: {{STATE}}
 - Business name (if known): {{BUSINESS_NAME}}
 
+{{ZONE_GUIDE}}
+
 Recommend the top 10 Exact Domain Match hostnames for this business.
 
 Hard rules (every suggestion):

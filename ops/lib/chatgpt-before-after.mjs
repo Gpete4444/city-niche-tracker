@@ -35,7 +35,7 @@ import {
   setBaPromptOverride,
   clearBaPromptOverride,
 } from './openai-prompt-overrides.mjs';
-import { applyOccupancyToPrompt, normalizeOccupancy } from './image-occupancy.mjs';
+import { applyBaOccupancyPrompts, normalizeOccupancy } from './image-occupancy.mjs';
 import { defaultSlotDescription } from './slot-photo-brief.mjs';
 
 const ROOT = process.cwd();
@@ -99,10 +99,53 @@ function loadConfig(candidateId) {
   );
 }
 
+function namedServiceList(services) {
+  return (services || []).map((s) => String(s || '').trim()).filter(Boolean);
+}
+
+/** Every named service is a garage trade, or the niche is when no service is named. */
+export function servicesAreGarage(niche, services) {
+  const list = namedServiceList(services);
+  if (list.length) return list.every((s) => /\bgarage\b/i.test(s));
+  return /\bgarage\b/i.test(String(niche || ''));
+}
+
+function garageRoom(outside, commercial) {
+  if (outside) {
+    return commercial
+      ? 'commercial garage or service-bay exterior'
+      : 'driveway in front of the garage door';
+  }
+  return commercial ? 'commercial garage or service-bay interior' : 'residential garage interior';
+}
+
+/**
+ * Shared Inside/Outside camera sentence for stills and before/after.
+ * A garage room is shot from inside the garage, or from the driveway, never from the house.
+ */
+export function cameraViewpointLine({ viewpoint, room, place, focus } = {}) {
+  const outside = String(viewpoint || '').trim().toLowerCase() === 'outside';
+  const roomText = String(room || '').trim();
+  const garage = /\bgarage\b/i.test(roomText);
+  const placeBit = place ? ` in ${place}` : '';
+  const subject = String(focus || 'service').trim() || 'service';
+  if (garage && !outside) {
+    return `Camera viewpoint: INSIDE — photoreal shot standing inside the garage${placeBit}, looking at the ${subject}. The camera is in the garage, not in the kitchen, hallway, or another room of the house looking in.`;
+  }
+  if (garage && outside) {
+    return `Camera viewpoint: OUTSIDE — photoreal shot on the driveway${placeBit}, looking at the garage and the ${subject}. The camera is outside the garage, not at a kitchen window.`;
+  }
+  if (outside) {
+    return `Camera viewpoint: OUTSIDE — photoreal exterior shot of the ${roomText}${placeBit}, looking at the ${subject} feature from outdoors.`;
+  }
+  return `Camera viewpoint: INSIDE — photoreal interior shot of the ${roomText}${placeBit}, looking at the ${subject} feature from indoors.`;
+}
+
 export function roomHint(niche, services, viewpoint = 'inside', setting = 'residential') {
   const hay = `${niche || ''} ${(services || []).join(' ')}`.toLowerCase();
   const outside = viewpoint === 'outside';
   const commercial = setting === 'commercial';
+  if (servicesAreGarage(niche, services)) return garageRoom(outside, commercial);
   if (/egress|basement.?window|window.?well|foundation.?cut/.test(hay)) {
     return outside
       ? commercial
@@ -244,6 +287,14 @@ function fallbackBaScene({
   const hay = `${slug} ${name}`;
   const outside = viewpoint === 'outside';
   const commercial = setting === 'commercial';
+  if (/\bgarage\b/.test(hay)) {
+    const label = String(serviceName || '').trim() || 'garage storage';
+    return {
+      room: garageRoom(outside, commercial),
+      defect: `an incomplete ${label} run inside the garage`,
+      result: `the finished ${label} result inside the garage`,
+    };
+  }
   if (/egress|window.?well|basement.?window/.test(hay)) {
     return {
       room: outside
@@ -415,9 +466,26 @@ export function baPromptsForCard(candidateId, { serviceSlug = '', pairIndex = 1 
   return sides;
 }
 
+function baOccupancyContext(candidateId, { serviceSlug = '', setting } = {}) {
+  const config = loadConfig(candidateId);
+  const slug = serviceSlug ? slugifyService(serviceSlug) : '';
+  const target = slug
+    ? listConfiguredServiceTargets(candidateId).find((t) => t.slug === slug)
+    : null;
+  return {
+    niche: String(config.niche || '').trim(),
+    serviceName: target?.serviceName || '',
+    setting: setting || '',
+  };
+}
+
 export function resolveBaPromptsWithOverride(candidateId, opts = {}) {
   const occupancy = normalizeOccupancy(opts.occupancy);
   const resolved = resolveBaChatgptPrompts(candidateId, opts);
+  const occCtx = baOccupancyContext(candidateId, {
+    serviceSlug: opts.serviceSlug,
+    setting: resolved.setting,
+  });
   const ov = getBaPromptOverride(
     loadCandidateOpenaiPrompts(candidateId),
     resolved.key,
@@ -429,12 +497,16 @@ export function resolveBaPromptsWithOverride(candidateId, opts = {}) {
   });
   const fromBodyBefore = Boolean(String(opts.before || '').trim());
   const fromBodyAfter = Boolean(String(opts.after || '').trim());
-  const before = fromBodyBefore ? used.before : applyOccupancyToPrompt(used.before, occupancy);
-  const after = fromBodyAfter ? used.after : applyOccupancyToPrompt(used.after, occupancy);
-  const canonBefore = applyOccupancyToPrompt(resolved.before, occupancy);
-  const canonAfter = applyOccupancyToPrompt(resolved.after, occupancy);
+  const sided = applyBaOccupancyPrompts(used.before, used.after, occupancy, occCtx);
+  const before = fromBodyBefore ? used.before : sided.before;
+  const after = fromBodyAfter ? used.after : sided.after;
+  const canon = applyBaOccupancyPrompts(resolved.before, resolved.after, occupancy, occCtx);
+  const canonBefore = canon.before;
+  const canonAfter = canon.after;
   return {
     ...resolved,
+    niche: occCtx.niche,
+    serviceName: occCtx.serviceName || resolved.serviceName || '',
     occupancy,
     originalBefore: resolved.before,
     originalAfter: resolved.after,
@@ -451,11 +523,13 @@ export function saveBaOpenaiPrompt(
 ) {
   const occ = normalizeOccupancy(occupancy);
   const resolved = resolveBaChatgptPrompts(candidateId, { serviceSlug, pairIndex, viewpoint });
+  const occCtx = baOccupancyContext(candidateId, { serviceSlug, setting: resolved.setting });
   let doc = loadCandidateOpenaiPrompts(candidateId);
   const beforeText = String(before || '').trim();
   const afterText = String(after || '').trim();
-  const canonBefore = applyOccupancyToPrompt(resolved.before, occ);
-  const canonAfter = applyOccupancyToPrompt(resolved.after, occ);
+  const canon = applyBaOccupancyPrompts(resolved.before, resolved.after, occ, occCtx);
+  const canonBefore = canon.before;
+  const canonAfter = canon.after;
   const same = beforeText === canonBefore && afterText === canonAfter;
   if (restore || same) {
     doc = clearBaPromptOverride(doc, resolved.key, resolved.viewpoint);
@@ -557,10 +631,12 @@ export function buildBeforeAfterPrompts(candidateId, opts = {}) {
       ? `Focus on ${services.slice(0, 2).join(' and ')}.`
       : `Focus on typical ${niche.toLowerCase()} work.`;
 
-  const cameraLine =
-    viewpoint === 'outside'
-      ? `Camera viewpoint: OUTSIDE — photoreal exterior shot of the ${room} in ${place}, looking at the ${focusName} feature from outdoors.`
-      : `Camera viewpoint: INSIDE — photoreal interior shot of the ${room} in ${place}, looking at the ${focusName} feature from indoors.`;
+  const cameraLine = cameraViewpointLine({
+    viewpoint,
+    room,
+    place,
+    focus: focusName,
+  });
 
   const surgicalRules = [
     `SINGLE SUBJECT: only the ${focusName} change is the story.`,

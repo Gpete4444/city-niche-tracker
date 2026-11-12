@@ -6,7 +6,7 @@
     {
       "id": "h1",
       "level": "H1",
-      "heading": "{businessName}: {primaryService} in {city}, {state}",
+      "heading": "{niche} in {city}, {state}",
       "instructions": "Format: Paragraph (180–200 words). Define {primaryService} in {city}, {state}. Highlight common customer problems for this specialty. Showcase local experience, code/safety compliance where relevant, and a clear CTA for a free on-site estimate. No fabricated licenses, years, or review counts.",
       "kind": "hero",
       "subHeadline": "{niche} across {city} and nearby communities"

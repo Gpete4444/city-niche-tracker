@@ -24,6 +24,7 @@ import {
 } from './candidates.mjs';
 import {
   assertLaunchContentComplete,
+  expectedLaunchContentPaths,
   listLaunchContentGaps,
   outlineRequiresFullContent,
   resolveStructurePageIds,
@@ -40,6 +41,7 @@ import {
   homepageDesignedSectionWarning,
   applyHomepageDesignedSectionLiftToFiles,
   healLocationFrontmatter,
+  healPageFrontmatter,
   healServiceFrontmatter,
   locationPageHeadings,
   stampHomepageLiftOnDraftOps,
@@ -281,6 +283,64 @@ function isAllowedContentPath(rel) {
   return ALLOWED_PATH_RE.test(rel);
 }
 
+function stripPathDecorations(rel) {
+  return String(rel || '')
+    .trim()
+    .replace(/^[`"']+|[`"']+$/g, '');
+}
+
+/**
+ * A FILE line wrapped after a short prefix. The next line is the rest of the name.
+ * `src/content/services/pool` + `-surround-turf.md`.
+ */
+function stitchWrappedContentPath(text, marker) {
+  const path = marker.path;
+  if (/\.md$/i.test(path)) return { path, consumed: 0 };
+  const rest = text.slice(marker.index + marker.length);
+  const match = rest.match(/^\r?\n(-[a-z0-9]+(?:-[a-z0-9]+)*\.md)[ \t]*(?:\r?\n|$)/i);
+  if (!match) return { path, consumed: 0 };
+  return { path: `${path}${match[1]}`, consumed: match[0].length };
+}
+
+/**
+ * Map a cut-off FILE path onto a real page.
+ * A wrapped or exact slug wins over a shortened prefix. Two prefixes are left unmapped.
+ * @param {string} rel
+ * @param {string[]} [expectedPaths]
+ * @returns {string|null}
+ */
+export function resolveContentFilePath(rel, expectedPaths = []) {
+  const expected = (expectedPaths || []).map((item) => normalizeContentRelPath(item)).filter(Boolean);
+  const next = normalizeContentRelPath(stripPathDecorations(rel));
+  if (!next) return null;
+  if (isAllowedContentPath(next)) {
+    return expected.find((item) => item.toLowerCase() === next.toLowerCase()) || next;
+  }
+  const exact = /\.md$/i.test(next) ? next : `${next}.md`;
+  if (isAllowedContentPath(exact)) {
+    const found = expected.find((item) => item.toLowerCase() === exact.toLowerCase());
+    if (found) return found;
+    if (!expected.length) return exact;
+  }
+  const base = next.replace(/\.md$/i, '').toLowerCase();
+  const prefs = expected.filter((item) => {
+    const lower = item.toLowerCase();
+    if (!lower.startsWith(base)) return false;
+    const tail = lower.slice(base.length);
+    return tail.startsWith('-') && lower.endsWith('.md');
+  });
+  return prefs.length === 1 ? prefs[0] : null;
+}
+
+function contentPathHeaderIsFull(pathAfterStitch, expectedPaths = []) {
+  const norm = normalizeContentRelPath(stripPathDecorations(pathAfterStitch));
+  if (isAllowedContentPath(norm)) return true;
+  const exact = /\.md$/i.test(norm) ? norm : `${norm}.md`;
+  if (!isAllowedContentPath(exact)) return false;
+  if (!expectedPaths.length) return true;
+  return expectedPaths.some((item) => item.toLowerCase() === exact.toLowerCase());
+}
+
 /** Body is empty or Claude Code “Written to…” commentary without markdown. */
 export function isEmptyOrWrittenToBody(body) {
   const s = String(body || '').trim();
@@ -368,7 +428,7 @@ function findContentFileMarkers(text) {
  * Parse Claude / Claude Code output into { "src/content/...": "full markdown" }.
  * Accepts ### FILE: / FILE: blocks; empty or “Written to” bodies fall back to disk.
  */
-export function parseContentFileBlocks(raw, { allowDiskFallback = true } = {}) {
+export function parseContentFileBlocks(raw, { allowDiskFallback = true, expectedPaths = [] } = {}) {
   const text = String(raw || '').trim();
   if (!text) {
     const err = new Error('Paste is empty');
@@ -385,17 +445,18 @@ export function parseContentFileBlocks(raw, { allowDiskFallback = true } = {}) {
     throw err;
   }
 
+  const expected = (expectedPaths || []).map((item) => normalizeContentRelPath(item)).filter(Boolean);
   const files = {};
+  const fullHeader = {};
+  const unmapped = [];
   for (let i = 0; i < matches.length; i += 1) {
-    const start = matches[i].index + matches[i].length;
+    const stitched = stitchWrappedContentPath(text, matches[i]);
+    const start = matches[i].index + matches[i].length + stitched.consumed;
     const end = i + 1 < matches.length ? matches[i + 1].index : text.length;
-    let rel = normalizeContentRelPath(matches[i].path);
-    if (!isAllowedContentPath(rel)) {
-      const err = new Error(
-        `Invalid content path "${rel}" — must be src/content/{pages|services|locations}/kebab-name.md`,
-      );
-      err.status = 400;
-      throw err;
+    const rel = resolveContentFilePath(stitched.path, expected);
+    if (!rel) {
+      unmapped.push(normalizeContentRelPath(stitched.path));
+      continue;
     }
     let body = text.slice(start, end).trim();
     body = body.replace(/^```(?:markdown|md)?\s*/i, '').replace(/\s*```$/, '').trim();
@@ -414,12 +475,26 @@ export function parseContentFileBlocks(raw, { allowDiskFallback = true } = {}) {
       err.status = 400;
       throw err;
     }
+    const markdown = sanitizeMarkdownImageFrontmatter(ensureYamlFrontmatter(body));
+    const wasFull = contentPathHeaderIsFull(stitched.path, expected);
     if (files[rel]) {
-      const err = new Error(`Duplicate FILE block for ${rel}`);
-      err.status = 400;
-      throw err;
+      if (wasFull && !fullHeader[rel]) {
+        files[rel] = markdown;
+        fullHeader[rel] = true;
+      }
+      continue;
     }
-    files[rel] = sanitizeMarkdownImageFrontmatter(ensureYamlFrontmatter(body));
+    files[rel] = markdown;
+    fullHeader[rel] = wasFull;
+  }
+
+  if (!Object.keys(files).length) {
+    const rel = unmapped[0] || normalizeContentRelPath(matches[0].path);
+    const err = new Error(
+      `Invalid content path "${rel}" — must be src/content/{pages|services|locations}/kebab-name.md`,
+    );
+    err.status = 400;
+    throw err;
   }
 
   return files;
@@ -496,24 +571,24 @@ function stripDanglingYamlScalar(raw) {
   return value;
 }
 
-/** Re-quote top-level scalars Claude left unclosed or with inner quotes. */
+/**
+ * Re-quote scalars Claude left unclosed or with inner quotes.
+ * Includes indented list fields (`  - title`, `    description`) and top-level keys.
+ */
 export function healYamlScalarQuotes(fm) {
   if (tryParseYamlMapping(fm).ok) return String(fm || '');
   const lines = String(fm || '').split('\n');
   const out = [];
   let changed = false;
   for (const line of lines) {
-    if (/^[ \t]/.test(line)) {
-      out.push(line);
-      continue;
-    }
-    const m = line.match(/^([A-Za-z_][\w]*)\s*:\s*(.*)$/);
+    const m = line.match(/^([ \t]*(?:-[ \t]+)?)([A-Za-z_][\w]*)[ \t]*:[ \t]*(.*)$/);
     if (!m) {
       out.push(line);
       continue;
     }
-    const key = m[1];
-    const rest = m[2];
+    const indent = m[1];
+    const key = m[2];
+    const rest = m[3];
     if (!rest || rest === '|' || rest === '>' || rest.startsWith('{') || rest.startsWith('[')) {
       out.push(line);
       continue;
@@ -522,7 +597,7 @@ export function healYamlScalarQuotes(fm) {
       out.push(line);
       continue;
     }
-    out.push(`${key}: ${yamlDoubleQuote(stripDanglingYamlScalar(rest))}`);
+    out.push(`${indent}${key}: ${yamlDoubleQuote(stripDanglingYamlScalar(rest))}`);
     changed = true;
   }
   return changed ? out.join('\n') : String(fm || '');
@@ -2387,7 +2462,9 @@ export function pasteContentDraft(candidateId, raw) {
   const { config } = assertContentHandoffReady(candidateId);
   const pageIds = resolveStructurePageIds(candidateId);
   const extracted = extractSocialProofSidecar(raw);
-  const parsed = parseContentFileBlocks(extracted.textWithoutSidecar);
+  const parsed = parseContentFileBlocks(extracted.textWithoutSidecar, {
+    expectedPaths: expectedLaunchContentPaths(config, pageIds),
+  });
   const files = pruneFilesToStructure(normalizeContentFilesMap(parsed, config), {
     pageIds,
     siteConfig: config,
@@ -2870,12 +2947,16 @@ export async function acceptContent(
   const svcHeal = healServiceFrontmatter(files, config);
   Object.assign(files, svcHeal.files);
   const serviceHeals = svcHeal.heals || [];
-  if (locHeal.changed || svcHeal.changed) {
+  const pageHeal = healPageFrontmatter(files, config);
+  Object.assign(files, pageHeal.files);
+  const pageHeals = pageHeal.heals || [];
+  if (locHeal.changed || svcHeal.changed || pageHeal.changed) {
     draft.files = { ...(draft.files || {}), ...files };
     draft._ops = {
       ...(draft._ops || {}),
       ...(locationHeals.length ? { locationHeals } : {}),
       ...(serviceHeals.length ? { serviceHeals } : {}),
+      ...(pageHeals.length ? { pageHeals } : {}),
     };
     writeJson(p.contentDraft, draft);
   }
@@ -2900,6 +2981,7 @@ export async function acceptContent(
     err.check = check;
     err.locationHeals = locationHeals;
     err.serviceHeals = serviceHeals;
+    err.pageHeals = pageHeals;
     throw err;
   }
   if (check.warnings.length && !ignoreWarnings) {
@@ -3067,6 +3149,7 @@ export async function acceptContent(
       ...(draftOps.autoFix ? { autoFix: draftOps.autoFix } : {}),
       ...(locationHeals.length ? { locationHeals } : {}),
       ...(serviceHeals.length ? { serviceHeals } : {}),
+      ...(pageHeals.length ? { pageHeals } : {}),
     },
   };
   writeJson(p.content, accepted);
@@ -3143,6 +3226,7 @@ export async function acceptContent(
     galleryBa,
     locationHeals,
     serviceHeals,
+    pageHeals,
     seoLint,
     nextStep: accepted._ops.nextStep,
     candidate: getCandidateShell(candidateId),

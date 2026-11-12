@@ -229,7 +229,9 @@ Pulls commercial listing candidates for the address finder from **LoopNet** and/
 APIFY_TOKEN=
 APIFY_LOOPNET_ACTOR_ID=
 # Optional. Used when Solidcode’s latest build is still the July 31 1.0.2 actor, or a newer build returns no streets.
-# APIFY_LOOPNET_FALLBACK_ACTOR_ID=abotapi~loopnet-scraper
+# Default one-api~loopnet-scraper (search results, no per-listing page crawl).
+# Set abotapi~loopnet-scraper only to keep the slower listing-page backup.
+# APIFY_LOOPNET_FALLBACK_ACTOR_ID=one-api~loopnet-scraper
 # Optional. Listing URL → Space Availability suites. Default one-api~loopnet-scraper.
 # APIFY_LOOPNET_DETAILS_ACTOR_ID=one-api~loopnet-scraper
 APIFY_CREXI_ACTOR_ID=
@@ -243,7 +245,7 @@ APIFY_CREXI_ACTOR_ID=
 2. Sign up or log in; add billing / credits if prompted.
 3. Copy your **API token** into `APIFY_TOKEN`.
 4. Open the [Apify Store](https://apify.com/store). Prefer actors around ~$1.20–$1.50 per 1K results.
-5. **LoopNet:** open a LoopNet actor page (e.g. Solidcode). Copy the id under the title (`username/actor-name`) and paste into `APIFY_LOOPNET_ACTOR_ID` using the `~` form (`username~actor-name`). Find tries that actor first. When it is Solidcode and the published build is still **1.0.2** from July 31, 2026, or a newer build returns no street addresses, Find uses `APIFY_LOOPNET_FALLBACK_ACTOR_ID` (default `abotapi~loopnet-scraper`) for that search. Listing details stay on `APIFY_LOOPNET_DETAILS_ACTOR_ID`.
+5. **LoopNet:** open a LoopNet actor page (e.g. Solidcode). Copy the id under the title (`username/actor-name`) and paste into `APIFY_LOOPNET_ACTOR_ID` using the `~` form (`username~actor-name`). Find tries that actor first. When it is Solidcode and the published build is still **1.0.2** from July 31, 2026, or a newer build returns no street addresses, Find uses `APIFY_LOOPNET_FALLBACK_ACTOR_ID` (default `one-api~loopnet-scraper`) for that search. That search reads streets from the result rows. Rows that still lack a suite or listing text are fetched together in one details call. Listing details stay on `APIFY_LOOPNET_DETAILS_ACTOR_ID`. Set the fallback to `abotapi~loopnet-scraper` only if you want the older listing-page crawl.
 6. **Crexi (optional):** open [Solidcode Crexi scraper](https://apify.com/solidcode/crexi-scraper). Copy `solidcode/crexi-scraper` → set `APIFY_CREXI_ACTOR_ID=solidcode~crexi-scraper`.
 7. **Listing details (optional):** suite backfill / Find space tables use `APIFY_LOOPNET_DETAILS_ACTOR_ID` (default `one-api~loopnet-scraper`). Override only if you use a different details actor.
 8. Save `.env`, restart Rover.
@@ -713,12 +715,12 @@ GOOGLE_GSC_CLIENT_SECRET=
 
 1. Open [Google Cloud Console](https://console.cloud.google.com/) (same project as Maps is fine, or a new one).
 2. Enable billing if needed.
-3. Open [Google Search Console API](https://console.cloud.google.com/apis/library/searchconsole.googleapis.com) → **Enable**.
+3. Enable [Google Search Console API](https://console.cloud.google.com/apis/library/searchconsole.googleapis.com) and [Site Verification API](https://console.cloud.google.com/apis/library/siteverification.googleapis.com).
 4. Go to **APIs & Services → OAuth consent screen**.
    - User type: **External**.
    - App name / support email: anything sensible.
    - Add your Gmail under **Test users** (required while the app is in Testing).
-   - Scopes: add `https://www.googleapis.com/auth/webmasters.readonly` (Search Console readonly) when asked, or ensure it appears on the consent screen.
+   - Scopes: `https://www.googleapis.com/auth/webmasters` and `https://www.googleapis.com/auth/siteverification`. If Connect GSC was done earlier with readonly access, open Connect GSC again so Google grants these scopes.
 5. Go to **Credentials → Create credentials → OAuth client ID**.
    - Prefer **Desktop app**, or **Web application** if Desktop rejects the redirect.
    - For **Web application**, under **Authorized redirect URIs** add exactly:  
@@ -728,7 +730,7 @@ GOOGLE_GSC_CLIENT_SECRET=
 8. Save `.env`, restart Rover.
 9. In Rover → **Launched Sites** → click **Connect GSC**.
 10. Finish the Google browser login with the **same** Gmail you added as a test user.
-11. Confirm each live domain has a verified **Domain** property in [Search Console](https://search.google.com/search-console) (DNS TXT). See [SITE-INDEXING.md](SITE-INDEXING.md).
+11. On a launched candidate, Website → Indexing → **Submit to Search Console** writes the DNS TXT record and submits the sitemap. See [SITE-INDEXING.md](SITE-INDEXING.md).
 
 ### Links
 

@@ -609,6 +609,7 @@ export function composeContentOutline(candidateId, selectionPatch = null) {
       'Service educational bands rotate per FILE (cost/DIY/permits stay on the homepage plus a subset of services). Location pages use sourced locationAngles — no Facebook groups.',
       'Service card bodies must not repeat “in {city}, {ST}” — city once in the homepage intro.',
       'Brand/domain verb must match niche and homepage H1/title (Repair Pros ≠ Installation identity).',
+      'Homepage H1 is the head term ({niche} in {city}, {state}, or the primary keyword plus city). Do not prefix or equal the business name or domain. No top-rated, trusted, premium, or experts unless those words are the keyword. The brand already shows above the H1.',
     ],
     keywords: {
       primary: config.niche || null,
@@ -679,13 +680,7 @@ export function composeContentOutline(candidateId, selectionPatch = null) {
     lastContentBriefAt: nowIso(),
   });
 
-  const photoSectionCount = Object.keys(selection.photos || {}).length;
   const warnings = [];
-  if (selection.sections.length >= 28 || photoSectionCount >= 8) {
-    warnings.push(
-      'Large outline — Full write must include every page FILE (about, contact, each service, each location) or Accept will fail. Prefer Preset C unless you need every section.',
-    );
-  }
   if (droppedOfferForServices) {
     warnings.push(
       'Removed Deep offer process — Services pages use How we work (process) instead.',
@@ -1179,7 +1174,7 @@ heroImage:
 4. For cost/timeline headings with \`{serviceName}\`, prefer “What does **a** {serviceName} cost…” / “How long does **a** {serviceName} take…” (article “a” + singular-ish name).
 5. Use site-config socialProof for reviews/licenses/ratings — do not invent testimonials, license ID numbers, or founding years not in site-config.
 6. Write for ${config.primaryCity || 'the city'}, ${config.state || ''} and listed suburbs.
-7. **Keywords:** Put each keywordTargets[].keyword into the mapped H1/H2. Primary must appear in homepage title + h1.
+7. **Keywords:** Put each keywordTargets[].keyword into the mapped H1/H2. Primary must appear in homepage title + h1. Homepage h1 is the head term (niche or primary keyword, then city and state). Do not prefix or equal the business name or domain. No “top-rated”, “trusted”, “premium”, or “experts” unless those words are the keyword. The brand already shows above the H1.
 8. **FAQs:** When FAQs enabled, questions must follow faqSeeds (SERP PAA) closely — paraphrase OK, topic lock required.
 9. **Organic title hints:** Use for competitive phrasing; do not copy competitor brand names.
 10. **Company subject:** Always use the full business name (“${config.businessName || 'Business'}”) when the company acts (provides, manages, files, handles, offers). Niche labels (“${config.niche || 'the niche'}”) are for H1s, section titles, and service-type nouns — do **not** shorten “${config.businessName || 'Business'}” to the niche alone in body prose.
@@ -1195,11 +1190,22 @@ Return ONLY the ### FILE blocks.`;
   return { prompt, outline, config, requiredFileCount: requiredCount, cityContext: cityCompact };
 }
 
+/** Gap paths for a continue write. `onlyFiles` keeps a chunk of that list. */
+export function selectContinueGapPaths(missing = [], stubs = [], onlyFiles = null) {
+  let gapPaths = [...missing, ...stubs.filter((p) => !missing.includes(p))];
+  if (Array.isArray(onlyFiles) && onlyFiles.length) {
+    const allow = new Set(onlyFiles.map((p) => String(p).replace(/\\/g, '/')));
+    gapPaths = gapPaths.filter((p) => allow.has(String(p).replace(/\\/g, '/')));
+  }
+  return gapPaths;
+}
+
 /**
  * Focused continue prompt for missing and/or stub/thin FILE paths after a partial Full write.
  * Operator pastes Claude's ### FILE blocks into the same Load merge path.
+ * `onlyFiles` limits one Claude call to a chunk of the current gaps.
  */
-export async function buildContinueWritePrompt(candidateId) {
+export async function buildContinueWritePrompt(candidateId, { onlyFiles = null } = {}) {
   const outline = getContentOutlinePackage(candidateId);
   if (!outline?.sections?.length) {
     throw Object.assign(new Error('Compose/confirm an outline before continue write'), {
@@ -1220,14 +1226,14 @@ export async function buildContinueWritePrompt(candidateId) {
   const files = detail?.contentDraft?.files || {};
   const { missing, stubs, expected, ok } = listLaunchContentGaps(files, config, pageIds);
 
-  if (ok) {
+  const gapPaths = selectContinueGapPaths(missing, stubs, onlyFiles);
+  if (ok || !gapPaths.length) {
     throw Object.assign(
       new Error('Nothing to continue — draft has all required non-stub files'),
       { status: 400 },
     );
   }
 
-  const gapPaths = [...missing, ...stubs.filter((p) => !missing.includes(p))];
   const gapCount = gapPaths.length;
   const svcNeeded = gapPaths.some((p) => p.includes('/services/'));
   const locNeeded = gapPaths.some((p) => p.includes('/locations/'));
@@ -1254,8 +1260,9 @@ export async function buildContinueWritePrompt(candidateId) {
     })
     .join('\n');
 
-  const stubNote = stubs.length
-    ? `\n## Stub / thin rewrites\nThese paths exist in the draft but are seed stubs or too thin for Accept. **Replace the entire FILE** (frontmatter + body) with full launch-ready copy — do not append to the stub.\n${stubs.map((p) => `- \`${p}\``).join('\n')}\n`
+  const chunkStubs = gapPaths.filter((rel) => stubs.includes(rel) && !missing.includes(rel));
+  const stubNote = chunkStubs.length
+    ? `\n## Stub / thin rewrites\nThese paths exist in the draft but are seed stubs or too thin for Accept. **Replace the entire FILE** (frontmatter + body) with full launch-ready copy — do not append to the stub.\n${chunkStubs.map((p) => `- \`${p}\``).join('\n')}\n`
     : '';
 
   const outlineSlice = {

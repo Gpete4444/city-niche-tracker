@@ -23,6 +23,24 @@ function gridClassName(cols: number): string {
 }
 
 /**
+ * 1–2 commercial cards share the residential column track so they stay the
+ * same width as the cards above. Returns null for any other count (caller
+ * keeps fitEqualGrid). No residential row, or a single stretched residential
+ * card, uses the standard 4-column services track.
+ */
+export function fewCommercialGridClass(
+  commercialCount: number,
+  residential: { count: number; className: string },
+): string | null {
+  const n = Math.max(0, Math.floor(Number(commercialCount) || 0));
+  if (n < 1 || n > 2) return null;
+  const residentialCount = Math.max(0, Math.floor(Number(residential?.count) || 0));
+  const residentialClass = String(residential?.className || '').trim();
+  if (residentialCount >= 2 && residentialClass) return residentialClass;
+  return gridClassName(4);
+}
+
+/**
  * Keep a complete 3-wide materials row (cap 6). Do not use fitEqualGrid here —
  * 4 items would become 2×2 instead of dropping to 3.
  * 4→3, 5→3, 7→6, 8→6; 1–2 stay.

@@ -37,7 +37,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/styles.css?v=20261029colFit" />
+  <link rel="stylesheet" href="/styles.css?v=20261111svccards" />
   <link rel="stylesheet" href="/brand/rover-loader.css" />
 </head>
 <body>
@@ -65,7 +65,7 @@
         <img class="top-brand-logo top-brand-logo--light" src="/brand/rover-logo-light.png" alt="" width="800" height="168" decoding="async" />
         <img class="top-brand-logo top-brand-logo--dark" src="/brand/rover-logo-dark.png" alt="" width="800" height="168" decoding="async" />
       </span>
-      <span class="top-version muted small" title="Rover product version">v2.5</span>
+      <span class="top-version muted small" title="Rover product version">v2.6</span>
       <div class="claude-mode-segment" role="group" aria-label="Claude pipeline mode">
         <button type="button" class="claude-mode-seg active" data-claude-mode="paste" id="claude-mode-paste" aria-label="Copy and paste">
           <span class="claude-mode-seg-full">Copy &amp; paste</span>
@@ -248,6 +248,44 @@
               </div>
             </div>
           </div>
+          <div class="settings-divider"></div>
+          <div class="settings-row settings-audio-row">
+            <span class="settings-label">Audio</span>
+            <span class="settings-audio-actions">
+              <button
+                type="button"
+                id="settings-audio-toggle"
+                class="settings-audio-icon"
+                aria-pressed="true"
+                aria-label="Turn sounds off"
+                data-tip="Turn sounds off"
+              >
+                <svg class="audio-ico-on" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+                  <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
+                  <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
+                </svg>
+                <svg class="audio-ico-off" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+                  <line x1="23" y1="9" x2="17" y2="15" />
+                  <line x1="17" y1="9" x2="23" y2="15" />
+                </svg>
+              </button>
+              <button
+                type="button"
+                id="settings-audio-open"
+                class="settings-audio-icon"
+                aria-label="Open Audio window"
+                data-tip="Open Audio"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M15 3h6v6" />
+                  <path d="M10 14 21 3" />
+                  <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+                </svg>
+              </button>
+            </span>
+          </div>
         </div>
       </div>
     </div>
@@ -262,6 +300,12 @@
           <div class="muted" id="candidates-view-sub">Research Candidates — SERP/Volume, Enrich, Narrative, Prospects</div>
         </div>
         <div class="candidates-head-actions">
+          <button
+            type="button"
+            id="btn-open-tabs"
+            class="btn hidden"
+            data-tip="Open a Website tab for each pursue city in a zone and cluster range."
+          >Open tabs</button>
           <button type="button" id="btn-refresh" class="btn">Refresh</button>
         </div>
       </div>
@@ -397,15 +441,11 @@
             </div>
             <div id="detail-sub" class="muted"></div>
           </div>
+          <button type="button" data-tab="overview" class="tab tab-overview active">Overview</button>
         </div>
         <div id="website-write-lock-banner" class="website-write-lock-banner hidden" hidden></div>
 
         <div class="tabs" id="tabs">
-          <div class="tabs-row tabs-row-meta">
-            <button type="button" data-tab="overview" class="tab tab-overview active">Overview</button>
-            <span class="tab-sep" aria-hidden="true"></span>
-            <button type="button" data-tab="logs" class="tab tab-secondary">Logs</button>
-          </div>
           <div class="tabs-row tabs-row-qualify" data-pipeline-tabs="research">
             <span class="tabs-row-label">Evaluations</span>
             <div class="tab-group tab-group-stage1">
@@ -983,6 +1023,7 @@
         </span>
       </div>
       </div>
+      <div id="discovery-zone-guide" class="zone-guide-host hidden"></div>
       <div id="discovery-shotgun-panel" class="discovery-shotgun-panel hidden">
         <div id="discovery-shotgun-head"></div>
         <div class="discovery-shotgun-split">
@@ -1142,7 +1183,10 @@
         <div class="job-progress-track">
           <div class="job-progress-bar" id="sites-metrics-progress-bar"></div>
         </div>
-        <p class="job-progress-label" id="sites-metrics-progress-label">Working…</p>
+        <div class="sites-metrics-progress-head">
+          <p class="job-progress-label" id="sites-metrics-progress-label">Working…</p>
+          <button type="button" class="btn btn-sm" id="sites-metrics-stop">Stop</button>
+        </div>
         <p class="job-progress-detail" id="sites-metrics-progress-detail">Starting…</p>
       </div>
       <div id="sites-portfolio-charts" class="sites-portfolio-charts hidden">
@@ -1644,12 +1688,60 @@
   </div>
   <img id="img-peek" class="img-peek hidden" alt="" hidden />
 
+  <div id="track-work-overlay" class="content-claude-job-overlay hidden" hidden aria-hidden="true">
+    <div class="rover-loading-card">
+      <div class="rover-loader rover-loader--dark" role="img" aria-label="Working">
+        <svg class="rover-loader-mark" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" focusable="false" aria-hidden="true">
+          <circle class="rover-loader-dot" cx="32" cy="32" r="7.5" />
+          <g class="rover-loader-ring rover-loader-ring--inner">
+            <circle cx="32" cy="32" r="15" transform="rotate(-45 32 32)" />
+          </g>
+          <g class="rover-loader-ring rover-loader-ring--outer">
+            <circle cx="32" cy="32" r="24" transform="rotate(-11 32 32)" />
+          </g>
+        </svg>
+        <img class="rover-loader-word" src="/brand/rover-wordmark-dark.png" alt="" width="618" height="81" decoding="async" />
+      </div>
+      <p class="rover-loading-text" id="track-work-overlay-title">Working…</p>
+      <div class="job-progress" style="width:min(22rem,90%)">
+        <div class="job-progress-track"><div class="job-progress-bar" id="track-work-overlay-bar"></div></div>
+      </div>
+      <p class="muted small" id="track-work-overlay-detail">Working…</p>
+    </div>
+  </div>
+
+  <div id="zone-promote-overlay" class="content-claude-job-overlay zone-promote-overlay hidden" hidden aria-hidden="true">
+    <div class="rover-loading-card">
+      <div class="rover-loader rover-loader--dark" role="img" aria-label="Adding cities">
+        <svg class="rover-loader-mark" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" focusable="false" aria-hidden="true">
+          <circle class="rover-loader-dot" cx="32" cy="32" r="7.5" />
+          <g class="rover-loader-ring rover-loader-ring--inner">
+            <circle cx="32" cy="32" r="15" transform="rotate(-45 32 32)" />
+          </g>
+          <g class="rover-loader-ring rover-loader-ring--outer">
+            <circle cx="32" cy="32" r="24" transform="rotate(-11 32 32)" />
+          </g>
+        </svg>
+        <img class="rover-loader-word" src="/brand/rover-wordmark-dark.png" alt="" width="618" height="81" decoding="async" />
+      </div>
+      <p class="rover-loading-text" id="zone-promote-overlay-title">Adding cities</p>
+      <div class="job-progress" style="width:min(22rem,90%)">
+        <div class="job-progress-track"><div class="job-progress-bar" id="zone-promote-overlay-bar"></div></div>
+      </div>
+      <p class="muted small" id="zone-promote-overlay-detail">Creating candidates…</p>
+    </div>
+  </div>
+
   <div id="zone-map-modal" class="zone-map-modal hidden" hidden>
     <div class="zone-map-modal-card">
       <div class="zone-map-modal-head">
         <h3 id="zone-map-modal-title">Zone map</h3>
-        <button type="button" class="btn btn-sm" id="zone-map-modal-close">Close</button>
+        <span class="zone-map-modal-actions">
+          <button type="button" class="btn btn-sm" id="zone-map-guide-btn">Guide</button>
+          <button type="button" class="btn btn-sm" id="zone-map-modal-close">Close</button>
+        </span>
       </div>
+      <div id="zone-map-guide" class="zone-guide-host hidden"></div>
       <div id="zone-map-slot" class="zone-map-slot">
         <div class="shotgun-map-pick">
           <span class="sg-map-pick-left">
@@ -1688,6 +1780,6 @@
     </div>
   </div>
 
-  <script src="/app.js?v=20261029loopnetWait" type="module"></script>
+  <script src="/app.js?v=20261111svcfields" type="module"></script>
 </body>
 </html>

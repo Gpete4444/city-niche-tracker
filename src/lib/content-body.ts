@@ -2,6 +2,7 @@
  * Homepage / content body helpers for Astro pages.
  */
 import { sitePath } from './site-path';
+import { isCostHeading } from './is-cost-heading.mjs';
 import { isMaterialsHeading } from './is-materials-heading.mjs';
 
 /** Normalize for title comparison. */
@@ -29,6 +30,78 @@ export function stripLeadingTitleEcho(body: string, ...titles: Array<string | un
   return lines.slice(i).join('\n').trimStart();
 }
 
+/** Uppercase a leading lowercase letter. A niche mid-sentence stays as written. */
+export function leadCapital(s: string): string {
+  return String(s || '').replace(/^(\s*)([a-z])/, (_full, space, ch) => space + ch.toUpperCase());
+}
+
+const NICHE_ACRONYMS = new Set(['hvac', 'ac', 'llc', 'inc', 'seo', 'led', 'pvc']);
+
+function titleCaseNichePiece(piece: string): string {
+  if (!piece) return piece;
+  const lower = piece.toLowerCase();
+  if (NICHE_ACRONYMS.has(lower)) return piece.toUpperCase();
+  if (/^[A-Z]{2,}$/.test(piece)) return piece;
+  if (/[A-Z]/.test(piece)) return piece;
+  return piece.replace(/[a-z]/, (ch) => ch.toUpperCase());
+}
+
+/** Title-case each word of a niche, including hyphen parts. Existing capitals and short acronyms stay. */
+function titleCaseNicheWords(raw: string): string {
+  const s = String(raw ?? '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!s) return '';
+  return s
+    .split(' ')
+    .map((word) => word.split('-').map(titleCaseNichePiece).join('-'))
+    .join(' ');
+}
+
+/**
+ * When a line starts with the niche, title-case that niche. Otherwise capitalize one leading letter.
+ * A niche later in the line stays as written.
+ */
+export function leadNiche(text: string, niche?: string | null): string {
+  const source = String(text ?? '');
+  const label = String(niche ?? '').trim();
+  if (label) {
+    const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const match = source.match(new RegExp(`^(\\s*)(?:${escaped})(?=$|[^A-Za-z0-9])`, 'i'));
+    if (match) {
+      return match[1] + titleCaseNicheWords(label) + source.slice(match[0].length);
+    }
+  }
+  return leadCapital(source);
+}
+
+/** Title-case every whole niche phrase in a heading. A longer word that only starts with the niche stays. */
+function replaceNichePhrase(text: string, niche: string): string {
+  const label = titleCaseNicheWords(niche);
+  if (!label) return text;
+  const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return text.replace(new RegExp(`(?<![A-Za-z0-9])${escaped}(?![A-Za-z0-9])`, 'gi'), label);
+}
+
+/**
+ * Hero titles title-case every niche phrase. Other headings do that only when they contain the
+ * business name. Every other heading still title-cases a niche only when the line starts with it.
+ */
+export function headingNicheCase(
+  text: string,
+  niche?: string | null,
+  businessName?: string | null,
+  opts?: { hero?: boolean },
+): string {
+  const source = String(text ?? '');
+  const rawNiche = String(niche ?? '').trim();
+  if (!rawNiche) return leadCapital(source);
+  const name = String(businessName ?? '').trim();
+  const containsName = name.length > 0 && source.toLowerCase().includes(name.toLowerCase());
+  if (opts?.hero || containsName) return leadCapital(replaceNichePhrase(source, rawNiche));
+  return leadNiche(source, rawNiche);
+}
+
 /** Capitalize a process blurb and add a period when it reads as a sentence. */
 export function sentenceCaseLine(s: string): string {
   let t = String(s || '').trim();
@@ -40,6 +113,16 @@ export function sentenceCaseLine(s: string): string {
 
 const SECTION_START_RE =
   /^(#{1,3}\s+|(?:why |our |how |what |when |ready |frequently |common |materials|cost|timeline|faq|process|services)\b)/i;
+
+/** Link-injector comment and the nav list under it are not homepage intro copy. */
+function isHomepageIntroJunk(block: string): boolean {
+  const t = String(block || '').trim();
+  if (!t) return true;
+  if (/^<!--[\s\S]*-->$/.test(t)) return true;
+  if (/rover-autofix-links/i.test(t)) return true;
+  const lines = t.split('\n').map((line) => line.trim()).filter(Boolean);
+  return lines.length > 0 && lines.every((line) => /^[-*]\s+\[[^\]]+\]\([^)]+\)/.test(line));
+}
 
 /**
  * When structured homepage sections exist, only keep intro paragraphs from the writer body
@@ -58,6 +141,7 @@ export function extractHomepageIntro(
 
   const intro: string[] = [];
   for (const block of blocks) {
+    if (isHomepageIntroJunk(block)) continue;
     const firstLine = block.split(/\n/)[0] || '';
     if (intro.length > 0 && SECTION_START_RE.test(firstLine.trim())) break;
     // Skip lone heading-like lines without paragraph body
@@ -109,7 +193,7 @@ function classifyProseHeading(heading: string): HomepageProseSectionId | null {
   ) {
     return 'diyVsPro';
   }
-  if (/\bcost\b|pricing|what does .+ cost|how much|estimate range/.test(t)) return 'cost';
+  if (isCostHeading(heading)) return 'cost';
   if (isMaterialsHeading(heading)) return 'materials';
   if (/^how long\b|\btimeline\b|duration|schedule/.test(t)) return 'timeline';
   if (/when to call|when to book|warning signs/.test(t)) return 'whenToCall';

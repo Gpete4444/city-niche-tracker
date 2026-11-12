@@ -616,6 +616,186 @@
       },
       "autoSeeded": false,
       "llmEnrichedAt": "2026-10-30T21:06:11.085Z"
+    },
+    {
+      "id": "epoxy-flooring",
+      "match": "Epoxy\\s+Flooring",
+      "boost": [
+        "epoxy garage floor",
+        "epoxy flake flooring",
+        "polyaspartic floor coating",
+        "epoxy warehouse floor",
+        "concrete floor grinding",
+        "epoxy pool deck coating"
+      ],
+      "tokens": [
+        "epoxy",
+        "polyaspartic",
+        "polyurea",
+        "flake",
+        "concrete",
+        "coating",
+        "slab",
+        "grinding",
+        "sealant",
+        "resin",
+        "flooring",
+        "garage",
+        "floor",
+        "coatings",
+        "decorative",
+        "leveling",
+        "patio",
+        "pool",
+        "deck"
+      ],
+      "requireNicheHit": true,
+      "kindHints": {
+        "hero": "glossy epoxy coated garage floor residential",
+        "intro": "finished epoxy flooring in home garage",
+        "process": "diamond grinding concrete floor for epoxy prep",
+        "materials": "epoxy resin and flake chips close up",
+        "other": "epoxy coated commercial warehouse floor"
+      },
+      "autoSeeded": false,
+      "llmEnrichedAt": "2026-11-05T22:51:33.854Z"
+    },
+    {
+      "id": "trenchless-sewer-repair",
+      "match": "Trenchless\\s+Sewer\\s+Repair",
+      "boost": [
+        "trenchless sewer repair",
+        "sewer pipe lining",
+        "sewer line excavation",
+        "CIPP pipe lining",
+        "sewer camera inspection",
+        "pipe bursting equipment"
+      ],
+      "tokens": [
+        "sewer",
+        "pipe",
+        "pipes",
+        "plumbing",
+        "trenchless",
+        "drain",
+        "excavation",
+        "underground",
+        "trench",
+        "contractor",
+        "jobsite",
+        "construction",
+        "cipp",
+        "bursting",
+        "tree",
+        "root"
+      ],
+      "requireNicheHit": true,
+      "kindHints": {
+        "hero": "residential trenchless sewer repair excavation",
+        "intro": "sewer line access pit residential yard",
+        "process": "sewer camera inspection contractor jobsite",
+        "materials": "sewer pipe liner CIPP resin materials",
+        "other": "underground sewer plumbing residential"
+      },
+      "autoSeeded": false,
+      "llmEnrichedAt": "2026-11-07T03:48:04.979Z"
+    },
+    {
+      "id": "custom-cabinets",
+      "match": "Custom\\s+Cabinets",
+      "boost": [
+        "custom cabinets kitchen",
+        "built-in cabinetry shelving",
+        "custom closet cabinets",
+        "cabinet refacing kitchen",
+        "custom pantry cabinets",
+        "home bar cabinetry",
+        "bathroom vanity cabinets",
+        "garage storage cabinets"
+      ],
+      "tokens": [
+        "cabinet",
+        "cabinetry",
+        "cabinets",
+        "built-in",
+        "woodwork",
+        "millwork",
+        "vanity",
+        "pantry",
+        "closet",
+        "shelving",
+        "drawer",
+        "hardwood",
+        "custom",
+        "kitchen",
+        "remodels",
+        "built",
+        "units",
+        "systems",
+        "bar",
+        "bathroom",
+        "entertainment",
+        "center",
+        "ins"
+      ],
+      "requireNicheHit": true,
+      "kindHints": {
+        "hero": "custom cabinetry finished kitchen interior",
+        "intro": "custom built cabinets residential interior",
+        "process": "cabinet maker measuring cabinetry design",
+        "materials": "cabinet wood sample hardware close up",
+        "other": "custom cabinetry interior installation"
+      },
+      "autoSeeded": false,
+      "llmEnrichedAt": "2026-11-10T01:16:25.542Z"
+    },
+    {
+      "id": "foundation-repair",
+      "match": "Foundation\\s+Repair",
+      "boost": [
+        "foundation repair piers",
+        "foundation crack repair wall",
+        "basement waterproofing foundation",
+        "crawl space encapsulation repair",
+        "concrete slab lifting foundation",
+        "foundation underpinning piering",
+        "french drain foundation installation",
+        "bowing basement wall stabilization"
+      ],
+      "tokens": [
+        "foundation",
+        "pier",
+        "piering",
+        "underpinning",
+        "crawlspace",
+        "crawl space",
+        "basement",
+        "concrete slab",
+        "french drain",
+        "waterproofing",
+        "sump",
+        "bracket",
+        "stabilization",
+        "slab jacking",
+        "polyurethane injection",
+        "footing",
+        "crawl",
+        "space",
+        "french",
+        "drains",
+        "concrete",
+        "lifting"
+      ],
+      "requireNicheHit": true,
+      "kindHints": {
+        "hero": "foundation repair piers installed residential home",
+        "intro": "foundation crack repair exterior house wall",
+        "process": "foundation inspection crack assessment technician",
+        "materials": "foundation push pier steel bracket closeup",
+        "other": "basement foundation wall stabilization braces"
+      },
+      "autoSeeded": false,
+      "llmEnrichedAt": "2026-11-11T22:06:35.872Z"
     }
   ]
 }

@@ -186,7 +186,7 @@ Separate from **coverage-map.svg** generation (Launch track Logo & Map).
 
 **Where:** [`ops/lib/sites.mjs`](../ops/lib/sites.mjs), [`ops/lib/site-metrics.mjs`](../ops/lib/site-metrics.mjs), [`ops/lib/gsc-sync.mjs`](../ops/lib/gsc-sync.mjs), [`ops/lib/gsc-oauth.mjs`](../ops/lib/gsc-oauth.mjs), [`ops/lib/rank-track.mjs`](../ops/lib/rank-track.mjs). Docs: [SITES-METRICS.md](SITES-METRICS.md), [SITE-INDEXING.md](SITE-INDEXING.md).
 
-`POST /api/candidates/:id/indexing/done` persists `indexingDone` / `lastIndexingAt` on meta (not in-memory only).
+`POST /api/candidates/:id/indexing/submit` verifies the Domain property and submits the sitemap once ([`ops/lib/gsc-indexing-submit.mjs`](../ops/lib/gsc-indexing-submit.mjs)). `POST /api/candidates/:id/indexing/done` persists `indexingDone` / `lastIndexingAt` on meta (not in-memory only).
 
 ## Template (Astro) {#template}
 

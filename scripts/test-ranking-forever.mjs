@@ -268,6 +268,43 @@ assert(
   'homepage missing cost is critical',
 );
 
+const costsHeading = `---
+title: "Trenchless"
+h1: "Trenchless"
+---
+
+## Trenchless sewer repair Mason OH: what it costs
+Pricing isn't one flat number.
+
+- **CIPP lining** — $3,800–$8,500, resin liner.
+`;
+const costsHome = lintContentSeo(
+  { 'src/content/pages/index.md': costsHeading },
+  { sectionIds: ['cost'], homepageSections: ['cost'] },
+);
+assert(
+  !(costsHome.findings || []).some((f) => f.rule === 'homepage_educational_missing'),
+  'what it costs heading counts as the cost band',
+);
+
+const pricingHome = lintContentSeo(
+  {
+    'src/content/pages/index.md': `---
+title: "Trenchless"
+h1: "Trenchless"
+---
+
+## Pricing
+Ballparks, not a quote.
+`,
+  },
+  { sectionIds: ['cost'], homepageSections: ['cost'] },
+);
+assert(
+  !(pricingHome.findings || []).some((f) => f.rule === 'homepage_educational_missing'),
+  'Pricing heading counts as the cost band',
+);
+
 const locA = `---
 title: "A"
 h1: "A"

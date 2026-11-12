@@ -4,6 +4,8 @@ You assign **Hub / Cluster Cities** for one cluster metro. Use **only** the Cens
 
 {{FILTER_BRIEF}}
 
+{{ZONE_GUIDE}}
+
 **Niche:** {{NICHE}}
 **Hub seed:** {{HUB_CITY}}, {{HUB_STATE}}
 **Radius:** {{CLUSTER_MILES}} mi (or inner {{INNER_MILES}} · outer {{OUTER_MILES}})

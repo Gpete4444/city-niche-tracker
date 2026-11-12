@@ -161,7 +161,7 @@ const introSurface = introParagraphs.length ? nextBandSurface() : null;
           <div class="mx-auto max-w-6xl px-4 py-14 sm:px-6 sm:py-16">
             <div class="max-w-2xl">
               <p class="section-eyebrow">{eyebrowFor('process')}</p>
-              <TwoToneHeading
+              <TwoToneHeading niche={site.niche}
                 as="h2"
                 id={`svc-process-${sectionIndex}`}
                 mode="plain"
@@ -246,7 +246,7 @@ const introSurface = introParagraphs.length ? nextBandSurface() : null;
           <div class="mx-auto max-w-4xl px-4 py-14 sm:px-6 sm:py-16">
             <div>
               <p class="section-eyebrow">{eyebrowFor('faq')}</p>
-              <TwoToneHeading
+              <TwoToneHeading niche={site.niche}
                 as="h2"
                 id={`svc-faq-${sectionIndex}`}
                 mode="plain"
@@ -259,7 +259,7 @@ const introSurface = introParagraphs.length ? nextBandSurface() : null;
                 <details class="group py-4">
                   <summary class="flex cursor-pointer list-none items-center justify-between gap-4 font-semibold text-ink">
                     {faq.question}
-                    <span class="text-xl text-accent transition group-open:rotate-45" aria-hidden="true">
+                    <span class="text-xl text-accent-on-light transition group-open:rotate-45" aria-hidden="true">
                       +
                     </span>
                   </summary>
@@ -280,7 +280,7 @@ const introSurface = introParagraphs.length ? nextBandSurface() : null;
           <div class="mx-auto max-w-6xl px-4 py-14 sm:px-6 sm:py-16">
             <div class="max-w-2xl">
               <p class="section-eyebrow">{eyebrowFor('beforeAfter')}</p>
-              <TwoToneHeading
+              <TwoToneHeading niche={site.niche}
                 as="h2"
                 id={`svc-ba-${sectionIndex}`}
                 mode="plain"
@@ -296,7 +296,7 @@ const introSurface = introParagraphs.length ? nextBandSurface() : null;
                       <img
                         src={pair.before!.src}
                         alt={pair.before!.alt}
-                        class="aspect-[4/3] w-full rounded-lg object-cover shadow-sm"
+                        class="aspect-[3/2] w-full rounded-lg object-contain shadow-sm"
                         width="800"
                         height="600"
                         loading="lazy"
@@ -311,7 +311,7 @@ const introSurface = introParagraphs.length ? nextBandSurface() : null;
                       <img
                         src={pair.after!.src}
                         alt={pair.after!.alt}
-                        class="aspect-[4/3] w-full rounded-lg object-cover shadow-sm"
+                        class="aspect-[3/2] w-full rounded-lg object-contain shadow-sm"
                         width="800"
                         height="600"
                         loading="lazy"
@@ -336,7 +336,7 @@ const introSurface = introParagraphs.length ? nextBandSurface() : null;
           <div class="mx-auto flex max-w-6xl flex-col gap-6 px-4 py-12 sm:flex-row sm:items-center sm:justify-between sm:px-6 sm:py-14">
             <div class="max-w-xl">
               <p class="section-eyebrow">{eyebrowFor('cta')}</p>
-              <TwoToneHeading
+              <TwoToneHeading niche={site.niche}
                 as="h2"
                 id={`svc-cta-${sectionIndex}`}
                 tone="light"
@@ -397,7 +397,7 @@ const introSurface = introParagraphs.length ? nextBandSurface() : null;
       <div class="mx-auto max-w-6xl px-4 py-8 sm:px-6">
         <div class="max-w-2xl">
           <p class="section-eyebrow">More services</p>
-          <TwoToneHeading
+          <TwoToneHeading niche={site.niche}
             as="h2"
             id="related-services-heading"
             mode="plain"
@@ -433,7 +433,7 @@ const introSurface = introParagraphs.length ? nextBandSurface() : null;
                   </p>
                 </div>
                 <span
-                  class="flex size-9 shrink-0 items-center justify-center rounded-full bg-accent/15 text-xl font-bold text-accent transition group-hover:translate-x-0.5 group-hover:bg-accent/25 sm:size-10 sm:text-2xl"
+                  class="flex size-9 shrink-0 items-center justify-center rounded-full bg-accent/15 text-xl font-bold text-accent-on-light transition group-hover:translate-x-0.5 group-hover:bg-accent/25 sm:size-10 sm:text-2xl"
                   aria-hidden="true"
                 >
                   →

@@ -6,11 +6,15 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import {
+  applyHomepageServicesLimitToNicheConfigs,
   backfillStoredServiceNameTitleCase,
   buildNicheServiceList,
   getNicheServiceList,
+  normalizeHomepageServicesLimit,
   normalizeServiceNameList,
   saveNicheServiceList,
+  setNicheHomepageServicesLimit,
+  stampNicheHomepageServicesLimit,
   visibleServiceNames,
 } from '../ops/lib/niche-service-lists.mjs';
 
@@ -172,7 +176,7 @@ try {
   writeFileSync(workingPath, `${JSON.stringify({ services: ['Nail Pop and Seam Crack Repair'] }, null, 2)}\n`);
   writeFileSync(
     path.join(researchDir, '_niche-service-lists.json'),
-    `${JSON.stringify({ lists: { 'drywall repair': { niche: 'Drywall Repair', services: ['Drywall patching and hole repair'], commercialServices: [] } } }, null, 2)}\n`,
+    `${JSON.stringify({ lists: { 'drywall repair': { niche: 'Drywall Repair', services: ['Drywall patching and hole repair'], commercialServices: [], homepageServicesLimit: 6 } } }, null, 2)}\n`,
   );
   const rewritten = backfillStoredServiceNameTitleCase({ researchDir, workingConfigPath: workingPath });
   assertEqual(rewritten.files, 4, 'backfill rewrites draft, accepted, working, and niche default');
@@ -184,6 +188,115 @@ try {
   assertEqual(accepted.services[0], 'McKay Plumbing', 'interior capital stays on backfill');
   const again = backfillStoredServiceNameTitleCase({ researchDir, workingConfigPath: workingPath });
   assertEqual(again.files, 0, 'backfill is a no-op once names are title case');
+  const backfilledStore = JSON.parse(readFileSync(path.join(researchDir, '_niche-service-lists.json'), 'utf8'));
+  assertEqual(
+    backfilledStore.lists['drywall repair'].homepageServicesLimit,
+    6,
+    'backfill keeps the homepage card count',
+  );
+
+  assertEqual(normalizeHomepageServicesLimit(''), null, 'blank card count stays unset');
+  assertEqual(normalizeHomepageServicesLimit('nope'), null, 'non-numeric card count stays unset');
+  assertEqual(normalizeHomepageServicesLimit(20), 12, 'card count clamps to 12');
+
+  const limitOnly = setNicheHomepageServicesLimit(
+    { niche: 'gutter cleaning', homepageServicesLimit: 6 },
+    file,
+  );
+  assertEqual(limitOnly.homepageServicesLimit, 6, 'card count saves without service names');
+  assertEqual(limitOnly.services.length, 0, 'card-count record may have no names');
+  assertEqual(getNicheServiceList('Concrete Lifting', file).services[0], 'Slab', 'card count does not touch other niches');
+
+  let rejectedLimit = false;
+  try {
+    setNicheHomepageServicesLimit({ niche: 'Gutter Cleaning', homepageServicesLimit: 'nope' }, file);
+  } catch (error) {
+    rejectedLimit = error.status === 400;
+  }
+  assert(rejectedLimit, 'bad card count rejected');
+  assertEqual(getNicheServiceList('Gutter Cleaning', file).homepageServicesLimit, 6, 'rejected card count leaves the record');
+
+  const named = saveNicheServiceList(
+    { niche: 'Gutter Cleaning', services: ['Gutter Cleaning', 'Downspout Repair'], commercialServices: [] },
+    file,
+  );
+  assertEqual(named.homepageServicesLimit, 6, 'name save keeps the card count');
+  assertEqual(named.services[0], 'Gutter Cleaning', 'name save still writes the names');
+  const renamed = saveNicheServiceList(
+    { niche: 'gutter cleaning', services: ['Downspout Repair'], commercialServices: ['Commercial Gutters'] },
+    file,
+  );
+  assertEqual(renamed.homepageServicesLimit, 6, 'later name save keeps the card count');
+  assertEqual(renamed.services[0], 'Downspout Repair', 'later name save replaces the names');
+
+  const stamped = stampNicheHomepageServicesLimit(
+    { niche: 'Gutter Cleaning', homepageServicesLimit: 8, tagline: 'Claude copy' },
+    file,
+  );
+  assertEqual(stamped.homepageServicesLimit, 6, 'new draft takes the niche card count');
+  assertEqual(stamped.tagline, 'Claude copy', 'stamp leaves page copy alone');
+  const unstamped = stampNicheHomepageServicesLimit(
+    { niche: 'Roof Repair', homepageServicesLimit: 4, tagline: 'Leave' },
+    file,
+  );
+  assertEqual(unstamped.homepageServicesLimit, 4, 'stamp skips a niche with no card count');
+
+  const fanDir = path.join(dir, 'fanout');
+  mkdirSync(fanDir);
+  const sameDraft = {
+    niche: 'gutter cleaning',
+    homepageServicesLimit: 8,
+    tagline: 'Keep this',
+    services: ['Gutter Cleaning'],
+  };
+  const sameAccepted = {
+    niche: 'Gutter Cleaning',
+    tagline: 'Accepted copy',
+    services: ['Downspout Repair'],
+  };
+  const already = {
+    niche: 'Gutter Cleaning',
+    homepageServicesLimit: 6,
+    tagline: 'Already six',
+    services: ['Gutter Cleaning'],
+  };
+  const other = {
+    niche: 'Roof Repair',
+    homepageServicesLimit: 4,
+    tagline: 'Other niche',
+    services: ['Roof Repair'],
+  };
+  writeFileSync(path.join(fanDir, 'city-a-site-config.draft.json'), `${JSON.stringify(sameDraft, null, 2)}\n`);
+  writeFileSync(path.join(fanDir, 'city-a-site-config.json'), `${JSON.stringify(sameAccepted, null, 2)}\n`);
+  writeFileSync(path.join(fanDir, 'city-a-already-site-config.draft.json'), `${JSON.stringify(already, null, 2)}\n`);
+  writeFileSync(path.join(fanDir, 'city-b-site-config.json'), `${JSON.stringify(other, null, 2)}\n`);
+  writeFileSync(path.join(fanDir, 'ignore-me.json'), `${JSON.stringify({ niche: 'Gutter Cleaning', homepageServicesLimit: 8 })}\n`);
+  const outside = path.join(dir, 'site-config.json');
+  writeFileSync(outside, `${JSON.stringify({ niche: 'Gutter Cleaning', homepageServicesLimit: 2, tagline: 'Template' }, null, 2)}\n`);
+
+  const applied = applyHomepageServicesLimitToNicheConfigs('Gutter Cleaning', 6, { researchDir: fanDir });
+  assertEqual(applied.homepageServicesLimit, 6, 'fan-out returns the clamped count');
+  assertEqual(applied.files.length, 2, 'fan-out updates draft and accepted only when the count differs');
+  assert(applied.files.includes('city-a-site-config.draft.json'), 'fan-out updates the matching draft');
+  assert(applied.files.includes('city-a-site-config.json'), 'fan-out updates the matching accepted config');
+  const drafted = JSON.parse(readFileSync(path.join(fanDir, 'city-a-site-config.draft.json'), 'utf8'));
+  assertEqual(drafted.homepageServicesLimit, 6, 'draft card count updated');
+  assertEqual(drafted.tagline, 'Keep this', 'fan-out leaves draft copy alone');
+  assertEqual(drafted.services[0], 'Gutter Cleaning', 'fan-out leaves service names alone');
+  const acceptedCfg = JSON.parse(readFileSync(path.join(fanDir, 'city-a-site-config.json'), 'utf8'));
+  assertEqual(acceptedCfg.homepageServicesLimit, 6, 'accepted card count updated');
+  assertEqual(acceptedCfg.tagline, 'Accepted copy', 'fan-out leaves accepted copy alone');
+  const alreadyCfg = JSON.parse(readFileSync(path.join(fanDir, 'city-a-already-site-config.draft.json'), 'utf8'));
+  assertEqual(alreadyCfg.homepageServicesLimit, 6, 'matching count is left in place');
+  assertEqual(alreadyCfg.tagline, 'Already six', 'unchanged file keeps its copy');
+  const otherCfg = JSON.parse(readFileSync(path.join(fanDir, 'city-b-site-config.json'), 'utf8'));
+  assertEqual(otherCfg.homepageServicesLimit, 4, 'other niche is not updated');
+  assertEqual(otherCfg.tagline, 'Other niche', 'other niche copy stays');
+  const ignored = JSON.parse(readFileSync(path.join(fanDir, 'ignore-me.json'), 'utf8'));
+  assertEqual(ignored.homepageServicesLimit, 8, 'non-config files stay out of fan-out');
+  const template = JSON.parse(readFileSync(outside, 'utf8'));
+  assertEqual(template.homepageServicesLimit, 2, 'shared template stays out of fan-out');
+  assertEqual(template.tagline, 'Template', 'shared template copy stays');
 
   console.log('test-niche-service-lists: ok');
 } finally {

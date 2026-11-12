@@ -43,4 +43,8 @@ try {
 }
 assert(rejected, 'empty-string suburb item is rejected');
 
+const { web3FormsAccessKey: _ignoredKey, ...noWeb3 } = base;
+const withoutKey = siteConfigSchema.parse(noWeb3);
+assert(withoutKey.web3FormsAccessKey === '', 'missing Web3Forms key defaults to empty');
+
 console.log('test-site-config-schema: ok');

@@ -229,6 +229,7 @@ export function stageSiteContent(candidateId, { mode = 'full', refreshPackage = 
     assertLaunchContentComplete(files, config, pageIds, {
       label: 'Staging',
       candidateId,
+      serviceDepth: 'stub',
     });
   }
 

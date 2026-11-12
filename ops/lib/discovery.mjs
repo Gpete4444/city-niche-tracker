@@ -49,11 +49,13 @@ import {
   loadShotgunDraft,
   normalizePackType,
   normalizeShotgunSettings,
+  paintedZoneConflictMessage,
   saveShotgunDraft,
   shotgunDraftHubCount,
   backfillShotgunNicheTitleCase,
   upsertShotgunCluster,
 } from './shotgun.mjs';
+import { copyZoneGuideFromBatch } from './zone-guide.mjs';
 
 const ROOT = process.cwd();
 const BATCHES_DIR = path.join(ROOT, 'research', 'batches');
@@ -1417,6 +1419,54 @@ export function getBatch(batchId) {
   return { batch: meta, rows, dir, shotgun };
 }
 
+/** Mark zone-map cities as already promoted so Generate pack does not pack them again. */
+export function appendPromotedZoneRows(batchId, entries = []) {
+  const list = (entries || []).filter((e) => e?.city && e?.state && e?.candidateId);
+  if (!batchId || !list.length) return { added: 0, updated: 0 };
+  const { batch, rows, dir } = getBatch(batchId);
+  let added = 0;
+  let updated = 0;
+  for (const entry of list) {
+    const city = String(entry.city).trim();
+    const state = String(entry.state).trim().toUpperCase();
+    const niche = String(entry.niche || batch.filters?.shotgunNiche || '').trim();
+    let row = rows.find(
+      (r) =>
+        String(r.City || '')
+          .trim()
+          .toLowerCase() === city.toLowerCase() &&
+        String(r.State || '')
+          .trim()
+          .toUpperCase() === state,
+    );
+    if (!row) {
+      row = {};
+      for (const col of DISCOVERY_COLUMNS) row[col] = '';
+      rows.push(row);
+      added += 1;
+    } else {
+      updated += 1;
+    }
+    if (niche) row.Niche = row.Niche || niche;
+    row.City = city;
+    row.State = state;
+    row.human_decision = 'pursue';
+    row.process_status = 'promoted';
+    row.candidateId = entry.candidateId;
+    row.shotgun_role = row.shotgun_role || 'member';
+    if (!row.decision_notes) row.decision_notes = 'Added from zone map';
+  }
+  writeFileSync(path.join(dir, 'candidates.csv'), rowsToCsv(rows), 'utf8');
+  const meta = {
+    ...batch,
+    updatedAt: new Date().toISOString(),
+    rowCount: rows.length,
+    files: { ...(batch.files || {}), candidates: 'candidates.csv' },
+  };
+  writeJson(path.join(dir, 'meta.json'), meta);
+  return { added, updated, batch: meta };
+}
+
 export function updateBatchDecisions(batchId, updates = []) {
   const { batch, rows, dir } = getBatch(batchId);
   for (const u of updates) {
@@ -1457,6 +1507,62 @@ function parseSuburbsCluster(text, state) {
 }
 
 /**
+ * Create or update this pack's zone from the current draft.
+ * Painted cities already in another zone for the niche reject the commit.
+ */
+export function commitShotgunZoneForBatch(batchId, { members: memberOverride } = {}) {
+  const { batch, dir } = getBatch(batchId);
+  if (!isClusterPack(batch.filters?.packType)) return null;
+  const draft = loadShotgunDraft(dir);
+  if (!draft?.hub?.city) return null;
+  const niche = draft.niche || batch.filters?.shotgunNiche;
+  const rawMembers = memberOverride == null ? draft.members || [] : memberOverride;
+  const message = paintedZoneConflictMessage(niche, rawMembers, draft.clusterId);
+  if (message) {
+    throw Object.assign(new Error(message), { status: 400 });
+  }
+  const members = annotateMembersWithPipeline(niche, rawMembers, draft.clusterId);
+  const patch = {
+    niche,
+    hub: draft.hub,
+    innerMiles: draft.innerMiles,
+    outerMiles: draft.outerMiles,
+    clusterMiles: draft.clusterMiles,
+    bands: draft.bands,
+    members,
+    source: draft.source || 'discovery',
+    batchId,
+  };
+  if (draft.clusterId) patch.id = draft.clusterId;
+  if (draft.reusedFromZoneId) patch.reusedFromZoneId = draft.reusedFromZoneId;
+  if (draft.sgNumber) patch.sgNumber = draft.sgNumber;
+  const cluster = upsertShotgunCluster(patch);
+  copyZoneGuideFromBatch(batchId, cluster.id);
+  saveShotgunDraft(dir, {
+    ...draft,
+    members,
+    clusterId: cluster.id,
+    groupId: cluster.groupId,
+    sgNumber: cluster.sgNumber,
+  });
+  return cluster;
+}
+
+function assertShotgunZoneFree(batch, dir) {
+  if (!isClusterPack(batch.filters?.packType)) return;
+  const draft = loadShotgunDraft(dir);
+  if (!draft?.hub?.city) return;
+  const message = paintedZoneConflictMessage(
+    draft.niche || batch.filters?.shotgunNiche,
+    draft.members,
+    draft.clusterId,
+  );
+  if (message) {
+    throw Object.assign(new Error(message), { status: 400 });
+  }
+}
+
+/**
  * Promote or track rows with human_decision; optional Stage 1 batch for pursue.
  */
 export function processDiscoveryBatch(
@@ -1469,6 +1575,7 @@ export function processDiscoveryBatch(
     err.status = 400;
     throw err;
   }
+  assertShotgunZoneFree(batch, dir);
 
   const allow = Array.isArray(decisions) && decisions.length
     ? new Set(decisions.map((d) => String(d).trim()))
@@ -1676,42 +1783,23 @@ export function processDiscoveryBatch(
   writeJson(path.join(dir, 'meta.json'), meta);
 
   if (isClusterPack(batch.filters?.packType)) {
-    try {
-      const draft = loadShotgunDraft(dir);
-      if (draft) {
-        const byGeo = new Map();
-        for (const p of promoted) {
-          if (!p.candidateId) continue;
-          const row = nextRows[p.index];
-          if (!row) continue;
-          byGeo.set(
-            `${String(row.City || '').toLowerCase()}|${String(row.State || '').toUpperCase()}`,
-            p.candidateId,
-          );
-        }
-        const members = annotateMembersWithPipeline(
-          draft.niche || batch.filters?.shotgunNiche,
-          (draft.members || []).map((m) => {
-            const k = `${String(m.city || '').toLowerCase()}|${String(m.state || '').toUpperCase()}`;
-            return byGeo.has(k) ? { ...m, candidateId: byGeo.get(k) } : m;
-          }),
+    const draft = loadShotgunDraft(dir);
+    if (draft?.hub?.city) {
+      const byGeo = new Map();
+      for (const p of promoted) {
+        if (!p.candidateId) continue;
+        const row = nextRows[p.index];
+        if (!row) continue;
+        byGeo.set(
+          `${String(row.City || '').toLowerCase()}|${String(row.State || '').toUpperCase()}`,
+          p.candidateId,
         );
-        const cluster = upsertShotgunCluster({
-          id: draft.clusterId,
-          niche: draft.niche || batch.filters?.shotgunNiche,
-          hub: draft.hub,
-          innerMiles: draft.innerMiles,
-          outerMiles: draft.outerMiles,
-          clusterMiles: draft.clusterMiles,
-          bands: draft.bands,
-          members,
-          source: 'discovery',
-          batchId,
-        });
-        saveShotgunDraft(dir, { ...draft, members, clusterId: cluster.id, groupId: cluster.groupId });
       }
-    } catch {
-      /* shotgun attach is best-effort */
+      const members = (draft.members || []).map((m) => {
+        const k = `${String(m.city || '').toLowerCase()}|${String(m.state || '').toUpperCase()}`;
+        return byGeo.has(k) ? { ...m, candidateId: byGeo.get(k) } : m;
+      });
+      commitShotgunZoneForBatch(batchId, { members });
     }
   }
 

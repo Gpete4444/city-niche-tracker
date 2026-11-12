@@ -12,6 +12,8 @@ You are helping build a Rover local lead-gen website from an approved candidate.
 Approved candidate narrative JSON and/or DataForSEO research JSON:
 {{PASTE_APPROVED_CANDIDATE_JSON}}
 
+{{ZONE_GUIDE}}
+
 Also provide:
 - Domain: {{DOMAIN}}
 - Business name: {{BUSINESS_NAME}}

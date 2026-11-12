@@ -61,6 +61,23 @@ const bodySteps = listProcessStepsFromBody(svcMd);
 assertEqual(bodySteps[0].title, 'Assess the hole', 'svcProcess title');
 assert(/wall condition/i.test(bodySteps[0].detail), 'svcProcess detail');
 
+const processIntroSteal = `---
+title: Test
+---
+Our repair process starts with a look at the line, then the crew picks a method.
+
+## How our repair process works
+
+- **Camera pass** — look at the line before quoting
+- **Install the liner** — cure it in place
+`;
+const processIntroSteps = listProcessStepsFromBody(processIntroSteal);
+assertEqual(
+  processIntroSteps.map((s) => s.title),
+  ['Camera pass', 'Install the liner'],
+  'intro that says our repair process does not steal the process H2',
+);
+
 const matMd = `## Materials and methods we use
 
 - **Two-part polyurethane foam**: Expands within seconds of injection.

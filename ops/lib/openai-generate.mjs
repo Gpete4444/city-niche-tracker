@@ -23,7 +23,7 @@ import {
 import { IMAGE_TRAY_CAP, pushBaTrayEntry, pushSlotTrayEntry, trimTrayVariants } from './image-tray.mjs';
 import { buildSlotImagePrompt } from './chatgpt-slot-image.mjs';
 import { persistSlotOverrideIfBody, persistBaOverrideIfBody } from './openai-prompt-overrides.mjs';
-import { applyOccupancyToPrompt } from './image-occupancy.mjs';
+import { applyBaOccupancyPrompts } from './image-occupancy.mjs';
 import {
   archiveLiveBaPairToTray,
   findLiveBaFiles,
@@ -296,8 +296,11 @@ export async function generateCandidateBaPairOpenai(
       resolved.key,
       resolved.viewpoint,
       {
-        before: applyOccupancyToPrompt(resolved.originalBefore, occupancy),
-        after: applyOccupancyToPrompt(resolved.originalAfter, occupancy),
+        ...applyBaOccupancyPrompts(resolved.originalBefore, resolved.originalAfter, occupancy, {
+          niche: resolved.niche,
+          serviceName: serviceName || resolved.serviceName,
+          setting: resolved.setting,
+        }),
       },
       { before: resolved.before, after: resolved.after },
     );

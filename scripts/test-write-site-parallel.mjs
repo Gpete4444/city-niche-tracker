@@ -10,6 +10,7 @@ import {
   anthropicRetryDelayMs,
   claudeMessages,
   isAnthropicRetryableStatus,
+  isTransientFetchError,
 } from '../ops/lib/claude.mjs';
 
 function assertEqual(got, want, label) {
@@ -91,6 +92,9 @@ assertWriteSiteStartAllowed('cand-a');
 
 assertEqual(isAnthropicRetryableStatus(429), true, '429 retryable');
 assertEqual(isAnthropicRetryableStatus(529), true, '529 retryable');
+for (const status of [500, 502, 503, 504, 520]) {
+  assertEqual(isAnthropicRetryableStatus(status), true, `${status} retryable`);
+}
 assertEqual(isAnthropicRetryableStatus(400), false, '400 not retryable');
 assertEqual(anthropicRetryDelayMs(0, null), 2000, 'backoff 0');
 assertEqual(anthropicRetryDelayMs(1, null), 4000, 'backoff 1');
@@ -126,6 +130,84 @@ const result = await claudeMessages({
 });
 assertEqual(fetches, 3, 'retried 429 twice then succeeded');
 assertEqual(result.parsed?.ok, true, 'parsed after retry');
+
+let drops = 0;
+const after520 = await claudeMessages({
+  user: '{"ping":true}',
+  fetch: async () => {
+    drops += 1;
+    if (drops === 1) {
+      return {
+        ok: false,
+        status: 520,
+        headers: { get: () => null },
+        json: async () => ({}),
+      };
+    }
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({
+        content: [{ type: 'text', text: '{"ok":true}' }],
+        stop_reason: 'end_turn',
+        usage: { input_tokens: 1, output_tokens: 1 },
+      }),
+    };
+  },
+  retrySleep: async () => {},
+});
+assertEqual(drops, 2, '520 succeeds on the next response');
+assertEqual(after520.parsed?.ok, true, 'parsed after a 520');
+
+let empty520 = 0;
+let empty520Message = '';
+try {
+  await claudeMessages({
+    user: '{"ping":true}',
+    fetch: async () => {
+      empty520 += 1;
+      return {
+        ok: false,
+        status: 520,
+        headers: { get: () => null },
+        json: async () => ({}),
+      };
+    },
+    retrySleep: async () => {},
+  });
+} catch (error) {
+  empty520Message = error.message;
+}
+assertEqual(empty520, 6, 'empty 520 uses the six attempts');
+assertEqual(
+  empty520Message,
+  "Anthropic's connection dropped. Try this step again.",
+  'empty 520 says the connection dropped',
+);
+
+assertEqual(isTransientFetchError(Object.assign(new Error('fetch failed'), { cause: { code: 'ECONNRESET' } })), true, 'fetch failed is transient');
+assertEqual(isTransientFetchError(Object.assign(new Error('Stopped'), { cancelled: true })), false, 'Stop is not a fetch retry');
+let fetchDrops = 0;
+const afterDrop = await claudeMessages({
+  user: '{"ping":true}',
+  fetch: async () => {
+    fetchDrops += 1;
+    if (fetchDrops < 3) throw new TypeError('fetch failed');
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({
+        content: [{ type: 'text', text: '{"ok":true}' }],
+        stop_reason: 'end_turn',
+        usage: { input_tokens: 1, output_tokens: 1 },
+      }),
+    };
+  },
+  retrySleep: async () => {},
+});
+assertEqual(fetchDrops, 3, 'retried a dropped connection twice then succeeded');
+assertEqual(afterDrop.parsed?.ok, true, 'parsed after a dropped connection');
+
 if (prevKey == null) delete process.env.ANTHROPIC_API_KEY;
 else process.env.ANTHROPIC_API_KEY = prevKey;
 

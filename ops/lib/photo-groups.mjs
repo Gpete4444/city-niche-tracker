@@ -21,7 +21,7 @@ import {
 import { copyFile } from 'node:fs/promises';
 import path from 'node:path';
 import { yieldEventLoop } from './yield-event-loop.mjs';
-import { RESEARCH_DIR, getCandidateDetail, getCandidateShell, pathsFor } from './candidates.mjs';
+import { RESEARCH_DIR, getCandidateDetail, getCandidateShell, pathsFor, titleCaseNiche } from './candidates.mjs';
 import {
   listConfiguredServiceTargets,
   rehydrateGalleryBaFrontmatter,
@@ -188,11 +188,19 @@ export function persistPhotoGroupRecord(group) {
   writeJson(path.join(dir, 'slots.json'), slots);
   writeJson(path.join(dir, 'beforeAfter.json'), beforeAfter);
   const prev = (loadIndex().groups || []).find((g) => g.id === group.id) || {};
+  const rawNiche = String(group.niche || prev.niche || '').trim();
+  const niche = rawNiche ? titleCaseNiche(rawNiche) : '';
+  let name = group.name || prev.name;
+  const kind = group.kind || prev.kind || 'named';
+  if (kind === 'master' && niche && name) {
+    const auto = `${rawNiche} master`;
+    if (String(name).trim().toLowerCase() === auto.toLowerCase()) name = `${niche} master`;
+  }
   const meta = {
     id: group.id,
-    name: group.name || prev.name,
-    niche: group.niche || prev.niche,
-    kind: group.kind || prev.kind || 'named',
+    name,
+    niche,
+    kind,
     savedAt: new Date().toISOString(),
     slotCount: slots.length,
     baPairCount: (beforeAfter.home || []).length + (beforeAfter.services || []).length,
@@ -210,6 +218,33 @@ export function persistPhotoGroupRecord(group) {
   }
   saveIndex({ groups });
   return { ...meta, dir, slots, beforeAfter };
+}
+
+/** Title-case each stored photo-group niche. Retitle a master only when its name is the niche plus "master". */
+export function backfillPhotoGroupNicheTitleCase() {
+  const doc = loadIndex();
+  let groups = 0;
+  for (const g of doc.groups || []) {
+    const oldNiche = String(g.niche || '').trim();
+    const nextNiche = oldNiche ? titleCaseNiche(oldNiche) : '';
+    let changed = false;
+    if (nextNiche && nextNiche !== g.niche) {
+      g.niche = nextNiche;
+      changed = true;
+    }
+    const label = nextNiche || oldNiche;
+    if (g.kind === 'master' && label) {
+      const oldName = String(g.name || '').trim();
+      const titled = `${label} master`;
+      if (oldName.toLowerCase() === titled.toLowerCase() && oldName !== titled) {
+        g.name = titled;
+        changed = true;
+      }
+    }
+    if (changed) groups += 1;
+  }
+  if (groups) saveIndex(doc);
+  return { groups };
 }
 
 export function dropPhotoGroupFromIndex(groupId) {
@@ -889,21 +924,24 @@ function copyIntoGroup(fromAbs, dir, filename) {
   return filename;
 }
 
-export function savePhotoGroup(candidateId, name, { replaceExisting = false } = {}) {
-  const trimmed = String(name || '').trim();
-  if (!trimmed) {
-    throw Object.assign(new Error('Name the photo group'), { status: 400 });
-  }
+export function savePhotoGroup(candidateId, name, { replaceExisting = false, asMaster = false } = {}) {
   const niche = nicheOf(candidateId);
   if (!niche) {
     throw Object.assign(new Error('Accept Site config first (need a niche)'), { status: 400 });
   }
+  const master = asMaster ? findNicheMaster(niche) : null;
+  const trimmed = asMaster ? `${niche} master` : String(name || '').trim();
+  if (!trimmed) {
+    throw Object.assign(new Error('Name the photo group'), { status: 400 });
+  }
   const p = pathsFor(candidateId);
   const manifest = loadManifest(candidateId);
   const index = loadIndex();
-  const existing = (index.groups || []).find(
-    (g) => nichesEqual(g.niche, niche) && String(g.name || '').toLowerCase() === trimmed.toLowerCase(),
-  );
+  const existing = asMaster
+    ? null
+    : (index.groups || []).find(
+        (g) => nichesEqual(g.niche, niche) && String(g.name || '').toLowerCase() === trimmed.toLowerCase(),
+      );
   if (existing && !replaceExisting) {
     const err = new Error(`A photo group named “${trimmed}” already exists for ${niche}.`);
     err.status = 409;
@@ -911,7 +949,16 @@ export function savePhotoGroup(candidateId, name, { replaceExisting = false } = 
     throw err;
   }
 
-  const id = existing?.id || `${slugifyName(trimmed)}-${Date.now().toString(36)}`;
+  const id = asMaster
+    ? master?.id || masterIdForNiche(niche)
+    : existing?.id || `${slugifyName(trimmed)}-${Date.now().toString(36)}`;
+  if (asMaster) {
+    for (const g of index.groups || []) {
+      if (g.kind !== 'master' || g.id === id || !nichesEqual(g.niche, niche)) continue;
+      const extra = groupDir(g.id);
+      if (existsSync(extra)) rmSync(extra, { recursive: true, force: true });
+    }
+  }
   const copies = [];
   const slotsOut = [];
   const usedNames = new Set();
@@ -1016,16 +1063,24 @@ export function savePhotoGroup(candidateId, name, { replaceExisting = false } = 
     id,
     name: trimmed,
     niche,
-    kind: 'named',
+    kind: asMaster ? 'master' : 'named',
     savedAt: new Date().toISOString(),
     slotCount: slotsOut.length,
     baPairCount: beforeAfter.home.length + beforeAfter.services.length,
     sourceCandidateId: p.id,
     roles: rolesFromGroupSlots(slotsOut, beforeAfter),
   };
-  const groups = (index.groups || []).filter((g) => g.id !== id);
-  groups.unshift(meta);
-  saveIndex({ groups });
+  const groups = (index.groups || []).filter(
+    (g) => g.id !== id && !(asMaster && g.kind === 'master' && nichesEqual(g.niche, niche)),
+  );
+  if (asMaster) {
+    const masters = groups.filter((g) => g.kind === 'master');
+    const rest = groups.filter((g) => g.kind !== 'master');
+    saveIndex({ groups: [meta, ...masters, ...rest] });
+  } else {
+    groups.unshift(meta);
+    saveIndex({ groups });
+  }
 
   return {
     ok: true,

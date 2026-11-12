@@ -162,6 +162,57 @@ function isNonFastForward(detail = '') {
   return /non-fast-forward|fetch first|\[rejected\].*main|updates were rejected/i.test(detail);
 }
 
+/** gh repo view / git push text when the GitHub repository does not exist. */
+export function isGithubRepoMissingMessage(text) {
+  return /could not resolve to a repository|repository not found|HTTP 404/i.test(String(text || ''));
+}
+
+/**
+ * `gh repo create` args. An origin that was saved before the repo exists cannot
+ * take `--remote` / `--push` (those fail once origin is set).
+ */
+export function githubCreateArgs(fullName, { isPrivate = true, originExists = false } = {}) {
+  const args = ['repo', 'create', String(fullName || '').trim(), isPrivate ? '--private' : '--public'];
+  if (!originExists) args.push('--source=.', '--remote=origin', '--push');
+  return args;
+}
+
+/** GitHub GraphQL createRepository: too many repos in a short time. */
+export function isGithubRepoCreateRateLimitMessage(text) {
+  return /too many repositories, too quickly/i.test(String(text || ''));
+}
+
+/** Plain instruction for the rate-limit dialog and the Launch step. */
+export function githubRepoCreateRateLimitHelp() {
+  return 'GitHub would not create the repository. You created too many, too quickly. The website is not online yet. Your domain and lead email are already set. Wait about 1 hour, then click Create repo and launch.';
+}
+
+/** Plain instruction for the Launch incomplete dialog and the Launch step. */
+export function githubRepoMissingHelp(fullName) {
+  const name = String(fullName || '').trim() || 'this site';
+  return `GitHub does not have ${name} yet. Rover saved that address and only tried to push. If you created a lot of repos just now, wait about 1 hour until GitHub allows another. Then click Create repo and launch. Leave Run Cloudflare domain / email API off when Email Routing is already done.`;
+}
+
+/**
+ * GitHub's own save failure (`commit_refs` / `remote rejected … (failure)`).
+ * This is not a missing repo and not a diverged main branch.
+ */
+export function isGithubPushRejectedMessage(text) {
+  const raw = String(text || '');
+  if (!raw.trim()) return false;
+  if (isGithubRepoMissingMessage(raw) || isNonFastForward(raw)) return false;
+  return /fatal error in commit_refs|\[remote rejected\][^\n]*\(failure\)/i.test(raw);
+}
+
+/** Plain instruction when GitHub refuses the save. Push updates finishes the launch. */
+export function githubPushRejectedHelp() {
+  return 'GitHub could not save the website. Nothing is wrong with the site itself. Your domain and lead email are already set. Click Push updates. Leave Run Cloudflare domain / email API off.';
+}
+
+function waitMs(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 /**
  * Push main; if remote diverged, fetch + force-with-lease (assembled site is source of truth).
  */
@@ -170,6 +221,16 @@ async function pushMainWithLeaseAsync(abs, human) {
   if (push.ok) return push;
 
   const detail = `${push.stderr || ''}\n${push.stdout || ''}`;
+  if (isGithubPushRejectedMessage(detail)) {
+    await waitMs(4000);
+    const again = await runGitAsync(['push', '-u', 'origin', 'main'], abs, { allowFail: true });
+    if (again.ok) return again;
+    const err = new Error(
+      `${again.stderr || ''}\n${again.stdout || ''}`.trim() || push.stderr || 'git push failed',
+    );
+    err.status = 500;
+    throw err;
+  }
   if (!isNonFastForward(detail)) {
     const push2 = await runGitAsync(['push', '--set-upstream', 'origin', 'main'], abs, {
       allowFail: true,
@@ -195,6 +256,32 @@ async function pushMainWithLeaseAsync(abs, human) {
   }
   human.push('Pushed with --force-with-lease (remote main diverged; local assemble wins).');
   return forced;
+}
+
+async function attachOriginAsync(abs, fullName) {
+  const url = `https://github.com/${fullName}.git`;
+  const existing = await remoteUrlAsync(abs);
+  if (!existing) {
+    await runGitAsync(['remote', 'add', 'origin', url], abs, { allowFail: true });
+  }
+  return (await remoteUrlAsync(abs)) || url;
+}
+
+async function createGithubRepoAsync(abs, fullName, { isPrivate, originExists }) {
+  const createdRes = await runAsync(
+    'gh',
+    githubCreateArgs(fullName, { isPrivate, originExists }),
+    abs,
+    { allowFail: true },
+  );
+  const detail = `${createdRes.stderr || ''}\n${createdRes.stdout || ''}`;
+  if (createdRes.ok) return { ok: true, created: true, pushed: !originExists };
+  if (/already exists|Name already exists/i.test(detail)) {
+    return { ok: true, created: false, pushed: false, already: true };
+  }
+  const err = new Error(createdRes.stderr || createdRes.stdout || `gh repo create ${fullName} failed`);
+  err.status = 500;
+  throw err;
 }
 
 /**
@@ -245,60 +332,53 @@ export async function pushAssembledSiteToGithubAsync(siteRoot, opts = {}) {
   let existing = await remoteUrlAsync(abs);
   let created = false;
 
-  if (!existing) {
-    const viewed = await runAsync(
-      'gh',
-      ['repo', 'view', fullName, '--json', 'url', '-q', '.url'],
-      abs,
-      { allowFail: true },
-    );
-    const missingRepo = /Could not resolve to a Repository|not found|HTTP 404/i.test(
-      `${viewed.stderr}\n${viewed.stdout}`,
-    );
-    if (viewed.ok) {
-      await runGitAsync(['remote', 'add', 'origin', `https://github.com/${fullName}.git`], abs, {
-        allowFail: true,
-      });
-      await pushMainWithLeaseAsync(abs, human);
-      human.push(`Used existing GitHub repo ${fullName} and pushed main.`);
-    } else if (!missingRepo) {
-      const err = new Error(viewed.stderr || `gh repo view ${fullName} failed`);
-      err.status = 500;
-      throw err;
-    } else {
-      const createArgs = [
-        'repo',
-        'create',
-        fullName,
-        isPrivate ? '--private' : '--public',
-        '--source=.',
-        '--remote=origin',
-        '--push',
-      ];
-      const createdRes = await runAsync('gh', createArgs, abs, { allowFail: true });
-      if (!createdRes.ok) {
-        // Repo may already exist remotely — add remote and push
-        if (/already exists|Name already exists/i.test(createdRes.stderr || '')) {
-          await runGitAsync(['remote', 'add', 'origin', `https://github.com/${fullName}.git`], abs, {
-            allowFail: true,
-          });
-          await pushMainWithLeaseAsync(abs, human);
-          human.push(`Used existing GitHub repo ${fullName} and pushed main.`);
-        } else {
-          const err = new Error(createdRes.stderr || `gh repo create ${fullName} failed`);
-          err.status = 500;
-          throw err;
-        }
-      } else {
-        created = true;
-        human.push(`Created and pushed GitHub repo ${fullName}.`);
-      }
-    }
-    existing = (await remoteUrlAsync(abs)) || `https://github.com/${fullName}.git`;
-  } else {
-    await pushMainWithLeaseAsync(abs, human);
-    human.push(`Pushed to existing remote ${existing}.`);
+  const viewed = await runAsync(
+    'gh',
+    ['repo', 'view', fullName, '--json', 'url', '-q', '.url'],
+    abs,
+    { allowFail: true },
+  );
+  const viewDetail = `${viewed.stderr || ''}\n${viewed.stdout || ''}`;
+  if (!viewed.ok && !isGithubRepoMissingMessage(viewDetail)) {
+    const err = new Error(viewed.stderr || `gh repo view ${fullName} failed`);
+    err.status = 500;
+    throw err;
   }
+
+  const repoMissing = !viewed.ok;
+  let pushedByCreate = false;
+  if (repoMissing) {
+    const made = await createGithubRepoAsync(abs, fullName, {
+      isPrivate,
+      originExists: Boolean(existing),
+    });
+    created = Boolean(made.created);
+    pushedByCreate = Boolean(made.pushed);
+  }
+
+  if (pushedByCreate) {
+    human.push(`Created and pushed GitHub repo ${fullName}.`);
+  } else {
+    existing = await attachOriginAsync(abs, fullName);
+    try {
+      await pushMainWithLeaseAsync(abs, human);
+      human.push(
+        created
+          ? `Created and pushed GitHub repo ${fullName}.`
+          : `Pushed to existing remote ${existing}.`,
+      );
+    } catch (error) {
+      if (repoMissing || !isGithubRepoMissingMessage(error.message)) throw error;
+      const made = await createGithubRepoAsync(abs, fullName, {
+        isPrivate,
+        originExists: true,
+      });
+      created = created || Boolean(made.created);
+      await pushMainWithLeaseAsync(abs, human);
+      human.push(`Created and pushed GitHub repo ${fullName}.`);
+    }
+  }
+  existing = (await remoteUrlAsync(abs)) || existing || `https://github.com/${fullName}.git`;
 
   // Resolve numeric repo id for CF Builds (best-effort)
   let repoId = null;

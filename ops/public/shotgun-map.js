@@ -13,7 +13,6 @@ import {
 } from './shotgun-clusters.js?v=20261022miles';
 
 const LEAFLET_LOAD_MS = 8000;
-let lastPaintTool = 'cluster';
 const LABEL_ZOOM = 9;
 const LABEL_CAP = 40;
 const LABEL_PX_MIN = 8;
@@ -549,7 +548,7 @@ export async function mountShotgunMap({
   let zoneMiles = clampClusterMiles(
     workspace?.draft?.clusterMiles ?? workspace?.settings?.clusterMiles ?? 30,
   );
-  let paintTool = lastPaintTool === 'hub' ? 'hub' : 'cluster';
+  let paintTool = 'cluster';
   let paintSlot = 1;
   let selectedKey = '';
   let labelsPermanent = false;
@@ -930,7 +929,6 @@ export async function mountShotgunMap({
   function setPaintTool(tool) {
     const t = String(tool || '').toLowerCase();
     paintTool = t === 'hub' ? 'hub' : 'cluster';
-    lastPaintTool = paintTool;
     renderPalette();
   }
 
@@ -1199,7 +1197,8 @@ export async function mountShotgunMap({
   undoEl?.addEventListener('click', onUndoClick);
 
   async function applyPaint(city, st) {
-    const entry = paintTool === 'hub' ? captureHubPaint(city, st) : captureClusterPaint(city, st);
+    const armedHub = paintTool === 'hub';
+    const entry = armedHub ? captureHubPaint(city, st) : captureClusterPaint(city, st);
     if (entry) pushUndo(entry);
     const payload = {
       tool: paintTool,
@@ -1211,8 +1210,11 @@ export async function mountShotgunMap({
         dropUndo(entry);
         return;
       }
-      await onPaint(city, st, { ...payload, tool: paintTool === 'hub' ? 'hub' : 'cluster' });
+      await onPaint(city, st, { ...payload, tool: armedHub ? 'hub' : 'cluster' });
       shotgunMapStatus(mapHost, '');
+      // A hub move remounts the map. That new mount owns the palette; painting
+      // from this destroyed instance would replace its buttons with dead handlers.
+      if (armedHub && !destroyed) setPaintTool('cluster');
     } catch (error) {
       dropUndo(entry);
       shotgunMapStatus(mapHost, error?.message || 'Could not update city');
@@ -1387,7 +1389,12 @@ export async function mountShotgunMap({
   };
   const onToolClick = (e) => {
     const t = e.currentTarget?.dataset?.sgTool;
-    if (t) setPaintTool(t);
+    if (!t) return;
+    if (t === 'hub' && paintTool === 'hub') {
+      setPaintTool('cluster');
+      return;
+    }
+    setPaintTool(t);
   };
   const onKeyPaint = (e) => {
     if (e.target && /input|textarea|select/i.test(e.target.tagName)) return;

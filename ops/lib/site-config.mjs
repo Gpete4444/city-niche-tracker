@@ -2,7 +2,7 @@
  * Site-config handoff from approved Candidate package.
  */
 
-import { copyFileSync, existsSync, mkdirSync, unlinkSync, writeFileSync, readFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readdirSync, unlinkSync, writeFileSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import {
   extractPromptTemplate,
@@ -12,10 +12,14 @@ import {
   loadMeta,
   pathsFor,
   readPromptFile,
+  RESEARCH_DIR,
   saveMeta,
   titleCaseNiche,
 } from './candidates.mjs';
-import { normalizeServiceNameList } from './niche-service-lists.mjs';
+import { normalizeServiceNameList, stampNicheHomepageServicesLimit } from './niche-service-lists.mjs';
+import { zoneGuideBlockForCandidate } from './zone-guide.mjs';
+import { mergeNicheDomainSuggestions } from '../public/domain-suggest.mjs';
+import { listNicheDomainPatterns } from './niche-domain-patterns.mjs';
 import { buildGoogleStyleSocialProof, socialProofNeedsSeed } from '../../scripts/lib/review-seed.mjs';
 import {
   applyArchetypeDefaults,
@@ -101,6 +105,68 @@ export function normalizeSiteAddress(addr, { primaryCity, state } = {}) {
     .toUpperCase();
   if (!street || !zip || !city || !st) return undefined;
   return suite ? { street, suite, city, state: st, zip } : { street, city, state: st, zip };
+}
+
+/** Blank or the Claude seed `+1XXXXXXXXXX` is not a number to publish. */
+export function siteConfigPhoneIsPlaceholder(phone) {
+  const s = String(phone || '').trim();
+  if (!s) return true;
+  if (/x/i.test(s)) return true;
+  return s.replace(/\D/g, '').length < 10;
+}
+
+function sameRealPhone(a, b) {
+  const digits = (phone) => {
+    const d = String(phone || '').replace(/\D/g, '');
+    return d.length === 11 && d.startsWith('1') ? d.slice(1) : d;
+  };
+  const left = digits(a);
+  const right = digits(b);
+  return left.length >= 10 && left === right;
+}
+
+/**
+ * Fields from the Business details form. A placeholder phone keeps the real
+ * accepted number. Address is complete or null, and suite is explicit so an
+ * empty line 2 clears a stored suite.
+ * The City field is the street's city. It does not replace the site city.
+ */
+export function businessDetailsWritePatch(raw = {}, accepted = {}, { siteCity } = {}) {
+  const addressCity = String(raw.city || raw.primaryCity || '').trim();
+  const state = String(raw.state || '').trim().toUpperCase();
+  const incomingPhone = String(raw.phone || '').trim();
+  const acceptedPhone = String(accepted?.phone || '').trim();
+  const phone =
+    !siteConfigPhoneIsPlaceholder(acceptedPhone) &&
+    (siteConfigPhoneIsPlaceholder(incomingPhone) || sameRealPhone(incomingPhone, acceptedPhone))
+      ? acceptedPhone
+      : incomingPhone;
+  const primaryCity =
+    String(siteCity || accepted?.primaryCity || '').trim() || addressCity;
+  const address = normalizeSiteAddress(
+    {
+      street: raw.street,
+      suite: raw.suite,
+      zip: raw.zip,
+      city: addressCity,
+      state,
+    },
+    { primaryCity: addressCity, state },
+  );
+  return {
+    businessName: String(raw.businessName || '').trim(),
+    domain: String(raw.domain || '').trim(),
+    phone,
+    email: String(raw.email || '').trim(),
+    tagline: String(raw.tagline || '').trim(),
+    primaryCta: String(raw.primaryCta || '').trim(),
+    niche: String(raw.niche || '').trim(),
+    primaryCity,
+    state,
+    serviceRadiusMiles: raw.radiusMiles ?? raw.serviceRadiusMiles ?? '',
+    targetSuburbs: raw.targetSuburbs ?? '',
+    address: address ? { ...address, suite: address.suite || '' } : null,
+  };
 }
 
 function applyNormalizedAddress(config) {
@@ -201,9 +267,10 @@ export function businessNameFromDomain(domain, { primaryCity, niche } = {}) {
   }
 
   const nicheRaw = String(niche || '').trim();
+  const nicheLabel = titleCaseNiche(nicheRaw);
   const nicheSlug = normNameKey(nicheRaw);
   if (nicheSlug && rest.startsWith(nicheSlug)) {
-    parts.push(nicheRaw);
+    parts.push(nicheLabel);
     rest = rest.slice(nicheSlug.length);
   } else if (nicheRaw) {
     const nicheWords = nicheRaw.split(/\s+/).filter(Boolean);
@@ -220,7 +287,7 @@ export function businessNameFromDomain(domain, { primaryCity, niche } = {}) {
       }
     }
     if (peeled.length) {
-      parts.push(...peeled);
+      parts.push(titleCaseNiche(peeled.join(' ')));
       rest = cursor;
     }
   }
@@ -290,14 +357,24 @@ export function businessNameFromDomain(domain, { primaryCity, niche } = {}) {
     .join(' ');
 }
 
+/** Replace a niche phrase inside a business name with its title-cased form. */
+export function businessNameWithNicheCase(name, niche) {
+  const label = titleCaseNiche(niche);
+  const current = String(name || '');
+  if (!label || !current.trim()) return current;
+  const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return current.replace(new RegExp(escaped, 'gi'), label);
+}
+
 /**
  * Avoid shipping the niche label as the company name (weak brand on every page).
  */
 export function ensureBusinessNameNotNiche(config) {
   const c = { ...(config && typeof config === 'object' ? config : {}) };
-  const niche = String(c.niche || '').trim();
+  const niche = titleCaseNiche(String(c.niche || '').trim());
   let name = String(c.businessName || '').trim();
   if (!niche) return c;
+  c.niche = niche;
   const nicheKey = normNameKey(niche);
   const nameKey = normNameKey(name);
   const looksLikeNiche =
@@ -307,6 +384,8 @@ export function ensureBusinessNameNotNiche(config) {
     nameKey === normNameKey(`${niche} service`);
   if (looksLikeNiche) {
     c.businessName = /pros$/i.test(niche) ? niche : `${niche} Pros`;
+  } else {
+    c.businessName = businessNameWithNicheCase(name, niche);
   }
   return c;
 }
@@ -442,6 +521,94 @@ export function persistCoercedAcceptedSiteConfig(candidateId) {
   if (meta.siteConfigPath === 'src/config/site-config.json') {
     writeJson(SITE_CONFIG_PATH, next);
   }
+  return { changed: true, config: next };
+}
+
+function siteCityKey(name) {
+  return String(name || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ');
+}
+
+/** Candidate city: research primary, then config `City,ST`. */
+export function candidateCityFromDocs(research, config) {
+  const fromResearch = String(research?.primaryCity || research?.summary?.primaryCity || '').trim();
+  if (fromResearch) return fromResearch;
+  return (
+    String(config?.primary || '')
+      .split(',')[0]
+      ?.trim() || ''
+  );
+}
+
+/** Candidate state: research state, then the ST half of config `City,ST`. */
+export function candidateStateFromDocs(research, config) {
+  const fromResearch = String(research?.state || research?.summary?.state || '')
+    .trim()
+    .toUpperCase();
+  if (fromResearch) return fromResearch;
+  return String(String(config?.primary || '').split(',')[1] || '')
+    .trim()
+    .toUpperCase();
+}
+
+/**
+ * Site city is the candidate city. A street in a neighboring town must not become primaryCity,
+ * and the site city is the homepage — not a suburb page.
+ * Does not change the street address. A config for a different state is left alone
+ * (it is not this candidate's site).
+ */
+export function restoreSiteCityConfig(config, siteCity, { siteState } = {}) {
+  if (!config || typeof config !== 'object') return { config, changed: false };
+  const city = String(siteCity || '').trim();
+  if (!city) return { config, changed: false };
+  const expectedState = String(siteState || '').trim().toUpperCase();
+  const configState = String(config.state || '').trim().toUpperCase();
+  if (expectedState && configState && expectedState !== configState) {
+    return { config, changed: false };
+  }
+  const cityKey = siteCityKey(city);
+  const primaryDrifted = siteCityKey(config.primaryCity) !== cityKey;
+  const suburbs = Array.isArray(config.targetSuburbs) ? config.targetSuburbs : null;
+  const nextSuburbs = suburbs
+    ? suburbs.filter((item) => siteCityKey(suburbNameFromItem(item)) !== cityKey)
+    : null;
+  const suburbsDrifted = Boolean(suburbs && nextSuburbs.length !== suburbs.length);
+  if (!primaryDrifted && !suburbsDrifted) return { config, changed: false };
+  return {
+    changed: true,
+    config: {
+      ...config,
+      primaryCity: city,
+      ...(suburbsDrifted ? { targetSuburbs: nextSuburbs } : {}),
+    },
+  };
+}
+
+/**
+ * Persist a drifted accepted site-config so the Service area map locks the candidate city.
+ * No-op when primaryCity already matches and the site city is not listed as a suburb page.
+ */
+export function persistRestoredSiteCity(candidateId, { research, config, raw } = {}) {
+  const p = pathsFor(candidateId);
+  const researchDoc = research === undefined ? readJson(p.research) : research;
+  const configDoc = config === undefined ? readJson(p.config) : config;
+  const siteCity = candidateCityFromDocs(researchDoc, configDoc);
+  const siteState = candidateStateFromDocs(researchDoc, configDoc);
+  const disk = raw === undefined ? readJson(p.siteConfig) : raw;
+  if (!disk || typeof disk !== 'object') return { changed: false, config: disk || null };
+  const { _ops, ...clean } = disk;
+  const restored = restoreSiteCityConfig(clean, siteCity, { siteState });
+  if (!restored.changed) return { changed: false, config: disk };
+  const next = {
+    ...restored.config,
+    _ops: {
+      ...(_ops && typeof _ops === 'object' ? _ops : {}),
+      siteCityRestoredAt: new Date().toISOString(),
+    },
+  };
+  writeJson(p.siteConfig, next);
   return { changed: true, config: next };
 }
 
@@ -898,7 +1065,9 @@ export function buildDomainPickPrompt(candidateId, nap = {}) {
       String(pack.primaryCity || pack.city || '').trim() || 'omit',
     )
     .replace('{{STATE}}', String(pack.state || '').trim().toUpperCase() || 'omit')
-    .replace('{{BUSINESS_NAME}}', businessName);
+    .replace('{{BUSINESS_NAME}}', businessName)
+    .split('{{ZONE_GUIDE}}')
+    .join(zoneGuideBlockForCandidate(candidateId, 'domain'));
   return {
     prompt: filled,
     package: {
@@ -984,13 +1153,18 @@ export async function suggestDomainsWithClaude(candidateId, nap = {}) {
     temperature: 0.3,
     costKey: { candidateId, label: 'domainPick' },
   });
-  const suggestions = parseDomainSuggestions(text);
-  if (!suggestions.length) {
+  const parsed = parseDomainSuggestions(text);
+  if (!parsed.length) {
     throw Object.assign(
       new Error('Claude returned no domain hosts — try Suggest domains again.'),
       { status: 400 },
     );
   }
+  const suggestions = mergeNicheDomainSuggestions(
+    parsed,
+    listNicheDomainPatterns(pack?.niche),
+    pack?.primaryCity || pack?.city || '',
+  );
   return {
     ok: true,
     suggestions,
@@ -1104,7 +1278,9 @@ export function buildSiteConfigPrompt(candidateId, nap = {}) {
     .replaceAll('{{BRAND_PRIMARY}}', palette.brand.primary)
     .replaceAll('{{BRAND_ACCENT}}', palette.brand.accent)
     .replaceAll('{{BRAND_INK}}', palette.brand.ink)
-    .replaceAll('{{FONT_THEME}}', fontTheme.id);
+    .replaceAll('{{FONT_THEME}}', fontTheme.id)
+    .split('{{ZONE_GUIDE}}')
+    .join(zoneGuideBlockForCandidate(candidateId, 'site-config'));
   return {
     prompt: filled,
     package: pack,
@@ -1145,6 +1321,42 @@ function titleCaseServiceFields(config) {
     );
   }
   return config;
+}
+
+/** Title-case the niche field, and that phrase inside the business name, on accepted and draft site-configs and the working site-config. */
+export function backfillSiteConfigNicheTitleCase() {
+  let files = 0;
+  const rewrite = (filePath) => {
+    const data = readJson(filePath);
+    if (!data || typeof data !== 'object') return;
+    let changed = false;
+    if (typeof data.niche === 'string' && data.niche.trim()) {
+      const next = titleCaseNiche(data.niche);
+      if (next && next !== data.niche) {
+        data.niche = next;
+        changed = true;
+      }
+    }
+    if (typeof data.businessName === 'string' && data.niche) {
+      const nextName = businessNameWithNicheCase(data.businessName, data.niche);
+      if (nextName !== data.businessName) {
+        data.businessName = nextName;
+        changed = true;
+      }
+    }
+    if (!changed) return;
+    writeJson(filePath, data);
+    files += 1;
+  };
+  if (existsSync(RESEARCH_DIR)) {
+    for (const name of readdirSync(RESEARCH_DIR)) {
+      if (name.endsWith('-site-config.json') || name.endsWith('-site-config.draft.json')) {
+        rewrite(path.join(RESEARCH_DIR, name));
+      }
+    }
+  }
+  rewrite(SITE_CONFIG_PATH);
+  return { files };
 }
 
 function suburbsFromPack(pack) {
@@ -1366,6 +1578,7 @@ export function pasteSiteConfigDraft(candidateId, raw, nap = {}) {
   const { config, placeholders } = withSiteConfigPlaceholders(value, nap, pack, {
     fillFromPack: !serviceAreaAlreadySaved(candidateId),
   });
+  stampNicheHomepageServicesLimit(config);
   const { draft, suburbCheck } = writeDraftFile(candidateId, config, {
     source: 'paste',
     nap: {
@@ -1396,18 +1609,23 @@ export function updateSiteConfigDraft(candidateId, patch = {}, nap = {}) {
   assertSiteConfigHandoffReady(candidateId, { allowNonPursue: Boolean(nap.allowNonPursue) });
   const p = pathsFor(candidateId);
   let existing = readJson(p.siteConfigDraft);
+  let createdFresh = false;
   // Seed from accepted config when draft was cleared after Accept (forever: update commercial without re-paste).
   if (!existing) {
     const accepted = stripSiteConfigOps(readJson(p.siteConfig));
-    if (!accepted) {
+    if (accepted) {
+      existing = {
+        ...accepted,
+        _ops: { source: 'from-accepted', seededAt: new Date().toISOString() },
+      };
+    } else if (nap.createIfMissing) {
+      createdFresh = true;
+      existing = { _ops: { source: 'apply-details', seededAt: new Date().toISOString() } };
+    } else {
       const err = new Error('No site-config draft — paste JSON first');
       err.status = 400;
       throw err;
     }
-    existing = {
-      ...accepted,
-      _ops: { source: 'from-accepted', seededAt: new Date().toISOString() },
-    };
   }
 
   const { _ops: prevOps, ...prev } = existing;
@@ -1458,6 +1676,7 @@ export function updateSiteConfigDraft(candidateId, patch = {}, nap = {}) {
       delete next.address;
     } else if (typeof patch.address === 'object') {
       const merged = { ...(next.address || {}), ...patch.address };
+      if ('suite' in patch.address && !String(patch.address.suite || '').trim()) delete merged.suite;
       const norm = normalizeSiteAddress(merged, {
         primaryCity: next.primaryCity,
         state: next.state,
@@ -1478,8 +1697,14 @@ export function updateSiteConfigDraft(candidateId, patch = {}, nap = {}) {
   const { config, placeholders } = withSiteConfigPlaceholders(next, nap, pack, {
     fillFromPack: !serviceAreaAlreadySaved(candidateId),
   });
+  if (createdFresh) {
+    const paletteId = String(nap.paletteId || '').trim();
+    const fontTheme = String(nap.fontTheme || '').trim();
+    config.brand = applyPaletteToBrand(config.brand, paletteId || undefined);
+    config.brand = applyFontThemeToBrand(config.brand, fontTheme || config.brand?.fontTheme || 'archivo-source');
+  }
   const { draft, suburbCheck } = writeDraftFile(candidateId, config, {
-    source: 'edit',
+    source: createdFresh ? 'apply-details' : 'edit',
     previousSource: prevOps?.source || null,
     nap: {
       domain: nap.domain || null,
@@ -1528,6 +1753,12 @@ export function acceptSiteConfig(
       ensureBusinessNameNotNiche(applyArchetypeDefaults(cleanRaw)),
     ),
   );
+  if (typeof clean.niche === 'string' && clean.niche.trim()) {
+    clean.niche = titleCaseNiche(clean.niche);
+  }
+  if (typeof clean.businessName === 'string' && clean.niche) {
+    clean.businessName = businessNameWithNicheCase(clean.businessName, clean.niche);
+  }
   titleCaseServiceFields(clean);
   clean.targetSuburbs = normalizeTargetSuburbs(clean.targetSuburbs, {
     primaryCity: clean.primaryCity,
@@ -1535,6 +1766,15 @@ export function acceptSiteConfig(
     fillFromPack: !areaSaved,
   });
   if (areaSaved) keepSavedServiceArea(clean, previousAccepted);
+  const researchDoc = readJson(p.research);
+  const configDoc = readJson(p.config);
+  const restoredCity = restoreSiteCityConfig(clean, candidateCityFromDocs(researchDoc, configDoc), {
+    siteState: candidateStateFromDocs(researchDoc, configDoc),
+  });
+  if (restoredCity.changed) {
+    clean.primaryCity = restoredCity.config.primaryCity;
+    if (restoredCity.config.targetSuburbs) clean.targetSuburbs = restoredCity.config.targetSuburbs;
+  }
   if (!isBlank(clean.domain)) {
     clean.email = publicLeadsEmail(clean.email, clean.domain);
   }

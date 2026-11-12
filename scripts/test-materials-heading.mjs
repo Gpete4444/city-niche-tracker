@@ -36,6 +36,11 @@ assert(!isMaterialsHeading('Our Repair Process'), 'process is not materials');
 assert(!isProcessHeading('Materials and Methods'), 'materials is not process');
 assert(!isMaterialsHeading('What does a repair cost?'), 'cost is not materials');
 assert(!isMaterialsHeading('What do materials cost?'), 'cost heading that mentions materials stays out');
+assert(
+  !isMaterialsHeading('Trenchless sewer repair Mason OH: what it costs'),
+  'what it costs is not materials',
+);
+assert(!isMaterialsHeading('Materials costs'), 'materials costs stays out of materials');
 assert(!isMaterialsHeading('How long does Concrete Lifting take?'), 'timeline is not materials');
 assert(!isMaterialsHeading('Permits for turf materials'), 'permit heading stays out');
 assert(
@@ -163,6 +168,65 @@ const elMirageProse = extractHomepageProseSections(elMiragePage.replace(/^---[\s
 assert(
   elMirageProse.some((s) => s.id === 'materials' && /base materials built/i.test(s.heading)),
   'homepage classify treats mid-title materials H2 as materials',
+);
+
+const introStealBullets = `- **Resin liner**: Forms a new wall inside the old pipe.
+- **Joint-free pipe**: Leaves nothing for roots to grab.
+- **Bursting head**: Fractures the old pipe while the new one follows.
+- **Push camera**: Shows the inside of the line before any work starts.
+- **Cutting bit**: Clears roots without opening the yard.
+- **Joint sealant**: Closes small cracks that do not need a full liner.
+`;
+
+const introStealPage = `---
+title: Test
+---
+Older materials crack at the joints, and the repair methods have to match what the camera shows.
+
+## Field materials and methods we bring
+
+The list below is what the crew actually brings.
+
+${introStealBullets}
+`;
+
+const introStealOptions = listMaterialOptions(introStealPage);
+assertEqual(
+  introStealOptions.map((o) => o.title),
+  [
+    'Resin liner',
+    'Joint-free pipe',
+    'Bursting head',
+    'Push camera',
+    'Cutting bit',
+    'Joint sealant',
+  ],
+  'intro that says materials and methods does not steal the materials H2',
+);
+assert(/new wall inside/i.test(introStealOptions[0].detail), 'first stolen-intro detail is kept');
+
+const costBand = `Intro.
+
+## Trenchless sewer repair Mason OH: what it costs
+
+Pricing isn't one flat number.
+
+- **CIPP lining, single lateral** — $3,800–$8,500, resin liner cured in place, no trench.
+`;
+const costProse = extractHomepageProseSections(costBand);
+assert(
+  costProse.some((s) => s.id === 'cost' && /what it costs/i.test(s.heading)),
+  'homepage classify treats what it costs as cost',
+);
+const pricingProse = extractHomepageProseSections('## Pricing\n\nBallparks.\n');
+assert(
+  pricingProse.some((s) => s.id === 'cost'),
+  'Pricing heading is a cost band',
+);
+const svcCost = parseServiceBody('Intro.\n\nWhat it costs\n\n- **Lining** — $3,800–$8,500, resin liner.\n');
+assert(
+  svcCost.sections.some((s) => s.kind === 'cost' && /what it costs/i.test(s.heading)),
+  'plain what it costs opens a service cost section',
 );
 
 console.log('test-materials-heading: ok');

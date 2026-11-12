@@ -37,7 +37,7 @@ Rules:
 - Follow the default outline template structure for this archetype.
 - Type B (single_service): no multi-service section; emphasize offer process steps.
 - Type A (multi_service): allow services overview but do not invent services beyond site-config.
-- H1/title: high-ticket keywords left→right; service entity first, city secondary.
+- H1/title: high-ticket keywords left→right; service entity first, city secondary. Homepage H1 is the head term ({niche} in {city}, {state}, or the primary keyword plus city). Do not prefix or equal the business name or domain. No top-rated, trusted, premium, or experts unless those words are the keyword. The brand already shows above the H1.
 - Prefer CONTENT RESEARCH `paaStyleQuestions` for `faqSeeds` when present.
 - faqSeeds / PAA must stay on-niche (cost, permits, timeline, DIY, methods). Drop city trivia, pets, civic officials, unrelated appliances.
 - Intro instructions: max ~2 concise salesperson paragraphs; industry entities/stats; NO street/landmark stuffing (geo belongs in areas).

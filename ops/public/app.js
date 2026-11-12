@@ -39,24 +39,43 @@ import {
   zoneServiceAreaBroadcastIds,
   zoneServiceAreaClusterId,
 } from './zone-service-area-sync.mjs?v=20260917saLive';
-import { mountShotgunMap } from './shotgun-map.js?v=20261022pop';
+import { mountShotgunMap } from './shotgun-map.js?v=20261109hub';
 import {
   clusterColor,
   cityMapLabel,
   memberClusterKey,
   parseClusterKey,
-} from './shotgun-clusters.js?v=20260917saRing';
-import { suggestExactMatchDomains } from './domain-suggest.mjs?v=20260908domSug';
+  zoneCitiesAwaitingCandidate,
+} from './shotgun-clusters.js?v=20261109zone';
+import {
+  expandNicheDomainPattern,
+  mergeNicheDomainSuggestions,
+  nichePatternKey,
+  normalizeNicheDomainPattern,
+  suggestExactMatchDomains,
+} from './domain-suggest.mjs?v=20261106nichePat';
 import {
   enableResizableTablesIn,
   enableTableColumnResize,
 } from './table-col-resize.js?v=20260825batchNotes14ch';
 import {
+  bindLaunchAudio,
   burstLaunchConfetti,
   launchedCountStats,
   playLaunchSuccessSound,
   primeLaunchSuccessSound,
-} from './launch-celebrate.js?v=20260918launchCount';
+} from './launch-celebrate.js?v=20261106audio';
+import {
+  audioEnabled,
+  installAudioUnlock,
+  installCopySound,
+  play,
+  prime as primeRoverAudio,
+  setAudioEnabled,
+  stop as stopRoverAudio,
+  subscribeAudio,
+} from './rover-audio.js?v=20261106audio2';
+import { isWorkersFreeCapResult } from './workers-free-cap.mjs?v=20261104workersCap';
 import {
   resolveWriteSiteOverlay,
   selectedWriteSiteNeedsRefresh,
@@ -81,6 +100,8 @@ import {
   contentStepShowsFreeze,
   nextAccordionOpenId,
 } from '/website-step-accordion.mjs?v=20260908imgAcc';
+
+bindLaunchAudio({ play, prime: primeRoverAudio, stop: stopRoverAudio });
 
 /** @type {{ destroy: () => void, invalidateSize?: () => void } | null} */
 let serviceAreaMount = null;
@@ -111,6 +132,9 @@ let discoveryMapGeoRow = null;
 let shotgunMapMount = null;
 let zoneMapMount = null;
 let zoneMapId = '';
+let zoneMapPrompt = null;
+let zoneMapLatestMembers = null;
+const zonePromoteDismissed = new Set();
 let shotgunMountedHubKey = '';
 let shotgunMountedMembersSig = '';
 let shotgunExpandedHubs = new Set();
@@ -269,56 +293,146 @@ function afterCandidateCheckboxSelection(list) {
 }
 
 /** Keep in sync with scripts/lib/site-palettes.mjs */
+const PALETTE_GROUP_ORDER = ['Blue', 'Teal', 'Green', 'Red', 'Brown', 'Purple', 'Gray'];
+
 const FALLBACK_PALETTES = [
   {
     id: 'slate-gold',
     label: 'Slate & Gold',
+    group: 'Blue',
     brand: { primary: '#1C2B3A', accent: '#E8A317', ink: '#0F1720' },
-  },
-  {
-    id: 'forest-copper',
-    label: 'Forest & Copper',
-    brand: { primary: '#1A3C34', accent: '#C47A3A', ink: '#10201C' },
   },
   {
     id: 'ink-sky',
     label: 'Ink & Sky',
+    group: 'Blue',
     brand: { primary: '#234E6D', accent: '#3BA3D9', ink: '#0B1220' },
-  },
-  {
-    id: 'brick-sand',
-    label: 'Brick & Sand',
-    brand: { primary: '#6B2E2B', accent: '#C4A574', ink: '#1A1210' },
-  },
-  {
-    id: 'charcoal-lime',
-    label: 'Charcoal & Lime',
-    brand: { primary: '#2A2E32', accent: '#B8D43D', ink: '#111314' },
   },
   {
     id: 'midnight-teal',
     label: 'Midnight & Teal',
+    group: 'Blue',
     brand: { primary: '#0E2433', accent: '#2A9D8F', ink: '#07141C' },
-  },
-  {
-    id: 'graphite-ember',
-    label: 'Graphite & Ember',
-    brand: { primary: '#2B2F33', accent: '#E4572E', ink: '#121416' },
-  },
-  {
-    id: 'espresso-brass',
-    label: 'Espresso & Brass',
-    brand: { primary: '#3B2A1A', accent: '#C9A227', ink: '#1A120C' },
-  },
-  {
-    id: 'wine-stone',
-    label: 'Wine & Stone',
-    brand: { primary: '#5C2430', accent: '#D4C4A8', ink: '#1A1012' },
   },
   {
     id: 'denim-rust',
     label: 'Denim & Rust',
+    group: 'Blue',
     brand: { primary: '#2B4C6F', accent: '#C65D2E', ink: '#101820' },
+  },
+  {
+    id: 'navy-coral',
+    label: 'Navy & Coral',
+    group: 'Blue',
+    brand: { primary: '#10243F', accent: '#E07A5F', ink: '#070E18' },
+  },
+  {
+    id: 'harbor-sand',
+    label: 'Harbor & Sand',
+    group: 'Blue',
+    brand: { primary: '#1A3A4A', accent: '#E4C99A', accentOnLight: '#6B5436', ink: '#0B161C' },
+  },
+  {
+    id: 'lagoon-sand',
+    label: 'Lagoon & Sand',
+    group: 'Teal',
+    brand: { primary: '#0E3A3A', accent: '#E6CFA3', accentOnLight: '#6A5634', ink: '#071616' },
+  },
+  {
+    id: 'tide-cream',
+    label: 'Tide & Cream',
+    group: 'Teal',
+    brand: { primary: '#14524E', accent: '#F3E6D0', accentOnLight: '#2E5E58', ink: '#071816' },
+  },
+  {
+    id: 'forest-copper',
+    label: 'Forest & Copper',
+    group: 'Green',
+    brand: { primary: '#1A3C34', accent: '#C47A3A', ink: '#10201C' },
+  },
+  {
+    id: 'pine-gold',
+    label: 'Pine & Gold',
+    group: 'Green',
+    brand: { primary: '#143028', accent: '#D4A017', ink: '#0A1612' },
+  },
+  {
+    id: 'olive-ivory',
+    label: 'Olive & Ivory',
+    group: 'Green',
+    brand: { primary: '#32381C', accent: '#F3E6C8', accentOnLight: '#4E5428', ink: '#14160C' },
+  },
+  {
+    id: 'brick-sand',
+    label: 'Brick & Sand',
+    group: 'Red',
+    brand: { primary: '#6B2E2B', accent: '#C4A574', accentOnLight: '#6E4E32', ink: '#1A1210' },
+  },
+  {
+    id: 'wine-stone',
+    label: 'Wine & Stone',
+    group: 'Red',
+    brand: { primary: '#5C2430', accent: '#D4C4A8', accentOnLight: '#6A5344', ink: '#1A1012' },
+  },
+  {
+    id: 'crimson-gold',
+    label: 'Crimson & Gold',
+    group: 'Red',
+    brand: { primary: '#4A1520', accent: '#E0B43A', ink: '#16080C' },
+  },
+  {
+    id: 'cherry-cream',
+    label: 'Cherry & Cream',
+    group: 'Red',
+    brand: { primary: '#6E2430', accent: '#F3E6D4', accentOnLight: '#7A4048', ink: '#1A0C10' },
+  },
+  {
+    id: 'espresso-brass',
+    label: 'Espresso & Brass',
+    group: 'Brown',
+    brand: { primary: '#3B2A1A', accent: '#C9A227', ink: '#1A120C' },
+  },
+  {
+    id: 'walnut-sage',
+    label: 'Walnut & Sage',
+    group: 'Brown',
+    brand: { primary: '#3C2A1C', accent: '#B7D39A', accentOnLight: '#3E5A32', ink: '#140E0A' },
+  },
+  {
+    id: 'saddle-cream',
+    label: 'Saddle & Cream',
+    group: 'Brown',
+    brand: { primary: '#4A3424', accent: '#F2E4CC', accentOnLight: '#6E4B32', ink: '#1A120C' },
+  },
+  {
+    id: 'plum-gold',
+    label: 'Plum & Gold',
+    group: 'Purple',
+    brand: { primary: '#3C2044', accent: '#E0B84C', ink: '#140814' },
+  },
+  {
+    id: 'indigo-copper',
+    label: 'Indigo & Copper',
+    group: 'Purple',
+    brand: { primary: '#241848', accent: '#C47A3A', ink: '#0E0A18' },
+  },
+  {
+    id: 'charcoal-lime',
+    label: 'Charcoal & Lime',
+    group: 'Gray',
+    brand: { primary: '#2A2E32', accent: '#B8D43D', ink: '#111314' },
+  },
+  {
+    id: 'graphite-ember',
+    label: 'Graphite & Ember',
+    group: 'Gray',
+    brand: { primary: '#2B2F33', accent: '#E4572E', ink: '#121416' },
+  },
+  {
+    id: 'iron-ice',
+    label: 'Iron & Ice',
+    group: 'Gray',
+    brand: { primary: '#343A40', accent: '#9FD4EA', accentOnLight: '#2F5F72', ink: '#121416' },
   },
 ];
 
@@ -384,25 +498,178 @@ function matchPaletteId(brand = {}) {
   return hit?.id || 'slate-gold';
 }
 
+function palettesByGroup(palettes = []) {
+  const byName = new Map();
+  const groups = [];
+  for (const p of palettes) {
+    const name = p.group || 'Other';
+    let group = byName.get(name);
+    if (!group) {
+      group = { name, items: [] };
+      byName.set(name, group);
+      groups.push(group);
+    }
+    group.items.push(p);
+  }
+  groups.sort((a, b) => {
+    const ai = PALETTE_GROUP_ORDER.indexOf(a.name);
+    const bi = PALETTE_GROUP_ORDER.indexOf(b.name);
+    return (ai === -1 ? PALETTE_GROUP_ORDER.length : ai) - (bi === -1 ? PALETTE_GROUP_ORDER.length : bi);
+  });
+  return groups;
+}
+
 function paletteOptionsHtml(brand = {}) {
   const selected = matchPaletteId(brand);
-  return getPalettes()
-    .map(
-      (p) =>
-        `<option value="${esc(p.id)}" ${p.id === selected ? 'selected' : ''}>${esc(p.label)}</option>`,
-    )
+  return palettesByGroup(getPalettes())
+    .map((group) => {
+      const options = group.items
+        .map(
+          (p) =>
+            `<option value="${esc(p.id)}" ${p.id === selected ? 'selected' : ''}>${esc(p.label)}</option>`,
+        )
+        .join('');
+      return `<optgroup label="${esc(group.name)}">${options}</optgroup>`;
+    })
     .join('');
+}
+
+function paletteChipHtml(brand = {}, { id = '' } = {}) {
+  const b = brand || {};
+  return `<span class="palette-swatches"${id ? ` id="${esc(id)}"` : ''} aria-hidden="true">
+    <span class="palette-swatch" style="background:${esc(b.primary || '#1C2B3A')}" title="Primary"></span>
+    <span class="palette-swatch" style="background:${esc(b.accent || '#E8A317')}" title="Accent"></span>
+  </span>`;
 }
 
 function paletteSwatchesHtml(brand = {}) {
   const id = matchPaletteId(brand);
   const palette = getPalettes().find((p) => p.id === id) || getPalettes()[0];
-  const b = palette?.brand || brand || {};
-  return `<span class="palette-swatches" id="sc-brand-swatches" aria-hidden="true">
-    <span class="palette-swatch" style="background:${esc(b.primary || '#1C2B3A')}" title="Primary"></span>
-    <span class="palette-swatch" style="background:${esc(b.accent || '#E8A317')}" title="Accent"></span>
-    <span class="palette-swatch" style="background:${esc(b.ink || '#0F1720')}" title="Ink"></span>
-  </span>`;
+  return paletteChipHtml(palette?.brand || brand, { id: 'sc-brand-swatches' });
+}
+
+function palettePickerHtml(brand = {}) {
+  const selected = matchPaletteId(brand);
+  const selectedPalette = getPalettes().find((p) => p.id === selected);
+  const menu = palettesByGroup(getPalettes())
+    .map((group) => {
+      const rows = group.items
+        .map((p) => {
+          const on = p.id === selected;
+          return `<button type="button" class="palette-picker-option${on ? ' is-active' : ''}" role="option" id="sc-palette-opt-${esc(p.id)}" data-palette-id="${esc(p.id)}" aria-selected="${on ? 'true' : 'false'}">
+            <span class="palette-picker-option-label">${esc(p.label)}</span>
+            ${paletteChipHtml(p.brand)}
+          </button>`;
+        })
+        .join('');
+      return `<div class="palette-picker-group" role="presentation">${esc(group.name)}</div>${rows}`;
+    })
+    .join('');
+  return `<div class="palette-picker">
+    <span class="palette-picker-caption" id="sc-brand-palette-label">Palette</span>
+    <select id="sc-brand-palette" class="sr-only" tabindex="-1" aria-hidden="true">
+      ${paletteOptionsHtml(brand)}
+    </select>
+    <button type="button" class="palette-picker-trigger" id="sc-brand-palette-trigger" aria-haspopup="listbox" aria-expanded="false" aria-controls="sc-brand-palette-menu" aria-labelledby="sc-brand-palette-label" data-tip="Named brand palette — Apply writes primary / accent / ink">
+      <span class="palette-picker-value">${esc(selectedPalette?.label || 'Slate & Gold')}</span>
+    </button>
+    <div id="sc-brand-palette-menu" class="palette-picker-menu" role="listbox" aria-labelledby="sc-brand-palette-label" hidden>
+      ${menu}
+    </div>
+  </div>`;
+}
+
+function wirePalettePicker() {
+  const select = document.getElementById('sc-brand-palette');
+  const trigger = document.getElementById('sc-brand-palette-trigger');
+  const menu = document.getElementById('sc-brand-palette-menu');
+  if (!select || !trigger || !menu) return;
+  const options = () => [...menu.querySelectorAll('[data-palette-id]')];
+  let activeIndex = Math.max(
+    0,
+    options().findIndex((el) => el.getAttribute('aria-selected') === 'true'),
+  );
+
+  const markActive = () => {
+    const rows = options();
+    rows.forEach((el, i) => el.classList.toggle('is-active', i === activeIndex));
+    const active = rows[activeIndex];
+    if (active) trigger.setAttribute('aria-activedescendant', active.id);
+  };
+
+  const onDocPointer = (event) => {
+    if (!menu.isConnected || menu.hidden) {
+      document.removeEventListener('mousedown', onDocPointer);
+      return;
+    }
+    if (event.target.closest?.('.palette-picker')) return;
+    setOpen(false);
+  };
+
+  const setOpen = (open) => {
+    menu.hidden = !open;
+    trigger.setAttribute('aria-expanded', open ? 'true' : 'false');
+    document.removeEventListener('mousedown', onDocPointer);
+    if (!open) return;
+    const selected = options().findIndex((el) => el.dataset.paletteId === select.value);
+    activeIndex = selected >= 0 ? selected : 0;
+    markActive();
+    options()[activeIndex]?.scrollIntoView({ block: 'nearest' });
+    document.addEventListener('mousedown', onDocPointer);
+  };
+
+  const choose = (id) => {
+    if (!id) {
+      setOpen(false);
+      return;
+    }
+    const rows = options();
+    rows.forEach((el) => el.setAttribute('aria-selected', el.dataset.paletteId === id ? 'true' : 'false'));
+    const label = getPalettes().find((p) => p.id === id)?.label || id;
+    const valueEl = trigger.querySelector('.palette-picker-value');
+    if (valueEl) valueEl.textContent = label;
+    setOpen(false);
+    if (select.value === id) return;
+    select.value = id;
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+  };
+
+  trigger.addEventListener('click', () => setOpen(menu.hidden));
+  trigger.addEventListener('keydown', (event) => {
+    const rows = options();
+    if (!rows.length) return;
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      event.preventDefault();
+      if (menu.hidden) {
+        setOpen(true);
+        return;
+      }
+      activeIndex =
+        event.key === 'ArrowDown'
+          ? Math.min(rows.length - 1, activeIndex + 1)
+          : Math.max(0, activeIndex - 1);
+      markActive();
+      rows[activeIndex]?.scrollIntoView({ block: 'nearest' });
+    } else if (event.key === 'Home' || event.key === 'End') {
+      event.preventDefault();
+      if (menu.hidden) setOpen(true);
+      activeIndex = event.key === 'Home' ? 0 : rows.length - 1;
+      markActive();
+      rows[activeIndex]?.scrollIntoView({ block: 'nearest' });
+    } else if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      if (menu.hidden) setOpen(true);
+      else choose(rows[activeIndex]?.dataset.paletteId);
+    } else if (event.key === 'Escape' && !menu.hidden) {
+      event.preventDefault();
+      setOpen(false);
+    }
+  });
+  menu.addEventListener('click', (event) => {
+    const row = event.target.closest?.('[data-palette-id]');
+    if (!row) return;
+    choose(row.dataset.paletteId);
+  });
 }
 
 function updatePaletteSwatches(paletteId) {
@@ -410,7 +677,7 @@ function updatePaletteSwatches(paletteId) {
   const root = document.getElementById('sc-brand-swatches');
   if (!palette?.brand || !root) return;
   const spans = root.querySelectorAll('.palette-swatch');
-  const colors = [palette.brand.primary, palette.brand.accent, palette.brand.ink];
+  const colors = [palette.brand.primary, palette.brand.accent];
   spans.forEach((el, i) => {
     if (colors[i]) el.style.background = colors[i];
   });
@@ -629,6 +896,8 @@ const state = {
   siteConfigSoftCurrent: null,
   contentSoftDone: {},
   websiteSoftDone: {},
+  /** candidateId → Indexing action 1–3. Session only; reload starts at 1. */
+  indexingStepCursor: {},
   siteConfigSoftDone: {},
   /** Sticky Website → Prepare/preview progress (survives accordion collapse + re-render). */
   assembleProgress: { visible: false, detail: '', done: null, total: null },
@@ -763,6 +1032,7 @@ const state = {
   gscStatus: null,
   sitesPortfolio: { traffic: [], ranks: [] },
   sitesMetricsBusy: false,
+  sitesMetricsStop: false,
   _sitesGscConnectWait: null,
   contentStructureCatalog: null,
   contentStructureCatalogError: null,
@@ -955,10 +1225,43 @@ function isSelectedLaunched() {
   return Boolean(m.lastLaunchAt || m.lastShipAt);
 }
 
-/** Modal gate for mutating a launched candidate. Returns false if cancelled. */
-async function confirmLaunchedSiteChange(actionLabel = 'This change') {
+function launchedImageAckStamp(meta = state.detail?.meta || {}) {
+  return String(meta.lastLaunchAt || meta.lastShipAt || '');
+}
+
+function launchedImageAckKey(id = state.detail?.id || state.selectedId) {
+  const cid = String(id || '').trim();
+  return cid ? `rover.launchedImageAck:${cid}` : '';
+}
+
+function launchedImageChangeAcked() {
+  const key = launchedImageAckKey();
+  const stamp = launchedImageAckStamp();
+  if (!key || !stamp) return false;
+  try {
+    return localStorage.getItem(key) === stamp;
+  } catch {
+    return false;
+  }
+}
+
+function rememberLaunchedImageChangeAck() {
+  const key = launchedImageAckKey();
+  const stamp = launchedImageAckStamp();
+  if (!key || !stamp) return;
+  try {
+    localStorage.setItem(key, stamp);
+  } catch {
+    // Storage blocked: the next image change asks again.
+  }
+}
+
+/** Modal gate for mutating a launched candidate. Returns false if cancelled.
+ * Image edits ask once per launch stamp; later ones still send confirmLaunchedEdit. */
+async function confirmLaunchedSiteChange(actionLabel = 'This change', { image = false } = {}) {
   if (!isSelectedLaunched()) return true;
-  return showModal({
+  if (image && launchedImageChangeAcked()) return true;
+  const ok = await showModal({
     title: 'Confirm change on launched site',
     confirmLabel: 'Confirm this change',
     cancelLabel: 'Cancel',
@@ -967,6 +1270,8 @@ async function confirmLaunchedSiteChange(actionLabel = 'This change') {
       <p>Rover’s working copy will change; the live site will <strong>not</strong> match until you <strong>Push updates</strong>.</p>
       <p class="muted">Cancel if this was accidental. Use Website → <strong>Revert</strong> to restore from the launched GitHub site.</p>`,
   });
+  if (ok && image) rememberLaunchedImageChangeAck();
+  return ok;
 }
 
 function withLaunchedConfirmBody(payload = {}) {
@@ -997,6 +1302,173 @@ function tableHtml(headerHtmlOrArray, rows) {
     .join('')}</tbody></table></div>`;
 }
 
+const TAB_ATTENTION_ICONS = {
+  ok: '/favicon-done.svg?v=20261106',
+  warn: '/favicon-warn.svg?v=20261106',
+  err: '/favicon-error.svg?v=20261106',
+};
+const TAB_WORKING_ICON = '/favicon-working.svg?v=20261106';
+const TAB_ATTENTION_RANK = { ok: 1, warn: 2, err: 3 };
+const TAB_ATTENTION_VISIBLE_MS = 6000;
+const tabWorkingKeys = new Set();
+let tabWorkingPainted = false;
+
+function isTabErrorTitle(title) {
+  return /\b(?:fail(?:ed)?|errors?|could not|cannot)\b/i.test(String(title || ''));
+}
+
+/** Error outranks a warning, which outranks a finished task. Null means no tab change. */
+function tabToneForModalTitle(title) {
+  const text = String(title || '');
+  if (isTabErrorTitle(text)) return 'err';
+  if (/\b(?:complete|finished|ready)\b/i.test(text)) return 'ok';
+  return null;
+}
+
+function faviconIconLinks() {
+  return [...document.querySelectorAll('link[rel="icon"]')];
+}
+
+function captureFaviconIcons() {
+  if (captureFaviconIcons.rows?.length) return captureFaviconIcons.rows;
+  const rows = faviconIconLinks().map((link) => ({
+    href: link.getAttribute('href'),
+    type: link.getAttribute('type'),
+    sizes: link.getAttribute('sizes'),
+  }));
+  if (rows.length) captureFaviconIcons.rows = rows;
+  return captureFaviconIcons.rows || rows;
+}
+
+captureFaviconIcons();
+
+let tabAlertOn = false;
+let tabAlertGen = 0;
+let tabAlertTone = null;
+
+function replaceFaviconLink(link, { href, type, sizes }) {
+  const next = link.cloneNode(false);
+  if (type) next.setAttribute('type', type);
+  else next.removeAttribute('type');
+  if (sizes) next.setAttribute('sizes', sizes);
+  else next.removeAttribute('sizes');
+  if (href) next.setAttribute('href', href);
+  link.replaceWith(next);
+}
+
+function stampFaviconHref(href) {
+  const raw = String(href || '');
+  if (!raw) return raw;
+  let base = raw;
+  try {
+    const url = new URL(raw, location.origin);
+    url.searchParams.delete('r');
+    base = `${url.pathname}${url.search}${url.hash}`;
+  } catch {
+    base = raw;
+  }
+  return `${base}${base.includes('?') ? '&' : '?'}r=${tabAlertGen}`;
+}
+
+function paintFaviconHref(href, { type = 'image/svg+xml', sizes = '' } = {}) {
+  tabAlertGen += 1;
+  const stamped = stampFaviconHref(href);
+  for (const link of faviconIconLinks()) {
+    replaceFaviconLink(link, {
+      href: stamped,
+      type,
+      sizes,
+    });
+  }
+}
+
+function applyWorkingFavicon() {
+  paintFaviconHref(TAB_WORKING_ICON);
+  tabWorkingPainted = true;
+}
+
+function restoreDefaultFavicon() {
+  const saved = captureFaviconIcons();
+  tabAlertGen += 1;
+  faviconIconLinks().forEach((link, i) => {
+    const row = saved[i];
+    if (!row) return;
+    replaceFaviconLink(link, {
+      href: stampFaviconHref(row.href),
+      type: row.type,
+      sizes: row.sizes,
+    });
+  });
+  tabWorkingPainted = false;
+}
+
+function applyTabAlertIcon(tone) {
+  const href = TAB_ATTENTION_ICONS[tone];
+  if (href) {
+    paintFaviconHref(href);
+    tabAlertOn = true;
+    tabAlertTone = tone;
+    tabWorkingPainted = false;
+    return;
+  }
+  tabAlertOn = false;
+  tabAlertTone = null;
+  if (tabWorkingKeys.size > 0) {
+    applyWorkingFavicon();
+    return;
+  }
+  restoreDefaultFavicon();
+}
+
+/** Blue arc while a dashboard load is running. Attention icons still win until they clear. */
+function noteTabWorking(key, on) {
+  const id = String(key || '').trim();
+  if (!id) return;
+  if (on) tabWorkingKeys.add(id);
+  else tabWorkingKeys.delete(id);
+  if (tabAlertOn) return;
+  if (tabWorkingKeys.size > 0) {
+    if (!tabWorkingPainted) applyWorkingFavicon();
+    return;
+  }
+  if (tabWorkingPainted) restoreDefaultFavicon();
+}
+
+/** Returns a generation, or null when the new tone is weaker than the one already showing. */
+function markTabAlert(tone = 'err') {
+  const next = TAB_ATTENTION_RANK[tone] ? tone : 'err';
+  if (tabAlertTone && TAB_ATTENTION_RANK[tabAlertTone] > TAB_ATTENTION_RANK[next]) return null;
+  tabAlertGen += 1;
+  applyTabAlertIcon(next);
+  return tabAlertGen;
+}
+
+function noteTabAttention(tone, ms) {
+  const gen = markTabAlert(tone);
+  if (gen == null) return;
+  armTabAlertClear(gen, ms);
+}
+
+function clearTabAlert(gen) {
+  if (gen != null && gen !== tabAlertGen) return;
+  if (!tabAlertOn) return;
+  applyTabAlertIcon(false);
+}
+
+function armTabAlertClear(gen, ms) {
+  clearTimeout(armTabAlertClear._timer);
+  armTabAlertClear._timer = setTimeout(() => {
+    if (document.hidden) return;
+    clearTabAlert(gen);
+  }, ms);
+}
+
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden || !tabAlertOn) return;
+  clearTimeout(armTabAlertClear._timer);
+  clearTabAlert();
+});
+
 function showModal({
   title,
   bodyHtml,
@@ -1005,6 +1477,7 @@ function showModal({
   danger = false,
   hideCancel = false,
   afterOpen = null,
+  beforeClose = null,
   requireTypedConfirm = null,
   modalClass = '',
 }) {
@@ -1023,6 +1496,9 @@ function showModal({
 
     titleEl.textContent = title;
     bodyEl.innerHTML = bodyHtml;
+    const tabModalTone = tabToneForModalTitle(title);
+    const tabModalGen = tabModalTone ? markTabAlert(tabModalTone) : null;
+    if (tabModalGen != null) armTabAlertClear(tabModalGen, TAB_ATTENTION_VISIBLE_MS);
     if (typedPhrase) {
       bodyEl.insertAdjacentHTML(
         'beforeend',
@@ -1081,11 +1557,22 @@ function showModal({
       root.querySelector('.modal-backdrop').onclick = null;
       cancelBtn.classList.remove('hidden');
       cancelBtn.textContent = 'Cancel';
+      if (tabModalGen != null && !document.hidden) clearTabAlert(tabModalGen);
       resolve(result);
     };
 
     confirmBtn.onclick = () => {
+      if (confirmBtn.disabled) return;
       if (typedPhrase && typedInput && typedInput.value !== typedPhrase) return;
+      if (typeof beforeClose === 'function') {
+        let allow = true;
+        try {
+          if (beforeClose(bodyEl) === false) allow = false;
+        } catch {
+          allow = false;
+        }
+        if (!allow) return;
+      }
       close(true);
     };
     cancelBtn.onclick = () => close(false);
@@ -1097,9 +1584,11 @@ function bannerTone(tone) {
   return tone === 'warn' ? 'warn' : tone === 'err' ? 'err' : 'ok';
 }
 
-/** Leftover status — top banner, no sound. */
+/** Leftover status — top banner, no sound. Validation nags stay off the tab; errors still flag it. */
 function showToast(message, { tone = 'ok', ms } = {}) {
-  showCompleteBanner(message, ms != null ? { tone, ms } : { tone });
+  const opts = ms != null ? { tone, ms } : { tone };
+  if (bannerTone(tone) !== 'err') opts.tab = false;
+  showCompleteBanner(message, opts);
 }
 
 window.addEventListener('rover-toast', (ev) => {
@@ -1116,40 +1605,8 @@ function prefersReducedMotion() {
   }
 }
 
-/** Soft two-tone complete chime (Web Audio). Failures swallowed. */
-function playCompleteSound() {
-  if (prefersReducedMotion()) return;
-  try {
-    const Ctx = window.AudioContext || window.webkitAudioContext;
-    if (!Ctx) return;
-    if (!playCompleteSound._ctx) playCompleteSound._ctx = new Ctx();
-    const ctx = playCompleteSound._ctx;
-    if (ctx.state === 'suspended') ctx.resume().catch(() => {});
-    const now = ctx.currentTime;
-    const tones = [
-      { f: 660, t: 0, d: 0.12 },
-      { f: 880, t: 0.1, d: 0.18 },
-    ];
-    for (const { f, t, d } of tones) {
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.type = 'sine';
-      osc.frequency.value = f;
-      gain.gain.setValueAtTime(0.0001, now + t);
-      gain.gain.exponentialRampToValueAtTime(0.12, now + t + 0.02);
-      gain.gain.exponentialRampToValueAtTime(0.0001, now + t + d);
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.start(now + t);
-      osc.stop(now + t + d + 0.02);
-    }
-  } catch {
-    /* autoplay / unsupported */
-  }
-}
-
-/** Top-center slide-in banner. Message is shown as-is. */
-function showCompleteBanner(message, { ms = 6000, tone = 'ok' } = {}) {
+/** Top-center slide-in banner. Message is shown as-is. `tab: false` leaves the browser icon alone. */
+function showCompleteBanner(message, { ms = TAB_ATTENTION_VISIBLE_MS, tone = 'ok', tab = true } = {}) {
   const text = String(message || '').trim() || 'Done';
   let el = document.getElementById('ops-complete-banner');
   if (!el) {
@@ -1164,7 +1621,9 @@ function showCompleteBanner(message, { ms = 6000, tone = 'ok' } = {}) {
   const reduce = prefersReducedMotion();
   el.classList.toggle('no-motion', reduce);
   el.classList.remove('hidden', 'is-visible', 'tone-ok', 'tone-warn', 'tone-err');
-  el.classList.add(`tone-${bannerTone(tone)}`);
+  const toneName = bannerTone(tone);
+  el.classList.add(`tone-${toneName}`);
+  if (tab !== false) noteTabAttention(toneName, ms);
   // Force reflow so re-showing retriggers the slide.
   void el.offsetWidth;
   requestAnimationFrame(() => {
@@ -1182,7 +1641,8 @@ function showCompleteBanner(message, { ms = 6000, tone = 'ok' } = {}) {
 
 /** Sound + top banner with an existing message (no “complete” suffix). */
 function announceBanner(message, opts) {
-  playCompleteSound();
+  const tone = bannerTone(opts?.tone);
+  play(tone === 'err' ? 'error' : tone === 'warn' ? 'warning' : 'success');
   showCompleteBanner(message, opts);
 }
 
@@ -1223,7 +1683,51 @@ function syncLaunchWeb3Recipient() {
   return recipient;
 }
 
+function workersFreeCapEmailDone(result) {
+  return Boolean(
+    result?.cloudflare?.emailRoutingDone ||
+      result?.meta?.emailRoutingDone ||
+      result?.candidate?.meta?.emailRoutingDone ||
+      result?.ship?.candidate?.meta?.emailRoutingDone,
+  );
+}
+
+function workersFreeCapDoneLine(result) {
+  const ship = result?.ship?.steps ? result.ship : result;
+  const parts = [];
+  if (ship?.steps?.github?.ok) parts.push('GitHub');
+  if (ship?.steps?.build?.ok) parts.push('the build');
+  if (workersFreeCapEmailDone(result)) parts.push('email routing');
+  if (!parts.length) return '';
+  const sentence =
+    parts.length === 1
+      ? parts[0]
+      : parts.length === 2
+        ? `${parts[0]} and ${parts[1]}`
+        : `${parts.slice(0, -1).join(', ')}, and ${parts[parts.length - 1]}`;
+  const text = `${sentence} already succeeded.`;
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+function workersFreeCapHelpHtml(result) {
+  const done = workersFreeCapDoneLine(result);
+  const after = workersFreeCapEmailDone(result)
+    ? 'Then return here and click <strong>Run launch</strong>. Leave <strong>Auto ship</strong> on. Leave <strong>Run Cloudflare domain / email API</strong> off.'
+    : 'Then return here and click <strong>Run launch</strong>. Leave <strong>Auto ship</strong> on.';
+  return `<p>This Cloudflare account is on the Workers Free plan, which allows <strong>100 Workers</strong>. It is already full, so this site's Worker was not created.</p>
+          ${done ? `<p>${esc(done)}</p>` : ''}
+          <p><strong>Next:</strong> In Cloudflare, open <strong>Workers &amp; Pages → Plans</strong> and upgrade to <strong>Workers Paid</strong>. That allows <strong>500 Workers</strong>. The plan is <strong>$5 per month</strong> for the account and includes 10 million Worker requests. Extra requests are $0.30 per million. There is no per-site fee and no bandwidth fee.</p>
+          <p>${after}</p>`;
+}
+
+function launchResultIsWorkersFreeCap(result) {
+  return isWorkersFreeCapResult(result);
+}
+
 function launchResultDetailsHtml(result) {
+  if (launchResultIsWorkersFreeCap(result)) return workersFreeCapHelpHtml(result);
+  if (launchResultIsPushRejected(result)) return launchPushRejectedHelpHtml(result);
+  if (launchResultIsRepoRateLimit(result)) return launchRepoRateLimitHelpHtml(result);
   const human = (result.human || []).map((h) => `<li>${esc(h)}</li>`).join('');
   const shipOk = result.ship?.ok ? 'Ship (GitHub/Worker) ok' : result.ship ? 'Ship partial/failed' : 'Ship skipped';
   const cfOk = result.cloudflare?.ok
@@ -1241,7 +1745,79 @@ function launchResultDetailsHtml(result) {
               ? `<p class="muted">Repo: <a href="${esc(result.ship.steps.github.repoUrl)}" target="_blank" rel="noopener">${esc(result.ship.steps.github.fullName)}</a></p>`
               : ''
           }
-          <p class="muted"><strong>After launch:</strong> verify Gmail once if Email Routing is new; smoke-test the live form; then use <strong>Website → Indexing</strong> for Search Console + sitemap.</p>`;
+          ${
+            launchResultIsRepoMissing(result)
+              ? launchRepoMissingHelpHtml(launchRepoMissingName(result))
+              : '<p class="muted"><strong>After launch:</strong> verify Gmail once if Email Routing is new; smoke-test the live form; then use <strong>Website → Indexing</strong> for Search Console + sitemap.</p>'
+          }`;
+}
+
+function launchShipBlob(result) {
+  const ship = result?.ship || {};
+  return [ship.error, ship.steps?.github?.error, ...(result?.human || [])].filter(Boolean).join('\n');
+}
+
+function launchResultIsRepoMissing(result) {
+  return /repository not found|could not resolve to a repository/i.test(launchShipBlob(result));
+}
+
+function launchResultIsRepoRateLimit(result) {
+  if (result?.ok || result?.ship?.ok) return false;
+  return /too many repositories, too quickly/i.test(launchShipBlob(result));
+}
+
+function launchRepoRateLimitPlain() {
+  return 'GitHub would not create the repository. You created too many, too quickly. The website is not online yet. Your domain and lead email are already set. Wait about 1 hour, then click Create repo and launch.';
+}
+
+function launchRepoRateLimitHelpHtml(result) {
+  const leads = launchLeadsSentence(result);
+  return `<p><strong>GitHub would not create the repository.</strong> You created too many, too quickly.</p>
+          <p>The website is not online yet. Your domain and lead email are already set.</p>
+          ${leads ? `<p>${esc(leads)}</p>` : ''}
+          <p><strong>Next:</strong> Wait about 1 hour, then click <strong>Create repo and launch</strong>.</p>`;
+}
+
+function launchResultIsPushRejected(result) {
+  if (result?.ok || result?.ship?.ok || launchResultIsRepoMissing(result)) return false;
+  return /fatal error in commit_refs|\[remote rejected\][^\n]*\(failure\)/i.test(launchShipBlob(result));
+}
+
+function launchLeadsSentence(result) {
+  const line = (result?.human || []).find((item) => /emails leads from/i.test(String(item || '')));
+  return line ? String(line) : '';
+}
+
+function launchPushRejectedPlain() {
+  return 'GitHub could not save the website. Nothing is wrong with the site itself. Your domain and lead email are already set. Click Push updates. Leave Run Cloudflare domain / email API off.';
+}
+
+function launchPushRejectedRetryPlain() {
+  return 'GitHub could not save the website. Nothing is wrong with the site itself. Wait a minute, then click Push updates again. Leave Run Cloudflare domain / email API off.';
+}
+
+function launchPushRejectedHelpHtml(result) {
+  const leads = launchLeadsSentence(result);
+  return `<p><strong>GitHub could not save the website.</strong> Nothing is wrong with the site itself.</p>
+          <p>Your domain and lead email are already set.</p>
+          ${leads ? `<p>${esc(leads)}</p>` : ''}
+          <p>Click <strong>Push updates</strong>. Leave <strong>Run Cloudflare domain / email API</strong> off.</p>`;
+}
+
+function launchRepoMissingName(result) {
+  const match = launchShipBlob(result).match(/github\.com\/([^/\s'"]+)\/([^/\s'".]+)/i);
+  if (match) return `${match[1]}/${match[2]}`;
+  return String(result?.meta?.lastLaunchRepoName || '').trim();
+}
+
+function launchRepoMissingPlain(fullName) {
+  const name = String(fullName || '').trim() || 'this site';
+  return `GitHub does not have ${name} yet. Rover saved that address and only tried to push. If you created a lot of repos just now, wait about 1 hour until GitHub allows another. Then click Create repo and launch. Leave Run Cloudflare domain / email API off when Email Routing is already done.`;
+}
+
+function launchRepoMissingHelpHtml(fullName) {
+  const name = String(fullName || '').trim() || 'this site';
+  return `<p><strong>GitHub does not have ${esc(name)} yet.</strong> Rover saved that address and only tried to push. If you created a lot of repos just now, wait about 1 hour until GitHub allows another. Then click <strong>Create repo and launch</strong>. Leave <strong>Run Cloudflare domain / email API</strong> off when Email Routing is already done.</p>`;
 }
 
 function launchSiteDisplayName(result) {
@@ -1260,10 +1836,19 @@ function launchSiteDisplayName(result) {
 async function showLaunchSuccessCelebrate(result, fallbackId) {
   const candidateId =
     result.candidateId || result.candidate?.id || result.site?.candidateId || fallbackId || '';
-  const { ordinal, total } = launchedCountStats(state.sites, candidateId, {
-    lastLaunchAt: result.meta?.lastLaunchAt || result.site?.lastLaunchAt,
-    lastShipAt: result.meta?.lastShipAt || result.site?.lastShipAt,
-  });
+  const tally = result.launchTally || {};
+  const serverOrdinal = Number(tally.launchNumber);
+  const serverTotal = Number(tally.launchedTotal);
+  const fromServer = Number.isInteger(serverOrdinal) && serverOrdinal > 0;
+  const { ordinal, total } = fromServer
+    ? {
+        ordinal: serverOrdinal,
+        total: Number.isInteger(serverTotal) && serverTotal > 0 ? serverTotal : serverOrdinal,
+      }
+    : launchedCountStats(state.sites, candidateId, {
+        lastLaunchAt: result.meta?.lastLaunchAt || result.site?.lastLaunchAt,
+        lastShipAt: result.meta?.lastShipAt || result.site?.lastShipAt,
+      });
   const name = launchSiteDisplayName(result);
   const domain = String(result.site?.domain || result.candidate?.meta?.launchDomain || '').trim();
   const liveUrl = result.site?.liveUrl || (domain ? `https://${domain}` : '');
@@ -1336,6 +1921,95 @@ let openaiAwaitingJobList = 0;
 /** @type {{ jobIds: string[], candidateId?: string, groupId?: string, failures: string[], announced: boolean }[]} */
 const openaiBatches = [];
 let openaiCommitChain = Promise.resolve();
+/** candidateId → slot or pair keys whose Review images card still needs a look. */
+const reviewFreshCards = new Map();
+
+function rememberFreshReviewCard(candidateId, slotKey) {
+  const cid = String(candidateId || '').trim();
+  const key = String(slotKey || '').trim();
+  if (!cid || !key) return;
+  let keys = reviewFreshCards.get(cid);
+  if (!keys) {
+    keys = new Set();
+    reviewFreshCards.set(cid, keys);
+  }
+  keys.add(key);
+}
+
+function reviewCardMatchesFreshKey(card, key) {
+  const id = String(key || '').trim();
+  if (!id || !card) return false;
+  const raw = id.replace(/^ba:/, '');
+  const keys = [...new Set([id, raw].filter(Boolean))];
+  const slotKey = card.getAttribute('data-slot-key') || '';
+  const matchKey = card.getAttribute('data-match-key') || '';
+  const checkId = card.querySelector('.slot-check-input')?.getAttribute('data-check-id') || '';
+  return keys.some((k) => k === slotKey || k === matchKey || k === checkId);
+}
+
+function forgetFreshReviewCard(candidateId, card) {
+  const cid = String(candidateId || '').trim();
+  const keys = reviewFreshCards.get(cid);
+  if (!keys || !card) return;
+  for (const key of [...keys]) {
+    if (reviewCardMatchesFreshKey(card, key)) keys.delete(key);
+  }
+  if (!keys.size) reviewFreshCards.delete(cid);
+}
+
+/** Connected node outside the card. A replacement's relatedTarget is null or detached. */
+function freshReviewRelatedOutside(card, related) {
+  if (!related || !related.isConnected) return false;
+  return !card.contains(related);
+}
+
+function markFreshReviewCard(card) {
+  card.classList.add('review-just-generated');
+  delete card.dataset.freshRing;
+  requestAnimationFrame(() => {
+    if (!card.isConnected || !card.classList.contains('review-just-generated')) return;
+    if (card.classList.contains('review-just-generated-fading')) return;
+    if (card.dataset.freshRing === 'armed') return;
+    if (card.matches(':hover')) return;
+    card.dataset.freshRing = 'armed';
+  });
+}
+
+function armFreshReviewCard(card, related) {
+  if (!card?.isConnected || !card.classList.contains('review-just-generated')) return;
+  if (card.classList.contains('review-just-generated-fading')) return;
+  if (related && card.contains(related)) return;
+  if (related && !related.isConnected) return;
+  if (!related && card.matches(':hover')) return;
+  card.dataset.freshRing = 'armed';
+}
+
+function applyFreshReviewCards(candidateId) {
+  const cid = String(candidateId || state.selectedId || '').trim();
+  const keys = reviewFreshCards.get(cid);
+  const root = document.getElementById('ca-image-slots');
+  if (!root || !keys?.size) return;
+  for (const card of root.querySelectorAll('.image-slot-card')) {
+    if (card.classList.contains('review-just-generated')) continue;
+    for (const key of keys) {
+      if (!reviewCardMatchesFreshKey(card, key)) continue;
+      markFreshReviewCard(card);
+      break;
+    }
+  }
+}
+
+function fadeFreshReviewCard(card) {
+  if (!card?.classList?.contains('review-just-generated')) return;
+  if (card.classList.contains('review-just-generated-fading')) return;
+  if (card.dataset.freshRing !== 'armed') return;
+  forgetFreshReviewCard(state.selectedId, card);
+  delete card.dataset.freshRing;
+  card.classList.add('review-just-generated-fading');
+  window.setTimeout(() => {
+    card.classList.remove('review-just-generated', 'review-just-generated-fading');
+  }, 1000);
+}
 
 function openaiChromeHeld() {
   if (openaiAwaitingJobList > 0) return true;
@@ -1482,6 +2156,7 @@ async function consumeOpenaiJobFinish(job) {
   const isGroup = Boolean(meta.groupId) || String(cid || '').startsWith('photo-group:');
   if (!isGroup) {
     if (cid && state.selectedId === cid) {
+      rememberFreshReviewCard(cid, slotKey);
       await commitReviewSlot(cid, {
         status: result?.status,
         slotKey,
@@ -1511,6 +2186,9 @@ function announceSettledOpenaiBatches() {
     batch.announced = true;
     const failures = [...batch.failures];
     const n = batch.jobIds.length;
+    if (!failures.length) {
+      announceBanner(`Generated ${n} OpenAI job${n === 1 ? '' : 's'}.`);
+    }
     enqueueOpenaiCommit(async () => {
       const stillOpen = openaiBatches.some((b) => !b.announced);
       if (!stillOpen && !openaiChromeHeld()) {
@@ -1524,8 +2202,6 @@ function announceSettledOpenaiBatches() {
             { tone: 'warn' },
           );
         }
-      } else {
-        announceBanner(`Generated ${n} OpenAI job${n === 1 ? '' : 's'}.`);
       }
       refreshImageWallets({ fresh: true });
     });
@@ -1983,6 +2659,7 @@ function incompleteDraftExplainHtml({
   expected = [],
   compact = false,
   showContinueControls = true,
+  handledByAccept = false,
 } = {}) {
   const miss = Array.isArray(missing) ? missing : [];
   const stubList = Array.isArray(stubs) ? stubs : [];
@@ -1998,26 +2675,33 @@ function incompleteDraftExplainHtml({
   const present = (Array.isArray(expected) ? expected : []).filter((f) => !missingSet.has(f));
   const loadedBatches = uniqueDraftBatches(present);
   const bits = [];
-  if (miss.length) {
-    if (loadedBatches.length) {
-      const verb = loadedBatches.length === 1 ? 'is' : 'are';
-      bits.push(`${joinBatchNames(loadedBatches)} ${verb} loaded.`);
+  if (handledByAccept) {
+    bits.push(
+      'Click <strong>Accept content</strong>. Rover rewrites these pages, then writes the files.',
+    );
+  } else {
+    if (miss.length) {
+      if (loadedBatches.length) {
+        const verb = loadedBatches.length === 1 ? 'is' : 'are';
+        bits.push(`${joinBatchNames(loadedBatches)} ${verb} loaded.`);
+      }
+      const copyWord = missingBatches.length === 1 ? 'that batch' : 'those batches';
+      const missingLabel = joinBatchNames(missingBatches) || 'the missing files';
+      bits.push(
+        `Continue with <strong>${esc(missingLabel)}</strong> — Copy ${copyWord} (or <strong>Copy continue prompt</strong>), paste FILE blocks, Load again.`,
+      );
     }
-    const copyWord = missingBatches.length === 1 ? 'that batch' : 'those batches';
-    const missingLabel = joinBatchNames(missingBatches) || 'the missing files';
-    bits.push(
-      `Continue with <strong>${esc(missingLabel)}</strong> — Copy ${copyWord} (or <strong>Copy continue prompt</strong>), paste FILE blocks, Load again.`,
-    );
-  }
-  if (stubList.length) {
-    bits.push(
-      `${esc(joinBatchNames(stubBatches) || 'Some')} pages are too thin — <strong>Copy continue prompt</strong> and Load again.`,
-    );
+    if (stubList.length) {
+      bits.push(
+        `${esc(joinBatchNames(stubBatches) || 'Some')} pages are too thin — <strong>Copy continue prompt</strong> and Load again.`,
+      );
+    }
   }
   const instruct = bits.length
     ? `<p style="margin:0.35rem 0 0">${bits.join(' ')}</p>`
     : '';
-  const controls = showContinueControls ? continueWriteControlsHtml({ sm: compact }) : '';
+  const controls =
+    showContinueControls && !handledByAccept ? continueWriteControlsHtml({ sm: compact }) : '';
   const missBlock = miss.length
     ? `<details class="narrative-raw" style="margin-top:0.5rem">
         <summary>Missing files (${esc(String(miss.length))})</summary>
@@ -2033,7 +2717,7 @@ function incompleteDraftExplainHtml({
   return `<div class="callout warn">
       <p style="margin:0">${progress}${
         compact && miss.length ? ` Missing ${esc(String(miss.length))} file(s).` : ''
-      }${compact && stubList.length ? ` ${esc(String(stubList.length))} stub/thin.` : ''}</p>
+      }${compact && stubList.length && !handledByAccept ? ` ${esc(String(stubList.length))} stub/thin.` : ''}</p>
       ${instruct}
       ${controls}
       ${missBlock}
@@ -2041,17 +2725,8 @@ function incompleteDraftExplainHtml({
     </div>`;
 }
 
-function incompleteDraftCalloutHtml(d) {
-  if (!d?.contentDraft?.files && !d?.contentDraft?._ops?.fileList?.length) return '';
+function contentDraftLaunchGaps(d) {
   const expected = expectedDraftFilesFromDetail(d);
-  if (!expected.length) return '';
-  const pages = structurePageIdsFromDetail(d);
-  const needsFull =
-    pages.includes('about') ||
-    pages.includes('contact') ||
-    pages.includes('services') ||
-    pages.includes('locations');
-  if (!needsFull) return '';
   const have = new Set(
     d?.contentDraft?._ops?.fileList ||
       (d?.contentDraft?.files ? Object.keys(d.contentDraft.files) : []),
@@ -2060,6 +2735,20 @@ function incompleteDraftCalloutHtml(d) {
   const stubs = Array.isArray(d?.contentDraft?._ops?.check?.launch?.stubs)
     ? d.contentDraft._ops.check.launch.stubs.filter((f) => have.has(f))
     : [];
+  return { expected, missing, stubs, have };
+}
+
+function incompleteDraftCalloutHtml(d, { handledByAccept = false } = {}) {
+  if (!d?.contentDraft?.files && !d?.contentDraft?._ops?.fileList?.length) return '';
+  const { expected, missing, stubs, have } = contentDraftLaunchGaps(d);
+  if (!expected.length) return '';
+  const pages = structurePageIdsFromDetail(d);
+  const needsFull =
+    pages.includes('about') ||
+    pages.includes('contact') ||
+    pages.includes('services') ||
+    pages.includes('locations');
+  if (!needsFull) return '';
   if (!missing.length && !stubs.length) return '';
   return incompleteDraftExplainHtml({
     have: have.size,
@@ -2068,6 +2757,7 @@ function incompleteDraftCalloutHtml(d) {
     stubs,
     expected,
     compact: true,
+    handledByAccept: handledByAccept && anthropicConfigured(),
   });
 }
 
@@ -2384,7 +3074,10 @@ function syncLightInPageBars(snap) {
   syncAcceptOverlay(snap);
   syncExpandLocationsOverlay(snap);
   const cid = state.selectedId;
-  if (!cid) return;
+  if (!cid) {
+    noteTabWorking('research', false);
+    return;
+  }
   const logo = findActiveJob(snap, 'logo', cid);
   const map = findActiveJob(snap, 'coverage-map', cid);
   const logoMap = logo || map;
@@ -2441,6 +3134,7 @@ function syncLightInPageBars(snap) {
     }
     state.jobStatusLine = research.detail || state.jobStatusLine;
   }
+  noteTabWorking('research', Boolean(research));
 }
 
 /** Only the leader tab holds EventSource + job polls (Chrome: 6 HTTP/1.1 per origin). */
@@ -2754,6 +3448,87 @@ function wireSettingsUi() {
       applyTheme(swatch.getAttribute('data-theme-pick'));
     });
   });
+
+  let audioPopup = null;
+  const syncAudioSettingsUi = () => {
+    const toggle = document.getElementById('settings-audio-toggle');
+    if (!toggle) return;
+    const on = audioEnabled();
+    toggle.classList.toggle('is-off', !on);
+    toggle.setAttribute('aria-pressed', on ? 'true' : 'false');
+    const label = on ? 'Turn sounds off' : 'Turn sounds on';
+    toggle.setAttribute('aria-label', label);
+    toggle.setAttribute('data-tip', label);
+  };
+  const closeAudioDock = () => {
+    document.getElementById('audio-dock')?.classList.add('hidden');
+  };
+  const openAudioDock = () => {
+    let dock = document.getElementById('audio-dock');
+    if (!dock) {
+      dock = document.createElement('div');
+      dock.id = 'audio-dock';
+      dock.className = 'audio-dock';
+      const frame = document.createElement('iframe');
+      frame.title = 'Audio';
+      frame.src = '/audio.html?dock=1';
+      dock.appendChild(frame);
+      document.body.appendChild(dock);
+    }
+    dock.classList.remove('hidden');
+  };
+  const openAudioWindow = () => {
+    closeSettingsMenu();
+    if (audioPopup && !audioPopup.closed) {
+      audioPopup.focus();
+      closeAudioDock();
+      return;
+    }
+    const opened = window.open('/audio.html', 'rover-audio', 'width=440,height=640,resizable=yes');
+    if (!opened) {
+      openAudioDock();
+      return;
+    }
+    audioPopup = opened;
+    closeAudioDock();
+  };
+
+  installAudioUnlock();
+  installCopySound(() => play('copy'));
+  syncAudioSettingsUi();
+  subscribeAudio((reason) => {
+    if (reason === 'volume') return;
+    syncAudioSettingsUi();
+  });
+  document.getElementById('settings-audio-toggle')?.addEventListener('click', (event) => {
+    event.stopPropagation();
+    const next = !audioEnabled();
+    if (!next) play('click');
+    setAudioEnabled(next);
+    if (next) play('click');
+    syncAudioSettingsUi();
+  });
+  document.getElementById('settings-audio-open')?.addEventListener('click', (event) => {
+    event.stopPropagation();
+    openAudioWindow();
+  });
+  window.addEventListener('message', (event) => {
+    if (event.origin !== location.origin) return;
+    if (event.data?.type === 'rover-audio-dock-close') closeAudioDock();
+  });
+  document.addEventListener(
+    'click',
+    (event) => {
+      const btn = event.target?.closest?.('button, [role="button"]');
+      if (!btn) return;
+      if (btn.disabled || btn.getAttribute('aria-disabled') === 'true') return;
+      if (btn.closest('.nav-btn')) return;
+      if (btn.id === 'settings-btn' || btn.id === 'help-btn' || btn.id === 'settings-audio-toggle') return;
+      if (btn.hasAttribute('data-theme-pick')) return;
+      play('click');
+    },
+    true,
+  );
 
   document.addEventListener('click', () => closeSettingsMenu());
   document.addEventListener('keydown', (event) => {
@@ -3713,9 +4488,12 @@ function formatShotgunSgDisplay(n) {
   const v = Number(n);
   if (!Number.isFinite(v) || v < 1) {
     const s = String(n || '').trim();
-    return /^\d{3}$/.test(s) ? s : '';
+    if (!/^\d{3}$/.test(s)) return '';
+    const parsed = Number(s);
+    if (!Number.isFinite(parsed) || parsed < 1) return '';
+    return String(parsed).padStart(2, '0');
   }
-  return String(Math.trunc(v)).padStart(3, '0');
+  return String(Math.trunc(v)).padStart(2, '0');
 }
 
 function formatZnDisplay(n) {
@@ -4730,7 +5508,8 @@ function renderList() {
         }
         if (col.key === 'city') {
           const hub = String(c.shotgunRole || '').toLowerCase() === 'hub';
-          const label = cityMapLabel(c.primaryCity || '—', rowClusterKey(c), { hub });
+          const name = c.primaryCity || '—';
+          const label = hub ? `★ ${name}` : name;
           const zoneBtn = c.shotgunClusterId
             ? ` <button type="button" class="btn btn-sm zone-map-open" data-zone-id="${esc(c.shotgunClusterId)}" data-tip="Open Zone map">Zone</button>`
             : '';
@@ -4978,6 +5757,7 @@ function renderList() {
       const key = th.dataset.sort;
       if (state.candidateSort.key === key) state.candidateSort.dir *= -1;
       else state.candidateSort = { key, dir: key === 'proposedScore' || key === '_live' || key === '_rank' || key === '_websiteTrack' ? -1 : 1 };
+      persistUiRestore();
       renderList();
     });
   });
@@ -5581,7 +6361,6 @@ function updateTabCompletion() {
     content: '2 · Content',
     website: '3 · Launch',
     prospects: '4 · Prospects',
-    logs: 'Logs',
   };
   document.querySelectorAll('.tab').forEach((tab) => {
     const key = tab.dataset.tab;
@@ -5739,6 +6518,7 @@ function claudeApiJobRunning() {
 
 function showAppBootLoading(text = 'Loading…') {
   const boot = document.getElementById('app-boot-loading');
+  noteTabWorking('boot', true);
   if (!boot) return;
   const label = boot.querySelector('.rover-loading-text');
   if (label) label.textContent = String(text || 'Loading…');
@@ -5749,6 +6529,7 @@ function showAppBootLoading(text = 'Loading…') {
 
 function hideAppBootLoading() {
   const boot = document.getElementById('app-boot-loading');
+  noteTabWorking('boot', false);
   if (!boot) return;
   boot.classList.add('hidden');
   boot.setAttribute('aria-hidden', 'true');
@@ -5794,6 +6575,30 @@ function stashClaudeUiRestore() {
 const UI_RESTORE_KEY = 'ops.uiRestore';
 let uiRestoreQuiet = false;
 
+function sortableColumnKeys(cols, { defaultSortable = false } = {}) {
+  const keys = new Set();
+  for (const col of cols || []) {
+    const sortable = col?.sortable != null ? Boolean(col.sortable) : defaultSortable;
+    const key = col?.key;
+    if (!sortable || key == null || key === '') continue;
+    keys.add(String(key));
+  }
+  return keys;
+}
+
+/** Keep a stored sort only when the column still exists and direction is 1 or -1. */
+function restoreSortSnap(raw, { allowed, allowNullKey = false } = {}) {
+  if (!raw || typeof raw !== 'object') return null;
+  if (raw.dir !== 1 && raw.dir !== -1) return null;
+  if (raw.key == null || raw.key === '') {
+    if (!allowNullKey) return null;
+    return { key: null, dir: raw.dir };
+  }
+  const key = String(raw.key);
+  if (allowed && !allowed.has(key)) return null;
+  return { key, dir: raw.dir };
+}
+
 function peekUiRestore() {
   try {
     const raw = sessionStorage.getItem(UI_RESTORE_KEY);
@@ -5822,6 +6627,18 @@ function persistUiRestore() {
     discoveryBatchId: state.discoveryBatchId || null,
     discoveryFilters: { ...state.discoveryFilters },
     siteFilters: { ...state.siteFilters },
+    candidateSort: {
+      key: state.candidateSort?.key || 'proposedScore',
+      dir: state.candidateSort?.dir === 1 ? 1 : -1,
+    },
+    discoverySort: {
+      key: state.discoverySort?.key ?? null,
+      dir: state.discoverySort?.dir === -1 ? -1 : 1,
+    },
+    siteSort: {
+      key: state.siteSort?.key || 'lastLaunchAt',
+      dir: state.siteSort?.dir === 1 ? 1 : -1,
+    },
   };
   try {
     sessionStorage.setItem(UI_RESTORE_KEY, JSON.stringify(payload));
@@ -5862,7 +6679,10 @@ function applyUiFilterSnapshot(snap) {
   if (!snap || typeof snap !== 'object') return;
   uiRestoreQuiet = true;
   try {
-    if (typeof snap.tab === 'string' && snap.tab.trim()) state.tab = snap.tab.trim();
+    if (typeof snap.tab === 'string' && snap.tab.trim()) {
+      const tab = snap.tab.trim();
+      state.tab = tab === 'logs' ? 'overview' : tab;
+    }
     const str = (v, fallback = '') => (typeof v === 'string' ? v : fallback);
     state.candidateDecisionFilter = str(snap.candidateDecisionFilter);
     state.candidateBatchFilter = str(snap.candidateBatchFilter);
@@ -5895,6 +6715,19 @@ function applyUiFilterSnapshot(snap) {
         cluster: str(s.cluster),
       };
     }
+    const candidateSort = restoreSortSnap(snap.candidateSort, {
+      allowed: sortableColumnKeys(CANDIDATE_TABLE_COLS),
+    });
+    if (candidateSort) state.candidateSort = candidateSort;
+    const discoverySort = restoreSortSnap(snap.discoverySort, {
+      allowed: sortableColumnKeys(DISCOVERY_TABLE_COLS),
+      allowNullKey: true,
+    });
+    if (discoverySort) state.discoverySort = discoverySort;
+    const siteSort = restoreSortSnap(snap.siteSort, {
+      allowed: sortableColumnKeys(SITE_TABLE_COLS, { defaultSortable: true }),
+    });
+    if (siteSort) state.siteSort = siteSort;
     syncUiRestoreControls();
   } finally {
     uiRestoreQuiet = false;
@@ -5903,7 +6736,7 @@ function applyUiFilterSnapshot(snap) {
 
 async function applyUiSelectionRestore(snap) {
   if (!snap || typeof snap !== 'object') return;
-  if (snap.tab && !state.tab) state.tab = snap.tab;
+  if (snap.tab && !state.tab) state.tab = snap.tab === 'logs' ? 'overview' : snap.tab;
   const ids = Array.isArray(snap.selectedIds)
     ? snap.selectedIds.map((id) => String(id || '').trim()).filter(Boolean)
     : [];
@@ -5981,7 +6814,7 @@ function switchClaudeUiMode(next) {
 async function applyClaudeUiRestore() {
   const stash = takeClaudeUiRestore();
   if (!stash) return;
-  if (stash.tab) state.tab = stash.tab;
+  if (stash.tab) state.tab = stash.tab === 'logs' ? 'overview' : stash.tab;
   const ids = Array.isArray(stash.selectedIds)
     ? stash.selectedIds.map((id) => String(id || '').trim()).filter(Boolean)
     : [];
@@ -6051,39 +6884,169 @@ function setBaViewpoint(stepKey, viewpoint) {
 }
 
 const NO_PEOPLE_RULES =
-  'No people, no faces, no hands, no crew, no customers, no silhouettes. Empty rooms, installs, tools, and materials only. No text, no logos, no watermarks, no UI, no phone screens.';
+  'No people, no faces, no hands, no crew, no customers, no silhouettes. Show the problem this service will fix: the damaged, unfinished, or incomplete condition before the work is done. Not a finished install and not a showroom. No text, no logos, no watermarks, no UI, no phone screens.';
+const FINISHED_RULES =
+  'No people, no faces, no hands, no crew, no customers, no silhouettes. The work is already complete: the finished product only, with the problem solved. No install crew, no tools in use, no job-site mess. No text, no logos, no watermarks, no UI, no phone screens.';
 const PEOPLE_RULES =
   'Show 1–2 trade workers actively doing the described job — natural documentary pose, not a smiling stock crew. Faces and hands may be visible. No customers, no lifestyle extras. No text, no logos, no watermarks, no UI, no phone screens.';
 
-function normalizeOccupancy(raw) {
-  return String(raw || '').trim().toLowerCase() === 'people' ? 'people' : 'none';
+function occupancySubject(ctx = {}) {
+  const serviceName = String(ctx.serviceName || '').trim();
+  const niche = String(ctx.niche || '').trim();
+  return {
+    trade: serviceName || niche || 'result',
+    nicheName: niche || serviceName || 'local service',
+    setting: ctx.setting === 'commercial' ? 'commercial' : ctx.setting === 'residential' ? 'residential' : '',
+  };
 }
 
-function applyOccupancyToPrompt(text, occupancy) {
+function customerRulesText(ctx = {}) {
+  const { trade, nicheName, setting } = occupancySubject(ctx);
+  const who =
+    setting === 'commercial'
+      ? 'staff and visitors using that finished commercial space'
+      : 'the household using that finished home result';
+  return `Show people using the finished ${trade} the way a customer of this ${nicheName} business would. The people are ${who}. Stay on this trade only. The work is already complete. No install crew, no tools in use, no job-site mess. Natural candid use, not a posed stock smile. No text, no logos, no watermarks, no UI, no phone screens.`;
+}
+
+function afterCustomersAllow(ctx = {}) {
+  const { trade } = occupancySubject(ctx);
+  return `Finish the ${trade}, and add the people who use that finished result. Keep the same crop, camera, and room.`;
+}
+
+function occupancyContextFromPrompt(text) {
+  const src = String(text || '');
+  const nicheLine = src.match(/\bNiche:\s*([^.]+)\./i);
+  const serviceLine = src.match(/\bService focus:\s*([^.]+)\./i);
+  const local = src.match(/\blocal\s+(.+?)\s+business\b/i);
+  const focus = src.match(/Focus specifically on\s+([^(.\n]+)/i);
+  let serviceName = String(serviceLine?.[1] || focus?.[1] || '').trim();
+  serviceName = serviceName.replace(/\s*\(not other services\)\s*$/i, '').trim();
+  const setting = /commercial building|commercial space|commercial interior|commercial architecture|\bSetting:\s*commercial\b/i.test(
+    src,
+  )
+    ? 'commercial'
+    : /residential setting|residential architecture|\bSetting:\s*residential\b/i.test(src)
+      ? 'residential'
+      : '';
+  return {
+    niche: String(nicheLine?.[1] || local?.[1] || '').trim(),
+    serviceName,
+    setting,
+  };
+}
+
+function resolveOccupancyContext(text, ctx = {}) {
+  const inferred = occupancyContextFromPrompt(text);
+  const setting =
+    ctx.setting === 'commercial' || ctx.setting === 'residential' ? ctx.setting : inferred.setting || '';
+  return {
+    niche: String(ctx.niche || inferred.niche || '').trim(),
+    serviceName: String(ctx.serviceName || inferred.serviceName || '').trim(),
+    setting,
+  };
+}
+
+function normalizeOccupancy(raw) {
+  const value = String(raw || '').trim().toLowerCase();
+  if (value === 'customers' || value === 'customer') return 'customers';
+  if (value === 'finished' || value === 'finish') return 'finished';
+  if (value === 'people' || value === 'workers' || value === 'worker') return 'workers';
+  return 'none';
+}
+
+function occupancyRulesLine(occupancy, ctx) {
+  const mode = normalizeOccupancy(occupancy);
+  if (mode === 'workers') return PEOPLE_RULES;
+  if (mode === 'customers') return customerRulesText(ctx);
+  if (mode === 'finished') return FINISHED_RULES;
+  return NO_PEOPLE_RULES;
+}
+
+function applyOccupancyToPrompt(text, occupancy, ctx) {
   const src = String(text || '').trim();
   if (!src) return src;
-  const people = normalizeOccupancy(occupancy) === 'people';
-  const noPeople = [
+  const subject = resolveOccupancyContext(src, ctx);
+  const line = occupancyRulesLine(occupancy, subject);
+  const clauses = [
+    NO_PEOPLE_RULES,
+    FINISHED_RULES,
+    PEOPLE_RULES,
     /No people, no faces, no hands, no crew, no customers, no silhouettes\.\s*Empty rooms, installs, tools, and materials only\.\s*No text, no logos, no watermarks, no UI, no phone screens\./gi,
+    /Show the problem this service will fix:[\s\S]*?No phone screens\./gi,
+    /The work is already complete: the finished product only, with the problem solved\.[\s\S]*?No phone screens\./gi,
     /No people, no faces, no hands, no crew, no customers, no silhouettes\./gi,
     /No people, no faces, no hands, no crew, no customers\./gi,
     /No people, no faces, no hands, no crew\./gi,
-    /\bNo people\./gi,
+    /(?:^|(?<=\.\s)|(?<=\n))No people\./gi,
     /Unoccupied interior\/exterior:[^.]*\./gi,
-  ];
-  const peopleRe = [
     /Show 1[-–]2 trade workers actively doing the described job[^.]*\./gi,
     /One or two trade workers actively doing the described job[^.]*\./gi,
+    /The finished product is in use by the intended customers[\s\S]*?posed stock smile\./gi,
+    /The finished .+? is in use by the people this .+? work is for\. The work is already complete\. No install crew and no tools in use\. Natural candid use, not a posed stock smile\./gi,
+    /Show the intended customers using the finished product the way this service is meant to be used\.[\s\S]*?No phone screens\./gi,
+    /Show people using the finished .+? the way a customer of this .+? business would\.[\s\S]*?No phone screens\./gi,
+    /Finish the .+?, and (?:you may add the intended customers using that finished result|add the people who use that finished result)\. Keep the same crop, camera, and room\./gi,
+    /a family or children playing on sports or play turf,?/gi,
+    /golfers on a putting green,?/gi,
   ];
-  if (people) {
-    let next = src;
-    for (const re of noPeople) next = next.replace(re, PEOPLE_RULES);
-    if (next === src && !/trade workers/i.test(src)) next = `${src} ${PEOPLE_RULES}`;
-    return next;
+  let base = src;
+  for (const clause of clauses) {
+    base = base.replace(clause instanceof RegExp ? clause : new RegExp(clause.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), ' ');
   }
-  let next = src;
-  for (const re of peopleRe) next = next.replace(re, NO_PEOPLE_RULES);
-  return next;
+  base = base.replace(/[ \t]{2,}/g, ' ').replace(/\s+\./g, '.').trim();
+  const introRole =
+    /Slot role: intro section — clean supporting photo of the trade in a (?:residential setting|commercial building)\./gi;
+  const mode = normalizeOccupancy(occupancy);
+  if (mode === 'none' || mode === 'finished') {
+    const role =
+      mode === 'finished'
+        ? 'Slot role: intro — wide photo of the finished result. The problem is solved and the result is complete, with no people.'
+        : 'Slot role: intro — wide photo of the problem this service fixes, still unfinished.';
+    base = base.replace(introRole, role);
+  }
+  if (!base) return line;
+  if (base.includes(line)) return base;
+  return `${base} ${line}`;
+}
+
+function applyBaOccupancyTexts(before, after, occupancy) {
+  const subject = resolveOccupancyContext(`${before || ''}\n${after || ''}`);
+  const mode = normalizeOccupancy(occupancy);
+  if (mode === 'workers') {
+    return {
+      before: applyOccupancyToPrompt(before, 'workers', subject),
+      after: applyOccupancyToPrompt(after, 'workers', subject),
+    };
+  }
+  if (mode !== 'customers') {
+    return {
+      before: applyOccupancyToPrompt(before, 'none', subject),
+      after: applyOccupancyToPrompt(after, 'finished', subject),
+    };
+  }
+  const allow = afterCustomersAllow(subject);
+  const defectOnly = [
+    /Do not change anything except the service defect\./gi,
+    /Only the service element changes\./gi,
+    /Only the service feature itself changes\./gi,
+    /Only the service feature is finished\./gi,
+    /Only the service element is finished\./gi,
+    /Update only the .+? result\./gi,
+    /only the .+? work is finished\./gi,
+  ];
+  const allowRe =
+    /Finish the .+?, and (?:you may add the intended customers using that finished result|add the people who use that finished result)\. Keep the same crop, camera, and room\./gi;
+  let afterText = applyOccupancyToPrompt(after, 'customers', subject);
+  for (const re of defectOnly) afterText = afterText.replace(re, allow);
+  afterText = afterText.replace(allowRe, allow);
+  if (!afterText.includes(allow)) afterText = `${afterText} ${allow}`;
+  const allowEsc = allow.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  afterText = afterText.replace(new RegExp(`(?:${allowEsc}\\s*){2,}`, 'g'), `${allow} `);
+  return {
+    before: applyOccupancyToPrompt(before, 'none', subject),
+    after: afterText.replace(/[ \t]{2,}/g, ' ').trim(),
+  };
 }
 
 function readBaOccupancyMap() {
@@ -6100,12 +7063,12 @@ function readBaOccupancyMap() {
 function getBaOccupancy(stepKey = 'home') {
   const key = String(stepKey || 'home').trim() || 'home';
   const map = readBaOccupancyMap();
-  return map[key] === 'people' ? 'people' : 'none';
+  return normalizeOccupancy(map[key]);
 }
 
 function setBaOccupancy(stepKey, occupancy) {
   const key = String(stepKey || 'home').trim() || 'home';
-  const next = occupancy === 'people' ? 'people' : 'none';
+  const next = normalizeOccupancy(occupancy);
   const map = { ...readBaOccupancyMap(), [key]: next };
   try {
     localStorage.setItem('ops.baOccupancy', JSON.stringify(map));
@@ -6133,9 +7096,10 @@ function pickBaDisplayPrompts(matchKey) {
   const occ = getBaOccupancy(key);
   const gen = cache.promptsForGenerate?.[vp];
   if (gen?.before && gen?.after) {
+    const sided = applyBaOccupancyTexts(gen.before, gen.after, occ);
     return {
-      before: applyOccupancyToPrompt(gen.before, occ),
-      after: applyOccupancyToPrompt(gen.after, occ),
+      before: sided.before,
+      after: sided.after,
       originalBefore: gen.originalBefore || gen.before,
       originalAfter: gen.originalAfter || gen.after,
       viewpoint: vp,
@@ -6152,9 +7116,10 @@ function pickBaDisplayPrompts(matchKey) {
   }
   const plan = cache.promptPlan?.[vp];
   if (plan?.before && plan?.after) {
+    const sided = applyBaOccupancyTexts(plan.before, plan.after, occ);
     return {
-      before: applyOccupancyToPrompt(plan.before, occ),
-      after: applyOccupancyToPrompt(plan.after, occ),
+      before: sided.before,
+      after: sided.after,
       originalBefore: plan.before,
       originalAfter: plan.after,
       viewpoint: vp,
@@ -6466,7 +7431,7 @@ function slotPromptPanelHtml({ kind = 'photo', key, pair = null } = {}) {
     const picked = pickBaDisplayPrompts(key);
     const meta = picked
       ? `${esc(picked.label)} · ${esc(picked.viewpoint)}${picked.room ? ` · ${esc(picked.room)}` : ''}`
-      : 'Opens with the current Inside/Outside and No People/People prompt.';
+      : 'Opens with the current Inside/Outside and Problem, Workers, Finished, or Customers prompt.';
     return `<details class="slot-prompt-panel ba-prompts" data-prompt-kind="ba" data-prompt-key="${esc(
       key,
     )}" data-loaded-viewpoint="${esc(vp)}" data-loaded-occupancy="${esc(occ)}">
@@ -6490,7 +7455,7 @@ function slotPromptPanelHtml({ kind = 'photo', key, pair = null } = {}) {
       <button type="button" class="btn btn-sm slot-prompt-restore" data-tip="Restore the original prompt">Restore</button>
     </summary>
     <p class="muted slot-prompt-tip">${esc(tip)}</p>
-    <textarea class="slot-prompt-text" spellcheck="false" placeholder="Opens with the current Inside/Outside and No People/People prompt."></textarea>
+    <textarea class="slot-prompt-text" spellcheck="false" placeholder="Opens with the current Inside/Outside and Problem, Workers, Finished, or Customers prompt."></textarea>
   </details>`;
 }
 
@@ -6552,16 +7517,22 @@ function baOccupancySegmentHtml(stepKey = 'home') {
   const key = String(stepKey || 'home').trim() || 'home';
   const mode = getBaOccupancy(key);
   const tip =
-    'No People = empty rooms, tools, and materials only · People = 1–2 workers doing the job described for this photo. Default No People.';
+    'Problem = the problem this service fixes, unfinished, no people · Workers = 1–2 crew doing the job · Finished = the completed result, no people · Customers = the household or the people who use this finished service. Default Problem.';
   return `<div class="ads-mode-segment ba-occupancy-segment" role="group" aria-label="Photo occupancy" data-ba-occupancy-step="${esc(
     key,
   )}" ${tipAttr(tip)}>
     <button type="button" class="ads-mode-seg${
       mode === 'none' ? ' active' : ''
-    }" data-ba-occupancy="none">No People</button>
+    }" data-ba-occupancy="none">Problem</button>
     <button type="button" class="ads-mode-seg${
-      mode === 'people' ? ' active' : ''
-    }" data-ba-occupancy="people">People</button>
+      mode === 'workers' ? ' active' : ''
+    }" data-ba-occupancy="workers">Workers</button>
+    <button type="button" class="ads-mode-seg${
+      mode === 'finished' ? ' active' : ''
+    }" data-ba-occupancy="finished">Finished</button>
+    <button type="button" class="ads-mode-seg${
+      mode === 'customers' ? ' active' : ''
+    }" data-ba-occupancy="customers">Customers</button>
   </div>`;
 }
 
@@ -6783,7 +7754,16 @@ function renderActions() {
   const isMulti = multiIds.length > 1;
   // Single-target rail follows open detail; batch only when checkboxes > 1
   const targetCount = isMulti ? multiIds.length : state.selectedId || d ? 1 : 0;
-  el.classList.remove('hidden');
+  const keepRailHidden = candidateSelectionLocked();
+  const railWasVisible = !el.classList.contains('hidden');
+  if (keepRailHidden) el.classList.add('hidden');
+  else el.classList.remove('hidden');
+  if (keepRailHidden && railWasVisible && serviceAreaMount) {
+    void (async () => {
+      await serviceAreaMount.invalidateSize?.();
+      await serviceAreaMount.refit?.();
+    })();
+  }
 
   const agg = isMulti ? aggregateSelectedFlags() : null;
   const focusedId = isMulti ? null : state.selectedId;
@@ -7289,7 +8269,6 @@ async function ensureSerpSeedsForCandidate(id) {
   clearJobBusy();
   if (job.status !== 'ok') {
     announceBanner(job.error || 'SERP seeds failed', { tone: 'err' });
-    state.tab = 'logs';
     renderDetail();
     return false;
   }
@@ -7330,7 +8309,6 @@ async function handleAction(act, btn) {
       state.activeAct = 'evaluate-all';
       state.lastBatchJob = batch;
       state.jobStatusLine = 'Starting Run all…';
-      state.tab = 'logs';
       renderActions();
       if (state.selectedIds.size > 1) renderMultiDetail();
       pollBatchJob(batch.id);
@@ -7400,7 +8378,6 @@ async function handleAction(act, btn) {
         state.activeAct = act;
         state.lastBatchJob = batch;
         state.jobStatusLine = 'Starting batch…';
-        state.tab = 'logs';
         renderActions();
         if (state.selectedIds.size > 1) renderMultiDetail();
         pollBatchJob(batch.id);
@@ -7426,7 +8403,6 @@ async function handleAction(act, btn) {
         ),
       });
       state.activeJobId = job.job?.id || job.id;
-      state.tab = 'logs';
       renderDetail();
       startJobPoll(state.activeJobId, act);
       return;
@@ -7596,7 +8572,6 @@ function startJobPoll(jobId, act) {
               : `${jobActLabel(finishedAct)} failed`,
             { tone: 'err' },
           );
-          state.tab = 'logs';
         }
         renderDetail();
         if (job.status === 'ok') {
@@ -7635,7 +8610,6 @@ function startJobPoll(jobId, act) {
                   ? `<pre class="log-snippet">${esc(tail)}</pre>`
                   : '<p class="muted">No log output.</p>'
               }
-              <p class="muted">See the Logs tab for the full stream.</p>
             `,
             });
           }
@@ -7888,6 +8862,7 @@ function renderOverview() {
       state.detail.shotgunClusterId
         ? `<p class="muted small">Zone: ${esc(state.detail.shotgunClusterName)} · ${esc(shotgunRoleLabel(state.detail.shotgunRole, state.detail) || '')}${state.detail.shotgunSg ? ` · ${esc(formatZnDisplay(state.detail.sgNumber ?? state.detail.shotgunSg))}` : ''}${rowClusterKey(state.detail) ? ` · Cluster ${esc(String(rowClusterKey(state.detail)))}` : ''}
         <button type="button" class="btn btn-sm zone-map-open" data-zone-id="${esc(state.detail.shotgunClusterId)}">Zone map</button></p>
+        ${zoneGuideNoteHtml(state.detail)}
         ${renderClusterRosterHtml(state.detail)}`
         : ''
     }
@@ -8532,6 +9507,13 @@ function writeSiteConfigNapLocal(nap, candidateId) {
   }
 }
 
+function siteConfigPhoneIsPlaceholder(phone) {
+  const s = String(phone || '').trim();
+  if (!s) return true;
+  if (/x/i.test(s)) return true;
+  return s.replace(/\D/g, '').length < 10;
+}
+
 /** Optional street NAP for site-config — omit incomplete address (build Zod). */
 function siteConfigAddressFromForm(primaryCity, state) {
   const street = document.getElementById('sc-edit-street')?.value?.trim() || '';
@@ -8701,9 +9683,14 @@ function businessNameFromDomainClient(domain, { primaryCity, niche } = {}) {
   }
 
   const nicheRaw = String(niche || '').trim();
+  const nicheLabel = nicheRaw
+    .split(/\s+/)
+    .filter(Boolean)
+    .map(titleWord)
+    .join(' ');
   const nicheSlug = normKey(nicheRaw);
   if (nicheSlug && rest.startsWith(nicheSlug)) {
-    parts.push(nicheRaw);
+    parts.push(nicheLabel);
     rest = rest.slice(nicheSlug.length);
   } else if (nicheRaw) {
     const nicheWords = nicheRaw.split(/\s+/).filter(Boolean);
@@ -8720,7 +9707,7 @@ function businessNameFromDomainClient(domain, { primaryCity, niche } = {}) {
       }
     }
     if (peeled.length) {
-      parts.push(...peeled);
+      parts.push(peeled.map(titleWord).join(' '));
       rest = cursor;
     }
   }
@@ -8858,6 +9845,175 @@ function writeDomainPickToNap(
   return nap;
 }
 
+function domainSuggestCity(d) {
+  const baPkg = d?.businessAddress;
+  const draft = d?.siteConfigDraft;
+  const accepted = d?.siteConfig;
+  const pack = d?.approved;
+  return String(
+    (baPkg?.city && String(baPkg.city).trim()) ||
+      (draft || accepted)?.primaryCity ||
+      pack?.primaryCity ||
+      pack?.city ||
+      '',
+  ).trim();
+}
+
+function domainSuggestNiche(d) {
+  return String(
+    d?.approved?.niche || d?.siteConfig?.niche || d?.summary?.niche || d?.niche || '',
+  ).trim();
+}
+
+function domainSuggestionSignature(rows) {
+  return (Array.isArray(rows) ? rows : [])
+    .map((row) => {
+      const host = String(row?.domain || '')
+        .trim()
+        .toLowerCase();
+      const avail = row?.available === true ? '1' : row?.available === false ? '0' : '';
+      return `${host}|${avail}|${row?.note || ''}`;
+    })
+    .join('\n');
+}
+
+const nicheDomainPatternCache = new Map();
+const nicheDomainPatternPending = new Set();
+const nicheDomainPatternFailed = new Set();
+let nicheDomainPatternEpoch = 0;
+
+function rememberNicheDomainPatterns(niche, patterns) {
+  const key = nichePatternKey(niche);
+  const list = Array.isArray(patterns)
+    ? patterns.map((item) => String(item || '').trim()).filter(Boolean)
+    : [];
+  if (key) {
+    nicheDomainPatternEpoch += 1;
+    nicheDomainPatternCache.set(key, list);
+    nicheDomainPatternFailed.delete(key);
+  }
+  return list;
+}
+
+async function loadNicheDomainPatterns(niche) {
+  const key = nichePatternKey(niche);
+  if (!key) return [];
+  if (nicheDomainPatternCache.has(key)) return nicheDomainPatternCache.get(key);
+  const epoch = nicheDomainPatternEpoch;
+  const data = await api(`/api/niche-domain-patterns?niche=${encodeURIComponent(niche)}`);
+  if (nicheDomainPatternEpoch !== epoch && nicheDomainPatternCache.has(key)) {
+    return nicheDomainPatternCache.get(key);
+  }
+  return rememberNicheDomainPatterns(niche, data?.patterns);
+}
+
+function ensureNicheDomainPatterns(niche) {
+  const key = nichePatternKey(niche);
+  if (
+    !key ||
+    nicheDomainPatternCache.has(key) ||
+    nicheDomainPatternPending.has(key) ||
+    nicheDomainPatternFailed.has(key)
+  ) {
+    return;
+  }
+  nicheDomainPatternPending.add(key);
+  loadNicheDomainPatterns(niche)
+    .catch(() => {
+      if (!nicheDomainPatternCache.has(key)) nicheDomainPatternFailed.add(key);
+    })
+    .finally(() => {
+      nicheDomainPatternPending.delete(key);
+      if (state.tab !== 'site-config') return;
+      if (nichePatternKey(domainSuggestNiche(state.detail)) !== key) return;
+      const patternInput = document.getElementById('sc-domain-niche-pattern');
+      if (
+        patternInput &&
+        document.activeElement === patternInput &&
+        patternInput.value.trim()
+      ) {
+        return;
+      }
+      renderDetail();
+    });
+}
+
+function suggestionsWithNichePatterns(suggestions, niche, city) {
+  const key = nichePatternKey(niche);
+  if (!key || !nicheDomainPatternCache.has(key) || !city) return suggestions || [];
+  return mergeNicheDomainSuggestions(suggestions || [], nicheDomainPatternCache.get(key), city);
+}
+
+async function saveNicheDomainPattern(d) {
+  const niche = domainSuggestNiche(d);
+  const raw = document.getElementById('sc-domain-niche-pattern')?.value || '';
+  if (!niche) {
+    showToast('This candidate has no niche to save a pattern on.', { tone: 'warn' });
+    return;
+  }
+  const norm = normalizeNicheDomainPattern(raw);
+  if (!norm.ok) {
+    showToast(norm.error, { tone: 'warn' });
+    return;
+  }
+  try {
+    const result = await api('/api/niche-domain-patterns', {
+      method: 'POST',
+      body: JSON.stringify({ niche, pattern: raw }),
+    });
+    const patterns = rememberNicheDomainPatterns(niche, result.patterns);
+    const city = domainSuggestCity(d);
+    const prev = siteConfigNapFromLocal(d.id);
+    const suggestions = mergeNicheDomainSuggestions(
+      prev.domainPick?.suggestions || [],
+      patterns,
+      city,
+    );
+    writeDomainPickToNap({ domainPick: { suggestions } }, d.id);
+    state.tab = 'site-config';
+    state.siteConfigOpenStep = 'domain';
+    state.siteConfigSoftCurrent = 'domain';
+    renderDetail();
+    showToast(
+      result.added
+        ? `Saved ${result.pattern} for this niche.`
+        : `${result.pattern} is already saved for this niche.`,
+    );
+  } catch (error) {
+    showToast(error.message || 'Could not save the pattern.', { tone: 'warn' });
+  }
+}
+
+async function removeNicheDomainPatternFromCandidate(d, pattern) {
+  const niche = domainSuggestNiche(d);
+  if (!niche || !pattern) return;
+  try {
+    const result = await api('/api/niche-domain-patterns/remove', {
+      method: 'POST',
+      body: JSON.stringify({ niche, pattern }),
+    });
+    const patterns = rememberNicheDomainPatterns(niche, result.patterns);
+    const city = domainSuggestCity(d);
+    const host = expandNicheDomainPattern(pattern, city);
+    const prev = siteConfigNapFromLocal(d.id);
+    const filtered = (prev.domainPick?.suggestions || []).filter((row) => {
+      const rowHost = String(row?.domain || '')
+        .trim()
+        .toLowerCase();
+      return !host || rowHost !== host;
+    });
+    const suggestions = mergeNicheDomainSuggestions(filtered, patterns, city);
+    writeDomainPickToNap({ domainPick: { suggestions } }, d.id);
+    state.tab = 'site-config';
+    state.siteConfigOpenStep = 'domain';
+    state.siteConfigSoftCurrent = 'domain';
+    renderDetail();
+    showToast('Removed that pattern from this niche.');
+  } catch (error) {
+    showToast(error.message || 'Could not remove the pattern.', { tone: 'warn' });
+  }
+}
+
 function formatPageNameList(names) {
   const list = (names || []).map((name) => String(name || '').trim()).filter(Boolean);
   if (list.length <= 1) return esc(list[0] || '');
@@ -8970,6 +10126,7 @@ function caSvcChoiceRowHtml(name, listKey) {
       <span>${esc(n)}</span>
     </label>
     <span class="ve-section-move">
+      <button type="button" class="ve-section-arrow" data-svc-remove aria-label="Remove ${esc(n)}">×</button>
       <button type="button" class="ve-section-arrow" data-svc-move="up" data-list="${esc(
         listKey,
       )}" aria-label="Move ${esc(n)} up">▲</button>
@@ -8994,6 +10151,8 @@ function refreshCaSvcListOrder(listEl) {
   if (!listEl) return;
   const rows = [...listEl.querySelectorAll('[data-svc-row]')];
   const checkedRows = rows.filter((r) => r.querySelector('.ca-svc-check')?.checked);
+  const homepageLimit = homepageServicesLimitFromReviewInput();
+  let homepageEnd = null;
   let pos = 0;
   for (const row of rows) {
     const on = Boolean(row.querySelector('.ca-svc-check')?.checked);
@@ -9001,11 +10160,23 @@ function refreshCaSvcListOrder(listEl) {
     const posEl = row.querySelector('.ve-section-pos');
     if (posEl) posEl.textContent = on ? String(++pos) : '';
     const midIdx = on ? checkedRows.indexOf(row) : -1;
+    const onHomepage = midIdx >= 0 && midIdx < homepageLimit;
+    row.classList.toggle('is-homepage', onHomepage);
+    row.classList.remove('is-homepage-end');
+    if (onHomepage) homepageEnd = row;
     const up = row.querySelector('[data-svc-move="up"]');
     const down = row.querySelector('[data-svc-move="down"]');
     if (up) up.disabled = !on || midIdx <= 0;
     if (down) down.disabled = !on || midIdx < 0 || midIdx >= checkedRows.length - 1;
   }
+  if (homepageEnd) homepageEnd.classList.add('is-homepage-end');
+}
+
+function removeCaSvcRow(btn) {
+  const row = btn?.closest?.('[data-svc-row]');
+  if (!row) return;
+  row.remove();
+  syncHomepageCardNote();
 }
 
 function moveCaSvcRow(btn) {
@@ -9086,12 +10257,82 @@ function commitCaSvcCustomInput(input) {
   if (!row) return;
   input.before(row);
   input.value = '';
-  refreshCaSvcListOrder(wrap);
+  syncHomepageCardNote();
 }
 
 function reviewServicesNiche() {
   const d = state.detail;
   return String(d?.siteConfig?.niche || d?.siteConfigDraft?.niche || d?.niche || '').trim();
+}
+
+function clampHomepageServicesLimit(raw, fallback = 8) {
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(12, Math.max(1, Math.floor(n)));
+}
+
+function homepageServicesLimitFromReviewInput() {
+  const raw = document.getElementById('ca-svc-homepage-limit')?.value;
+  if (raw == null || raw === '' || !Number.isFinite(Number(raw))) return 8;
+  return clampHomepageServicesLimit(raw);
+}
+
+/** This site’s number wins. A missing number uses the niche default, then 8. */
+function resolveHomepageServicesLimitDisplay(raw) {
+  if (raw != null && raw !== '' && Number.isFinite(Number(raw)) && Number(raw) >= 1) {
+    return { value: clampHomepageServicesLimit(raw), fromSite: true };
+  }
+  const niche = String(reviewServicesNiche() || '').trim().toLowerCase();
+  const list = state._nicheServiceList;
+  const listN = Number(list?.homepageServicesLimit);
+  const cached =
+    state._nicheServiceListFetched &&
+    String(state._nicheServiceListKey || '') === niche &&
+    String(list?.niche || '').trim().toLowerCase() === niche &&
+    Number.isFinite(listN) &&
+    listN >= 1;
+  if (cached) return { value: clampHomepageServicesLimit(listN), fromSite: false };
+  return { value: 8, fromSite: false };
+}
+
+function homepageCardNoteText(limit, residentialCount) {
+  const n = Number(residentialCount) || 0;
+  const show = n ? Math.min(n, clampHomepageServicesLimit(limit)) : 0;
+  return n
+    ? `Prefer 6 (3×2) or 8 (4×2). Currently showing ${show} of ${n} on the homepage.`
+    : 'Prefer 6 (3×2) or 8 (4×2).';
+}
+
+function syncHomepageCardNote() {
+  const root =
+    document.getElementById('ca-svc-choice-draft') ||
+    document.getElementById('ca-svc-choice-accepted');
+  if (!root) return;
+  root.querySelectorAll('.ca-svc-choice-list').forEach((listEl) => refreshCaSvcListOrder(listEl));
+  const input = document.getElementById('ca-svc-homepage-limit');
+  const note = root.querySelector('[data-homepage-card-note]');
+  if (!input || !note) return;
+  const n = root.querySelectorAll(
+    '.ca-svc-choice-list[data-list="residential"] .ca-svc-check:checked',
+  ).length;
+  note.textContent = homepageCardNoteText(input.value, n);
+}
+
+function applyFetchedNicheHomepageLimit(list) {
+  const input = document.getElementById('ca-svc-homepage-limit');
+  if (!input || input.dataset.fromSite === '1' || input.dataset.touched === '1') return;
+  const n = Number(list?.homepageServicesLimit);
+  if (!Number.isFinite(n) || n < 1) return;
+  input.value = String(clampHomepageServicesLimit(n));
+  syncHomepageCardNote();
+}
+
+function homepageServicesLimitPatchValue() {
+  const input = document.getElementById('ca-svc-homepage-limit');
+  if (!input) return undefined;
+  const n = Number(input.value);
+  if (!Number.isFinite(n)) return undefined;
+  return clampHomepageServicesLimit(n);
 }
 
 function visibleNicheServiceNames(ranked, removed, limit = 12) {
@@ -9146,7 +10387,7 @@ function replaceCaSvcChoiceList(listKey, names) {
   const custom = listEl.querySelector('.ca-svc-custom');
   if (custom) custom.insertAdjacentHTML('beforebegin', html);
   else listEl.insertAdjacentHTML('beforeend', html);
-  refreshCaSvcListOrder(listEl);
+  syncHomepageCardNote();
 }
 
 function ensureNicheServiceList(niche) {
@@ -9199,7 +10440,80 @@ function buildNicheSourceNote(built) {
   return `${source}Apply replaces the names on this site. Save niche default if you want to keep this master. Accept is still a separate step. Remove a name to bring the next ranked name into the list.`;
 }
 
+function wireHomepageServicesLimit() {
+  const input = document.getElementById('ca-svc-homepage-limit');
+  const setBtn = document.getElementById('niche-svc-set-limit');
+  if (input && !input.dataset.wired) {
+    input.dataset.wired = '1';
+    input.addEventListener('input', () => {
+      input.dataset.touched = '1';
+      syncHomepageCardNote();
+    });
+  }
+  if (!setBtn || setBtn.dataset.wired) return;
+  setBtn.dataset.wired = '1';
+  setBtn.addEventListener('click', async () => {
+    const currentNiche = reviewServicesNiche();
+    if (!currentNiche) {
+      await showModal({
+        title: 'No niche',
+        confirmLabel: 'OK',
+        hideCancel: true,
+        bodyHtml: '<p>This site has no niche to save a card count for.</p>',
+      });
+      return;
+    }
+    const limit = homepageServicesLimitPatchValue();
+    if (limit == null) {
+      await showModal({
+        title: 'Card count needed',
+        confirmLabel: 'OK',
+        hideCancel: true,
+        bodyHtml: '<p>Enter a homepage card count from 1 to 12.</p>',
+      });
+      return;
+    }
+    const ok = await showModal({
+      title: `Set ${limit} homepage cards for ${currentNiche}?`,
+      confirmLabel: 'Set default',
+      bodyHtml:
+        '<p>This saves the number on the niche and writes it onto every existing site config in this niche. Page copy stays as it is. The homepage uses the new count on the next build.</p>',
+    });
+    if (!ok) return;
+    setBtn.disabled = true;
+    try {
+      const data = await api('/api/niche-service-lists/homepage-limit', {
+        method: 'POST',
+        body: JSON.stringify({ niche: currentNiche, homepageServicesLimit: limit }),
+      });
+      state._nicheServiceList = data.list || null;
+      state._nicheServiceListKey = currentNiche.trim().toLowerCase();
+      state._nicheServiceListFetched = true;
+      syncNicheServiceLoadButton(state._nicheServiceList);
+      const detail = state.detail;
+      if (detail?.siteConfigDraft) detail.siteConfigDraft.homepageServicesLimit = limit;
+      if (detail?.siteConfig) detail.siteConfig.homepageServicesLimit = limit;
+      const field = document.getElementById('ca-svc-homepage-limit');
+      if (field) field.dataset.fromSite = '1';
+      const n = data.applied?.files?.length || 0;
+      announceBanner(
+        `Homepage cards for ${data.list?.niche || currentNiche} are ${limit}. Updated ${n} site config${n === 1 ? '' : 's'}.`,
+      );
+    } catch (error) {
+      await showModal({
+        title: 'Save failed',
+        confirmLabel: 'OK',
+        hideCancel: true,
+        bodyHtml: `<p>${esc(error.message)}</p>`,
+      });
+    } finally {
+      setBtn.disabled = false;
+    }
+  });
+}
+
 function wireNicheServiceListButtons() {
+  wireHomepageServicesLimit();
   const loadBtn = document.getElementById('niche-svc-load');
   const buildBtn = document.getElementById('niche-svc-build');
   const saveBtn = document.getElementById('niche-svc-save');
@@ -9209,12 +10523,15 @@ function wireNicheServiceListButtons() {
     loadBtn.disabled = true;
     buildBtn.disabled = true;
     saveBtn.disabled = true;
+    const setBtn = document.getElementById('niche-svc-set-limit');
+    if (setBtn) setBtn.disabled = true;
     return;
   }
   ensureNicheServiceList(niche)
     .then((list) => {
       if (reviewServicesNiche() !== niche) return;
       syncNicheServiceLoadButton(list);
+      applyFetchedNicheHomepageLimit(list);
     })
     .catch(() => {
       if (reviewServicesNiche() !== niche) return;
@@ -9386,7 +10703,7 @@ function wireServicesChoiceInputs() {
     document.getElementById('ca-svc-choice-accepted');
   if (!root || root.dataset.svcWired === '1') return;
   root.dataset.svcWired = '1';
-  root.querySelectorAll('.ca-svc-choice-list').forEach((listEl) => refreshCaSvcListOrder(listEl));
+  syncHomepageCardNote();
   root.addEventListener('keydown', (e) => {
     if (e.key !== 'Enter') return;
     const t = e.target;
@@ -9402,9 +10719,15 @@ function wireServicesChoiceInputs() {
   root.addEventListener('change', (e) => {
     const t = e.target;
     if (!t?.classList?.contains('ca-svc-check')) return;
-    refreshCaSvcListOrder(t.closest('.ca-svc-choice-list'));
+    syncHomepageCardNote();
   });
   root.addEventListener('click', (e) => {
+    const removeBtn = e.target?.closest?.('[data-svc-remove]');
+    if (removeBtn && root.contains(removeBtn)) {
+      e.preventDefault();
+      removeCaSvcRow(removeBtn);
+      return;
+    }
     const btn = e.target?.closest?.('[data-svc-move]');
     if (!btn || !root.contains(btn)) return;
     e.preventDefault();
@@ -9415,16 +10738,18 @@ function wireServicesChoiceInputs() {
 
 /**
  * Easy-read residential vs commercial lists + Accept choices (forever Config UX).
- * @param {{ residential: string[], commercial: string[], mode: 'draft'|'accepted', asStepBody?: boolean }} opts
+ * @param {{ residential: string[], commercial: string[], mode: 'draft'|'accepted', asStepBody?: boolean, homepageServicesLimit?: number }} opts
  */
 function siteConfigServicesChoiceHtml({
   residential = [],
   commercial = [],
   mode = 'draft',
   asStepBody = false,
+  homepageServicesLimit,
 } = {}) {
   const res = (residential || []).map((n) => String(n || '').trim()).filter(Boolean);
   const com = (commercial || []).map((n) => String(n || '').trim()).filter(Boolean);
+  const shownLimit = resolveHomepageServicesLimitDisplay(homepageServicesLimit);
   const bothId =
     mode === 'accepted' ? 'site-config-accept-keep-commercial' : 'site-config-accept-with-commercial';
   const residentialId =
@@ -9441,7 +10766,14 @@ function siteConfigServicesChoiceHtml({
         <button type="button" class="btn" id="niche-svc-load" disabled data-tip="No saved list for this niche yet.">Load niche default</button>
         <button type="button" class="btn" id="niche-svc-build" data-tip="Rank names from site lists and each city's research suggestions. Apply replaces the checkboxes. Save stores the master.">Build from niche</button>
         <button type="button" class="btn" id="niche-svc-save" data-tip="Save the checked residential and commercial names as this niche’s default.">Save niche default</button>
-      </div>`;
+      </div>
+      <div class="ca-svc-homepage-limit">
+        <label>Homepage “What we do” cards
+          <input id="ca-svc-homepage-limit" type="number" min="1" max="12" value="${esc(String(shownLimit.value))}" data-from-site="${shownLimit.fromSite ? '1' : '0'}" data-tip="Prefer 6 or 8 homepage cards. Service pages are still created for every residential name." />
+        </label>
+        <button type="button" class="btn" id="niche-svc-set-limit" data-tip="Save this card count as the niche default and write it onto every site config in this niche.">Set as Niche Default</button>
+      </div>
+      <p class="muted small" data-homepage-card-note>${esc(homepageCardNoteText(shownLimit.value, res.length))}</p>`;
 
   const heading = asStepBody
     ? ''
@@ -9636,8 +10968,12 @@ function baSanitizeListedSuite(raw) {
   const s = String(raw || '').trim();
   if (!s || /^STE-\d+$/i.test(s)) return '';
   const m = s.match(/\b(?:ste|suite|unit|#)\.?\s*([a-z0-9][a-z0-9-]*)\b/i);
-  if (!m || /^(?:floor|fl|ground|retail|shell|build)$/i.test(m[1])) return '';
-  return `Ste ${m[1]}`;
+  const suiteIdRe = /^(?:\d+[a-z]?|[a-z]\d*|[a-z]-\d+[a-z]?|\d+-[a-z]\d*)$/i;
+  const id = (m ? m[1] : '') || (suiteIdRe.test(s) ? s : '');
+  if (!id || /^(?:floor|fl|ground|retail|shell|build)$/i.test(id)) return '';
+  if (!suiteIdRe.test(id)) return '';
+  if (/^(?:of|to|in|or|on|at|by|an|the|and|for)$/i.test(id)) return '';
+  return `Ste ${id}`;
 }
 
 function baComposeNapStreet(street, suite) {
@@ -10243,7 +11579,7 @@ function renderSiteConfig() {
     panelHowToHtml({
       label: 'Site config',
       info: apiMode
-        ? '1 Colors & fonts → 2 Address → 3 Domain → 4 Business details (Fill site-config) → 5 Review services & Accept → 6 Service area → 7 Provision phone → Content.'
+        ? '1 Colors & fonts → 2 Address → 3 Domain → 4 Business details (Apply changes) → 5 Review services → 6 Service area → 7 Provision phone → Content.'
         : '1 Colors & fonts → 2 Address → 3 Domain → 4 Business details → 5 Paste & edit draft → 6 Review services & Accept → 7 Service area → 8 Provision phone → Content.',
     }),
   );
@@ -10322,12 +11658,7 @@ function renderSiteConfig() {
       bodyHtml: `
         <h4>Site colors</h4>
         <div class="site-config-palette">
-          <label data-tip="Named brand palette — Apply writes primary / accent / ink">
-            Palette
-            <select id="sc-brand-palette">
-              ${paletteOptionsHtml(brandForLook)}
-            </select>
-          </label>
+          ${palettePickerHtml(brandForLook)}
           ${paletteSwatchesHtml(brandForLook)}
         </div>
         <h4>Text font</h4>
@@ -10821,22 +12152,72 @@ function renderSiteConfig() {
   // Form prefills may use per-candidate NAP; city/state fall back to finder geography.
   const preCity = peeledSelCity.city || peeledNapCity.city || baSel?.city || nap.addressCity || addrCity;
   const preState = baSel?.state || nap.addressState || addrState;
+  const detailsBasis = draft || accepted || null;
+  const detailsAddr = detailsBasis?.address || {};
+  const detailsText = (draftVal, acceptedVal, fallback = '') => {
+    const fromDraft = String(draftVal ?? '').trim();
+    if (draft && fromDraft) return fromDraft;
+    const fromAccepted = String(acceptedVal ?? '').trim();
+    if (fromAccepted) return fromAccepted;
+    return draft ? '' : String(fallback ?? '');
+  };
+  const formDomain = detailsText(draft?.domain, accepted?.domain, nap.domain || '');
+  const formBusiness = detailsText(draft?.businessName, accepted?.businessName, nap.businessName || '');
+  const formPhoneRaw = detailsText(draft?.phone, accepted?.phone, nap.phone || '');
+  const formPhone =
+    siteConfigPhoneIsPlaceholder(formPhoneRaw) &&
+    accepted?.phone &&
+    !siteConfigPhoneIsPlaceholder(accepted.phone)
+      ? accepted.phone
+      : formPhoneRaw;
+  const formEmail = detailsText(draft?.email, accepted?.email, nap.email || '');
+  const formStreet = detailsText(detailsAddr.street, accepted?.address?.street, preStreet);
+  const formSuite = detailsText(detailsAddr.suite, accepted?.address?.suite, preSuite);
+  const formCity = detailsText(detailsAddr.city || draft?.primaryCity, accepted?.address?.city || accepted?.primaryCity, preCity);
+  const formState = detailsText(detailsAddr.state || draft?.state, accepted?.address?.state || accepted?.state, preState);
+  const formZip = detailsText(detailsAddr.zip, accepted?.address?.zip, preZip);
+  const formTagline = detailsText(draft?.tagline, accepted?.tagline, '');
+  const formCta = detailsText(draft?.primaryCta, accepted?.primaryCta, '');
+  const formNiche = detailsText(draft?.niche, accepted?.niche, pack?.niche || '');
+  const formRadius = detailsText(
+    draft?.serviceRadiusMiles,
+    accepted?.serviceRadiusMiles,
+    nap.radiusMiles || '15',
+  );
+  const suburbList = (src) => (Array.isArray(src?.targetSuburbs) ? src.targetSuburbs.filter(Boolean) : []);
+  const formSuburbs = (
+    suburbList(draft).length ? suburbList(draft) : suburbList(accepted)
+  ).join('; ');
+  const detailPlaceholders = (draft?._ops?.placeholders || []).filter((name) => name !== 'phone');
 
   const domainPick =
     nap.domainPick && typeof nap.domainPick === 'object' ? nap.domainPick : {};
   let domainSuggestions = Array.isArray(domainPick.suggestions)
     ? domainPick.suggestions
     : [];
-  const nicheForDomains = String(
-    pack?.niche || accepted?.niche || d?.summary?.niche || d?.niche || '',
-  ).trim();
+  const nicheForDomains = domainSuggestNiche(d);
+  ensureNicheDomainPatterns(nicheForDomains);
   if (!domainSuggestions.length && addrCity && nicheForDomains) {
-    const local = suggestExactMatchDomains({ city: addrCity, niche: nicheForDomains });
-    if (local.length) {
-      writeDomainPickToNap({ domainPick: { suggestions: local } }, d?.id);
-      domainSuggestions = local;
-    }
+    domainSuggestions = suggestExactMatchDomains({ city: addrCity, niche: nicheForDomains });
   }
+  const withNichePatterns = suggestionsWithNichePatterns(
+    domainSuggestions,
+    nicheForDomains,
+    addrCity,
+  );
+  if (
+    d?.id &&
+    withNichePatterns.length &&
+    domainSuggestionSignature(withNichePatterns) !== domainSuggestionSignature(domainPick.suggestions)
+  ) {
+    writeDomainPickToNap({ domainPick: { suggestions: withNichePatterns } }, d.id);
+  }
+  domainSuggestions = withNichePatterns;
+  const nichePatternKeyForUi = nichePatternKey(nicheForDomains);
+  const nichePatternsKnown = nicheDomainPatternCache.has(nichePatternKeyForUi);
+  const nichePatterns = nichePatternsKnown
+    ? nicheDomainPatternCache.get(nichePatternKeyForUi)
+    : [];
   const selectedDomain = normalizeDomainHostname(domainPick.selectedDomain || '');
   const customDomain = String(domainPick.customDomain || '').trim();
   const domainChoiceReady = Boolean(
@@ -10856,7 +12237,12 @@ function renderSiteConfig() {
                 : '';
           const note = row.note ? ` — ${esc(row.note)}` : '';
           return `<li class="sc-domain-pick-row">
-            <span class="sc-domain-pick-label"><code>${esc(host)}</code>${esc(avail)}${note}</span>
+            <span class="sc-domain-pick-main">
+              <button type="button" class="sc-domain-copy" data-domain="${esc(host)}" data-tip="Copy domain" aria-label="Copy ${esc(host)}">
+                <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true" focusable="false"><rect x="5.5" y="5.5" width="8" height="8" rx="1.2" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M4.5 10.5H3.2A1.2 1.2 0 0 1 2 9.3V3.2A1.2 1.2 0 0 1 3.2 2h6.1a1.2 1.2 0 0 1 1.2 1.2V4.5" fill="none" stroke="currentColor" stroke-width="1.4"/></svg>
+              </button>
+              <span class="sc-domain-pick-label"><code>${esc(host)}</code>${esc(avail)}${note}</span>
+            </span>
             <label class="sc-domain-pick-toggle" data-tip="Select this domain (only one)">
               <input type="checkbox" class="sc-domain-pick-opt" data-domain="${esc(host)}" ${
                 on ? 'checked' : ''
@@ -10867,6 +12253,45 @@ function renderSiteConfig() {
         })
         .join('')}</ul>`
         : `<p class="muted small">Need city and niche on the candidate to build Exact Match hosts.</p>`;
+
+  const nichePatternRows = nichePatterns
+    .map((pattern) => {
+      return `<li class="sc-domain-niche-pattern-row">
+        <code>${esc(pattern)}</code>
+        <button type="button" class="btn sc-domain-niche-pattern-remove" data-pattern="${esc(pattern)}" data-tip="Stop adding this host to every city in this niche">Remove</button>
+      </li>`;
+    })
+    .join('');
+  const nichePatternStatus = !nicheForDomains
+    ? 'This candidate has no niche.'
+    : nicheDomainPatternFailed.has(nichePatternKeyForUi)
+      ? 'Saved patterns could not be loaded. Refresh Rover and try again.'
+      : !nichePatternsKnown
+        ? 'Loading saved patterns…'
+        : nichePatterns.length
+          ? ''
+          : 'No saved patterns for this niche yet.';
+  const nichePatternHtml = `<div class="sc-domain-niche-patterns">
+    <label>
+      <span class="label-with-tip-head">
+        <span>Save a pattern for this niche</span>
+        <button type="button" class="tip-info" data-tip="[City] becomes the primary city slug. The host is added for every city in ${esc(nicheForDomains || 'this niche')}." aria-label="About niche domain patterns">i</button>
+      </span>
+      <span class="sc-domain-niche-pattern-entry">
+        <input id="sc-domain-niche-pattern" type="text" placeholder="[City]SewerPros.com" ${
+          nicheForDomains ? '' : 'disabled'
+        } />
+        <button type="button" class="btn" id="sc-domain-niche-pattern-add" ${
+          nicheForDomains ? '' : 'disabled'
+        }>Add</button>
+      </span>
+    </label>
+    ${
+      nichePatternRows
+        ? `<ul class="sc-domain-niche-pattern-list">${nichePatternRows}</ul>`
+        : `<p class="muted small sc-domain-niche-pattern-status">${esc(nichePatternStatus)}</p>`
+    }
+  </div>`;
 
   const domainBusy = Boolean(state.claudeBusy && state.activeAct === 'domain-pick');
   const domainGateOk = ready || f.hasApproved;
@@ -10913,6 +12338,7 @@ function renderSiteConfig() {
         ${domainClaudeHtml}
         <div class="sc-domain-pick" style="margin-top:0.65rem">
           <h4>Suggestions</h4>
+          ${nichePatternHtml}
           ${domainRowsHtml}
           <label class="sc-domain-custom" style="display:block;margin-top:0.55rem">
             <span class="label-with-tip-head">
@@ -10922,7 +12348,7 @@ function renderSiteConfig() {
             <input id="sc-domain-custom" type="text" value="${esc(customDomain)}" placeholder="yourdomain.com" />
           </label>
           <div class="narrative-actions" style="margin-top:0.65rem;flex-wrap:wrap;gap:0.4rem">
-            <a class="btn" href="https://dash.cloudflare.com/" target="_blank" rel="noopener noreferrer" id="sc-domain-cloudflare" data-tip="Open Cloudflare Dashboard — register or transfer the domain (Registrar), then Continue">Buy on Cloudflare</a>
+            <a class="btn" href="https://dash.cloudflare.com/?to=/:account/domains/registrations/purchase" target="_blank" rel="noopener noreferrer" id="sc-domain-cloudflare" data-tip="Open the Cloudflare Registrar purchase page, then Continue">Buy on Cloudflare</a>
             <button type="button" class="btn primary" id="sc-domain-continue" data-tip="Save chosen domain into Business details" ${
               domainChoiceReady ? '' : 'disabled'
             }>Continue</button>
@@ -10934,11 +12360,15 @@ function renderSiteConfig() {
   const scBusy = Boolean(state.claudeBusy && state.activeAct === 'site-config');
   const scGenerateLabel = scBusy ? 'Filling…' : draft ? 'Re-run' : 'Fill site-config';
   const detailsClaudeHtml = apiMode
-    ? `<div class="narrative-actions" style="justify-content:flex-end">
-          <button type="button" class="btn primary" id="sc-site-config-generate" data-tip="Fill site-config draft via the Anthropic API (confirm cost first). Accept stays in Review services." ${
+    ? `<div class="narrative-actions" style="justify-content:flex-end;flex-wrap:wrap;gap:0.4rem">
+          <button type="button" class="btn" id="sc-site-config-generate" data-tip="Fill this form via the Anthropic API (confirm cost first). Apply changes writes it onto the site." ${
             (ready || f.hasApproved) && !scBusy ? '' : 'disabled'
           }${scBusy ? ' aria-busy="true"' : ''}>${esc(scGenerateLabel)}</button>
-        </div>`
+          <button type="button" class="btn primary" id="sc-apply-details" data-tip="Write this form onto the site, including the address. Then refresh the preview." ${
+            scBusy ? 'disabled' : ''
+          }>Apply changes</button>
+        </div>
+        <p class="disc-tool-blurb">Apply changes writes this form onto the site. Refresh the preview. The first choice of services is still Review services.</p>`
     : `<div class="narrative-actions" style="justify-content:flex-end">
           <button type="button" class="btn primary" id="sc-copy-prompt" data-tip="Copy Claude.ai site-config prompt (stays on this step)" ${ready || f.hasApproved ? '' : 'disabled'}>Copy site-config prompt</button>
           ${openClaudeAiBtnHtml({
@@ -10959,13 +12389,6 @@ function renderSiteConfig() {
   }
   if (draft) {
     const suburbsText = Array.isArray(draft.targetSuburbs) ? draft.targetSuburbs.join('; ') : '';
-    const servicesText = Array.isArray(draft.services) ? draft.services.join('; ') : '';
-    const commercialText = Array.isArray(draft.commercialServices)
-      ? draft.commercialServices.join('; ')
-      : '';
-    const svcN = Array.isArray(draft.services) ? draft.services.length : 0;
-    const lim = Number(draft.homepageServicesLimit ?? 8);
-    const showCards = svcN ? Math.min(svcN, Number.isFinite(lim) ? lim : 8) : 0;
     const phoneStep = apiMode ? '7' : '8';
     draftEditParts.push(`
       <div class="narrative-actions" style="margin-top:1rem">
@@ -10992,14 +12415,6 @@ function renderSiteConfig() {
         <label>Street (optional) <input id="sc-edit-street" type="text" value="${esc(draft.address?.street || '')}" placeholder="Only if real — never invent" data-tip="Optional real street for LocalBusiness schema. Leave blank if unknown." /></label>
         <label>ZIP (optional) <input id="sc-edit-zip" type="text" value="${esc(draft.address?.zip || '')}" placeholder="e.g. 84084" data-tip="Optional ZIP with street. Leave blank if unknown." /></label>
         <label class="site-config-span2">Target suburbs <input id="sc-edit-suburbs" type="text" value="${esc(suburbsText)}" placeholder="City A; City B" /></label>
-        <label class="site-config-span2">Services (each gets a page) <input id="sc-edit-services" type="text" value="${esc(servicesText)}" placeholder="Service A; Service B" data-tip="Every name here gets a service page" /></label>
-        <label class="site-config-span2">Commercial services (optional) <input id="sc-edit-commercial" type="text" value="${esc(commercialText)}" placeholder="Commercial A; Commercial B" data-tip="Homepage commercial split — finalize with Accept in Review services" /></label>
-        <label class="site-config-span2">Homepage “What we do” cards
-          <input id="sc-edit-svc-limit" type="number" min="1" max="12" value="${esc(String(draft.homepageServicesLimit ?? 8))}" data-tip="Prefer 6 or 8 homepage cards. Service pages are still created for every Services name." />
-          <span class="muted" style="display:block;margin-top:0.35rem;font-size:0.85em;font-weight:400">Prefer 6 (3×2) or 8 (4×2).${
-            svcN ? ` Currently showing ${esc(String(showCards))} of ${esc(String(svcN))} on homepage.` : ''
-          }</span>
-        </label>
         <label>Turnstile site key <input id="sc-edit-turnstile" type="text" value="${esc(draft.turnstileSiteKey || '')}" placeholder="optional — existing sites only" /></label>
       </div>
       <div class="narrative-actions" style="justify-content:flex-end;margin-top:1rem">
@@ -11017,37 +12432,42 @@ function renderSiteConfig() {
       open: openId === 'details',
       current: currentId === 'details' && !(apiMode ? Boolean(draft || accepted) : detailsDone),
       info: apiMode
-        ? 'Domain comes from step 3 when set. Fill name, email, and radius. Phone is optional here — ranking number comes in step 7. Address comes from step 2 when set. Fill site-config loads a draft; Accept is in Review services.'
+        ? 'One form for the name, address, and contact details on the site. Apply changes writes them. Review services only chooses the service lists. Phone can stay blank here — the ranking number is step 7.'
         : 'Domain comes from step 3 when set. Fill name, email, and radius. Phone is optional here — ranking number comes in step 8. Address comes from step 2 when set. Copy site-config prompt, then Paste.',
       bodyHtml: `
         <p class="disc-tool-blurb">${
           apiMode
-            ? 'Seeds the Fill site-config prompt and fills blanks if Claude leaves them. Does not Accept.'
+            ? 'These fields are what the site shows. Fill site-config fills blanks. Apply changes writes them onto the site.'
             : 'Used when you copy the prompt and merged into the draft if Claude leaves blanks.'
         }</p>
+        ${
+          apiMode && detailPlaceholders.length
+            ? `<div class="callout warn">Still need filling: <code>${esc(detailPlaceholders.join(', '))}</code></div>`
+            : ''
+        }
         <div class="site-config-nap">
           <label>
             <span class="label-with-tip-head">
               <span>Domain</span>
               <button type="button" class="tip-info" data-tip="Public hostname without https:// (e.g. yourdomain.com). Prefills from Domain step." aria-label="About Domain">i</button>
             </span>
-            <input id="sc-domain" type="text" value="${esc(nap.domain || '')}" placeholder="yourdomain.com" />
+            <input id="sc-domain" type="text" value="${esc(formDomain)}" placeholder="yourdomain.com" />
           </label>
           <label>
             <span class="label-with-tip-head">
               <span>Business name</span>
               <button type="button" class="tip-info" data-tip="Customer-facing brand name on the site." aria-label="About Business name">i</button>
             </span>
-            <input id="sc-business" type="text" value="${esc(nap.businessName || '')}" placeholder="Brand LLC" />
+            <input id="sc-business" type="text" value="${esc(formBusiness)}" placeholder="Brand LLC" />
           </label>
           <label>
             <span class="label-with-tip-head">
               <span>Phone</span>
-              <button type="button" class="tip-info" data-tip="Optional for the Claude prompt. Your ranking number is set in step ${
+              <button type="button" class="tip-info" data-tip="Optional here. A ranking number from step ${
                 apiMode ? '7' : '8'
-              } (Provision phone) and replaces this on the live site-config." aria-label="About Phone">i</button>
+              } is kept when this field is blank or still the placeholder." aria-label="About Phone">i</button>
             </span>
-            <input id="sc-phone" type="text" value="${esc(formatDisplayPhone(nap.phone || ''))}" placeholder="Optional — provision in step ${
+            <input id="sc-phone" type="text" value="${esc(formatDisplayPhone(formPhone))}" placeholder="Optional — provision in step ${
               apiMode ? '7' : '8'
             }" />
           </label>
@@ -11056,44 +12476,57 @@ function renderSiteConfig() {
               <span>Email</span>
               <button type="button" class="tip-info" data-tip="Public site leads address (usually leads@yourdomain.com) — shown in footer, contact, and schema. Not your personal Gmail." aria-label="About Email">i</button>
             </span>
-            <input id="sc-email" type="email" value="${esc(nap.email || '')}" placeholder="leads@yourdomain.com" />
-          </label>
-          <label class="site-config-radius">
-            <span class="label-with-tip-head">
-              <span>Radius (mi)</span>
-              <button type="button" class="tip-info" data-tip="Default radius seed for Service area map." aria-label="About Radius">i</button>
-            </span>
-            <input id="sc-radius" type="text" value="${esc(nap.radiusMiles || '15')}" />
+            <input id="sc-email" type="email" value="${esc(formEmail)}" placeholder="leads@yourdomain.com" />
           </label>
           <label class="site-config-span2">
             <span class="label-with-tip-head">
               <span>Street</span>
               <button type="button" class="tip-info" data-tip="GBP Address Line 1 — street only, no suite. Leave blank to omit LocalBusiness street." aria-label="About Street">i</button>
             </span>
-            <input id="sc-street" type="text" value="${esc(preStreet)}" placeholder="1221 E University Dr" />
+            <input id="sc-street" type="text" value="${esc(formStreet)}" placeholder="1221 E University Dr" />
           </label>
           <label class="site-config-span2">
             <span class="label-with-tip-head">
               <span>Address line 2</span>
               <button type="button" class="tip-info" data-tip="GBP Address Line 2 — listed suite only (Ste 3). Leave blank when the listing has no suite." aria-label="About Address line 2">i</button>
             </span>
-            <input id="sc-suite" type="text" value="${esc(preSuite)}" placeholder="Ste 3" />
+            <input id="sc-suite" type="text" value="${esc(formSuite)}" placeholder="Ste 3" />
           </label>
           <label>
             <span>City</span>
-            <input id="sc-addr-city" type="text" value="${esc(preCity)}" />
+            <input id="sc-addr-city" type="text" value="${esc(formCity)}" />
           </label>
           <label>
             <span>State</span>
-            <input id="sc-addr-state" type="text" value="${esc(preState)}" maxlength="2" />
+            <input id="sc-addr-state" type="text" value="${esc(formState)}" maxlength="2" />
           </label>
           <label>
             <span>ZIP</span>
-            <input id="sc-zip" type="text" value="${esc(preZip)}" placeholder="00000" />
+            <input id="sc-zip" type="text" value="${esc(formZip)}" placeholder="00000" />
           </label>
+          ${
+            apiMode
+              ? `<label class="site-config-span2">Tagline <input id="sc-tagline" type="text" value="${esc(formTagline)}" /></label>
+          <label>Primary CTA <input id="sc-primary-cta" type="text" value="${esc(formCta)}" /></label>
+          <label>Niche <input id="sc-niche" type="text" value="${esc(formNiche)}" /></label>
+          <label class="site-config-radius">
+            <span class="label-with-tip-head">
+              <span>Radius (mi)</span>
+              <button type="button" class="tip-info" data-tip="Default radius seed for Service area map." aria-label="About Radius">i</button>
+            </span>
+            <input id="sc-radius" type="text" value="${esc(formRadius)}" />
+          </label>
+          <label class="site-config-span2">Target suburbs <input id="sc-suburbs" type="text" value="${esc(formSuburbs)}" placeholder="City A; City B" /></label>`
+              : `<label class="site-config-radius">
+            <span class="label-with-tip-head">
+              <span>Radius (mi)</span>
+              <button type="button" class="tip-info" data-tip="Default radius seed for Service area map." aria-label="About Radius">i</button>
+            </span>
+            <input id="sc-radius" type="text" value="${esc(formRadius || nap.radiusMiles || '15')}" />
+          </label>`
+          }
         </div>
-        ${detailsClaudeHtml}
-        ${apiMode ? draftEditParts.join('') : ''}`,
+        ${detailsClaudeHtml}`,
     }),
   );
 
@@ -11134,6 +12567,7 @@ function renderSiteConfig() {
         commercial: accepted.commercialServices || [],
         mode: 'accepted',
         asStepBody: true,
+        homepageServicesLimit: accepted.homepageServicesLimit,
       })
     : draft
       ? siteConfigServicesChoiceHtml({
@@ -11141,6 +12575,7 @@ function renderSiteConfig() {
           commercial: draft.commercialServices || [],
           mode: 'draft',
           asStepBody: true,
+          homepageServicesLimit: draft.homepageServicesLimit,
         })
       : lockedUntilDraft;
 
@@ -11231,12 +12666,33 @@ function renderSiteConfig() {
   return parts.join('');
 }
 
-function panelHowToHtml({ label, info }) {
+function websiteLaunchNoteHidden(candidateId) {
+  const id = String(candidateId || '').trim();
+  if (!id) return false;
+  try {
+    return localStorage.getItem(`rover.websiteLaunchNoteHidden:${id}`) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function setWebsiteLaunchNoteHidden(candidateId, hidden) {
+  const id = String(candidateId || '').trim();
+  if (!id) return;
+  try {
+    localStorage.setItem(`rover.websiteLaunchNoteHidden:${id}`, hidden ? '1' : '0');
+  } catch {
+    /* ignore */
+  }
+}
+
+function panelHowToHtml({ label, info, extraHtml = '' }) {
   return `<div class="panel-how-to">
     <span class="panel-how-to-label">${esc(label)}</span>
     <button type="button" class="tip-info" data-tip="${esc(info)}" aria-label="About ${esc(
       label,
     )}">i</button>
+    ${extraHtml}
   </div>`;
 }
 
@@ -11347,6 +12803,13 @@ function contentStepOrder({ photosOn = true, apiMode = false } = {}) {
   return CONTENT_STEP_ORDER;
 }
 const WEBSITE_STEP_ORDER = ['logoMap', 'images', 'prepare', 'launch', 'indexing'];
+
+/** Leave Site-Config for Content. Render opens the first incomplete Content step. */
+function openContentAfterSiteConfig() {
+  state.tab = 'content';
+  state.contentSoftCurrent = null;
+  state.contentFollowCurrent = undefined;
+}
 
 /** Force open + pulse to stepId (Copy / handoff) without waiting for durable done. */
 function advancePanelStep(panel, stepId) {
@@ -11786,6 +13249,36 @@ async function savePhotoGroupFromUi(candidateId, { refresh, nextStep, tab } = {}
   }
 }
 
+async function replaceNicheMasterFromUi(candidateId, { refresh, nextStep, tab } = {}) {
+  const niche = state.detail?.siteConfig?.niche || state.detail?.config?.niche || 'this niche';
+  const ok = await showModal({
+    title: 'Replace master?',
+    confirmLabel: 'Replace',
+    danger: true,
+    bodyHtml: `<p>Replace the <strong>${esc(
+      niche,
+    )}</strong> master with this site’s current Review images? The photos in the current master are removed.</p>`,
+  });
+  if (!ok) return;
+  try {
+    const result = await withReviewImagesWork({ label: 'Replacing master…' }, () =>
+      api(`/api/candidates/${encodeURIComponent(candidateId)}/photo-groups`, {
+        method: 'POST',
+        body: JSON.stringify({ asMaster: true }),
+      }),
+    );
+    if (refresh) await refresh(result.candidate, nextStep, tab);
+    showToast(`Replaced the ${result.group?.niche || niche} master.`);
+  } catch (error) {
+    await showModal({
+      title: 'Replace master failed',
+      confirmLabel: 'OK',
+      hideCancel: true,
+      bodyHtml: `<p>${esc(error.message)}</p>`,
+    });
+  }
+}
+
 async function loadPhotoGroupFromUi(
   candidateId,
   selectId,
@@ -11818,7 +13311,7 @@ async function loadPhotoGroupFromUi(
     });
     if (!ok) return;
     if (
-      !(await confirmLaunchedSiteChange(attach ? 'Attach photo group' : 'Load photo group'))
+      !(await confirmLaunchedSiteChange(attach ? 'Attach photo group' : 'Load photo group', { image: true }))
     ) {
       return;
     }
@@ -11938,7 +13431,7 @@ function locationHealNoteHtml(heals) {
   const rows = Array.isArray(heals) ? heals : [];
   if (!rows.length) return '';
   const bits = rows.map((h) => {
-    const file = String(h.file || '').replace(/^src\/content\/(?:locations|services)\//i, '');
+    const file = String(h.file || '').replace(/^src\/content\/(?:locations|services|pages)\//i, '');
     return `${h.field} ${h.value} on ${file}`;
   });
   return `<p class="muted">Auto-filled: ${esc(bits.join('; '))}</p>`;
@@ -12255,14 +13748,20 @@ function roverJobOverlayHtml({
   detailId,
   stopId,
   ariaLabel,
+  className = '',
+  detail = 'Starting…',
 } = {}) {
   const items = (phases || [])
     .map((p) => `<li ${phaseAttr}="${esc(p)}">${esc(p)}</li>`)
     .join('');
+  const phaseList = items
+    ? `<ol class="ws-overlay-phases" id="${esc(phasesId)}">${items}</ol>`
+    : '';
   const stop = stopId
     ? `<button type="button" class="btn" id="${esc(stopId)}">Stop</button>`
     : '';
-  return `<div id="${esc(overlayId)}" class="content-claude-job-overlay hidden" hidden aria-hidden="true">
+  const extraClass = className ? ` ${className}` : '';
+  return `<div id="${esc(overlayId)}" class="content-claude-job-overlay${extraClass} hidden" hidden aria-hidden="true">
     <div class="rover-loading-card">
       <div class="rover-loader rover-loader--dark" role="img" aria-label="${esc(ariaLabel || title || 'Working')}">
         <svg class="rover-loader-mark" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" focusable="false" aria-hidden="true">
@@ -12277,11 +13776,11 @@ function roverJobOverlayHtml({
         <img class="rover-loader-word" src="/brand/rover-wordmark-dark.png" alt="" width="618" height="81" decoding="async" />
       </div>
       <p class="rover-loading-text" id="${esc(titleId)}">${esc(title)}</p>
-      <ol class="ws-overlay-phases" id="${esc(phasesId)}">${items}</ol>
+      ${phaseList}
       <div class="job-progress" style="width:min(22rem,90%)">
         <div class="job-progress-track"><div class="job-progress-bar" id="${esc(barId)}"></div></div>
       </div>
-      <p class="muted small" id="${esc(detailId)}">Starting…</p>
+      <p class="muted small" id="${esc(detailId)}">${esc(detail)}</p>
       ${stop}
     </div>
   </div>`;
@@ -12295,10 +13794,14 @@ const WEBSITE_JOB_OVERLAY_IDS = [
 
 function setRoverJobOverlayVisible(overlayId, visible) {
   const overlay = document.getElementById(overlayId);
-  if (!overlay) return;
+  if (!overlay) {
+    if (!visible) noteTabWorking(`overlay:${overlayId}`, false);
+    return;
+  }
   overlay.classList.toggle('hidden', !visible);
   overlay.hidden = !visible;
   overlay.setAttribute('aria-hidden', visible ? 'false' : 'true');
+  noteTabWorking(`overlay:${overlayId}`, Boolean(visible));
   if (visible) syncJobOverlayTop();
 }
 
@@ -12306,6 +13809,86 @@ function hideWebsiteJobOverlaysExcept(keepId) {
   for (const id of WEBSITE_JOB_OVERLAY_IDS) {
     if (id !== keepId) setRoverJobOverlayVisible(id, false);
   }
+}
+
+/** Image waits keyed by progress box. A step wait must not clear these, and these must not clear a step wait. */
+const trackImagePaints = new Map();
+let trackStepOverlayOn = false;
+
+function paintTrackWorkCard({ title, detail, done, total } = {}) {
+  const titleEl = document.getElementById('track-work-overlay-title');
+  const detailEl = document.getElementById('track-work-overlay-detail');
+  const bar = document.getElementById('track-work-overlay-bar');
+  const loader = document.querySelector('#track-work-overlay .rover-loader');
+  const heading = String(title || 'Working…');
+  if (titleEl) titleEl.textContent = heading;
+  if (detailEl) detailEl.textContent = String(detail || 'Working…');
+  if (loader) loader.setAttribute('aria-label', heading);
+  const t = Number(total);
+  const d = Number(done);
+  if (bar) {
+    if (Number.isFinite(t) && t > 0 && Number.isFinite(d) && d >= 0) {
+      setDeterminateProgress(bar, { done: d, total: t });
+    } else {
+      setDeterminateProgress(bar, {});
+    }
+  }
+  setRoverJobOverlayVisible('track-work-overlay', true);
+}
+
+function releaseTrackWorkCard() {
+  if (trackStepOverlayOn) return;
+  const paints = [...trackImagePaints.values()];
+  if (paints.length) {
+    paintTrackWorkCard(paints[paints.length - 1]);
+    return;
+  }
+  setRoverJobOverlayVisible('track-work-overlay', false);
+  const bar = document.getElementById('track-work-overlay-bar');
+  if (bar) setDeterminateProgress(bar, {});
+}
+
+function showTrackWorkOverlay({ title, detail, done, total } = {}) {
+  trackStepOverlayOn = true;
+  paintTrackWorkCard({ title, detail, done, total });
+}
+
+function hideTrackWorkOverlay() {
+  trackStepOverlayOn = false;
+  releaseTrackWorkCard();
+}
+
+/** Show the blocking card for one request, then hide it before the caller opens a result dialog. */
+async function withTrackWorkOverlay(opts, fn) {
+  showTrackWorkOverlay(opts);
+  try {
+    return await fn();
+  } finally {
+    hideTrackWorkOverlay();
+  }
+}
+
+function syncTrackWorkFromImages(visible, { label, detail, current, total, box } = {}) {
+  const id = String(box || 'ca-images');
+  // Review images keeps the toolbar strip and the per-card spinner. The Photo
+  // library uses this same box and has no strip, so it still gets the card.
+  if (id === 'ca-images' && state.view !== 'photo') {
+    trackImagePaints.delete(id);
+    releaseTrackWorkCard();
+    return;
+  }
+  if (visible) {
+    trackImagePaints.set(id, {
+      title: label || 'Working…',
+      detail: detail || label || 'Working…',
+      done: current,
+      total,
+    });
+    if (!trackStepOverlayOn) paintTrackWorkCard(trackImagePaints.get(id));
+    return;
+  }
+  trackImagePaints.delete(id);
+  releaseTrackWorkCard();
 }
 
 function paintRoverJobOverlay({ overlayId, detailId, barId, phasesId, stopId, job } = {}) {
@@ -12398,6 +13981,21 @@ function launchOverlayPhaseLabels(body = {}) {
 }
 
 const PREPARE_OVERLAY_PHASES = ['Staging', 'Stop preview', 'Assemble', 'Build', 'Preview'];
+
+function indexingSubmitOverlayHtml() {
+  return roverJobOverlayHtml({
+    overlayId: 'website-indexing-submit-overlay',
+    title: 'Submit to Search Console',
+    titleId: 'idx-submit-overlay-title',
+    phases: [],
+    phasesId: 'idx-submit-overlay-phases',
+    barId: 'idx-submit-overlay-bar',
+    detailId: 'idx-submit-overlay-detail',
+    detail: 'Verifying the domain and submitting the sitemap. This can take a minute.',
+    ariaLabel: 'Submitting to Search Console',
+    className: 'indexing-submit-overlay',
+  });
+}
 
 function launchOverlayHtml() {
   const phases =
@@ -12617,6 +14215,7 @@ async function startWriteSiteFromUi(id) {
     });
     state._writeSiteHandledJobId = null;
     state._writeSiteTrack = { candidateId: id, jobId: accepted.jobId };
+    play('job');
     startWebsiteLeaseHeartbeat();
     syncWriteSiteOverlay(snapWithOptimisticWriteSite(accepted.jobId, id));
     syncClaudeModeToggle();
@@ -12812,7 +14411,9 @@ function syncGeneratePackOverlay(snap) {
   if (job) {
     state._generatePackTrack = { batchId: job.batchId || bid, jobId: job.id };
     if (overlay) overlay.dataset.jobId = job.id;
-    setGeneratePackOverlayVisible(Boolean(overlay) && state.view === 'discovery');
+    const showPack = Boolean(overlay) && state.view === 'discovery';
+    setGeneratePackOverlayVisible(showPack);
+    noteTabWorking('overlay:generate-pack', showPack);
     const detail = String(job.detail || 'Working…');
     const detailEl = document.getElementById('gp-overlay-detail');
     if (detailEl) detailEl.textContent = detail;
@@ -12832,6 +14433,7 @@ function syncGeneratePackOverlay(snap) {
     });
     return;
   }
+  noteTabWorking('overlay:generate-pack', false);
   setGeneratePackOverlayVisible(false);
   const track = state._generatePackTrack;
   if (!track) return;
@@ -12947,6 +14549,7 @@ async function startGeneratePackFromUi(batchId) {
     });
     state._generatePackHandledJobId = null;
     state._generatePackTrack = { batchId: id, jobId: accepted.jobId };
+    play('job');
     syncGeneratePackOverlay(snapWithOptimisticGeneratePack(accepted.jobId, id));
     syncClaudeModeToggle();
   } catch (error) {
@@ -13055,6 +14658,72 @@ function liveRobotsUrl(domain) {
   const host = liveSiteHost(domain);
   if (!host || isLaunchDomainPlaceholder(host)) return '';
   return `https://${host}/robots.txt`;
+}
+
+function indexingPropertyHost(domain) {
+  const host = liveSiteHost(domain);
+  if (!host || isLaunchDomainPlaceholder(host)) return '';
+  return host;
+}
+
+function indexingActionCursor(candidateId) {
+  const saved = Number(state.indexingStepCursor?.[candidateId]);
+  if (saved >= 1 && saved <= 3) return saved;
+  return 1;
+}
+
+function rememberIndexingActionCursor(candidateId, step) {
+  const id = String(candidateId || '').trim();
+  const n = Number(step);
+  if (!id || n < 1 || n > 3) return;
+  state.indexingStepCursor = { ...(state.indexingStepCursor || {}), [id]: n };
+}
+
+function indexingInspectUrl(host) {
+  const property = `sc-domain:${host}`;
+  return `https://search.google.com/search-console/inspect?resource_id=${encodeURIComponent(property)}`;
+}
+
+function indexingActionsHtml({ host, siteUrl, sitemapUrl, robotsUrl, done, cursor }) {
+  const stepBtn = (step, label, { id, tip, disabled = false } = {}) => {
+    const current = !done && step === cursor;
+    return `<button type="button" class="btn${current ? ' primary' : ''}" data-indexing-step="${step}" id="${id}" data-tip="${esc(
+      tip,
+    )}"${disabled ? ' disabled' : ''}>${esc(label)}</button>`;
+  };
+  const main = [
+    stepBtn(1, '1. Submit to Search Console', {
+      id: 'ca-indexing-submit',
+      tip: 'Verify the domain with DNS and submit the sitemap once',
+      disabled: !host,
+    }),
+    stepBtn(2, '2. Copy URL and open Search Console', {
+      id: 'ca-open-search-console',
+      tip: 'Optional. Copy https://{domain} and open this property’s URL Inspection page',
+      disabled: !host,
+    }),
+    stepBtn(3, done ? 'Done' : '3. Mark done', {
+      id: 'ca-indexing-mark-done',
+      tip: done
+        ? 'Indexing already marked done for this site'
+        : 'Mark this step done after you’ve requested indexing',
+      disabled: done,
+    }),
+  ].join('');
+  const extras = [
+    sitemapUrl
+      ? `<a class="btn" href="${esc(sitemapUrl)}" target="_blank" rel="noopener" data-tip="Open live sitemap.xml">Open sitemap</a>`
+      : '',
+    robotsUrl
+      ? `<a class="btn" href="${esc(robotsUrl)}" target="_blank" rel="noopener" data-tip="Open live robots.txt">Open robots.txt</a>`
+      : '',
+  ]
+    .filter(Boolean)
+    .join('');
+  return `<div class="indexing-actions">
+      <div class="indexing-actions-main">${main}</div>
+      ${extras ? `<div class="indexing-actions-extra">${extras}</div>` : ''}
+    </div>`;
 }
 
 function isLaunchPhonePlaceholder(phone) {
@@ -13265,10 +14934,28 @@ function launchPreflightHtml(issues) {
     .join('')}</ul></div>`;
 }
 
+function shipFreshnessRepoMissing(diff) {
+  return /repository not found|could not resolve to a repository/i.test(String(diff?.summary || ''));
+}
+
+function shipFreshnessRepoName(text) {
+  const match = String(text || '').match(/github\.com\/([^/\s'"]+)\/([^/\s'".]+)/i);
+  if (!match) return '';
+  return `${match[1]}/${match[2]}`;
+}
+
 function applyShipFreshnessUi(diff) {
   const box = document.getElementById('ca-ship-freshness');
   const msg = document.getElementById('ca-ship-freshness-msg');
   if (!box || !msg) return;
+  const repoMissing = shipFreshnessRepoMissing(diff);
+  const createBtn = document.getElementById('ca-ship-create-repo');
+  if (createBtn) createBtn.classList.toggle('hidden', !repoMissing);
+  if (repoMissing) {
+    box.dataset.status = 'behind';
+    msg.textContent = launchRepoMissingPlain(shipFreshnessRepoName(diff?.summary));
+    return;
+  }
   let status = diff?.status || 'unknown';
   if (status === 'behind') status = 'behind';
   else if (status === 'current') status = 'current';
@@ -13350,7 +15037,6 @@ function collectLaunchFormValues() {
     phone: phoneToE164(document.getElementById('ca-launch-phone')?.value?.trim() || ''),
     email: document.getElementById('ca-launch-email')?.value?.trim() || '',
     destinationEmail: document.getElementById('ca-launch-dest')?.value?.trim() || '',
-    turnstileSiteKey: document.getElementById('ca-launch-turnstile')?.value?.trim() || '',
     ship: Boolean(document.getElementById('ca-launch-ship')?.checked),
     runCloudflare: Boolean(document.getElementById('ca-launch-run-cf')?.checked),
     formsInboxReady: state.launchInboxReady,
@@ -13465,6 +15151,39 @@ function structureViewForChecklist(structure, catalog) {
   return presetSelectionFromCatalog(catalog, 'C') || catalog?.defaults || structure || {};
 }
 
+const STRUCTURE_CHECKLIST_COLLAPSED_KEY = 'ops.structureChecklistCollapsed';
+
+function readStructureChecklistCollapsed() {
+  try {
+    return localStorage.getItem(STRUCTURE_CHECKLIST_COLLAPSED_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function persistStructureChecklistCollapsed(collapsed) {
+  try {
+    localStorage.setItem(STRUCTURE_CHECKLIST_COLLAPSED_KEY, collapsed ? '1' : '0');
+  } catch {
+    /* ignore */
+  }
+}
+
+function applyStructureChecklistCollapsed(collapsed = readStructureChecklistCollapsed()) {
+  const panel = document.getElementById('structure-options');
+  const btn = document.getElementById('structure-options-toggle');
+  if (panel) panel.hidden = Boolean(collapsed);
+  if (btn) {
+    btn.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+    btn.textContent = collapsed ? 'Expand options' : 'Collapse options';
+  }
+}
+
+window.addEventListener('storage', (event) => {
+  if (event.key !== STRUCTURE_CHECKLIST_COLLAPSED_KEY) return;
+  applyStructureChecklistCollapsed(event.newValue === '1');
+});
+
 function structureChecklistHtml(d, catalog) {
   const structure = structureViewForChecklist(d?.contentStructure, catalog);
   const defaults = catalog?.defaults || { pages: [], sections: [], photos: {} };
@@ -13565,6 +15284,7 @@ function structureChecklistHtml(d, catalog) {
     : !catalog
       ? `<div class="callout">Loading section checklist…</div>`
       : '';
+  const optionsCollapsed = readStructureChecklistCollapsed();
 
   return `
     <p class="muted small" id="structure-process-hint">Services pages use <strong>How we work</strong> (process). <strong>Deep offer process</strong> is for single-offer sites only — never both.</p>
@@ -13572,10 +15292,17 @@ function structureChecklistHtml(d, catalog) {
     <div class="structure-presets">
       <span class="muted small">Presets</span>
       ${presetBtns || '<span class="muted">—</span>'}
+      <button type="button" class="btn btn-sm structure-options-toggle" id="structure-options-toggle" aria-expanded="${
+        optionsCollapsed ? 'false' : 'true'
+      }" aria-controls="structure-options">${
+        optionsCollapsed ? 'Expand options' : 'Collapse options'
+      }</button>
     </div>
-    <h4>Pages</h4>
-    <div class="structure-checks">${pageChecks}</div>
-    ${sectionGroups}
+    <div id="structure-options"${optionsCollapsed ? ' hidden' : ''}>
+      <h4>Pages</h4>
+      <div class="structure-checks">${pageChecks}</div>
+      ${sectionGroups}
+    </div>
     ${contentActionRow({
       n: 1,
       label: 'Continue — compose outline <span class="muted">(Required)</span>',
@@ -14338,7 +16065,7 @@ function renderContent() {
       locked: apiMode ? !writeSiteDone || (photosOn && !photosReady) : !finalCheckDone || (photosOn && !photosReady),
       info: 'Accept writes shared src/content/. When photos are on, Image queries must be loaded first. Accept then copies a named group or niche master (including before/after pairs) or pulls stock (Skip on step 9). Logo + coverage map still run. Fresh stock Pull leaves before/after empty until Website → Review images → OpenAI pair.',
       bodyHtml: `
-        ${incompleteDraftCalloutHtml(d)}
+        ${incompleteDraftCalloutHtml(d, { handledByAccept: true })}
         ${
           !acceptReady && draft
             ? `<div class="callout warn">Accept locked until ${
@@ -14396,7 +16123,12 @@ function renderContent() {
                 } /> Skip stock image pull</label>`
               : ''
           }
-          <button type="button" class="btn primary" id="content-accept-btn" data-tip="Accept draft — write files into src/content/" ${
+          <button type="button" class="btn primary" id="content-accept-btn" data-tip="${
+            anthropicConfigured() &&
+            (contentDraftLaunchGaps(d).missing.length || contentDraftLaunchGaps(d).stubs.length)
+              ? 'Rewrites the thin pages first, then writes the site.'
+              : 'Accept draft — write files into src/content/'
+          }" ${
             acceptReady ? '' : 'disabled'
           }>Accept content</button>
         </div>
@@ -14410,7 +16142,14 @@ function renderContent() {
               String(line || ''),
             );
           const homepageWarning = warnings.find(isHomepageSectionWarning);
-          const otherWarnings = warnings.filter((line) => !isHomepageSectionWarning(line));
+          const otherWarnings = warnings.filter(
+            (line) =>
+              !isHomepageSectionWarning(line) &&
+              !(
+                anthropicConfigured() &&
+                /stub\/thin content \(not launch-ready\)/i.test(String(line || ''))
+              ),
+          );
           const healableErrors = (check?.errors || []).filter(isHealableContentError);
           const blockingErrors = (check?.errors || []).filter((line) => !isHealableContentError(line));
           const healableList = healableErrors.map((line) => `<li>${esc(line)}</li>`).join('');
@@ -14546,12 +16285,14 @@ function imagesSlotGrade(slot) {
 
 function imagesMatchFilterId(activeFilter) {
   if (activeFilter === 'empty' || activeFilter === 'missing') return 'empty';
+  if (activeFilter === 'ba') return 'ba';
   return ['all', 'poor', 'ok', 'good', 'upload'].includes(activeFilter) ? activeFilter : 'all';
 }
 
 function imagesSlotMatchesFilter(slot, filter) {
-  const grade = imagesSlotGrade(slot);
   const f = imagesMatchFilterId(filter);
+  if (f === 'ba') return String(slot?.key || '').startsWith('ba:');
+  const grade = imagesSlotGrade(slot);
   if (f === 'all') return true;
   if (f === 'empty') return grade === 'missing';
   return grade === f;
@@ -14623,6 +16364,7 @@ function imagesMatchGradeSelectLabel(filterId) {
       good: 'Good',
       upload: 'Uploaded',
       empty: 'Empty',
+      ba: 'B/A',
     }[imagesMatchFilterId(filterId)] || 'slots'
   );
 }
@@ -14634,6 +16376,7 @@ function imagesMatchTotalsHtml(totals, activeFilter = 'all') {
   const good = Number(t.good) || 0;
   const uploaded = Number(t.uploaded) || 0;
   const missing = Number(t.missing) || 0;
+  const ba = Number(t.ba) || 0;
   const total = poor + ok + good + uploaded + missing;
   const active = imagesMatchFilterId(activeFilter);
   const filterBtn = (id, inner, tip) => {
@@ -14655,7 +16398,9 @@ function imagesMatchTotalsHtml(totals, activeFilter = 'all') {
       ${gradeSelect(filterId, imagesMatchGradeSelectLabel(filterId), count)}
     </span>`;
   const untipped = { tipped: false };
-  return `<div class="img-match-totals" role="toolbar" aria-label="Photo match filters">
+  return `<div class="img-match-totals review-images-cluster" role="toolbar" aria-label="Filter photos">
+    <span class="review-images-cluster-label">Filter</span>
+    <span class="review-images-cluster-body">
     ${filterBtn(
       'all',
       `<strong>${esc(String(total))}</strong>
@@ -14702,7 +16447,54 @@ function imagesMatchTotalsHtml(totals, activeFilter = 'all') {
       `Show ${missing} Empty slot${missing === 1 ? '' : 's'}`,
       missing,
     )}
+    ${gradeGroup(
+      'ba',
+      `<strong>${esc(String(ba))}</strong>
+      <span class="muted">B/A</span>`,
+      `Show ${ba} before/after pair${ba === 1 ? '' : 's'}`,
+      ba,
+    )}
+    ${reviewSourceFiltersHtml()}
+    </span>
   </div>`;
+}
+
+function reviewSourceFiltersHtml(sourceCounts) {
+  const source = imagesSourceFilterId(state.imageSourceFilter);
+  const counts =
+    sourceCounts ||
+    countSlotsBySource([
+      ...(state.reviewImageSlots || []),
+      ...listReviewBaPairs(state.reviewBa).map(baPairAsReviewSlot),
+    ]);
+  const sourceBtn = (filterId, label, tip) => {
+    const pressed = source === filterId;
+    return `<button type="button" class="btn btn-sm review-source-filter${
+      pressed ? ' is-active' : ''
+    }" data-source-filter="${esc(filterId)}" aria-pressed="${pressed ? 'true' : 'false'}" data-tip="${esc(
+      tip,
+    )}">${esc(label)}</button>`;
+  };
+  return `<span class="review-source-filters" role="group" aria-label="Filter by source">${sourceBtn(
+    'stock',
+    `Stock ${counts.stock}`,
+    'Show stock photos only — click again for all',
+  )}${sourceBtn(
+    'openai',
+    `OpenAI ${counts.openai}`,
+    'Show OpenAI photos only — click again for all',
+  )}${sourceBtn(
+    'photo-group',
+    `Photo group ${counts.photoGroup || 0}`,
+    'Show photo-group photos only — click again for all',
+  )}</span>`;
+}
+
+function reviewClusterHtml(label, inner, extraClass = '') {
+  return `<span class="review-images-cluster${extraClass ? ` ${extraClass}` : ''}">
+    <span class="review-images-cluster-label">${esc(label)}</span>
+    <span class="review-images-cluster-body">${inner}</span>
+  </span>`;
 }
 
 function rememberOpenaiStatus(data) {
@@ -15154,10 +16946,10 @@ function openaiGenerateBtnHtml({ pair = false, extra = '', bulk = false, flux } 
   const label = pair ? 'OpenAI pair' : 'OpenAI';
   const tip = configured
     ? bulk
-      ? 'GPT Image 2: generate each selected photo slot (~$0.04) and Before & after pair (~$0.09). Replaces live files; previous go to the tray. Tray keeps 8; oldest is removed. Uses Inside/Outside and No People/People.'
+      ? 'GPT Image 2: generate each selected photo slot (~$0.04) and Before & after pair (~$0.09). Replaces live files; previous go to the tray. Tray keeps 8; oldest is removed. Uses Inside/Outside and Problem, Workers, Finished, or Customers.'
       : pair
-      ? 'GPT Image 2 medium. ChatGPT-style prompts for the current Inside/Outside and No People/People. Generate Before, then edit After. ~$0.09. Replaces live pair; previous goes to the tray. Tray keeps 8; oldest is removed.'
-      : 'GPT Image 2 medium. ChatGPT-style prompt for the current Inside/Outside and No People/People. ~$0.04. Replaces the live slot; previous photo goes to the tray. Tray keeps 8; oldest is removed.'
+      ? 'GPT Image 2 medium. ChatGPT-style prompts for the current Inside/Outside and Problem, Workers, Finished, or Customers. Generate Before, then edit After. ~$0.09. Replaces live pair; previous goes to the tray. Tray keeps 8; oldest is removed.'
+      : 'GPT Image 2 medium. ChatGPT-style prompt for the current Inside/Outside and Problem, Workers, Finished, or Customers. ~$0.04. Replaces the live slot; previous photo goes to the tray. Tray keeps 8; oldest is removed.'
     : 'Set OPENAI_API_KEY in .env (same key as Phone), then restart Rover.';
   const disabled = configured ? '' : ' disabled';
   const bulkClass = bulk ? ' slot-generate-selected-openai' : '';
@@ -15363,11 +17155,13 @@ function reviewBulkSceneHtml(n) {
     ${seg('data-review-bulk-viewpoint', 'inside', 'Inside', viewpoint === 'inside')}
     ${seg('data-review-bulk-viewpoint', 'outside', 'Outside', viewpoint === 'outside')}
   </span>
-  <span class="ads-mode-segment review-bulk-scene" role="group" aria-label="Set selected photos to people or no people" ${tipAttr(
-    'No People or People for every selected photo and before/after',
+  <span class="ads-mode-segment review-bulk-scene review-bulk-occupancy" role="group" aria-label="Set selected photos to problem, workers, finished, or customers" ${tipAttr(
+    'Problem, Workers, Finished, or Customers for every selected photo and before/after',
   )}>
-    ${seg('data-review-bulk-occupancy', 'none', 'No People', occupancy === 'none')}
-    ${seg('data-review-bulk-occupancy', 'people', 'People', occupancy === 'people')}
+    ${seg('data-review-bulk-occupancy', 'none', 'Problem', occupancy === 'none')}
+    ${seg('data-review-bulk-occupancy', 'workers', 'Workers', occupancy === 'workers')}
+    ${seg('data-review-bulk-occupancy', 'finished', 'Finished', occupancy === 'finished')}
+    ${seg('data-review-bulk-occupancy', 'customers', 'Customers', occupancy === 'customers')}
   </span>
   ${reviewBulkGradeHtml(n)}`;
 }
@@ -15398,34 +17192,27 @@ function fluxToolbarHtml({
     n < 1 ? ' disabled' : ''
   }>Unselect all</button>`;
   const bulkSceneHtml = bulkScene ? reviewBulkSceneHtml(n) : '';
-  const source = imagesSourceFilterId(state.imageSourceFilter);
-  const counts = sourceCounts || { stock: 0, openai: 0, photoGroup: 0 };
-  const sourceBtn = (filterId, label, tip) => {
-    const pressed = source === filterId;
-    return `<button type="button" class="btn btn-sm review-source-filter${
-      pressed ? ' is-active' : ''
-    }" data-source-filter="${esc(filterId)}" aria-pressed="${pressed ? 'true' : 'false'}" data-tip="${esc(
-      tip,
-    )}">${esc(label)}</button>`;
-  };
-  const sourceBtns = repull
-    ? `<span class="review-source-filters" role="group" aria-label="Filter by source">${sourceBtn(
-        'stock',
-        `Stock ${counts.stock}`,
-        'Show stock photos only — click again for all',
-      )}${sourceBtn(
-        'openai',
-        `OpenAI ${counts.openai}`,
-        'Show OpenAI photos only — click again for all',
-      )}${sourceBtn(
-        'photo-group',
-        `Photo group ${counts.photoGroup || 0}`,
-        'Show photo-group photos only — click again for all',
-      )}</span>`
-    : '';
   const titleSearchHtml = titleSearch
     ? `<input id="review-title-search" class="modal-type-confirm-input flux-toolbar-title-search" type="search" placeholder="Search titles…" autocomplete="off" spellcheck="false" value="${esc(state.imageTitleFilter || '')}" />`
     : '';
+  if (bulkScene) {
+    return `<div class="flux-toolbar review-images-row review-images-work" id="${esc(id)}">
+    ${reviewClusterHtml(
+      'Select',
+      `<span class="review-selected-count">Selected images ${esc(String(n))}</span>
+      ${selectBtn}
+      ${unselectBtn}
+      ${bulkSceneHtml}`,
+    )}
+    ${reviewClusterHtml(
+      'Generate',
+      `${repullBtn}
+      ${openaiGenerateBtnHtml({ bulk: true, extra: openaiExtra, flux })}`,
+    )}
+    ${reviewClusterHtml('Search', titleSearchHtml, 'review-images-cluster-search')}
+  </div>`;
+  }
+  const sourceBtns = repull ? reviewSourceFiltersHtml(sourceCounts) : '';
   return `<div class="flux-toolbar" id="${esc(id)}">
     <span class="review-selected-count">Selected images ${esc(String(n))}</span>
     ${selectBtn}
@@ -15476,7 +17263,7 @@ function imagesSlotCardHtml(slot) {
         kind: 'photo',
         viewpointKey: slot.key,
         generateExtra: ` data-slot-key="${esc(slot.key)}"`,
-        copyHtml: `<button type="button" class="btn btn-sm ca-slot-chatgpt-prompt" data-slot-key="${esc(slot.key)}" data-tip="Copy a ChatGPT image prompt for this slot (uses Inside/Outside and No People/People), then generate and Upload">Copy prompt</button>`,
+        copyHtml: `<button type="button" class="btn btn-sm ca-slot-chatgpt-prompt" data-slot-key="${esc(slot.key)}" data-tip="Copy a ChatGPT image prompt for this slot (uses Inside/Outside and Problem, Workers, Finished, or Customers), then generate and Upload">Copy prompt</button>`,
         filesHtml: `<button type="button" class="btn btn-sm ca-slot-repull" data-slot-key="${esc(slot.key)}" data-tip="Fetch a different stock photo for this slot">Re-pull</button>
         <label class="btn btn-sm" style="cursor:pointer;margin:0" data-tip="Upload a local image for this slot">
           Upload
@@ -15523,8 +17310,8 @@ function reviewBaCardHtml(candidateId, pair) {
         kind: 'ba',
         viewpointKey: key,
         generateExtra: ` data-match-key="${esc(key)}"`,
-        copyHtml: `<button type="button" class="btn btn-sm ca-ba-card-copy" data-ba-kind="before" data-service-slug="${esc(pair.slug || '')}" data-tip="Copy the current Inside/Outside and No People/People BEFORE prompt (same text OpenAI pair uses)">Copy before</button>
-        <button type="button" class="btn btn-sm ca-ba-card-copy" data-ba-kind="after" data-service-slug="${esc(pair.slug || '')}" data-tip="Copy the current Inside/Outside and No People/People AFTER prompt (same text OpenAI pair uses)">Copy after</button>`,
+        copyHtml: `<button type="button" class="btn btn-sm ca-ba-card-copy" data-ba-kind="before" data-service-slug="${esc(pair.slug || '')}" data-tip="Copy the current Inside/Outside and Problem, Workers, Finished, or Customers BEFORE prompt (same text OpenAI pair uses)">Copy before</button>
+        <button type="button" class="btn btn-sm ca-ba-card-copy" data-ba-kind="after" data-service-slug="${esc(pair.slug || '')}" data-tip="Copy the current Inside/Outside and Problem, Workers, Finished, or Customers AFTER prompt (same text OpenAI pair uses)">Copy after</button>`,
         filesHtml: `<label class="btn btn-sm" style="cursor:pointer;margin:0" data-tip="Replaces the live pair; previous goes to the tray. Tray keeps 8; oldest is removed.">
           Import pair
           <input type="file" class="ca-ba-card-import" data-service-slug="${esc(pair.slug || '')}" data-pair-index="${esc(String(pair.pairIndex || 1))}" accept="image/jpeg,image/png,image/webp" multiple hidden />
@@ -15660,12 +17447,16 @@ function syncLogoGenerateButton() {
 
 function imagesReviewChromeHtml({ spendHtml = '', actionsHtml = '', progressHtml = '', statusHtml = '' } = {}) {
   return `<div class="review-images-chrome">
-      ${spendHtml}
-      ${actionsHtml}
+      <div id="ca-flux-toolbar" class="review-images-row review-images-work"></div>
+      <div class="review-images-row review-images-view">
+        <div id="ca-image-slots-totals"></div>
+        <div class="review-images-meta">
+          ${spendHtml}
+          ${actionsHtml}
+        </div>
+      </div>
       ${progressHtml}
       ${statusHtml}
-      <div id="ca-flux-toolbar"></div>
-      <div id="ca-image-slots-totals"></div>
     </div>`;
 }
 
@@ -15798,6 +17589,7 @@ function mergeMatchTotals(photoTotals, baPairs) {
     else if (grade === 'ok') t.ok += 1;
     else t.poor += 1;
   }
+  t.ba = (baPairs || []).length;
   return t;
 }
 
@@ -15857,6 +17649,7 @@ async function repullReviewSlots(candidateId, slotKeys) {
   if (
     !(await confirmLaunchedSiteChange(
       `Re-pull ${keys.length} photo slot${keys.length === 1 ? '' : 's'}`,
+      { image: true },
     ))
   ) {
     return;
@@ -15882,6 +17675,7 @@ async function repullReviewSlots(candidateId, slotKeys) {
     }
     showToast(`Re-pulled ${keys.length} slot${keys.length === 1 ? '' : 's'}.`);
   } catch (error) {
+    setImagesProgress(false);
     await refreshImageSlotsGrid(candidateId);
     await settleSlotBusy();
     await showModal({
@@ -16082,7 +17876,7 @@ async function generateReviewSelected(candidateId) {
     });
     if (!ok) return;
   }
-  if (!(await confirmLaunchedSiteChange('Generate OpenAI photos'))) {
+  if (!(await confirmLaunchedSiteChange('Generate OpenAI photos', { image: true }))) {
     return;
   }
   const prompts = {};
@@ -16342,6 +18136,7 @@ function finishReviewCardPatch() {
   paintReviewImageTotals();
   renderReviewFluxToolbar();
   restoreSlotBusyOverlays();
+  applyFreshReviewCards(state.selectedId);
 }
 
 function patchReviewImageCard(candidateId, { slotKey, slot, baPair } = {}) {
@@ -16408,6 +18203,7 @@ function paintReviewImageSlotsFromState(candidateId, { matchTotals = null, rende
     if (empty) empty.style.display = 'block';
     if (renderToolbar) renderReviewFluxToolbar();
     restoreSlotBusyOverlays();
+    applyFreshReviewCards(candidateId);
     return;
   }
 
@@ -16427,6 +18223,7 @@ function paintReviewImageSlotsFromState(candidateId, { matchTotals = null, rende
   grid.innerHTML = `${imagesSlotsGroupedHtml(visible)}${baHtml}`;
   if (renderToolbar) renderReviewFluxToolbar();
   restoreSlotBusyOverlays();
+  applyFreshReviewCards(candidateId);
   if (filterEmpty) {
     if (!visible.length && !baHtml) {
       filterEmpty.style.display = 'block';
@@ -16437,6 +18234,7 @@ function paintReviewImageSlotsFromState(candidateId, { matchTotals = null, rende
         good: 'No good matches.',
         upload: 'No operator uploads.',
         empty: 'No empty slots.',
+        ba: 'No before/after photos.',
       };
       const sourceLabels = {
         stock: 'No stock photos.',
@@ -16539,6 +18337,17 @@ function wireImageSlotActions(candidateId, _refreshFn) {
   root.dataset.wired = '1';
   wireSlotPromptEvents(root);
 
+  root.addEventListener('pointerout', (ev) => {
+    const card = ev.target.closest?.('.image-slot-card.review-just-generated');
+    if (!card || !root.contains(card)) return;
+    armFreshReviewCard(card, ev.relatedTarget);
+  });
+  root.addEventListener('mouseover', (ev) => {
+    const card = ev.target.closest?.('.image-slot-card.review-just-generated');
+    if (!card || !root.contains(card) || card.classList.contains('review-just-generated-fading')) return;
+    if (!freshReviewRelatedOutside(card, ev.relatedTarget)) return;
+    fadeFreshReviewCard(card);
+  });
   root.addEventListener('input', (ev) => {
     const search = ev.target.closest?.('#review-title-search');
     if (!search || !root.contains(search)) return;
@@ -16894,7 +18703,7 @@ function wireImageSlotActions(candidateId, _refreshFn) {
       ev.preventDefault();
       if (openaiBtn.disabled) return;
       const isPair = openaiBtn.classList.contains('ba') || Boolean(openaiBtn.closest('.photo-ba-card'));
-      if (!(await confirmLaunchedSiteChange(isPair ? 'Generate OpenAI pair' : 'Generate OpenAI photo'))) return;
+      if (!(await confirmLaunchedSiteChange(isPair ? 'Generate OpenAI pair' : 'Generate OpenAI photo', { image: true }))) return;
       openaiBtn.disabled = true;
       try {
         if (isPair) {
@@ -17110,7 +18919,7 @@ function wireImageSlotActions(candidateId, _refreshFn) {
     if (!btn) return;
     const slotKey = btn.getAttribute('data-slot-key');
     if (!slotKey) return;
-    if (!(await confirmLaunchedSiteChange(`Re-pull photo slot ${slotKey}`))) return;
+    if (!(await confirmLaunchedSiteChange(`Re-pull photo slot ${slotKey}`, { image: true }))) return;
     btn.disabled = true;
     try {
       await withReviewImagesWork(
@@ -17151,7 +18960,7 @@ function wireImageSlotActions(candidateId, _refreshFn) {
     const slotKey = input.getAttribute('data-slot-key');
     const file = input.files?.[0];
     if (!slotKey || !file) return;
-    if (!(await confirmLaunchedSiteChange(`Upload photo for ${slotKey}`))) {
+    if (!(await confirmLaunchedSiteChange(`Upload photo for ${slotKey}`, { image: true }))) {
       input.value = '';
       return;
     }
@@ -17273,14 +19082,21 @@ function renderWebsite() {
     (prepareDone || isSoftDone('websiteSoftDone', 'prepare'));
   const launchStepDone = flags.launched || isSoftDone('websiteSoftDone', 'launch');
   const parts = [];
+  const noteHidden = websiteLaunchNoteHidden(d?.id);
+  const noteToggle = flags.launched
+    ? `<button type="button" class="btn btn-sm website-launch-note-toggle">${noteHidden ? 'Show' : 'Hide'}</button>`
+    : '';
 
   parts.push(
     panelHowToHtml({
       label: 'Website',
       info: 'Logo & Map → Review images → Prepare preview → Launch (or Push updates) → Indexing (Search Console + sitemap). Revert restores Rover from GitHub if a launched site drifted.',
+      extraHtml: noteToggle,
     }),
   );
-  if (flags.launched) {
+  const guideNote = zoneGuideNoteHtml(d);
+  if (guideNote) parts.push(guideNote);
+  if (flags.launched && !noteHidden) {
     parts.push(
       `<div class="callout warn"><strong>Already launched.</strong> Edits here change Rover’s working copy only — the live site will not match until you <strong>Push updates</strong>. Use <strong>Revert</strong> below to restore from the current launched GitHub site.</div>`,
     );
@@ -17345,7 +19161,7 @@ function renderWebsite() {
         'Up next: <strong>Indexing</strong> — submit the live sitemap in Google Search Console and request indexing on money pages.',
       ),
     );
-  } else {
+  } else if (!noteHidden) {
     parts.push(
       statusLineHtml(
         flags.alreadyLive
@@ -17465,6 +19281,7 @@ function renderWebsite() {
                 <div class="photo-group-menu-actions">
                   <button type="button" class="btn btn-sm pg-save" id="ca-pg-save" data-tip="Save this site’s stock photos, uploads, and ChatGPT before/after pairs">Save photo group</button>
                   <button type="button" class="btn btn-sm pg-load" id="ca-pg-load" disabled data-tip="Replace this site’s Review images. 1st group fills matching slots; later groups fill leftovers; empty slots take the first tray still as live; extras go to trays.">Load</button>
+                  <button type="button" class="btn btn-sm pg-replace-master" id="ca-pg-replace-master" data-tip="Replace this niche’s master with the photos currently in Review images">Replace master</button>
                 </div>
                 ${photoGroupRankSelectsHtml('ca-pg-select')}
               </div>
@@ -17587,13 +19404,6 @@ function renderWebsite() {
             </span>
             <input id="ca-launch-dest" type="email" value="" placeholder="your@gmail.com" />
           </label>
-          <label>
-            <span class="label-with-tip-head">
-              <span>Turnstile site key</span>
-              <button type="button" class="tip-info" data-tip="Optional Cloudflare Turnstile site key for form bot protection." aria-label="About Turnstile site key">i</button>
-            </span>
-            <input id="ca-launch-turnstile" type="text" value="${esc(cfg.turnstileSiteKey || '')}" placeholder="optional" />
-          </label>
         </div>
         <div class="ca-launch-opts">
           ${launchOptCheckboxHtml({
@@ -17619,6 +19429,25 @@ function renderWebsite() {
             tip: 'Only updates Rover’s checklist to say hosting is done. Does not publish or fix anything. Leave off for normal launches; use only if the site is already live but Rover still shows incomplete.',
           })}
         </div>
+        ${
+          d?.meta?.lastLaunchBlocker === 'github-repo-rate-limit'
+            ? `<div class="callout warn" id="ca-launch-repo-rate-limit"><p>${esc(launchRepoRateLimitPlain())}</p>
+          <div class="narrative-actions"><button type="button" class="btn primary" id="ca-launch-create-repo">Create repo and launch</button></div>
+        </div>`
+            : d?.meta?.lastLaunchBlocker === 'github-repo-missing'
+            ? `<div class="callout warn" id="ca-launch-repo-missing"><p>${esc(
+                launchRepoMissingPlain(d.meta.lastLaunchRepoName),
+              )}</p>
+          <div class="narrative-actions"><button type="button" class="btn primary" id="ca-launch-create-repo">Create repo and launch</button></div>
+        </div>`
+            : d?.meta?.lastLaunchBlocker === 'github-push-rejected'
+              ? `<div class="callout warn" id="ca-launch-push-rejected"><p>${esc(launchPushRejectedPlain())}</p>
+          <div class="narrative-actions"><button type="button" class="btn primary" id="${
+            flags.alreadyLive ? 'ca-launch-push-rejected-go' : 'ca-push-updates'
+          }">Push updates</button></div>
+        </div>`
+              : ''
+        }
         <div class="narrative-actions">
           ${
             flags.alreadyLive
@@ -17635,6 +19464,7 @@ function renderWebsite() {
           <span class="ca-ship-status-dot" aria-hidden="true"></span>
           <p id="ca-ship-freshness-msg" class="ca-ship-status-msg">Checking whether assembled matches GitHub…</p>
           <div class="ca-ship-status-actions narrative-actions">
+            <button type="button" class="btn btn-sm primary hidden" id="ca-ship-create-repo">Create repo and launch</button>
             <button type="button" class="btn btn-sm" id="ca-ship-diff-refresh" data-tip="Fetch origin and compare assembled tree to GitHub">Refresh status</button>
             <button type="button" class="btn btn-sm" id="ca-ship-diff-show" data-tip="List files that differ from origin/main before you Push updates">Show file differences</button>
           </div>
@@ -17663,44 +19493,27 @@ function renderWebsite() {
       open: contentStepIsOpen('indexing', openId),
       current: currentId === 'indexing' && !indexingStepDone,
       locked: indexingLocked,
-      info: 'After go-live: add the site in Google Search Console, submit the sitemap once, and request indexing on the homepage plus a few money pages. Indexing is not ranking.',
+      info: 'After go-live: Submit to Search Console verifies the domain and submits the sitemap once. Then request indexing on the homepage plus a few money pages. Indexing is not ranking.',
       bodyHtml: indexingLocked
         ? `<p class="muted">Finish <strong>Run launch</strong> first, then return here to submit the live sitemap in Search Console.</p>`
         : `<div class="callout">
           <strong>Day-one indexing</strong>
           <ol class="narrative-list">
-            <li>Add a <strong>Domain</strong> property in Google Search Console and verify with DNS TXT (covers apex + www).</li>
-            <li>Indexing → Sitemaps → submit the sitemap URL once (do not resubmit daily).</li>
-            <li>URL Inspection → <strong>Request indexing</strong> on the homepage and top 2–3 money pages only.</li>
+            <li><strong>Submit to Search Console</strong> verifies the Domain property with a DNS TXT record and submits the sitemap once (do not resubmit daily).</li>
+            <li><strong>Copy URL and open Search Console</strong> (optional) copies the homepage and opens that property’s URL Inspection page. Request indexing on the homepage and the top 2–3 money pages only.</li>
             <li>Wait — monitor Page indexing; don’t thrash resubmits.</li>
             <li>A “Page with redirect” email is the http, slashless, and www 301s working. Do not click Validate fix. Ignore 404 emails for URLs that are not on the site. Act on 5xx, noindex, or robots blocks.</li>
           </ol>
         </div>
         <p class="muted" style="margin:0.65rem 0 0.35rem">Also after launch: verify Gmail once if Email Routing is new; smoke-test the live form; use Launch’s <strong>Download NAP CSV</strong> for citations / GBP.</p>
-        <div class="narrative-actions" style="justify-content:flex-start;flex-wrap:wrap;gap:0.5rem;margin-top:0.75rem">
-          <button type="button" class="btn primary" id="ca-copy-site-url" data-tip="Copy https://{domain}" ${
-            siteUrl ? '' : 'disabled'
-          }>Copy URL</button>
-          <button type="button" class="btn" id="ca-copy-sitemap-url" data-tip="Copy https://{domain}/sitemap.xml" ${
-            sitemapUrl ? '' : 'disabled'
-          }>Copy sitemap URL</button>
-          <a class="btn" href="https://search.google.com/search-console" target="_blank" rel="noopener" data-tip="Open Google Search Console">Open Search Console</a>
-          ${
-            sitemapUrl
-              ? `<a class="btn" href="${esc(sitemapUrl)}" target="_blank" rel="noopener" data-tip="Open live sitemap.xml">Open sitemap</a>`
-              : ''
-          }
-          ${
-            robotsUrl
-              ? `<a class="btn" href="${esc(robotsUrl)}" target="_blank" rel="noopener" data-tip="Open live robots.txt">Open robots.txt</a>`
-              : ''
-          }
-          ${
-            indexingStepDone
-              ? `<button type="button" class="btn" id="ca-indexing-mark-done" disabled data-tip="Indexing already marked done for this site">Done</button>`
-              : `<button type="button" class="btn" id="ca-indexing-mark-done" data-tip="Mark this step done when you’ve submitted the sitemap">Mark done</button>`
-          }
-        </div>
+        ${indexingActionsHtml({
+          host: indexingPropertyHost(cfg.domain),
+          siteUrl,
+          sitemapUrl,
+          robotsUrl,
+          done: indexingStepDone,
+          cursor: indexingActionCursor(d.id),
+        })}
         ${
           siteUrl || sitemapUrl
             ? `<p class="muted" style="margin-top:0.5rem;font-size:0.85rem">${
@@ -17742,7 +19555,7 @@ function renderWebsite() {
     }),
   );
 
-  return `<div class="content-panel-wrap">${prepareOverlayHtml()}${shipOverlayHtml()}${launchOverlayHtml()}${parts.join('')}</div>`;
+  return `<div class="content-panel-wrap">${prepareOverlayHtml()}${shipOverlayHtml()}${launchOverlayHtml()}${indexingSubmitOverlayHtml()}${parts.join('')}</div>`;
 }
 
 function shipProgressStepsFromOpts({
@@ -18139,6 +19952,7 @@ function setAcceptProgress(visible, { label, detail, step = null, total = null, 
 
 function setImagesProgress(visible, { label, detail, current, total, box: boxPrefix = 'ca-images', fromJob = false } = {}) {
   const prefix = boxPrefix || 'ca-images';
+  noteTabWorking(`images:${prefix}`, Boolean(visible));
   const box = document.getElementById(`${prefix}-progress`);
   const labelEl = document.getElementById(`${prefix}-progress-label`);
   const detailEl = document.getElementById(`${prefix}-progress-detail`);
@@ -18154,6 +19968,13 @@ function setImagesProgress(visible, { label, detail, current, total, box: boxPre
       setDeterminateProgress(bar, known ? { done: Number(current), total: Number(total) } : {});
     }
   }
+  syncTrackWorkFromImages(visible, {
+    label,
+    detail,
+    current,
+    total,
+    box: prefix,
+  });
 }
 
 function wireContentTab(d) {
@@ -18447,6 +20268,13 @@ function wireContentTab(d) {
     }
   }
 
+  document.getElementById('structure-options-toggle')?.addEventListener('click', () => {
+    const panel = document.getElementById('structure-options');
+    const collapsed = panel ? !panel.hidden : !readStructureChecklistCollapsed();
+    persistStructureChecklistCollapsed(collapsed);
+    applyStructureChecklistCollapsed(collapsed);
+  });
+
   document.querySelectorAll('.structure-preset').forEach((btn) => {
     btn.addEventListener('click', async () => {
       try {
@@ -18474,14 +20302,19 @@ function wireContentTab(d) {
     try {
       if (!(await confirmLaunchedSiteChange('Compose content outline'))) return;
       const selection = collectStructureSelection();
-      await api(`/api/candidates/${encodeURIComponent(id)}/content/structure`, {
-        method: 'POST',
-        body: JSON.stringify(withLaunchedConfirmBody(selection)),
-      });
-      const result = await api(`/api/candidates/${encodeURIComponent(id)}/content/structure/compose`, {
-        method: 'POST',
-        body: JSON.stringify(withLaunchedConfirmBody(selection)),
-      });
+      const result = await withTrackWorkOverlay(
+        { title: 'Composing outline', detail: 'Saving structure and building the outline…' },
+        async () => {
+          await api(`/api/candidates/${encodeURIComponent(id)}/content/structure`, {
+            method: 'POST',
+            body: JSON.stringify(withLaunchedConfirmBody(selection)),
+          });
+          return api(`/api/candidates/${encodeURIComponent(id)}/content/structure/compose`, {
+            method: 'POST',
+            body: JSON.stringify(withLaunchedConfirmBody(selection)),
+          });
+        },
+      );
       const nextStep = effectiveClaudeUiMode() === 'api' ? 'writeSite' : 'fieldResearch';
       await refresh(result.candidate, nextStep);
       if (result.warnings?.length) {
@@ -18524,15 +20357,24 @@ function wireContentTab(d) {
     }
     try {
       if (!(await confirmLaunchedSiteChange('Paste / confirm outline'))) return;
-      const result = await api(`/api/candidates/${encodeURIComponent(id)}/content/structure/outline`, {
-        method: 'POST',
-        body: JSON.stringify(withLaunchedConfirmBody({ json: text })),
-      });
-      const confirmed = await api(
-        `/api/candidates/${encodeURIComponent(id)}/content/structure/confirm`,
-        { method: 'POST', body: JSON.stringify(withLaunchedConfirmBody({})) },
+      const confirmed = await withTrackWorkOverlay(
+        { title: 'Loading outline', detail: 'Saving and confirming the outline…' },
+        async () => {
+          const result = await api(
+            `/api/candidates/${encodeURIComponent(id)}/content/structure/outline`,
+            {
+              method: 'POST',
+              body: JSON.stringify(withLaunchedConfirmBody({ json: text })),
+            },
+          );
+          const locked = await api(
+            `/api/candidates/${encodeURIComponent(id)}/content/structure/confirm`,
+            { method: 'POST', body: JSON.stringify(withLaunchedConfirmBody({})) },
+          );
+          return locked.candidate ? locked : result;
+        },
       );
-      await refresh(confirmed.candidate || result.candidate, 'write');
+      await refresh(confirmed.candidate, 'write');
       announceBanner('Outline loaded & confirmed — copy full-write prompt next.');
     } catch (error) {
       await showModal({
@@ -18616,14 +20458,15 @@ function wireContentTab(d) {
     try {
       if (!(await confirmLaunchedSiteChange('Load field research'))) return;
       const notes = document.getElementById('cs-field-notes')?.value || '';
-      const result = await api(
-        `/api/candidates/${encodeURIComponent(id)}/content/field-research`,
-        {
-          method: 'POST',
-          body: JSON.stringify(
-            withLaunchedConfirmBody({ json: text, operatorNotes: notes }),
-          ),
-        },
+      const result = await withTrackWorkOverlay(
+        { title: 'Loading site research', detail: 'Saving the field-research JSON…' },
+        () =>
+          api(`/api/candidates/${encodeURIComponent(id)}/content/field-research`, {
+            method: 'POST',
+            body: JSON.stringify(
+              withLaunchedConfirmBody({ json: text, operatorNotes: notes }),
+            ),
+          }),
       );
       await refresh(result.candidate, 'brief');
       announceBanner('Site research loaded — Content brief next.');
@@ -18666,12 +20509,13 @@ function wireContentTab(d) {
     }
     try {
       if (!(await confirmLaunchedSiteChange('Load & confirm brief'))) return;
-      const result = await api(
-        `/api/candidates/${encodeURIComponent(id)}/content/soft-brief/confirm`,
-        {
-          method: 'POST',
-          body: JSON.stringify(withLaunchedConfirmBody({ json: text })),
-        },
+      const result = await withTrackWorkOverlay(
+        { title: 'Loading content brief', detail: 'Confirming the brief…' },
+        () =>
+          api(`/api/candidates/${encodeURIComponent(id)}/content/soft-brief/confirm`, {
+            method: 'POST',
+            body: JSON.stringify(withLaunchedConfirmBody({ json: text })),
+          }),
       );
       await refresh(result.candidate, 'outline');
       announceBanner('Brief confirmed — Outline next.');
@@ -18717,10 +20561,14 @@ function wireContentTab(d) {
     }
     try {
       if (!(await confirmLaunchedSiteChange('Load image queries'))) return;
-      const result = await api(`/api/candidates/${encodeURIComponent(id)}/content/images-plan`, {
-        method: 'POST',
-        body: JSON.stringify(withLaunchedConfirmBody({ json: text })),
-      });
+      const result = await withTrackWorkOverlay(
+        { title: 'Loading image queries', detail: 'Saving the image plan…' },
+        () =>
+          api(`/api/candidates/${encodeURIComponent(id)}/content/images-plan`, {
+            method: 'POST',
+            body: JSON.stringify(withLaunchedConfirmBody({ json: text })),
+          }),
+      );
       const next = nextContentStepAfterImages(result.candidate);
       await refresh(result.candidate, next);
       const n = result.slotCount ? ` ${result.slotCount} slots` : '';
@@ -18783,12 +20631,13 @@ function wireContentTab(d) {
     }
     try {
       if (!(await confirmLaunchedSiteChange('Load final-check result'))) return;
-      const result = await api(
-        `/api/candidates/${encodeURIComponent(id)}/content/final-check`,
-        {
-          method: 'POST',
-          body: JSON.stringify(withLaunchedConfirmBody({ text })),
-        },
+      const result = await withTrackWorkOverlay(
+        { title: 'Loading final check', detail: 'Recording the final-check result…' },
+        () =>
+          api(`/api/candidates/${encodeURIComponent(id)}/content/final-check`, {
+            method: 'POST',
+            body: JSON.stringify(withLaunchedConfirmBody({ text })),
+          }),
       );
       const stampedAt =
         result.candidate?.contentDraft?._ops?.lastFinalCheckAt ||
@@ -18833,7 +20682,10 @@ function wireContentTab(d) {
     );
   document.getElementById('ca-speech-check')?.addEventListener('click', async () => {
     try {
-      const data = await api(`/api/candidates/${encodeURIComponent(id)}/content/speech-lint`);
+      const data = await withTrackWorkOverlay(
+        { title: 'Speech/SEO refinement', detail: 'Scanning the draft…' },
+        () => api(`/api/candidates/${encodeURIComponent(id)}/content/speech-lint`),
+      );
       const needs = contentNeedsEditorRewrite(data);
       const cand = data.candidate || state.detail;
       if (needs.needed) {
@@ -18868,10 +20720,17 @@ function wireContentTab(d) {
         structurePageIdsFromDetail(state.detail).includes('services') ||
         structurePageIdsFromDetail(state.detail).includes('locations') ||
         state.detail?.contentOutlinePackage?.status === 'confirmed';
-      const result = await api(`/api/candidates/${encodeURIComponent(id)}/content/agent-paste`, {
-        method: 'POST',
-        body: JSON.stringify({ text, mode: wantsFull ? 'full' : 'homepage_first' }),
-      });
+      const result = await withTrackWorkOverlay(
+        {
+          title: textareaId === 'ca-editor-paste' ? 'Loading editor files' : 'Loading FILE blocks',
+          detail: 'Parsing the paste into the draft…',
+        },
+        () =>
+          api(`/api/candidates/${encodeURIComponent(id)}/content/agent-paste`, {
+            method: 'POST',
+            body: JSON.stringify({ text, mode: wantsFull ? 'full' : 'homepage_first' }),
+          }),
+      );
       const launch = result.check?.launch;
       const missing = launch?.missing || [];
       const msgs = [...(result.check?.errors || []), ...(result.check?.warnings || [])];
@@ -19313,6 +21172,7 @@ function wireContentTab(d) {
           body: JSON.stringify(withLaunchedConfirmBody({ forcePrepare })),
         });
         jobId = accepted.jobId;
+        if (jobId) play('job');
       } catch (enqueueErr) {
         if (enqueueErr.code === 'HEAVY_CONCURRENCY') {
           abortPrepareUi();
@@ -19478,6 +21338,9 @@ function wireContentTab(d) {
   document.getElementById('ca-pg-save')?.addEventListener('click', () =>
     savePhotoGroupFromUi(id, { refresh, nextStep: 'images', tab: 'website' }),
   );
+  document.getElementById('ca-pg-replace-master')?.addEventListener('click', () =>
+    replaceNicheMasterFromUi(id, { refresh, nextStep: 'images', tab: 'website' }),
+  );
   document.getElementById('ca-pg-load')?.addEventListener('click', () =>
     loadPhotoGroupFromUi(id, 'ca-pg-select', {
       attach: false,
@@ -19558,6 +21421,7 @@ function wireContentTab(d) {
       });
       announceStepComplete('Generate logo');
       await refresh(payload.candidate, 'logoMap', 'website');
+      setImagesProgress(false, { box: 'ca-logo-map' });
       await showModal({
         title: 'Logo generated',
         confirmLabel: 'OK',
@@ -19681,6 +21545,7 @@ function wireContentTab(d) {
       });
       announceStepComplete('Coverage map');
       await refresh(result.candidate, 'logoMap', 'website');
+      setImagesProgress(false, { box: 'ca-logo-map' });
       const miss = Array.isArray(result.missingBoundaries) ? result.missingBoundaries : [];
       const missHtml = miss.length
         ? `<p class="callout warn"><strong>No map outline</strong> (still listed as Also serving on the site): ${esc(
@@ -19868,50 +21733,118 @@ function wireContentTab(d) {
     downloadText(`${host || 'site'}-nap.csv`, csv, 'text/csv');
   });
 
-  document.getElementById('ca-copy-site-url')?.addEventListener('click', async () => {
+  document.querySelector('#tab-panels [data-content-step="indexing"] .indexing-actions-main')?.addEventListener('click', async (ev) => {
+    const btn = ev.target.closest?.('[data-indexing-step]');
+    if (!btn || btn.disabled) return;
+    if (Boolean(state.detail?.meta?.indexingDone) || isSoftDone('websiteSoftDone', 'indexing')) return;
+    const step = Number(btn.getAttribute('data-indexing-step'));
+    const cursor = indexingActionCursor(id);
+    // Step 2 (request indexing) is optional: Mark done is allowed while the cursor is still on it.
+    if (step !== cursor && !(step === 3 && cursor === 2)) return;
     const cfg = effectiveSiteConfigForLaunchClient(
       state.detail?.siteConfig,
       state.detail?.siteConfigDraft,
     );
-    const url =
-      document.getElementById('ca-site-url-text')?.textContent?.trim() ||
-      liveSiteUrl(cfg.domain);
-    if (!url) {
-      showToast('Set a real domain first.', { tone: 'warn' });
+    const copyIndexingText = async (text, okToast) => {
+      if (!text) {
+        showToast('Set a real domain first.', { tone: 'warn' });
+        return false;
+      }
+      try {
+        await navigator.clipboard.writeText(text);
+        showToast(okToast);
+        return true;
+      } catch {
+        showToast('Could not copy — select the URL below.', { tone: 'warn' });
+        return false;
+      }
+    };
+    const advance = () => {
+      const next = indexingActionCursor(id) + 1;
+      if (next > 3) return;
+      rememberIndexingActionCursor(id, next);
+      const root = btn.closest('.indexing-actions-main');
+      if (!root) return;
+      const cursor = indexingActionCursor(id);
+      for (const el of root.querySelectorAll('[data-indexing-step]')) {
+        el.classList.toggle('primary', Number(el.getAttribute('data-indexing-step')) === cursor);
+      }
+    };
+    const offerGscConnect = async (error) => {
+      const reconnect = error?.code === 'GSC_AUTH_REVOKED' || error?.code === 'GSC_SCOPE_INSUFFICIENT';
+      const needsEnv = /CLIENT_ID|CLIENT_SECRET|\.env/i.test(String(error?.message || ''));
+      const ok = await showModal({
+        title: reconnect ? 'Connect Search Console' : 'Could not submit to Search Console',
+        confirmLabel: reconnect ? 'Connect GSC' : 'OK',
+        cancelLabel: 'Close',
+        hideCancel: !reconnect,
+        bodyHtml: `<p>${esc(error.message)}</p>${
+          needsEnv
+            ? `<p class="muted small">Add OAuth client id/secret to <code>.env</code>. Redirect URI: <code>http://127.0.0.1:8787/api/gsc/oauth/callback</code></p>`
+            : ''
+        }`,
+      });
+      if (!reconnect || !ok) return;
+      try {
+        const started = await api('/api/gsc/oauth/start');
+        window.open(started.authUrl, 'rover-gsc-oauth', 'width=520,height=720');
+      } catch (startError) {
+        await showModal({
+          title: 'Connect GSC failed',
+          confirmLabel: 'OK',
+          hideCancel: true,
+          bodyHtml: `<p>${esc(startError.message)}</p>
+            <p class="muted small">Add OAuth client id/secret to <code>.env</code>. Redirect URI: <code>http://127.0.0.1:8787/api/gsc/oauth/callback</code></p>`,
+        });
+      }
+    };
+    if (step === 1) {
+      const label = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = 'Submitting…';
+      setRoverJobOverlayVisible('website-indexing-submit-overlay', true);
+      let result = null;
+      let error = null;
+      try {
+        result = await api(`/api/candidates/${encodeURIComponent(id)}/indexing/submit`, {
+          method: 'POST',
+          body: JSON.stringify({}),
+        });
+      } catch (err) {
+        error = err;
+      } finally {
+        setRoverJobOverlayVisible('website-indexing-submit-overlay', false);
+        btn.disabled = false;
+        btn.textContent = label;
+      }
+      if (error) {
+        await offerGscConnect(error);
+        return;
+      }
+      showToast(
+        result?.sitemapAlreadySubmitted
+          ? 'Domain verified. Sitemap was already submitted.'
+          : 'Domain verified and sitemap submitted.',
+      );
+      advance();
       return;
     }
-    try {
-      await navigator.clipboard.writeText(url);
-      showToast('Site URL copied.');
-    } catch {
-      showToast('Could not copy — select the URL below.', { tone: 'warn' });
-    }
-  });
-
-  document.getElementById('ca-copy-sitemap-url')?.addEventListener('click', async () => {
-    const cfg = effectiveSiteConfigForLaunchClient(
-      state.detail?.siteConfig,
-      state.detail?.siteConfigDraft,
-    );
-    const url =
-      document.getElementById('ca-sitemap-url-text')?.textContent?.trim() ||
-      liveSitemapUrl(cfg.domain);
-    if (!url) {
-      showToast('Set a real domain first.', { tone: 'warn' });
+    if (step === 2) {
+      const host = indexingPropertyHost(cfg.domain);
+      const url =
+        document.getElementById('ca-site-url-text')?.textContent?.trim() || liveSiteUrl(cfg.domain);
+      if (!(await copyIndexingText(url, 'Site URL copied.'))) return;
+      const opened = window.open(indexingInspectUrl(host), '_blank');
+      if (!opened) {
+        showToast('Allow pop-ups to open Search Console.', { tone: 'warn' });
+        return;
+      }
+      opened.opener = null;
+      advance();
       return;
     }
-    try {
-      await navigator.clipboard.writeText(url);
-      showToast('Sitemap URL copied.');
-    } catch {
-      showToast('Could not copy — select the URL below.', { tone: 'warn' });
-    }
-  });
-
-  document.getElementById('ca-indexing-mark-done')?.addEventListener('click', async () => {
-    if (Boolean(state.detail?.meta?.indexingDone)) return;
-    const btn = document.getElementById('ca-indexing-mark-done');
-    if (btn) btn.disabled = true;
+    if (step !== 3) return;
+    btn.disabled = true;
     state.websiteSoftDone = { ...(state.websiteSoftDone || {}), indexing: true };
     state.websiteFollowCurrent = null;
     state.websiteOpenStep = 'indexing';
@@ -19929,7 +21862,7 @@ function wireContentTab(d) {
       const map = { ...(state.websiteSoftDone || {}) };
       delete map.indexing;
       state.websiteSoftDone = map;
-      if (btn) btn.disabled = false;
+      btn.disabled = false;
       await showModal({
         title: 'Could not save Indexing',
         confirmLabel: 'OK',
@@ -20042,11 +21975,20 @@ function wireContentTab(d) {
     if (btn) btn.disabled = true;
     setAssembleProgress(true, 'Reverting from launched GitHub site…');
     try {
-      const result = await api(`/api/candidates/${encodeURIComponent(id)}/revert-launched`, {
-        method: 'POST',
-        body: JSON.stringify({ confirmRevert: true }),
-      });
-      await refresh(result.candidate || state.detail, 'launch', 'website');
+      const result = await withTrackWorkOverlay(
+        {
+          title: 'Reverting to launched site',
+          detail: 'Restoring content, structure, site-config, and images from GitHub…',
+        },
+        async () => {
+          const reverted = await api(`/api/candidates/${encodeURIComponent(id)}/revert-launched`, {
+            method: 'POST',
+            body: JSON.stringify({ confirmRevert: true }),
+          });
+          await refresh(reverted.candidate || state.detail, 'launch', 'website');
+          return reverted;
+        },
+      );
       setAssembleProgress(false);
       await showModal({
         title: 'Reverted to launched site',
@@ -20153,11 +22095,19 @@ function wireContentTab(d) {
       await refresh(result.candidate || state.detail, 'launch', 'website');
       void loadSites().catch(() => {});
       announceStepComplete('Push updates');
-      const human = (result.human || []).map((h) => `<li>${esc(h)}</li>`).join('');
-      await showModal({
-        title: result.ok ? 'Updates pushed' : 'Push partial',
-        confirmLabel: 'OK',
-        bodyHtml: `<p>Ship-only: GitHub + build + Cloudflare Worker (no domain/email setup).</p>
+      if (launchResultIsWorkersFreeCap(result)) {
+        await showModal({
+          title: 'Cloudflare Workers plan is full',
+          confirmLabel: 'OK',
+          hideCancel: true,
+          bodyHtml: workersFreeCapHelpHtml(result),
+        });
+      } else {
+        const human = (result.human || []).map((h) => `<li>${esc(h)}</li>`).join('');
+        await showModal({
+          title: result.ok ? 'Updates pushed' : 'Push partial',
+          confirmLabel: 'OK',
+          bodyHtml: `<p>Ship-only: GitHub + build + Cloudflare Worker (no domain/email setup).</p>
           <ul class="narrative-list">${human || '<li>No extra notes</li>'}</ul>
           ${
             result.steps?.github?.repoUrl
@@ -20165,13 +22115,20 @@ function wireContentTab(d) {
               : ''
           }
           <p class="muted">If the live site still looks old, confirm <strong>Prepare preview</strong> ran after your template/content changes, then Push updates again.</p>`,
-      });
+        });
+      }
     } catch (error) {
       if (await maybeExplainHeavyConcurrency(error)) return;
+      const githubSaveRefused = /fatal error in commit_refs|\[remote rejected\][^\n]*\(failure\)/i.test(
+        String(error.message || ''),
+      );
       await showModal({
         title: 'Push updates failed',
         confirmLabel: 'OK',
-        bodyHtml: `<p>${esc(error.message)}</p>`,
+        hideCancel: true,
+        bodyHtml: githubSaveRefused
+          ? `<p>${esc(launchPushRejectedRetryPlain())}</p>`
+          : `<p>${esc(error.message)}</p>`,
       });
     } finally {
       hideShipOverlay();
@@ -20181,6 +22138,30 @@ function wireContentTab(d) {
       if (pushBtn) pushBtn.disabled = false;
       if (launchBtn) launchBtn.disabled = false;
     }
+  });
+
+  document.querySelector('.website-launch-note-toggle')?.addEventListener('click', () => {
+    setWebsiteLaunchNoteHidden(id, !websiteLaunchNoteHidden(id));
+    renderDetail();
+  });
+
+  const startCreateRepoAndLaunch = () => {
+    const ship = document.getElementById('ca-launch-ship');
+    if (ship) ship.checked = true;
+    const cf = document.getElementById('ca-launch-run-cf');
+    if (cf && state.detail?.meta?.emailRoutingDone) cf.checked = false;
+    document.getElementById('ca-launch')?.click();
+  };
+
+  document.getElementById('ca-launch-create-repo')?.addEventListener('click', () => {
+    startCreateRepoAndLaunch();
+  });
+  document.getElementById('ca-ship-create-repo')?.addEventListener('click', () => {
+    startCreateRepoAndLaunch();
+  });
+
+  document.getElementById('ca-launch-push-rejected-go')?.addEventListener('click', () => {
+    document.getElementById('ca-push-updates')?.click();
   });
 
   document.getElementById('ca-launch')?.addEventListener('click', async () => {
@@ -20251,6 +22232,7 @@ function wireContentTab(d) {
           body: JSON.stringify(body),
         });
         jobId = accepted.jobId;
+        if (jobId) play('job');
       } catch (enqueueErr) {
         if (enqueueErr.code === 'HEAVY_CONCURRENCY') {
           hideLaunchOverlay();
@@ -20267,18 +22249,39 @@ function wireContentTab(d) {
       }
       const result = await waitForHeavyJobResult(jobId);
       hideLaunchOverlay();
-      await refresh(result.candidate, 'indexing', 'website');
-      await loadSites().catch(() => {});
       if (result.ok) {
-        await showLaunchSuccessCelebrate(result, id);
+        const shown = showLaunchSuccessCelebrate(result, id);
+        await refresh(result.candidate, 'indexing', 'website');
+        await loadSites().catch(() => {});
+        await shown;
       } else {
+        await refresh(result.candidate, 'indexing', 'website');
+        await loadSites().catch(() => {});
         announceStepComplete('Launch');
-        await showModal({
-          title: 'Launch incomplete',
-          confirmLabel: 'OK',
-          hideCancel: true,
+        const repoMissing = launchResultIsRepoMissing(result);
+        const repoRateLimit = launchResultIsRepoRateLimit(result);
+        const pushRejected = launchResultIsPushRejected(result);
+        const workersCap = launchResultIsWorkersFreeCap(result);
+        const retryLaunch = await showModal({
+          title: workersCap
+            ? 'Cloudflare Workers plan is full'
+            : pushRejected
+              ? 'Website not published yet'
+              : repoRateLimit
+                ? 'Repository not created yet'
+                : 'Launch incomplete',
+          confirmLabel:
+            repoMissing || repoRateLimit ? 'Create repo and launch' : pushRejected ? 'Push updates' : 'OK',
+          cancelLabel: 'Not now',
+          hideCancel: !(repoMissing || pushRejected || repoRateLimit),
           bodyHtml: launchResultDetailsHtml(result),
         });
+        if ((repoMissing || repoRateLimit) && retryLaunch) {
+          startCreateRepoAndLaunch();
+        }
+        if (pushRejected && retryLaunch) {
+          document.getElementById('ca-push-updates')?.click();
+        }
       }
     } catch (error) {
       if (await maybeExplainHeavyConcurrency(error)) return;
@@ -20306,6 +22309,12 @@ function wireContentTab(d) {
     acceptBtn.addEventListener('click', async () => {
       const ignoreSeo = Boolean(document.getElementById('content-accept-seo-override')?.checked);
       const skipStock = Boolean(document.getElementById('content-accept-skip-stock')?.checked);
+      const acceptGaps = contentDraftLaunchGaps(state.detail);
+      const rewritesThin =
+        anthropicConfigured() && (acceptGaps.missing.length || acceptGaps.stubs.length);
+      const rewriteLine = rewritesThin
+        ? '<p>Rover rewrites the thin pages first, then writes the site.</p>'
+        : '';
       const stockLine = skipStock
         ? '<p>Stock photos will not be pulled. Logo and the coverage map still run.</p>'
         : '<p>Empty photo slots are filled from stock. Logo and the coverage map still run.</p>';
@@ -20313,8 +22322,8 @@ function wireContentTab(d) {
         title: 'Accept content?',
         confirmLabel: 'Write src/content/',
         bodyHtml: ignoreSeo
-          ? `<p>Accepts the draft into <code>src/content/</code> <strong>with SEO warnings overridden</strong>.</p>${stockLine}`
-          : `<p>Accepts the candidate draft into shared <code>src/content/</code> (backs up existing Markdown, prunes leftovers not in the bundle).</p>${stockLine}`,
+          ? `<p>Accepts the draft into <code>src/content/</code> <strong>with SEO warnings overridden</strong>.</p>${rewriteLine}${stockLine}`
+          : `<p>Accepts the candidate draft into shared <code>src/content/</code> (backs up existing Markdown, prunes leftovers not in the bundle).</p>${rewriteLine}${stockLine}`,
       });
       if (!ok) return;
       if (!(await confirmLaunchedSiteChange('Accept content'))) return;
@@ -20337,7 +22346,8 @@ function wireContentTab(d) {
             withLaunchedConfirmBody({ ignoreSeoWarnings: ignoreSeo, skipStockImages: skipStock }),
           );
         } catch (error) {
-          if (error.message?.includes('ignoreWarnings') || error.check?.warnings?.length) {
+          const hardErrors = Array.isArray(error.check?.errors) ? error.check.errors.filter(Boolean) : [];
+          if (String(error.message || '').includes('ignoreWarnings') && hardErrors.length === 0) {
             hideAcceptOverlay();
             const warningLines = Array.isArray(error.check?.warnings)
               ? error.check.warnings.filter(Boolean)
@@ -20465,7 +22475,7 @@ function wireContentTab(d) {
           title: 'Content accepted',
           confirmLabel: 'OK',
           bodyHtml: `<p>Wrote <strong>${esc(String(result.written?.length || 0))}</strong> file(s) to <code>src/content/</code>.</p>
-          ${locationHealNoteHtml([...(result.locationHeals || []), ...(result.serviceHeals || [])])}
+          ${locationHealNoteHtml([...(result.locationHeals || []), ...(result.serviceHeals || []), ...(result.pageHeals || [])])}
           ${imageWarn}${zoneSeoWarn}${imageFailGuide}${imageLines}${assetChecklistHtml}${mapWarn}
           <p><strong>Up next:</strong> <strong>Website</strong> → Logo &amp; Map → Review images → <strong>Prepare preview</strong> (full Stage + Assemble + open :4322).</p>`,
         });
@@ -20612,10 +22622,6 @@ function renderProspects() {
   return parts.join('');
 }
 
-function renderLogs() {
-  return `<div class="log" id="job-log">${esc('(Run a job to stream logs here)')}</div>`;
-}
-
 function wireSiteConfigTab(d) {
   if (!d) return;
   const paletteSelect = document.getElementById('sc-brand-palette');
@@ -20628,6 +22634,7 @@ function wireSiteConfigTab(d) {
       });
     });
   }
+  wirePalettePicker();
   document.querySelectorAll('[data-font-theme]').forEach((btn) => {
     btn.addEventListener('click', () => {
       const id = btn.getAttribute('data-font-theme');
@@ -20709,16 +22716,31 @@ function wireSiteConfigTab(d) {
     renderDetail();
     try {
       const nap = siteConfigNapFromLocal(d.id);
-      const result = await api(
-        `/api/candidates/${encodeURIComponent(d.id)}/site-config/suggest-domains`,
+      const result = await withTrackWorkOverlay(
         {
-          method: 'POST',
-          body: JSON.stringify({ businessName: nap.businessName || '' }),
+          title: 'Suggesting domains',
+          detail: 'Asking Claude for Exact Match hosts…',
         },
+        () =>
+          api(`/api/candidates/${encodeURIComponent(d.id)}/site-config/suggest-domains`, {
+            method: 'POST',
+            body: JSON.stringify({ businessName: nap.businessName || '' }),
+          }),
       );
+      let suggestions = result.suggestions || [];
+      try {
+        const nichePatterns = await loadNicheDomainPatterns(domainSuggestNiche(d));
+        suggestions = mergeNicheDomainSuggestions(
+          suggestions,
+          nichePatterns,
+          domainSuggestCity(d),
+        );
+      } catch {
+        /* Keep Claude’s list if the niche-pattern file cannot be read. */
+      }
       writeDomainPickToNap({
         domainPick: {
-          suggestions: result.suggestions || [],
+          suggestions,
           selectedDomain: null,
           customDomain: '',
         },
@@ -20727,7 +22749,7 @@ function wireSiteConfigTab(d) {
       state.siteConfigOpenStep = 'domain';
       state.siteConfigSoftCurrent = 'domain';
       renderDetail();
-      const n = (result.suggestions || []).length;
+      const n = suggestions.length;
       showToast(`Loaded ${n} domain suggestion${n === 1 ? '' : 's'}.`);
       await showActualCostModal({
         title: 'Domain suggestions',
@@ -20776,14 +22798,21 @@ function wireSiteConfigTab(d) {
     }
   });
 
-  document.getElementById('sc-domain-paste-load')?.addEventListener('click', () => {
+  document.getElementById('sc-domain-paste-load')?.addEventListener('click', async () => {
     const text = document.getElementById('sc-domain-paste')?.value || '';
-    const suggestions = parseDomainPickPaste(text);
-    if (!suggestions.length) {
+    const parsed = parseDomainPickPaste(text);
+    if (!parsed.length) {
       showToast('No domains found in paste — use the JSON block or a list of hostnames.', {
         tone: 'warn',
       });
       return;
+    }
+    let suggestions = parsed;
+    try {
+      const nichePatterns = await loadNicheDomainPatterns(domainSuggestNiche(d));
+      suggestions = mergeNicheDomainSuggestions(parsed, nichePatterns, domainSuggestCity(d));
+    } catch (error) {
+      showToast(error.message || 'Saved niche patterns could not be loaded.', { tone: 'warn' });
     }
     writeDomainPickToNap({
       domainPick: {
@@ -20797,6 +22826,35 @@ function wireSiteConfigTab(d) {
     state.siteConfigSoftCurrent = 'domain';
     renderDetail();
     showToast(`Loaded ${suggestions.length} domain suggestion${suggestions.length === 1 ? '' : 's'}.`);
+  });
+
+  document.getElementById('sc-domain-niche-pattern-add')?.addEventListener('click', () => {
+    void saveNicheDomainPattern(d);
+  });
+  document.getElementById('sc-domain-niche-pattern')?.addEventListener('keydown', (event) => {
+    if (event.key !== 'Enter') return;
+    event.preventDefault();
+    void saveNicheDomainPattern(d);
+  });
+  document.querySelectorAll('.sc-domain-niche-pattern-remove').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      void removeNicheDomainPatternFromCandidate(d, btn.getAttribute('data-pattern') || '');
+    });
+  });
+
+  document.querySelectorAll('.sc-domain-copy').forEach((btn) => {
+    btn.addEventListener('click', async (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const host = normalizeDomainHostname(btn.dataset.domain);
+      if (!host) return;
+      try {
+        await navigator.clipboard.writeText(host);
+        showToast(`Copied ${host}.`);
+      } catch {
+        showToast('Could not copy the domain.', { tone: 'warn' });
+      }
+    });
   });
 
   document.querySelectorAll('.sc-domain-pick-opt').forEach((input) => {
@@ -20941,7 +22999,14 @@ function wireSiteConfigTab(d) {
     state.baSearchMode = doRefresh ? 'refresh' : 'find';
     if (!state.siteConfigOpenStep) state.siteConfigOpenStep = 'address';
     renderDetail();
+    showTrackWorkOverlay({
+      title: doRefresh ? 'Refreshing listings' : 'Finding addresses',
+      detail: doRefresh
+        ? 'Pulling listings, then screening streets with Places…'
+        : 'Searching listings and screening streets with Places…',
+    });
     const stopBaBusy = () => {
+      hideTrackWorkOverlay();
       state.baSearchBusy = false;
       state.baSearchMode = 'find';
       renderDetail();
@@ -21486,43 +23551,55 @@ function wireSiteConfigTab(d) {
     renderDetail();
     try {
       const nap = saveSiteConfigNapFromForm();
-      const result = await api(`/api/candidates/${encodeURIComponent(d.id)}/site-config/generate`, {
-        method: 'POST',
-        body: JSON.stringify({
-          domain: nap.domain || '',
-          businessName: nap.businessName || '',
-          phone: nap.phone || '',
-          email: nap.email || '',
-          radiusMiles: nap.radiusMiles || '15',
-          siteArchetype: nap.siteArchetype || 'multi_service',
-          paletteId: nap.paletteId || 'slate-gold',
-          fontTheme: nap.fontTheme || 'archivo-source',
-          addressStreet: nap.addressStreet || '',
-          addressSuite: nap.addressSuite || '',
-          addressCity: nap.addressCity || '',
-          addressState: nap.addressState || '',
-          addressZip: nap.addressZip || '',
-          allowNonPursue: false,
-        }),
-      });
-      await applyCandidatePayload(result.candidate, d.id);
-      d.siteConfigDraft = result.draft || state.detail?.siteConfigDraft;
-      if (nap.paletteId || nap.fontTheme) {
-        try {
-          const look = await api(`/api/candidates/${encodeURIComponent(d.id)}/site-config/brand`, {
-            method: 'POST',
-            body: JSON.stringify({
-              paletteId: nap.paletteId || 'slate-gold',
-              fontTheme: nap.fontTheme || 'archivo-source',
-              allowNonPursue: false,
-            }),
-          });
-          state.detail = look.candidate || state.detail;
-          d.siteConfigDraft = look.draft || state.detail?.siteConfigDraft;
-        } catch {
-          /* draft loaded; look apply optional */
-        }
-      }
+      const result = await withTrackWorkOverlay(
+        {
+          title: 'Filling site-config',
+          detail: 'Claude is writing the draft…',
+        },
+        async () => {
+          const generated = await api(
+            `/api/candidates/${encodeURIComponent(d.id)}/site-config/generate`,
+            {
+              method: 'POST',
+              body: JSON.stringify({
+                domain: nap.domain || '',
+                businessName: nap.businessName || '',
+                phone: nap.phone || '',
+                email: nap.email || '',
+                radiusMiles: nap.radiusMiles || '15',
+                siteArchetype: nap.siteArchetype || 'multi_service',
+                paletteId: nap.paletteId || 'slate-gold',
+                fontTheme: nap.fontTheme || 'archivo-source',
+                addressStreet: nap.addressStreet || '',
+                addressSuite: nap.addressSuite || '',
+                addressCity: nap.addressCity || '',
+                addressState: nap.addressState || '',
+                addressZip: nap.addressZip || '',
+                allowNonPursue: false,
+              }),
+            },
+          );
+          await applyCandidatePayload(generated.candidate, d.id);
+          d.siteConfigDraft = generated.draft || state.detail?.siteConfigDraft;
+          if (nap.paletteId || nap.fontTheme) {
+            try {
+              const look = await api(`/api/candidates/${encodeURIComponent(d.id)}/site-config/brand`, {
+                method: 'POST',
+                body: JSON.stringify({
+                  paletteId: nap.paletteId || 'slate-gold',
+                  fontTheme: nap.fontTheme || 'archivo-source',
+                  allowNonPursue: false,
+                }),
+              });
+              state.detail = look.candidate || state.detail;
+              d.siteConfigDraft = look.draft || state.detail?.siteConfigDraft;
+            } catch {
+              /* draft loaded; look apply optional */
+            }
+          }
+          return generated;
+        },
+      );
       state.tab = 'site-config';
       const notes = [];
       if (result.placeholders?.length) {
@@ -21563,6 +23640,56 @@ function wireSiteConfigTab(d) {
     }
   });
 
+  const applyDetailsBtn = document.getElementById('sc-apply-details');
+  if (applyDetailsBtn) {
+    applyDetailsBtn.addEventListener('click', async () => {
+      if (!(await confirmLaunchedSiteChange('Apply business details'))) return;
+      applyDetailsBtn.disabled = true;
+      try {
+        const body = withLaunchedConfirmBody({
+          businessName: document.getElementById('sc-business')?.value?.trim() || '',
+          domain: document.getElementById('sc-domain')?.value?.trim() || '',
+          phone: phoneToE164(document.getElementById('sc-phone')?.value?.trim() || ''),
+          email: document.getElementById('sc-email')?.value?.trim() || '',
+          tagline: document.getElementById('sc-tagline')?.value?.trim() || '',
+          primaryCta: document.getElementById('sc-primary-cta')?.value?.trim() || '',
+          niche: document.getElementById('sc-niche')?.value?.trim() || '',
+          city: document.getElementById('sc-addr-city')?.value?.trim() || '',
+          state: document.getElementById('sc-addr-state')?.value?.trim() || '',
+          street: document.getElementById('sc-street')?.value?.trim() || '',
+          suite: document.getElementById('sc-suite')?.value?.trim() || '',
+          zip: document.getElementById('sc-zip')?.value?.trim() || '',
+          radiusMiles: document.getElementById('sc-radius')?.value?.trim() || '',
+          targetSuburbs: document.getElementById('sc-suburbs')?.value || '',
+          paletteId: document.getElementById('sc-brand-palette')?.value?.trim() || '',
+          fontTheme: document.getElementById('sc-font-theme')?.value?.trim() || '',
+          allowNonPursue: false,
+        });
+        const result = await api(`/api/candidates/${encodeURIComponent(d.id)}/site-config/apply-details`, {
+          method: 'POST',
+          body: JSON.stringify(body),
+        });
+        saveSiteConfigNapFromForm(d.id);
+        await applyCandidatePayload(result.candidate, d.id);
+        state.tab = 'site-config';
+        renderDetail();
+        showToast(
+          result.applied
+            ? 'Applied. Refresh the preview.'
+            : 'Saved. Review services still chooses the first service lists.',
+          { tone: 'ok' },
+        );
+      } catch (error) {
+        await showModal({
+          title: 'Apply failed',
+          confirmLabel: 'OK',
+          bodyHtml: `<p>${esc(error.message)}</p>`,
+        });
+        applyDetailsBtn.disabled = false;
+      }
+    });
+  }
+
   const saveDraftBtn = document.getElementById('site-config-save-draft-btn');
   if (saveDraftBtn) {
     saveDraftBtn.addEventListener('click', async () => {
@@ -21582,9 +23709,6 @@ function wireSiteConfigTab(d) {
           serviceRadiusMiles: document.getElementById('sc-edit-radius')?.value?.trim() || '',
           turnstileSiteKey: document.getElementById('sc-edit-turnstile')?.value?.trim() || '',
           targetSuburbs: document.getElementById('sc-edit-suburbs')?.value || '',
-          services: document.getElementById('sc-edit-services')?.value || '',
-          commercialServices: document.getElementById('sc-edit-commercial')?.value || '',
-          homepageServicesLimit: document.getElementById('sc-edit-svc-limit')?.value || '8',
           brand: siteConfigBrandPatchFromForm(d.siteConfigDraft?.brand || state.detail?.siteConfigDraft?.brand),
           address: siteConfigAddressFromForm(
             document.getElementById('sc-edit-primaryCity')?.value?.trim() || '',
@@ -21707,11 +23831,6 @@ function wireSiteConfigTab(d) {
                 document.getElementById('sc-edit-radius')?.value?.trim() || nap.radiusMiles || '',
               turnstileSiteKey: document.getElementById('sc-edit-turnstile')?.value?.trim() || '',
               targetSuburbs: document.getElementById('sc-edit-suburbs')?.value || '',
-              services: document.getElementById('sc-edit-services')?.value || '',
-              commercialServices: clearCommercial
-                ? ''
-                : document.getElementById('sc-edit-commercial')?.value || '',
-              homepageServicesLimit: document.getElementById('sc-edit-svc-limit')?.value || '8',
               brand: siteConfigBrandPatchFromForm(
                 d.siteConfigDraft?.brand || state.detail?.siteConfigDraft?.brand,
               ),
@@ -21738,6 +23857,9 @@ function wireSiteConfigTab(d) {
           }
         }
 
+        const homepageServicesLimit = homepageServicesLimitPatchValue();
+        if (homepageServicesLimit != null) patch.homepageServicesLimit = homepageServicesLimit;
+
         if (hasEditForm) {
           if (nap.domain && isPh(patch.domain, 'example.com')) patch.domain = nap.domain;
           if (nap.phone && isPh(patch.phone, '+1XXXXXXXXXX')) patch.phone = nap.phone;
@@ -21747,10 +23869,14 @@ function wireSiteConfigTab(d) {
           }
         }
 
-        const synced = await api(`/api/candidates/${encodeURIComponent(d.id)}/site-config/draft`, {
-          method: 'POST',
-          body: JSON.stringify({ patch, ...nap, allowNonPursue: false }),
-        });
+        const synced = await withTrackWorkOverlay(
+          { title: 'Saving site-config', detail: 'Writing the draft…' },
+          () =>
+            api(`/api/candidates/${encodeURIComponent(d.id)}/site-config/draft`, {
+              method: 'POST',
+              body: JSON.stringify({ patch, ...nap, allowNonPursue: false }),
+            }),
+        );
         state.detail = synced.candidate || state.detail;
         d.siteConfigDraft = synced.draft || d.siteConfigDraft;
         remaining = synced.placeholders || synced.draft?._ops?.placeholders || [];
@@ -21803,16 +23929,19 @@ function wireSiteConfigTab(d) {
             }),
           ),
         });
-      let result;
-      try {
-        result = await postAccept();
-      } catch (error) {
-        if (/placeholder/i.test(String(error.message || ''))) {
-          result = await postAccept({ allowPlaceholders: true });
-        } else {
-          throw error;
-        }
-      }
+      const result = await withTrackWorkOverlay(
+        { title: 'Accept site-config', detail: 'Writing site-config.json…' },
+        async () => {
+          try {
+            return await postAccept();
+          } catch (error) {
+            if (/placeholder/i.test(String(error.message || ''))) {
+              return postAccept({ allowPlaceholders: true });
+            }
+            throw error;
+          }
+        },
+      );
       await applyCandidatePayload(result.candidate, d.id);
       advancePanelStep('site-config', 'service-area');
       state.tab = 'site-config';
@@ -21947,17 +24076,25 @@ function wireSiteConfigTab(d) {
     if (btn) btn.disabled = true;
     if (status) status.textContent = 'Provisioning…';
     try {
-      const result = await api(`/api/candidates/${encodeURIComponent(cid)}/phone/provision-twilio`, {
-        method: 'POST',
-        body: JSON.stringify({
-          confirm: true,
-          ...(areaCode.length === 3 ? { areaCode } : {}),
-        }),
-      });
+      const result = await withTrackWorkOverlay(
+        {
+          title: 'Provisioning phone',
+          detail: 'Buying a Twilio number and writing site-config…',
+        },
+        () =>
+          api(`/api/candidates/${encodeURIComponent(cid)}/phone/provision-twilio`, {
+            method: 'POST',
+            body: JSON.stringify({
+              confirm: true,
+              ...(areaCode.length === 3 ? { areaCode } : {}),
+            }),
+          }),
+      );
       state.sitePhoneProvisioned = { ...(state.sitePhoneProvisioned || {}), [cid]: true };
       markSoftDonePrior('siteConfigSoftDone', SITE_CONFIG_STEP_ORDER, 'phone');
       if (!state.siteConfigSoftDone) state.siteConfigSoftDone = {};
       state.siteConfigSoftDone.phone = true;
+      openContentAfterSiteConfig();
       await applyCandidatePayload(result.candidate, cid);
       renderDetail();
       notifyCandidatesChanged({ type: 'candidates', ids: [cid] });
@@ -21966,7 +24103,7 @@ function wireSiteConfigTab(d) {
         confirmLabel: 'OK',
         hideCancel: true,
         bodyHtml: `<p><strong>${esc(formatDisplayPhone(result.provisioned?.phone || result.provisioned?.e164 || ''))}</strong> written to site-config.</p>
-          <p class="muted small">Continue Content, then Website Prepare / Launch. Use Launched → Update site phone number if you need to re-ship later.</p>`,
+          <p class="muted small">Content is open on the next step. Then Website Prepare / Launch. Use Launched → Update site phone number if you need to re-ship later.</p>`,
       });
     } catch (error) {
       if (status) status.textContent = '';
@@ -21998,9 +24135,11 @@ function wireSiteConfigTab(d) {
       if (!state.siteConfigSoftDone) state.siteConfigSoftDone = {};
       state.siteConfigSoftDone.phone = true;
       markSoftDonePrior('siteConfigSoftDone', SITE_CONFIG_STEP_ORDER, 'phone');
+      openContentAfterSiteConfig();
       await applyCandidatePayload(result.candidate, cid);
       renderDetail();
       notifyCandidatesChanged({ type: 'candidates', ids: [cid] });
+      showToast('Phone skipped. Content is open.');
     } catch (error) {
       if (btn) btn.disabled = false;
       await showModal({
@@ -22043,9 +24182,15 @@ function wireSiteConfigTab(d) {
     const btn = document.getElementById('sa-refresh-claims');
     if (btn) btn.disabled = true;
     try {
-      const result = await api(
-        `/api/candidates/${encodeURIComponent(d.id)}/site-config/service-area/refresh`,
-        { method: 'POST' },
+      const result = await withTrackWorkOverlay(
+        {
+          title: 'Refreshing service area',
+          detail: 'Checking Zone duplicates and refilling location pages…',
+        },
+        () =>
+          api(`/api/candidates/${encodeURIComponent(d.id)}/site-config/service-area/refresh`, {
+            method: 'POST',
+          }),
       );
       await applyCandidatePayload(result.candidate, d.id);
       state.siteConfigOpenStep = 'service-area';
@@ -22247,6 +24392,7 @@ function wireSiteConfigTab(d) {
 
 function renderDetail() {
   hideOpsTooltip();
+  if (state.tab === 'logs') state.tab = 'overview';
   const d = state.detail;
   if (!d) return;
   if (state.selectedIds.size > 1) {
@@ -22319,7 +24465,6 @@ function renderDetail() {
     content: renderContent,
     website: renderWebsite,
     prospects: renderProspects,
-    logs: renderLogs,
   };
   document.getElementById('tab-panels').innerHTML = (panels[state.tab] || renderOverview)();
 
@@ -22465,12 +24610,6 @@ function renderDetail() {
     });
   }
 
-  if (state.activeJobId && state.tab === 'logs') {
-    api(`/api/jobs/${state.activeJobId}`).then((job) => {
-      const logEl = document.getElementById('job-log');
-      if (logEl) logEl.textContent = job.logText || '(no output yet)';
-    });
-  }
   restoreSlotBusyOverlays();
 }
 
@@ -22482,6 +24621,246 @@ async function loadConcurrencySettings() {
     /* keep defaults */
   }
   syncSettingsConcurrencyInputs();
+}
+
+function readWebsiteCandidateLink() {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const candidate = String(params.get('candidate') || '').trim();
+    if (!candidate) return null;
+    return { view: 'website-builder', candidate };
+  } catch {
+    return null;
+  }
+}
+
+function applyDeepLinkClusterFilter(candidateId) {
+  const row = (state.candidates || []).find((c) => c.id === candidateId);
+  if (!row) return;
+  const ck = rowClusterKey(row);
+  state.candidateClusterFilter = ck >= 1 ? String(ck) : '0';
+  const zn = Number(row.sgNumber ?? row.shotgunSg);
+  state.candidateZoneFilter = Number.isFinite(zn) && zn >= 1 ? String(Math.trunc(zn)) : '';
+}
+
+function websiteCityTabUrl(candidateId) {
+  const params = new URLSearchParams({
+    view: 'website-builder',
+    candidate: String(candidateId),
+  });
+  return `/?${params.toString()}`;
+}
+
+function zoneOptionLabel(zone) {
+  const zn = formatZnDisplay(zone?.sgNumber);
+  const niche = String(zone?.niche || '').trim();
+  const city = String(zone?.hub?.city || zone?.hub?.name || '').trim();
+  const state = String(zone?.hub?.state || '').trim();
+  const place = [city, state].filter(Boolean).join(', ');
+  return [zn, niche, place].filter(Boolean).join(' · ');
+}
+
+function openTabZoneChoices(clusters) {
+  const rows = (Array.isArray(clusters) ? clusters : [])
+    .filter((zone) => zone?.id && Number(zone.sgNumber) >= 1)
+    .sort(
+      (a, b) =>
+        Number(a.sgNumber) - Number(b.sgNumber) ||
+        String(a.niche || '').localeCompare(String(b.niche || '')),
+    );
+  const seen = new Set();
+  const out = [];
+  for (const zone of rows) {
+    const n = Number(zone.sgNumber);
+    if (seen.has(n)) continue;
+    seen.add(n);
+    out.push(zone);
+  }
+  return out;
+}
+
+function pursueCitiesForZoneClusters(zoneNumber, start, end) {
+  const zn = Number(zoneNumber);
+  const lo = Number(start);
+  const hi = Number(end);
+  if (!Number.isFinite(zn) || !Number.isFinite(lo) || !Number.isFinite(hi)) return [];
+  const from = Math.min(lo, hi);
+  const to = Math.max(lo, hi);
+  return state.candidates
+    .filter((c) => {
+      if (c?.decision !== 'pursue' || c.archived) return false;
+      const zone = Number(c.sgNumber ?? c.shotgunSg);
+      if (!Number.isFinite(zone) || zone !== zn) return false;
+      const ck = rowClusterKey(c);
+      return ck >= from && ck <= to;
+    })
+    .sort((a, b) => {
+      const dk = rowClusterKey(a) - rowClusterKey(b);
+      if (dk) return dk;
+      const ac = String(a.primaryCity || a.city || '');
+      const bc = String(b.primaryCity || b.city || '');
+      return ac.localeCompare(bc);
+    });
+}
+
+function clusterNumbersForZone(zoneNumber) {
+  const zn = Number(zoneNumber);
+  const keys = new Set();
+  for (const c of state.candidates) {
+    if (c?.decision !== 'pursue' || c.archived) continue;
+    const zone = Number(c.sgNumber ?? c.shotgunSg);
+    if (!Number.isFinite(zone) || zone !== zn) continue;
+    const ck = rowClusterKey(c);
+    if (ck >= 1) keys.add(ck);
+  }
+  return [...keys].sort((a, b) => a - b);
+}
+
+function formatOpenTabsCount(count, start, end) {
+  if (!count || !start || !end) return 'No pursue cities in this range.';
+  const tabs = count === 1 ? '1 Website tab' : `${count} Website tabs`;
+  const clusters = start === end ? `cluster ${start}` : `clusters ${start}–${end}`;
+  return `Opens ${tabs}, ${clusters}.`;
+}
+
+function syncOpenTabsButton() {
+  document
+    .getElementById('btn-open-tabs')
+    ?.classList.toggle('hidden', state.view !== 'website-builder');
+}
+
+let openTabsDialogBusy = false;
+
+async function openWebsiteTabsDialog() {
+  if (openTabsDialogBusy) return;
+  openTabsDialogBusy = true;
+  try {
+    let zones = [];
+    try {
+      const data = await api('/api/shotgun-clusters');
+      zones = openTabZoneChoices(data?.clusters);
+    } catch (error) {
+      await showModal({
+        title: 'Could not load zones',
+        confirmLabel: 'OK',
+        hideCancel: true,
+        bodyHtml: `<p>${esc(error?.message || 'Zone list failed to load.')}</p>`,
+      });
+      return;
+    }
+    if (!zones.length) {
+      await showModal({
+        title: 'Open Website tabs',
+        confirmLabel: 'OK',
+        hideCancel: true,
+        bodyHtml: '<p>No zones yet.</p>',
+      });
+      return;
+    }
+
+    const preferredZone = Number(state.candidateZoneFilter);
+    const initialZone =
+      zones.find((zone) => Number(zone.sgNumber) === preferredZone) || zones[0];
+    const preferredCluster = Number(state.candidateClusterFilter);
+    const zoneOptions = zones
+      .map((zone) => {
+        const value = String(Number(zone.sgNumber));
+        return `<option value="${esc(value)}">${esc(zoneOptionLabel(zone))}</option>`;
+      })
+      .join('');
+
+    let zoneSelect = null;
+    let startSelect = null;
+    let endSelect = null;
+    let countEl = null;
+    let openResult = { opened: 0, total: 0 };
+
+    const renderRange = (prefer = {}) => {
+      const clusters = clusterNumbersForZone(zoneSelect.value);
+      const prevStart = Number(prefer.start ?? startSelect.value);
+      const prevEnd = Number(prefer.end ?? endSelect.value);
+      const startVal = clusters.includes(prevStart) ? prevStart : clusters[0] || 0;
+      const endChoices = clusters.filter((n) => n >= startVal);
+      const endVal = endChoices.includes(prevEnd) ? prevEnd : startVal;
+      startSelect.innerHTML = clusters
+        .map((n) => `<option value="${n}">${n}</option>`)
+        .join('');
+      endSelect.innerHTML = endChoices
+        .map((n) => `<option value="${n}">${n}</option>`)
+        .join('');
+      if (startVal) startSelect.value = String(startVal);
+      if (endVal) endSelect.value = String(endVal);
+      const rows =
+        startVal && endVal
+          ? pursueCitiesForZoneClusters(zoneSelect.value, startVal, endVal)
+          : [];
+      countEl.textContent = formatOpenTabsCount(rows.length, startVal, endVal);
+      const confirmBtn = document.getElementById('modal-confirm');
+      if (confirmBtn) confirmBtn.disabled = rows.length === 0;
+      return rows;
+    };
+
+    const ok = await showModal({
+      title: 'Open Website tabs',
+      confirmLabel: 'Confirm',
+      cancelLabel: 'Cancel',
+      modalClass: 'modal-open-tabs',
+      bodyHtml: `<div class="open-tabs-form">
+        <label class="open-tabs-field">Zone
+          <select id="open-tabs-zone">${zoneOptions}</select>
+        </label>
+        <div class="open-tabs-range">
+          <label class="open-tabs-field">Start cluster
+            <select id="open-tabs-start"></select>
+          </label>
+          <label class="open-tabs-field">End cluster
+            <select id="open-tabs-end"></select>
+          </label>
+        </div>
+        <p id="open-tabs-count" class="muted small"></p>
+      </div>`,
+      afterOpen: (body) => {
+        zoneSelect = body.querySelector('#open-tabs-zone');
+        startSelect = body.querySelector('#open-tabs-start');
+        endSelect = body.querySelector('#open-tabs-end');
+        countEl = body.querySelector('#open-tabs-count');
+        zoneSelect.value = String(Number(initialZone.sgNumber));
+        renderRange({ start: preferredCluster, end: preferredCluster });
+        zoneSelect.addEventListener('change', () => renderRange());
+        startSelect.addEventListener('change', () => renderRange());
+        endSelect.addEventListener('change', () => renderRange());
+        zoneSelect.focus();
+      },
+      beforeClose: () => {
+        const rows = pursueCitiesForZoneClusters(
+          zoneSelect.value,
+          startSelect.value,
+          endSelect.value,
+        );
+        let opened = 0;
+        for (const row of rows) {
+          const tab = window.open(websiteCityTabUrl(row.id), '_blank');
+          if (!tab) break;
+          opened += 1;
+        }
+        openResult = { opened, total: rows.length };
+        return true;
+      },
+    });
+    if (!ok) return;
+    if (openResult.opened < openResult.total) {
+      await showModal({
+        title: 'Some tabs were blocked',
+        confirmLabel: 'OK',
+        hideCancel: true,
+        bodyHtml: `<p>Opened ${esc(String(openResult.opened))} of ${esc(
+          String(openResult.total),
+        )} Website tabs. Allow pop-ups for this site, then try again.</p>`,
+      });
+    }
+  } finally {
+    openTabsDialogBusy = false;
+  }
 }
 
 function wireUi() {
@@ -22511,9 +24890,19 @@ function wireUi() {
     event.stopPropagation();
     loadCandidates();
   });
-  document.getElementById('zone-map-modal-close')?.addEventListener('click', () => closeZoneMapModal());
+  document.getElementById('btn-open-tabs')?.addEventListener('click', (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    void openWebsiteTabsDialog();
+  });
+  document.getElementById('zone-map-modal-close')?.addEventListener('click', () =>
+    closeZoneMapModal({ prompt: true }),
+  );
+  document.getElementById('zone-map-guide-btn')?.addEventListener('click', () => {
+    openZoneGuidePanel(zoneMapId);
+  });
   document.getElementById('zone-map-modal')?.addEventListener('click', (e) => {
-    if (e.target?.id === 'zone-map-modal') closeZoneMapModal();
+    if (e.target?.id === 'zone-map-modal') closeZoneMapModal({ prompt: true });
   });
   document.addEventListener(
     'click',
@@ -22523,6 +24912,17 @@ function wireUi() {
       e.preventDefault();
       e.stopPropagation();
       void openZoneMapModal(btn.dataset.zoneId);
+    },
+    true,
+  );
+  document.addEventListener(
+    'click',
+    (e) => {
+      const btn = e.target?.closest?.('.zone-guide-open');
+      if (!btn) return;
+      e.preventDefault();
+      e.stopPropagation();
+      void openZoneMapModal(btn.dataset.zoneId, { guide: true });
     },
     true,
   );
@@ -22741,6 +25141,7 @@ function setView(view) {
   document.querySelectorAll('.nav-btn').forEach((btn) => {
     btn.classList.toggle('active', btn.dataset.view === view);
   });
+  syncOpenTabsButton();
   if (onCandidates) {
     applyPipelineTabMode();
     fillCandidateBatchFilterSelect();
@@ -23167,11 +25568,37 @@ function sitesMetricsEligible() {
   });
 }
 
-/** Checkbox-selected sites that are eligible for GSC/rank bulk jobs. */
+/** Eligible sites whose Launched-table checkboxes are checked right now. */
 function selectedSitesForMetrics() {
-  const ids = state.selectedSiteIds;
-  if (!ids.size) return [];
-  return sitesMetricsEligible().filter((s) => ids.has(s.id));
+  const ids = [];
+  document.querySelectorAll('#sites-table tbody input.sites-check:checked').forEach((input) => {
+    const id = input.dataset.id;
+    if (id) ids.push(id);
+  });
+  if (!ids.length) return [];
+  const byId = new Map(sitesMetricsEligible().map((site) => [site.id, site]));
+  const seen = new Set();
+  const sites = [];
+  for (const id of ids) {
+    if (seen.has(id)) continue;
+    seen.add(id);
+    const site = byId.get(id);
+    if (site) sites.push(site);
+  }
+  return sites;
+}
+
+function sitesMetricsConfirmTitle(action, sites) {
+  const n = sites.length;
+  const noun = `site${n === 1 ? '' : 's'}`;
+  const names = sites.map((site) => siteMetricsDomainLabel(site));
+  const named = names.length <= 3 ? names.join(', ') : `${names.slice(0, 3).join(', ')} and ${n - 3} more`;
+  return `${action} for ${n} selected ${noun}: ${named}?`;
+}
+
+function sitesMetricsNameList(sites) {
+  const items = sites.map((site) => `<li>${esc(siteMetricsDomainLabel(site))}</li>`).join('');
+  return `<ul class="muted small" style="max-height:160px;overflow:auto;margin:0.6rem 0 0;padding-left:1.2rem">${items}</ul>`;
 }
 
 function siteMetricsDomainLabel(s) {
@@ -23300,6 +25727,7 @@ function startSitesGscConnectWait() {
  */
 async function withSitesMetricsBusy(start, fn) {
   if (state.sitesMetricsBusy) return;
+  state.sitesMetricsStop = false;
   setSitesMetricsButtonsDisabled(true);
   setSitesMetricsProgress({
     visible: true,
@@ -23318,7 +25746,7 @@ async function withSitesMetricsBusy(start, fn) {
 }
 
 async function syncSitesGscSequential(siteList) {
-  const sites = siteList || sitesMetricsEligible();
+  const sites = Array.isArray(siteList) ? siteList : [];
   if (!sites.length) {
     await showModal({
       title: 'GSC sync',
@@ -23336,6 +25764,7 @@ async function syncSitesGscSequential(siteList) {
     { label: 'Syncing GSC…', detail: `0/${sites.length}`, pct: 0 },
     async ({ setProgress }) => {
       for (let i = 0; i < sites.length; i += 1) {
+        if (state.sitesMetricsStop) break;
         const s = sites[i];
         const label = siteMetricsDomainLabel(s);
         setProgress({
@@ -23379,6 +25808,8 @@ async function syncSitesGscSequential(siteList) {
     confirmLabel: 'OK',
     hideCancel: true,
     bodyHtml: `<p>Synced ${esc(synced)} · failed ${esc(failed)}</p>${
+      state.sitesMetricsStop ? '<p>Stopped. Sites not started were left alone.</p>' : ''
+    }${
       errors.length
         ? `<pre class="muted small" style="white-space:pre-wrap;max-height:160px;overflow:auto">${esc(
             errors.slice(0, 12).join('\n'),
@@ -23389,7 +25820,7 @@ async function syncSitesGscSequential(siteList) {
 }
 
 async function checkSitesRanksSequential(siteList) {
-  const sites = siteList || sitesMetricsEligible();
+  const sites = Array.isArray(siteList) ? siteList : [];
   if (!sites.length) {
     await showModal({
       title: 'Rank check',
@@ -23402,6 +25833,8 @@ async function checkSitesRanksSequential(siteList) {
   let checked = 0;
   let failed = 0;
   let costUsd = 0;
+  let rankPostSkipped = false;
+  let rankStopped = false;
   const errors = [];
   await withSitesMetricsBusy(
     {
@@ -23438,6 +25871,10 @@ async function checkSitesRanksSequential(siteList) {
             })
             .catch(() => {});
         }, 2000);
+        if (state.sitesMetricsStop) {
+          rankPostSkipped = true;
+          return;
+        }
         const result = await api('/api/ranks/sync', {
           method: 'POST',
           body: JSON.stringify({ siteIds: sites.map((site) => site.id) }),
@@ -23445,6 +25882,7 @@ async function checkSitesRanksSequential(siteList) {
         checked = Number(result.checked) || 0;
         failed = Number(result.failed) || 0;
         costUsd = Number(result.costUsd) || 0;
+        rankStopped = Boolean(result.stopped);
         for (const row of result.results || []) {
           if (row.ok) continue;
           errors.push(`${row.domain || row.siteId}: ${row.error || 'finished with errors'}`);
@@ -23455,6 +25893,15 @@ async function checkSitesRanksSequential(siteList) {
       }
     },
   );
+  if (rankPostSkipped) {
+    await showModal({
+      title: 'Rank check',
+      confirmLabel: 'OK',
+      hideCancel: true,
+      bodyHtml: '<p>Stopped before the rank check was sent.</p>',
+    });
+    return;
+  }
   await showModal({
     title: 'Rank sync',
     confirmLabel: 'OK',
@@ -23462,6 +25909,10 @@ async function checkSitesRanksSequential(siteList) {
     bodyHtml: `<p>Checked ${esc(checked)} · failed ${esc(failed)} · cost ~$${esc(
       Number(costUsd || 0).toFixed(4),
     )}</p>${
+      rankStopped
+        ? '<p>Stopped. Keywords not posted were left alone. Keywords already ready were saved.</p>'
+        : ''
+    }${
       errors.length
         ? `<pre class="muted small" style="white-space:pre-wrap;max-height:160px;overflow:auto">${esc(
             errors.slice(0, 12).join('\n'),
@@ -23474,7 +25925,7 @@ async function checkSitesRanksSequential(siteList) {
 const INDEX_CHECK_CONCURRENCY = 4;
 
 async function checkSitesIndexSequential(siteList) {
-  const sites = siteList || sitesMetricsEligible();
+  const sites = Array.isArray(siteList) ? siteList : [];
   if (!sites.length) {
     await showModal({
       title: 'Index check',
@@ -23509,7 +25960,9 @@ async function checkSitesIndexSequential(siteList) {
           : '';
         setProgress({
           label: 'Checking index…',
-          detail: `${done}/${sites.length}${inflight}`,
+          detail: state.sitesMetricsStop
+            ? `Stopping… ${done}/${sites.length}`
+            : `${done}/${sites.length}${inflight}`,
           pct: Math.round((done / sites.length) * 100),
         });
       };
@@ -23526,7 +25979,9 @@ async function checkSitesIndexSequential(siteList) {
           });
           cached += Number(result.inspectCached) || 0;
           fetched += Number(result.inspectFetched) || 0;
-          if (result.ok) checked += 1;
+          if (result.stopped) {
+            /* URLs already inspected were saved. */
+          } else if (result.ok) checked += 1;
           else {
             failed += 1;
             errors.push(`${label}: ${result.error || 'finished with errors'}`);
@@ -23548,7 +26003,7 @@ async function checkSitesIndexSequential(siteList) {
       };
 
       const worker = async () => {
-        while (!stop && cursor < sites.length) {
+        while (!stop && !state.sitesMetricsStop && cursor < sites.length) {
           const site = sites[cursor];
           cursor += 1;
           await runOne(site);
@@ -23569,6 +26024,8 @@ async function checkSitesIndexSequential(siteList) {
     confirmLabel: 'OK',
     hideCancel: true,
     bodyHtml: `<p>Checked ${esc(checked)} · failed ${esc(failed)} · inspected ${esc(fetched)} URLs · skipped ${esc(cached)} cached</p>${
+      state.sitesMetricsStop ? '<p>Stopped. Sites not started were left alone.</p>' : ''
+    }${
       errors.length
         ? `<pre class="muted small" style="white-space:pre-wrap;max-height:160px;overflow:auto">${esc(
             errors.slice(0, 12).join('\n'),
@@ -23585,6 +26042,7 @@ function sitesTableHasRows() {
 }
 
 function setSitesTableLoading(visible) {
+  noteTabWorking('sites', Boolean(visible));
   const wrap = document.querySelector('#view-sites .sites-table-wrap');
   const card = document.getElementById('sites-table-loading');
   if (wrap) wrap.classList.toggle('is-loading', Boolean(visible));
@@ -23986,6 +26444,7 @@ function renderSitesTable() {
       const key = th.dataset.sort;
       if (state.siteSort.key === key) state.siteSort.dir *= -1;
       else state.siteSort = { key, dir: key === 'lastLaunchAt' ? -1 : 1 };
+      persistUiRestore();
       renderSitesTable();
     });
   });
@@ -24017,11 +26476,11 @@ function renderSitesTable() {
       e.stopPropagation();
       if (!e.shiftKey || state.siteCheckAnchor == null) return;
       blockShiftRangePointerDown(e, state.siteCheckAnchor);
-      if (applySitesShiftRange(e)) afterSitesCheckboxSelection(rows);
+      if (applySitesShiftRange(e)) renderSitesTable();
     });
     cb.addEventListener('click', (e) => {
       e.stopPropagation();
-      if (applySitesShiftRange(e)) afterSitesCheckboxSelection(rows);
+      if (applySitesShiftRange(e)) renderSitesTable();
     });
     cb.addEventListener('change', (e) => {
       e.stopPropagation();
@@ -24246,6 +26705,7 @@ function renderSitesDetail() {
           : ''
       }
     </div>
+    ${zoneGuideNoteHtml(s)}
     <div class="sites-detail-links muted small">
       ${s.liveUrl ? `<a href="${esc(s.liveUrl)}" target="_blank" rel="noopener">Live</a>` : ''}
       ${s.cloudflareDashboardUrl ? `<a href="${esc(s.cloudflareDashboardUrl)}" target="_blank" rel="noopener">Cloudflare</a>` : ''}
@@ -24501,6 +26961,7 @@ function renderSitesDetail() {
             detail: `1/1 · ${siteMetricsDomainLabel(s)}`,
             pct: 50,
           });
+          if (state.sitesMetricsStop) return;
           result = await api(`/api/sites/${encodeURIComponent(s.id)}/rank-check`, {
             method: 'POST',
             body: JSON.stringify({}),
@@ -24519,6 +26980,11 @@ function renderSitesDetail() {
           confirmLabel: 'OK',
           hideCancel: true,
           bodyHtml: `<p>Cost ~$${esc(Number(result.costUsd || 0).toFixed(4))}</p>
+            ${
+              result.stopped
+                ? '<p>Stopped. Keywords not posted were left alone. Keywords already ready were saved.</p>'
+                : ''
+            }
             <pre class="muted small" style="white-space:pre-wrap">${esc(
               JSON.stringify(result.keywords || [], null, 2),
             )}</pre>`,
@@ -24549,6 +27015,7 @@ function renderSitesDetail() {
             detail: `1/1 · ${siteMetricsDomainLabel(s)}`,
             pct: 50,
           });
+          if (state.sitesMetricsStop) return;
           result = await api(`/api/sites/${encodeURIComponent(s.id)}/index-check`, {
             method: 'POST',
             body: JSON.stringify({}),
@@ -24570,7 +27037,9 @@ function renderSitesDetail() {
             result.inspectSubmitted ?? '—',
           )} sitemap URLs · inspected ${esc(result.inspectFetched ?? 0)} · skipped ${esc(
             result.inspectCached ?? 0,
-          )} cached${result.error ? `<br/>${esc(result.error)}` : ''}</p>
+          )} cached${result.stopped ? '<br/>Stopped. Remaining sitemap URLs were left alone.' : ''}${
+            result.error ? `<br/>${esc(result.error)}` : ''
+          }</p>
             <p class="muted small">URL Inspection of the sitemap (includes /privacy). Not the GSC Pages report.</p>`,
         });
       }
@@ -24603,6 +27072,7 @@ function renderSitesDetail() {
             detail: `1/1 · ${siteMetricsDomainLabel(s)}`,
             pct: 50,
           });
+          if (state.sitesMetricsStop) return;
           result = await api('/api/gsc/sync', {
             method: 'POST',
             body: JSON.stringify({ siteId: s.id }),
@@ -25065,7 +27535,7 @@ function photoLibBaCardHtml(pair, { selected = false } = {}) {
         kind: 'ba',
         viewpointKey: key,
         generateExtra: ` data-match-key="${esc(key)}"`,
-        copyHtml: `<button type="button" class="btn btn-sm photo-ba-copy" data-match-key="${esc(key)}" data-ba-kind="before" data-tip="Copy the current Inside/Outside and No People/People BEFORE prompt">Copy before</button>
+        copyHtml: `<button type="button" class="btn btn-sm photo-ba-copy" data-match-key="${esc(key)}" data-ba-kind="before" data-tip="Copy the current Inside/Outside and Problem, Workers, Finished, or Customers BEFORE prompt">Copy before</button>
         <button type="button" class="btn btn-sm photo-ba-copy" data-match-key="${esc(key)}" data-ba-kind="after">Copy after</button>`,
         filesHtml: `<label class="btn btn-sm" style="cursor:pointer;margin:0" data-tip="Replaces the live pair; previous goes to the tray. Tray keeps 8; oldest is removed.">
           Import pair
@@ -26269,6 +28739,7 @@ function leadSourceBusy(which) {
 }
 
 function setLeadPanelLoading(panelId, cardId, visible) {
+  noteTabWorking(`lead:${cardId}`, Boolean(visible));
   const panel = document.getElementById(panelId);
   const card = document.getElementById(cardId);
   if (panel) panel.classList.toggle('is-lead-loading', Boolean(visible));
@@ -26354,11 +28825,24 @@ async function loadPhoneCallsLocal() {
   renderPhoneDetail();
 }
 
+let lastIncomingSoundAt = 0;
+function playIncoming() {
+  const now = Date.now();
+  if (now - lastIncomingSoundAt < 2000) return;
+  lastIncomingSoundAt = now;
+  play('incoming');
+}
+
 function syncPhoneFromTwilio() {
   if (phoneSyncInFlight) return phoneSyncInFlight;
   const siteIdAtStart = state.phone.selectedSiteId;
   setLeadSync('phone', 'syncing', 'Syncing calls…');
   phoneSyncInFlight = (async () => {
+    const known = new Set(
+      (state.phone.calls || [])
+        .map((call) => String(call?.callSid || call?.id || ''))
+        .filter(Boolean),
+    );
     try {
       const syncBody = {};
       if (siteIdAtStart) syncBody.siteId = siteIdAtStart;
@@ -26368,6 +28852,11 @@ function syncPhoneFromTwilio() {
       });
       if (state.view === 'phone' && state.phone.selectedSiteId === siteIdAtStart) {
         await loadPhoneLocal();
+        const fresh = (state.phone.calls || []).some((call) => {
+          const key = String(call?.callSid || call?.id || '');
+          return key && !known.has(key);
+        });
+        if (fresh) playIncoming();
       }
       setLeadSync('phone', 'done', phoneSyncStatusText(syncRes));
     } catch (error) {
@@ -26444,6 +28933,7 @@ function syncFormsFromInbox() {
           ? 'Forms inbox is not set up yet.'
           : `Forms synced${res.added ? ` · ${res.added} new` : ''}`,
       );
+      if (Number(res.added) > 0) playIncoming();
       renderLeadModes();
     } catch (error) {
       setLeadSync('forms', 'error', `Forms sync skipped: ${error?.message || error}`);
@@ -27710,8 +30200,12 @@ function renderCombinedTree() {
     const zoneLabel = zone.number
       ? `${formatZnDisplay(zone.number)}${zone.name ? ` · ${zone.name}` : ''}`
       : 'No zone';
+    const zoneMapBtn =
+      zone.key && zone.key !== '__none__'
+        ? `<button type="button" class="btn btn-sm zone-map-open lead-tree-map" data-zone-id="${esc(zone.key)}" data-tip="Open Zone map">Map</button>`
+        : '';
     html.push(`<tr class="lead-tree-zone${selectedClass('zone', zone.key)}" data-lead-kind="zone" data-lead-id="${esc(zone.key)}">
-      <td class="lead-tree-name"><button type="button" class="lead-tree-toggle" data-lead-toggle="zone" data-lead-id="${esc(zone.key)}" aria-expanded="${zoneOpen ? 'true' : 'false'}" title="${esc(zoneLabel)}"><span class="lead-tree-chevron">${zoneOpen ? '▾' : '▸'}</span><span class="lead-tree-label">${esc(zoneLabel)}</span></button></td>
+      <td class="lead-tree-name"><button type="button" class="lead-tree-toggle" data-lead-toggle="zone" data-lead-id="${esc(zone.key)}" aria-expanded="${zoneOpen ? 'true' : 'false'}" title="${esc(zoneLabel)}"><span class="lead-tree-chevron">${zoneOpen ? '▾' : '▸'}</span><span class="lead-tree-label">${esc(zoneLabel)}</span></button>${zoneMapBtn}</td>
       ${leadCountCells(sumLeadCounts(zoneSites))}
     </tr>`);
     if (!zoneOpen) continue;
@@ -28520,14 +31014,23 @@ function wireSitesUi() {
     }
   });
 
+  document.getElementById('sites-metrics-stop')?.addEventListener('click', () => {
+    if (!state.sitesMetricsBusy) return;
+    state.sitesMetricsStop = true;
+    const detailEl = document.getElementById('sites-metrics-progress-detail');
+    if (detailEl) detailEl.textContent = 'Stopping…';
+    api('/api/launched-jobs/stop', { method: 'POST', body: JSON.stringify({}) }).catch(() => {});
+  });
+
   document.getElementById('sites-gsc-sync-btn')?.addEventListener('click', async () => {
     if (state.sitesMetricsBusy) return;
-    if (!state.selectedSiteIds.size) {
+    const sites = selectedSitesForMetrics();
+    if (!sites.length) {
       showToast('Select one or more rows first.', { tone: 'warn' });
       return;
     }
     try {
-      await syncSitesGscSequential(selectedSitesForMetrics());
+      await syncSitesGscSequential(sites);
     } catch (error) {
       await showModal({
         title: 'GSC sync failed',
@@ -28539,19 +31042,19 @@ function wireSitesUi() {
 
   document.getElementById('sites-index-check-btn')?.addEventListener('click', async () => {
     if (state.sitesMetricsBusy) return;
-    if (!state.selectedSiteIds.size) {
+    const sites = selectedSitesForMetrics();
+    if (!sites.length) {
       showToast('Select one or more rows first.', { tone: 'warn' });
       return;
     }
-    const n = state.selectedSiteIds.size;
     const go = await showModal({
-      title: `Check index for ${n} selected site${n === 1 ? '' : 's'}?`,
+      title: sitesMetricsConfirmTitle('Check index', sites),
       confirmLabel: 'Check index',
-      bodyHtml: `<p>Inspects each sitemap URL in Search Console (URL Inspection). Selected sites run up to 4 at a time. A cold run is still about 5–30 seconds of inspection work per site; later runs skip URLs indexed in the last 7 days. This is not the GSC Pages report.</p>`,
+      bodyHtml: `<p>Inspects each sitemap URL in Search Console (URL Inspection) for these sites. They run up to 4 at a time. A cold run is still about 5–30 seconds of inspection work per site; later runs skip URLs indexed in the last 7 days. This is not the GSC Pages report.</p>${sitesMetricsNameList(sites)}`,
     });
     if (!go) return;
     try {
-      await checkSitesIndexSequential(selectedSitesForMetrics());
+      await checkSitesIndexSequential(sites);
     } catch (error) {
       if (isGscAuthRevokedError(error)) {
         await showGscReconnectModal(error);
@@ -28567,19 +31070,19 @@ function wireSitesUi() {
 
   document.getElementById('sites-rank-sync-btn')?.addEventListener('click', async () => {
     if (state.sitesMetricsBusy) return;
-    if (!state.selectedSiteIds.size) {
+    const sites = selectedSitesForMetrics();
+    if (!sites.length) {
       showToast('Select one or more rows first.', { tone: 'warn' });
       return;
     }
-    const n = state.selectedSiteIds.size;
     const go = await showModal({
-      title: `Check ranks for ${n} selected site${n === 1 ? '' : 's'}?`,
+      title: sitesMetricsConfirmTitle('Check ranks', sites),
       confirmLabel: 'Run Standard queue',
-      bodyHtml: `<p>Uses DataForSEO <strong>Standard</strong> organic SERP (depth 20) for up to 5 keywords per site. The whole selection is posted together and waits on the Standard queue once. Cost is unchanged.</p>`,
+      bodyHtml: `<p>Uses DataForSEO <strong>Standard</strong> organic SERP (depth 20) for up to 5 keywords per site. These sites are posted together and wait on the Standard queue once. Cost is unchanged.</p>${sitesMetricsNameList(sites)}`,
     });
     if (!go) return;
     try {
-      await checkSitesRanksSequential(selectedSitesForMetrics());
+      await checkSitesRanksSequential(sites);
     } catch (error) {
       await showModal({
         title: 'Rank sync failed',
@@ -30596,6 +33099,7 @@ function renderDiscoveryTable() {
       const key = th.dataset.sort;
       if (state.discoverySort.key === key) state.discoverySort.dir *= -1;
       else state.discoverySort = { key, dir: 1 };
+      persistUiRestore();
       renderDiscoveryTable();
     });
   });
@@ -31317,6 +33821,7 @@ async function renderShotgunWorkspace() {
   const mapHost = document.getElementById('discovery-map-canvas');
   const ws = state.shotgunWorkspace;
   const shotgun = discoveryBatchIsShotgun() && ws;
+  syncDiscoveryZoneGuide();
   const draftEarly = ws?.draft || {};
   const nextHubKey = draftEarly.hub?.city
     ? shotgunHubKey(draftEarly.hub.city, draftEarly.hub.state)
@@ -31763,6 +34268,7 @@ async function startShotgunApiStep(act) {
     if (act === 'shotgun-generate-pack') {
       state._generatePackHandledJobId = null;
       state._generatePackTrack = { batchId: id, jobId: accepted.jobId };
+      if (accepted?.jobId) play('job');
       syncGeneratePackOverlay(snapWithOptimisticGeneratePack(accepted.jobId, id));
     } else {
       state._shotgunJobTrack = { batchId: id, jobId: accepted.jobId, act };
@@ -31822,15 +34328,21 @@ function syncShotgunJobOverlay(snap) {
   if (job && overlay) {
     if (title) title.textContent = job.label || 'Cluster';
     overlay.dataset.jobId = job.id;
-    setGeneratePackOverlayVisible(state.view === 'discovery');
+    const showShotgun = state.view === 'discovery';
+    setGeneratePackOverlayVisible(showShotgun);
+    noteTabWorking('overlay:shotgun', showShotgun);
     const detailEl = document.getElementById('gp-overlay-detail');
     if (detailEl) detailEl.textContent = job.detail || 'Working…';
     return;
   }
   const track = state._shotgunJobTrack;
-  if (!track) return;
+  if (!track) {
+    noteTabWorking('overlay:shotgun', false);
+    return;
+  }
   const finished = jobs.find((j) => String(j.id) === String(track.jobId));
   if (finished && (finished.status === 'running' || finished.status === 'queued')) return;
+  noteTabWorking('overlay:shotgun', false);
   state._shotgunJobTrack = null;
   if (title) title.textContent = 'Generate pack';
   setGeneratePackOverlayVisible(false);
@@ -31904,7 +34416,241 @@ function renderShotgunApiButtons() {
   );
 }
 
-function closeZoneMapModal() {
+const zoneGuideLoaded = new WeakMap();
+let zoneMapGuideOpen = false;
+
+function zoneGuideNoteHtml(row) {
+  const zoneId = row?.shotgunClusterId;
+  if (!zoneId) return '';
+  const at = row?.planningGuideUpdatedAt;
+  if (!at) {
+    return `<p class="muted small zone-guide-note"><button type="button" class="btn btn-sm zone-guide-open" data-zone-id="${esc(zoneId)}">Zone guide</button></p>`;
+  }
+  const configAt = row.lastSiteConfigAt || row.meta?.lastSiteConfigAt || row.siteConfig?._ops?.acceptedAt || '';
+  const writeAt = row.contentAcceptedAt || row.content?._ops?.acceptedAt || '';
+  const guideMs = Date.parse(at);
+  const stale =
+    (configAt && Date.parse(configAt) < guideMs) || (writeAt && Date.parse(writeAt) < guideMs);
+  const text = stale
+    ? 'Zone guide changed. Re-run Site config and Write to apply.'
+    : 'Uses this zone’s guide.';
+  return `<p class="muted small zone-guide-note">${esc(text)} <button type="button" class="btn btn-sm zone-guide-open" data-zone-id="${esc(zoneId)}">Guide</button></p>`;
+}
+
+function zoneGuideShellHtml() {
+  return `<details class="zone-guide">
+    <summary><span>Zone guide</span> <span class="muted small" data-zg="status">Loading…</span></summary>
+    <div class="zone-guide-panes">
+      <p class="muted small">Saving the source does not change prompts. Distill writes a proposal. Use this brief is what city picking, service pages, and writing read. If Find hubs already ran, run it again after accepting.</p>
+      <label>Source
+        <textarea data-zg="source" rows="8" placeholder="Paste a guide. Markdown or plain text."></textarea>
+      </label>
+      <div class="zone-guide-actions">
+        <button type="button" class="btn btn-sm" data-zg="save-source">Save source</button>
+        <button type="button" class="btn btn-sm" data-zg="upload">Upload</button>
+        <input data-zg="file" type="file" accept=".md,.txt,text/plain,text/markdown" hidden />
+        <button type="button" class="btn btn-sm" data-zg="distill">Distill</button>
+        <button type="button" class="btn btn-sm" data-zg="copy-prompt">Copy distill prompt</button>
+      </div>
+      <label>Brief <span data-zg="brief-label"></span>
+        <textarea data-zg="brief" rows="10" placeholder="Paste a headed brief, or distill the source. Prompts ignore this until you use it."></textarea>
+      </label>
+      <div class="zone-guide-actions">
+        <button type="button" class="btn btn-sm primary" data-zg="accept">Use this brief</button>
+      </div>
+    </div>
+  </details>`;
+}
+
+function paintZoneGuideStatus(host, data) {
+  const status = host.querySelector('[data-zg="status"]');
+  const label = host.querySelector('[data-zg="brief-label"]');
+  const stateName = data?.briefState || 'empty';
+  const text =
+    stateName === 'accepted'
+      ? 'Accepted — live'
+      : stateName === 'proposed'
+        ? 'Proposed — not live'
+        : 'No accepted brief';
+  if (status) status.textContent = text;
+  if (label) label.textContent = stateName === 'proposed' ? 'Proposed' : stateName === 'accepted' ? 'Accepted' : '';
+}
+
+function zoneGuideBusy(host, busy) {
+  host.querySelectorAll('button').forEach((btn) => {
+    btn.disabled = busy;
+  });
+}
+
+function rememberZoneGuideFields(host) {
+  const source = host.querySelector('[data-zg="source"]');
+  const brief = host.querySelector('[data-zg="brief"]');
+  zoneGuideLoaded.set(host, { source: source?.value || '', brief: brief?.value || '' });
+}
+
+async function loadZoneGuide(host, scope) {
+  const data = await api(`/api/zone-guides/${scope.kind}/${encodeURIComponent(scope.id)}`);
+  const source = host.querySelector('[data-zg="source"]');
+  const brief = host.querySelector('[data-zg="brief"]');
+  if (source) source.value = data.source || '';
+  if (brief) brief.value = data.brief || '';
+  rememberZoneGuideFields(host);
+  paintZoneGuideStatus(host, data);
+  return data;
+}
+
+function ensureZoneGuide(host, scope) {
+  if (!host || !scope?.id) return;
+  const key = `${scope.kind}:${scope.id}`;
+  if (host.dataset.zgScope === key && host.querySelector('[data-zg="source"]')) return;
+  host.dataset.zgScope = key;
+  host.innerHTML = zoneGuideShellHtml();
+  wireZoneGuide(host, scope);
+  void loadZoneGuide(host, scope).catch((error) => {
+    showToast(error.message || 'Could not load zone guide', { tone: 'warn' });
+  });
+}
+
+function wireZoneGuide(host, scope) {
+  const path = `/api/zone-guides/${scope.kind}/${encodeURIComponent(scope.id)}`;
+  host.querySelector('[data-zg="save-source"]')?.addEventListener('click', async () => {
+    zoneGuideBusy(host, true);
+    try {
+      const data = await api(`${path}/source`, {
+        method: 'POST',
+        body: JSON.stringify({ text: host.querySelector('[data-zg="source"]')?.value || '' }),
+      });
+      rememberZoneGuideFields(host);
+      paintZoneGuideStatus(host, data);
+      showToast('Source saved');
+    } catch (error) {
+      showToast(error.message || 'Could not save source', { tone: 'warn' });
+    } finally {
+      zoneGuideBusy(host, false);
+    }
+  });
+  host.querySelector('[data-zg="upload"]')?.addEventListener('click', () => {
+    host.querySelector('[data-zg="file"]')?.click();
+  });
+  host.querySelector('[data-zg="file"]')?.addEventListener('change', async (event) => {
+    const file = event.target?.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    const text = await file.text();
+    const source = host.querySelector('[data-zg="source"]');
+    if (source) source.value = text;
+    host.querySelector('[data-zg="save-source"]')?.click();
+  });
+  host.querySelector('[data-zg="copy-prompt"]')?.addEventListener('click', async () => {
+    zoneGuideBusy(host, true);
+    try {
+      const source = host.querySelector('[data-zg="source"]');
+      const loaded = zoneGuideLoaded.get(host);
+      if (source && source.value !== (loaded?.source || '')) {
+        await api(`${path}/source`, {
+          method: 'POST',
+          body: JSON.stringify({ text: source.value }),
+        });
+        rememberZoneGuideFields(host);
+      }
+      const data = await api(`${path}/distill-prompt`);
+      await navigator.clipboard.writeText(data.prompt || '');
+      showToast('Distill prompt copied');
+    } catch (error) {
+      showToast(error.message || 'Could not copy distill prompt', { tone: 'warn' });
+    } finally {
+      zoneGuideBusy(host, false);
+    }
+  });
+  host.querySelector('[data-zg="distill"]')?.addEventListener('click', async () => {
+    const brief = host.querySelector('[data-zg="brief"]');
+    const loaded = zoneGuideLoaded.get(host);
+    if (brief && brief.value !== (loaded?.brief || '')) {
+      const ok = await showModal({
+        title: 'Replace the brief pane?',
+        confirmLabel: 'Distill',
+        bodyHtml: '<p>Distill replaces the text in the brief pane with a new proposal. The accepted brief stays live until you click Use this brief.</p>',
+      });
+      if (!ok) return;
+    } else {
+      const ok = await showModal({
+        title: 'Distill zone guide?',
+        confirmLabel: 'Distill',
+        bodyHtml: '<p>Distill calls Claude and writes a proposed brief. The accepted brief stays live until you click Use this brief.</p>',
+      });
+      if (!ok) return;
+    }
+    zoneGuideBusy(host, true);
+    try {
+      const source = host.querySelector('[data-zg="source"]');
+      if (source && source.value !== (zoneGuideLoaded.get(host)?.source || '')) {
+        await api(`${path}/source`, {
+          method: 'POST',
+          body: JSON.stringify({ text: source.value }),
+        });
+      }
+      const started = await api(`${path}/distill`, { method: 'POST', body: '{}' });
+      await waitForLightJobResult(started.jobId);
+      const data = await loadZoneGuide(host, scope);
+      host.querySelector('details.zone-guide')?.setAttribute('open', '');
+      paintZoneGuideStatus(host, data);
+      showToast('Proposed brief ready');
+    } catch (error) {
+      showToast(error.message || 'Distill failed', { tone: 'warn' });
+    } finally {
+      zoneGuideBusy(host, false);
+    }
+  });
+  host.querySelector('[data-zg="accept"]')?.addEventListener('click', async () => {
+    zoneGuideBusy(host, true);
+    try {
+      const data = await api(`${path}/accept`, {
+        method: 'POST',
+        body: JSON.stringify({ text: host.querySelector('[data-zg="brief"]')?.value || '' }),
+      });
+      const brief = host.querySelector('[data-zg="brief"]');
+      if (brief) brief.value = data.accepted || data.brief || brief.value;
+      rememberZoneGuideFields(host);
+      paintZoneGuideStatus(host, data);
+      showToast('Zone brief is live');
+      if (state.selectedId) void loadSelectedCandidateDetail(state.selectedId);
+      if (state.view === 'launched-sites') void loadSites();
+    } catch (error) {
+      showToast(error.message || 'Could not accept brief', { tone: 'warn' });
+    } finally {
+      zoneGuideBusy(host, false);
+    }
+  });
+}
+
+function syncDiscoveryZoneGuide() {
+  const host = document.getElementById('discovery-zone-guide');
+  if (!host) return;
+  const id = state.discoveryBatchId;
+  if (!discoveryBatchIsShotgun() || !id) {
+    host.classList.add('hidden');
+    return;
+  }
+  host.classList.remove('hidden');
+  ensureZoneGuide(host, { kind: 'batch', id });
+}
+
+function openZoneGuidePanel(zoneId) {
+  const host = document.getElementById('zone-map-guide');
+  const id = String(zoneId || zoneMapId || '').trim();
+  if (!host || !id) return;
+  host.classList.remove('hidden');
+  zoneMapGuideOpen = true;
+  ensureZoneGuide(host, { kind: 'zone', id });
+  host.querySelector('details.zone-guide')?.setAttribute('open', '');
+}
+
+function closeZoneMapModal({ prompt = false } = {}) {
+  const guideHost = document.getElementById('zone-map-guide');
+  zoneMapGuideOpen = Boolean(guideHost && !guideHost.classList.contains('hidden'));
+  guideHost?.classList.add('hidden');
+  const session = prompt ? zoneMapPrompt : null;
+  const members = prompt ? zoneMapLatestMembers : null;
   hideOpsTooltip();
   const modal = document.getElementById('zone-map-modal');
   if (modal) {
@@ -31920,9 +34666,192 @@ function closeZoneMapModal() {
   }
   zoneMapMount = null;
   zoneMapId = '';
+  if (!prompt) return;
+  zoneMapPrompt = null;
+  zoneMapLatestMembers = null;
+  if (
+    session &&
+    (session.fromView === 'research' || session.fromView === 'website-builder')
+  ) {
+    void maybeConfirmZonePaint(session, members);
+  }
 }
 
-async function openZoneMapModal(zoneId, { focusCity, focusState } = {}) {
+function zonePromoteDismissKey(zoneId, city) {
+  return `${zoneId}|${String(city.city || '').trim().toLowerCase()}|${city.state}|${city.clusterKey}`;
+}
+
+function revealPromotedZoneCities(promoted) {
+  const rows = promoted || [];
+  if (!rows.length) return;
+  const clusterFilter = String(state.candidateClusterFilter || '');
+  if (clusterFilter && rows.some((row) => String(row.clusterKey) !== clusterFilter)) {
+    state.candidateClusterFilter = '';
+  }
+  if (state.candidateDecisionFilter && state.candidateDecisionFilter !== 'pursue') {
+    state.candidateDecisionFilter = 'pursue';
+  }
+  const text = String(state.candidateTextFilter || '').trim().toLowerCase();
+  if (
+    text &&
+    rows.every((row) => !`${row.city} ${row.state} ${row.candidateId || ''}`.toLowerCase().includes(text))
+  ) {
+    state.candidateTextFilter = '';
+  }
+  syncUiRestoreControls();
+  persistUiRestore();
+}
+
+async function revertZonePaintCity(zoneId, city) {
+  if (!city?.paintedThisOpen) return;
+  const slot = city.previousClusterKey >= 1 ? city.previousClusterKey : 0;
+  await api(`/api/shotgun-clusters/${encodeURIComponent(zoneId)}/paint`, {
+    method: 'POST',
+    body: JSON.stringify({
+      city: city.city,
+      state: city.state,
+      tool: 'cluster',
+      slot,
+    }),
+  });
+}
+
+function zonePromoteJobText(batch) {
+  const running = (batch?.children || []).find((child) => child.status === 'running' && child.step);
+  if (running?.step === 'narrative') return 'Narrative…';
+  if (running?.step === 'research') return 'SERP seeds…';
+  if (running?.step) return `${jobActLabel(running.step)}…`;
+  const total = batch?.children?.length || 0;
+  const done = (batch?.done || 0) + (batch?.failed || 0);
+  if (total) return `Working ${done}/${total}…`;
+  return 'Working…';
+}
+
+async function waitForZonePromoteJob(batchJobId) {
+  const detail = document.getElementById('zone-promote-overlay-detail');
+  const bar = document.getElementById('zone-promote-overlay-bar');
+  for (;;) {
+    const batch = await api(`/api/jobs/batches/${encodeURIComponent(batchJobId)}`);
+    const total = batch.children?.length || 0;
+    const done = (batch.done || 0) + (batch.failed || 0);
+    setDeterminateProgress(bar, { done, total });
+    if (detail) detail.textContent = zonePromoteJobText(batch);
+    if (batch.status !== 'running') return batch;
+    await new Promise((resolve) => setTimeout(resolve, 800));
+  }
+}
+
+async function maybeConfirmZonePaint(session, members) {
+  const zoneId = session?.zoneId;
+  if (!zoneId) return;
+  const cities = zoneCitiesAwaitingCandidate(session.beforeMembers || [], members || []).filter(
+    (city) => city.paintedThisOpen || !zonePromoteDismissed.has(zonePromoteDismissKey(zoneId, city)),
+  );
+  if (!cities.length) return;
+  const boxes = cities
+    .map(
+      (city, index) =>
+        `<label><input type="checkbox" data-zone-promote="${index}" checked /> ${esc(city.city)}, ${esc(
+          city.state,
+        )} → Cluster ${esc(String(city.clusterKey))}</label>`,
+    )
+    .join('');
+  const ok = await showModal({
+    title: 'Add these cities?',
+    confirmLabel: 'Add and process',
+    cancelLabel: "Don't add",
+    bodyHtml: `<p>Rover will set Decision to <strong>pursue</strong>, create the candidate, then run <strong>Run all required</strong> (SERP seeds, then Narrative). Ads volumes, Enrich, and Prospects stay skipped. Narrative Accept stays a separate review.</p>
+      <div class="zone-promote-list">${boxes}</div>`,
+  });
+  const checked = cities.map((_, index) => {
+    const box = document.querySelector(`#modal-body [data-zone-promote="${index}"]`);
+    return Boolean(box?.checked);
+  });
+  const process = ok && checked.some(Boolean) ? cities.filter((_, index) => checked[index]) : [];
+  const revert = cities.filter((city, index) => city.paintedThisOpen && !process.includes(city));
+  for (const city of cities) {
+    if (process.includes(city) || city.paintedThisOpen) continue;
+    zonePromoteDismissed.add(zonePromoteDismissKey(zoneId, city));
+  }
+  if (!process.length && !revert.length) {
+    if (state.selectedId) void loadSelectedCandidateDetail(state.selectedId);
+    return;
+  }
+  const detail = document.getElementById('zone-promote-overlay-detail');
+  const bar = document.getElementById('zone-promote-overlay-bar');
+  if (detail) detail.textContent = 'Creating candidates…';
+  setDeterminateProgress(bar, {});
+  setRoverJobOverlayVisible('zone-promote-overlay', true);
+  let promoted = [];
+  let job = null;
+  let failed = null;
+  try {
+    for (const city of revert) {
+      if (detail) detail.textContent = `Removing ${city.city}…`;
+      await revertZonePaintCity(zoneId, city);
+    }
+    if (process.length) {
+      if (detail) detail.textContent = 'Creating candidates…';
+      const result = await api(`/api/shotgun-clusters/${encodeURIComponent(zoneId)}/promote-members`, {
+        method: 'POST',
+        body: JSON.stringify({
+          cities: process.map((city) => ({ city: city.city, state: city.state })),
+        }),
+      });
+      promoted = result.promoted || [];
+      for (const city of process) zonePromoteDismissed.delete(zonePromoteDismissKey(zoneId, city));
+      if (result.batchError) failed = new Error(result.batchError);
+      if (result.batchJob?.id) job = await waitForZonePromoteJob(result.batchJob.id);
+      const realFails = (job?.children || []).filter(
+        (child) => child.status === 'error' && !/needs review/i.test(child.error || ''),
+      );
+      if (realFails.length) {
+        failed = new Error(realFails.map((child) => `${child.candidateId}: ${child.error}`).join('; '));
+      }
+      if (detail) detail.textContent = 'Updating the table…';
+      for (const row of promoted) {
+        if (!row.candidateId) continue;
+        await api(`/api/candidates/${encodeURIComponent(row.candidateId)}/decision`, {
+          method: 'POST',
+          body: JSON.stringify({ decision: 'pursue', notes: 'Added from zone map' }),
+        });
+      }
+    }
+  } catch (error) {
+    failed = error;
+  } finally {
+    setRoverJobOverlayVisible('zone-promote-overlay', false);
+    setDeterminateProgress(bar, {});
+  }
+  if (promoted.length) revealPromotedZoneCities(promoted);
+  try {
+    await loadCandidates();
+    if (state.selectedId) await loadSelectedCandidateDetail(state.selectedId);
+  } catch {
+    /* table refresh is best-effort after the job */
+  }
+  if (failed) {
+    await showModal({
+      title: 'Could not finish adding cities',
+      confirmLabel: 'OK',
+      hideCancel: true,
+      bodyHtml: `<p>${esc(failed.message || 'Required research failed')}</p>`,
+    });
+    return;
+  }
+  if (!promoted.length) return;
+  const names = promoted.map((row) => row.city).join(', ');
+  const needsReview = (job?.children || []).some((child) =>
+    /needs review/i.test(child.error || ''),
+  );
+  showToast(
+    needsReview
+      ? `${names} added. Narrative draft is ready to Accept.`
+      : `${names} added.`,
+  );
+}
+
+async function openZoneMapModal(zoneId, { focusCity, focusState, keepSession = false, guide = false } = {}) {
   const id = String(zoneId || '').trim();
   if (!id) return;
   const modal = document.getElementById('zone-map-modal');
@@ -31930,13 +34859,29 @@ async function openZoneMapModal(zoneId, { focusCity, focusState } = {}) {
   const host = document.getElementById('zone-map-canvas');
   const title = document.getElementById('zone-map-modal-title');
   if (!modal || !host || !slot) return;
-  closeZoneMapModal();
+  const keep = keepSession && zoneMapPrompt?.zoneId === id;
+  closeZoneMapModal({ prompt: false });
+  const restoreGuide = guide || (keep && zoneMapGuideOpen);
+  if (!keep) {
+    zoneMapPrompt = null;
+    zoneMapLatestMembers = null;
+  }
   hideOpsTooltip();
   zoneMapId = id;
   modal.classList.remove('hidden');
   modal.hidden = false;
+  if (restoreGuide) openZoneGuidePanel(id);
   try {
     const ws = await api(`/api/shotgun-clusters/${encodeURIComponent(id)}/workspace`);
+    zoneMapLatestMembers = ws?.draft?.members || [];
+    if (!keep) {
+      zoneMapPrompt = {
+        zoneId: id,
+        fromView: state.view,
+        beforeMembers: zoneMapLatestMembers.map((m) => ({ ...m })),
+        sgNumber: ws?.draft?.sgNumber ?? null,
+      };
+    }
     if (title) {
       title.textContent = ws?.draft?.name || ws?.draft?.hub?.city ? `Zone · ${ws.draft.hub.city}` : 'Zone map';
     }
@@ -31966,6 +34911,7 @@ async function openZoneMapModal(zoneId, { focusCity, focusState } = {}) {
           }),
         });
         const next = result.workspace || (await api(`/api/shotgun-clusters/${encodeURIComponent(id)}/workspace`));
+        zoneMapLatestMembers = next?.draft?.members || zoneMapLatestMembers;
         const nextHubKey = next?.draft?.hub?.city
           ? shotgunHubKey(next.draft.hub.city, next.draft.hub.state)
           : '';
@@ -31976,7 +34922,7 @@ async function openZoneMapModal(zoneId, { focusCity, focusState } = {}) {
         if (state.selectedId) void loadSelectedCandidateDetail(state.selectedId);
         void loadCandidates();
         if (payload?.tool === 'hub' && nextHubKey && nextHubKey !== prevHubKey) {
-          await openZoneMapModal(id);
+          await openZoneMapModal(id, { keepSession: true });
           return;
         }
         zoneMapMount?.setMembers?.(next);
@@ -31991,6 +34937,7 @@ async function openZoneMapModal(zoneId, { focusCity, focusState } = {}) {
           }),
         });
         const next = result.workspace || (await api(`/api/shotgun-clusters/${encodeURIComponent(id)}/workspace`));
+        zoneMapLatestMembers = next?.draft?.members || zoneMapLatestMembers;
         if (state.shotgunWorkspace?.clusterId === id || state.shotgunWorkspace?.draft?.clusterId === id) {
           state.shotgunWorkspace = { ...state.shotgunWorkspace, ...next, draft: next.draft };
           void renderShotgunWorkspace();
@@ -32017,7 +34964,9 @@ async function openZoneMapModal(zoneId, { focusCity, focusState } = {}) {
     });
   } catch (error) {
     showToast(error.message || 'Zone map failed', { tone: 'warn' });
-    closeZoneMapModal();
+    zoneMapPrompt = null;
+    zoneMapLatestMembers = null;
+    closeZoneMapModal({ prompt: false });
   }
 }
 
@@ -32135,7 +35084,9 @@ function wireDiscoveryUi() {
   });
   document.querySelectorAll('.nav-btn').forEach((btn) => {
     btn.addEventListener('click', () => {
-      setView(btn.dataset.view);
+      const next = btn.dataset.view;
+      if (next && next !== state.view) play('tab');
+      setView(next);
       if (btn.dataset.view === 'discovery') {
         loadDiscoveryBatches().catch(() => {});
       }
@@ -32479,6 +35430,7 @@ function wireDiscoveryUi() {
       );
       const jobId = started.jobId;
       if (!jobId) throw new Error('Probe did not return a job id');
+      play('job');
 
       await new Promise((resolve, reject) => {
         const tick = async () => {
@@ -33146,6 +36098,10 @@ async function pollBatchJob(batchJobId) {
   tick();
 }
 
+if (!document.getElementById('app-boot-loading')?.classList.contains('hidden')) {
+  noteTabWorking('boot', true);
+}
+
 try {
   await loadHealth();
   void loadApiCost();
@@ -33159,15 +36115,19 @@ try {
   wireUi();
   syncClaudeModeToggle();
   renderDiscoverySourceLegend();
+  const deepLink = readWebsiteCandidateLink();
   const claudePeek = peekClaudeUiRestore();
   const uiPeek = peekUiRestore();
   applyUiFilterSnapshot(uiPeek);
-  if (claudePeek?.tab) state.tab = claudePeek.tab;
-  const restoreView = CLAUDE_UI_VIEWS.has(claudePeek?.view)
-    ? claudePeek.view
-    : CLAUDE_UI_VIEWS.has(uiPeek?.view)
-      ? uiPeek.view
-      : 'discovery';
+  if (deepLink?.candidate) state.tab = 'site-config';
+  else if (claudePeek?.tab) state.tab = claudePeek.tab;
+  const restoreView = deepLink?.candidate
+    ? 'website-builder'
+    : CLAUDE_UI_VIEWS.has(claudePeek?.view)
+      ? claudePeek.view
+      : CLAUDE_UI_VIEWS.has(uiPeek?.view)
+        ? uiPeek.view
+        : 'discovery';
   setView(restoreView);
   try {
     await loadDiscoveryPresets();
@@ -33176,6 +36136,7 @@ try {
     /* discovery optional until server restart */
   }
   await loadCandidates();
+  if (deepLink?.candidate) applyDeepLinkClusterFilter(deepLink.candidate);
   syncUiRestoreControls();
   const wantBatch = String(uiPeek?.discoveryBatchId || state.discoveryBatchId || '').trim();
   if (wantBatch && (state.discoveryBatches || []).some((b) => b.id === wantBatch)) {
@@ -33185,7 +36146,13 @@ try {
       /* batch may have been deleted */
     }
   }
-  if (claudePeek) await applyClaudeUiRestore();
+  if (deepLink?.candidate) {
+    try {
+      await selectCandidate(deepLink.candidate);
+    } catch {
+      /* candidate may have been deleted */
+    }
+  } else if (claudePeek) await applyClaudeUiRestore();
   else await applyUiSelectionRestore(uiPeek);
 } finally {
   hideAppBootLoading();

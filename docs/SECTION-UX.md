@@ -104,7 +104,7 @@ Seed `socialProof` with rating, 2–3 stats, license line, and **exactly 3** Goo
 | faqs | Left-aligned accordion | 6–10 PAA-style |
 | cta | Ink band | Phone + estimate |
 
-**Equal card grids:** Services, process, reviews, and related lists use [`fitEqualGrid`](../src/lib/equal-grid.ts) with **default `maxCols: 4`** — no empty last-row cells; **1-col on phone**, then denser from `sm`/`lg` (6 items → 3×2, 8 → 2×4). **Why choose us** uses `maxCols: 2` (4 reasons → 2×2). **Materials** uses `maxCols: 3` so two cards stay two columns instead of leaving an empty third cell.
+**Equal card grids:** Services, process, reviews, and related lists use [`fitEqualGrid`](../src/lib/equal-grid.ts) with **default `maxCols: 4`** — no empty last-row cells; **1-col on phone**, then denser from `sm`/`lg` (6 items → 3×2, 8 → 2×4). **Why choose us** uses `maxCols: 2` (4 reasons → 2×2). **Materials** uses `maxCols: 3` so two cards stay two columns instead of leaving an empty third cell. **1–2 commercial service cards** reuse the residential column class (or the standard 4-column track when fewer than two residential cards are showing) so they stay the same width as those cards.
 
 ## Service sections
 

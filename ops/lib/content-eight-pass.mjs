@@ -27,6 +27,7 @@ import {
   getContentStructure,
 } from './content-structure.mjs';
 import { getContentBrief, saveContentBrief, confirmContentBrief } from './content-agents.mjs';
+import { zoneGuideBlockForCandidate } from './zone-guide.mjs';
 import {
   listImageSlots,
   persistNicheProfileFromPlan,
@@ -199,6 +200,7 @@ export async function buildFieldResearchPrompt(candidateId, { operatorNotes = ''
     ORGANIC_TITLE_HINTS_JSON: JSON.stringify(seeds.organicTitleHints, null, 2),
     CITY_CONTEXT_BLOCK: block,
     OPERATOR_NOTES: String(operatorNotes || '').trim() || '(none)',
+    ZONE_GUIDE: zoneGuideBlockForCandidate(candidateId, 'full'),
   });
   return { prompt, config };
 }
@@ -270,6 +272,7 @@ export async function buildSoftBriefPrompt(candidateId, { operatorNotes = '' } =
     OPERATOR_NOTES: notes,
     CITY_CONTEXT_BLOCK: block,
     SITE_ARCHETYPE: archetype,
+    ZONE_GUIDE: zoneGuideBlockForCandidate(candidateId, 'full'),
   });
   return { prompt, fieldResearch: field, config };
 }
@@ -335,9 +338,11 @@ export function injectEightPassContext(candidateId) {
   const fieldBlock = field
     ? `## Field research\n\`\`\`json\n${formatFieldResearchForPrompt(candidateId)}\n\`\`\`\n`
     : '';
+  const zoneRules = zoneGuideBlockForCandidate(candidateId, 'rules');
+  const zoneBlock = zoneRules ? `${zoneRules}\n` : '';
   return {
     guardrails,
-    prefix: `${guardrails}\n\n${fieldBlock}${briefBlock}`.trim(),
+    prefix: `${guardrails}\n\n${fieldBlock}${briefBlock}${zoneBlock}`.trim(),
     brief,
     field,
   };

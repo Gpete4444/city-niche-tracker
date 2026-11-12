@@ -138,19 +138,47 @@ function liveApplyTheme({ paletteId, fontThemeId } = {}) {
   });
 }
 
+const PALETTE_GROUP_ORDER = ['Blue', 'Teal', 'Green', 'Red', 'Brown', 'Purple', 'Gray'];
+
+function palettesByGroup(palettes = []) {
+  const byName = new Map();
+  const groups = [];
+  for (const p of palettes) {
+    const name = p.group || 'Other';
+    let group = byName.get(name);
+    if (!group) {
+      group = { name, items: [] };
+      byName.set(name, group);
+      groups.push(group);
+    }
+    group.items.push(p);
+  }
+  groups.sort((a, b) => {
+    const ai = PALETTE_GROUP_ORDER.indexOf(a.name);
+    const bi = PALETTE_GROUP_ORDER.indexOf(b.name);
+    return (ai === -1 ? PALETTE_GROUP_ORDER.length : ai) - (bi === -1 ? PALETTE_GROUP_ORDER.length : bi);
+  });
+  return groups;
+}
+
 function renderPalette() {
   const wrap = el('ve-palettes');
   if (!wrap) return;
   const current = snapshot?.config?.paletteId || '';
-  wrap.innerHTML = (snapshot?.palettes || [])
-    .map((p) => {
-      const on = p.id === current ? 'on' : '';
-      const b = p.brand || {};
-      return `<button type="button" class="ve-swatch ${on}" data-palette="${deps.esc(p.id)}" title="${deps.esc(p.label)}">
+  wrap.innerHTML = palettesByGroup(snapshot?.palettes || [])
+    .map((group) => {
+      const buttons = group.items
+        .map((p) => {
+          const on = p.id === current ? 'on' : '';
+          const b = p.brand || {};
+          return `<button type="button" class="ve-swatch ${on}" data-palette="${deps.esc(p.id)}" title="${deps.esc(p.label)}">
         <span style="background:${deps.esc(b.primary || '#333')}"></span>
         <span style="background:${deps.esc(b.accent || '#999')}"></span>
         ${deps.esc(p.label)}
       </button>`;
+        })
+        .join('');
+      return `<h4 class="ve-theme-sub">${deps.esc(group.name)}</h4>${buttons}`;
     })
     .join('');
   wrap.querySelectorAll('[data-palette]').forEach((btn) => {

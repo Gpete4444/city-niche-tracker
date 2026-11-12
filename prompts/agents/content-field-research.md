@@ -23,6 +23,8 @@ CITY CONTEXT (reference only — do not invent demographics)
 OPERATOR NOTES (optional enrichment — may be empty)
 {{OPERATOR_NOTES}}
 
+{{ZONE_GUIDE}}
+
 TASK
 Using your knowledge of how homeowners search and discuss this niche (and web browsing if available), return JSON ONLY:
 

@@ -3,7 +3,8 @@ CREATE TABLE IF NOT EXISTS sites (
   site_id TEXT,
   candidate_id TEXT,
   business_name TEXT,
-  notify_email TEXT
+  notify_email TEXT,
+  turnstile_secret TEXT
 );
 
 CREATE TABLE IF NOT EXISTS submissions (

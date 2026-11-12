@@ -5,6 +5,7 @@
 import { mkdtempSync, rmSync, writeFileSync, readFileSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   brandVerbIdentity,
   coerceNicheToBrandVerb,
@@ -13,6 +14,7 @@ import {
 } from '../ops/lib/site-config.mjs';
 import { formatCityStateLabel, topReviewLocations } from '../scripts/lib/review-seed.mjs';
 import { lintContentSeo } from '../ops/lib/content-seo-lint.mjs';
+import { loadSectionRegistry } from '../ops/lib/content-structure.mjs';
 import {
   applyAcceptedWeb3KeyToSiteConfigFile,
   isAcceptedWeb3Key,
@@ -152,6 +154,49 @@ assert(
   !(matchOk.findings || []).some((f) => f.rule === 'niche_brand_verb_mismatch'),
   'matching Repair identity does not lint',
 );
+assert(
+  !(matchOk.findings || []).some((f) => f.rule === 'home_h1_echoes_brand'),
+  'keyword homepage h1 does not echo the brand',
+);
+
+const brandH1 = lintContentSeo(
+  {
+    'src/content/pages/index.md': `---
+title: "Drywall Repair in Springfield, IL"
+h1: "Springfield Drywall Repair Pros: Drywall Repair in Springfield, IL"
+---
+`,
+  },
+  { businessName: 'Springfield Drywall Repair Pros', niche: 'Drywall Repair' },
+);
+const brandHit = (brandH1.findings || []).find((f) => f.rule === 'home_h1_echoes_brand');
+assert(brandHit && brandHit.severity === 'soft', 'soft home_h1_echoes_brand when h1 leads with brand');
+assert(brandH1.ok, 'brand-echo h1 does not block Accept');
+
+const exactBrand = lintContentSeo(
+  {
+    'src/content/pages/index.md': `---
+h1: "Springfield Drywall Repair Pros"
+---
+`,
+  },
+  { businessName: 'Springfield Drywall Repair Pros' },
+);
+assert(
+  (exactBrand.findings || []).some((f) => f.rule === 'home_h1_echoes_brand' && f.severity === 'soft'),
+  'soft home_h1_echoes_brand when h1 equals the business name',
+);
+
+const hero = loadSectionRegistry().sections.find((s) => s.id === 'hero');
+assertEqual(hero.defaultHeading, '{niche} in {city}, {state}', 'homepage hero heading is the head term');
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+for (const briefName of ['single_service.json', 'multi_service.json']) {
+  const brief = JSON.parse(
+    readFileSync(path.join(repoRoot, 'prompts/briefs', briefName), 'utf8'),
+  );
+  const h1 = (brief.sections || []).find((s) => s.id === 'h1');
+  assertEqual(h1.heading, '{niche} in {city}, {state}', `${briefName} homepage h1 is the head term`);
+}
 
 const stuffedFiles = {
   'src/content/pages/index.md': `---

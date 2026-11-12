@@ -60,6 +60,58 @@ assert(healedInner.parseOk, `inner quotes parse: ${healedInner.error}`);
 const desc = parseYaml(healedInner.markdown.split(/^---$/m)[1]).description;
 assert(/sunken/.test(desc), 'inner quote text kept');
 
+const nestedUnclosed = `---
+title: "Custom Cabinets in Lakeway, TX"
+description: "Custom cabinets in Lakeway, TX."
+h1: "Custom Cabinets in Lakeway, TX"
+sectionHeading: "custom kitchen cabinets Lakeway TX"
+whyChooseUs:
+  - title: "We measure before we build"
+    description: "Every box is built to the actual room."
+  - title: "Written estimates, no surprises"
+    description: "You get a scope and a number before any wood gets cut.
+process:
+  - title: "Initial Consultation"
+    description: "We discuss your needs."
+---
+
+Lakeway homeowners get a written scope before any wood is cut.
+`;
+const healedNested = healYamlFrontmatter(nestedUnclosed);
+assert(healedNested.healed, 'unclosed nested description is healed');
+assert(healedNested.parseOk, `unclosed nested description parses: ${healedNested.error}`);
+const nestedFm = healedNested.markdown.split(/^---$/m)[1];
+const nestedData = parseYaml(nestedFm);
+assert(
+  nestedData.whyChooseUs[1].description.includes('before any wood gets cut'),
+  'healed nested description keeps the sentence',
+);
+assert(
+  nestedData.whyChooseUs[0].title === 'We measure before we build',
+  'sibling whyChooseUs title stays',
+);
+
+const nestedInner = `---
+title: "Custom Cabinets in Lakeway, TX"
+description: "Custom cabinets in Lakeway, TX."
+h1: "Custom Cabinets in Lakeway, TX"
+sectionHeading: "custom kitchen cabinets Lakeway TX"
+whyChooseUs:
+  - title: "We measure before we build"
+    description: "Every box is built to the actual room."
+  - title: "Written estimates, no surprises"
+    description: "You get a scope and a "number" before any wood gets cut."
+---
+
+Lakeway homeowners get a written scope before any wood is cut.
+`;
+const healedNestedInner = healYamlFrontmatter(nestedInner);
+assert(healedNestedInner.parseOk, `nested inner quotes parse: ${healedNestedInner.error}`);
+const nestedInnerDesc = parseYaml(healedNestedInner.markdown.split(/^---$/m)[1]).whyChooseUs[1]
+  .description;
+assert(/number/.test(nestedInnerDesc), 'nested inner quote text kept');
+assert(/before any wood gets cut/.test(nestedInnerDesc), 'nested inner quote sentence kept');
+
 const skip = revertInvalidYamlPasteFiles(
   {
     'src/content/locations/plano.md': '---\ntitle: Plano\n---\n',

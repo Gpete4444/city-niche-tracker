@@ -1,9 +1,14 @@
+/**
+ * Homepage designed-section lift, including Why headings and intro link-list skip.
+ * Run: npx tsx scripts/test-homepage-section-lift.mjs
+ */
 import {
   autoFixContentDraft,
   homepageDesignedSectionWarning,
   liftHomepageDesignedSections,
   stampHomepageLiftOnDraftOps,
 } from '../ops/lib/content-auto-fix.mjs';
+import { extractHomepageIntro } from '../src/lib/content-body.ts';
 import { validateContentBundle } from '../ops/lib/content-markdown.mjs';
 import { runTemplateContract } from '../ops/lib/template-contract.mjs';
 
@@ -469,5 +474,64 @@ assert(
   /## Questions to ask before hiring/.test(questionProseLifted.body),
   'prose questions heading stays in the body',
 );
+
+const whyWereBest = `---
+title: "Artificial Turf Installation in Chandler, AZ"
+description: "Chandler lawns don't die from bad luck."
+h1: "Artificial Turf Installation in Chandler, AZ"
+sectionHeading: "Best Artificial Grass Installers in Chandler, AZ"
+process:
+  - title: "Site evaluation"
+    description: "We walk the yard."
+faqs:
+  - question: "How long does it take?"
+    answer: "A standard yard runs 2 to 3 days."
+  - question: "Do I need a permit?"
+    answer: "Standard replacement usually does not."
+---
+<!-- rover-autofix-links -->
+- [Contact](/contact)
+- [About](/about)
+
+Chandler lawns don't die from bad luck. Caliche soil and triple-digit summers wear grass down faster than most homeowners expect.
+
+Call for a free estimate, or keep reading for real numbers on cost and permits.
+
+## Why We're the Best Artificial Grass Installers in Chandler, AZ
+
+- Base work built for caliche soil, not a generic compaction spec.
+- Heat-rated fiber that doesn't flatten or fade after one Arizona summer.
+- Drainage planned around monsoon runoff, not just dry-season looks.
+- Written estimates before any work gets scheduled. No surprises on invoice day.
+`;
+
+const whyLifted = liftHomepageDesignedSections(whyWereBest, {
+  outline,
+  config: { niche: 'Artificial Turf', primaryCity: 'Chandler' },
+});
+assert(whyLifted.changed, 'Why we are the best heading should lift');
+assert(/^whyChooseUs:/m.test(whyLifted.body), 'why we are the best writes whyChooseUs');
+assert(/Base work built for caliche soil/.test(whyLifted.body), 'plain why bullet kept');
+assert(!/## Why We're the Best/.test(whyLifted.body), 'why we are the best heading leaves the body');
+assert(/title: "Site evaluation"/.test(whyLifted.body), 'existing process stays');
+const whyFiles = { 'src/content/pages/index.md': whyLifted.body };
+const whyCheck = validateContentBundle(whyFiles, { niche: 'Artificial Turf', primaryCity: 'Chandler' }, {
+  mode: 'homepage_first',
+});
+assert(
+  !whyCheck.warnings.some((w) => /Homepage template fields are empty: Why/.test(w)),
+  'lifted Why we are the best page should not warn that Why is empty',
+);
+
+const introParas = extractHomepageIntro(whyWereBest.replace(/^---[\s\S]*?---\n/, ''), {
+  h1: 'Artificial Turf Installation in Chandler, AZ',
+  title: 'Artificial Turf Installation in Chandler, AZ',
+  sectionHeading: 'Best Artificial Grass Installers in Chandler, AZ',
+});
+assert(
+  introParas[0]?.startsWith("Chandler lawns don't die from bad luck"),
+  'intro skips the autofix link list',
+);
+assert(!introParas.some((p) => /rover-autofix-links|\[Contact\]/.test(p)), 'intro does not keep the link list');
 
 console.log('test-homepage-section-lift: ok');

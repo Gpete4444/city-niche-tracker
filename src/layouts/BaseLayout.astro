@@ -5,6 +5,7 @@ import Footer from '../components/Footer.astro';
 import LocalSchema from '../components/LocalSchema.astro';
 import StickyCallBar from '../components/StickyCallBar.astro';
 import { site } from '../config/site';
+import { SITE_PALETTES } from '../config/palettes';
 import { getFontTheme } from '../config/fonts';
 import { resolvePageTitle } from '../lib/page-title';
 import { sitePath } from '../lib/site-path';
@@ -58,6 +59,8 @@ function faviconTypeFromHref(href: string): string {
 
 const faviconHref = String(site.logo?.src || '/favicon.svg').trim() || '/favicon.svg';
 const faviconType = faviconTypeFromHref(faviconHref);
+const matchedPalette = SITE_PALETTES.find((p) => p.id === String(site.brand.paletteId || '').trim());
+const accentOnLight = matchedPalette?.brand.accentOnLight || site.brand.accent;
 ---
 
 <!doctype html>
@@ -97,6 +100,7 @@ const faviconType = faviconTypeFromHref(faviconHref);
     <style is:inline set:html={`:root {
         --brand-primary: ${site.brand.primary};
         --brand-accent: ${site.brand.accent};
+        --brand-accent-on-light: ${accentOnLight};
         --brand-ink: ${site.brand.ink};
         --font-display: ${fontTheme.displayStack};
         --font-body: ${fontTheme.bodyStack};

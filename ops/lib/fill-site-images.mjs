@@ -141,16 +141,31 @@ function listProcessStepTitlesFromFrontmatter(md) {
   return listProcessStepsFromFrontmatter(md).map((s) => s.title);
 }
 
-function processSectionBody(md) {
+/**
+ * First # / ## section whose heading matches. Text before the first heading is
+ * not a heading — split() always leaves that preamble at index 0, and an intro
+ * that says "materials" or "our … process" must not steal the real section.
+ */
+function firstHashSection(body, matchesHeading) {
+  const section = String(body || '')
+    .split(/^#{1,2}\s+/m)
+    .slice(1)
+    .find((chunk) => {
+      const heading = (chunk.trim().split('\n')[0] || '').trim();
+      return matchesHeading(heading);
+    });
+  return section || '';
+}
+
+function markdownBody(md) {
   const text = String(md || '').replace(/\r\n/g, '\n');
-  const body = text.includes('\n---\n')
+  return text.includes('\n---\n')
     ? text.slice(text.indexOf('\n---\n', 3) + 5)
     : text.replace(/^---[\s\S]*?---\n?/, '');
-  const section = body.split(/^#{1,2}\s+/m).find((chunk) => {
-    const heading = (chunk.trim().split('\n')[0] || '').trim();
-    return isProcessHeading(heading);
-  });
-  return section || '';
+}
+
+function processSectionBody(md) {
+  return firstHashSection(markdownBody(md), isProcessHeading);
 }
 
 /** Title + detail from a process step line (same shapes as parseProcessSteps). */
@@ -246,15 +261,7 @@ function parseMaterialTitleFromBullet(raw) {
 }
 
 function materialsSectionBody(md) {
-  const text = String(md || '').replace(/\r\n/g, '\n');
-  const body = text.includes('\n---\n')
-    ? text.slice(text.indexOf('\n---\n', 3) + 5)
-    : text.replace(/^---[\s\S]*?---\n?/, '');
-  const section = body.split(/^#{1,2}\s+/m).find((chunk) => {
-    const heading = (chunk.trim().split('\n')[0] || '').trim();
-    return isMaterialsHeading(heading);
-  });
-  return section || '';
+  return firstHashSection(markdownBody(md), isMaterialsHeading);
 }
 
 function firstSentence(text) {

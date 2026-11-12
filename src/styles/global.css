@@ -3,6 +3,7 @@
 @theme {
   --color-brand: var(--brand-primary, #1c2b3a);
   --color-accent: var(--brand-accent, #e8a317);
+  --color-accent-on-light: var(--brand-accent-on-light, var(--brand-accent, #e8a317));
   --color-ink: var(--brand-ink, #0f1720);
   --color-paper: #f1f4f7;
   --color-surface-raised: #ffffff;
@@ -136,7 +137,7 @@
 
   /* Section labels above display H2s — readable at a glance */
   .section-eyebrow {
-    @apply text-sm font-bold uppercase tracking-[0.12em] text-accent;
+    @apply text-sm font-bold uppercase tracking-[0.12em] text-accent-on-light;
   }
 
   /* Section ground bands — alternate for page rhythm */
@@ -163,6 +164,12 @@
   .section-surface-ink {
     @apply bg-ink text-white;
   }
+}
+
+/* Pale accent titles are darkened on light bands. Dark hero, brand, and ink bands keep the original accent. */
+.section-surface-ink .section-eyebrow,
+.section-surface-brand .section-eyebrow {
+  color: var(--brand-accent);
 }
 
 /* Prose / auto-linked tel: on dark bands — brand/accent blues are unreadable on ink/brand. */

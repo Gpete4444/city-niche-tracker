@@ -1,5 +1,5 @@
 /**
- * Reuse a painted zone on a new niche: next zone number, same cluster keys, no copied sites.
+ * Reuse a painted zone on a new niche: draft first, zone number on process, same cluster keys, no copied sites.
  * Run: node scripts/test-zone-reuse.mjs
  */
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -7,7 +7,11 @@ import os from 'node:os';
 import path from 'node:path';
 import { deleteGroup } from '../ops/lib/candidate-groups.mjs';
 import { titleCaseNiche } from '../ops/lib/candidates.mjs';
-import { seedDiscoveryPackFromZone } from '../ops/lib/discovery-shotgun.mjs';
+import { commitShotgunZoneForBatch } from '../ops/lib/discovery.mjs';
+import {
+  applyGeneratePackRows,
+  seedDiscoveryPackFromZone,
+} from '../ops/lib/discovery-shotgun.mjs';
 import {
   loadShotgunClusters,
   loadShotgunDraft,
@@ -128,30 +132,43 @@ withZones(
   ({ batch }) => {
     const batchDir = batch(`zone-reuse-new-${stamp}`, niche);
     const seeded = seedDiscoveryPackFromZone(`zone-reuse-new-${stamp}`, 'sg_src');
-    assert(seeded.existing === false, 'new niche gets a new zone');
-    assert(seeded.cluster.sgNumber === 10, 'zone number is max + 1');
-    assert(seeded.cluster.id !== 'sg_src', 'new zone id');
-    assert(seeded.cluster.reusedFromZoneId === 'sg_src', 'records the source zone');
-    assert(seeded.cluster.niche === niche, 'zone niche is the new niche');
-    assert(!JSON.stringify(seeded.cluster.members).includes('cand_old'), 'does not copy site ids');
-    const keys = Object.fromEntries(
-      (seeded.cluster.members || []).map((m) => [m.city, m.clusterKey]),
-    );
-    assert(keys.Mesa === 1, 'Mesa keeps cluster 1');
-    assert(keys.Gilbert === 2, 'Gilbert keeps cluster 2');
-    assert(!('Casa Grande' in keys), 'unpainted cities stay behind');
-    const hub = (seeded.cluster.members || []).find((m) => m.city === 'Phoenix');
-    assert(hub?.role === 'hub', 'hub role is copied');
+    assert(seeded.existing === false, 'new niche gets a draft');
+    assert(seeded.cluster == null, 'draft does not create a zone');
+    assert(loadShotgunClusters().clusters.length === 2, 'zone registry is unchanged until process');
     const draft = loadShotgunDraft(batchDir);
-    assert(draft.sgNumber === 10, 'seeded draft has the new zone number');
-    assert(draft.clusterId === seeded.cluster.id, 'draft points at the new zone');
+    assert(!draft.clusterId, 'draft has no zone id');
+    assert(!draft.sgNumber, 'draft has no zone number');
+    assert(draft.reusedFromZoneId === 'sg_src', 'records the source zone');
+    assert(draft.niche === niche, 'draft niche is the new niche');
+    assert(!JSON.stringify(draft.members).includes('cand_old'), 'does not copy site ids');
+    const draftKeys = Object.fromEntries((draft.members || []).map((m) => [m.city, m.clusterKey]));
+    assert(draftKeys.Mesa === 1 && draftKeys.Gilbert === 2, 'seeded draft keeps cluster keys');
+    assert(!(draft.members || []).some((m) => m.city === 'Casa Grande'), 'draft skips unpainted cities');
+    const draftHub = (draft.members || []).find((m) => m.city === 'Phoenix');
+    assert(draftHub?.role === 'hub', 'hub role is copied');
     assert(draft.hub?.city === 'Phoenix' && draft.hub?.state === 'AZ', 'draft hub is Phoenix');
     assert(draft.clusterMiles === 42, 'draft keeps the zone radius');
     assert(draft.step === 'pack', 'draft is ready to generate');
-    const draftKeys = Object.fromEntries((draft.members || []).map((m) => [m.city, m.clusterKey]));
-    assert(draftKeys.Mesa === 1 && draftKeys.Gilbert === 2, 'seeded draft keeps cluster keys');
-    assert(!JSON.stringify(draft.members).includes('cand_old'), 'draft does not copy site ids');
-    assert(!(draft.members || []).some((m) => m.city === 'Casa Grande'), 'draft skips unpainted cities');
+    applyGeneratePackRows(`zone-reuse-new-${stamp}`, draft.members);
+    const generated = loadShotgunDraft(batchDir);
+    assert(!generated.clusterId, 'generate pack does not create a zone');
+    assert(loadShotgunClusters().clusters.length === 2, 'generate pack leaves the registry unchanged');
+
+    const cluster = commitShotgunZoneForBatch(`zone-reuse-new-${stamp}`);
+    assert(cluster.sgNumber === 10, 'processing assigns max + 1');
+    assert(cluster.id !== 'sg_src', 'new zone id');
+    assert(cluster.reusedFromZoneId === 'sg_src', 'zone records the source');
+    assert(cluster.niche === niche, 'zone niche is the new niche');
+    assert(!JSON.stringify(cluster.members).includes('cand_old'), 'zone does not copy site ids');
+    const keys = Object.fromEntries((cluster.members || []).map((m) => [m.city, m.clusterKey]));
+    assert(keys.Mesa === 1, 'Mesa keeps cluster 1');
+    assert(keys.Gilbert === 2, 'Gilbert keeps cluster 2');
+    assert(!('Casa Grande' in keys), 'unpainted cities stay behind');
+    const hub = (cluster.members || []).find((m) => m.city === 'Phoenix');
+    assert(hub?.role === 'hub', 'hub role is copied');
+    const saved = loadShotgunDraft(batchDir);
+    assert(saved.sgNumber === 10, 'processed draft has the zone number');
+    assert(saved.clusterId === cluster.id, 'draft points at the new zone');
 
     const againDir = batch(`zone-reuse-again-${stamp}`, niche);
     const again = seedDiscoveryPackFromZone(`zone-reuse-again-${stamp}`, 'sg_src');
@@ -193,6 +210,42 @@ withZones(
     const zones = loadShotgunClusters().clusters;
     assert(zones.length === 2, 'does not create a zone');
     assert(!zones.some((c) => c.groupId), 'does not create a group when opening the existing zone');
+  },
+);
+
+withZones(
+  [
+    sourceZone(),
+    {
+      id: 'sg_tucson',
+      niche: 'Windows',
+      name: 'Zone · Windows · Tucson AZ',
+      sgNumber: 9,
+      hub: { city: 'Tucson', state: 'AZ' },
+      members: [
+        { city: 'Tucson', state: 'AZ', role: 'hub' },
+        { city: 'Mesa', state: 'AZ', role: 'member', clusterKey: 3 },
+      ],
+    },
+  ],
+  ({ batch }) => {
+    batch(`zone-reuse-swap-phoenix-${stamp}`, niche);
+    batch(`zone-reuse-swap-tucson-${stamp}`, niche);
+    const phoenix = seedDiscoveryPackFromZone(`zone-reuse-swap-phoenix-${stamp}`, 'sg_src');
+    const tucson = seedDiscoveryPackFromZone(`zone-reuse-swap-tucson-${stamp}`, 'sg_tucson');
+    assert(phoenix.existing === false && tucson.existing === false, 'both paints stay drafts');
+    assert(loadShotgunClusters().clusters.length === 2, 'swapping zones does not create a zone');
+    const committed = commitShotgunZoneForBatch(`zone-reuse-swap-tucson-${stamp}`);
+    assert(committed.hub.city === 'Tucson', 'processed batch uses the zone that was picked');
+    assert(committed.sgNumber === 10, 'processed swap assigns the next zone number');
+    let swapMessage = '';
+    try {
+      commitShotgunZoneForBatch(`zone-reuse-swap-phoenix-${stamp}`);
+    } catch (error) {
+      swapMessage = error.message || '';
+    }
+    assert(/Mesa, AZ is already in/.test(swapMessage), 'processing a second overlapping pack is refused');
+    assert(loadShotgunClusters().clusters.length === 3, 'the refused pack does not create a zone');
   },
 );
 

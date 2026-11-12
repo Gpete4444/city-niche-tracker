@@ -88,7 +88,24 @@ const ingestUrl = site.formsIngestUrl || '';
 
       {
         hasTurnstile && (
-          <div class="cf-turnstile" data-sitekey={site.turnstileSiteKey} data-theme="light" />
+          <div class="turnstile-slot">
+            <div
+              class="cf-turnstile"
+              data-sitekey={site.turnstileSiteKey}
+              data-theme="auto"
+              data-callback="roverTurnstilePassed"
+              data-expired-callback="roverTurnstileCleared"
+              data-error-callback="roverTurnstileCleared"
+            />
+            <input
+              class="turnstile-gate"
+              type="text"
+              required
+              tabindex="-1"
+              autocomplete="off"
+              aria-label="Verify you are human"
+            />
+          </div>
         )
       }
 
@@ -107,9 +124,46 @@ const ingestUrl = site.formsIngestUrl || '';
   </div>
 </section>
 
+{
+  hasTurnstile && (
+    <script is:inline>
+      window.roverTurnstilePassed = (token) => {
+        document.querySelectorAll('.turnstile-gate').forEach((input) => {
+          input.value = token || '1';
+          input.setCustomValidity('');
+        });
+      };
+      window.roverTurnstileCleared = () => {
+        document.querySelectorAll('.turnstile-gate').forEach((input) => {
+          input.value = '';
+          input.setCustomValidity('');
+        });
+      };
+    </script>
+  )
+}
 {hasTurnstile && <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer />}
+<style>
+  .turnstile-slot {
+    position: relative;
+    width: fit-content;
+    max-width: 100%;
+  }
+  .turnstile-gate {
+    position: absolute;
+    left: 1.25rem;
+    top: 1.35rem;
+    width: 1.25rem;
+    height: 1.25rem;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    opacity: 0;
+    pointer-events: none;
+  }
+</style>
 
-<script define:vars={{ ingestUrl, domain: site.domain, phone: site.phone || '' }}>
+<script define:vars={{ ingestUrl, domain: site.domain, phone: site.phone || '', hasTurnstile }}>
   const bind = (form) => {
     if (!(form instanceof HTMLFormElement) || form.dataset.roverInbox) return;
     form.dataset.roverInbox = '1';
@@ -136,6 +190,30 @@ const ingestUrl = site.formsIngestUrl || '';
       }
       form.dataset.roverInboxSent = '';
     };
+    const turnstileWidget = () => form.querySelector('.cf-turnstile');
+    const turnstileGate = () => form.querySelector('.turnstile-gate');
+    const promptTurnstile = () => {
+      const gate = turnstileGate();
+      if (!gate) return;
+      gate.value = '';
+      gate.setCustomValidity('');
+      gate.reportValidity();
+    };
+    const turnstileToken = () => {
+      const widget = turnstileWidget();
+      if (!widget) return '';
+      const api = window.turnstile;
+      if (api && typeof api.getResponse === 'function') {
+        const fromApi = api.getResponse(widget);
+        if (fromApi) return String(fromApi);
+      }
+      return String(new FormData(form).get('cf-turnstile-response') || '');
+    };
+    const resetTurnstile = () => {
+      const widget = turnstileWidget();
+      const api = window.turnstile;
+      if (widget && api && typeof api.reset === 'function') api.reset(widget);
+    };
     form.addEventListener('submit', (event) => {
       event.preventDefault();
       if (form.dataset.roverInboxSent === '1') return;
@@ -146,6 +224,11 @@ const ingestUrl = site.formsIngestUrl || '';
       }
       if (!ingestUrl) {
         showError(phone ? `This form is not connected yet. Please call ${phone}.` : 'This form is not connected yet.');
+        return;
+      }
+      const humanToken = hasTurnstile ? turnstileToken() : '';
+      if (hasTurnstile && !humanToken) {
+        promptTurnstile();
         return;
       }
       form.dataset.roverInboxSent = '1';
@@ -165,6 +248,7 @@ const ingestUrl = site.formsIngestUrl || '';
         service: String(data.get('service') || ''),
         message: String(data.get('message') || ''),
       };
+      if (humanToken) payload.turnstileToken = humanToken;
       fetch(ingestUrl, {
         method: 'POST',
         mode: 'cors',
@@ -182,7 +266,18 @@ const ingestUrl = site.formsIngestUrl || '';
             showThanks();
             return;
           }
+          resetTurnstile();
           const code = body && body.error;
+          if (code === 'turnstile_failed') {
+            if (button) {
+              button.disabled = false;
+              button.removeAttribute('aria-busy');
+              button.textContent = label;
+            }
+            form.dataset.roverInboxSent = '';
+            promptTurnstile();
+            return;
+          }
           if (code === 'rate_limited') {
             showError(
               phone
@@ -206,6 +301,7 @@ const ingestUrl = site.formsIngestUrl || '';
           );
         })
         .catch(() => {
+          resetTurnstile();
           showError(
             phone
               ? `We could not send your message. Please call ${phone}.`

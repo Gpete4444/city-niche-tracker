@@ -51,7 +51,7 @@ import {
   isPackMember,
   scrubShotgunRecord,
 } from '../ops/lib/shotgun.mjs';
-import { cityMapLabel } from '../ops/public/shotgun-clusters.js';
+import { cityMapLabel, zoneCitiesAwaitingCandidate } from '../ops/public/shotgun-clusters.js';
 import { autoLabel, buildFilterBrief, emptyDiscoveryRowsHint, normalizeFilters } from '../ops/lib/discovery.mjs';
 import { censusCsvPath, normalizePlaceName } from '../ops/lib/census.mjs';
 import { placesGeojsonPath, placeInZoneRadius } from '../ops/lib/geo-neighbors.mjs';
@@ -96,8 +96,8 @@ assertEqual(cycleShotgunRole('wave1'), 'unassigned', 'cycle wave1');
 assertEqual(cycleShotgunRole('member'), 'unassigned', 'cycle member');
 assertEqual(cycleShotgunRole('unassigned'), 'member', 'cycle unassigned');
 
-assertEqual(formatShotgunSg(1), '001', 'sg 1');
-assertEqual(formatShotgunSg(12), '012', 'sg 12');
+assertEqual(formatShotgunSg(1), '01', 'sg 1');
+assertEqual(formatShotgunSg(12), '12', 'sg 12');
 assertEqual(formatShotgunSg(0), '', 'sg 0 empty');
 assertEqual(formatShotgunSg(null), '', 'sg null');
 assertEqual(shotgunRoleLabel('main'), 'Hub', 'role main alias');
@@ -947,6 +947,45 @@ if (existsSync(placesGeojsonPath())) {
       /* ignore */
     }
   }
+}
+
+{
+  const before = [
+    { city: 'Georgetown', state: 'TX', role: 'hub', clusterKey: 1, candidateId: 'georgetown-custom-cabinets' },
+    { city: 'Leander', state: 'TX', role: 'member', clusterKey: 1, candidateId: 'leander-custom-cabinets' },
+    { city: 'Liberty Hill', state: 'TX', role: 'member', clusterKey: 1, candidateId: null },
+    { city: 'Taylor', state: 'TX', role: 'unassigned' },
+  ];
+  const after = [
+    ...before.filter((m) => m.city !== 'Taylor'),
+    { city: 'Taylor', state: 'TX', role: 'member', clusterKey: 2 },
+    { city: 'Hutto', state: 'TX', role: 'member', clusterKey: 3 },
+  ];
+  const listed = zoneCitiesAwaitingCandidate(before, after);
+  assertEqual(listed.map((c) => c.city).join(','), 'Liberty Hill,Taylor,Hutto', 'close lists stranded and new cities');
+  const liberty = listed.find((c) => c.city === 'Liberty Hill');
+  assertEqual(liberty.clusterKey, 1, 'liberty hill cluster');
+  assertEqual(liberty.paintedThisOpen, false, 'stranded city was already on the zone');
+  assertEqual(liberty.previousClusterKey, 1, 'stranded previous cluster');
+  const taylor = listed.find((c) => c.city === 'Taylor');
+  assertEqual(taylor.paintedThisOpen, true, 'unassigned paint counts as this open');
+  assertEqual(taylor.previousClusterKey, 0, 'taylor had no cluster');
+  assertEqual(taylor.clusterKey, 2, 'taylor cluster 2');
+  const hutto = listed.find((c) => c.city === 'Hutto');
+  assertEqual(hutto.paintedThisOpen, true, 'new city painted this open');
+  assertEqual(hutto.previousClusterKey, null, 'new city has no previous cluster');
+  const cleared = zoneCitiesAwaitingCandidate(before, before.filter((m) => m.city !== 'Liberty Hill'));
+  assertEqual(cleared.length, 0, 'clearing a city before close drops it');
+  const moved = zoneCitiesAwaitingCandidate(before, [
+    { city: 'Liberty Hill', state: 'TX', role: 'member', clusterKey: 4 },
+  ]);
+  assertEqual(moved[0].paintedThisOpen, true, 'cluster change counts as this open');
+  assertEqual(moved[0].previousClusterKey, 1, 'cluster change remembers the old slot');
+  assertEqual(moved[0].clusterKey, 4, 'cluster change shows the new slot');
+  const hasCandidate = zoneCitiesAwaitingCandidate(before, [
+    { city: 'Leander', state: 'TX', role: 'member', clusterKey: 5, candidateId: 'leander-custom-cabinets' },
+  ]);
+  assertEqual(hasCandidate.length, 0, 'cities that already have a candidate are not listed');
 }
 
 console.log('test-shotgun: ok');

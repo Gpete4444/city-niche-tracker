@@ -1,0 +1,8 @@
+---
+description: Turnstile stays off until Paul asks to roll it out
+alwaysApply: true
+---
+
+# Turnstile
+
+Turnstile is not rolled out. Do not create widgets, set `turnstileSiteKey`, or store a forms secret unless Paul asks. The decision, the free-plan cap, and the later widget-pool plan are in `docs/TURNSTILE.md`.

@@ -196,7 +196,7 @@ const coverageMapHtml = loadInlineCoverageMapHtml(
           <div class="mx-auto max-w-6xl px-4 py-14 sm:px-6 sm:py-20">
             <div class="max-w-2xl">
               <p class="section-eyebrow">Why choose us</p>
-              <TwoToneHeading
+              <TwoToneHeading niche={site.niche}
                 as="h2"
                 id="why-heading"
                 text={whyHeading ?? `Straightforward ${site.niche} guidance`}
@@ -222,7 +222,7 @@ const coverageMapHtml = loadInlineCoverageMapHtml(
                   >
                     <div class="flex items-start gap-3">
                       <span
-                        class="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-md bg-accent/15 text-accent"
+                        class="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-md bg-accent/15 text-accent-on-light"
                         aria-hidden="true"
                       >
                         <svg class="size-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -279,7 +279,7 @@ const coverageMapHtml = loadInlineCoverageMapHtml(
           <div class="mx-auto max-w-6xl px-4 py-14 sm:px-6 sm:py-20">
             <div class="max-w-2xl">
               <p class="section-eyebrow">How it works</p>
-              <TwoToneHeading
+              <TwoToneHeading niche={site.niche}
                 as="h2"
                 id="process-heading"
                 mode="plain"
@@ -381,7 +381,7 @@ const coverageMapHtml = loadInlineCoverageMapHtml(
           >
             <div>
               <p class="section-eyebrow !text-white/65">Where we work</p>
-              <TwoToneHeading
+              <TwoToneHeading niche={site.niche}
                 as="h2"
                 id="areas-heading"
                 text={`Serving ${site.primaryCity} and nearby communities`}
@@ -479,7 +479,7 @@ const coverageMapHtml = loadInlineCoverageMapHtml(
           <div class="mx-auto max-w-6xl px-4 py-14 sm:px-6 sm:py-20">
             <div class="max-w-2xl">
               <p class="section-eyebrow">Before &amp; after</p>
-              <TwoToneHeading
+              <TwoToneHeading niche={site.niche}
                 as="h2"
                 id="gallery-heading"
                 text="See the work up close"
@@ -496,7 +496,7 @@ const coverageMapHtml = loadInlineCoverageMapHtml(
                         <img
                           src={pair.before.src}
                           alt={pair.before.alt}
-                          class="aspect-[4/3] w-full rounded-lg object-cover shadow-sm"
+                          class="aspect-[3/2] w-full rounded-lg object-contain shadow-sm"
                           width="800"
                           height="600"
                           loading="lazy"
@@ -513,7 +513,7 @@ const coverageMapHtml = loadInlineCoverageMapHtml(
                         <img
                           src={pair.after.src}
                           alt={pair.after.alt}
-                          class="aspect-[4/3] w-full rounded-lg object-cover shadow-sm"
+                          class="aspect-[3/2] w-full rounded-lg object-contain shadow-sm"
                           width="800"
                           height="600"
                           loading="lazy"
@@ -536,7 +536,7 @@ const coverageMapHtml = loadInlineCoverageMapHtml(
           <div class="mx-auto max-w-6xl px-4 py-14 sm:px-6 sm:py-20">
             <div class="text-center">
               <p class="section-eyebrow">Customer feedback</p>
-              <TwoToneHeading
+              <TwoToneHeading niche={site.niche}
                 as="h2"
                 id="reviews-heading"
                 text="What local customers say"
@@ -567,7 +567,7 @@ const coverageMapHtml = loadInlineCoverageMapHtml(
           <div class="mx-auto max-w-4xl px-4 py-14 sm:px-6 sm:py-20">
             <div>
               <p class="section-eyebrow">Common questions</p>
-              <TwoToneHeading
+              <TwoToneHeading niche={site.niche}
                 as="h2"
                 id="faq-heading"
                 mode="plain"
@@ -590,7 +590,7 @@ const coverageMapHtml = loadInlineCoverageMapHtml(
                     })}
                   >
                     {faq.question}
-                    <span class="text-xl text-accent transition group-open:rotate-45" aria-hidden="true">
+                    <span class="text-xl text-accent-on-light transition group-open:rotate-45" aria-hidden="true">
                       +
                     </span>
                   </summary>
@@ -617,7 +617,7 @@ const coverageMapHtml = loadInlineCoverageMapHtml(
       {key === 'cta' && showCta && (
         <section class={SURFACE_INK} aria-labelledby="final-cta-heading" data-section="cta">
           <div class="mx-auto max-w-5xl px-4 py-14 text-center sm:px-6 sm:py-16">
-            <TwoToneHeading
+            <TwoToneHeading niche={site.niche}
               as="h2"
               id="final-cta-heading"
               text="Ready for a clear estimate?"

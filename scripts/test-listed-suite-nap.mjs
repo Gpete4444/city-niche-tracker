@@ -35,8 +35,20 @@ assertEqual(sanitizeListedSuite('STE-150'), '', 'drop invented STE-150');
 assertEqual(sanitizeListedSuite('Ste 1'), 'Ste 1', 'keep Ste 1');
 assertEqual(sanitizeListedSuite('Suite 1100'), 'Ste 1100', 'Suite → Ste');
 assertEqual(sanitizeListedSuite('Unit 4'), 'Ste 4', 'Unit → Ste');
+assertEqual(sanitizeListedSuite('Ste B-200'), 'Ste B-200', 'keep Ste B-200');
+assertEqual(sanitizeListedSuite('Suite A-1'), 'Ste A-1', 'keep Suite A-1');
+assertEqual(sanitizeListedSuite('200-B'), 'Ste 200-B', 'keep 200-B');
+assertEqual(sanitizeListedSuite('Ste 100-200'), '', 'drop a numeric suite range');
 assertEqual(sanitizeListedSuite('1st Floor'), '', 'floor-only is not a suite');
 assertEqual(sanitizeListedSuite('suites'), '', 'do not parse suites as Ste s');
+
+const paradise = parseHomeAddressLine(
+  '5410 N Scottsdale Rd, Ste B-200, Paradise Valley, AZ 85253',
+  { city: 'Paradise Valley', state: 'AZ' },
+);
+assertEqual(paradise.street, '5410 N Scottsdale Rd', 'Paradise Valley street');
+assertEqual(paradise.suite, 'Ste B-200', 'Paradise Valley suite');
+assertEqual(splitNapStreet('5410 N Scottsdale Rd, Ste B-200').suite, 'Ste B-200', 'split Ste B-200');
 assertEqual(extractListedSuites('a suite of services').join('|'), '', 'suite of services');
 assertEqual(
   extractListedSuites({ fullDescription: 'We lease several suites on the second floor' }).join('|'),

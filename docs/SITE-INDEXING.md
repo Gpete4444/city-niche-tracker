@@ -77,12 +77,12 @@ Real problems: 5xx, accidental `noindex`, robots blocks, sitemap URLs that are n
 After **Run launch** (or **Push updates** when already live), open **Website → Indexing** (step 4):
 
 1. **Confirm live crawl files**
-   - Open `https://{domain}/sitemap.xml` — URLs and host match this site (pipeline emits sitemap via [`src/integrations/ensure-sitemap-xml.mjs`](../src/integrations/ensure-sitemap-xml.mjs)). Rover’s Indexing step has **Copy sitemap URL** / **Open sitemap**.
+   - Open `https://{domain}/sitemap.xml` — URLs and host match this site (pipeline emits sitemap via [`src/integrations/ensure-sitemap-xml.mjs`](../src/integrations/ensure-sitemap-xml.mjs)). Rover’s Indexing step has **Open sitemap**.
    - Open `https://{domain}/robots.txt` — allows crawlers; `Sitemap:` line points at **this** domain ([`src/pages/robots.txt.ts`](../src/pages/robots.txt.ts)).
 2. **Google Search Console**
-   - Add / verify **Domain** property (DNS TXT). Use **Open Search Console** in Indexing.
-   - Indexing → Sitemaps → submit `https://{domain}/sitemap.xml`.
-   - URL Inspection → **Request indexing** on homepage + top 2–3 service pages.
+   - **Submit to Search Console** verifies the Domain property (Cloudflare DNS TXT) and submits `https://{domain}/sitemap.xml` once.
+   - **Open Search Console** opens that property’s URL Inspection page.
+   - **Copy URL for Inspection**, paste it, and **Request indexing** on the homepage and top 2–3 service pages.
 3. **External pointer** — Set GBP website (when you have it) and any planned citations to the live URL. In Rover **Website → Launch**, use **Citations** checklist + **Download NAP CSV** so directory forms match site-config.
 4. **Stop thrashing** — Wait. Monitor Page indexing; don’t resubmit the whole site every day. Mark Indexing **done** in Rover when finished. Rover saves that check on candidate meta (`indexingDone`); it survives reload and re-select, and Push updates does not clear it.
 
@@ -111,14 +111,14 @@ Meaningful rankings for competitive local terms often take **months** after firs
 Once the Domain property is verified under the Google account you connect to Rover:
 
 1. Add `GOOGLE_GSC_CLIENT_ID` + `GOOGLE_GSC_CLIENT_SECRET` to `.env` (Desktop OAuth client; Search Console API enabled). Redirect URI: `http://127.0.0.1:8787/api/gsc/oauth/callback`.
-2. Restart Rover → **Launched Sites → Connect GSC** → approve read-only Search Console access.
+2. Restart Rover → **Launched Sites → Connect GSC** → approve Search Console and Site Verification access. If an older login was read-only, Connect GSC again.
 3. **Sync GSC** pulls trailing 28d clicks/impressions (+ daily series for charts).
 4. **Check index** inspects each sitemap URL (Indexed column). First run is slower; later runs skip URLs indexed in the last 7 days.
 5. **Check ranks** (or per-site **Check ranks**) uses DataForSEO Standard-queue organic SERP for up to 5 keywords (primary auto = `{niche} {city}`). Needs existing `DATAFORSEO_*` credentials.
 
 Tokens live in `research/gsc-oauth.json`; per-site series in `research/site-metrics/` (both under gitignored `research/`).
 
-**Phase 2 (backlog):** auto-create GSC Domain property + Cloudflare DNS TXT verify at Launch/Indexing so operators don’t do step 2 manually at scale.
+**Indexing submit:** Website → Indexing → **Submit to Search Console** creates the Domain property, writes the Cloudflare DNS TXT record, and submits the sitemap once. Request indexing stays manual.
 
 ---
 

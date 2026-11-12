@@ -4,12 +4,13 @@
 import { getCandidateDetail } from './candidates.mjs';
 import { loadAcceptedSiteConfig } from './content-markdown.mjs';
 import { listImageSlots } from './fill-site-images.mjs';
-import { normalizeBaViewpoint, roomHint } from './chatgpt-before-after.mjs';
+import { cameraViewpointLine, normalizeBaViewpoint, roomHint } from './chatgpt-before-after.mjs';
 import { slotSettingKind } from './image-setting.mjs';
 import {
   FLUX_UNOCCUPIED_SCENE,
   NO_PEOPLE_RULES,
   PEOPLE_RULES,
+  afterCustomersAllow,
   applyOccupancyToPrompt,
   occupancyLine,
   normalizeOccupancy,
@@ -42,16 +43,34 @@ function loadCandidateConfig(candidateId) {
   );
 }
 
-export function slotRoleLine(slot, setting = 'residential') {
+export function slotRoleLine(slot, setting = 'residential', occupancy = 'none') {
   const kind = String(slot.kind || '').toLowerCase();
   const sectionId = String(slot.sectionId || '');
   const commercial = setting === 'commercial';
+  const occ = normalizeOccupancy(occupancy);
+  const customers = occ === 'customers';
   let role = `Slot role: ${stripMdBold(slot.label || sectionId || 'service')} website photo.`;
   if (slot.materialTitle) {
     role = `Slot role: materials / product detail — show ${stripMdBold(slot.materialTitle)}.`;
   } else if (slot.processTitle) {
-    role = `Slot role: process step — illustrate “${stripMdBold(slot.processTitle)}” as the work product or mid-work result (illustrative, not a named real job).`;
-  } else if (kind === 'hero' || sectionId === 'hero' || sectionId === 'svcHero') {
+    const step = stripMdBold(slot.processTitle);
+    role = customers
+      ? `Slot role: process step — the finished “${step}” result, already complete and in use (illustrative, not a named real job).`
+      : `Slot role: process step — illustrate “${step}” as the work product or mid-work result (illustrative, not a named real job).`;
+  } else if (sectionId === 'hero' || sectionId === 'intro') {
+    const place = sectionId === 'hero' ? 'homepage hero' : 'intro';
+    if (occ === 'none') {
+      role = `Slot role: ${place} — wide photo of the problem this service fixes, still unfinished.`;
+    } else if (occ === 'finished') {
+      role = `Slot role: ${place} — wide photo of the finished result. The problem is solved and the result is complete, with no people.`;
+    } else if (sectionId === 'intro') {
+      role = commercial
+        ? 'Slot role: intro section — clean supporting photo of the trade in a commercial building.'
+        : 'Slot role: intro section — clean supporting photo of the trade in a residential setting.';
+    } else {
+      role = 'Slot role: hero / service card — strong wide establishing photo of the service subject.';
+    }
+  } else if (kind === 'hero' || sectionId === 'svcHero') {
     role = 'Slot role: hero / service card — strong wide establishing photo of the service subject.';
   } else if (kind === 'intro' || sectionId === 'intro') {
     role = commercial
@@ -96,11 +115,7 @@ export function buildFluxSlotPrompt(ctx = {}) {
       ? ctx.services.slice(0, 3)
       : [];
   const room = roomHint(niche, servicesForRoom, viewpoint, setting);
-  const placeBit = place ? ` in ${place}` : '';
-  const cameraLine =
-    viewpoint === 'outside'
-      ? `Camera viewpoint: OUTSIDE — photoreal exterior shot of the ${room}${placeBit}, looking at the ${focus} feature from outdoors.`
-      : `Camera viewpoint: INSIDE — photoreal interior shot of the ${room}${placeBit}, looking at the ${focus} feature from indoors.`;
+  const cameraLine = cameraViewpointLine({ viewpoint, room, place, focus });
   const subjectBits = [
     queryHint,
     slot.materialTitle ? stripMdBold(slot.materialTitle) : '',
@@ -122,13 +137,15 @@ export function buildFluxSlotPrompt(ctx = {}) {
     place ? `Location vibe: ${place} (${placeLine}).` : '',
     `Service focus: ${focus}.`,
     cameraLine,
-    slotRoleLine(slot, setting),
+    slotRoleLine(slot, setting, occupancy),
     `Primary subject: ${subject || niche}.`,
     illustrativeLine,
     'Photoreal documentary look, natural light, horizontal landscape framing (~16:10).',
-    occupancyLine(ctx.forChatGpt, occupancy),
+    occupancyLine(ctx.forChatGpt, occupancy, { niche, serviceName: focus, setting }),
     ctx.forChatGpt
-      ? 'Avoid CGI / illustration look, stock-cliché smiling crews, and off-niche lifestyle scenes.'
+      ? occupancy === 'customers'
+        ? `Avoid CGI / illustration look and posed stock smiles. The people are using the finished ${focus}.`
+        : 'Avoid CGI / illustration look, stock-cliché smiling crews, and off-niche lifestyle scenes.'
       : 'Photoreal materials and light; documentary still of the service feature.',
     ctx.forChatGpt ? 'Generate one image only; I will download it and upload it to the site.' : '',
   ];
@@ -167,6 +184,7 @@ export function fluxSlotPromptForCandidate(candidateId, slotKey, { viewpoint, oc
     slotKey: slot.key,
     label: stripMdBold(slot.label || slot.key),
     niche,
+    serviceName: String(slot.serviceName || '').trim(),
     queryHint: stripMdBold(slot.queryHint || slot.label || '') || null,
     viewpoint: vp,
     occupancy: occ,
@@ -214,6 +232,7 @@ export function fluxSlotPromptFromMeta({
     slotKey: slotObj.key || null,
     label: stripMdBold(slotObj.label || slotObj.key || ''),
     niche: String(niche || 'home service').trim(),
+    serviceName: String(slotObj.serviceName || '').trim(),
     queryHint: stripMdBold(slotObj.queryHint || slotObj.query || slotObj.label || '') || null,
     viewpoint: vp,
     occupancy: occ,
@@ -270,11 +289,22 @@ export function buildFluxBaPrompts({
     { niche: n, setting: kind },
   );
   const baShowLine = baBrief ? `What to show: ${baBrief}` : '';
-  const cameraLine =
-    vp === 'outside'
-      ? `Camera viewpoint: OUTSIDE — photoreal exterior shot of the ${room} in ${place}, looking at the ${focusName} feature from outdoors.`
-      : `Camera viewpoint: INSIDE — photoreal interior shot of the ${room} in ${place}, looking at the ${focusName} feature from indoors.`;
-  const occupy = occupancyLine(forChatGpt, occ);
+  const cameraLine = cameraViewpointLine({
+    viewpoint: vp,
+    room,
+    place,
+    focus: focusName,
+  });
+  const customers = occ === 'customers';
+  const workers = occ === 'workers';
+  const occCtx = { niche: n, serviceName: focusName, setting: kind };
+  const peopleAllow = afterCustomersAllow(occCtx);
+  const beforeOccupy = occupancyLine(forChatGpt, workers ? 'workers' : 'none', occCtx);
+  const afterOccupy = occupancyLine(
+    forChatGpt,
+    customers ? 'customers' : workers ? 'workers' : 'finished',
+    occCtx,
+  );
   const sceneHint = /egress|window.?well|basement.?window/i.test(`${focusName} ${n}`)
     ? 'an undersized or unfinished basement window'
     : 'an unfinished or damaged service element — irregular, modest, and believable';
@@ -294,6 +324,14 @@ export function buildFluxBaPrompts({
           ? 'The interior is tidy and ordinary. The service element looks older or unfinished while the rest of the commercial space stays the same.'
           : 'The room is tidy and ordinary. The service element looks older or unfinished while the rest of the space stays the same.',
       ].join(' ');
+  const afterSurgicalRules = customers
+    ? [
+        `SINGLE SUBJECT: the finished ${focusName} result and the people using it.`,
+        'Keep flooring, wall paint, ceiling, furniture, and unrelated finishes the same.',
+        peopleAllow,
+        ordinarySpace,
+      ].join(' ')
+    : surgicalRules;
   const architecture = commercial
     ? 'Realistic commercial architecture — not CGI, not a showroom.'
     : 'Realistic residential architecture — not CGI, not a showroom.';
@@ -310,32 +348,40 @@ export function buildFluxBaPrompts({
     baShowLine,
     livedIn,
     surgicalRules,
-    `Straight-on documentary photo, available indoor light, 4:3. No golden hour, no cinematic bokeh, no blown-out windows. ${occupy}`,
+    `Straight-on documentary photo, available indoor light, 4:3. No golden hour, no cinematic bokeh, no blown-out windows. ${beforeOccupy}`,
     architecture,
     forChatGpt ? 'Generate one image only; I will download it.' : '',
   ]
     .filter(Boolean)
     .join(' ');
+  const afterFinishLine = customers
+    ? peopleAllow
+    : `Update only the ${focusName} result. Keep walls, floor, ceiling, other trim, furniture, and lighting mood the same.`;
+  const afterStayLine = customers
+    ? 'The rest of the room stays as it was. The finished result is in use. Not a white blob, not a new wall, not a remodel.'
+    : 'The rest of the room stays as it was — only the service element is finished. Not a white blob, not a new wall, not a remodel.';
   const afterBody = forChatGpt
       ? [
         cameraLine,
         serviceLine,
         baShowLine,
-        `Update only the ${focusName} result. Keep walls, floor, ceiling, other trim, furniture, and lighting mood the same.`,
-        surgicalRules,
-        'The rest of the room stays as it was — only the service element is finished. Not a white blob, not a new wall, not a remodel.',
-        `Photoreal, 4:3. ${occupy}`,
+        afterFinishLine,
+        afterSurgicalRules,
+        afterStayLine,
+        `Photoreal, 4:3. ${afterOccupy}`,
       ].join(' ')
       : [
         cameraLine,
         serviceLine,
         baShowLine,
         `Same camera angle, framing, lens, lighting, and room layout as a matching BEFORE of this ${room}. The ${focusName} work is finished.`,
-        `The story is only the ${focusName} element. Keep flooring, wall paint, ceiling, furniture, and layout the same as the BEFORE. Only the service feature is finished.`,
+        customers
+          ? `The story is the finished ${focusName} in use. Keep flooring, wall paint, ceiling, furniture, and layout the same as the BEFORE. ${peopleAllow}`
+          : `The story is only the ${focusName} element. Keep flooring, wall paint, ceiling, furniture, and layout the same as the BEFORE. Only the service feature is finished.`,
         commercial
           ? 'The interior is tidy and ordinary. Photoreal documentary still. Not a white blob, not a remodel.'
           : 'The room is tidy and ordinary. Photoreal documentary still. Not a white blob, not a remodel.',
-        `Straight-on documentary photo, available indoor light, 4:3. ${occupy}`,
+        `Straight-on documentary photo, available indoor light, 4:3. ${afterOccupy}`,
         architecture,
       ].join(' ');
   const pair = [
@@ -345,9 +391,11 @@ export function buildFluxBaPrompts({
     baShowLine,
     cameraLine,
     beforeLine,
-    `2) AFTER: same camera and room; only the ${focusName} work is finished.`,
-    surgicalRules,
-    `Photoreal, 4:3. ${occupy} Generate the BEFORE first, then the AFTER matching that angle.`,
+    customers
+      ? `2) AFTER: same camera, crop, and room; the ${focusName} work is finished and the people who use that finished ${focusName} are in the photo.`
+      : `2) AFTER: same camera and room; only the ${focusName} work is finished.`,
+    customers ? afterSurgicalRules : surgicalRules,
+    `Photoreal, 4:3. BEFORE: ${beforeOccupy} AFTER: ${afterOccupy} Generate the BEFORE first, then the AFTER matching that angle.`,
   ].join(' ');
   return {
     before,

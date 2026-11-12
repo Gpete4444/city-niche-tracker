@@ -3,10 +3,19 @@
  * run Cloudflare helpers, set checklist meta flags.
  */
 
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { getCandidateDetail, launchStampPatch, pathsFor, saveMeta } from './candidates.mjs';
+import {
+  applyLaunchNumber,
+  getCandidateDetail,
+  launchStampPatch,
+  loadMeta,
+  pathsFor,
+  RESEARCH_DIR,
+  saveMeta,
+  withLaunchCountLock,
+} from './candidates.mjs';
 import { getAssembleChecklist, templateComponentsNewerThanAssembled, templateStaleLaunchError } from './assemble-site.mjs';
 import { loadAcceptedSiteConfig } from './content-markdown.mjs';
 import {
@@ -15,12 +24,20 @@ import {
   runCloudflareLaunch,
 } from './cloudflare-launch.mjs';
 import { shipAssembledSite, listShipProgressSteps } from './ship-site.mjs';
+import {
+  isGithubPushRejectedMessage,
+  isGithubRepoCreateRateLimitMessage,
+  isGithubRepoMissingMessage,
+  resolveGithubOwner,
+} from './github-site.mjs';
 import { upsertSiteAfterLaunch } from './sites.mjs';
 import {
   publicLeadsEmail,
   ensureBusinessNameNotNiche,
   effectiveSiteConfigForLaunch,
   getSiteConfigDraft,
+  normalizeSiteAddress,
+  parseListField,
 } from './site-config.mjs';
 import { formsInboxStatus, formsIngestSubmitUrl, syncFormsAllowlist } from './forms-inbox.mjs';
 
@@ -141,6 +158,27 @@ export function patchLaunchSiteConfig(candidateId, patch = {}) {
   assign('phone', patch.phone);
   assign('email', patch.email);
   assign('businessName', patch.businessName);
+  for (const key of ['tagline', 'primaryCta', 'niche', 'primaryCity', 'state']) {
+    if (patch[key] === undefined) continue;
+    const s = String(patch[key] ?? '').trim();
+    if (!s) continue;
+    next[key] = key === 'state' ? s.toUpperCase() : s;
+  }
+  if (patch.serviceRadiusMiles !== undefined) {
+    const n = Number(patch.serviceRadiusMiles);
+    if (Number.isFinite(n) && n > 0) next.serviceRadiusMiles = n;
+  }
+  if (patch.targetSuburbs !== undefined) next.targetSuburbs = parseListField(patch.targetSuburbs);
+  if (patch.address === null) {
+    delete next.address;
+  } else if (patch.address && typeof patch.address === 'object') {
+    const norm = normalizeSiteAddress(patch.address, {
+      primaryCity: next.primaryCity,
+      state: next.state,
+    });
+    if (norm) next.address = norm;
+    else delete next.address;
+  }
   if (patch.web3FormsAccessKey !== undefined) {
     const key = String(patch.web3FormsAccessKey || '').trim();
     if (key) next.web3FormsAccessKey = key;
@@ -181,6 +219,59 @@ export function patchLaunchSiteConfig(candidateId, patch = {}) {
       ? path.relative(ROOT, assembledRoot).replace(/\\/g, '/')
       : detail.meta?.assembledSitePath || null,
   };
+}
+
+function readLaunchCountRows() {
+  if (!existsSync(RESEARCH_DIR)) return [];
+  const rows = [];
+  for (const name of readdirSync(RESEARCH_DIR)) {
+    if (!name.endsWith('.meta.json')) continue;
+    const id = name.slice(0, -'.meta.json'.length);
+    const meta = loadMeta(id);
+    rows.push({
+      id,
+      lastLaunchAt: meta?.lastLaunchAt || null,
+      lastShipAt: meta?.lastShipAt || null,
+      launchNumber: meta?.launchNumber ?? null,
+    });
+  }
+  return rows;
+}
+
+/**
+ * Stamp the first success and assign launchNumber while holding the launch-count lock.
+ * Already-launched sites without a number are numbered in first-launch order first.
+ */
+export async function commitLaunchCount(candidateId, { ok, at, patch = {} } = {}) {
+  return withLaunchCountLock(() => {
+    const before = readLaunchCountRows();
+    const applied = applyLaunchNumber(before, { id: candidateId, ok, at });
+    const previous = new Map(before.map((row) => [row.id, row]));
+    for (const row of applied.rows) {
+      const prev = previous.get(row.id);
+      const prevNum = Number(prev?.launchNumber) || 0;
+      const nextNum = Number(row.launchNumber) || 0;
+      const numberChanged = nextNum > 0 && nextNum !== prevNum;
+      if (row.id === candidateId) {
+        const stamp = {};
+        if (ok && row.lastLaunchAt && row.lastLaunchAt !== (prev?.lastLaunchAt || null)) {
+          stamp.lastLaunchAt = row.lastLaunchAt;
+        }
+        if (!ok) Object.assign(stamp, launchStampPatch(prev || {}, { ok: false, at }));
+        saveMeta(candidateId, {
+          ...patch,
+          ...stamp,
+          ...(nextNum > 0 ? { launchNumber: nextNum } : {}),
+        });
+      } else if (numberChanged) {
+        saveMeta(row.id, { launchNumber: nextNum });
+      }
+    }
+    return {
+      launchNumber: applied.launchNumber,
+      launchedTotal: applied.launchedTotal,
+    };
+  });
 }
 
 /**
@@ -366,12 +457,23 @@ export async function launchSite(candidateId, opts = {}) {
   const shipOk = Boolean(ship?.ok);
   // Go-live success requires a real forms key and a successful ship when shipping was requested.
   const ok = formsDone && (!doShip || shipOk);
+  const shipBlob = [
+    ship?.error,
+    ship?.steps?.github?.error,
+    ...(Array.isArray(ship?.human) ? ship.human : []),
+    ...human,
+  ]
+    .filter(Boolean)
+    .join('\n');
+  const repoRateLimit = !shipOk && isGithubRepoCreateRateLimitMessage(shipBlob);
+  const repoMissing = !shipOk && !repoRateLimit && isGithubRepoMissingMessage(shipBlob);
+  const pushRejected = !shipOk && !repoMissing && !repoRateLimit && isGithubPushRejectedMessage(shipBlob);
 
+  const at = new Date().toISOString();
   const metaPatch = {
     formsDone,
     notifyEmail: destinationEmail || null,
     launchDomain: domain || null,
-    ...launchStampPatch(detail.meta, { ok, at: new Date().toISOString() }),
   };
 
   if (ship?.steps?.github?.fullName) {
@@ -384,6 +486,20 @@ export async function launchSite(candidateId, opts = {}) {
   if (cf?.dnsDone) metaPatch.dnsDone = true;
   if (cf?.emailRoutingDone) metaPatch.emailRoutingDone = true;
   if (formsDone) metaPatch.formsDone = true;
+  if (shipOk) {
+    metaPatch.lastLaunchBlocker = null;
+    metaPatch.lastLaunchRepoName = null;
+  } else if (repoRateLimit) {
+    metaPatch.lastLaunchBlocker = 'github-repo-rate-limit';
+  } else if (repoMissing) {
+    const fromUrl = shipBlob.match(/github\.com\/([^/\s'"]+)\/([^/\s'".]+)/i);
+    const owner = resolveGithubOwner() || (fromUrl ? fromUrl[1] : '');
+    const slug = detail.meta?.assembledSiteSlug || (fromUrl ? fromUrl[2] : '');
+    metaPatch.lastLaunchBlocker = 'github-repo-missing';
+    metaPatch.lastLaunchRepoName = owner && slug ? `${owner}/${slug}` : null;
+  } else if (pushRejected) {
+    metaPatch.lastLaunchBlocker = 'github-push-rejected';
+  }
 
   // If Worker exists and domain attach succeeded, treat CF project as present
   if (cf?.steps?.worker?.exists || ship?.steps?.deploy?.ok) {
@@ -392,7 +508,7 @@ export async function launchSite(candidateId, opts = {}) {
   }
   if (cf?.workerName) metaPatch.cfProject = cf.workerName;
 
-  saveMeta(candidateId, metaPatch);
+  const launchTally = await commitLaunchCount(candidateId, { ok, at, patch: metaPatch });
 
   // Refresh build-package deploy stubs when present
   const packPath = pathsFor(candidateId).buildPackage;
@@ -432,6 +548,7 @@ export async function launchSite(candidateId, opts = {}) {
     checklist,
     site,
     meta: loadMetaSafe(candidateId),
+    launchTally,
   };
 }
 

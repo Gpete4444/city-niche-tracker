@@ -1,8 +1,5 @@
-/** Launch-success confetti + fanfare. No-op when the user prefers reduced motion. */
+/** Launch-success confetti. Sound is bound from rover-audio so this file stays importable in Node. */
 
-const SOUND_URL = '/sounds/launch-success.mp3';
-const PLAY_SECONDS = 15;
-const FADE_START = 10;
 const CONFETTI_MS = 2800;
 const COLORS = ['#ef4444', '#f59e0b', '#22c55e', '#3b82f6', '#a855f7', '#ec4899', '#06b6d4', '#eab308'];
 
@@ -168,155 +165,30 @@ export function burstLaunchConfetti() {
   }, CONFETTI_MS + 800);
 }
 
-let primedAudio = null;
-let activeSound = null;
+let launchAudio = {
+  play() {
+    return () => {};
+  },
+  prime() {},
+  stop() {},
+};
 
-function playFallbackFanfare() {
-  try {
-    const Ctx = window.AudioContext || window.webkitAudioContext;
-    if (!Ctx) return;
-    if (!playFallbackFanfare._ctx) playFallbackFanfare._ctx = new Ctx();
-    const ctx = playFallbackFanfare._ctx;
-    if (ctx.state === 'suspended') ctx.resume().catch(() => {});
-    const now = ctx.currentTime;
-    const notes = [
-      { f: 523.25, t: 0, d: 0.14 },
-      { f: 659.25, t: 0.12, d: 0.14 },
-      { f: 783.99, t: 0.24, d: 0.16 },
-      { f: 1046.5, t: 0.38, d: 0.42 },
-    ];
-    for (const { f, t, d } of notes) {
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.type = 'triangle';
-      osc.frequency.value = f;
-      gain.gain.setValueAtTime(0.0001, now + t);
-      gain.gain.exponentialRampToValueAtTime(0.14, now + t + 0.02);
-      gain.gain.exponentialRampToValueAtTime(0.0001, now + t + d);
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.start(now + t);
-      osc.stop(now + t + d + 0.02);
-    }
-  } catch {
-    /* autoplay / unsupported */
-  }
-}
-
-function clearActiveSound() {
-  const s = activeSound;
-  activeSound = null;
-  if (!s) return;
-  if (s.raf) cancelAnimationFrame(s.raf);
-  if (s.timer) clearTimeout(s.timer);
-  try {
-    s.audio.removeEventListener('timeupdate', s.onTime);
-    s.audio.removeEventListener('error', s.onError);
-    s.audio.pause();
-    s.audio.currentTime = 0;
-    s.audio.volume = 1;
-  } catch {
-    /* ignore */
-  }
+/** Dashboard binds rover-audio so mute, volume, and clip assignment apply. */
+export function bindLaunchAudio(api) {
+  if (!api) return;
+  launchAudio = api;
 }
 
 export function stopLaunchSuccessSound() {
-  clearActiveSound();
+  launchAudio.stop('launch');
 }
 
-/**
- * Call from the Launch click (user gesture) so playback still works after the job finishes.
- */
+/** Call from the Launch click (user gesture) so playback still works after the job finishes. */
 export function primeLaunchSuccessSound() {
-  if (prefersReducedMotion()) return;
-  try {
-    if (!primedAudio) {
-      primedAudio = new Audio(SOUND_URL);
-      primedAudio.preload = 'auto';
-    }
-    const a = primedAudio;
-    a.muted = true;
-    a.volume = 0;
-    const p = a.play();
-    if (p && typeof p.then === 'function') {
-      p.then(() => {
-        a.pause();
-        a.currentTime = 0;
-        a.muted = false;
-        a.volume = 1;
-      }).catch(() => {
-        a.muted = false;
-        a.volume = 1;
-      });
-    }
-  } catch {
-    /* ignore */
-  }
+  launchAudio.prime('launch');
 }
 
-function applyFade(audio) {
-  const t = audio.currentTime || 0;
-  if (t >= PLAY_SECONDS) {
-    stopLaunchSuccessSound();
-    return true;
-  }
-  if (t >= FADE_START) {
-    audio.volume = Math.max(0, 1 - (t - FADE_START) / (PLAY_SECONDS - FADE_START));
-  } else {
-    audio.volume = 1;
-  }
-  return false;
-}
-
-/** First 15s of the launch track; volume 1 until 10s, then linear fade to 0 by 15s. */
+/** Assigned launch clip, or the built-in fanfare. Returns a stop function. */
 export function playLaunchSuccessSound() {
-  stopLaunchSuccessSound();
-  if (prefersReducedMotion()) return () => {};
-
-  const audio = primedAudio || new Audio(SOUND_URL);
-  primedAudio = audio;
-  audio.muted = false;
-  audio.volume = 1;
-  try {
-    audio.currentTime = 0;
-  } catch {
-    /* not seekable yet */
-  }
-
-  const onTime = () => {
-    applyFade(audio);
-  };
-  const onError = () => {
-    stopLaunchSuccessSound();
-    playFallbackFanfare();
-  };
-
-  const tick = () => {
-    if (!activeSound || activeSound.audio !== audio) return;
-    if (applyFade(audio)) return;
-    activeSound.raf = requestAnimationFrame(tick);
-  };
-
-  audio.addEventListener('timeupdate', onTime);
-  audio.addEventListener('error', onError, { once: true });
-
-  activeSound = {
-    audio,
-    raf: 0,
-    timer: 0,
-    onTime,
-    onError,
-  };
-
-  const started = audio.play();
-  if (started && typeof started.catch === 'function') {
-    started.catch(() => {
-      stopLaunchSuccessSound();
-      playFallbackFanfare();
-    });
-  }
-  activeSound.raf = requestAnimationFrame(tick);
-  activeSound.timer = setTimeout(() => stopLaunchSuccessSound(), (PLAY_SECONDS + 0.25) * 1000);
-
-  return () => stopLaunchSuccessSound();
+  return launchAudio.play('launch') || (() => {});
 }

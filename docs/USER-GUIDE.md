@@ -21,7 +21,7 @@ The top bar is always there.
 
 ### Version {#chrome-version}
 
-**v2.5** (or current) sits next to the Rover wordmark. That is the product version, not a candidate.
+**v2.6** (or current) sits next to the Rover wordmark. That is the product version, not a candidate.
 
 ### Stages {#chrome-stages}
 

@@ -52,6 +52,11 @@ const brandSchema = z.object({
   primary: z.string().regex(/^#([0-9A-Fa-f]{6})$/),
   accent: z.string().regex(/^#([0-9A-Fa-f]{6})$/),
   ink: z.string().regex(/^#([0-9A-Fa-f]{6})$/),
+  /** Darker accent text on light bands. Omitted palettes use `accent`. */
+  accentOnLight: z
+    .string()
+    .regex(/^#([0-9A-Fa-f]{6})$/)
+    .optional(),
   paletteId: z.string().min(1).optional(),
   fontTheme: z.string().min(1).optional(),
 });
@@ -245,7 +250,8 @@ export const siteConfigSchema = z.object({
   geo: geoSchema.optional(),
   phone: z.string().min(1),
   email: z.string().email(),
-  web3FormsAccessKey: z.string().min(1),
+  /** Legacy Web3Forms key. The contact form posts to formsIngestUrl and builds when this is missing. */
+  web3FormsAccessKey: z.string().optional().default(''),
   turnstileSiteKey: z.string().optional().default(''),
   /** Public Rover forms inbox endpoint. Empty until the inbox is set up and the site is assembled. */
   formsIngestUrl: z.string().optional().default(''),

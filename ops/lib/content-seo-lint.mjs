@@ -2,6 +2,7 @@
  * Advisory + critical SEO lint for content drafts (keyword/PAA/links).
  * Critical findings can block Accept unless ignoreSeoWarnings.
  */
+import { COST_BAND_RE } from '../../src/lib/is-cost-heading.mjs';
 import { SERVICE_OWNED_MIN_WORDS, serviceThinReason } from './preview-fidelity.mjs';
 
 const TITLE_MAX = 60;
@@ -35,6 +36,21 @@ export function lintContentSeo(files, opts = {}) {
   const state = String(opts.state || '').trim();
   const domain = String(opts.domain || '').trim();
   const tagline = String(opts.tagline || '').trim();
+
+  if (homeBody && businessName) {
+    const homeFmEarly = parseSimpleFrontmatter(homeBody);
+    const homeH1 = String(homeFmEarly.h1 || '').trim();
+    if (homepageH1EchoesBrand(homeH1, businessName)) {
+      findings.push({
+        severity: 'soft',
+        file: homeRel,
+        rule: 'home_h1_echoes_brand',
+        excerpt: `Homepage h1 repeats the business name (“${homeH1.slice(0, 80)}”)`,
+        suggestion:
+          'Set homepage h1 to the head term: niche or primary keyword, then city and state. Do not prefix or equal the business name. The brand already shows above the H1.',
+      });
+    }
+  }
 
   const primary = String(opts.primaryKeyword || '').trim();
   if (primary && homeBody) {
@@ -388,7 +404,7 @@ function lintEducationalCoverage(files, findings, opts = {}) {
   const minSvc = serviceCount < 1 ? 0 : Math.min(2, serviceCount);
 
   const homeChecks = [
-    { id: 'cost', astro: 'cost', label: 'cost', re: /\b(cost|pric|how much)\b/i },
+    { id: 'cost', astro: 'cost', label: 'cost', re: COST_BAND_RE },
     { id: 'diyVsPro', astro: 'diyVsPro', label: 'DIY vs pro', re: /\bdiy\b|hire a pro/i },
     { id: 'codes', astro: 'codes', label: 'permits', re: /\bpermit|building code/i },
   ];
@@ -405,7 +421,7 @@ function lintEducationalCoverage(files, findings, opts = {}) {
   }
 
   const svcChecks = [
-    { band: 'svcCost', label: 'cost', re: /\b(cost|pric|how much)\b/i },
+    { band: 'svcCost', label: 'cost', re: COST_BAND_RE },
     { band: 'svcDiyVsPro', label: 'DIY vs pro', re: /\bdiy\b|hire a pro/i },
     { band: 'svcCodes', label: 'permits', re: /\bpermit|usually needs a permit/i },
   ];
@@ -1095,6 +1111,15 @@ function titleTooSimilar(a, b) {
   for (const w of ta) if (tb.has(w)) hit += 1;
   const overlap = hit / Math.min(ta.size, tb.size);
   return overlap >= 0.85;
+}
+
+/** Homepage H1 that is the brand, or starts with "Brand:". */
+function homepageH1EchoesBrand(h1, businessName) {
+  const heading = String(h1 || '').trim();
+  const brand = String(businessName || '').trim();
+  if (!heading || !brand) return false;
+  if (normalizeKw(heading) === normalizeKw(brand)) return true;
+  return new RegExp(`^\\s*${escapeRegExp(brand)}\\s*:`, 'i').test(heading);
 }
 
 function parseSimpleFrontmatter(src) {

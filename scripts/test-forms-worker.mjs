@@ -20,7 +20,7 @@ function memoryDb() {
     const q = sql.replace(/\s+/g, ' ').trim();
     const statement = (params) => ({
       async first() {
-        if (q.startsWith('SELECT domain, business_name, notify_email')) {
+        if (q.startsWith('SELECT domain, business_name, notify_email, turnstile_secret')) {
           return sites.find((row) => row.domain === params[0]) || null;
         }
         if (q.includes('FROM submissions')) {
@@ -259,5 +259,76 @@ const unbound = await post(
 );
 assert(unbound.status === 201 && unbound.body.ok === true, 'missing EMAIL binding still confirms');
 assert(noBinding.submissions.length === 1, 'missing EMAIL binding still stored');
+
+const pilotDb = memoryDb();
+pilotDb.sites.push({
+  domain: 'carydrywallrepairpros.com',
+  business_name: 'Cary Drywall Repair Pros',
+  notify_email: 'owner@gmail.com',
+  turnstile_secret: 'pilot-secret',
+});
+pilotDb.sites.push({
+  domain: 'example.com',
+  business_name: 'Example Pros',
+  notify_email: 'owner@gmail.com',
+});
+const realFetch = globalThis.fetch;
+globalThis.fetch = async (url, init) => {
+  const target = String(url);
+  if (!target.includes('/turnstile/v0/siteverify')) return realFetch(url, init);
+  const body = JSON.parse(init.body);
+  const success = body.secret === 'pilot-secret' && body.response === 'good-token';
+  return new Response(JSON.stringify({ success }), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json' },
+  });
+};
+try {
+  const missingToken = await post(pilotDb, {
+    domain: 'carydrywallrepairpros.com',
+    deliver: true,
+    name: 'Ada',
+    phone: '555-0100',
+    message: 'Need a quote',
+  });
+  assert(missingToken.status === 403 && missingToken.body.error === 'turnstile_failed', 'pilot rejects a missing token');
+  assert(pilotDb.submissions.length === 0, 'missing token does not store');
+  assert(missingToken.sent.length === 0, 'missing token does not email');
+
+  const badToken = await post(pilotDb, {
+    domain: 'carydrywallrepairpros.com',
+    deliver: true,
+    name: 'Ada',
+    phone: '555-0100',
+    message: 'Need a quote',
+    turnstileToken: 'bad-token',
+  });
+  assert(badToken.status === 403 && badToken.body.error === 'turnstile_failed', 'pilot rejects a bad token');
+  assert(pilotDb.submissions.length === 0, 'bad token does not store');
+
+  const goodToken = await post(pilotDb, {
+    domain: 'carydrywallrepairpros.com',
+    deliver: true,
+    name: 'Ada',
+    phone: '555-0100',
+    message: 'Need a quote',
+    turnstileToken: 'good-token',
+  });
+  assert(goodToken.status === 201 && goodToken.body.ok === true, 'pilot accepts a valid token');
+  assert(pilotDb.submissions.length === 1, 'valid token stores one row');
+  assert(goodToken.sent.length === 1, 'valid token emails');
+
+  const otherSite = await post(pilotDb, {
+    domain: 'example.com',
+    deliver: true,
+    name: 'Ada',
+    phone: '555-0102',
+    message: 'Other site quote',
+  });
+  assert(otherSite.status === 201 && otherSite.body.ok === true, 'site without a secret still accepts a lead');
+  assert(pilotDb.submissions.length === 2, 'other site stored');
+} finally {
+  globalThis.fetch = realFetch;
+}
 
 console.log('test-forms-worker: ok');

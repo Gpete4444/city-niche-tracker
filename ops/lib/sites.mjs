@@ -213,6 +213,8 @@ export function hydrateFromCandidate(candidateId) {
     cloudflarePagesDone: Boolean(meta.cloudflarePagesDone),
     lastLaunchAt: meta.lastLaunchAt || null,
     lastShipAt: meta.lastShipAt || null,
+    lastSiteConfigAt: meta.lastSiteConfigAt || detail.siteConfig?._ops?.acceptedAt || null,
+    contentAcceptedAt: detail.content?._ops?.acceptedAt || null,
     launchCostUsd: launchCostUsd > 0 ? Math.round(launchCostUsd * 1000) / 1000 : null,
     lastCosts,
   };

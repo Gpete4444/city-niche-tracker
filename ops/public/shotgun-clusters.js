@@ -95,6 +95,60 @@ export function memberClusterKey(m) {
   return parseClusterKey(m?.clusterKey);
 }
 
+function zoneMemberSnap(m) {
+  if (!m || typeof m !== 'object') return null;
+  const role = String(m.role || '').trim().toLowerCase();
+  if (role === 'hub' || role === 'main') return null;
+  const city = String(m.city || '').trim();
+  const state = String(m.state || '').trim().toUpperCase();
+  if (!city || state.length !== 2) return null;
+  return {
+    key: `${city.toLowerCase()}|${state}`,
+    city,
+    state,
+    clusterKey: parseClusterKey(m.clusterKey),
+    candidateId: String(m.candidateId || '').trim(),
+  };
+}
+
+/**
+ * Cities to confirm when the zone map closes.
+ * A cluster member with no candidate is included when this open painted it
+ * (or changed its cluster) or it was already waiting on that cluster.
+ * @returns {{ city: string, state: string, clusterKey: number, paintedThisOpen: boolean, previousClusterKey: number | null }[]}
+ */
+export function zoneCitiesAwaitingCandidate(beforeMembers = [], afterMembers = []) {
+  const before = new Map();
+  for (const m of beforeMembers || []) {
+    const snap = zoneMemberSnap(m);
+    if (snap) before.set(snap.key, snap);
+  }
+  const out = [];
+  for (const m of afterMembers || []) {
+    const snap = zoneMemberSnap(m);
+    if (!snap || !snap.clusterKey || snap.candidateId) continue;
+    const prev = before.get(snap.key);
+    const previousClusterKey = prev ? prev.clusterKey : null;
+    const paintedThisOpen = previousClusterKey !== snap.clusterKey;
+    const strandedAtOpen = Boolean(prev && prev.clusterKey && !prev.candidateId);
+    if (!paintedThisOpen && !strandedAtOpen) continue;
+    out.push({
+      city: snap.city,
+      state: snap.state,
+      clusterKey: snap.clusterKey,
+      paintedThisOpen,
+      previousClusterKey,
+    });
+  }
+  out.sort(
+    (a, b) =>
+      a.clusterKey - b.clusterKey ||
+      a.city.localeCompare(b.city) ||
+      a.state.localeCompare(b.state),
+  );
+  return out;
+}
+
 export function clampClusterMiles(raw) {
   const n = Math.round(Number(raw));
   if (!Number.isFinite(n)) return 30;

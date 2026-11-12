@@ -25,6 +25,7 @@ import {
 import { lookupPopulation } from './census.mjs';
 import { recordRoverApiSpend } from './rover-api-spend.mjs';
 import { logoPromptDefaultsForConfig } from './logo-prompt.mjs';
+import { persistRestoredSiteCity } from './site-config.mjs';
 import { normalizeCityStateCluster } from './city-state.mjs';
 import { loadTwilioProvisionIndex } from './site-phone-index.mjs';
 import {
@@ -133,6 +134,9 @@ const LIST_META_KEYS = [
   'lastLaunchAt',
   'lastShipAt',
   'lastLaunchAttemptAt',
+  'lastLaunchBlocker',
+  'lastLaunchRepoName',
+  'launchNumber',
   'cloudflarePagesDone',
   'dnsDone',
   'emailRoutingDone',
@@ -212,6 +216,80 @@ export function launchStampPatch(meta, { ok, at }) {
   return { lastLaunchAt: at };
 }
 
+function positiveLaunchNumber(value) {
+  const n = Number(value);
+  return Number.isInteger(n) && n > 0 ? n : 0;
+}
+
+function rowHasLaunched(row) {
+  return Boolean(row?.lastLaunchAt || row?.lastShipAt);
+}
+
+function launchRowTime(row) {
+  const t = Date.parse(row?.lastLaunchAt || row?.lastShipAt || '');
+  return Number.isFinite(t) ? t : 0;
+}
+
+/**
+ * Number launched sites in first-launch order. The first success for `id` is stamped here.
+ * Callers serialize this with `withLaunchCountLock` so two launches cannot take the same number.
+ * @param {Array<{ id: string, lastLaunchAt?: string | null, lastShipAt?: string | null, launchNumber?: number | null }>} rows
+ * @param {{ id?: string, ok?: boolean, at?: string }} outcome
+ */
+export function applyLaunchNumber(rows, { id, ok, at } = {}) {
+  const list = (Array.isArray(rows) ? rows : [])
+    .map((row) => ({
+      id: String(row?.id || ''),
+      lastLaunchAt: row?.lastLaunchAt || null,
+      lastShipAt: row?.lastShipAt || null,
+      launchNumber: positiveLaunchNumber(row?.launchNumber) || null,
+    }))
+    .filter((row) => row.id);
+
+  const cid = String(id || '');
+  if (cid && !list.some((row) => row.id === cid)) {
+    list.push({ id: cid, lastLaunchAt: null, lastShipAt: null, launchNumber: null });
+  }
+  const current = cid ? list.find((row) => row.id === cid) : null;
+  if (ok && current && !current.lastLaunchAt) {
+    current.lastLaunchAt = at || new Date().toISOString();
+  }
+
+  let max = 0;
+  for (const row of list) {
+    const n = positiveLaunchNumber(row.launchNumber);
+    if (n > max) max = n;
+  }
+  const unnumbered = list
+    .filter((row) => rowHasLaunched(row) && !positiveLaunchNumber(row.launchNumber))
+    .sort((a, b) => {
+      const dt = launchRowTime(a) - launchRowTime(b);
+      if (dt) return dt;
+      return a.id.localeCompare(b.id);
+    });
+  for (const row of unnumbered) {
+    max += 1;
+    row.launchNumber = max;
+  }
+
+  const launchedTotal = list.filter(rowHasLaunched).length;
+  const launchNumber =
+    current && rowHasLaunched(current) ? positiveLaunchNumber(current.launchNumber) || null : null;
+  return { rows: list, launchNumber, launchedTotal };
+}
+
+let launchCountChain = Promise.resolve();
+
+/** One launch-number assignment at a time inside this Rover process. */
+export function withLaunchCountLock(fn) {
+  const run = launchCountChain.then(() => fn(), () => fn());
+  launchCountChain = run.then(
+    () => {},
+    () => {},
+  );
+  return run;
+}
+
 /** Stamp lastPhoneAt / hasSitePhone from skip, persist, or portfolio Twilio (in-memory). */
 function attachPhoneDone(meta, stageFlags, id, index) {
   const skipped = Boolean(meta?.phoneSkippedAt);
@@ -232,6 +310,9 @@ export function clearLaunchedBookkeeping(id, extra = {}) {
     lastLaunchAt: null,
     lastShipAt: null,
     lastLaunchAttemptAt: null,
+    lastLaunchBlocker: null,
+    lastLaunchRepoName: null,
+    launchNumber: null,
     githubRepo: null,
     githubRepoUrl: null,
     cfProject: null,
@@ -1042,7 +1123,10 @@ export function getCandidateDetail(id, opts = undefined) {
   const discoverySeed = readJson(p.discoverySeed);
   const approved = readJson(p.approved);
   const siteConfigDraft = readJson(p.siteConfigDraft);
-  const siteConfigAccepted = readJson(p.siteConfig);
+  const siteConfigOnDisk = readJson(p.siteConfig);
+  const siteConfigAccepted = siteConfigOnDisk
+    ? persistRestoredSiteCity(id, { research, config, raw: siteConfigOnDisk }).config
+    : null;
   const contentBrief = readJson(p.contentBrief);
   const contentFieldResearch = readJson(p.contentFieldResearch);
   const contentOutlinePackage = readJson(p.contentOutlinePackage);
@@ -1916,6 +2000,13 @@ export function readPromptFile(relativePath) {
   return readFileSync(full, 'utf8');
 }
 
+let narrativeZoneGuide = () => '';
+
+/** Late binding so the zone brief can fill narrative prompts without an import cycle. */
+export function registerNarrativeZoneGuide(fn) {
+  narrativeZoneGuide = typeof fn === 'function' ? fn : () => '';
+}
+
 /** Extract first ```text ... ``` fence from a prompt markdown file. */
 export function extractPromptTemplate(markdown) {
   const fence = markdown.match(/```text\r?\n([\s\S]*?)```/);
@@ -1940,7 +2031,9 @@ export function buildCopyPrompt(id) {
       '{{PASTE_OUTPUT_OF_npm_run_research-candidate}}',
       JSON.stringify(detail.research, null, 2),
     )
-    .replace('{{DISCOVERY_NARRATIVE_SEED}}', seedBlock);
+    .replace('{{DISCOVERY_NARRATIVE_SEED}}', seedBlock)
+    .split('{{ZONE_GUIDE}}')
+    .join(narrativeZoneGuide(id) || '');
   return filled;
 }
 

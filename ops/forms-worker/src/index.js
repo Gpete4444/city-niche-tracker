@@ -112,7 +112,7 @@ async function handleSubmit(request, env, ctx) {
   }
 
   const site = await env.DB.prepare(
-    'SELECT domain, business_name, notify_email FROM sites WHERE domain = ?',
+    'SELECT domain, business_name, notify_email, turnstile_secret FROM sites WHERE domain = ?',
   )
     .bind(domain)
     .first();
@@ -123,6 +123,15 @@ async function handleSubmit(request, env, ctx) {
   const ip = clientIp(request);
   if (await rateLimited(env, ip)) {
     return json({ ok: false, error: 'rate_limited' }, 429);
+  }
+
+  const turnstileSecret = String(site.turnstile_secret || '').trim();
+  if (turnstileSecret) {
+    const token = payload.turnstileToken || payload['cf-turnstile-response'];
+    const passed = await verifyTurnstile(turnstileSecret, token, ip);
+    if (!passed) {
+      return json({ ok: false, error: 'turnstile_failed' }, 403);
+    }
   }
 
   const since = new Date(Date.now() - DEDUPE_WINDOW_MS).toISOString();
@@ -193,6 +202,26 @@ async function handleSubmit(request, env, ctx) {
     return json({ ok: false, stored: true, id, error: 'email_failed' }, 502);
   }
   return json({ ok: true, id, emailed: true }, 201);
+}
+
+async function verifyTurnstile(secret, token, ip) {
+  const response = clip(token, 2048);
+  if (!response) return false;
+  try {
+    const res = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        secret,
+        response,
+        remoteip: ip,
+      }),
+    });
+    const data = await res.json();
+    return data?.success === true;
+  } catch {
+    return false;
+  }
 }
 
 async function rateLimited(env, ip) {

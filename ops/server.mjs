@@ -61,6 +61,7 @@ import {
 import {
   acceptSiteConfig,
   acceptServiceArea,
+  backfillSiteConfigNicheTitleCase,
   refreshServiceAreaClaims,
   buildSiteConfigPrompt,
   buildDomainPickPrompt,
@@ -71,8 +72,15 @@ import {
   setCandidateArchetype,
   applySiteConfigBrand,
   updateSiteConfigDraft,
+  businessDetailsWritePatch,
   listArchetypes,
 } from './lib/site-config.mjs';
+import {
+  addNicheDomainPattern,
+  listNicheDomainPatterns,
+  removeNicheDomainPattern,
+} from './lib/niche-domain-patterns.mjs';
+import { nichePatternKey } from './public/domain-suggest.mjs';
 import {
   getBusinessAddressPackage,
   searchBusinessAddresses,
@@ -123,12 +131,15 @@ import {
   readPhotoGroupFile,
   useGroupFileOnSlot,
   useGroupBaPairOnSlot,
+  backfillPhotoGroupNicheTitleCase,
 } from './lib/photo-groups.mjs';
 import {
+  applyHomepageServicesLimitToNicheConfigs,
   backfillStoredServiceNameTitleCase,
   buildNicheServiceList,
   getNicheServiceList,
   saveNicheServiceList,
+  setNicheHomepageServicesLimit,
 } from './lib/niche-service-lists.mjs';
 import {
   listPhotoLibrary,
@@ -215,6 +226,8 @@ import {
 import {
   assertWriteSiteReady,
   expandThinServicesUntilClear,
+  acceptAfterGapRewrite,
+  rewriteLaunchContentGaps,
   runExpandThinLocationsJob,
   runWriteSiteJob,
 } from './lib/content-write-site.mjs';
@@ -312,13 +325,22 @@ import {
   getZoneWorkspace,
   paintZoneMember,
   paintZoneMembers,
+  promoteZoneMembers,
   setZoneMiles,
 } from './lib/shotgun.mjs';
+import {
+  acceptZoneGuide,
+  buildZoneGuideDistillPrompt,
+  readZoneGuide,
+  runZoneGuideDistill,
+  saveZoneGuideSource,
+  zoneGuideDistillJobFields,
+} from './lib/zone-guide.mjs';
 import { getUserGuidePayload } from './lib/help-markdown.mjs';
 import { assembleSiteInWorker, getAssembleChecklist, planAssembleReplace, finalizePreviousAssembledSite } from './lib/assemble-site.mjs';
 import { assertLaunchedEditAllowed } from './lib/launched-edit-guard.mjs';
 import { restoreLaunchedFromGithub } from './lib/restore-launched-from-github.mjs';
-import { getLaunchStatus, launchSite, listLaunchProgressSteps } from './lib/launch-site.mjs';
+import { getLaunchStatus, launchSite, listLaunchProgressSteps, patchLaunchSiteConfig } from './lib/launch-site.mjs';
 import { resetLaunchForNewDomain } from './lib/reset-launch-for-domain.mjs';
 import {
   BILLING_CYCLES,
@@ -350,8 +372,14 @@ import {
   startGscOAuth,
 } from './lib/gsc-oauth.mjs';
 import { syncAllSitesGsc, syncSiteGsc } from './lib/gsc-sync.mjs';
-import { inspectSiteIndex } from './lib/gsc-index-inspect.mjs';
-import { checkAllSiteRanks, checkSiteRanks, getRankBatchProgress } from './lib/rank-track.mjs';
+import { submitDomainToSearchConsole } from './lib/gsc-indexing-submit.mjs';
+import { bumpIndexCheckCancel, inspectSiteIndex } from './lib/gsc-index-inspect.mjs';
+import {
+  bumpRankCheckCancel,
+  checkAllSiteRanks,
+  checkSiteRanks,
+  getRankBatchProgress,
+} from './lib/rank-track.mjs';
 import {
   provisionRankingNumber,
   setForwardToRenter,
@@ -421,6 +449,7 @@ import {
   runNarrativeJob,
 } from './lib/run-script.mjs';
 import {
+  appendPromotedZoneRows,
   createDiscoveryPack,
   discoveryPresets,
   getBatch,
@@ -430,6 +459,7 @@ import {
   recommendBatch,
   reopenDiscoveryRows,
   backfillLightSerpFromBatch,
+  backfillStoredNicheTitleCase,
   updateBatchDecisions,
 } from './lib/discovery.mjs';
 import { previewSerpProbe, runDiscoverySerpProbe, startDiscoverySerpProbe, getSerpProbeJob, discoveryStepStatus } from './lib/discovery-serp-probe.mjs';
@@ -503,6 +533,7 @@ function attachShotgunFields(candidateId, candidate = {}) {
       clusterKey: g.clusterKey ?? null,
       role: g.role || null,
     })),
+    planningGuideUpdatedAt: shotgun?.planningGuideUpdatedAt || null,
     shotgunMembers: shotgun
       ? (shotgun.members || []).map((m) => {
           const stored = Number(m.population);
@@ -1174,6 +1205,38 @@ app.post('/api/shotgun-clusters/:id/paint', (req, res) => {
   }
 });
 
+app.post('/api/shotgun-clusters/:id/promote-members', (req, res) => {
+  try {
+    const result = promoteZoneMembers(req.params.id, { cities: req.body?.cities });
+    let discovery = null;
+    if (result.batchId && result.promoted?.length) {
+      try {
+        discovery = appendPromotedZoneRows(result.batchId, result.promoted);
+      } catch (error) {
+        discovery = { error: error.message || 'Could not update discovery batch' };
+      }
+    }
+    let batchJob = null;
+    let batchError = null;
+    if (result.researchIds?.length) {
+      try {
+        batchJob = startBatchJobs({
+          act: 'evaluate-all',
+          candidateIds: result.researchIds,
+          evalRunMode: 'required',
+          adsMode: 'live',
+          forceSerp: false,
+        });
+      } catch (error) {
+        batchError = error.message || 'Could not start required research';
+      }
+    }
+    res.json({ ...result, discovery, batchJob, batchError });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
 app.post('/api/shotgun-clusters/:id/paint-many', (req, res) => {
   try {
     if (String(req.body?.tool || '').toLowerCase() === 'hub') {
@@ -1235,6 +1298,80 @@ app.post('/api/shotgun-clusters/:id/members/remove', async (req, res) => {
 app.post('/api/shotgun-clusters/:id/dissolve', (req, res) => {
   try {
     res.json(dissolveShotgunCluster(req.params.id));
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+function zoneGuideScope(req) {
+  const kind = String(req.params.kind || '').trim();
+  const id = String(req.params.id || '').trim();
+  if (kind !== 'batch' && kind !== 'zone') {
+    throw Object.assign(new Error('Guide scope must be batch or zone'), { status: 400 });
+  }
+  if (kind === 'batch') getBatch(id);
+  else if (!loadShotgunClusters().clusters.some((c) => c.id === id)) {
+    throw Object.assign(new Error('Zone not found'), { status: 404 });
+  }
+  return { kind, id };
+}
+
+app.get('/api/zone-guides/:kind/:id', (req, res) => {
+  try {
+    const scope = zoneGuideScope(req);
+    res.json(readZoneGuide(scope.kind, scope.id));
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/zone-guides/:kind/:id/source', (req, res) => {
+  try {
+    const scope = zoneGuideScope(req);
+    res.json(saveZoneGuideSource(scope.kind, scope.id, req.body?.text ?? ''));
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/zone-guides/:kind/:id/accept', (req, res) => {
+  try {
+    const scope = zoneGuideScope(req);
+    res.json(acceptZoneGuide(scope.kind, scope.id, req.body?.text ?? ''));
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.get('/api/zone-guides/:kind/:id/distill-prompt', (req, res) => {
+  try {
+    const scope = zoneGuideScope(req);
+    const guide = readZoneGuide(scope.kind, scope.id);
+    if (!String(guide.source || '').trim()) {
+      throw Object.assign(new Error('Save a source before Distill'), { status: 400 });
+    }
+    res.json({ prompt: buildZoneGuideDistillPrompt(guide.source) });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/zone-guides/:kind/:id/distill', (req, res) => {
+  try {
+    const scope = zoneGuideScope(req);
+    requireAnthropicKey();
+    const guide = readZoneGuide(scope.kind, scope.id);
+    if (!String(guide.source || '').trim()) {
+      throw Object.assign(new Error('Save a source before Distill'), { status: 400 });
+    }
+    const { jobId } = startLightJob({
+      ...zoneGuideDistillJobFields(scope.kind, scope.id),
+      phase: 'zone-guide-distill',
+      label: 'Distill zone guide',
+      progressTotal: 2,
+      run: async ({ jobId: jid, signal }) => runZoneGuideDistill(scope.kind, scope.id, { jobId: jid, signal }),
+    });
+    res.status(202).json({ jobId, accepted: true });
   } catch (error) {
     sendError(res, error);
   }
@@ -1372,12 +1509,16 @@ app.post('/api/discovery/pack', (req, res) => {
       res.json({
         ...pack,
         existing: Boolean(seeded.existing),
-        cluster: {
-          id: seeded.cluster.id,
-          sgNumber: seeded.cluster.sgNumber,
-          name: seeded.cluster.name,
-          niche: seeded.cluster.niche,
-        },
+        ...(seeded.cluster
+          ? {
+              cluster: {
+                id: seeded.cluster.id,
+                sgNumber: seeded.cluster.sgNumber,
+                name: seeded.cluster.name,
+                niche: seeded.cluster.niche,
+              },
+            }
+          : {}),
       });
     } catch (error) {
       try {
@@ -2245,6 +2386,33 @@ app.post('/api/candidates/:id/site-config/suggest-domains', async (req, res) => 
   }
 });
 
+app.get('/api/niche-domain-patterns', (req, res) => {
+  try {
+    const niche = String(req.query.niche || '');
+    res.json({ niche: nichePatternKey(niche), patterns: listNicheDomainPatterns(niche) });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/niche-domain-patterns', (req, res) => {
+  try {
+    const body = req.body || {};
+    res.json(addNicheDomainPattern(body.niche, body.pattern));
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/niche-domain-patterns/remove', (req, res) => {
+  try {
+    const body = req.body || {};
+    res.json(removeNicheDomainPattern(body.niche, body.pattern));
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
 app.post('/api/candidates/:id/site-config/generate', async (req, res) => {
   try {
     const body = req.body || {};
@@ -2411,6 +2579,47 @@ app.post('/api/candidates/:id/site-config/draft', (req, res) => {
   }
 });
 
+app.post('/api/candidates/:id/site-config/apply-details', (req, res) => {
+  try {
+    const body = req.body || {};
+    assertLaunchedEditAllowed(req.params.id, body);
+    const before = getCandidateShell(req.params.id);
+    const siteCity = String(
+      before.summary?.primaryCity || before.research?.primaryCity || '',
+    ).trim();
+    const siteState = String(before.summary?.state || before.research?.state || '')
+      .trim()
+      .toUpperCase();
+    const configState = String(before.siteConfig?.state || '')
+      .trim()
+      .toUpperCase();
+    const sameSite = !siteState || !configState || siteState === configState;
+    const patch = businessDetailsWritePatch(body, before.siteConfig || {}, {
+      siteCity: sameSite ? siteCity : '',
+    });
+    const draftResult = updateSiteConfigDraft(req.params.id, patch, {
+      domain: patch.domain,
+      businessName: patch.businessName,
+      phone: patch.phone,
+      email: patch.email,
+      radiusMiles: patch.serviceRadiusMiles,
+      paletteId: body.paletteId,
+      fontTheme: body.fontTheme,
+      allowNonPursue: Boolean(body.allowNonPursue),
+      createIfMissing: true,
+    });
+    const applied = Boolean(before.siteConfig);
+    if (applied) patchLaunchSiteConfig(req.params.id, patch);
+    res.json({
+      ...draftResult,
+      applied,
+      candidate: getCandidateShell(req.params.id),
+    });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
 app.post('/api/candidates/:id/site-config/accept', (req, res) => {
   try {
     const body = req.body || {};
@@ -2500,15 +2709,26 @@ app.post('/api/candidates/:id/content/accept', async (req, res) => {
       phase: 'accept',
       label: 'Accept',
       progressTotal: ACCEPT_TOTAL,
-      run: async ({ jobId: jid }) => {
+      run: async ({ jobId: jid, signal }) => {
         const tick = (done, detail) =>
           updateLightJobProgress(jid, { detail, done, total: ACCEPT_TOTAL });
 
-        tick(1, 'Writing files to src/content…');
-        console.log(`[accept] ${acceptId} writing src/content…`);
-        const result = await acceptContent(acceptId, {
-          ignoreWarnings: Boolean(body.ignoreWarnings),
-          ignoreSeoWarnings: Boolean(body.ignoreSeoWarnings),
+        tick(1, 'Checking pages…');
+        const result = await acceptAfterGapRewrite({
+          onContinue: () => tick(1, 'Continuing…'),
+          rewrite: () =>
+            rewriteLaunchContentGaps(acceptId, {
+              signal,
+              tick: (detail) => tick(1, detail),
+            }),
+          accept: () => {
+            tick(1, 'Writing files to src/content…');
+            console.log(`[accept] ${acceptId} writing src/content…`);
+            return acceptContent(acceptId, {
+              ignoreWarnings: Boolean(body.ignoreWarnings),
+              ignoreSeoWarnings: Boolean(body.ignoreSeoWarnings),
+            });
+          },
         });
         await yieldEventLoop();
         let images = null;
@@ -2712,6 +2932,23 @@ app.put('/api/niche-service-lists', (req, res) => {
   }
 });
 
+app.post('/api/niche-service-lists/homepage-limit', (req, res) => {
+  try {
+    const body = req.body || {};
+    const list = setNicheHomepageServicesLimit({
+      niche: body.niche,
+      homepageServicesLimit: body.homepageServicesLimit,
+    });
+    const applied = applyHomepageServicesLimitToNicheConfigs(
+      list.niche,
+      list.homepageServicesLimit,
+    );
+    res.json({ list, applied });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
 app.post('/api/niche-service-lists/build', (req, res) => {
   try {
     const niche = String(req.body?.niche || '').trim();
@@ -2728,7 +2965,8 @@ app.post('/api/candidates/:id/photo-groups', (req, res) => {
   try {
     const name = String(req.body?.name || '').trim();
     const replaceExisting = Boolean(req.body?.replaceExisting);
-    res.json(savePhotoGroup(req.params.id, name, { replaceExisting }));
+    const asMaster = Boolean(req.body?.asMaster);
+    res.json(savePhotoGroup(req.params.id, name, { replaceExisting, asMaster }));
   } catch (error) {
     sendError(res, error);
   }
@@ -4610,6 +4848,7 @@ app.get('/api/sites', (_req, res) => {
         shotgunClusterName: hit.clusterName,
         shotgunSg: hit.shotgunSg,
         sgNumber: hit.sgNumber,
+        planningGuideUpdatedAt: hit.planningGuideUpdatedAt || null,
         groupIds: [...new Set([...(s.groupIds || []), hit.groupId, hit.packGroupId].filter(Boolean))],
       };
     });
@@ -4755,6 +4994,12 @@ app.post('/api/sites/:id/rank-check', async (req, res) => {
   }
 });
 
+app.post('/api/launched-jobs/stop', (_req, res) => {
+  bumpIndexCheckCancel();
+  bumpRankCheckCancel();
+  res.json({ ok: true });
+});
+
 app.post('/api/sites/:id/index-check', async (req, res) => {
   try {
     const result = await inspectSiteIndex(req.params.id);
@@ -4856,6 +5101,22 @@ app.post('/api/candidates/:id/phone/skip', (req, res) => {
       phoneSkippedAt: new Date().toISOString(),
     });
     res.json({ meta, candidate: getCandidateShell(req.params.id) });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+/**
+ * Website → Indexing: DNS-verify the Domain property and submit sitemap.xml once.
+ * Does not mark Indexing done — Request indexing stays manual.
+ */
+app.post('/api/candidates/:id/indexing/submit', async (req, res) => {
+  try {
+    const detail = getCandidateShell(req.params.id);
+    const domain =
+      detail.meta?.launchDomain || detail.siteConfig?.domain || detail.siteConfigDraft?.domain || '';
+    const result = await submitDomainToSearchConsole(domain);
+    res.json(result);
   } catch (error) {
     sendError(res, error);
   }
@@ -5510,6 +5771,21 @@ const server = app.listen(PORT, HOST, () => {
     if (r.files) console.log(`Service name title case: ${r.files} file(s)`);
   } catch (err) {
     console.warn('Service name title case skipped:', err.message || err);
+  }
+  try {
+    const r = backfillStoredNicheTitleCase();
+    const photos = backfillPhotoGroupNicheTitleCase();
+    const configs = backfillSiteConfigNicheTitleCase();
+    const candidateFiles = r.candidates?.files || 0;
+    const batchFiles = r.batches?.files || 0;
+    const zones = r.shotgun?.clusters || 0;
+    if (candidateFiles || batchFiles || zones || photos.groups || configs.files) {
+      console.log(
+        `Niche title case: candidates ${candidateFiles}, batches ${batchFiles}, zones ${zones}, photo groups ${photos.groups}, site-configs ${configs.files}`,
+      );
+    }
+  } catch (err) {
+    console.warn('Niche title case skipped:', err.message || err);
   }
 });
 server.requestTimeout = 30 * 60 * 1000;

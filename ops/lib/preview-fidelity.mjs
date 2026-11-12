@@ -295,17 +295,21 @@ export function servicePageNeedsExpand(rel, markdown) {
 }
 
 /**
- * Missing required paths + present stub/thin service/location files (Accept gate).
+ * Missing required paths + present stub/thin service/location files.
+ * `serviceDepth: 'expand'` (Accept) also flags a service under 450 owned words.
+ * `serviceDepth: 'stub'` (Prepare preview and staging) only flags a seed stub.
  * @returns {{ expected: string[], missing: string[], stubs: string[], ok: boolean }}
  */
-export function listLaunchContentGaps(files = {}, config = {}, pageIds = []) {
+export function listLaunchContentGaps(files = {}, config = {}, pageIds = [], { serviceDepth = 'expand' } = {}) {
   const expected = expectedLaunchContentPaths(config, pageIds);
   const missing = expected.filter((rel) => !files[rel]);
   const stubs = [];
+  const serviceBlocks =
+    serviceDepth === 'stub' ? bodyLooksLikeStub : servicePageNeedsExpand;
   for (const rel of expected) {
     if (!files[rel]) continue;
     if (rel.includes('/services/')) {
-      if (servicePageNeedsExpand(rel, files[rel])) stubs.push(rel);
+      if (serviceBlocks(rel, files[rel])) stubs.push(rel);
       continue;
     }
     if (rel.includes('/locations/') && bodyLooksLikeStub(rel, files[rel])) stubs.push(rel);
@@ -363,12 +367,15 @@ export function syncLaunchGapsOnOps(ops, files, config, pageIds) {
   return { ops: changed ? next : ops, changed };
 }
 
-/** accept when the draft already has a full page for every gap. Otherwise write. */
-export function launchGapNextStep(gapPaths = [], draftFiles = {}) {
+/**
+ * Accept when the draft, or the accepted copy when the draft is empty, already
+ * has a non-stub page for every gap. Otherwise write.
+ */
+export function launchGapNextStep(gapPaths = [], draftFiles = {}, acceptedFiles = {}) {
   const paths = (gapPaths || []).map(String).filter((rel) => rel.startsWith('src/'));
   if (!paths.length) return 'write';
   const ready = paths.every((rel) => {
-    const body = draftFiles?.[rel];
+    const body = draftFiles?.[rel] || acceptedFiles?.[rel];
     return body && !bodyLooksLikeStub(rel, body);
   });
   return ready ? 'accept' : 'write';
@@ -391,6 +398,8 @@ export function getLaunchContentGapsForCandidate(candidateId) {
     detail?.contentDraft?.files && typeof detail.contentDraft.files === 'object'
       ? detail.contentDraft.files
       : {};
+  const acceptedFiles =
+    detail?.content?.files && typeof detail.content.files === 'object' ? detail.content.files : {};
   if (!config) {
     return {
       ok: false,
@@ -413,7 +422,7 @@ export function getLaunchContentGapsForCandidate(candidateId) {
       error: `${id}: No content draft/accepted files to Prepare`,
     };
   }
-  const gaps = listLaunchContentGaps(files, config, pageIds);
+  const gaps = listLaunchContentGaps(files, config, pageIds, { serviceDepth: 'stub' });
   const parts = [];
   if (gaps.missing.length) {
     parts.push(
@@ -433,7 +442,7 @@ export function getLaunchContentGapsForCandidate(candidateId) {
   return {
     ...gaps,
     candidateId: id,
-    nextStep: gaps.ok ? null : launchGapNextStep(gapPaths, draftFiles),
+    nextStep: gaps.ok ? null : launchGapNextStep(gapPaths, draftFiles, acceptedFiles),
     error: gaps.ok
       ? null
       : `${id}: Content not launch-ready — ${parts.join(' · ')}. Continue-write / Accept full location & service pages before Prepare (or Prepare anyway).`,
@@ -447,9 +456,11 @@ export function assertLaunchContentComplete(
   files,
   config,
   pageIds,
-  { label = 'Content', candidateId = '' } = {},
+  { label = 'Content', candidateId = '', serviceDepth = 'expand' } = {},
 ) {
-  const { missing, stubs, expected, ok } = listLaunchContentGaps(files, config, pageIds);
+  const { missing, stubs, expected, ok } = listLaunchContentGaps(files, config, pageIds, {
+    serviceDepth,
+  });
   if (ok) {
     return { ok: true, missing: [], stubs: [], expected };
   }

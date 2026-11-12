@@ -22,7 +22,7 @@ CLI flags:
 npm run launch-site -- <candidateId>
 npm run launch-site -- <candidateId> --skip-cloudflare
 npm run launch-site -- <candidateId> --skip-ship
-npm run launch-site -- <candidateId> --turnstile --destination=you@gmail.com
+npm run launch-site -- <candidateId> --destination=you@gmail.com
 ```
 
 Related: `GET/POST /api/candidates/:id/ship` (ship only), `GET /api/candidates/:id/launch` (status, no secrets).
@@ -91,7 +91,7 @@ Writes NAP / form fields into:
 2. Assembled site: `{assembled}/src/config/site-config.json`
 3. Live template `src/config/site-config.json` **only if** `meta.siteConfigPath` is `src/config/site-config.json`
 
-Fields applied when non-empty: `domain`, `phone`, `email`, `businessName`, `turnstileSiteKey`.
+Fields applied when non-empty: `domain`, `phone`, `email`, `businessName`. The Launch form does not ask for a Turnstile site key.
 
 `formsDone` is true when the forms inbox is set up and the Email Routing destination is set.
 
@@ -134,7 +134,7 @@ Requires `CLOUDFLARE_ACCOUNT_ID` + `CLOUDFLARE_API_TOKEN`. Worker name = `meta.a
 4. **Custom domain**
    - Confirm Worker exists via `GET …/workers/scripts/{name}/settings` (assets-only Workers return empty on the bare script GET — that path is avoided)
    - Attach **apex** and **www** hostnames → Worker (`PUT/POST …/workers/domains`)
-5. **Turnstile** — Launch does not create a widget per site. The form uses a honeypot, the domain allowlist, and a per-IP rate limit. An existing `turnstileSiteKey` still renders a widget.
+5. **Turnstile** — Launch does not create a widget. The form uses a honeypot, the domain allowlist, and a per-IP rate limit. See [TURNSTILE.md](TURNSTILE.md).
 
 ### 3.5 Meta and build-package
 

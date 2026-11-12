@@ -4,6 +4,7 @@
  */
 
 import { normTitle, simpleProseToHtml, stripLeadingTitleEcho } from './content-body';
+import { isCostHeading } from './is-cost-heading.mjs';
 import { isProcessHeading } from './is-process-heading.mjs';
 import { isMaterialsHeading } from './is-materials-heading.mjs';
 
@@ -51,7 +52,7 @@ function classifyHeading(heading: string): ServiceSectionKind {
   if (/\bfaqs?\b|frequently asked|common questions/.test(t)) return 'faq';
   if (/what'?s included|what is included|\bscope\b|typically included/.test(t)) return 'scope';
   if (isProcessHeading(t)) return 'process';
-  if (/\bcost\b|pricing|what does .+ cost|how much/.test(t)) return 'cost';
+  if (isCostHeading(heading)) return 'cost';
   if (isMaterialsHeading(t)) return 'materials';
   if (/how long|timeline|duration/.test(t)) return 'timeline';
   // "schedule" alone is too broad (matches process step lines); require timeline-ish phrasing
@@ -82,7 +83,7 @@ function looksLikePlainHeading(line: string): boolean {
   if (/[.!]$/.test(t) && t.split(/\s+/).length > 12) return false;
   const kind = classifyHeading(t);
   if (kind === 'other' || kind === 'intro') return false;
-  if (kind === 'cost' && !/^(what does|cost|pricing)\b/i.test(t)) return false;
+  if (kind === 'cost' && !/^(?:what (?:does|it)|costs?|prices?|priced|pricing)\b/i.test(t)) return false;
   if (kind === 'timeline' && !/^(how long|timeline)\b/i.test(t)) return false;
   return true;
 }

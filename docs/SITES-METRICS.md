@@ -20,7 +20,7 @@ Rank checks use **Standard queue** `serp/google/organic` (depth 20). Fund the SE
 ### Google Search Console (traffic)
 
 1. Google Cloud project → enable **Google Search Console API**.
-2. OAuth consent screen (External + your Gmail as test user) with scope `webmasters.readonly`.
+2. OAuth consent screen (External + your Gmail as test user) with scopes `webmasters` and `siteverification`. Enable the Site Verification API in the same project. Connect GSC again if the saved token is still read-only.
 3. Create **Desktop** OAuth client (or Web app with the redirect below).
 4. `.env`:
 
@@ -32,7 +32,7 @@ GOOGLE_GSC_CLIENT_SECRET=
 5. Redirect URI Rover uses: `http://127.0.0.1:8787/api/gsc/oauth/callback`  
    If a Desktop client rejects it, switch to a **Web application** client and add that URI under Authorized redirect URIs.
 6. Restart `npm run rover` → Launched Sites → **Connect GSC**.
-7. Each live domain needs a verified **Domain** property under that Google account (DNS TXT). See [SITE-INDEXING.md](SITE-INDEXING.md).
+7. Website → Indexing → **Submit to Search Console** verifies each live domain (DNS TXT) and submits its sitemap. See [SITE-INDEXING.md](SITE-INDEXING.md).
 
 ## Operator actions
 
@@ -69,6 +69,6 @@ Primary keyword defaults to `{niche} {city}` from hydrated site-config; edit up 
 | `research/gsc-oauth.json` | OAuth tokens (gitignored) |
 | `research/site-metrics/{siteId}.json` | GSC rollups, daily series, top queries/pages, sitemap submitted, URL Inspection by URL, keyword history |
 
-## Phase 2 (backlog)
+## Indexing submit
 
-Auto-create GSC Domain property + Cloudflare DNS TXT verify at Launch/Indexing so verification is not manual at hundreds of domains.
+Website → Indexing → **Submit to Search Console** creates the Domain property, writes the Cloudflare DNS TXT record, and submits `sitemap.xml` once. Request indexing stays a manual step on that property’s URL Inspection page.

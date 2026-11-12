@@ -4,7 +4,7 @@
  */
 import { autoFixContentDraft } from '../ops/lib/content-auto-fix.mjs';
 import { sentenceCaseLine } from '../src/lib/content-body.ts';
-import { fitEqualGrid } from '../src/lib/equal-grid.ts';
+import { fewCommercialGridClass, fitEqualGrid } from '../src/lib/equal-grid.ts';
 import { parseTimelineStages } from '../src/lib/section-parse.ts';
 
 function assert(ok, label) {
@@ -39,6 +39,26 @@ assertEqual(three.cols, 3, '3 materials cards → 3 cols');
 const five = fitEqualGrid([1, 2, 3, 4, 5], { maxCols: 3 });
 assertEqual(five.cols, 2, '5 materials → 2 cols');
 assertEqual(five.items.length, 4, '5 materials trim to 4 (complete rows)');
+
+const fourWide = fitEqualGrid([1, 2, 3, 4]);
+const residential4 = { count: fourWide.items.length, className: fourWide.className };
+assert(fewCommercialGridClass(1, residential4).includes('lg:grid-cols-4'), '1 commercial beside 4-col residential');
+assert(fewCommercialGridClass(2, residential4).includes('lg:grid-cols-4'), '2 commercial beside 4-col residential');
+
+const sixWide = fitEqualGrid([1, 2, 3, 4, 5, 6]);
+const residential3 = { count: sixWide.items.length, className: sixWide.className };
+assert(fewCommercialGridClass(1, residential3).includes('lg:grid-cols-3'), '1 commercial beside 3-col residential');
+assert(fewCommercialGridClass(2, residential3).includes('lg:grid-cols-3'), '2 commercial beside 3-col residential');
+
+assert(
+  fewCommercialGridClass(1, { count: 0, className: '' }).includes('lg:grid-cols-4'),
+  '1 commercial with no residential uses the 4-col track',
+);
+assert(
+  fewCommercialGridClass(2, { count: 1, className: 'grid-cols-1' }).includes('lg:grid-cols-4'),
+  '2 commercial beside one residential card uses the 4-col track',
+);
+assertEqual(fewCommercialGridClass(3, residential4), null, '3 commercial cards keep fitEqualGrid');
 
 assertEqual(
   sentenceCaseLine('check ceiling condition and texture age'),

@@ -1,4 +1,6 @@
 ---
+import { site } from '../config/site';
+import { headingNicheCase } from '../lib/content-body';
 import { preferAccentPhrase, splitTwoToneHeading } from '../lib/two-tone';
 
 interface Props {
@@ -14,6 +16,8 @@ interface Props {
   tone?: 'dark' | 'light';
   id?: string;
   class?: string;
+  /** Site niche. A hero title, or a heading that contains the business name, title-cases every niche phrase. Other headings title-case it only when the line starts with it. */
+  niche?: string;
 }
 
 const {
@@ -25,25 +29,27 @@ const {
   tone = 'dark',
   id,
   class: className,
+  niche,
 } = Astro.props;
 
-let lead = text;
+const headingText = headingNicheCase(text, niche, site.businessName, { hero: Tag === 'h1' });
+let lead = headingText;
 let accent: string | null = null;
 let rest = '';
 
 if (mode !== 'plain') {
-  if (emphasis && text.includes(emphasis)) {
-    const idx = text.indexOf(emphasis);
-    lead = text.slice(0, idx).trimEnd();
+  if (emphasis && headingText.includes(emphasis)) {
+    const idx = headingText.indexOf(emphasis);
+    lead = headingText.slice(0, idx).trimEnd();
     accent = emphasis.trim();
-    rest = text.slice(idx + emphasis.length);
+    rest = headingText.slice(idx + emphasis.length);
   } else if (prefer?.length) {
-    const parts = preferAccentPhrase(text, prefer);
+    const parts = preferAccentPhrase(headingText, prefer);
     lead = parts.lead;
     accent = parts.accent;
     rest = parts.rest || '';
   } else {
-    const parts = splitTwoToneHeading(text);
+    const parts = splitTwoToneHeading(headingText);
     lead = parts.lead;
     accent = parts.accent;
     rest = parts.rest || '';
@@ -51,7 +57,8 @@ if (mode !== 'plain') {
 }
 
 const leadClass = tone === 'light' ? 'text-white' : 'text-ink';
-const accentClass = 'font-semibold italic text-accent';
+const accentClass =
+  tone === 'light' ? 'font-semibold italic text-accent' : 'font-semibold italic text-accent-on-light';
 ---
 
 <Tag

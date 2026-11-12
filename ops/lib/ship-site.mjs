@@ -3,7 +3,7 @@
  * Optional Workers Builds GitHub connection (best-effort; needs CF GitHub App + Builds API access).
  */
 
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, rmSync } from 'node:fs';
 import { spawn, spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { getCandidateDetail, getCandidateShell, launchStampPatch, saveMeta } from './candidates.mjs';
@@ -35,8 +35,39 @@ import {
   resolveGithubOwner,
   diffAssembledAgainstRemote,
 } from './github-site.mjs';
+import {
+  isWorkersFreeCapMessage,
+  WORKERS_FREE_CAP_CODE,
+  WORKERS_FREE_CAP_NOTE,
+} from '../public/workers-free-cap.mjs';
 
 const ROOT = process.cwd();
+
+/**
+ * Skip npm install only when the lockfile matches, the Astro command exists,
+ * and a package file Astro loads at build time is present.
+ * A copied node_modules can match the lockfile and still be missing pieces.
+ */
+export function shouldSkipNpmInstall(siteRoot) {
+  const abs = path.resolve(siteRoot);
+  const nmDir = path.join(abs, 'node_modules');
+  if (!existsSync(nmDir) || !depsHashMarkerMatches(abs)) return false;
+  const shim = path.join(nmDir, '.bin', process.platform === 'win32' ? 'astro.cmd' : 'astro');
+  const sentinel = path.join(nmDir, 'shiki', 'dist', 'index.mjs');
+  return existsSync(shim) && existsSync(sentinel);
+}
+
+/** Delete a copied node_modules that is missing the Astro command or a package it loads. */
+export function discardPartialNodeModules(siteRoot) {
+  const abs = path.resolve(siteRoot);
+  const nmDir = path.join(abs, 'node_modules');
+  if (!existsSync(nmDir) || shouldSkipNpmInstall(abs)) return false;
+  const shim = path.join(nmDir, '.bin', process.platform === 'win32' ? 'astro.cmd' : 'astro');
+  const sentinel = path.join(nmDir, 'shiki', 'dist', 'index.mjs');
+  if (existsSync(shim) && existsSync(sentinel)) return false;
+  rmSync(nmDir, { recursive: true, force: true });
+  return true;
+}
 
 function resolveAssembledRoot(detail) {
   const rel = detail.meta?.assembledSitePath;
@@ -150,7 +181,7 @@ function runNpmAsync(args, cwd, timeoutMs = 600_000, envExtra = {}) {
 }
 
 /**
- * npm install (skipped when node_modules matches package lock identity) + npm run build.
+ * npm install (skipped when the lockfile matches and the Astro command is present) + npm run build.
  * Sync — blocks the event loop. Prefer buildAssembledSiteAsync in heavy-job paths.
  * @param {string} siteRoot
  * @param {{ visualEdit?: boolean }} [opts] — set visualEdit for local preview builds only (loads rover-visual-bridge.js)
@@ -164,8 +195,8 @@ export function buildAssembledSite(siteRoot, { visualEdit = false } = {}) {
     throw err;
   }
   const envExtra = visualEdit ? { PUBLIC_ROVER_VE: '1' } : { PUBLIC_ROVER_VE: '' };
-  const nmDir = path.join(abs, 'node_modules');
-  const skipInstall = existsSync(nmDir) && depsHashMarkerMatches(abs);
+  discardPartialNodeModules(abs);
+  const skipInstall = shouldSkipNpmInstall(abs);
   if (!skipInstall) {
     runNpm(['install'], abs, 600_000, envExtra);
     writeDepsHashMarker(abs, hashPackageDeps(abs));
@@ -197,8 +228,8 @@ export async function buildAssembledSiteAsync(siteRoot, { visualEdit = false } =
     throw err;
   }
   const envExtra = visualEdit ? { PUBLIC_ROVER_VE: '1' } : { PUBLIC_ROVER_VE: '' };
-  const nmDir = path.join(abs, 'node_modules');
-  const skipInstall = existsSync(nmDir) && depsHashMarkerMatches(abs);
+  discardPartialNodeModules(abs);
+  const skipInstall = shouldSkipNpmInstall(abs);
   if (!skipInstall) {
     await runNpmAsync(['install'], abs, 600_000, envExtra);
     writeDepsHashMarker(abs, hashPackageDeps(abs));
@@ -463,8 +494,13 @@ export async function shipAssembledSite(candidateId, opts = {}) {
         steps.deploy = await deployAssembledWithWranglerAsync(assembledRoot);
         human.push(`Deployed Worker "${slug}" with Wrangler.`);
       } catch (error) {
-        steps.deploy = { ok: false, error: error.message };
-        human.push(`Wrangler deploy failed: ${error.message}`);
+        const freeCap = isWorkersFreeCapMessage(error.message);
+        steps.deploy = {
+          ok: false,
+          error: error.message,
+          ...(freeCap ? { code: WORKERS_FREE_CAP_CODE } : {}),
+        };
+        human.push(freeCap ? WORKERS_FREE_CAP_NOTE : `Wrangler deploy failed: ${error.message}`);
         // Continue — GitHub may still be useful
       }
     }
@@ -489,7 +525,13 @@ export async function shipAssembledSite(candidateId, opts = {}) {
     lastShipAt: shippedAt,
     githubRepo: steps.github?.fullName || detail.meta?.githubRepo || null,
     githubRepoUrl: steps.github?.repoUrl || detail.meta?.githubRepoUrl || null,
-    ...(shipOk ? launchStampPatch(detail.meta, { ok: true, at: shippedAt }) : {}),
+    ...(shipOk
+      ? {
+          ...launchStampPatch(detail.meta, { ok: true, at: shippedAt }),
+          lastLaunchBlocker: null,
+          lastLaunchRepoName: null,
+        }
+      : {}),
   };
   if (steps.deploy?.ok) {
     metaPatch.cloudflarePagesDone = true;

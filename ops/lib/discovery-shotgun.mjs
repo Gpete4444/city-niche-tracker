@@ -64,6 +64,7 @@ import {
   generatePackChunkCount,
   generatePackChunkMaxTokens,
 } from './discovery-generate-pack-chunks.mjs';
+import { zoneGuideBlockForBatch } from './zone-guide.mjs';
 
 const ROOT = process.cwd();
 
@@ -83,7 +84,7 @@ function fillPrompt(relativePath, vars = {}) {
   if (!existsSync(full)) throw new Error(`Prompt not found: ${relativePath}`);
   let out = readFileSync(full, 'utf8');
   for (const [key, value] of Object.entries(vars)) {
-    out = out.replaceAll(`{{${key}}}`, value == null ? '' : String(value));
+    out = out.split(`{{${key}}}`).join(value == null ? '' : String(value));
   }
   return out;
 }
@@ -207,6 +208,7 @@ export function buildFindHubsPrompt(batchId, { api = false } = {}) {
     CLUSTER_MILES: String(s.clusterMiles),
     INNER_MILES: String(s.clusterMiles),
     OUTER_MILES: String(s.clusterMiles),
+    ZONE_GUIDE: zoneGuideBlockForBatch(batchId, 'cities'),
   });
 }
 
@@ -239,6 +241,7 @@ export function buildAssignCitiesPrompt(batchId, { api = false } = {}) {
       CITIES_BAND: `${s.bands.cities.min}–${s.bands.cities.max ?? '∞'}`,
       CENSUS_TABLE: censusTableForPrompt(rings),
       KNOWN_CANDIDATES: shotgunKnown(batch),
+      ZONE_GUIDE: zoneGuideBlockForBatch(batchId, 'cities'),
     }),
     rings,
   };
@@ -499,18 +502,26 @@ export function applyGeneratePackRows(batchId, members) {
     members || draft.members || [],
     draft.clusterId,
   );
-  const cluster = upsertShotgunCluster({
-    id: draft.clusterId,
-    niche,
-    hub: draft.hub,
-    innerMiles: draft.innerMiles,
-    outerMiles: draft.outerMiles,
-    bands: draft.bands,
+  let cluster = null;
+  if (draft.clusterId) {
+    cluster = upsertShotgunCluster({
+      id: draft.clusterId,
+      niche,
+      hub: draft.hub,
+      innerMiles: draft.innerMiles,
+      outerMiles: draft.outerMiles,
+      bands: draft.bands,
+      members: annotated,
+      source: draft.source || 'discovery',
+      batchId,
+    });
+  }
+  saveShotgunDraft(dir, {
+    ...draft,
     members: annotated,
-    source: draft.source || 'discovery',
-    batchId,
+    clusterId: cluster?.id || draft.clusterId || null,
+    groupId: cluster?.groupId || draft.groupId || null,
   });
-  saveShotgunDraft(dir, { ...draft, members: annotated, clusterId: cluster.id, groupId: cluster.groupId });
   return { cluster, members: annotated, batch };
 }
 
@@ -698,19 +709,19 @@ export function getShotgunWorkspace(batchId) {
   };
 }
 
-function zoneReuseShotgunDraft(planned, cluster) {
+function zoneReuseShotgunDraft(planned, cluster = null) {
   const s = normalizeShotgunSettings({
-    clusterMiles: cluster.clusterMiles ?? planned.clusterMiles,
-    bands: cluster.bands || planned.bands,
+    clusterMiles: cluster?.clusterMiles ?? planned.clusterMiles,
+    bands: cluster?.bands || planned.bands,
   });
-  const hub = cluster.hub || planned.hub || {};
-  return {
+  const hub = cluster?.hub || planned.hub || {};
+  const draft = {
     ...emptyShotgunDraft({
-      shotgunNiche: cluster.niche || planned.niche,
+      shotgunNiche: cluster?.niche || planned.niche,
       clusterMiles: s.clusterMiles,
       bands: s.bands,
     }),
-    niche: cluster.niche || planned.niche,
+    niche: cluster?.niche || planned.niche,
     step: 'pack',
     hub: {
       city: hub.city,
@@ -722,13 +733,16 @@ function zoneReuseShotgunDraft(planned, cluster) {
     innerMiles: s.clusterMiles,
     outerMiles: s.clusterMiles,
     bands: s.bands,
-    members: cluster.members || planned.members || [],
-    clusterId: cluster.id,
-    groupId: cluster.groupId || null,
-    sgNumber: cluster.sgNumber,
-    reusedFromZoneId: planned.reusedFromZoneId || cluster.reusedFromZoneId || null,
+    members: cluster?.members || planned.members || [],
+    reusedFromZoneId: planned.reusedFromZoneId || cluster?.reusedFromZoneId || null,
     source: 'zone-reuse',
   };
+  if (cluster?.id) {
+    draft.clusterId = cluster.id;
+    draft.groupId = cluster.groupId || null;
+    draft.sgNumber = cluster.sgNumber;
+  }
+  return draft;
 }
 
 function rememberZoneOnBatch(dir, batch, planned, cluster) {
@@ -750,7 +764,8 @@ function rememberZoneOnBatch(dir, batch, planned, cluster) {
 }
 
 /**
- * Copy a painted zone onto this pack: same hub and cluster keys, new niche, next zone number.
+ * Copy a painted zone onto this pack: same hub and cluster keys, new niche.
+ * Saves a draft only. Process batch creates the zone and assigns its number.
  * Does not call selectShotgunHub — that rebuilds members and drops the paint.
  * When this niche already has the hub, returns that zone instead of a second one.
  */
@@ -782,23 +797,9 @@ export function seedDiscoveryPackFromZone(batchId, sourceZoneId) {
     rememberZoneOnBatch(dir, batch, planned, saved);
     return { existing: true, cluster: saved, draft, batchId: batch.id, discardNewBatch: false };
   }
-  const cluster = upsertShotgunCluster({
-    niche: planned.niche,
-    name: planned.name,
-    hub: planned.hub,
-    clusterMiles: planned.clusterMiles,
-    innerMiles: planned.clusterMiles,
-    outerMiles: planned.clusterMiles,
-    bands: planned.bands,
-    members: planned.members,
-    batchId: batch.id,
-    source: 'zone-reuse',
-    sgNumber: planned.sgNumber,
-    reusedFromZoneId: planned.reusedFromZoneId,
-  });
-  const draft = saveShotgunDraft(dir, zoneReuseShotgunDraft(planned, cluster));
-  rememberZoneOnBatch(dir, batch, planned, cluster);
-  return { existing: false, cluster, draft, batchId: batch.id, discardNewBatch: false };
+  const draft = saveShotgunDraft(dir, zoneReuseShotgunDraft(planned));
+  rememberZoneOnBatch(dir, batch, planned, null);
+  return { existing: false, cluster: null, draft, batchId: batch.id, discardNewBatch: false };
 }
 
 function moveShotgunHub(batchId, city, state, opts = {}) {

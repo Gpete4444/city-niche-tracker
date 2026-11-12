@@ -2,6 +2,7 @@
  * Niche-agnostic service educational-band rotation.
  * Homepage keeps the encyclopedia; service FILEs get a subset so URLs are not clones.
  */
+import { COST_BAND_RE } from '../../src/lib/is-cost-heading.mjs';
 
 export const CORE_SERVICE_BANDS = [
   'svcHero',
@@ -30,7 +31,7 @@ export const COVERAGE_TO_SERVICE_BAND = {
 };
 
 const BAND_INTENT = {
-  svcCost: /\b(cost|price|pricing|how much|estimate|quote|afford)\b/i,
+  svcCost: new RegExp(`${COST_BAND_RE.source}|\\b(?:estimate|quote|afford)\\b`, 'i'),
   svcCodes: /\b(permit|code|codes|licensed|structural|water|sewer|electrical|roof|asbestos|fire-?rated|foundation)\b/i,
   svcDiyVsPro: /\b(diy|do[- ]it[- ]yourself|patch|repair|tune[- ]up|clean|small|spackle|touch[- ]up)\b/i,
   svcTimeline: /\b(how long|timeline|duration|same day|replacement|removal|install|whole|emergency)\b/i,

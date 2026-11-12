@@ -248,6 +248,17 @@ export function autoFixContentDraft(files, opts = {}) {
     });
   }
 
+  const pageHeal = healPageFrontmatter(next, config);
+  Object.assign(next, pageHeal.files);
+  for (const h of pageHeal.heals) {
+    changes.push({
+      file: h.file,
+      rule: 'page_frontmatter',
+      kind: 'seo',
+      detail: `Filled ${h.field} ${h.value}`,
+    });
+  }
+
   // Link injection after speech fixes so we operate on final bodies
   for (const [rel, targets] of Object.entries(required)) {
     if (!next[rel] || !targets?.length) continue;
@@ -931,7 +942,8 @@ function countFmListItems(fm, key) {
 }
 
 function looksLikeWhyHeading(heading) {
-  return /why choose|why .{0,60}(choose|trust|hire)/i.test(String(heading || ''));
+  const t = String(heading || '').trim();
+  return /^why\b/i.test(t) || /why choose|why .{0,60}(choose|trust|hire)/i.test(t);
 }
 
 function looksLikeProcessSectionHeading(heading) {
@@ -1404,6 +1416,101 @@ export function healServiceFrontmatter(files = {}, config = {}) {
       }
       if (!fmScalar(nextFm, 'description')) {
         const description = `${serviceName} for homeowners in ${primaryCity} and nearby cities. Request a free estimate.`;
+        nextFm = replaceFmScalar(nextFm, 'description', description);
+        heals.push({ file: norm, field: 'description', value: description });
+        changed = true;
+      }
+    }
+
+    if (changed) next[rel] = joinFrontmatter(nextFm, body);
+  }
+
+  return { files: next, heals, changed: heals.length > 0 };
+}
+
+function firstBodyParagraph(body) {
+  const text = String(body || '')
+    .replace(/\r\n/g, '\n')
+    .replace(/<!--[\s\S]*?-->/g, ' ')
+    .trim();
+  if (!text) return '';
+  for (const block of text.split(/\n\s*\n/)) {
+    const lines = block
+      .split('\n')
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .filter((line) => !/^#{1,6}\s/.test(line))
+      .filter((line) => !/^[-*+]\s/.test(line))
+      .filter((line) => !/^\d+[.)]\s/.test(line))
+      .filter((line) => !line.startsWith('|'))
+      .filter((line) => !line.startsWith('!['))
+      .filter((line) => !line.startsWith('```'));
+    const joined = lines.join(' ').replace(/\s+/g, ' ').trim();
+    if (joined) return joined;
+  }
+  return '';
+}
+
+function clipMetaSentence(text, max = 160) {
+  const s = String(text || '').replace(/\s+/g, ' ').trim();
+  if (!s || s.length <= max) return s;
+  const slice = s.slice(0, max + 1);
+  const space = slice.lastIndexOf(' ');
+  const clipped = (space >= 80 ? slice.slice(0, space) : s.slice(0, max)).trim();
+  return clipped.replace(/[.,;:!?]+$/, '');
+}
+
+function pageHeadingFallback(fm, config) {
+  const title = fmScalar(fm, 'title');
+  if (title) return title;
+  const section = fmScalar(fm, 'sectionHeading');
+  if (section) return section;
+  const niche = String(config?.niche || '').trim();
+  const city = String(config?.primaryCity || '').trim();
+  if (niche && city) return `${niche} in ${city}`;
+  return '';
+}
+
+function pageDescriptionFallback(fm, body) {
+  const prose = clipMetaSentence(firstBodyParagraph(body));
+  if (prose) return prose;
+  const title = fmScalar(fm, 'title');
+  if (title) return `${title}. Request a free estimate.`;
+  return '';
+}
+
+/**
+ * Fill missing description and h1 on site pages. Does not replace a key that is already written.
+ * @returns {{ files: Record<string,string>, heals: Array<{ file: string, field: string, value: string }>, changed: boolean }}
+ */
+export function healPageFrontmatter(files = {}, config = {}) {
+  const next = { ...(files || {}) };
+  const heals = [];
+
+  for (const [rel, raw] of Object.entries(next)) {
+    const norm = String(rel || '').replace(/\\/g, '/');
+    const m = norm.match(/^src\/content\/pages\/([^/]+)\.md$/i);
+    if (!m || !raw || typeof raw !== 'string') continue;
+    if (m[1].startsWith('_')) continue;
+
+    const { fm, body } = splitFrontmatter(raw);
+    if (fm == null) continue;
+
+    let nextFm = fm;
+    let changed = false;
+
+    if (!fmScalar(nextFm, 'h1')) {
+      const h1 = pageHeadingFallback(nextFm, config);
+      if (h1) {
+        nextFm = replaceFmScalar(nextFm, 'h1', h1);
+        heals.push({ file: norm, field: 'h1', value: h1 });
+        changed = true;
+      }
+    }
+
+    if (!fmScalar(nextFm, 'description')) {
+      const description = pageDescriptionFallback(nextFm, body);
+      if (description) {
         nextFm = replaceFmScalar(nextFm, 'description', description);
         heals.push({ file: norm, field: 'description', value: description });
         changed = true;

@@ -6,6 +6,7 @@
 import { lintContentSeo } from '../ops/lib/content-seo-lint.mjs';
 import {
   SERVICE_OWNED_MIN_WORDS,
+  launchGapNextStep,
   listLaunchContentGaps,
   serviceOpeningCutOff,
   servicePageNeedsExpand,
@@ -57,6 +58,12 @@ const full = page(`${prose.repeat(80)}
 
 - **Prep** — Cover the room before spraying.
 `);
+const medium = page(`${prose.repeat(20)}
+
+## Our process
+
+- **Prep** — Cover the room before spraying.
+`);
 const stub = page(
   `${'Open-cell spray foam is part of our insulation offering in Nampa. Call or use the estimate form. '}${prose.repeat(80)}`,
 );
@@ -73,6 +80,28 @@ const gaps = listLaunchContentGaps({ [rel]: cutOff }, config, pageIds);
 assert(gaps.stubs.includes(rel), 'cut-off service stays on the launch stub list');
 const clear = listLaunchContentGaps({ [rel]: full }, config, pageIds);
 assert(clear.stubs.length === 0 && clear.ok === true, 'full service clears launch stubs');
+const acceptShort = listLaunchContentGaps({ [rel]: short }, config, pageIds);
+assert(acceptShort.ok === false && acceptShort.stubs.includes(rel), 'Accept still flags a short service');
+const prepareMedium = listLaunchContentGaps({ [rel]: medium }, config, pageIds, { serviceDepth: 'stub' });
+assert(
+  prepareMedium.ok === true && prepareMedium.stubs.length === 0,
+  'Prepare allows an accepted page under 450 owned words',
+);
+assert(
+  listLaunchContentGaps({ [rel]: medium }, config, pageIds).stubs.includes(rel),
+  'Accept still flags a page under 450 owned words',
+);
+const prepareStub = listLaunchContentGaps({ [rel]: stub }, config, pageIds, { serviceDepth: 'stub' });
+assert(prepareStub.ok === false && prepareStub.stubs.includes(rel), 'Prepare still blocks a seed stub');
+assert(
+  launchGapNextStep([rel], {}, { [rel]: medium }) === 'accept',
+  'an empty draft does not call an accepted short page missing',
+);
+assert(
+  launchGapNextStep([rel], {}, { [rel]: stub }) === 'write',
+  'an accepted seed stub still asks for a write',
+);
+assert(launchGapNextStep([rel], {}, {}) === 'write', 'a missing page still asks for a write');
 
 const stale = syncLaunchGapsOnOps(
   {

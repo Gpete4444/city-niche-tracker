@@ -34,7 +34,7 @@ import {
 } from './image-providers/openai-image.mjs';
 import { fluxSlotPromptForCandidate, fluxSlotPromptFromMeta, buildFluxBaPrompts } from './flux-prompts.mjs';
 import { defaultSlotDescription } from './slot-photo-brief.mjs';
-import { applyOccupancyToPrompt, normalizeOccupancy } from './image-occupancy.mjs';
+import { applyBaOccupancyPrompts, applyOccupancyToPrompt, normalizeOccupancy } from './image-occupancy.mjs';
 import { slotSettingKind } from './image-setting.mjs';
 import {
   loadOpenaiPromptsFile,
@@ -999,7 +999,13 @@ export function chatgptPromptForGroupSlot(groupId, matchKey, { viewpoint, occupa
   const override = getSlotPromptOverride(groupOpenaiDoc(dest), matchKey, built.viewpoint);
   const fromBody = Boolean(String(bodyPrompt || '').trim());
   const picked = pickPromptText(built.prompt, override, bodyPrompt);
-  const prompt = fromBody ? picked : applyOccupancyToPrompt(picked, occupancy);
+  const prompt = fromBody
+    ? picked
+    : applyOccupancyToPrompt(picked, occupancy, {
+        niche: built.niche || dest.niche,
+        serviceName: built.serviceName || existing.serviceName,
+        setting: built.setting,
+      });
   return {
     ...built,
     occupancy,
@@ -1751,8 +1757,11 @@ export async function generatePhotoGroupBaPairOpenai(groupId, { matchKey, viewpo
       key,
       resolved.viewpoint,
       {
-        before: applyOccupancyToPrompt(resolved.originalBefore, occupancy),
-        after: applyOccupancyToPrompt(resolved.originalAfter, occupancy),
+        ...applyBaOccupancyPrompts(resolved.originalBefore, resolved.originalAfter, occupancy, {
+          niche: resolved.niche || dest.niche,
+          serviceName: resolved.serviceName,
+          setting: resolved.setting,
+        }),
       },
       { before: resolved.before, after: resolved.after },
     );
@@ -1821,15 +1830,24 @@ export function getPhotoGroupBaPrompts(
     };
   }
   const ov = getBaPromptOverride(groupOpenaiDoc(dest), key, vp);
+  const occCtx = {
+    niche: String(dest.niche || canonical.niche || '').trim(),
+    serviceName: String(pair.serviceName || canonical.serviceName || '').trim(),
+    setting: canonical.setting || setting,
+  };
   const used = pickBaPromptPair(canonical, ov, { before, after });
   const fromBodyBefore = Boolean(String(before || '').trim());
   const fromBodyAfter = Boolean(String(after || '').trim());
-  const usedBefore = fromBodyBefore ? used.before : applyOccupancyToPrompt(used.before, occupancy);
-  const usedAfter = fromBodyAfter ? used.after : applyOccupancyToPrompt(used.after, occupancy);
-  const canonBefore = applyOccupancyToPrompt(canonical.before, occupancy);
-  const canonAfter = applyOccupancyToPrompt(canonical.after, occupancy);
+  const sided = applyBaOccupancyPrompts(used.before, used.after, occupancy, occCtx);
+  const usedBefore = fromBodyBefore ? used.before : sided.before;
+  const usedAfter = fromBodyAfter ? used.after : sided.after;
+  const canon = applyBaOccupancyPrompts(canonical.before, canonical.after, occupancy, occCtx);
+  const canonBefore = canon.before;
+  const canonAfter = canon.after;
   return {
     ...canonical,
+    niche: occCtx.niche,
+    serviceName: occCtx.serviceName,
     key,
     viewpoint: vp,
     occupancy,
@@ -1858,8 +1876,13 @@ export function savePhotoGroupBaOpenaiPrompt(
   });
   const key = current.key || matchKey;
   const vp = current.viewpoint;
-  const canonBefore = applyOccupancyToPrompt(current.originalBefore, occ);
-  const canonAfter = applyOccupancyToPrompt(current.originalAfter, occ);
+  const canon = applyBaOccupancyPrompts(current.originalBefore, current.originalAfter, occ, {
+    niche: current.niche || dest.niche,
+    serviceName: current.serviceName,
+    setting: current.setting,
+  });
+  const canonBefore = canon.before;
+  const canonAfter = canon.after;
   let doc = groupOpenaiDoc(dest);
   const beforeText = String(before || '').trim();
   const afterText = String(after || '').trim();

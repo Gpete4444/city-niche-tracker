@@ -20,7 +20,7 @@ CONFIRMED CONTENT BRIEF (follow this outline — headings + writing instructions
 Hard rules:
 1. Unique, honest copy. Use site-config socialProof for reviews/licenses/years — do not invent testimonials. Do not invent license ID numbers or street addresses.
 2. Follow the brief `sections[]` order. Use each section `heading` as the structural guide; honor `instructions` (format + word counts). See also docs/SECTION-UX.md.
-3. Frontmatter keys must match schemas (title, description, h1, draft:false; homepage: sectionHeading, whyChooseUs×3, process×3+, faqs 3–5). Title ≈ H1; high-ticket keywords left→right.
+3. Frontmatter keys must match schemas (title, description, h1, draft:false; homepage: sectionHeading, whyChooseUs×3, process×3+, faqs 3–5). Title ≈ H1; high-ticket keywords left→right. Homepage H1 is the head term (niche or primary keyword, then city and state). Do not prefix or equal the business name or domain. No top-rated, trusted, premium, or experts unless those words are the keyword. The brand already shows above the H1.
    - `description` = ONE meta-length sentence (~140–160 chars): service/niche + primaryCity + 2–3 offer terms + free-estimate cue. Reused as hero supporting under H1 — never multi-paragraph; prefer filled over blank.
 4. Ippei copy shape:
    - Hero under H1 stays that one short `description`/`tagline` sentence — do NOT pad the hero into an essay.

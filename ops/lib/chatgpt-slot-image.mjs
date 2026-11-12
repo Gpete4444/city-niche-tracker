@@ -43,7 +43,13 @@ export function buildSlotImagePrompt(
   const override = getSlotPromptOverride(doc, slotKey, built.viewpoint);
   const fromBody = Boolean(String(bodyPrompt || '').trim());
   const picked = pickPromptText(built.prompt, override, bodyPrompt);
-  const prompt = fromBody ? picked : applyOccupancyToPrompt(picked, occupancy);
+  const prompt = fromBody
+    ? picked
+    : applyOccupancyToPrompt(picked, occupancy, {
+        niche: built.niche,
+        serviceName: built.serviceName,
+        setting: built.setting,
+      });
   return {
     ...built,
     occupancy,

@@ -1,5 +1,21 @@
 # Rover changelog
 
+## Unreleased
+
+## Version 2.6 (`2.6.0`)
+
+- **Homepage cost band:** “what it costs”, “costs”, and “Pricing” count as the cost section for Accept SEO and the live homepage. Outline titles in that shape were treated as missing, so the band stayed hidden and Accept stayed blocked. Regression: `scripts/test-ranking-forever.mjs`, `scripts/test-materials-heading.mjs`.
+- **Faster LoopNet search:** When Solidcode is still the July 31 build, Find searches with one-api and reads the street from the result row. Rows that still lack a suite or listing text are loaded in one details call. The abotapi listing-page crawl stays available only if `APIFY_LOOPNET_FALLBACK_ACTOR_ID` is set to that actor. No `.env` change when that line is unset. Regression: `scripts/test-loopnet-fallback.mjs`.
+- **Relaunch notify address:** The forms allowlist stores the address from the latest launch. An older Gmail address no longer stays frozen on a domain that already had a row.
+- **Assemble install:** Ship deletes a copied node_modules that is missing the Astro command or a package file Astro loads, then runs npm install. A matching lockfile hash is not enough.
+- **Prepare preview keeps accepted pages:** Prepare preview and staging block only a missing page or a seed stub. A service page already accepted under 450 owned words is not treated as missing. Write site and Accept still expand or block a short service before it is accepted.
+- **Before/after logo stays on screen:** Homepage and service before/after photos use a 3:2 frame and show the whole photo. The old 4:3 crop was cutting off the logo in the bottom-right corner. Review images pair thumbs use that same frame.
+- **UI sounds:** Button, tab, job, copy, and status events play built-in tones. Clips and mute live in this browser. The tab icon switches among working, done, warning, and error while a job runs.
+- **Search Console indexing:** Website → Indexing verifies the domain with a Cloudflare TXT record, adds the Domain property, and submits `sitemap.xml` once. Connect GSC again if the token lacks verify and sitemap access. Regression: `scripts/test-gsc-indexing-submit.mjs`.
+- **Zone guide:** A zone can store a planning guide. Distill writes a proposed brief; Site config and Write read only the accepted brief. Regression: `scripts/test-zone-guide.mjs`.
+- **Niche domain patterns:** A pattern such as `[City]FoundationPros.com` is saved once per niche and offered for every city in that niche. Regression: `scripts/test-domain-suggest.mjs`.
+- **Workers Free plan cap:** Launch tells you when Cloudflare refuses a new Worker because the account is already at 100 Workers, and says to upgrade to Workers Paid before Run launch. Regression: `scripts/test-workers-free-cap.mjs`.
+
 ## Version 2.5 (`2.5.0`)
 
 - **Forms inbox:** Phone/Form stores leads in the Rover forms Worker. `LEAD_NOTIFY_EMAIL` is the Gmail that receives every form lead and the Email Routing destination; `WEB3FORMS_DEFAULT_NOTIFY_EMAIL` is still read when the new name is empty. Already-live sites pick up the inbox on the next ship. Regression: `scripts/test-forms-worker.mjs`, `scripts/test-form-submissions.mjs`.

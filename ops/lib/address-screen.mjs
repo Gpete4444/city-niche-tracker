@@ -89,13 +89,17 @@ const NOT_A_SUITE_TOKEN_RE = /^(?:floor|fl|ground|retail|shell|build|space|avail
 const LISTING_CACHE_SCHEMA = 'listing-details-suites-v1';
 const LISTING_CACHE_SCHEMA_ALIASES = ['enrich-suites-v1', 'listing-details-suites-v1'];
 
+const SUITE_ID_RE = /^(?:\d+[a-z]?|[a-z]\d*|[a-z]-\d+[a-z]?|\d+-[a-z]\d*)$/i;
+
 function suiteTokenId(raw) {
-  const m = String(raw || '').match(
+  const text = String(raw || '').trim();
+  const m = text.match(
     /\b(?:ste|suite|unit|spc)\.?\s+([a-z0-9][a-z0-9-]*)\b|#\s*([a-z0-9][a-z0-9-]*)\b/i,
   );
-  const id = m ? m[1] || m[2] : '';
+  const id = (m ? m[1] || m[2] : '') || (SUITE_ID_RE.test(text) ? text : '');
   if (!id || NOT_A_SUITE_TOKEN_RE.test(id)) return '';
-  if (!/^(?:\d+[a-z]?|[a-z]\d*|[a-z])$/i.test(id)) return '';
+  // One optional hyphen: B-200, A-1, 200-B, 12-A. Not a number range (100-200) or STE-100.
+  if (!SUITE_ID_RE.test(id)) return '';
   if (/^(?:of|to|in|or|on|at|by|an|the|and|for)$/i.test(id)) return '';
   return id;
 }
@@ -1906,10 +1910,14 @@ function isSolidcodeLoopnetActor(actorId) {
   return /solidcode/i.test(String(actorId || '')) && /loopnet/i.test(String(actorId || ''));
 }
 
+function isAbotapiLoopnetActor(actorId) {
+  return /abotapi/i.test(String(actorId || '')) && /loopnet/i.test(String(actorId || ''));
+}
+
 /** Build that cannot read LoopNet search pages. A later build number, or a rebuild after this instant, is current. */
 const SOLIDCODE_STALE_BUILD_NUMBER = '1.0.2';
 const SOLIDCODE_STALE_FINISHED_AT_MS = Date.parse('2026-07-31T18:56:12.708Z');
-const DEFAULT_LOOPNET_FALLBACK_ACTOR = 'abotapi~loopnet-scraper';
+const DEFAULT_LOOPNET_FALLBACK_ACTOR = 'one-api~loopnet-scraper';
 /** Build ids that returned no streets. Cleared when the process restarts. */
 const failedSolidcodeBuildIds = new Set();
 
@@ -2011,14 +2019,16 @@ function parseAddressFromName(name) {
 }
 
 function propertyTypeFromRaw(raw) {
-  const direct =
-    raw.propertyType ||
-    raw.propertySubType ||
-    raw.type ||
-    raw.assetType ||
-    raw.category ||
-    raw.propertyCategory ||
-    '';
+  const direct = rawField(
+    raw,
+    'propertyType',
+    'propertySubType',
+    'Property Type',
+    'type',
+    'assetType',
+    'category',
+    'propertyCategory',
+  );
   if (direct) return String(direct).trim();
   const facts = Array.isArray(raw.propertyFacts) ? raw.propertyFacts : [];
   for (const f of facts) {
@@ -2034,25 +2044,26 @@ function propertyTypeFromRaw(raw) {
   return m ? m[1] : '';
 }
 
-function normalizeListing(raw, source = SOURCE_LOOPNET) {
+export function normalizeListing(raw, source = SOURCE_LOOPNET) {
   let street =
     raw.streetAddress ||
     raw.street ||
-    raw.address ||
+    (typeof raw.address === 'string' ? raw.address : '') ||
     raw.fullAddress ||
     raw.propertyAddress ||
     '';
-  let city = raw.city || raw.addressCity || '';
-  let state = String(raw.state || raw.addressState || '')
+  let city = String(rawField(raw, 'city', 'addressCity') || '');
+  let state = String(rawField(raw, 'state', 'addressState') || '')
     .trim()
     .toUpperCase();
-  let zip = String(raw.zip || raw.postalCode || raw.zipCode || raw.addressZip || '')
+  let zip = String(rawField(raw, 'zip', 'ZIP', 'postalCode', 'zipCode', 'addressZip') || '')
     .replace(/\D/g, '')
     .slice(0, 5);
 
+  const title = String(rawField(raw, 'Title') || '').trim();
   if (!street || !zip) {
     const parsed = parseAddressFromName(
-      raw.name || raw.headline || raw.addressLine || raw.location || '',
+      raw.name || raw.headline || raw.addressLine || raw.location || (title.includes(',') ? title : ''),
     );
     if (parsed) {
       street = street || parsed.street;
@@ -2060,6 +2071,10 @@ function normalizeListing(raw, source = SOURCE_LOOPNET) {
       state = state || parsed.state;
       zip = zip || parsed.zip;
     }
+  }
+  if (!street && title) {
+    const comma = title.indexOf(',');
+    street = (comma === -1 ? title : title.slice(0, comma)).trim();
   }
 
   // Crexi sometimes nests address pieces
@@ -2073,7 +2088,7 @@ function normalizeListing(raw, source = SOURCE_LOOPNET) {
   const propertyType = propertyTypeFromRaw(raw);
   const src = source === SOURCE_CREXI ? SOURCE_CREXI : SOURCE_LOOPNET;
   let url = String(
-    raw.url || raw.listingUrl || raw.propertyUrl || raw.crexiUrl || raw.link || '',
+    rawField(raw, 'url', 'listingUrl', 'Listing URL', 'propertyUrl', 'crexiUrl', 'link') || '',
   ).trim();
   const id = String(raw.listingId || raw.id || raw.propertyId || raw.url || `${street}-${zip}`).slice(
     0,
@@ -2208,7 +2223,7 @@ function buildApifyLoopnetInput({ city, state, max, actorId }) {
   };
 }
 
-/** Backup LoopNet search: same office + retail lease URLs, one run, streets from listing pages. */
+/** Slow backup: abotapi only returns a street after it opens each listing page. */
 export function buildApifyAbotapiLoopnetInput({ city, state, max, actorId }) {
   const locationHuman = state ? `${city}, ${state}` : city;
   const slug = loopnetLocationSlug(city, state);
@@ -2239,6 +2254,55 @@ export function buildApifyAbotapiLoopnetInput({ city, state, max, actorId }) {
       usedFallback: true,
     },
   };
+}
+
+/** one-api resultCount max. Deeper pulls add pages instead of exceeding it. */
+const ONE_API_RESULT_COUNT_MAX = 100;
+
+/**
+ * Fast backup: one-api reads street, city, ZIP, and the listing link from the search.
+ * The office and retail lease URLs already carry the filters.
+ */
+export function buildApifyOneApiLoopnetInput({ city, state, max, actorId }) {
+  const locationHuman = state ? `${city}, ${state}` : city;
+  const slug = loopnetLocationSlug(city, state);
+  const searchUrls = loopnetLeaseSearchUrls(city, state);
+  const perUrl = Math.max(1, Number(max) || DEFAULT_MAX_LISTINGS_LOOPNET);
+  const resultCount = Math.min(ONE_API_RESULT_COUNT_MAX, perUrl);
+  const pages = Math.max(1, Math.ceil(perUrl / resultCount));
+  const fallbackActorId = String(
+    actorId || env('APIFY_LOOPNET_FALLBACK_ACTOR_ID') || DEFAULT_LOOPNET_FALLBACK_ACTOR,
+  );
+  return {
+    input: {
+      search_inputs: searchUrls,
+      pages,
+      resultCount,
+    },
+    query: {
+      city,
+      state,
+      location: locationHuman,
+      locationSlug: slug,
+      actorId: fallbackActorId,
+      max,
+      maxListings: perUrl * searchUrls.length,
+      searchUrls,
+      transactionType: 'for-lease',
+      propertyTypes: ['office', 'retail'],
+      source: SOURCE_LOOPNET,
+      usedFallback: true,
+    },
+  };
+}
+
+/** abotapi keeps its listing-page input. Every other fallback id uses the one-api search. */
+export function buildApifyLoopnetFallbackInput(opts) {
+  const actorId = String(
+    opts?.actorId || env('APIFY_LOOPNET_FALLBACK_ACTOR_ID') || DEFAULT_LOOPNET_FALLBACK_ACTOR,
+  );
+  if (isAbotapiLoopnetActor(actorId)) return buildApifyAbotapiLoopnetInput({ ...opts, actorId });
+  return buildApifyOneApiLoopnetInput({ ...opts, actorId });
 }
 
 /**
@@ -2668,12 +2732,35 @@ async function runLoopnetFallback({ city, state, max, reason }) {
     source: SOURCE_LOOPNET,
     actorEnvKey: 'APIFY_LOOPNET_FALLBACK_ACTOR_ID',
     actorId,
-    buildInput: buildApifyAbotapiLoopnetInput,
+    buildInput: buildApifyLoopnetFallbackInput,
     label: 'LoopNet backup',
   });
+  let listings = result.listings || [];
+  let apify = result.apify;
+  if (!isAbotapiLoopnetActor(actorId)) {
+    const enriched = await enrichLoopnetListingsFromDetails(listings);
+    listings = enriched.listings;
+    apify = combineApifyUsage(apify, enriched.apify);
+  }
   return {
     ...result,
+    listings,
+    apify,
     query: { ...(result.query || {}), usedFallback: true, fallbackReason: reason, actorId },
+  };
+}
+
+function combineApifyUsage(base, extra) {
+  if (!extra) return base;
+  const baseUsd = Number(base?.usageTotalUsd);
+  const extraUsd = Number(extra?.usageTotalUsd);
+  const usageTotalUsd =
+    (Number.isFinite(baseUsd) ? baseUsd : 0) + (Number.isFinite(extraUsd) ? extraUsd : 0);
+  const hasUsage = Number.isFinite(baseUsd) || Number.isFinite(extraUsd);
+  return {
+    ...(base || extra),
+    usageTotalUsd: hasUsage ? usageTotalUsd : null,
+    runId: base?.runId || extra.runId || null,
   };
 }
 
@@ -2736,7 +2823,7 @@ const DEFAULT_LOOPNET_DETAILS_ACTOR = 'one-api~loopnet-scraper';
 const APIFY_RUN_POLL_MS = 5000;
 /** One listing-detail page. */
 const APIFY_RUN_MAX_WAIT_MS = 180000;
-/** Office + retail search with listing pages. Apify's waitForFinish cap returns READY while the run is still queued. */
+/** Search or a batched details run. Apify's waitForFinish cap returns READY while the run is still queued. */
 const APIFY_SEARCH_RUN_MAX_WAIT_MS = 8 * 60 * 1000;
 
 async function finishApifySearchRun(token, run, label) {
@@ -2774,48 +2861,27 @@ async function waitForApifyRun(token, run, label = 'Apify', maxWaitMs = APIFY_RU
   }
 }
 
-/** Details scrape: listed Ste tokens plus occupiable listing copy. */
-export async function fetchListingDetailsForScreen(url, source = SOURCE_LOOPNET) {
-  const empty = { suites: [], listingText: '', yearBuilt: null, availableDate: '' };
+function canonicalListingUrl(url) {
   const href = String(url || '').trim();
-  if (!href || !/^https?:\/\//i.test(href)) return empty;
-  const src = source === SOURCE_CREXI || /crexi\.com/i.test(href) ? SOURCE_CREXI : SOURCE_LOOPNET;
-  const token = env('APIFY_TOKEN');
-  const actorId =
-    src === SOURCE_CREXI
-      ? env('APIFY_CREXI_ACTOR_ID')
-      : env('APIFY_LOOPNET_DETAILS_ACTOR_ID') || DEFAULT_LOOPNET_DETAILS_ACTOR;
-  if (!token || !actorId) return empty;
-  const input =
-    src === SOURCE_CREXI
-      ? { startUrls: [href], maxResults: 1 }
-      : { property_inputs: [href] };
-  const startRes = await fetch(
-    `${APIFY_BASE}/acts/${encodeURIComponent(actorId)}/runs?waitForFinish=60`,
-    {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify(input),
-    },
-  );
-  const startJson = await startRes.json().catch(() => ({}));
-  if (!startRes.ok) {
-    throw new Error(
-      `Listing details failed (${startRes.status}): ${
-        startJson?.error?.message || JSON.stringify(startJson).slice(0, 200)
-      }`,
-    );
+  if (!/^https?:\/\//i.test(href)) return '';
+  try {
+    const u = new URL(href);
+    const host = u.hostname.replace(/^www\./i, '').toLowerCase();
+    const path = u.pathname.replace(/\/+$/, '').toLowerCase();
+    return `${host}${path}`;
+  } catch {
+    return href.toLowerCase().replace(/\/+$/, '');
   }
-  const run = await waitForApifyRun(token, startJson.data || startJson, 'Listing details');
-  const datasetId = run.defaultDatasetId;
-  if (!datasetId) return empty;
-  const itemsRes = await fetch(`${APIFY_BASE}/datasets/${datasetId}/items?format=json&limit=5`, {
-    headers: { authorization: `Bearer ${token}` },
-  });
-  const items = await itemsRes.json().catch(() => []);
+}
+
+function detailItemUrl(raw) {
+  return canonicalListingUrl(
+    rawField(raw, 'Listing URL', 'url', 'listingUrl', 'Input Given', 'inputGiven'),
+  );
+}
+
+function detailsFromRawItems(items) {
+  const empty = { suites: [], listingText: '', yearBuilt: null, availableDate: '' };
   if (!Array.isArray(items)) return empty;
   const seen = new Set();
   const out = [];
@@ -2837,6 +2903,127 @@ export async function fetchListingDetailsForScreen(url, source = SOURCE_LOOPNET)
     }
   }
   return { suites: out, listingText, yearBuilt, availableDate };
+}
+
+async function startApifyActorRun(token, actorId, input, label, maxWaitMs = APIFY_RUN_MAX_WAIT_MS) {
+  const startRes = await fetch(
+    `${APIFY_BASE}/acts/${encodeURIComponent(actorId)}/runs?waitForFinish=60`,
+    {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(input),
+    },
+  );
+  const startJson = await startRes.json().catch(() => ({}));
+  if (!startRes.ok) {
+    throw new Error(
+      `${label} failed (${startRes.status}): ${
+        startJson?.error?.message || JSON.stringify(startJson).slice(0, 200)
+      }`,
+    );
+  }
+  return waitForApifyRun(token, startJson.data || startJson, label, maxWaitMs);
+}
+
+async function fetchApifyDatasetItems(token, datasetId, limit) {
+  const itemsRes = await fetch(
+    `${APIFY_BASE}/datasets/${datasetId}/items?format=json&limit=${Math.max(1, Number(limit) || 1)}`,
+    { headers: { authorization: `Bearer ${token}` } },
+  );
+  const items = await itemsRes.json().catch(() => []);
+  if (!itemsRes.ok || !Array.isArray(items)) return [];
+  return items;
+}
+
+/** Details scrape: listed Ste tokens plus occupiable listing copy. */
+export async function fetchListingDetailsForScreen(url, source = SOURCE_LOOPNET) {
+  const empty = { suites: [], listingText: '', yearBuilt: null, availableDate: '' };
+  const href = String(url || '').trim();
+  if (!href || !/^https?:\/\//i.test(href)) return empty;
+  const src = source === SOURCE_CREXI || /crexi\.com/i.test(href) ? SOURCE_CREXI : SOURCE_LOOPNET;
+  const token = env('APIFY_TOKEN');
+  const actorId =
+    src === SOURCE_CREXI
+      ? env('APIFY_CREXI_ACTOR_ID')
+      : env('APIFY_LOOPNET_DETAILS_ACTOR_ID') || DEFAULT_LOOPNET_DETAILS_ACTOR;
+  if (!token || !actorId) return empty;
+  const input =
+    src === SOURCE_CREXI
+      ? { startUrls: [href], maxResults: 1 }
+      : { property_inputs: [href] };
+  const run = await startApifyActorRun(token, actorId, input, 'Listing details');
+  if (!run.defaultDatasetId) return empty;
+  const items = await fetchApifyDatasetItems(token, run.defaultDatasetId, 5);
+  return detailsFromRawItems(items);
+}
+
+/** Attach one batched details response onto search rows that still need a suite or listing text. */
+export function mergeLoopnetDetailItems(listings, items) {
+  const groups = new Map();
+  for (const raw of Array.isArray(items) ? items : []) {
+    if (String(raw?.Mode || '').toUpperCase() === 'ERROR') continue;
+    const key = detailItemUrl(raw);
+    if (!key) continue;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(raw);
+  }
+  const rows = Array.isArray(listings) ? listings : [];
+  for (const listing of rows) {
+    if (!listingNeedsDetails(listing)) continue;
+    const key = canonicalListingUrl(listingDetailsUrl(listing));
+    const group = key ? groups.get(key) : null;
+    if (!group) continue;
+    const fetched = detailsFromRawItems(group);
+    const suites = uniqueListedSuites([...(listing.listedSuites || []), ...fetched.suites]);
+    persistListedSuitesOnListing(listing, suites);
+    persistListingOccupiableFields(listing, fetched);
+  }
+  return rows;
+}
+
+/** One property_inputs run for every LoopNet row still missing a suite or listing text. */
+async function enrichLoopnetListingsFromDetails(listings) {
+  const rows = Array.isArray(listings) ? listings : [];
+  const urls = [];
+  const seen = new Set();
+  for (const listing of rows) {
+    if (!listingNeedsDetails(listing)) continue;
+    const href = listingDetailsUrl(listing);
+    const key = canonicalListingUrl(href);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    urls.push(href);
+  }
+  if (!urls.length) return { listings: rows, apify: null };
+  const token = env('APIFY_TOKEN');
+  const actorId = env('APIFY_LOOPNET_DETAILS_ACTOR_ID') || DEFAULT_LOOPNET_DETAILS_ACTOR;
+  if (!token || !actorId) return { listings: rows, apify: null };
+  try {
+    const run = await startApifyActorRun(
+      token,
+      actorId,
+      { property_inputs: urls },
+      'LoopNet details',
+      APIFY_SEARCH_RUN_MAX_WAIT_MS,
+    );
+    const apify = {
+      ...(await fetchApifyRunUsageUsd(token, run)),
+      actorId,
+      source: SOURCE_LOOPNET,
+    };
+    if (!run.defaultDatasetId) return { listings: rows, apify };
+    const items = await fetchApifyDatasetItems(
+      token,
+      run.defaultDatasetId,
+      Math.max(urls.length * 3, 5),
+    );
+    return { listings: mergeLoopnetDetailItems(rows, items), apify };
+  } catch {
+    return { listings: rows, apify: null };
+  }
 }
 
 /** One listing URL → listed Ste tokens from space rows. Empty if actor/config missing. */

@@ -2,6 +2,7 @@
  * Deterministic human-speech lint for content draft markdown.
  * Advisory only — Content Editor LLM still rewrites.
  */
+import { isCostHeading } from '../../src/lib/is-cost-heading.mjs';
 
 const AI_STOCK_PHRASES = [
   /\bdelve\b/i,
@@ -284,7 +285,9 @@ function countStructuredEmDashes(body) {
 }
 
 function isCardedHeading(heading) {
-  return /\b(process|how we work|what happens|cost|pric|how much)\b/i.test(String(heading || ''));
+  return (
+    /\b(process|how we work|what happens)\b/i.test(String(heading || '')) || isCostHeading(heading)
+  );
 }
 
 export function computeEmDashBudget(body) {

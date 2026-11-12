@@ -4,6 +4,8 @@ Assign Hub / Cluster Cities from the Census table only. Never invent names.
 
 {{FILTER_BRIEF}}
 
+{{ZONE_GUIDE}}
+
 Niche **{{NICHE}}**. Hub seed **{{HUB_CITY}}, {{HUB_STATE}}**. Radius {{CLUSTER_MILES}} mi.
 Cluster Cities band {{CITIES_BAND}}.
 

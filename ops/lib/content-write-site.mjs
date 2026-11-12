@@ -56,8 +56,14 @@ import {
 } from './city-context.mjs';
 import { listImageSlots, structureHasPhotosEnabled } from './fill-site-images.mjs';
 import { listBaPromptSlots } from './chatgpt-before-after.mjs';
+import {
+  applyStoredNicheImagePrompts,
+  baPromptComplete,
+  incompleteBeforeAfterKeys,
+  rememberNicheImagePrompts,
+} from './niche-image-prompts.mjs';
 import { updateLightJobProgress } from './rover-light-jobs.mjs';
-import { locationPagesNeedingWrite } from './preview-fidelity.mjs';
+import { listLaunchContentGaps, locationPagesNeedingWrite, resolveStructurePageIds } from './preview-fidelity.mjs';
 
 const COST_KEY = (candidateId) => ({
   candidateId,
@@ -121,6 +127,160 @@ export function chunkList(items, size) {
   return out;
 }
 
+/** Accept rewrites thin or missing pages in small Claude calls, then continues. */
+export const ACCEPT_CONTINUE_ROUNDS = 4;
+export const ACCEPT_CONTINUE_CHUNK = 2;
+
+/** Extra tries when Claude returns no FILE blocks or no JSON. The first call is not counted. */
+export const EMPTY_REPLY_RETRIES = 2;
+
+export function isResumeableWriteError(error) {
+  if (!error || error.cancelled || error.status === 499) return false;
+  const msg = String(error.message || '');
+  if (/^Stopped$/i.test(msg)) return false;
+  if (/Accept Site config first|Finish Structure/i.test(msg)) return false;
+  return /did not return (?:a )?FILE blocks?|did not return JSON|did not return pages\[\]|did not return sections\[\]|Retry Write site|connection dropped|fetch failed|Anthropic HTTP (?:429|500|502|503|504|520|529)\b/i.test(
+    msg,
+  );
+}
+
+/** Accept still missing or thin pages. Warnings, State, and a missing draft stay with the user. */
+export function isAcceptGapError(error) {
+  if (!error || error.cancelled || error.status === 499) return false;
+  const msg = String(error.message || '');
+  if (/Content warnings|Set State on Site-config|No content draft|before Accept|Image queries/i.test(msg)) {
+    return false;
+  }
+  return /incomplete for launch/i.test(msg);
+}
+
+/**
+ * Run a write-site pass. One resumeable failure continues once; Stop and setup errors do not.
+ */
+export async function continueWriteSiteOnce(run, { onContinue } = {}) {
+  try {
+    return await run();
+  } catch (error) {
+    if (!isResumeableWriteError(error)) throw error;
+    if (typeof onContinue === 'function') onContinue();
+    return await run();
+  }
+}
+
+/**
+ * Rewrite missing pages, publish, and if the draft is still thin, rewrite once more.
+ * The second publish error is returned as-is.
+ */
+export async function acceptAfterGapRewrite({ rewrite, accept, onContinue } = {}) {
+  await rewrite();
+  try {
+    return await accept();
+  } catch (error) {
+    if (!isAcceptGapError(error)) throw error;
+    if (typeof onContinue === 'function') onContinue();
+    await rewrite();
+    return await accept();
+  }
+}
+
+export function acceptContinueRewritePlan({
+  hasKey,
+  gapPaths,
+  chunkSize = ACCEPT_CONTINUE_CHUNK,
+} = {}) {
+  const paths = (Array.isArray(gapPaths) ? gapPaths : []).map((p) => String(p || '').trim()).filter(Boolean);
+  if (!hasKey) return { action: 'skip', reason: 'no-key', chunks: [] };
+  if (!paths.length) return { action: 'skip', reason: 'clear', chunks: [] };
+  return { action: 'rewrite', reason: null, chunks: chunkList(paths, chunkSize) };
+}
+
+export function launchContentGapPaths(candidateId) {
+  const detail = getCandidateDetail(candidateId);
+  const files = detail?.contentDraft?.files || detail?.content?.files || {};
+  const config = loadAcceptedSiteConfig(candidateId)?.config || detail?.siteConfig || {};
+  const pageIds = resolveStructurePageIds(candidateId, detail);
+  const gaps = listLaunchContentGaps(files, config, pageIds);
+  const paths = [...gaps.missing, ...gaps.stubs.filter((p) => !gaps.missing.includes(p))];
+  return { ...gaps, paths };
+}
+
+function gapRewriteLabel(paths) {
+  const n = paths.length;
+  const services = n > 0 && paths.every((p) => String(p).includes('/services/'));
+  const noun = services
+    ? `thin service page${n === 1 ? '' : 's'}`
+    : `thin page${n === 1 ? '' : 's'}`;
+  return `Rewriting ${n} ${noun}`;
+}
+
+/**
+ * When Accept would stop on missing or stub/thin pages, rewrite those files through Claude.
+ * No key, or a draft that is already complete, does not call Claude.
+ */
+export async function rewriteLaunchContentGaps(candidateId, opts = {}) {
+  const {
+    signal,
+    tick,
+    hasKey = Boolean(String(process.env.ANTHROPIC_API_KEY || '').trim()),
+    loadGaps = () => launchContentGapPaths(candidateId),
+    buildPrompt = (onlyFiles) => buildContinueWritePrompt(candidateId, { onlyFiles }),
+    callClaudeFn = null,
+    pasteFn = (text) => pasteAgentContentDraft(candidateId, text, { mode: 'full' }),
+    syncFn = () => syncPhotoBlocks(candidateId, tick),
+  } = opts;
+
+  let current = (await loadGaps())?.paths || [];
+  const plan = acceptContinueRewritePlan({ hasKey, gapPaths: current });
+  if (plan.action === 'skip') {
+    return { skipped: true, reason: plan.reason, remaining: current.length, rounds: 0 };
+  }
+
+  const call =
+    callClaudeFn ||
+    (async (built) => {
+      const system = cacheSystemBlob(candidateId);
+      return callClaude(candidateId, {
+        user: built.prompt,
+        system,
+        cacheSystem: Boolean(system),
+        maxTokens: 16384,
+        temperature: 0.5,
+        signal,
+      });
+    });
+
+  let rounds = 0;
+  while (rounds < ACCEPT_CONTINUE_ROUNDS && current.length) {
+    rounds += 1;
+    const chunks = chunkList(current, ACCEPT_CONTINUE_CHUNK);
+    for (let i = 0; i < chunks.length; i += 1) {
+      throwIfAborted(signal);
+      const fresh = (await loadGaps())?.paths || [];
+      const freshSet = new Set(fresh);
+      const chunk = chunks[i].filter((rel) => freshSet.has(rel));
+      if (!chunk.length) continue;
+      const label = gapRewriteLabel(fresh);
+      tick?.(chunks.length > 1 ? `${label} (${i + 1}/${chunks.length})` : label);
+      const built = await buildPrompt(chunk);
+      const { text } = await callUntilFileBlocks({
+        signal,
+        tick,
+        failMessage: 'Continue write: Claude did not return FILE blocks',
+        call: () => call(built),
+      });
+      await pasteFn(text);
+      await syncFn();
+    }
+    current = (await loadGaps())?.paths || [];
+  }
+  return {
+    skipped: false,
+    reason: current.length ? 'remaining' : 'clear',
+    remaining: current.length,
+    rounds,
+  };
+}
+
 /** Polish phase is done once speech was checked — leftover findings do not block. */
 export function writeSitePolishDone({ speechChecked } = {}) {
   return Boolean(speechChecked);
@@ -165,6 +325,34 @@ function throwIfAborted(signal) {
   if (signal?.aborted) {
     throw Object.assign(new Error('Stopped'), { status: 499, cancelled: true });
   }
+}
+
+/** Ask again when a write reply has no ### FILE: blocks. Stop still stops. */
+export async function callUntilFileBlocks({ call, signal, tick, failMessage } = {}) {
+  let last = { text: '' };
+  for (let attempt = 0; attempt <= EMPTY_REPLY_RETRIES; attempt += 1) {
+    throwIfAborted(signal);
+    if (attempt > 0) tick?.('Continuing…');
+    last = await call();
+    if (String(last?.text || '').includes('### FILE:')) return last;
+  }
+  throw Object.assign(new Error(failMessage || 'Claude did not return FILE blocks'), { status: 500 });
+}
+
+/** Ask again when research, brief, or outline JSON is missing. A cut-off reply is not asked again here. */
+export async function callUntilJson({ call, signal, tick, phase, shapeOk = true, missing = null } = {}) {
+  let last = { parsed: { ok: false }, truncated: false, text: '' };
+  for (let attempt = 0; attempt <= EMPTY_REPLY_RETRIES; attempt += 1) {
+    throwIfAborted(signal);
+    if (attempt > 0) tick?.('Continuing…');
+    last = await call();
+    const shape = typeof shapeOk === 'function' ? Boolean(shapeOk(last)) : shapeOk !== false;
+    if (last?.parsed?.ok && shape) return last;
+    if (last?.truncated || attempt === EMPTY_REPLY_RETRIES) {
+      throwIfMissingJson(phase, last, { shapeOk: shape, missing });
+    }
+  }
+  return last;
 }
 
 export function writeSiteInnerDone(candidateId) {
@@ -299,13 +487,18 @@ async function runResearch(candidateId, signal, tick) {
   if (field?.status !== 'loaded') {
     tick('Research — Site research');
     const { prompt } = await buildFieldResearchPrompt(candidateId);
-    const { parsed, text, truncated } = await callClaude(candidateId, {
-      user: prompt,
-      maxTokens: 16384,
-      temperature: 0.4,
+    const { parsed } = await callUntilJson({
       signal,
+      tick,
+      phase: 'Site research',
+      call: () =>
+        callClaude(candidateId, {
+          user: prompt,
+          maxTokens: 16384,
+          temperature: 0.4,
+          signal,
+        }),
     });
-    throwIfMissingJson('Site research', { parsed, truncated, text });
     saveContentFieldResearch(candidateId, parsed.value);
   }
   throwIfAborted(signal);
@@ -313,20 +506,20 @@ async function runResearch(candidateId, signal, tick) {
   if (brief?.status !== 'confirmed') {
     tick('Research — Content brief');
     const { prompt } = await buildSoftBriefPrompt(candidateId);
-    const { parsed, text, truncated } = await callClaude(candidateId, {
-      user: prompt,
-      maxTokens: 32768,
-      temperature: 0.3,
+    const { parsed } = await callUntilJson({
       signal,
+      tick,
+      phase: 'Brief',
+      missing: 'Brief: Claude did not return pages[] JSON',
+      shapeOk: (result) => Array.isArray(result?.parsed?.value?.pages),
+      call: () =>
+        callClaude(candidateId, {
+          user: prompt,
+          maxTokens: 32768,
+          temperature: 0.3,
+          signal,
+        }),
     });
-    throwIfMissingJson(
-      'Brief',
-      { parsed, truncated, text },
-      {
-        shapeOk: Array.isArray(parsed.value?.pages),
-        missing: 'Brief: Claude did not return pages[] JSON',
-      },
-    );
     pasteAndConfirmSoftBrief(candidateId, parsed.value);
   }
 }
@@ -340,26 +533,26 @@ async function runPlan(candidateId, signal, tick) {
   if (outline?.status === 'confirmed') return;
   tick('Plan — Outline');
   const { prompt } = await buildStructurePrompt(candidateId);
-  const result = await refineOutlineFromClaude({
-    prompt,
-    outline,
-    maxTokens: OUTLINE_REFINE_MAX_TOKENS,
-    callClaudeFn: (opts) => callClaude(candidateId, opts),
-    buildSlicePrompt: async (sectionIds) => {
-      const built = await buildStructurePrompt(candidateId, { sectionIds });
-      return built.prompt;
-    },
+  const result = await callUntilJson({
     signal,
     tick,
+    phase: 'Outline',
+    missing: 'Outline: Claude did not return sections[] JSON',
+    shapeOk: (value) => outlineJsonShapeOk(value?.parsed),
+    call: () =>
+      refineOutlineFromClaude({
+        prompt,
+        outline,
+        maxTokens: OUTLINE_REFINE_MAX_TOKENS,
+        callClaudeFn: (opts) => callClaude(candidateId, opts),
+        buildSlicePrompt: async (sectionIds) => {
+          const built = await buildStructurePrompt(candidateId, { sectionIds });
+          return built.prompt;
+        },
+        signal,
+        tick,
+      }),
   });
-  throwIfMissingJson(
-    'Outline',
-    result,
-    {
-      shapeOk: outlineJsonShapeOk(result.parsed),
-      missing: 'Outline: Claude did not return sections[] JSON',
-    },
-  );
   pasteContentOutlinePackage(candidateId, result.parsed.value);
   await confirmContentOutline(candidateId);
 }
@@ -409,19 +602,20 @@ async function runWrite(candidateId, signal, tick) {
 
   const writeOne = async (batch, built, label) => {
     tick(label);
-    const { text } = await callClaude(candidateId, {
-      user: built.prompt,
-      system,
-      cacheSystem: Boolean(system),
-      maxTokens: 16384,
-      temperature: 0.5,
+    const { text } = await callUntilFileBlocks({
       signal,
+      tick,
+      failMessage: `Full write (${batch}): Claude did not return FILE blocks`,
+      call: () =>
+        callClaude(candidateId, {
+          user: built.prompt,
+          system,
+          cacheSystem: Boolean(system),
+          maxTokens: 16384,
+          temperature: 0.5,
+          signal,
+        }),
     });
-    if (!String(text).includes('### FILE:')) {
-      throw Object.assign(new Error(`Full write (${batch}): Claude did not return FILE blocks`), {
-        status: 500,
-      });
-    }
     const pasted = pasteAgentContentDraft(candidateId, text, { mode: 'full' });
     await syncPhotoBlocks(candidateId, tick);
     syncWriteBatchesFromDraft(candidateId);
@@ -467,19 +661,20 @@ async function runWrite(candidateId, signal, tick) {
       throw error;
     }
     tick(`Write — continue (${continues + 1})`);
-    const { text } = await callClaude(candidateId, {
-      user: cont.prompt,
-      system,
-      cacheSystem: Boolean(system),
-      maxTokens: 16384,
-      temperature: 0.5,
+    const { text } = await callUntilFileBlocks({
       signal,
+      tick,
+      failMessage: 'Continue write: Claude did not return FILE blocks',
+      call: () =>
+        callClaude(candidateId, {
+          user: cont.prompt,
+          system,
+          cacheSystem: Boolean(system),
+          maxTokens: 16384,
+          temperature: 0.5,
+          signal,
+        }),
     });
-    if (!String(text).includes('### FILE:')) {
-      throw Object.assign(new Error('Continue write: Claude did not return FILE blocks'), {
-        status: 500,
-      });
-    }
     pasteAgentContentDraft(candidateId, text, { mode: 'full' });
     await syncPhotoBlocks(candidateId, tick);
     syncWriteBatchesFromDraft(candidateId);
@@ -584,19 +779,19 @@ ${blocks}
 async function runExpandThinLocationPass(candidateId, { signal, findings, tick, costOverride } = {}) {
   const { prompt, files } = buildExpandThinLocationsPrompt(candidateId, findings);
   tick?.(`Expand locations — ${files.length} file(s)`);
-  throwIfAborted(signal);
-  const { text } = await claudeMessages({
-    user: prompt,
-    maxTokens: 16384,
-    temperature: 0.45,
+  const { text } = await callUntilFileBlocks({
     signal,
-    costKey: costOverride || costKey(candidateId),
+    tick,
+    failMessage: 'Expand locations: Claude did not return FILE blocks',
+    call: () =>
+      claudeMessages({
+        user: prompt,
+        maxTokens: 16384,
+        temperature: 0.45,
+        signal,
+        costKey: costOverride || costKey(candidateId),
+      }),
   });
-  if (!String(text).includes('### FILE:')) {
-    throw Object.assign(new Error('Expand locations: Claude did not return FILE blocks'), {
-      status: 500,
-    });
-  }
   pasteAgentContentDraft(candidateId, text, { mode: 'full' });
   return getContentSpeechLint(candidateId);
 }
@@ -671,19 +866,19 @@ async function runExpandThinServicePass(candidateId, { signal, finding, tick, co
   const { prompt, files } = buildExpandThinServicesPrompt(candidateId, [finding]);
   const label = String(files[0] || '').replace(/^src\/content\//, '');
   tick?.(`Expand service — ${label}`);
-  throwIfAborted(signal);
-  const { text } = await claudeMessages({
-    user: prompt,
-    maxTokens: 16384,
-    temperature: 0.45,
+  const { text } = await callUntilFileBlocks({
     signal,
-    costKey: costOverride || costKey(candidateId),
+    tick,
+    failMessage: `Expand service (${label}): Claude did not return a FILE block`,
+    call: () =>
+      claudeMessages({
+        user: prompt,
+        maxTokens: 16384,
+        temperature: 0.45,
+        signal,
+        costKey: costOverride || costKey(candidateId),
+      }),
   });
-  if (!String(text).includes('### FILE:')) {
-    throw Object.assign(new Error(`Expand service (${label}): Claude did not return a FILE block`), {
-      status: 500,
-    });
-  }
   pasteAgentContentDraft(candidateId, text, { mode: 'full' });
   await syncPhotoBlocks(candidateId, tick);
   return getContentSpeechLint(candidateId);
@@ -842,7 +1037,133 @@ export async function runExpandThinLocationsJob(candidateId, { jobId, signal } =
   };
 }
 
-const IMAGE_QUERY_BA_CHUNK = 2;
+export const IMAGE_QUERY_SLOT_CHUNK = 16;
+export const IMAGE_QUERY_BA_CHUNK = 2;
+/** Extra tries after a group comes back as prose or an empty reply. */
+export const IMAGE_QUERY_JSON_RETRIES = 2;
+const IMAGE_QUERY_MAX_TOKENS = 16384;
+
+/**
+ * Ask Claude for one group of image-query keys. A cut-off reply is continued.
+ * If it is still unfinished, the caller splits the group in half.
+ */
+export async function fetchImageQueryGroup({ prompt, signal, callClaudeFn }) {
+  const call = typeof callClaudeFn === 'function' ? callClaudeFn : async () => ({});
+  return claudeJsonWithContinue({
+    user: prompt,
+    maxTokens: IMAGE_QUERY_MAX_TOKENS,
+    temperature: 0.3,
+    signal,
+    claudeMessagesFn: call,
+  });
+}
+
+/**
+ * Fill image-query keys in groups. Truncated groups are split in half.
+ * A reply that is not JSON is asked again. A single key that is still cut off
+ * raises the Write site output-limit error.
+ */
+export async function runImageQueryGroups({
+  keys,
+  chunkSize,
+  signal,
+  tick,
+  kind = 'stock',
+  buildPrompt,
+  callClaudeFn,
+  save,
+  stillMissing,
+} = {}) {
+  let remaining = [...(Array.isArray(keys) ? keys : [])].filter(Boolean);
+  let size = Math.max(1, Number(chunkSize) || 1);
+  const preferred = size;
+  let jsonRetries = 0;
+  let retrying = false;
+  while (remaining.length) {
+    throwIfAborted(signal);
+    const chunk = remaining.slice(0, Math.min(size, remaining.length));
+    if (typeof tick === 'function') {
+      tick(
+        retrying
+          ? 'Image queries — retry'
+          : kind === 'beforeAfter'
+            ? `Image queries — before/after ${chunk.join(', ')}`
+            : 'Image queries — stock slots',
+      );
+    }
+    retrying = false;
+    const prompt = await buildPrompt(chunk);
+    const { parsed, text, truncated } = await fetchImageQueryGroup({
+      prompt,
+      signal,
+      callClaudeFn,
+    });
+    if (truncated || !parsed?.ok) {
+      if (truncated && chunk.length > 1) {
+        size = Math.max(1, Math.floor(chunk.length / 2));
+        jsonRetries = 0;
+        continue;
+      }
+      if (!truncated && jsonRetries < IMAGE_QUERY_JSON_RETRIES) {
+        jsonRetries += 1;
+        retrying = true;
+        continue;
+      }
+      throwIfMissingJson('Image queries', { parsed, truncated, text });
+    }
+    let saved = false;
+    try {
+      save(parsed.value);
+      saved = true;
+    } catch (error) {
+      const missing = incompleteBeforeAfterKeys(error);
+      if (!missing) throw error;
+      if (jsonRetries < IMAGE_QUERY_JSON_RETRIES) {
+        jsonRetries += 1;
+        retrying = true;
+        continue;
+      }
+      const partial = completeBeforeAfterPayload(parsed?.value, chunk);
+      if (partial) {
+        try {
+          save(partial);
+        } catch {
+          /* the finished key stays missing and is asked again after the split */
+        }
+      }
+      if (chunk.length > 1) {
+        size = Math.max(1, Math.floor(chunk.length / 2));
+        jsonRetries = 0;
+        remaining = (typeof stillMissing === 'function' ? stillMissing() : chunk)
+          .map((key) => String(key))
+          .filter(Boolean);
+        continue;
+      }
+      throw error;
+    }
+    if (!saved) continue;
+    jsonRetries = 0;
+    const next = (typeof stillMissing === 'function' ? stillMissing() : [])
+      .map((key) => String(key))
+      .filter((key) => remaining.includes(key));
+    if (chunk.every((key) => next.includes(key))) {
+      if (chunk.length > 1) {
+        size = Math.max(1, Math.floor(chunk.length / 2));
+        continue;
+      }
+      throw Object.assign(
+        new Error(
+          kind === 'beforeAfter'
+            ? 'Image queries: before/after chunk did not save. Retry Write site.'
+            : 'Image queries: stock slot did not save. Retry Write site.',
+        ),
+        { status: 500 },
+      );
+    }
+    size = preferred;
+    remaining = next;
+  }
+}
 
 function missingImageQuerySlotKeys(candidateId) {
   const plan = getCandidateDetail(candidateId).imagesPlan;
@@ -868,47 +1189,61 @@ function missingImageQueryBaKeys(candidateId) {
     .map((s) => s.key);
 }
 
+function completeBeforeAfterPayload(value, keys) {
+  const raw = value?.beforeAfter && typeof value.beforeAfter === 'object' ? value.beforeAfter : {};
+  const beforeAfter = {};
+  for (const key of keys || []) {
+    if (baPromptComplete(raw[key])) beforeAfter[key] = raw[key];
+  }
+  return Object.keys(beforeAfter).length ? { beforeAfter } : null;
+}
+
+function seedImageQueriesFromNiche(candidateId) {
+  const fill = applyStoredNicheImagePrompts(candidateId);
+  const payload = {};
+  if (Object.keys(fill.slots || {}).length) payload.slots = fill.slots;
+  if (Object.keys(fill.beforeAfter || {}).length) payload.beforeAfter = fill.beforeAfter;
+  if (!payload.slots && !payload.beforeAfter) return;
+  saveImagesPlan(candidateId, payload, { merge: true });
+}
+
 async function runImageQueries(candidateId, signal, tick) {
   if (!structureHasPhotosEnabled(candidateId)) return;
   await syncPhotoBlocks(candidateId, tick);
-  if (imagesPlanIsComplete(candidateId)) return;
+  seedImageQueriesFromNiche(candidateId);
+  if (imagesPlanIsComplete(candidateId)) {
+    rememberNicheImagePrompts(candidateId);
+    return;
+  }
   tick('Image queries');
 
   const missingStock = missingImageQuerySlotKeys(candidateId);
-  if (missingStock.length) {
-    tick('Image queries — stock slots');
-    const { prompt } = buildImageQueriesPrompt(candidateId, { slotKeys: missingStock, baKeys: [] });
-    const { parsed, text, truncated } = await callClaude(candidateId, {
-      user: prompt,
-      maxTokens: 16384,
-      temperature: 0.3,
-      signal,
-    });
-    throwIfMissingJson('Image queries', { parsed, truncated, text });
-    saveImagesPlan(candidateId, parsed.value, { merge: true });
-  }
+  await runImageQueryGroups({
+    keys: missingStock,
+    chunkSize: IMAGE_QUERY_SLOT_CHUNK,
+    signal,
+    tick,
+    kind: 'stock',
+    buildPrompt: (chunk) =>
+      buildImageQueriesPrompt(candidateId, { slotKeys: chunk, baKeys: [] }).prompt,
+    callClaudeFn: (opts) => callClaude(candidateId, opts),
+    save: (value) => saveImagesPlan(candidateId, value, { merge: true }),
+    stillMissing: () => missingImageQuerySlotKeys(candidateId),
+  });
 
-  let remainingBa = missingImageQueryBaKeys(candidateId);
-  while (remainingBa.length) {
-    const chunk = remainingBa.slice(0, IMAGE_QUERY_BA_CHUNK);
-    tick(`Image queries — before/after ${chunk.join(', ')}`);
-    const { prompt } = buildImageQueriesPrompt(candidateId, { slotKeys: [], baKeys: chunk });
-    const { parsed, text, truncated } = await callClaude(candidateId, {
-      user: prompt,
-      maxTokens: 16384,
-      temperature: 0.3,
-      signal,
-    });
-    throwIfMissingJson('Image queries', { parsed, truncated, text });
-    saveImagesPlan(candidateId, parsed.value, { merge: true });
-    const next = missingImageQueryBaKeys(candidateId);
-    if (chunk.every((key) => next.includes(key))) {
-      throw Object.assign(new Error('Image queries: before/after chunk did not save. Retry Write site.'), {
-        status: 500,
-      });
-    }
-    remainingBa = next;
-  }
+  await runImageQueryGroups({
+    keys: missingImageQueryBaKeys(candidateId),
+    chunkSize: IMAGE_QUERY_BA_CHUNK,
+    signal,
+    tick,
+    kind: 'beforeAfter',
+    buildPrompt: (chunk) =>
+      buildImageQueriesPrompt(candidateId, { slotKeys: [], baKeys: chunk }).prompt,
+    callClaudeFn: (opts) => callClaude(candidateId, opts),
+    save: (value) => saveImagesPlan(candidateId, value, { merge: true }),
+    stillMissing: () => missingImageQueryBaKeys(candidateId),
+  });
+  if (imagesPlanIsComplete(candidateId)) rememberNicheImagePrompts(candidateId);
 }
 
 /**
@@ -924,20 +1259,23 @@ export async function runWriteSiteJob(candidateId, { jobId, signal } = {}) {
     updateLightJobProgress(jobId, { detail, done, total });
   };
 
-  tick('Starting…', 0);
-  tick('Research', 1);
-  await runResearch(candidateId, signal, (d) => tick(d, 1));
-  tick('Plan', 2);
-  await runPlan(candidateId, signal, (d) => tick(d, 2));
-  tick('Write', 3);
-  await runWrite(candidateId, signal, (d) => tick(d, 3));
-  tick('Polish', 4);
-  await runPolish(candidateId, signal, (d) => tick(d, 4));
-  if (photosOn) {
-    tick('Image queries', 5);
-    await runImageQueries(candidateId, signal, (d) => tick(d, 5));
-  }
-  tick('Done', total);
+  const runOnce = async () => {
+    tick('Starting…', 0);
+    tick('Research', 1);
+    await runResearch(candidateId, signal, (d) => tick(d, 1));
+    tick('Plan', 2);
+    await runPlan(candidateId, signal, (d) => tick(d, 2));
+    tick('Write', 3);
+    await runWrite(candidateId, signal, (d) => tick(d, 3));
+    tick('Polish', 4);
+    await runPolish(candidateId, signal, (d) => tick(d, 4));
+    if (photosOn) {
+      tick('Image queries', 5);
+      await runImageQueries(candidateId, signal, (d) => tick(d, 5));
+    }
+    tick('Done', total);
+  };
+  await continueWriteSiteOnce(runOnce, { onContinue: () => tick('Continuing…') });
   return {
     ok: true,
     candidate: getCandidateShell(candidateId),

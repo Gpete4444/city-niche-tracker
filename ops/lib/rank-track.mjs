@@ -34,6 +34,21 @@ const READY_MISS_BEFORE_DIRECT = 3;
 const IN_PROGRESS_TASK_CODES = new Set([40601, 40602, 40101, 40102, 40103]);
 
 let rankBatchProgress = null;
+let rankCheckCancelGen = 0;
+
+/** Stop in-flight Check ranks runs before the next keyword post or poll wait. */
+export function bumpRankCheckCancel() {
+  rankCheckCancelGen += 1;
+  return rankCheckCancelGen;
+}
+
+export function rankCheckCancelToken() {
+  return rankCheckCancelGen;
+}
+
+function rankChecksCancelled(token) {
+  return rankCheckCancelGen !== token;
+}
 
 export function getRankBatchProgress() {
   if (!rankBatchProgress) return { running: false };
@@ -152,13 +167,15 @@ async function readOrganicTask(job, label) {
 }
 
 /** Poll every posted task id on one shared timer until each is ready or the queue cap hits. */
-async function pollOrganicTasks(jobs, label) {
+async function pollOrganicTasks(jobs, label, { isCancelled } = {}) {
   const pending = jobs.map((job) => ({ ...job }));
   const finished = new Map();
   const started = Date.now();
   let wait = POLL_START_MS;
   while (pending.length && Date.now() - started < MAX_QUEUE_WAIT_MS) {
+    if (isCancelled?.()) break;
     await sleep(wait);
+    if (isCancelled?.()) break;
     const wave = await Promise.all(
       pending.map(async (job) => {
         try {
@@ -179,6 +196,7 @@ async function pollOrganicTasks(jobs, label) {
     }
     wait = Math.min(POLL_MAX_MS, Math.round(wait * 1.25));
   }
+  if (isCancelled?.()) return finished;
   const minutes = Math.round(MAX_QUEUE_WAIT_MS / 60000);
   for (const job of pending) {
     finished.set(job.index, {
@@ -250,6 +268,7 @@ async function locationSpecForSite(site, locations = null) {
  * Keywords are posted together and polled on one timer.
  */
 export async function checkSiteRanks(siteId, { depth = DEFAULT_DEPTH } = {}) {
+  const cancelToken = rankCheckCancelToken();
   requireCredentials();
   const site = getSite(siteId);
   const host = hostFromSite(site);
@@ -285,38 +304,69 @@ export async function checkSiteRanks(siteId, { depth = DEFAULT_DEPTH } = {}) {
   }));
 
   const finished = new Map();
-  try {
-    const posted = await postOrganicTasks(bodies, label);
-    const queued = [];
-    for (const job of posted) {
-      if (job.error) finished.set(job.index, { error: job.error });
-      else queued.push(job);
+  const cancelled = () => rankChecksCancelled(cancelToken);
+  let stopped = cancelled();
+  if (!stopped) {
+    try {
+      const posted = await postOrganicTasks(bodies, label);
+      const queued = [];
+      for (const job of posted) {
+        if (job.error) finished.set(job.index, { error: job.error });
+        else queued.push(job);
+      }
+      const polled = await pollOrganicTasks(queued, label, { isCancelled: cancelled });
+      for (const [index, outcome] of polled) finished.set(index, outcome);
+      stopped = cancelled();
+    } catch (error) {
+      const message = error.message || String(error);
+      keywords.forEach((_, index) => finished.set(index, { error: message }));
     }
-    const polled = await pollOrganicTasks(queued, label);
-    for (const [index, outcome] of polled) finished.set(index, outcome);
-  } catch (error) {
-    const message = error.message || String(error);
-    keywords.forEach((_, index) => finished.set(index, { error: message }));
   }
 
-  return commitRankCheck({
-    metrics,
-    host,
-    keywords,
-    locationName,
-    checkedAt,
-    finished,
-    label,
-  });
+  if (stopped && finished.size === 0) {
+    return {
+      ok: true,
+      stopped: true,
+      siteId,
+      domain: host,
+      costUsd: 0,
+      keywords: [],
+      metrics,
+    };
+  }
+
+  return {
+    ...commitRankCheck({
+      metrics,
+      host,
+      keywords,
+      locationName,
+      checkedAt,
+      finished,
+      label,
+      partial: stopped,
+    }),
+    stopped,
+  };
 }
 
-function commitRankCheck({ metrics, host, keywords, locationName, checkedAt, finished, label }) {
+function commitRankCheck({
+  metrics,
+  host,
+  keywords,
+  locationName,
+  checkedAt,
+  finished,
+  label,
+  partial = false,
+}) {
   const keywordResults = [];
   let totalCost = 0;
   let lastError = null;
   for (let index = 0; index < keywords.length; index += 1) {
     const entry = keywords[index];
     const keyword = entry.keyword;
+    if (partial && !finished.has(index)) continue;
     const outcome = finished.get(index) || { error: `${label}: missing task result` };
     if (outcome.error) {
       lastError = outcome.error;
@@ -399,16 +449,18 @@ function rankResultRow(site, committed, error) {
  * Post every selected site's keywords, then collect them on one Standard-queue wait.
  */
 export async function checkAllSiteRanks({ siteIds = null, depth = DEFAULT_DEPTH } = {}) {
+  if (!Array.isArray(siteIds) || siteIds.length === 0) {
+    return { ok: true, checked: 0, failed: 0, costUsd: 0, results: [] };
+  }
   requireCredentials();
   if (rankBatchProgress?.running) {
     throw Object.assign(new Error('A rank check is already running'), { status: 409 });
   }
 
-  let sites = metricsEligibleSites().filter((s) => hostFromSite(s));
-  if (Array.isArray(siteIds) && siteIds.length) {
-    const want = new Set(siteIds);
-    sites = sites.filter((s) => want.has(s.id));
-  }
+  const cancelToken = rankCheckCancelToken();
+  const cancelled = () => rankChecksCancelled(cancelToken);
+  const want = new Set(siteIds);
+  const sites = metricsEligibleSites().filter((s) => hostFromSite(s) && want.has(s.id));
 
   const checkedAt = new Date().toISOString();
   rankBatchProgress = {
@@ -504,6 +556,7 @@ export async function checkAllSiteRanks({ siteIds = null, depth = DEFAULT_DEPTH 
     };
 
     for (const chunk of chunkList(jobs, TASK_POST_CHUNK)) {
+      if (cancelled()) break;
       try {
         const posted = await postOrganicTasks(
           chunk.map((job) => job.body),
@@ -538,7 +591,9 @@ export async function checkAllSiteRanks({ siteIds = null, depth = DEFAULT_DEPTH 
     let wait = POLL_START_MS;
     let readyMisses = 0;
     while (pendingById.size && Date.now() - started < MAX_QUEUE_WAIT_MS) {
+      if (cancelled()) break;
       await sleep(wait);
+      if (cancelled()) break;
       let ours = [];
       try {
         const readyIds = await listReadyOrganicTaskIds();
@@ -562,14 +617,18 @@ export async function checkAllSiteRanks({ siteIds = null, depth = DEFAULT_DEPTH 
       wait = Math.min(POLL_MAX_MS, Math.round(wait * 1.25));
     }
 
-    const minutes = Math.round(MAX_QUEUE_WAIT_MS / 60000);
-    for (const job of pendingById.values()) {
-      noteReady(job, {
-        error: `rank_batch: standard queue timed out after ${minutes}m (last status ${job.lastStatus ?? 'n/a'})`,
-      });
+    const stopped = cancelled();
+    if (!stopped) {
+      const minutes = Math.round(MAX_QUEUE_WAIT_MS / 60000);
+      for (const job of pendingById.values()) {
+        noteReady(job, {
+          error: `rank_batch: standard queue timed out after ${minutes}m (last status ${job.lastStatus ?? 'n/a'})`,
+        });
+      }
     }
     for (const bundle of bundles) {
       if (bundle.saved) continue;
+      if (stopped && bundle.finished.size === 0) continue;
       const committed = commitRankCheck({
         metrics: bundle.metrics,
         host: bundle.host,
@@ -578,6 +637,7 @@ export async function checkAllSiteRanks({ siteIds = null, depth = DEFAULT_DEPTH 
         checkedAt,
         finished: bundle.finished,
         label: bundle.label,
+        partial: stopped,
       });
       results.push(rankResultRow(bundle.site, committed));
       patchRankBatchProgress({ sitesDone: rankBatchProgress.sitesDone + 1 });
@@ -586,6 +646,7 @@ export async function checkAllSiteRanks({ siteIds = null, depth = DEFAULT_DEPTH 
     const costUsd = results.reduce((sum, row) => sum + (Number(row.costUsd) || 0), 0);
     return {
       ok: true,
+      stopped: cancelled(),
       checked: results.filter((row) => row.ok).length,
       failed: results.filter((row) => !row.ok).length,
       costUsd,

@@ -139,6 +139,8 @@ DATAFORSEO_RESEARCH_JSON:
 
 DISCOVERY_NARRATIVE_SEED (from Discovery Claude — polish, do not ignore without reason):
 {{DISCOVERY_NARRATIVE_SEED}}
+
+{{ZONE_GUIDE}}
 ```
 
 ## After Claude

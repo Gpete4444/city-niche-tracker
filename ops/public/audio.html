@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Audio</title>
+  <script>
+    try {
+      var t = localStorage.getItem('ops.theme');
+      if (!/^[1-8]$/.test(t || '')) t = '1';
+      document.documentElement.setAttribute('data-theme', t);
+    } catch (e) {}
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/styles.css?v=20261106audio3" />
+</head>
+<body class="audio-window">
+  <header class="audio-head">
+    <h1>Audio</h1>
+    <input
+      id="audio-volume"
+      class="audio-volume"
+      type="range"
+      min="0"
+      max="1"
+      step="0.01"
+      value="0.7"
+      aria-label="Volume"
+      data-tip="Volume"
+    />
+    <button
+      type="button"
+      id="audio-master"
+      class="audio-icon-btn"
+      aria-pressed="true"
+      aria-label="Turn sounds off"
+      data-tip="Turn sounds off"
+    >
+      <svg class="audio-ico-on" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+        <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
+        <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
+      </svg>
+      <svg class="audio-ico-off" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+        <line x1="23" y1="9" x2="17" y2="15" />
+        <line x1="17" y1="9" x2="23" y2="15" />
+      </svg>
+    </button>
+    <button type="button" id="audio-popout" class="audio-icon-btn" hidden aria-label="Pop out" data-tip="Pop out">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M15 3h6v6" />
+        <path d="M10 14 21 3" />
+        <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+      </svg>
+    </button>
+    <button type="button" id="audio-close" class="audio-icon-btn" aria-label="Close" data-tip="Close">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <line x1="18" y1="6" x2="6" y2="18" />
+        <line x1="6" y1="6" x2="18" y2="18" />
+      </svg>
+    </button>
+  </header>
+  <p id="audio-error" class="audio-error" role="alert" hidden></p>
+  <div id="audio-list" class="audio-list"></div>
+  <input
+    id="audio-file"
+    class="sr-only"
+    type="file"
+    tabindex="-1"
+    accept=".mp3,.wav,.ogg,.m4a,audio/mpeg,audio/wav,audio/wave,audio/ogg,audio/mp4,audio/x-m4a"
+  />
+  <div id="ops-tooltip" class="ops-tooltip hidden" role="tooltip"></div>
+  <script type="module" src="/audio-window.js?v=20261106audio2"></script>
+</body>
+</html>

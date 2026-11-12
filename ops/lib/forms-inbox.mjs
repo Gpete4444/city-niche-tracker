@@ -13,6 +13,9 @@ import { loadSpamKeywords, normalizeSpamKeywords } from './spam-keywords.mjs';
 import { listLaunchedSites } from './sites.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+
+/** On conflict, the address from this launch replaces the stored one. */
+export const ALLOWLIST_NOTIFY_ON_CONFLICT = 'notify_email = excluded.notify_email';
 const WORKER_DIR = path.join(ROOT, 'ops', 'forms-worker');
 const STATE_FILE = path.join(RESEARCH_DIR, 'forms-inbox.json');
 const LOCAL_WRANGLER = path.join(WORKER_DIR, 'wrangler.local.json');
@@ -126,6 +129,7 @@ async function applySchema(databaseId) {
     await d1Query(databaseId, sql, []);
   }
   await ensureNotifyEmailColumn(databaseId);
+  await ensureTurnstileSecretColumn(databaseId);
 }
 
 /** Existing databases were created before notify_email. CREATE IF NOT EXISTS will not add it. */
@@ -136,6 +140,77 @@ async function ensureNotifyEmailColumn(databaseId) {
     const msg = String(error?.message || error);
     if (!/duplicate column|already exists/i.test(msg)) throw error;
   }
+}
+
+/** Existing databases were created before turnstile_secret. CREATE IF NOT EXISTS will not add it. */
+async function ensureTurnstileSecretColumn(databaseId) {
+  try {
+    await d1Query(databaseId, 'ALTER TABLE sites ADD COLUMN turnstile_secret TEXT', []);
+  } catch (error) {
+    const msg = String(error?.message || error);
+    if (!/duplicate column|already exists/i.test(msg)) throw error;
+  }
+}
+
+/**
+ * Store a Turnstile secret for one domain. Allowlist sync does not clear this column.
+ * Returns whether the row exists. Does not include the secret in the result.
+ */
+export async function setSiteTurnstileSecret(domain, secret) {
+  const status = requireReady();
+  const host = normalizeLeadDomain(domain);
+  const value = String(secret || '').trim();
+  if (!host || !value) {
+    const err = new Error('domain and secret are required');
+    err.status = 400;
+    throw err;
+  }
+  await ensureTurnstileSecretColumn(status.databaseId);
+  await d1Query(
+    status.databaseId,
+    'UPDATE sites SET turnstile_secret = ? WHERE domain = ?',
+    [value, host],
+  );
+  const rows = await d1Query(
+    status.databaseId,
+    'SELECT domain, length(turnstile_secret) AS secret_length FROM sites WHERE domain = ?',
+    [host],
+  );
+  const row = rows[0];
+  return {
+    domain: host,
+    saved: Number(row?.secret_length || 0) > 0,
+  };
+}
+
+/**
+ * Stop Turnstile enforcement for one domain. Allowlist sync does not clear this column.
+ * Does not include any secret in the result.
+ */
+export async function clearSiteTurnstileSecret(domain) {
+  const status = requireReady();
+  const host = normalizeLeadDomain(domain);
+  if (!host) {
+    const err = new Error('domain is required');
+    err.status = 400;
+    throw err;
+  }
+  await ensureTurnstileSecretColumn(status.databaseId);
+  await d1Query(
+    status.databaseId,
+    'UPDATE sites SET turnstile_secret = NULL WHERE domain = ?',
+    [host],
+  );
+  const rows = await d1Query(
+    status.databaseId,
+    'SELECT domain, length(turnstile_secret) AS secret_length FROM sites WHERE domain = ?',
+    [host],
+  );
+  const row = rows[0];
+  return {
+    domain: host,
+    cleared: Boolean(row) && Number(row.secret_length || 0) === 0,
+  };
 }
 
 function defaultNotifyEmail() {
@@ -332,7 +407,7 @@ export async function syncFormsAllowlist() {
          site_id = excluded.site_id,
          candidate_id = excluded.candidate_id,
          business_name = excluded.business_name,
-         notify_email = COALESCE(sites.notify_email, excluded.notify_email)`,
+         ${ALLOWLIST_NOTIFY_ON_CONFLICT}`,
       params,
     );
   }

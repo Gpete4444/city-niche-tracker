@@ -2,11 +2,22 @@
  * Local Exact Match domain suggestions (city-first, no Claude).
  * Run: node scripts/test-domain-suggest.mjs
  */
+import { mkdtempSync, rmSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import {
   domainToken,
+  expandNicheDomainPattern,
+  mergeNicheDomainSuggestions,
   nicheHeadToken,
+  normalizeNicheDomainPattern,
   suggestExactMatchDomains,
 } from '../ops/public/domain-suggest.mjs';
+import {
+  addNicheDomainPattern,
+  listNicheDomainPatterns,
+  removeNicheDomainPattern,
+} from '../ops/lib/niche-domain-patterns.mjs';
 
 function assert(cond, label) {
   if (!cond) {
@@ -74,5 +85,59 @@ assert(
 
 assertEqual(suggestExactMatchDomains({ city: '', niche: 'Drywall Repair' }).length, 0, 'no city');
 assertEqual(suggestExactMatchDomains({ city: 'Everett', niche: '' }).length, 0, 'no niche');
+
+const savedPattern = normalizeNicheDomainPattern('[City]SewerPros.com');
+assert(savedPattern.ok, 'pattern ok');
+assertEqual(savedPattern.pattern, '[City]SewerPros.com', 'pattern keeps typed name');
+assertEqual(expandNicheDomainPattern('[City]SewerPros.com', 'Dayton'), 'daytonsewerpros.com', 'Dayton expand');
+assertEqual(
+  expandNicheDomainPattern('[city]SewerPros', 'Sierra Vista'),
+  'sierravistasewerpros.com',
+  'two-word city and missing .com',
+);
+assert(!normalizeNicheDomainPattern('sewerpros.com').ok, 'pattern requires [City]');
+assert(!normalizeNicheDomainPattern('[City]SewerPros.net').ok, 'only .com');
+assert(!normalizeNicheDomainPattern('[City].com').ok, 'name required');
+
+const merged = mergeNicheDomainSuggestions(
+  [
+    { domain: 'daytontrechnlesssewerrepair.com', available: null, note: 'exact niche+primary city' },
+    { domain: 'daytonsewerpros.com', available: true, note: 'old row' },
+  ],
+  ['[City]SewerPros.com'],
+  'Dayton',
+);
+assertEqual(merged[0].domain, 'daytonsewerpros.com', 'saved host first');
+assertEqual(merged[0].note, 'saved for this niche', 'saved note');
+assertEqual(merged[0].available, true, 'keeps availability');
+assertEqual(merged[1].domain, 'daytontrechnlesssewerrepair.com', 'exact host remains');
+assertEqual(merged.length, 2, 'no duplicate saved host');
+assertEqual(
+  mergeNicheDomainSuggestions(merged, [], 'Dayton').map((row) => row.domain).join('|'),
+  'daytontrechnlesssewerrepair.com',
+  'removing the pattern drops the saved host',
+);
+
+const dir = mkdtempSync(path.join(os.tmpdir(), 'niche-pat-'));
+const file = path.join(dir, 'niche-domain-patterns.json');
+try {
+  const added = addNicheDomainPattern('Trenchless Sewer Repair', '[City]SewerPros.com', file);
+  assertEqual(added.niche, 'trenchless sewer repair', 'niche key');
+  assertEqual(added.pattern, '[City]SewerPros.com', 'stored pattern');
+  assert(added.added, 'first add');
+  const again = addNicheDomainPattern('trenchless sewer repair', '[city]sewerpros.com', file);
+  assertEqual(again.patterns.length, 1, 'pattern deduped');
+  assert(!again.added, 'second add');
+  assertEqual(
+    listNicheDomainPatterns('TRENCHLESS  SEWER   REPAIR', file)[0],
+    '[City]SewerPros.com',
+    'list by niche',
+  );
+  const removed = removeNicheDomainPattern('trenchless sewer repair', '[City]SewerPros.com', file);
+  assertEqual(removed.patterns.length, 0, 'pattern removed');
+  assertEqual(listNicheDomainPatterns('trenchless sewer repair', file).length, 0, 'list empty');
+} finally {
+  rmSync(dir, { recursive: true, force: true });
+}
 
 console.log('test-domain-suggest: ok');
