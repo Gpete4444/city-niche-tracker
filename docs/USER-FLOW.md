@@ -24,6 +24,8 @@ Visual overview: [ROVER-FLOW.md](ROVER-FLOW.md) (work-flow chart + naming hierar
 1 Discovery → 2 Research → 3 Website → 4 Launched · Phone · Map · Photo
 ```
 
+The usual Discovery path is Cluster Cities: niche, existing zone or new zone, map only for a new zone, Generate pack, a decision, Process. Light SERP is optional. On Website, Open tabs for this session before Colors on any site.
+
 Most markets die early on purpose. Only **pursue** rows become **Website Candidates** and get a full site build.
 
 ---
@@ -82,7 +84,7 @@ Assumptions: you know the product, reuse defaults / Preset C, trust Claude after
 | 1 · Logo & Map (glance; skip if Accept already wrote them) | ~10–20 sec | —                       | ~15 sec         |
 | 2 · Review images (glance; skip polish)                  | ~20–40 sec   | —                       | ~30 sec         |
 | 3 · Prepare preview (Stage + Assemble)                   | ~5–10 sec    | ~2–4 min                | ~3 min          |
-| 3 · QA preview (spot-check key URLs)                     | ~1–2 min     | —                       | ~2 min          |
+| Open every preview page                                     | ~1–2 min     | —                       | ~2 min          |
 | Buy domain + point NS at Cloudflare                      | ~3–5 min     | —                       | ~5 min          |
 | 3 · Run launch (domain, destination, Auto ship)          | ~30–60 sec   | ~3–5 min                | ~5 min          |
 | Verify Gmail + smoke-test form                           | ~1 min       | *(email may lag)*       | ~1–2 min        |
@@ -169,34 +171,34 @@ Almost every in-app **button / paste / Accept** step is **~5–30 seconds** of y
 
 ### Screen: Discovery
 
+The usual path is **Cluster Cities**. Single City is still available. **Light SERP** is optional.
 
-| What you do                           | Why                                        |
-| ------------------------------------- | ------------------------------------------ |
-| **1 · New Discovery Pack**            | Creates a Claude-only CSV template + prompt (filtered compact High-Ticket catalog, not the full guide). **Required** Niche text stays exact; **Suggested**/OPEN prefer **head terms** (e.g. Drywall → Drywall Repair). Claude also estimates **Est. Monthly Search Volume** (Niche+City). That guess is not Ads truth; when Ads volumes are skipped it can seed Research Demand as **est.** |
-| **2 · Send to Claude**                | Claude fills candidate rows for the pack   |
-| **3 · Import Claude CSV**             | Rows appear in the batch table             |
-| **4 · Light SERP**                    | Light competition signal before Research   |
-| Set a **Decision** on every row       | Required before Process                    |
-| **Process batch**                     | Keepers → Research; pass → tracked; ignore → skip (rediscoverable) |
-| **Advanced** (sidebar)                | Edit / wipe Generate Pack **do-not-repropose** editor (tracked orphans + Research Eval 1 only; Launched never listed) |
+| What you do | Why |
+| --- | --- |
+| **Cluster Cities** | One niche for one metro |
+| Enter the cluster niche | The niche for this zone |
+| Existing zone or new zone | An existing zone already has its cities |
+| New zone: set cluster cities on the map | Pick a color, click cities or drag a circle, then **Generate pack** |
+| **Generate pack** | Rows appear in the batch |
+| Set a **Decision** on every row | Required before Process. **pursue** is what Open tabs will open |
+| **Process batch** | Keepers become Research candidates. Search volumes start only if Research was set to Run all |
+| **Light SERP** (optional) | A cheap map-pack and page-count check. Not the next required step |
+| **Advanced** (sidebar) | Edit the list Generate pack should not suggest again |
 
 
-**Forward:** pursue, maybe, review, hold · **Tracked only:** pass · **Skip (rediscoverable):** ignore
-
-Generate Pack tells Claude not to re-propose Niche×City×State pairs already in Active Research Candidates or tracked. Archived Candidates are excluded from the prompt. Use **Advanced → Edit do-not-repropose list** (shift-select + Remove) or **Wipe to match Active Research** to clean test leftovers. The Advanced editor only shows tracked/orphan pairs and Research Candidates at Evaluation 1 — Launched Candidates cannot be removed or permanently deleted from Rover. Unlaunched Website Candidates can be permanently deleted from the candidate list (Rover files + local assembled folder; not GitHub / Cloudflare / Twilio).
+**Become candidates:** pursue, maybe, review, hold. **Remembered:** pass. **Can come back:** ignore.
 
 ### Screen: Research
 
 
-| Panel         | What you do                                         |
-| ------------- | --------------------------------------------------- |
-| Overview      | Glance snapshot; set **pursue** when ready to build |
-| 1 · SERP / Volume  | Run Ad volumes / SERP signals                       |
-| 1 · Keywords  | Glance keyword volumes                              |
-| 2 · Enrich    | Requires Eval 1 complete                            |
-| 3 · Narrative | Requires Eval 2; Copy prompt → Claude → Load draft → Accept |
-| 4 · Prospects | Requires Eval 3 (Narrative accepted)                |
-| Logs          | Job history                                         |
+| Panel | What you do |
+| --- | --- |
+| Overview | Glance at scores. Set **pursue** when you are ready to build. That is what Open tabs opens |
+| 1 · SERP / Volume | A search snapshot is required. Ad volumes are optional |
+| 1 · Keywords | Glance at ad volumes when you ran them |
+| 2 · Enrich | Optional. **Run enrich**. Does not block the story or Website |
+| 3 · Narrative | Required. Needs the search snapshot, not Enrich. Copy prompt → Claude → Load, or Run Narrative. A valid reply is accepted automatically |
+| 4 · Prospects | Optional. **Find renters** after the story is accepted. Does not require pursue |
 
 
 
@@ -227,11 +229,12 @@ Optional group organizer (not a Stage). Skipping Photo does not block Content, A
 ### Screen: Website
 
 
-| Panel               | Steps                                                                             |
-| ------------------- | --------------------------------------------------------------------------------- |
-| **1 · Site-Config** | Colors → Address → Details → Paste draft → Accept services → Service Area → Phone |
-| **2 · Content**     | Structure → Site research → Brief → Outline → batched Full write → Humanize → Final check → Image queries → Load photo group (optional) → Accept. API: Write site polish expands thin location pages; Accept can **Expand location pages** if a finished draft is still under 450 words. |
-| **3 · Launch**     | Logo & Map (regenerate logo/map if Accept skipped) → Review images (save/load photo groups; niche master first in the dropdown) → Prepare preview (upserts niche master) → Launch |
+| Panel | Steps |
+| --- | --- |
+| **Open tabs** | Before Colors on any site: pick the zone and cluster range for this session. Only **pursue** cities open |
+| **1 · Site-Config** | Colors → Address → Domain → Business details → Paste (Copy & paste only) → Accept services → Service area → Phone |
+| **2 · Content** | Structure → Site research → Brief → Outline → batched Full write → Humanize → Final check → Image queries → Load photo group (optional) → Accept. API mode: Structure, then Write site with Claude, then Accept |
+| **3 · Launch** | Logo & Map → Review images → Prepare preview (open every preview page) → Run launch → Indexing. Push updates when the site is already live |
 
 
 **Site-Config · Address (step 2)**
@@ -248,7 +251,7 @@ Optional group organizer (not a Stage). Skipping Photo does not block Content, A
 
 **Site-Config · Service area** — Click a city on the map to add or remove coverage (reversible; remove also drops its Page). Non-Zone still uses the research-seed suburb list and a radius slider. Zone candidates have no radius ring: **Suggested location pages** = this primary plus the closest leftover (non-site) towns (one site each); **Also serving** = other coverage including Zone sibling cities and leftover towns another Zone site already Also-serves or already pages (overlap is allowed). Sibling cities cannot be pages. Turning **Page** on a leftover that already has a location page on another Zone site stays exclusive (confirm steals that page). Min pop defaults to 0 so leftover CDPs appear. Use the table **Page** button to turn a location page on or off.
 
-**Before Run launch (outside Rover):** buy/point domain NS · Gmail Email Routing destination so Rover can email `leads@`.
+**Before Run launch (outside Rover):** buy the domain, point its nameservers at Cloudflare so it shows up in this account, and put your Gmail in the destination box. After launch, confirm Cloudflare’s email, submit the live form, and open **4 Launched**.
 
 **Already live?** Prepare preview → **Push updates**.
 

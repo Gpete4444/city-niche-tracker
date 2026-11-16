@@ -1,7 +1,8 @@
 ---
-import { site, formatPhoneDisplay, phoneHref } from '../config/site';
+import { contentImageAlt, site, formatPhoneDisplay, phoneHref } from '../config/site';
 import { fitEqualGrid } from '../lib/equal-grid';
 import { sentenceCaseLine } from '../lib/content-body';
+import { fixSmallWords } from '../lib/small-words.mjs';
 import {
   SURFACE_BRAND,
   SURFACE_INK,
@@ -241,7 +242,7 @@ const coverageMapHtml = loadInlineCoverageMapHtml(
                             kind: 'heading',
                           })}
                         >
-                          {item.title}
+                          {fixSmallWords(item.title)}
                         </h3>
                         <p
                           class="mt-2 text-sm leading-relaxed text-muted"
@@ -293,7 +294,7 @@ const coverageMapHtml = loadInlineCoverageMapHtml(
                   {item.image && (
                     <img
                       src={item.image.src}
-                      alt={item.image.alt}
+                      alt={contentImageAlt(item.image.alt)}
                       class="aspect-[4/3] w-full object-cover"
                       width="480"
                       height="360"
@@ -324,7 +325,7 @@ const coverageMapHtml = loadInlineCoverageMapHtml(
                         kind: 'heading',
                       })}
                     >
-                      {item.title}
+                      {fixSmallWords(item.title)}
                     </h3>
                     <p
                       class="mt-1 text-xs leading-snug text-muted sm:text-sm"
@@ -448,7 +449,7 @@ const coverageMapHtml = loadInlineCoverageMapHtml(
               <figure class="mt-8 lg:mt-0">
                 <div class="coverage-map-embed" set:html={coverageMapHtml} />
                 <figcaption class="mt-2 text-xs text-white/55">
-                  Named cities have local pages; shaded areas are also in our service area. Confirm
+                  Linked names open a local page. Other names are in the service area. Confirm
                   availability for a specific address.
                 </figcaption>
               </figure>
@@ -457,14 +458,14 @@ const coverageMapHtml = loadInlineCoverageMapHtml(
                 <figure class="mt-8 lg:mt-0">
                   <img
                     src={coverageMap.src}
-                    alt={coverageMap.alt}
+                    alt={contentImageAlt(coverageMap.alt)}
                     class="w-full rounded-xl bg-white shadow-2xl"
                     width="1000"
                     height="680"
                     loading="lazy"
                   />
                   <figcaption class="mt-2 text-xs text-white/55">
-                    Named cities have local pages; shaded areas are also in our service area. Confirm
+                    Linked names open a local page. Other names are in the service area. Confirm
                     availability for a specific address.
                   </figcaption>
                 </figure>
@@ -495,7 +496,7 @@ const coverageMapHtml = loadInlineCoverageMapHtml(
                       <figure>
                         <img
                           src={pair.before.src}
-                          alt={pair.before.alt}
+                          alt={contentImageAlt(pair.before.alt)}
                           class="aspect-[3/2] w-full rounded-lg object-contain shadow-sm"
                           width="800"
                           height="600"
@@ -512,7 +513,7 @@ const coverageMapHtml = loadInlineCoverageMapHtml(
                       <figure>
                         <img
                           src={pair.after.src}
-                          alt={pair.after.alt}
+                          alt={contentImageAlt(pair.after.alt)}
                           class="aspect-[3/2] w-full rounded-lg object-contain shadow-sm"
                           width="800"
                           height="600"

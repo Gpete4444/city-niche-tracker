@@ -796,6 +796,53 @@
       },
       "autoSeeded": false,
       "llmEnrichedAt": "2026-11-11T22:06:35.872Z"
+    },
+    {
+      "id": "cabinet-refacing",
+      "match": "Cabinet\\s+Refacing",
+      "boost": [
+        "cabinet refacing kitchen",
+        "cabinet door replacement",
+        "kitchen cabinet refinishing",
+        "cabinet veneer installation",
+        "cabinet hardware upgrade",
+        "crown molding cabinet",
+        "bathroom vanity refacing",
+        "cabinet box refacing"
+      ],
+      "tokens": [
+        "cabinet",
+        "cabinetry",
+        "refacing",
+        "veneer",
+        "vanity",
+        "drawer",
+        "hinge",
+        "hardware",
+        "thermofoil",
+        "laminate",
+        "crown molding",
+        "cabinet door",
+        "kitchen",
+        "bathroom",
+        "door",
+        "refinishing",
+        "painting",
+        "custom",
+        "doors",
+        "island",
+        "peeling"
+      ],
+      "requireNicheHit": true,
+      "kindHints": {
+        "hero": "refaced kitchen cabinets new doors",
+        "intro": "cabinet refacing kitchen interior",
+        "process": "measuring cabinet door refacing",
+        "materials": "cabinet veneer sample hardware hinge",
+        "other": "cabinet refacing installation residential"
+      },
+      "autoSeeded": false,
+      "llmEnrichedAt": "2026-11-13T21:05:12.630Z"
     }
   ]
 }

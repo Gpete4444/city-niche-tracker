@@ -21,7 +21,7 @@ The top bar is always there.
 
 ### Version {#chrome-version}
 
-**v2.6** (or current) sits next to the Rover wordmark. That is the product version, not a candidate.
+**v2.7** (or current) sits next to the Rover wordmark. That is the product version, not a candidate.
 
 ### Stages {#chrome-stages}
 
@@ -58,123 +58,138 @@ Opens this User guide in a searchable panel. The Dev guide stays in the repo, no
 | **Screen** | A top-bar destination (includes Phone · Map · Photo) |
 | **Panel** | A work area on a candidate’s detail side |
 
-Easy mix-ups: **Light SERP** is a Discovery step, not Research Evaluation 1. **Site research** is a Content step, not “field research” in the UI.
+Easy mix-ups: **Light SERP** is an optional Discovery check, not Research Evaluation 1. **Site research** is a Content step, not “field research” in the UI. The Discovery map (cluster colors) is not the later **Zone map** button, which adds cities after Research.
 
 ## Discovery {#discovery}
 
-Find niche × city ideas. Most rows will not become sites.
+The usual path is Cluster Cities. Single City is still there. Most rows will not become sites.
+
+1. Choose **Cluster Cities**.
+2. Enter the cluster niche.
+3. Pick an existing zone, or start a new one.
+4. New zone only: on the map, pick a cluster color, click cities or drag a circle, then **Generate pack**. An existing zone skips the map.
+5. **Generate pack**.
+6. Set a decision on each row.
+7. **Process batch**.
+
+**Light SERP** is optional. It is a cheap map-pack and page-count check. It is not the next step after Generate pack.
+
+**pursue**, **maybe**, **review**, and **hold** become Research candidates. **pursue** is what **Open tabs** will open later. **pass** is remembered and will not be suggested again. **ignore** can come back.
+
+Find hubs with Claude is optional. It does not start by itself on a new zone.
 
 ### New Discovery Pack {#discovery-new-pack}
 
-Creates a pack from your filters. Required niche text stays exact. Suggested / OPEN niches prefer head terms (Drywall → Drywall Repair). Claude also estimates monthly search volume. That estimate is Discovery triage, and when Ads volumes are skipped it can seed Research Demand (labeled **est.** — not Ads Planner).
+Cluster Cities is one niche for one metro. Required niche text stays exact. Claude estimates monthly search volume. That estimate is for sorting the list, and when ad volumes are skipped it can stand in for Research Demand (labeled **est.**).
 
-In **Anthropic API** mode, **Generate Discovery pack** creates the pack and runs Claude in one click (confirm cost, then wait on the overlay). Glance/fix rows, then Light SERP (sidebar step 2). **Re-run Generate pack** appears under that button when a batch is already selected. Canceling the cost confirm leaves the empty batch selected.
-
-In **Copy & paste** mode, Generate only writes the CSV template and prompt — then use Send to Claude and Import.
+In **Anthropic API** mode, **Generate pack** sends the prompt and imports the rows. In **Copy & paste** mode, Generate writes the template and prompt, then use Send to Claude and Import.
 
 ### Send to Claude {#discovery-send-claude}
 
-Copy & paste only. Copy the prompt, run it in Claude, wait for the filled CSV. This is usually the longest Discovery wait. Hidden in Anthropic API mode.
+Copy & paste only. Copy the prompt, run it in Claude, wait for the filled CSV. Hidden in Anthropic API mode.
 
 ### Import Claude CSV {#discovery-import}
 
-Copy & paste only. Paste or load the CSV. Rows appear in the batch table. Hidden in Anthropic API mode.
+Copy & paste only. Paste or load the CSV. Rows appear in the batch table. Next: set a decision, then Process batch. Hidden in Anthropic API mode.
 
 ### Light SERP {#discovery-light-serp}
 
-Cheap Map Pack / organic probe so you can decide before paying for full Research. Not the same as Research → SERP / Volume. Sidebar step 2 in Anthropic API mode; step 4 in Copy & paste.
+Optional. Cheap map-pack and page-count check so you can decide before paying for Research ad volumes. Not the same as Research → SERP / Volume.
 
 ### Decision {#discovery-decision}
 
-Every row needs a decision before Process:
+Every row needs a decision before Process. The meanings sit next to **Process batch**.
 
-- **pursue, maybe, review, hold** — keepers that go to Research
-- **pass** — tracked only (Generate Pack will not re-propose that pair)
-- **ignore** — skip; can show up again later
+- **pursue, maybe, review, hold** — become Research candidates. **pursue** is what Open tabs will open.
+- **pass** — remembered; Generate pack will not suggest that pair again
+- **ignore** — skipped; can show up again later
 
 ### Process batch {#discovery-process}
 
-Keepers become Research Candidates. Pass goes to the tracked list. Ignore is skipped.
+Keepers become Research candidates. On the usual path, search volumes are not started. Open Research and run the required steps: a search snapshot, then the written story. Search volumes are queued only when Research was set to **Run all** before Process.
 
 ### Advanced {#discovery-advanced}
 
-Sidebar editor for the **do-not-repropose** list (tracked orphans + Research at Evaluation 1). Launched candidates cannot be removed here. Use **Wipe to match Active Research** to clean test leftovers (archived unlaunched Website rows are deleted; Launched is skipped).
+Sidebar editor for pairs Generate pack should not suggest again. Launched candidates cannot be removed here. **Wipe to match Active Research** drops leftovers so Generate pack uses the shorter list.
 
 ## Research {#research}
 
-Prove the market with paid search data and a written story. Set **pursue** only when you are ready to build. The list table shows a green **LIVE** badge after the checkbox for launched sites (blank otherwise), then Evaluation (1–4) and Website Track (1 Site-Config · 2 Content · 3 Launch), and **Type** after API $ (Discovery / Research / Website / Launched).
+Prove the market, then set **pursue** when you are ready to build. **pursue** is what **Open tabs** will open on Website.
+
+The required path is a search snapshot, then the written story (**Run all required**, or **Copy prompt** in Copy & paste). Enrich, ad volumes, and Find renters are optional. They do not block Website.
+
+The list shows a green **LIVE** badge after the checkbox for launched sites, then Evaluation (1–4) and Website Track (1 Site-Config · 2 Content · 3 Launch), and **Type** after API $ (Discovery / Research / Website / Launched).
 
 **Delete permanently** wipes unlaunched Research or Website rows (Rover files + local assembled folder). Launched candidates cannot be deleted. Archive still hides a row without deleting files.
 
-**Concurrent Limit** (Settings, gear) is how many Evaluations may run at once (default 6, maximum 50). SERP / Enrich / Prospects use it in Copy & paste and API. API **Run Narrative** and **Run all** use it too; paste Narrative is still Copy prompt for one candidate. If you select more rows than the Evaluations box, Rover explains the soft limit and does not start — raise **Evaluations** under Concurrent Limit or select fewer.
+**Concurrent Limit** (Settings, gear) is how many Evaluations may run at once (default 6, maximum 100). SERP / Enrich / Prospects use it in Copy & paste and API. API **Run Narrative** and **Run all** use it too; paste Narrative is still Copy prompt for one candidate. If you select more rows than the Evaluations box, Rover explains the soft limit and does not start — raise **Evaluations** under Concurrent Limit or select fewer.
 
-In **Anthropic API** mode, the All box has **Run all required** (default, cheapest Research path: SERP seeds + Narrative) and **Run all** (expensive: Ads volumes + Enrich + Narrative + Prospects). Copy & paste mode hides this box; **Copy prompt** hydrates cheap SERP seeds first.
+In **Anthropic API** mode, the All box has **Run all required** (default) and **Run all** (ad volumes, Enrich, the story, and renters). Copy & paste mode hides this box; **Copy prompt** gets a cheap search snapshot first.
 
 ### Overview {#research-overview}
 
-Snapshot of scores and flags. Set **pursue** here when Evaluations look good. That move unlocks Website.
+Snapshot of scores and flags. Set **pursue** here when you are ready to build. That opens Website, and it is the decision Open tabs uses.
 
 ### SERP / Volume {#research-serp}
 
-Evaluation 1. Paid **Ad volumes** (optional). Cheap **SERP seeds** (Discovery cache or ~$0.002) are enough for Narrative and Website keyword/FAQ/title hints. When Ads are skipped, Demand is blank unless Claude’s Discovery volume estimate is present (shown as **est.**). **Force new SERP** re-pulls Map Pack / organic. **Keywords** is a glance at Ads volumes when you ran them.
+Evaluation 1. Paid **Ad volumes** are optional. A cheap search snapshot is enough for the story and for Website keyword hints. When ad volumes are skipped, Demand can show Claude’s Discovery estimate, labeled **est.** **Force new SERP** re-pulls the map pack and organic results. **Keywords** is a glance at ad volumes when you ran them.
 
 ### Enrich {#research-enrich}
 
-Evaluation 2. Domain rank / thinness. Optional — does not block Narrative or Website.
+Evaluation 2. How strong the competing pages look. Optional. Click **Run enrich**. It does not block the story or Website.
 
 ### Narrative {#research-narrative}
 
-Evaluation 3. Required to build. Needs SERP seeds (not Enrich). **Copy prompt** → Claude → **Load** the JSON draft → **Accept**. Accept writes the approved package. When Ads volumes were skipped, Claude should emit `suggestedKeywords` phrases (no invented volumes).
+Evaluation 3. Required to build. Needs the search snapshot, not Enrich. In Copy & paste: **Copy prompt** → Claude → **Load** the reply. A valid reply is accepted automatically. In API mode, **Run Narrative** does the same. When ad volumes were skipped, the reply should include keyword phrases and not invented volumes.
 
 ### Prospects {#research-prospects}
 
-Evaluation 4. Optional renter list. Requires Narrative accepted. Does not block Website.
-
-### Logs {#research-logs}
-
-Job history and raw output for the selected candidate.
+Evaluation 4. Optional renter list. Click **Find renters** after the story is accepted. It does not require **pursue**, and it does not block Website.
 
 ## Website {#website}
 
-Build the site for a **pursue** candidate. Three tracks, in order: Site-Config → Content → Launch.
+Build the site for a **pursue** candidate. Before Colors on any site, click **Open tabs** on the Website list. Pick the zone and the cluster range for this session. Rover opens one tab per **pursue** city. Then work Colors through launch on those tabs.
+
+Three tracks, in order: Site-Config → Content → Launch.
 
 ### Site-Config {#website-site-config}
 
-1. **Colors & fonts** — pick a palette and font theme, then Apply.
-2. **Address** — Find commercial streets (LoopNet / Crexi → Places), Manual commercial, Home paste, or Skip. Recommended vs Secondary is about city match. See Find details below.
-3. **Business details** — name, domain, NAP fields.
-4. **Paste & edit draft** — Claude site-config JSON; Load into the editor.
-5. **Review services → Accept** — locks site-config.
-6. **Service area** — click a city to add or remove coverage (reversible). Zone candidates have no radius ring or slider: seed is the closest leftover (non-site) towns as **Suggested location pages** (one leftover page per Zone site) plus 10 Also serving leftovers. **Also serving** leftovers may overlap across Zone sites, including towns another site already pages; other Zone cities stay Also serving only (never pages). Use **Page** to steal a leftover page (confirm). Non-Zone still uses the research-seed list and a radius slider.
-7. **Provision phone** — Twilio ranking number, or Skip. Do not buy numbers in Discovery or Research. If **Phone → Twilio** is still red in Settings, finish [First-time Twilio setup](#phone-twilio-setup) first.
+1. **Colors & fonts** — pick a palette and a font, then Apply.
+2. **Address** — Find commercial streets, enter one, use home, or Skip.
+3. **Domain** — pick a city-first host, or type your own. Buy it before launch.
+4. **Business details** — name, address, and contact details. In API mode, **Fill site-config** then **Apply changes**. In Copy & paste, copy the prompt.
+5. **Paste the reply** — Copy & paste only. Load the reply and edit it here.
+6. **Review services → Accept** — locks site-config.
+7. **Service area** — click a city to add or remove coverage. Zone candidates have no radius ring: suggested location pages plus Also serving leftovers. Other zone cities stay Also serving only.
+8. **Provision phone** — buy a local number, or Skip. Calls go to voicemail and text you. Do not buy numbers in Discovery or Research. The area code may be an overlay, or another city in the same state if Twilio has no numbers in your city. See [Area code on a new number](#phone-area-code). If **Phone → Twilio** is still red in Settings, finish [First-time Twilio setup](#phone-twilio-setup) first.
 
-**Find addresses:** Clean target (default 10) stops Places after that many clean streets. Pull size (default ~40 listings per source) is remembered in this browser. A street is rejected only for an **active OPERATIONAL** Maps listing on that street + ZIP. **Refresh / Fetch deeper** re-scrapes checked sources (costs Apify). Use **Find** when a source still has streets left; **Fetch deeper** when every checked source is exhausted.
+**Find addresses:** Clean target (default 10) stops Places after that many clean streets. Pull size (default ~40 listings per source) is remembered in this browser. A street is rejected only for an **active OPERATIONAL** Maps listing on that street + ZIP. **Refresh / Fetch deeper** re-scrapes checked sources. Use **Find** when a source still has streets left; **Fetch deeper** when every checked source is exhausted.
 
 ### Content {#website-content}
 
-1. **Structure** — usually Preset C. Chooses which homepage / service sections exist.
-2. **Site research** — Copy → Claude → Load.
+1. **Structure** — usually Preset C. Home is this niche in this city. Service pages are offers you will do. Location pages are real nearby cities.
+2. **Site research** — Copy → Claude → Load. Copy & paste only.
 3. **Content brief** — Copy → Claude → Load & confirm.
 4. **Outline** — Copy → Claude → Load & confirm.
-5. **Full write** — batched Home / Services / Locations. Longest Claude wait.
-6. **Humanize** — editor pack (burstiness, perplexity, bookends, conversion).
-7. **Final check** — Copy → Load OK or FILE fixes.
-8. **Image queries** — search phrases for stock photos.
-9. **Load photo group** — optional. Skip uses fresh stock on Accept (queries required).
-10. **Accept** — writes pages, then photos (group, niche master, or stock pull), logo, and coverage map. A card covers the workspace while it runs.
+5. **Full write** — one page group at a time. Longest Claude wait.
+6. **Humanize** — Rover checks the writing. Send leftovers back if you want them gone.
+7. **Final check** — Copy → Load the result.
+8. **Image queries** — prompts for stock photos. Copy & paste, when photos are on.
+9. **Load photo group** — optional. Skip uses fresh stock on Accept.
+10. **Accept** — writes the pages, then photos, logo, and coverage map.
 
-In **API** mode, steps 2–8 are **Write site with Claude** (one job per candidate). You can start Write site on up to **six different** candidates at the same time. A second Write site on the same candidate is blocked until the first finishes (or you Stop it in Light). Each window still confirms cost. Polish retries the editor if speech notes or Critical SEO remain, then expands thin location pages. Location bodies under 450 words fail Write site (Retry). After a finished Write site, Accept shows **Expand location pages** for the same lint. Leftover speech notes are optional (Copy & paste Humanize), not a stop. Generate pack can run on different batches up to the Generate pack box (default 5). A second Generate pack on the same batch is blocked.
+In **API** mode, steps 2–8 are **Structure**, then **Write site with Claude** (one job per candidate). You can start Write site on up to **six different** candidates at the same time. A second Write site on the same candidate is blocked until the first finishes. Each window still confirms cost. After Accept, open **3 · Launch**.
 
 ### Launch track {#website-launch}
 
-1. **Logo & Map** — regenerate logo or coverage map if Accept skipped them. Accept uses **Mark + text**. Logo modes: Mark, Mark + text, Monogram. Previous logos (up to 4) and maps (up to 2) sit in trays under the previews.
-2. **Review images** — grade slots, re-pull, generate, save/load photo groups. Niche master is first in the dropdown.
-3. **Prepare preview** — stages, assembles, builds, starts a local preview. A card covers the workspace (`Staging` through `Preview`). A waiting tab opens while it runs.
-4. **QA preview** — spot-check key URLs on the preview.
-5. **Run launch** — first go-live: Email Routing so `leads@` exists and Rover emails that destination; Auto ship is on by default.
-6. **Push updates** — already live: ship GitHub + build + Worker only. Run **Prepare preview** first if content changed.
+1. **Logo & Map** — regenerate the logo or coverage map if Accept skipped them.
+2. **Review images** — swap, upload, or generate photos. Save or load a photo group if you want.
+3. **Prepare preview** — builds a local preview of every page. It does not publish. When it finishes, open every preview page, then Run launch.
+4. **Launch** — first go-live. Buy the domain. At the registrar, point the nameservers at Cloudflare so the domain shows up in this account. Put your Gmail in the destination box. Leave **Auto ship** and **Connect domain and email** on. After launch, open Cloudflare’s confirmation email once, submit the live form, and confirm the email arrives.
+5. **Indexing** — submit the live sitemap in Search Console, then mark done. Indexing is not ranking.
+6. **Push updates** — the site is already live: publish the latest copy. Run **Prepare preview** first if the pages changed.
 
-**Before first launch (outside Rover):** buy the domain and point NS at Cloudflare; have a Gmail for the Email Routing destination.
+The site then appears under **4 Launched**.
 
 ## Launched {#launched}
 
@@ -184,9 +199,13 @@ Portfolio of live sites: rent status, renter, payment, infra links. Table shows 
 
 Call log for ranking numbers: voicemail / answered / missed, recordings, AI summaries. Upload the ranking greeting and spoken fallback here. Provision in Site-Config, not here. Rent cutover keeps the same number and forwards to the renter.
 
-Do this **Twilio Console + .env** setup **once per Twilio account**. After that, Phone Refresh keeps the Functions up to date. You do not paste the code again unless you create a new Twilio account.
+### Area code on a new number {#phone-area-code}
+
+Rover does not choose the area code. It buys the first US local number Twilio returns. It searches the city first. If that city has nothing in stock, it takes the first number anywhere in the state. That statewide fallback is how a Phoenix-area site ends up with a Flagstaff number, or a Dallas suburb with an Abilene number. Newer overlays such as 447, 385, and 737 are what you get when the city search succeeds but the old area code is exhausted.
 
 ### First-time Twilio setup {#phone-twilio-setup}
+
+Do this **Twilio Console + .env** setup **once per Twilio account**. After that, Phone Refresh keeps the Functions up to date. You do not paste the code again unless you create a new Twilio account.
 
 Do these clicks in order. Do not skip **Deploy All**.
 

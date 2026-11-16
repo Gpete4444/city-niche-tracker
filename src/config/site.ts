@@ -1,6 +1,7 @@
 import { z } from 'astro/zod';
 import rawConfig from './site-config.json';
 import { sitePath } from '../lib/site-path';
+import { publicImageAlt } from '../lib/image-alt.mjs';
 
 const addressSchema = z.object({
   street: z.string().min(1),
@@ -218,6 +219,30 @@ export function defaultSeedSocialProof(
 /** @deprecated Use defaultSeedSocialProof */
 export const defaultPlaceholderSocialProof = defaultSeedSocialProof;
 
+/** Visible blank-tagline token. Hero and footer must not print this. */
+export const PLACEHOLDER_TAGLINE = 'TBD — local service tagline';
+
+/** Stable opening of the invented review used to recognize the default social-proof seed. */
+export const DEFAULT_SEED_REVIEW_QUOTE = 'Honestly did not expect such a professional team';
+
+export function isPlaceholderTagline(value?: string | null): boolean {
+  const s = String(value ?? '').trim();
+  if (!s) return true;
+  if (s === PLACEHOLDER_TAGLINE) return true;
+  return /^tbd\b/i.test(s);
+}
+
+/** Tagline safe to print. The TBD token becomes an empty string. */
+export function publicTagline(value?: string | null): string {
+  const s = String(value ?? '').trim();
+  return isPlaceholderTagline(s) ? '' : s;
+}
+
+export function socialProofIsDefaultSeed(proof?: SocialProof | null): boolean {
+  const reviews = proof?.reviews ?? [];
+  return reviews.some((review) => String(review.quote || '').includes(DEFAULT_SEED_REVIEW_QUOTE));
+}
+
 export function socialProofHasTrustStrip(proof?: SocialProof | null): boolean {
   if (!proof) return false;
   return Boolean(
@@ -225,6 +250,33 @@ export function socialProofHasTrustStrip(proof?: SocialProof | null): boolean {
       (proof.licenses && proof.licenses.length) ||
       (proof.statistics && proof.statistics.length),
   );
+}
+
+function statisticDuplicatesRating(
+  stat: { value: string; label: string },
+  rating?: SocialProof['rating'],
+): boolean {
+  if (!rating) return false;
+  const label = String(stat.label || '');
+  const value = String(stat.value || '');
+  if (/average\s+customer\s+rating/i.test(label)) return true;
+  const num = parseFloat(value.replace(/[^\d.]/g, ''));
+  return (
+    Number.isFinite(num) &&
+    Math.abs(num - rating.value) < 0.05 &&
+    /rating|★|\*/i.test(`${value} ${label}`)
+  );
+}
+
+/** Trust-row statistics. A stat that repeats the Google rating is omitted. */
+export function trustStripStatistics(proof?: SocialProof | null) {
+  if (!proof) return [];
+  return (proof.statistics ?? []).filter((stat) => !statisticDuplicatesRating(stat, proof.rating));
+}
+
+/** Licenses for the trust row. */
+export function trustStripLicenses(proof?: SocialProof | null) {
+  return proof?.licenses ?? [];
 }
 
 export const siteConfigSchema = z.object({
@@ -306,4 +358,19 @@ export function formatPhoneDisplay(phone: string = site.phone): string {
 export function phoneHref(phone: string = site.phone): string {
   const digits = phone.replace(/\D/g, '');
   return `tel:+${digits}`;
+}
+
+/** Alt text for a content photo. Generic and service-slot captions pick up the city. */
+export function contentImageAlt(
+  alt: string,
+  extra: { serviceName?: string } = {},
+): string {
+  return publicImageAlt(alt, {
+    businessName: site.businessName,
+    niche: site.niche,
+    city: site.primaryCity,
+    state: site.state,
+    serviceName: extra.serviceName,
+    services: [...(site.services || []), ...(site.commercialServices || [])],
+  });
 }

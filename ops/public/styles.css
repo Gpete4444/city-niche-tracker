@@ -6645,6 +6645,20 @@ table.table-cols-resized #discovery-table .col-notes .cell-text {
 }
 .discovery-table-panel .panel-head {
   align-items: flex-start;
+  margin-bottom: 0.35rem;
+}
+.discovery-head-hints {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.1rem 0.85rem;
+  margin: 0 0 0.35rem;
+  font-size: 0.75rem;
+  line-height: 1.3;
+}
+.discovery-head-hints p {
+  margin: 0;
+  flex: 1 1 100%;
+  min-width: 0;
 }
 .discovery-table-wrap {
   max-height: calc(100vh - 220px);
@@ -8552,7 +8566,7 @@ h4.ca-image-slot-section-title {
   margin: 0;
   flex: 1 1 16rem;
 }
-#detail.website-write-locked button:not(.tab):not(.website-lease-takeover):not(.tip-info):not(.website-launch-note-toggle):not(.sc-domain-copy):not(#ca-launch):not(#ca-push-updates):not(#ca-prepare-preview),
+#detail.website-write-locked button:not(.tab):not(.website-lease-takeover):not(.tip-info):not(.website-launch-note-toggle):not(.sc-domain-copy):not(#ba-copy-city):not(#ca-launch):not(#ca-push-updates):not(#ca-prepare-preview),
 #detail.website-write-locked input:not([type='hidden']),
 #detail.website-write-locked textarea,
 #detail.website-write-locked select {
@@ -8560,7 +8574,13 @@ h4.ca-image-slot-section-title {
 }
 
 .discovery-pack-type {
+  display: flex;
+  width: 100%;
   margin-bottom: 0.35rem;
+}
+.discovery-pack-type .claude-mode-seg {
+  flex: 1 1 0;
+  text-align: center;
 }
 .discovery-shotgun-only.hidden,
 .discovery-scout-only.hidden {

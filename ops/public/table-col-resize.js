@@ -273,7 +273,7 @@ function attachHandles(table, sessionKey, state) {
     const handle = document.createElement('span');
     handle.className = HANDLE_CLASS;
     handle.setAttribute('aria-hidden', 'true');
-    handle.title = 'Drag to resize · double-click to fit content';
+    handle.setAttribute('data-tip', 'Drag to resize. Double-click to fit.');
 
     handle.addEventListener('mousedown', (e) => {
       e.preventDefault();

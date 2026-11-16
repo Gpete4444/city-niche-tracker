@@ -306,7 +306,7 @@ export function getCostPreview(candidateId, act, opts = {}) {
       provider: 'anthropic',
       title: willOverwrite ? 'Replace Stage 3 narrative?' : 'Run Stage 3 narrative?',
       whatItDoes:
-        'Sends your research JSON to Claude with the candidate-research prompt. Claude fills soft fields (job value, narrative, proposed score polish) into a draft you must Accept before it becomes final.',
+        'Sends the research to Claude. A valid reply is accepted automatically. If it needs fixes, Accept or reject it on the story step.',
       estimateLabel: `~${formatUsd(priced.costUsd)} (${inputTokens.toLocaleString()} in + ~${outputTokens.toLocaleString()} out tokens)`,
       estimateUsdLow: priced.costUsd,
       estimateUsdHigh: priced.costUsd,
@@ -319,7 +319,7 @@ export function getCostPreview(candidateId, act, opts = {}) {
         ? 'A narrative draft or accepted file already exists. Running again replaces the current draft. An accepted narrative stays until you Accept again.'
         : null,
       confirmLabel: `Run (est. ${formatUsd(priced.costUsd)})`,
-      freeFallback: 'Prefer free/manual? Cancel and use Copy Claude.ai prompt instead.',
+      freeFallback: 'Copy and paste is the other mode in the header.',
     };
   }
 

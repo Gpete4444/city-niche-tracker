@@ -17,6 +17,20 @@ import {
   titleCaseNiche,
 } from './candidates.mjs';
 import { normalizeServiceNameList, stampNicheHomepageServicesLimit } from './niche-service-lists.mjs';
+import {
+  candidateCityFromDocs,
+  candidateStateFromDocs,
+  persistRestoredSiteCity,
+  restoreSiteCityConfig,
+  suburbNameFromItem,
+} from './site-city.mjs';
+
+export {
+  candidateCityFromDocs,
+  candidateStateFromDocs,
+  persistRestoredSiteCity,
+  restoreSiteCityConfig,
+};
 import { zoneGuideBlockForCandidate } from './zone-guide.mjs';
 import { mergeNicheDomainSuggestions } from '../public/domain-suggest.mjs';
 import { listNicheDomainPatterns } from './niche-domain-patterns.mjs';
@@ -105,6 +119,22 @@ export function normalizeSiteAddress(addr, { primaryCity, state } = {}) {
     .toUpperCase();
   if (!street || !zip || !city || !st) return undefined;
   return suite ? { street, suite, city, state: st, zip } : { street, city, state: st, zip };
+}
+
+/**
+ * Suite for the site-config prompt. A saved business-address suite fills a blank NAP suite
+ * even when the street is already set.
+ */
+export function suiteForSiteConfigPrompt(napSuite, selection) {
+  const current = sanitizeListedSuite(napSuite);
+  if (current) return current;
+  if (!selection || typeof selection !== 'object') return '';
+  return (
+    sanitizeListedSuite(selection.suite) ||
+    splitNapStreet(selection.street).suite ||
+    splitSuiteFromCity(selection.city).suite ||
+    ''
+  );
 }
 
 /** Blank or the Claude seed `+1XXXXXXXXXX` is not a number to publish. */
@@ -524,94 +554,6 @@ export function persistCoercedAcceptedSiteConfig(candidateId) {
   return { changed: true, config: next };
 }
 
-function siteCityKey(name) {
-  return String(name || '')
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g, ' ');
-}
-
-/** Candidate city: research primary, then config `City,ST`. */
-export function candidateCityFromDocs(research, config) {
-  const fromResearch = String(research?.primaryCity || research?.summary?.primaryCity || '').trim();
-  if (fromResearch) return fromResearch;
-  return (
-    String(config?.primary || '')
-      .split(',')[0]
-      ?.trim() || ''
-  );
-}
-
-/** Candidate state: research state, then the ST half of config `City,ST`. */
-export function candidateStateFromDocs(research, config) {
-  const fromResearch = String(research?.state || research?.summary?.state || '')
-    .trim()
-    .toUpperCase();
-  if (fromResearch) return fromResearch;
-  return String(String(config?.primary || '').split(',')[1] || '')
-    .trim()
-    .toUpperCase();
-}
-
-/**
- * Site city is the candidate city. A street in a neighboring town must not become primaryCity,
- * and the site city is the homepage — not a suburb page.
- * Does not change the street address. A config for a different state is left alone
- * (it is not this candidate's site).
- */
-export function restoreSiteCityConfig(config, siteCity, { siteState } = {}) {
-  if (!config || typeof config !== 'object') return { config, changed: false };
-  const city = String(siteCity || '').trim();
-  if (!city) return { config, changed: false };
-  const expectedState = String(siteState || '').trim().toUpperCase();
-  const configState = String(config.state || '').trim().toUpperCase();
-  if (expectedState && configState && expectedState !== configState) {
-    return { config, changed: false };
-  }
-  const cityKey = siteCityKey(city);
-  const primaryDrifted = siteCityKey(config.primaryCity) !== cityKey;
-  const suburbs = Array.isArray(config.targetSuburbs) ? config.targetSuburbs : null;
-  const nextSuburbs = suburbs
-    ? suburbs.filter((item) => siteCityKey(suburbNameFromItem(item)) !== cityKey)
-    : null;
-  const suburbsDrifted = Boolean(suburbs && nextSuburbs.length !== suburbs.length);
-  if (!primaryDrifted && !suburbsDrifted) return { config, changed: false };
-  return {
-    changed: true,
-    config: {
-      ...config,
-      primaryCity: city,
-      ...(suburbsDrifted ? { targetSuburbs: nextSuburbs } : {}),
-    },
-  };
-}
-
-/**
- * Persist a drifted accepted site-config so the Service area map locks the candidate city.
- * No-op when primaryCity already matches and the site city is not listed as a suburb page.
- */
-export function persistRestoredSiteCity(candidateId, { research, config, raw } = {}) {
-  const p = pathsFor(candidateId);
-  const researchDoc = research === undefined ? readJson(p.research) : research;
-  const configDoc = config === undefined ? readJson(p.config) : config;
-  const siteCity = candidateCityFromDocs(researchDoc, configDoc);
-  const siteState = candidateStateFromDocs(researchDoc, configDoc);
-  const disk = raw === undefined ? readJson(p.siteConfig) : raw;
-  if (!disk || typeof disk !== 'object') return { changed: false, config: disk || null };
-  const { _ops, ...clean } = disk;
-  const restored = restoreSiteCityConfig(clean, siteCity, { siteState });
-  if (!restored.changed) return { changed: false, config: disk };
-  const next = {
-    ...restored.config,
-    _ops: {
-      ...(_ops && typeof _ops === 'object' ? _ops : {}),
-      siteCityRestoredAt: new Date().toISOString(),
-    },
-  };
-  writeJson(p.siteConfig, next);
-  return { changed: true, config: next };
-}
-
 /**
  * Soft SEO warn when public hostname tokens don't overlap niche / brand / primary city.
  * Does not block Accept or Launch (test hosts must still ship).
@@ -821,17 +763,6 @@ function looksTbd(v) {
 }
 
 const SUBURB_SCHEMA_JUNK = new Set(['id', 'string', 'xx', 'tbd', 'name', 'state', '[object object]']);
-
-/** City label from a string or object. Never use id / ID / placeId. */
-function suburbNameFromItem(x) {
-  if (x == null) return '';
-  if (typeof x === 'string' || typeof x === 'number') return String(x).trim();
-  if (typeof x === 'object' && !Array.isArray(x)) {
-    return String(x.name ?? x.city ?? x.label ?? x.place ?? '').trim();
-  }
-  if (Array.isArray(x)) return suburbNameFromItem(x[0]);
-  return '';
-}
 
 /**
  * Real municipality names only: coerce objects, drop schema tokens / ids / duplicates / primary.
@@ -1234,18 +1165,19 @@ export function buildSiteConfigPrompt(candidateId, nap = {}) {
     addrCity = '';
     addrState = '';
     addrZip = '';
-  } else if (!addrStreet && addrPkg?.selection) {
-    addrStreet = splitNapStreet(addrPkg.selection.street).street;
-    addrSuite =
-      sanitizeListedSuite(addrPkg.selection.suite) ||
-      addrSuite ||
-      splitSuiteFromCity(addrPkg.selection.city).suite;
-    const peeledSel = splitSuiteFromCity(addrPkg.selection.city);
-    addrCity = peeledSel.city || String(addrPkg.selection.city || '').trim();
-    addrState = String(addrPkg.selection.state || '')
-      .trim()
-      .toUpperCase();
-    addrZip = String(addrPkg.selection.zip || '').trim();
+  } else if (addrPkg?.selection) {
+    if (!addrStreet) {
+      addrStreet = splitNapStreet(addrPkg.selection.street).street;
+      const peeledSel = splitSuiteFromCity(addrPkg.selection.city);
+      addrCity = peeledSel.city || String(addrPkg.selection.city || '').trim();
+      addrState = String(addrPkg.selection.state || '')
+        .trim()
+        .toUpperCase();
+      addrZip = String(addrPkg.selection.zip || '').trim();
+      addrSuite = suiteForSiteConfigPrompt('', addrPkg.selection) || addrSuite;
+    } else if (!addrSuite) {
+      addrSuite = suiteForSiteConfigPrompt('', addrPkg.selection);
+    }
   }
 
   const filled = template
@@ -1414,6 +1346,108 @@ export function scanSiteConfigPlaceholders(config) {
   return [...new Set(placeholders)];
 }
 
+/** Blank, or the visible "TBD — local service tagline" token (and any other TBD… value). */
+export function isPlaceholderTagline(value) {
+  const s = String(value ?? '').trim();
+  if (!s) return true;
+  if (s === SITE_CONFIG_PLACEHOLDERS.tagline) return true;
+  return /^tbd\b/i.test(s);
+}
+
+/** Homepage frontmatter `description`, the sentence under the hero when the tagline was never written. */
+export function homepageDescriptionFromMarkdown(markdown) {
+  const text = String(markdown || '').replace(/^\uFEFF/, '');
+  const fmMatch = text.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+  const block = fmMatch ? fmMatch[1] : '';
+  if (!block) return '';
+  const line = block.split(/\r?\n/).find((l) => /^description\s*:/.test(l.trim()));
+  if (!line) return '';
+  let value = line.replace(/^description\s*:\s*/, '').trim();
+  if (
+    (value.startsWith('"') && value.endsWith('"')) ||
+    (value.startsWith("'") && value.endsWith("'"))
+  ) {
+    value = value.slice(1, -1);
+  }
+  return value.replace(/\\"/g, '"').replace(/\s+/g, ' ').trim();
+}
+
+export function homepageDescriptionFromFiles(files) {
+  if (!files || typeof files !== 'object') return '';
+  const key = Object.keys(files).find((rel) =>
+    String(rel).replace(/\\/g, '/').endsWith('src/content/pages/index.md'),
+  );
+  if (!key) return '';
+  return homepageDescriptionFromMarkdown(files[key]);
+}
+
+function contentFilesForCandidate(candidateId) {
+  const p = pathsFor(candidateId);
+  const accepted = readJson(p.content);
+  const draft = readJson(p.contentDraft);
+  return accepted?.files || draft?.files || null;
+}
+
+/**
+ * If tagline is blank or the TBD token, use the homepage description.
+ * Does not mutate `config`.
+ * @returns {{ config: object, resolved: boolean, tagline: string }}
+ */
+export function resolvePlaceholderTagline(config, files) {
+  const base = { ...(config && typeof config === 'object' ? config : {}) };
+  const current = String(base.tagline ?? '').trim();
+  if (!isPlaceholderTagline(current)) {
+    return { config: base, resolved: false, tagline: current };
+  }
+  const desc = homepageDescriptionFromFiles(files);
+  if (!desc || isPlaceholderTagline(desc)) {
+    return { config: base, resolved: false, tagline: current };
+  }
+  base.tagline = desc;
+  return { config: base, resolved: true, tagline: desc };
+}
+
+export function resolveCandidateTagline(candidateId, config) {
+  return resolvePlaceholderTagline(config, contentFilesForCandidate(candidateId));
+}
+
+/**
+ * Write a resolved tagline onto the accepted config and the staged config when either still holds the token.
+ * @returns {{ config: object, resolved: boolean, tagline: string }}
+ */
+export function persistResolvedTagline(candidateId) {
+  const p = pathsFor(candidateId);
+  const files = contentFilesForCandidate(candidateId);
+  const acceptedRaw = readJson(p.siteConfig);
+  const accepted = stripSiteConfigOps(acceptedRaw) || {};
+  const resolved = resolvePlaceholderTagline(accepted, files);
+  if (resolved.resolved && acceptedRaw && typeof acceptedRaw === 'object') {
+    writeJson(p.siteConfig, { ...acceptedRaw, tagline: resolved.tagline });
+  }
+  const stagingCfg = path.join(p.siteStaging, 'src', 'config', 'site-config.json');
+  if (existsSync(stagingCfg)) {
+    const staged = readJson(stagingCfg) || {};
+    const stagedResolved = resolvePlaceholderTagline(staged, files);
+    if (stagedResolved.resolved) {
+      writeJson(stagingCfg, { ...staged, tagline: stagedResolved.tagline });
+    }
+    return stagedResolved;
+  }
+  return resolved;
+}
+
+/** Assemble and ship refuse a public page whose tagline is still the TBD token. */
+export function assertTaglineReady(config, label = 'Launch') {
+  const placeholders = scanSiteConfigPlaceholders(config);
+  if (!placeholders.includes('tagline')) return placeholders;
+  const err = new Error(
+    `${label} blocked: tagline is still "${SITE_CONFIG_PLACEHOLDERS.tagline}".`,
+  );
+  err.status = 400;
+  err.placeholders = placeholders;
+  throw err;
+}
+
 /**
  * Merge pasted config + NAP + approved package, then fill remaining required fields.
  * @returns {{ config: object, placeholders: string[] }}
@@ -1575,9 +1609,14 @@ export function pasteSiteConfigDraft(candidateId, raw, nap = {}) {
     throw err;
   }
 
-  const { config, placeholders } = withSiteConfigPlaceholders(value, nap, pack, {
+  let { config, placeholders } = withSiteConfigPlaceholders(value, nap, pack, {
     fillFromPack: !serviceAreaAlreadySaved(candidateId),
   });
+  const taglineFix = resolveCandidateTagline(candidateId, config);
+  if (taglineFix.resolved) {
+    config = taglineFix.config;
+    placeholders = scanSiteConfigPlaceholders(config);
+  }
   stampNicheHomepageServicesLimit(config);
   const { draft, suburbCheck } = writeDraftFile(candidateId, config, {
     source: 'paste',
@@ -1694,9 +1733,14 @@ export function updateSiteConfigDraft(candidateId, patch = {}, nap = {}) {
   }
 
   const pack = getApprovedPackage(candidateId);
-  const { config, placeholders } = withSiteConfigPlaceholders(next, nap, pack, {
+  let { config, placeholders } = withSiteConfigPlaceholders(next, nap, pack, {
     fillFromPack: !serviceAreaAlreadySaved(candidateId),
   });
+  const taglineFix = resolveCandidateTagline(candidateId, config);
+  if (taglineFix.resolved) {
+    config = taglineFix.config;
+    placeholders = scanSiteConfigPlaceholders(config);
+  }
   if (createdFresh) {
     const paletteId = String(nap.paletteId || '').trim();
     const fontTheme = String(nap.fontTheme || '').trim();
@@ -1778,6 +1822,8 @@ export function acceptSiteConfig(
   if (!isBlank(clean.domain)) {
     clean.email = publicLeadsEmail(clean.email, clean.domain);
   }
+  const taglineFix = resolveCandidateTagline(candidateId, clean);
+  if (taglineFix.resolved) clean.tagline = taglineFix.tagline;
   const placeholders = scanSiteConfigPlaceholders(clean);
   if (placeholders.length && !allowPlaceholders) {
     const err = new Error(

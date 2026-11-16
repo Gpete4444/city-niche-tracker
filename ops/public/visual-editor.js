@@ -171,7 +171,7 @@ function renderPalette() {
         .map((p) => {
           const on = p.id === current ? 'on' : '';
           const b = p.brand || {};
-          return `<button type="button" class="ve-swatch ${on}" data-palette="${deps.esc(p.id)}" title="${deps.esc(p.label)}">
+          return `<button type="button" class="ve-swatch ${on}" data-palette="${deps.esc(p.id)}">
         <span style="background:${deps.esc(b.primary || '#333')}"></span>
         <span style="background:${deps.esc(b.accent || '#999')}"></span>
         ${deps.esc(p.label)}
@@ -198,7 +198,7 @@ function renderFonts() {
   wrap.innerHTML = (snapshot?.fontThemes || [])
     .map((t) => {
       const on = t.id === current ? 'on' : '';
-      return `<button type="button" class="ve-font ${on}" data-font-theme="${deps.esc(t.id)}" title="${deps.esc(
+      return `<button type="button" class="ve-font ${on}" data-font-theme="${deps.esc(t.id)}" data-tip="${deps.esc(
         t.tip || t.label,
       )}">
         <span class="ve-font-label">${deps.esc(t.label)}</span>
@@ -444,8 +444,8 @@ function renderSections() {
           <span>${deps.esc(s.label)}</span>
         </label>
         <span class="ve-section-move">
-          <button type="button" class="ve-section-arrow" data-section-move="up" data-section-id="${deps.esc(s.id)}" ${canUp ? '' : 'disabled'} aria-label="Move ${deps.esc(s.label)} up">▲</button>
-          <button type="button" class="ve-section-arrow" data-section-move="down" data-section-id="${deps.esc(s.id)}" ${canDown ? '' : 'disabled'} aria-label="Move ${deps.esc(s.label)} down">▼</button>
+          <button type="button" class="ve-section-arrow" data-section-move="up" data-section-id="${deps.esc(s.id)}" ${canUp ? '' : 'disabled'} data-tip="Move this section up" aria-label="Move ${deps.esc(s.label)} up">▲</button>
+          <button type="button" class="ve-section-arrow" data-section-move="down" data-section-id="${deps.esc(s.id)}" ${canDown ? '' : 'disabled'} data-tip="Move this section down" aria-label="Move ${deps.esc(s.label)} down">▼</button>
         </span>
       </div>`;
     })

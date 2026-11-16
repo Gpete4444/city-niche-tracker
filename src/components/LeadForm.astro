@@ -1,5 +1,6 @@
 ---
 import { site } from '../config/site';
+import { fixSmallWords } from '../lib/small-words.mjs';
 
 interface Props {
   heading?: string;
@@ -69,7 +70,10 @@ const ingestUrl = site.formsIngestUrl || '';
         <label class="label" for="service">What do you need?</label>
         <select class="field" id="service" name="service" required>
           <option value="" disabled selected>Select a service</option>
-          {site.services.map((service) => <option value={service}>{service}</option>)}
+          {site.services.map((service) => {
+            const label = fixSmallWords(service);
+            return <option value={label}>{label}</option>;
+          })}
           <option value="Other / Not sure">Other / Not sure</option>
         </select>
       </div>

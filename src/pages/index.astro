@@ -9,7 +9,7 @@ import ServiceCards from '../components/ServiceCards.astro';
 import HomeSections from '../components/HomeSections.astro';
 import TrustSignals from '../components/TrustSignals.astro';
 import TwoToneHeading from '../components/TwoToneHeading.astro';
-import { site, siteShowsServiceCards, socialProofHasTrustStrip } from '../config/site';
+import { contentImageAlt, site, siteShowsServiceCards, socialProofHasTrustStrip } from '../config/site';
 import { filterLocationsForSite, alsoServingLinks } from '../lib/locations-for-site';
 import { locationPath } from '../lib/site-path';
 import { bandSurface } from '../lib/section-surfaces';
@@ -19,6 +19,7 @@ import {
   extractHomepageProseSections,
   homepageUsesStructuredSections,
   proseSectionEyebrow,
+  simpleProseToHtml,
 } from '../lib/content-body';
 import { HOME_SECTIONS_BODY_KEYS, orderedHomeSectionKeys } from '../lib/home-section-order';
 
@@ -237,7 +238,7 @@ const homeSectionsProps = {
                 <div class="prose-site mt-5 max-w-3xl">
                   {
                     structured ? (
-                      introParagraphs.map((p) => <p>{p}</p>)
+                      <div set:html={introParagraphs.map((p) => simpleProseToHtml(p)).join('\n')} />
                     ) : (
                       <Content />
                     )
@@ -248,7 +249,7 @@ const homeSectionsProps = {
                 showFeatureImage && featureImage && (
                   <img
                     src={featureImage.src}
-                    alt={featureImage.alt}
+                    alt={contentImageAlt(featureImage.alt)}
                     class="aspect-[4/3] w-full rounded-xl object-cover shadow-lg"
                     width="900"
                     height="675"

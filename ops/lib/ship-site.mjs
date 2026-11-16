@@ -3,7 +3,7 @@
  * Optional Workers Builds GitHub connection (best-effort; needs CF GitHub App + Builds API access).
  */
 
-import { existsSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync, renameSync, rmSync } from 'node:fs';
 import { spawn, spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { getCandidateDetail, getCandidateShell, launchStampPatch, saveMeta } from './candidates.mjs';
@@ -28,6 +28,7 @@ import {
   getCloudflareCredentials,
 } from './cloudflare-launch.mjs';
 import { formsInboxStatus, syncFormsAllowlist } from './forms-inbox.mjs';
+import { assertTaglineReady } from './site-config.mjs';
 import {
   pushAssembledSiteToGithubAsync,
   ghAvailable,
@@ -43,6 +44,16 @@ import {
 
 const ROOT = process.cwd();
 
+/** Junction cwd (C:\\Repos\\rover-sites → D:\\rover-sites) makes Astro drop the CSS bundle. */
+function realSiteRoot(siteRoot) {
+  const abs = path.resolve(siteRoot);
+  try {
+    return realpathSync(abs);
+  } catch {
+    return abs;
+  }
+}
+
 /**
  * Skip npm install only when the lockfile matches, the Astro command exists,
  * and a package file Astro loads at build time is present.
@@ -57,6 +68,37 @@ export function shouldSkipNpmInstall(siteRoot) {
   return existsSync(shim) && existsSync(sentinel);
 }
 
+/**
+ * Remove a tree. A half-written node_modules on Windows often makes one rmSync
+ * throw ENOTEMPTY; renaming it aside lets npm install proceed.
+ * @param {string} dir
+ * @param {{ rm?: (target: string) => void, rename?: (from: string, to: string) => void }} [deps]
+ */
+export function removeTreeOrRename(dir, deps = {}) {
+  const tryRemove = deps.rm || ((target) => rmSync(target, { recursive: true, force: true }));
+  const rename = deps.rename || renameSync;
+  try {
+    tryRemove(dir);
+    return;
+  } catch (err) {
+    if (!existsSync(dir)) return;
+    const aside = path.join(
+      path.dirname(dir),
+      `${path.basename(dir)}.__discard-${process.pid}-${Date.now()}`,
+    );
+    try {
+      rename(dir, aside);
+    } catch {
+      throw err;
+    }
+    try {
+      tryRemove(aside);
+    } catch {
+      // The partial tree is out of the install path.
+    }
+  }
+}
+
 /** Delete a copied node_modules that is missing the Astro command or a package it loads. */
 export function discardPartialNodeModules(siteRoot) {
   const abs = path.resolve(siteRoot);
@@ -65,7 +107,7 @@ export function discardPartialNodeModules(siteRoot) {
   const shim = path.join(nmDir, '.bin', process.platform === 'win32' ? 'astro.cmd' : 'astro');
   const sentinel = path.join(nmDir, 'shiki', 'dist', 'index.mjs');
   if (existsSync(shim) && existsSync(sentinel)) return false;
-  rmSync(nmDir, { recursive: true, force: true });
+  removeTreeOrRename(nmDir);
   return true;
 }
 
@@ -188,7 +230,7 @@ function runNpmAsync(args, cwd, timeoutMs = 600_000, envExtra = {}) {
  */
 export function buildAssembledSite(siteRoot, { visualEdit = false } = {}) {
   const t0 = Date.now();
-  const abs = path.resolve(siteRoot);
+  const abs = realSiteRoot(siteRoot);
   if (!existsSync(abs)) {
     const err = new Error(`Assembled site not found: ${abs}`);
     err.status = 400;
@@ -221,7 +263,7 @@ export function buildAssembledSite(siteRoot, { visualEdit = false } = {}) {
  */
 export async function buildAssembledSiteAsync(siteRoot, { visualEdit = false } = {}) {
   const t0 = Date.now();
-  const abs = path.resolve(siteRoot);
+  const abs = realSiteRoot(siteRoot);
   if (!existsSync(abs)) {
     const err = new Error(`Assembled site not found: ${abs}`);
     err.status = 400;
@@ -412,6 +454,15 @@ export async function shipAssembledSite(candidateId, opts = {}) {
 
   const stale = templateStaleLaunchError(assembledRoot);
   if (stale) throw stale;
+
+  const assembledCfgPath = path.join(assembledRoot, 'src', 'config', 'site-config.json');
+  let assembledCfg = {};
+  try {
+    assembledCfg = JSON.parse(readFileSync(assembledCfgPath, 'utf8'));
+  } catch {
+    assembledCfg = {};
+  }
+  assertTaglineReady(assembledCfg, `Ship ${candidateId}`);
 
   const slug = detail.meta?.assembledSiteSlug || path.basename(assembledRoot);
   const web3Sync = syncAcceptedWeb3KeyToAssembled(candidateId, assembledRoot);

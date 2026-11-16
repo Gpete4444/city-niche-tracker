@@ -3,6 +3,8 @@
  * Run: npx tsx scripts/test-coverage-map-page-cities.mjs
  */
 import {
+  coverageCityGroupSvg,
+  coverageMapMissingCityNames,
   dropAreaOutliers,
   pageCityNamesFromConfig,
 } from '../ops/lib/generate-coverage-map.mjs';
@@ -77,6 +79,53 @@ const droppedWithoutKeep = dropAreaOutliers([...small, pageCity, alsoServedGiant
 assert(
   !droppedWithoutKeep.some((b) => b.name === 'Cedar Rapids'),
   'without keepNames, 20× page city still drops (legacy rule)',
+);
+
+const pageCitySvg = coverageCityGroupSvg({
+  name: 'Midvale',
+  state: 'UT',
+  isPage: true,
+  anchor: [10, 10],
+  label: [80, 40],
+});
+assert(pageCitySvg.includes('href="/locations/midvale/"'), 'page city is a location link');
+assert(pageCitySvg.includes('>Midvale, UT<'), 'page city chip names the city');
+assert(!pageCitySvg.includes('cov-area-static'), 'page city is not static');
+
+const servedSvg = coverageCityGroupSvg({
+  name: 'Sandy',
+  state: 'UT',
+  isPage: false,
+  anchor: [10, 10],
+  label: [90, 40],
+});
+assert(!/href=/.test(servedSvg), 'selected city without a page has no link');
+assert(servedSvg.includes('cov-area-static'), 'unlinked city is static');
+assert(servedSvg.includes('>Sandy, UT<'), 'unlinked city is named');
+
+const missing = coverageMapMissingCityNames(
+  `${pageCitySvg}${servedSvg}`,
+  {
+    primaryCity: 'Midvale',
+    state: 'UT',
+    coverageAreas: [
+      { name: 'Midvale', state: 'UT' },
+      { name: 'Sandy', state: 'UT' },
+      { name: 'Murray', state: 'UT' },
+    ],
+  },
+);
+assertEqual(missing, ['Murray'], 'missing chip is the city not yet named');
+assertEqual(
+  coverageMapMissingCityNames(`${pageCitySvg}${servedSvg}<text class="cov-chip-text">Murray, UT</text>`, {
+    coverageAreas: [
+      { name: 'Midvale', state: 'UT' },
+      { name: 'Sandy', state: 'UT' },
+      { name: 'Murray', state: 'UT' },
+    ],
+  }),
+  [],
+  'complete map is not redrawn',
 );
 
 console.log('test-coverage-map-page-cities: ok');

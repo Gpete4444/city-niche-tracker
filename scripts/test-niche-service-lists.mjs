@@ -47,10 +47,10 @@ assertEqual(
   ]).join(' | '),
   [
     'Texture Matching (Knockdown, Orange Peel, Popcorn)',
-    'Drywall Patching And Hole Repair',
+    'Drywall Patching and Hole Repair',
     'Water Damage Drywall Replacement',
     'Commercial Drywall Patching',
-    'Nail Pop And Seam Crack Repair',
+    'Nail Pop and Seam Crack Repair',
     'HVAC Tune Up',
     'McKay Plumbing',
   ].join(' | '),
@@ -173,7 +173,7 @@ try {
   };
   writeFileSync(draftPath, `${JSON.stringify(stored, null, 2)}\n`);
   writeFileSync(acceptedPath, `${JSON.stringify({ ...stored, services: ['McKay plumbing'] }, null, 2)}\n`);
-  writeFileSync(workingPath, `${JSON.stringify({ services: ['Nail Pop and Seam Crack Repair'] }, null, 2)}\n`);
+  writeFileSync(workingPath, `${JSON.stringify({ services: ['piering and underpinning'] }, null, 2)}\n`);
   writeFileSync(
     path.join(researchDir, '_niche-service-lists.json'),
     `${JSON.stringify({ lists: { 'drywall repair': { niche: 'Drywall Repair', services: ['Drywall patching and hole repair'], commercialServices: [], homepageServicesLimit: 6 } } }, null, 2)}\n`,

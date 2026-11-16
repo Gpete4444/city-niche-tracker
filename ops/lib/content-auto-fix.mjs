@@ -24,6 +24,8 @@ const DESIGNED_SECTION_WARNING_RE =
 
 import { existsSync } from 'node:fs';
 import path from 'node:path';
+import { polishServiceArticleHeading } from '../../src/lib/service-article-heading.mjs';
+import { linkifyProsePhones } from '../../src/lib/linkify-prose-phone.mjs';
 import { buildRequiredLinksByFile, isFaqQuestionOffNiche } from './content-seo-lint.mjs';
 import { isStructuredLabelDashLine } from './content-speech-lint.mjs';
 
@@ -109,6 +111,20 @@ export function autoFixContentDraft(files, opts = {}) {
       for (const detail of grammar.details) {
         changes.push({ file: rel, rule: 'heading_grammar', kind: 'speech', detail });
       }
+    }
+
+    const linkedPhones = linkifyProsePhones(body, {
+      businessName: config.businessName,
+      phone: config.phone,
+    });
+    if (linkedPhones !== body) {
+      body = linkedPhones;
+      changes.push({
+        file: rel,
+        rule: 'phone_link',
+        kind: 'seo',
+        detail: 'Linked the site phone and unwrapped a business-name /contact link',
+      });
     }
 
     const processUnpack = unpackPackedProcessSections(body);
@@ -347,20 +363,29 @@ function polishServiceHeadingGrammar(src) {
   const details = [];
   let next = body;
 
+  next = next.replace(/^(#{1,3}\s+)(\S.*)$/gm, (full, hashes, heading) => {
+    const repaired = polishServiceArticleHeading(heading);
+    if (repaired === String(heading).trim()) return full;
+    details.push('Heading grammar → service name without “a”');
+    return `${hashes}${repaired}`;
+  });
+
   next = next.replace(
-    /^(#{1,3}\s+)What does (?!a\s)(.+?) cost( in .+)?\?\s*$/gim,
+    /^(#{1,3}\s+)What does (?!a\s)(\S+) cost( in .+)?\?\s*$/gim,
     (full, hashes, subj, loc) => {
       const polished = `${hashes}What does a ${lightSingularize(subj)} cost${loc || ''}?`;
-      if (polished !== full) details.push('Heading grammar → “What does a …”');
+      if (polished === full.trim()) return full;
+      details.push('Heading grammar → “What does a …”');
       return polished;
     },
   );
 
   next = next.replace(
-    /^(#{1,3}\s+)How long does (?!a\s)(.+?) take\?\s*$/gim,
+    /^(#{1,3}\s+)How long does (?!a\s)(\S+) take\?\s*$/gim,
     (full, hashes, subj) => {
       const polished = `${hashes}How long does a ${lightSingularize(subj)} take?`;
-      if (polished !== full) details.push('Heading grammar → “How long does a …”');
+      if (polished === full.trim()) return full;
+      details.push('Heading grammar → “How long does a …”');
       return polished;
     },
   );

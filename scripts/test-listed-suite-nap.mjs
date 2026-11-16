@@ -3,6 +3,8 @@
  * Run: node scripts/test-listed-suite-nap.mjs
  */
 import {
+  applyPastedAddressSuite,
+  claimsFromAddressPackages,
   composeNapStreet,
   extractListedSuites,
   listingNeedsSuiteDetails,
@@ -14,7 +16,7 @@ import {
   splitSuiteFromCity,
   stripInventedSuite,
 } from '../ops/lib/address-screen.mjs';
-import { normalizeSiteAddress } from '../ops/lib/site-config.mjs';
+import { normalizeSiteAddress, suiteForSiteConfigPrompt } from '../ops/lib/site-config.mjs';
 
 function assert(cond, label) {
   if (!cond) {
@@ -225,6 +227,30 @@ try {
 }
 assertEqual(fiveDigitNoZipErr, 'ZIP code required (5 digits)', '5-digit house number is not a ZIP');
 
+const layton = parseHomeAddressLine('377 N Marshall Way, Layton, Ste G, UT 84041', {
+  city: 'Layton',
+  state: 'UT',
+});
+assertEqual(layton.suite, 'Ste G', 'Ste G in the street line');
+const blankLine2 = applyPastedAddressSuite(layton, '  ');
+assertEqual(blankLine2.suite, 'Ste G', 'blank line 2 keeps parsed suite');
+const explicitLine2 = applyPastedAddressSuite(layton, 'suite 101');
+assertEqual(explicitLine2.suite, 'Ste 101', 'explicit suite 101 wins');
+assertEqual(explicitLine2.street, layton.street, 'explicit suite leaves the street');
+const steLine2 = applyPastedAddressSuite(layton, 'Ste 101');
+assertEqual(steLine2.suite, 'Ste 101', 'Ste 101 stays Ste 101');
+let junkLine2 = '';
+try {
+  applyPastedAddressSuite(layton, 'building lobby');
+} catch (error) {
+  junkLine2 = error.message;
+}
+assertEqual(
+  junkLine2,
+  'Address line 2 must look like suite 101 or Ste G',
+  'junk line 2 rejected',
+);
+
 const norm = normalizeSiteAddress({
   street: '1221 E University Dr, Ste 3',
   city: 'Ste 3 Prosper',
@@ -234,5 +260,54 @@ const norm = normalizeSiteAddress({
 assertEqual(norm.street, '1221 E University Dr', 'normalize Line 1');
 assertEqual(norm.suite, 'Ste 3', 'normalize Line 2');
 assertEqual(norm.city, 'Prosper', 'normalize city');
+
+const clearfieldSel = {
+  street: '938 University Park Blvd',
+  suite: 'Ste 3',
+  city: 'Clearfield',
+  state: 'UT',
+  zip: '84015',
+};
+assertEqual(
+  suiteForSiteConfigPrompt('', clearfieldSel),
+  'Ste 3',
+  'blank NAP suite uses the saved selection',
+);
+assertEqual(
+  suiteForSiteConfigPrompt('Ste 101', clearfieldSel),
+  'Ste 101',
+  'a filled NAP suite stays',
+);
+assertEqual(
+  suiteForSiteConfigPrompt('', { street: '938 University Park Blvd, Ste 3', city: 'Clearfield' }),
+  'Ste 3',
+  'blank NAP suite peels a suite glued to the selection street',
+);
+
+const zoneSibling = {
+  candidateId: 'layton-foundation-repair',
+  selection: {
+    street: '938 University Park Blvd',
+    streetBase: '938 University Park Blvd',
+    suite: 'Ste 3',
+    city: 'Clearfield',
+    state: 'UT',
+    zip: '84015',
+  },
+};
+const zoneClaims = claimsFromAddressPackages([zoneSibling], 'clearfield-foundation-repair');
+const zoneKey = Object.keys(zoneClaims)[0];
+assertEqual(zoneKey, '938 university park blvd|84015', 'zone sibling claim key');
+assertEqual(zoneClaims[zoneKey].candidateId, 'layton-foundation-repair', 'zone sibling owns the street');
+const skippedSibling = claimsFromAddressPackages(
+  [{ ...zoneSibling, skipped: true }],
+  'clearfield-foundation-repair',
+);
+assertEqual(Object.keys(skippedSibling).length, 0, 'skipped sibling does not claim');
+const otherSuite = claimsFromAddressPackages(
+  [{ ...zoneSibling, selection: { ...zoneSibling.selection, suite: 'Ste 9' } }],
+  'clearfield-foundation-repair',
+);
+assertEqual(Object.keys(otherSuite)[0], zoneKey, 'a different suite is the same street');
 
 console.log('test-listed-suite-nap: ok');

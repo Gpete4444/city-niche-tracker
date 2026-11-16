@@ -7,7 +7,7 @@
       "id": "h1",
       "level": "H1",
       "heading": "{niche} in {city}, {state}",
-      "instructions": "Format: Paragraph (180–200 words). Define the service offering for {city}, {state}. Mention the customer’s common problems. Highlight experience, expertise, and USPs without inventing licenses, years, or review counts. Write to generate leads. Example tone: [{businessName}] is the trusted {niche} contractor in {city}, {state}.",
+      "instructions": "Format: Paragraph (180–200 words). Define the service offering for {city}, {state}. Mention the customer’s common problems. Highlight experience, expertise, and USPs without inventing licenses, years, or review counts. Write to generate leads. Example tone: {businessName} is the trusted {niche} contractor in {city}, {state}. Write the business name as plain text, never a markdown link.",
       "kind": "hero"
     },
     {

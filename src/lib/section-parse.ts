@@ -6,6 +6,10 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { simpleProseToHtml } from './content-body';
+import { fixSmallWords } from './small-words.mjs';
+import { parseLabeledBulletGroups } from './labeled-bullet-groups.mjs';
+
+export { parseLabeledBulletGroups };
 
 export type SectionImage = { src: string; alt: string };
 
@@ -148,14 +152,14 @@ export function parseOptionRows(bullets: string[]): Array<{ title: string; detai
   return bullets.map((b) => {
     const cleaned = stripBold(b);
     const em = cleaned.match(/^(.+?)\s+[—–-]\s+(.+)$/);
-    if (em) return { title: em[1].trim(), detail: em[2].trim() };
+    if (em) return { title: fixSmallWords(em[1].trim()), detail: em[2].trim() };
     const colon = cleaned.match(/^(.+?):\s+(.+)$/);
     if (colon && colon[1].split(/\s+/).length <= 8) {
-      return { title: colon[1].trim(), detail: colon[2].trim() };
+      return { title: fixSmallWords(colon[1].trim()), detail: colon[2].trim() };
     }
     const bold = b.match(/^\*\*(.+?)\*\*\s*[—–:-]?\s*(.*)$/);
-    if (bold) return { title: bold[1].trim(), detail: stripBold(bold[2]).trim() };
-    return { title: cleaned, detail: '' };
+    if (bold) return { title: fixSmallWords(bold[1].trim()), detail: stripBold(bold[2]).trim() };
+    return { title: fixSmallWords(cleaned), detail: '' };
   });
 }
 
@@ -168,7 +172,7 @@ export function stripBold(s: string): string {
 }
 
 const MONEY_RANGE_RE =
-  /\$[\d,]+(?:\.\d+)?(?:\s*[–—-]\s*\$?[\d,]+(?:\.\d+)?)?\+?(?:\s*[kK])?/;
+  /\$\d+(?:,\d{3})*(?:\.\d+)?(?:\s*[–—-]\s*\$?\d+(?:,\d{3})*(?:\.\d+)?)?\+?(?:\s*[kK])?/;
 
 export type CostRow = { title: string; range: string; detail: string };
 
@@ -182,7 +186,7 @@ export function parseCostRows(bullets: string[]): CostRow[] {
     const text = stripBold(raw);
     const money = text.match(MONEY_RANGE_RE);
     if (!money) continue;
-    const range = money[0].replace(/\s+/g, ' ').trim();
+    const range = money[0].replace(/\s+/g, ' ').replace(/,+$/, '').trim();
     const withoutMoney = `${text.slice(0, money.index)}${text.slice((money.index || 0) + money[0].length)}`
       .replace(/\(\s*\)/g, '')
       .replace(/^\+?\s*[—–-]\s*/, ' — ')
@@ -214,7 +218,7 @@ export function parseCostRows(bullets: string[]): CostRow[] {
       }
     }
     title = title.replace(/\(\s*$/, '').replace(/\s+/g, ' ').trim();
-    detail = detail.replace(/^\+?\s*[—–-]\s*/, '').trim();
+    detail = detail.replace(/^,\s*/, '').replace(/^\+?\s*[—–-]\s*/, '').trim();
     if (!title) continue;
     rows.push({ title, range, detail });
   }
@@ -319,6 +323,8 @@ export function isTimelineDurationFluff(detail: string): boolean {
     .replace(/\s+/g, ' ')
     .trim();
   if (!d) return true;
+  if (/^[.。,;:]+$/.test(d)) return true;
+  if (/^about(?:\s*[.。,;:]*)?$/i.test(d)) return true;
   if (/^\([^)]+\)$/.test(d)) return true;
   if (/^(or\s+)?(next[-\s]?day|same[-\s]?day)(\s+visit)?s?\.?$/i.test(d)) return true;
   if (/^(usually|typically|often)[,.]?$/i.test(d)) return true;

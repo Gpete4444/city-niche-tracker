@@ -600,9 +600,33 @@ export async function stopAssembledPreview(siteRoot, { forcePoolClear = false } 
   return true;
 }
 
+/** True when the built homepage links a local /_astro CSS file and that file is on disk. */
+export function distHasBuiltCss(siteRoot) {
+  const distIndex = path.join(siteRoot, 'dist', 'index.html');
+  if (!existsSync(distIndex)) return false;
+  let html = '';
+  try {
+    html = readFileSync(distIndex, 'utf8');
+  } catch {
+    return false;
+  }
+  const linked = /href=["']\/_astro\/[^"']+\.css["']/.test(html);
+  const astroDir = path.join(siteRoot, 'dist', '_astro');
+  if (!existsSync(astroDir)) return false;
+  let cssFile = false;
+  try {
+    cssFile = readdirSync(astroDir).some((name) => name.endsWith('.css'));
+  } catch {
+    cssFile = false;
+  }
+  return linked && cssFile;
+}
+
 export function contentNewerThanDist(siteRoot, { ignoreAssembleMeta = false } = {}) {
   const distIndex = path.join(siteRoot, 'dist', 'index.html');
   if (!existsSync(distIndex)) return true;
+  // A dist with no stylesheet previews as plain HTML. Do not treat it as finished.
+  if (!distHasBuiltCss(siteRoot)) return true;
   const distMtime = statSync(distIndex).mtimeMs;
   const metaFiles = ignoreAssembleMeta
     ? ['src/config/site-config.json', 'src/components/Header.astro']

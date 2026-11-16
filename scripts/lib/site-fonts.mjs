@@ -8,7 +8,7 @@ export const SITE_FONT_THEMES = [
   {
     id: 'archivo-source',
     label: 'Default',
-    tip: 'Condensed trades headlines + clear humanist body (current Rover)',
+    tip: 'Condensed headlines and plain body text.',
     displayFamily: 'Archivo',
     bodyFamily: 'Source Sans 3',
     displayStack: '"Archivo", "Avenir Next Condensed", ui-sans-serif, system-ui, sans-serif',
@@ -19,7 +19,7 @@ export const SITE_FONT_THEMES = [
   {
     id: 'playfair-dm',
     label: 'Fancy',
-    tip: 'Editorial serif display + clean geometric body',
+    tip: 'Elegant headlines and simple body text.',
     displayFamily: 'Playfair Display',
     bodyFamily: 'DM Sans',
     displayStack: '"Playfair Display", "Times New Roman", Georgia, serif',
@@ -30,7 +30,7 @@ export const SITE_FONT_THEMES = [
   {
     id: 'outfit-nunito',
     label: 'Friendly',
-    tip: 'Warm modern display + soft readable body',
+    tip: 'Friendly headlines and easy body text.',
     displayFamily: 'Outfit',
     bodyFamily: 'Nunito Sans',
     displayStack: '"Outfit", "Avenir Next", ui-sans-serif, system-ui, sans-serif',

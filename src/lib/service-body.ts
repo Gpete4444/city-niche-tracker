@@ -4,6 +4,7 @@
  */
 
 import { normTitle, simpleProseToHtml, stripLeadingTitleEcho } from './content-body';
+import { fixSmallWords } from './small-words.mjs';
 import { isCostHeading } from './is-cost-heading.mjs';
 import { isProcessHeading } from './is-process-heading.mjs';
 import { isMaterialsHeading } from './is-materials-heading.mjs';
@@ -144,12 +145,12 @@ function parseProcessSteps(body: string): ServiceProcessStep[] {
     const cleaned = stripBold(line.replace(/^[-*•]\s+/, '').replace(/^\d+[.)]\s+/, ''));
     const em = cleaned.match(/^(.+?)\s+[—–-]\s+(.+)$/);
     if (em) {
-      steps.push({ title: em[1].trim(), description: em[2].trim() });
+      steps.push({ title: fixSmallWords(em[1].trim()), description: em[2].trim() });
       continue;
     }
     const colon = cleaned.match(/^(.+?):\s+(.+)$/);
     if (colon && colon[1].split(/\s+/).length <= 8) {
-      steps.push({ title: colon[1].trim(), description: colon[2].trim() });
+      steps.push({ title: fixSmallWords(colon[1].trim()), description: colon[2].trim() });
       continue;
     }
   }
@@ -197,7 +198,7 @@ function parseFaqs(body: string): ServiceFaqItem[] {
     }
 
     if (looksLikeQuestion(qLine) && qLine && answer) {
-      faqs.push({ question: qLine, answer });
+      faqs.push({ question: fixSmallWords(qLine), answer });
     }
     i += 1;
   }

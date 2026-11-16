@@ -1,5 +1,13 @@
 ---
-import { site, formatPhoneDisplay, phoneHref, socialProofHasTrustStrip } from '../config/site';
+import {
+  site,
+  contentImageAlt,
+  formatPhoneDisplay,
+  phoneHref,
+  publicTagline,
+  trustStripLicenses,
+  trustStripStatistics,
+} from '../config/site';
 import LeadForm from './LeadForm.astro';
 import PhoneIcon from './PhoneIcon.astro';
 import TwoToneHeading from './TwoToneHeading.astro';
@@ -18,6 +26,7 @@ interface Props {
   editFile?: string;
   supportingKey?: 'tagline' | 'description';
   heroSlotKey?: string;
+  serviceName?: string;
 }
 
 const {
@@ -29,33 +38,18 @@ const {
   editFile,
   supportingKey = 'tagline',
   heroSlotKey = 'hero-1',
+  serviceName = '',
 } = Astro.props;
 
-const trustBits =
-  socialProofHasTrustStrip(site.socialProof)
-    ? [
-        ...(site.socialProof?.statistics ?? [])
-          .filter((s) => {
-            const rating = site.socialProof?.rating;
-            if (!rating) return true;
-            const label = String(s.label || '');
-            const value = String(s.value || '');
-            if (/average\s+customer\s+rating/i.test(label)) return false;
-            const num = parseFloat(value.replace(/[^\d.]/g, ''));
-            if (
-              Number.isFinite(num) &&
-              Math.abs(num - rating.value) < 0.05 &&
-              /rating|★|\*/i.test(`${value} ${label}`)
-            ) {
-              return false;
-            }
-            return true;
-          })
-          .slice(0, 2)
-          .map((s) => `${s.value} ${s.label}`),
-        ...(site.socialProof?.licenses ?? []).slice(0, 1).map((l) => l.name),
-      ].slice(0, 3)
-    : [];
+const supportingText = publicTagline(supporting);
+const trustBits = [
+  ...trustStripStatistics(site.socialProof)
+    .slice(0, 2)
+    .map((s) => `${s.value} ${s.label}`),
+  ...trustStripLicenses(site.socialProof)
+    .slice(0, 1)
+    .map((l) => l.name),
+].slice(0, 3);
 ---
 
 <section
@@ -67,7 +61,7 @@ const trustBits =
       <>
         <img
           src={image.src}
-          alt={image.alt}
+          alt={contentImageAlt(image.alt, { serviceName })}
           class="absolute inset-0 size-full object-cover"
           width="1800"
           height="1000"
@@ -125,18 +119,22 @@ const trustBits =
         class="heading-display max-w-3xl"
       />
       </div>
-      <p
-        class="mt-4 max-w-2xl text-base text-white/85 sm:text-lg"
-        data-edit={
-          supportingKey === 'tagline'
-            ? ve({ type: 'config', key: 'tagline', kind: 'body' })
-            : editFile
-              ? ve({ type: 'fm', file: editFile, key: 'description', kind: 'body' })
-              : undefined
-        }
-      >
-        {supporting}
-      </p>
+      {
+        supportingText && (
+          <p
+            class="mt-4 max-w-2xl text-base text-white/85 sm:text-lg"
+            data-edit={
+              supportingKey === 'tagline'
+                ? ve({ type: 'config', key: 'tagline', kind: 'body' })
+                : editFile
+                  ? ve({ type: 'fm', file: editFile, key: 'description', kind: 'body' })
+                  : undefined
+            }
+          >
+            {supportingText}
+          </p>
+        )
+      }
       {
         trustBits.length > 0 && (
           <ul class="mt-5 flex flex-wrap gap-x-5 gap-y-2 text-sm text-white/75">

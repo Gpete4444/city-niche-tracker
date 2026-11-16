@@ -9,6 +9,7 @@ import {
 import { ve } from '../lib/visual-edit';
 import { locationPath, servicePath, sitePath } from '../lib/site-path';
 import { leadNiche } from '../lib/content-body';
+import { fixSmallWords } from '../lib/small-words.mjs';
 import PhoneIcon from './PhoneIcon.astro';
 
 const services = filterServicesByNames(
@@ -61,10 +62,10 @@ const navLinkClass =
     </a>
 
     <nav
-      class="min-w-0 flex-1 overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      class="hidden min-w-0 flex-1 overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] md:block min-[920px]:min-w-max min-[920px]:flex-none [&::-webkit-scrollbar]:hidden"
       aria-label="Primary"
     >
-      <div class="flex items-center justify-end gap-0.5 sm:justify-center sm:gap-1 lg:gap-2">
+      <div class="flex items-center justify-start gap-0.5 sm:gap-1 lg:gap-2">
         <a class={navLinkClass} href="/">Home</a>
         {
           showServicesNav && (
@@ -95,7 +96,7 @@ const navLinkClass =
                       class="block px-3 py-2 text-sm text-ink/90 hover:bg-brand/5 hover:text-brand"
                       href={servicePath(svc.id)}
                     >
-                      {svc.data.serviceName}
+                      {fixSmallWords(svc.data.serviceName)}
                     </a>
                   </li>
                 ))}
@@ -145,6 +146,47 @@ const navLinkClass =
       </div>
     </nav>
 
+    <details class="relative ml-auto md:hidden">
+      <summary
+        class="cursor-pointer list-none rounded-md px-3 py-1.5 text-sm font-medium text-ink/80 hover:bg-brand/5 hover:text-brand [&::-webkit-details-marker]:hidden"
+      >
+        Menu
+      </summary>
+      <div
+        class="absolute right-0 top-full z-[110] mt-1 max-h-[min(24rem,70vh)] w-64 overflow-y-auto rounded-lg border border-line bg-paper py-1 shadow-xl"
+      >
+        <a class="block px-3 py-2 text-sm text-ink/90 hover:bg-brand/5 hover:text-brand" href="/">Home</a>
+        {
+          showServicesNav &&
+            services.map((svc) => (
+              <a
+                class="block px-3 py-2 text-sm text-ink/90 hover:bg-brand/5 hover:text-brand"
+                href={servicePath(svc.id)}
+              >
+                {fixSmallWords(svc.data.serviceName)}
+              </a>
+            ))
+        }
+        {
+          showAreasNav &&
+            locations.map((loc) => (
+              <a
+                class="block px-3 py-2 text-sm text-ink/90 hover:bg-brand/5 hover:text-brand"
+                href={locationPath(loc.id)}
+              >
+                {loc.data.city}, {loc.data.state}
+              </a>
+            ))
+        }
+        <a class="block px-3 py-2 text-sm text-ink/90 hover:bg-brand/5 hover:text-brand" href={sitePath('/about')}>
+          About
+        </a>
+        <a class="block px-3 py-2 text-sm text-ink/90 hover:bg-brand/5 hover:text-brand" href={sitePath('/contact')}>
+          Contact
+        </a>
+      </div>
+    </details>
+
     <div class="hidden shrink-0 items-center gap-2 md:flex">
       <a
         href="#lead-form"
@@ -160,7 +202,7 @@ const navLinkClass =
         data-edit={ve({ type: 'config', key: 'phone', kind: 'text' })}
       >
         <PhoneIcon />
-        {formatPhoneDisplay()}
+        <span class="hidden xl:inline">{formatPhoneDisplay()}</span>
       </a>
     </div>
   </div>

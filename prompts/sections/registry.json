@@ -643,7 +643,7 @@
       "id": "A",
       "label": "A",
       "name": "Multi-service local",
-      "tip": "Home + shared service template (scope, process, cost, FAQs)",
+      "tip": "Home page plus a shared service template.",
       "pages": [
         "home",
         "about",
@@ -679,7 +679,7 @@
       "id": "B",
       "label": "B",
       "name": "Single-offer specialty",
-      "tip": "Deep offer process, no service pages",
+      "tip": "A detailed process section, and no service pages.",
       "pages": [
         "home",
         "about",
@@ -706,7 +706,7 @@
       "id": "C",
       "label": "C",
       "name": "Value SEO heavy",
-      "tip": "All pages and sections including Location pages and Include photos — Deep offer process stays off",
+      "tip": "All pages and sections, including location pages and photos.",
       "pages": [
         "home",
         "about",

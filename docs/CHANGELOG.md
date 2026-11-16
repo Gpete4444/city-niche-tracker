@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+## Version 2.7 (`2.7.0`)
+
+- **Open tabs:** On the Website list, Open tabs opens one tab per pursue city for the zone and cluster range of this session, before Colors on any site.
+- **Plain language:** User guide, user flow, score tips, font tips, and Structure preset tips say what the click does. Cluster Cities is the usual Discovery path. Enrich, ad volumes, and Find renters stay optional and do not block Website. The guide explains that a new number can be an overlay or another city in the same state when Twilio has nothing in the candidate city.
+- **Placeholder tagline:** A blank or `TBD` tagline is filled from the homepage description and written onto the accepted config. Assemble and ship refuse a public page that is still on that token. Regression: `scripts/test-resolve-placeholder-tagline.mjs`.
+- **Zone address claims:** A street and ZIP already saved by another candidate in the same zone is rejected. A different suite on that street is the same claim. Home and manual pastes can set address line 2. Regression: `scripts/test-listed-suite-nap.mjs`.
+- **Coverage map names:** A selected city that has a polygon but no name chip is redrawn. Location pages are links. Other selected cities are named and not linked. Regression: `scripts/test-coverage-map-page-cities.mjs`.
+- **Preview CSS:** `npm run build` runs Astro from the real site path, so a junction (`C:\Repos\rover-sites` → `D:\rover-sites`) does not drop the CSS bundle. A dist without that CSS file is not treated as up to date. A half-written `node_modules` that Windows cannot delete is renamed aside so install can continue. Regression: `scripts/test-content-newer-than-dist.mjs`, `scripts/test-skip-npm-install.mjs`.
+- **Live copy:** The footer line is the primary city, then location-page suburbs, then Also serving, with blanks and repeats dropped. A business-name link to `/` becomes plain text. A bare phone in a closing becomes a tel link, and a business-name link to `/contact` becomes plain text. Small words such as and, of, and the stay lowercase in niches and service names. Label-only lines stay with the bullets under them. A location FAQ question is bold, with a break before the answer. Awkward “How long does a Piering and Underpinning take?” headings drop the extra article. Generic “Hero photo” and “{Service} photo” alts become place descriptions. Writer prompts match those rules. Regression: `scripts/test-footer-serving.mjs`, `scripts/test-template-copy-fixes.mjs`, `scripts/test-unwrap-business-self-link.mjs`, `scripts/test-niche-title-case.mjs`.
+
 ## Version 2.6 (`2.6.0`)
 
 - **Homepage cost band:** “what it costs”, “costs”, and “Pricing” count as the cost section for Accept SEO and the live homepage. Outline titles in that shape were treated as missing, so the band stayed hidden and Accept stayed blocked. Regression: `scripts/test-ranking-forever.mjs`, `scripts/test-materials-heading.mjs`.

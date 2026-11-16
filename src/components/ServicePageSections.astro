@@ -1,8 +1,9 @@
 ---
-import { formatPhoneDisplay, phoneHref, site } from '../config/site';
+import { contentImageAlt, formatPhoneDisplay, phoneHref, site } from '../config/site';
 import { fitEqualGrid } from '../lib/equal-grid';
 import { bandSurface, SURFACE_INK } from '../lib/section-surfaces';
 import { simpleProseToHtml, sentenceCaseLine } from '../lib/content-body';
+import { fixSmallWords } from '../lib/small-words.mjs';
 import { defaultSectionCtaPrompt } from '../lib/section-ctas';
 import {
   parseServiceBody,
@@ -109,7 +110,7 @@ const eyebrowFor = (kind: ServiceBodySection['kind']): string => {
     case 'cta':
       return 'Next step';
     default:
-      return serviceName;
+      return fixSmallWords(serviceName);
   }
 };
 
@@ -175,7 +176,7 @@ const introSurface = introParagraphs.length ? nextBandSurface() : null;
                   {step.image?.src && (
                     <img
                       src={step.image.src}
-                      alt={step.image.alt}
+                      alt={contentImageAlt(step.image.alt, { serviceName })}
                       class="aspect-[4/3] w-full object-cover"
                       width="480"
                       height="360"
@@ -295,7 +296,7 @@ const introSurface = introParagraphs.length ? nextBandSurface() : null;
                     <figure>
                       <img
                         src={pair.before!.src}
-                        alt={pair.before!.alt}
+                        alt={contentImageAlt(pair.before!.alt, { serviceName })}
                         class="aspect-[3/2] w-full rounded-lg object-contain shadow-sm"
                         width="800"
                         height="600"
@@ -310,7 +311,7 @@ const introSurface = introParagraphs.length ? nextBandSurface() : null;
                     <figure>
                       <img
                         src={pair.after!.src}
-                        alt={pair.after!.alt}
+                        alt={contentImageAlt(pair.after!.alt, { serviceName })}
                         class="aspect-[3/2] w-full rounded-lg object-contain shadow-sm"
                         width="800"
                         height="600"
@@ -416,7 +417,7 @@ const introSurface = introParagraphs.length ? nextBandSurface() : null;
                   card.image?.src && (
                     <img
                       src={card.image.src}
-                      alt={card.image.alt || card.title}
+                      alt={contentImageAlt(card.image.alt || card.title)}
                       class="size-20 shrink-0 rounded-md object-cover sm:size-24"
                       width="96"
                       height="96"

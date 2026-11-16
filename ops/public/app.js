@@ -6,7 +6,6 @@ import {
   demandVolumeHtml,
   displaceabilityBand,
   displaceabilityTip,
-  domainRankBand,
   esc,
   legendHtml,
   mapPackHtml,
@@ -441,7 +440,7 @@ const FALLBACK_FONT_THEMES = [
   {
     id: 'archivo-source',
     label: 'Default',
-    tip: 'Condensed trades headlines + clear humanist body (current Rover)',
+    tip: 'Condensed headlines and plain body text.',
     displayFamily: 'Archivo',
     bodyFamily: 'Source Sans 3',
     displayStack: '"Archivo", "Avenir Next Condensed", ui-sans-serif, system-ui, sans-serif',
@@ -452,7 +451,7 @@ const FALLBACK_FONT_THEMES = [
   {
     id: 'playfair-dm',
     label: 'Fancy',
-    tip: 'Editorial serif display + clean geometric body',
+    tip: 'Elegant headlines and simple body text.',
     displayFamily: 'Playfair Display',
     bodyFamily: 'DM Sans',
     displayStack: '"Playfair Display", "Times New Roman", Georgia, serif',
@@ -463,7 +462,7 @@ const FALLBACK_FONT_THEMES = [
   {
     id: 'outfit-nunito',
     label: 'Friendly',
-    tip: 'Warm modern display + soft readable body',
+    tip: 'Friendly headlines and easy body text.',
     displayFamily: 'Outfit',
     bodyFamily: 'Nunito Sans',
     displayStack: '"Outfit", "Avenir Next", ui-sans-serif, system-ui, sans-serif',
@@ -537,8 +536,8 @@ function paletteOptionsHtml(brand = {}) {
 function paletteChipHtml(brand = {}, { id = '' } = {}) {
   const b = brand || {};
   return `<span class="palette-swatches"${id ? ` id="${esc(id)}"` : ''} aria-hidden="true">
-    <span class="palette-swatch" style="background:${esc(b.primary || '#1C2B3A')}" title="Primary"></span>
-    <span class="palette-swatch" style="background:${esc(b.accent || '#E8A317')}" title="Accent"></span>
+    <span class="palette-swatch" style="background:${esc(b.primary || '#1C2B3A')}" data-tip="Primary"></span>
+    <span class="palette-swatch" style="background:${esc(b.accent || '#E8A317')}" data-tip="Accent"></span>
   </span>`;
 }
 
@@ -570,7 +569,7 @@ function palettePickerHtml(brand = {}) {
     <select id="sc-brand-palette" class="sr-only" tabindex="-1" aria-hidden="true">
       ${paletteOptionsHtml(brand)}
     </select>
-    <button type="button" class="palette-picker-trigger" id="sc-brand-palette-trigger" aria-haspopup="listbox" aria-expanded="false" aria-controls="sc-brand-palette-menu" aria-labelledby="sc-brand-palette-label" data-tip="Named brand palette — Apply writes primary / accent / ink">
+    <button type="button" class="palette-picker-trigger" id="sc-brand-palette-trigger" aria-haspopup="listbox" aria-expanded="false" aria-controls="sc-brand-palette-menu" aria-labelledby="sc-brand-palette-label" data-tip="Named color set. Apply saves it on the site.">
       <span class="palette-picker-value">${esc(selectedPalette?.label || 'Slate & Gold')}</span>
     </button>
     <div id="sc-brand-palette-menu" class="palette-picker-menu" role="listbox" aria-labelledby="sc-brand-palette-label" hidden>
@@ -1007,7 +1006,7 @@ const state = {
   discoverySort: { key: null, dir: 1 },
   clusterRosterSort: { key: 'population', dir: -1 },
   discoveryFilters: { text: '', human: '', rec: '', mapPack: '', role: '' },
-  discoveryPackType: 'single',
+  discoveryPackType: 'cluster',
   shotgunWorkspace: null,
   /** Shotgun main panel: hub picker/map vs Discovery SERP table. */
   shotgunSurface: 'hub',
@@ -1748,7 +1747,7 @@ function launchResultDetailsHtml(result) {
           ${
             launchResultIsRepoMissing(result)
               ? launchRepoMissingHelpHtml(launchRepoMissingName(result))
-              : '<p class="muted"><strong>After launch:</strong> verify Gmail once if Email Routing is new; smoke-test the live form; then use <strong>Website → Indexing</strong> for Search Console + sitemap.</p>'
+              : '<p class="muted"><strong>After launch:</strong> this site is under <strong>4 Launched</strong>. Verify Gmail once if email forwarding is new, submit the live form and confirm the email arrives, then use <strong>Indexing</strong> for Search Console.</p>'
           }`;
 }
 
@@ -2620,7 +2619,7 @@ async function copyContinueWritePrompt(candidateId) {
 function continueWriteControlsHtml({ sm = false } = {}) {
   const cls = `btn primary${sm ? ' btn-sm' : ''} js-copy-continue-prompt`;
   return `<div class="content-continue-actions" style="display:flex;flex-wrap:wrap;gap:0.5rem;align-items:center;margin:0.5rem 0 0">
-    <button type="button" class="${cls}" data-tip="Copy a Claude prompt scoped to missing and stub/thin FILEs only">Copy continue prompt</button>
+    <button type="button" class="${cls}" data-tip="Copy a prompt for the missing or thin pages only.">Copy continue prompt</button>
     ${openClaudeAiBtnHtml({ sm })}
   </div>`;
 }
@@ -3607,11 +3606,9 @@ function candidateApiSpendBreakdown(c) {
 
 function candidateApiSpendTip(breakdown) {
   const parts = breakdown?.parts || [];
-  if (!parts.length || breakdown?.total == null) {
-    return 'No API spend recorded yet';
-  }
-  const lines = parts.map((p) => `${p.label}  ${formatMoney(p.value)}`);
-  lines.push('', `Total  ${formatMoney(breakdown.total)}`);
+  if (!parts.length || breakdown?.total == null) return 'No spend recorded yet.';
+  const lines = parts.map((p) => `${p.label} ${formatMoney(p.value)}`);
+  lines.push(`Total ${formatMoney(breakdown.total)}`);
   return lines.join('\n');
 }
 
@@ -3757,7 +3754,7 @@ function apiCostWalletCell({ configured, loading, ok, balance, spent, failTitle 
       kind: 'merged',
       text: 'Not set',
       tone: 'muted',
-      title: title || 'Add this key in .env, then restart Rover.',
+      title: title || 'This account is not connected yet.',
     };
   }
   if (loading) {
@@ -3769,7 +3766,7 @@ function apiCostWalletCell({ configured, loading, ok, balance, spent, failTitle 
       spent: null,
       balance: null,
       tone: 'err',
-      title: title || 'Could not load remaining balance.',
+      title: title || 'Could not load the remaining balance.',
     };
   }
   return {
@@ -3781,20 +3778,20 @@ function apiCostWalletCell({ configured, loading, ok, balance, spent, failTitle 
   };
 }
 
-function apiCostPaygCell(configured, usedFor, spent) {
+function apiCostPaygCell(configured, _usedFor, spent) {
   if (!configured) {
     return {
       kind: 'merged',
       text: 'Not set',
       tone: 'muted',
-      title: `${usedFor} Add the API key in .env, then restart Rover.`,
+      title: `This account is not connected yet.`,
     };
   }
   return {
     kind: 'payg',
     spent: Number.isFinite(Number(spent)) ? Number(spent) : 0,
     tone: 'ok',
-    title: `${usedFor} Spent is Rover-recorded (list price / estimate), not the vendor invoice.`,
+    title: 'Spent here is an estimate, not the bill.',
   };
 }
 
@@ -3809,7 +3806,7 @@ function apiCostRows() {
   const twilioConfigured = cfg.twilio ?? twilio?.configured === true;
 
   const apifyTitleParts = [
-    'Address Find LoopNet / Crexi scrapes. Prepaid. All-time spend · remaining this cycle.',
+    'Commercial-listing search. Spent, and money left this cycle.',
   ];
   if (apify?.ok && apify.monthlyUsageUsd != null && apify.maxMonthlyUsageUsd != null) {
     apifyTitleParts.push(
@@ -3827,8 +3824,8 @@ function apiCostRows() {
         balance: dfs?.balance,
         spent: dfs?.spentAllTime,
         failTitle: dfs?.error
-          ? `Discovery, research, ranks. Prepaid wallet. ${dfs.error}`
-          : 'Discovery, research, ranks. All-time spend · remaining wallet.',
+          ? `Search-data spend and money left. ${dfs.error}`
+          : 'Search-data spend and money left.',
       }),
     },
     (() => {
@@ -3845,8 +3842,8 @@ function apiCostRows() {
             balance: ab.balance,
             spent: hasVendorSpend ? vendorSpend : payg.anthropic,
             failTitle: ab.balance != null
-              ? 'Prepaid credits · spend and balance from Anthropic Admin API.'
-              : 'Prepaid credits. Spent is Rover-recorded; balance unavailable via Admin API.',
+              ? 'Writing credits spent and remaining.'
+              : 'Spent is an estimate. Balance is unavailable.',
           }),
         };
       }
@@ -3854,7 +3851,7 @@ function apiCostRows() {
         name: 'Anthropic',
         ...apiCostPaygCell(
           Boolean(cfg.anthropic),
-          'Copy, content, narrative. Prepaid credits billed per token.',
+          'Writing credits.',
           payg.anthropic,
         ),
       };
@@ -3863,7 +3860,7 @@ function apiCostRows() {
       name: 'OpenAI',
       ...apiCostPaygCell(
         Boolean(cfg.openai),
-        'Phone Whisper / summaries and GPT Image. Prepaid credits billed per use.',
+        'Call transcripts and generated photos.',
         payg.openai,
       ),
     },
@@ -3871,7 +3868,7 @@ function apiCostRows() {
       name: 'Google Maps',
       ...apiCostPaygCell(
         Boolean(cfg.googleMaps),
-        'Address Find Places / Geocoding. Pay as you go on Google Cloud.',
+        'Address lookup. Billed as you go.',
         payg.googleMaps,
       ),
     },
@@ -3895,8 +3892,8 @@ function apiCostRows() {
         balance: twilio?.balance,
         spent: twilio?.spentAllTime,
         failTitle: twilio?.error
-          ? `Ranking numbers, calls, recordings. Prepaid account. ${twilio.error}`
-          : 'Ranking numbers, calls, recordings. All-time spend · remaining prepaid balance.',
+          ? `Phone numbers, calls, and recordings. ${twilio.error}`
+          : 'Phone numbers, calls, and recordings. Money left.',
       }),
     },
   ];
@@ -3911,20 +3908,20 @@ function renderApiCostMenu() {
       if (row.kind === 'merged') {
         return `<tr>
           ${name}
-          <td class="api-cost-merged ${esc(row.tone)}" colspan="2" title="${esc(row.title)}">${esc(row.text)}</td>
+          <td class="api-cost-merged ${esc(row.tone)}" colspan="2" data-tip="${esc(row.title)}">${esc(row.text)}</td>
         </tr>`;
       }
       if (row.kind === 'payg') {
         return `<tr>
           ${name}
-          <td class="api-cost-num ${esc(row.tone)}" title="${esc(row.title)}">${esc(apiCostMoney(row.spent))}</td>
-          <td class="api-cost-num ${esc(row.tone)}" title="${esc(row.title)}">PAYG</td>
+          <td class="api-cost-num ${esc(row.tone)}" data-tip="${esc(row.title)}">${esc(apiCostMoney(row.spent))}</td>
+          <td class="api-cost-num ${esc(row.tone)}" data-tip="${esc(row.title)}">PAYG</td>
         </tr>`;
       }
       return `<tr>
         ${name}
-        <td class="api-cost-num ${esc(row.tone)}" title="${esc(row.title)}">${esc(apiCostMoney(row.spent))}</td>
-        <td class="api-cost-num ${esc(row.tone)}" title="${esc(row.title)}">${esc(apiCostMoney(row.balance))}</td>
+        <td class="api-cost-num ${esc(row.tone)}" data-tip="${esc(row.title)}">${esc(apiCostMoney(row.spent))}</td>
+        <td class="api-cost-num ${esc(row.tone)}" data-tip="${esc(row.title)}">${esc(apiCostMoney(row.balance))}</td>
       </tr>`;
     })
     .join('');
@@ -4584,7 +4581,7 @@ const CANDIDATE_TABLE_COLS = [
   {
     key: '_select',
     label: '',
-    tip: 'Select rows for stage runs',
+    tip: 'Select rows to run the next step.',
     cellClass: 'col-narrow',
   },
   {
@@ -4597,21 +4594,21 @@ const CANDIDATE_TABLE_COLS = [
   {
     key: '_stageProgress',
     label: 'R',
-    tip: 'Highest completed evaluation: 1 SERP/Volume · 2 Enrich · 3 Narrative · 4 Prospects',
+    tip: 'How far research has gone, from 1 to 4.',
     cellClass: 'col-stage-progress',
     sortable: true,
   },
   {
     key: '_websiteTrack',
     label: 'W',
-    tip: 'Highest completed Website track: 1 Site-Config · 2 Content · 3 Launch',
+    tip: 'How far the website has gone, from 1 to 3.',
     cellClass: 'col-stage-progress',
     sortable: true,
   },
   {
     key: 'niche',
     label: 'Niche',
-    tip: 'Service niche. Double-click to rename. After evaluations, Rover asks you to confirm ripple effects.',
+    tip: 'Service. Double-click to rename.',
     sortable: true,
     cellClass: 'col-truncate',
     source: 'claude',
@@ -4642,14 +4639,14 @@ const CANDIDATE_TABLE_COLS = [
   {
     key: 'shotgunClusterKey',
     label: 'Cl',
-    tip: 'Cluster 1–20 (rental package)',
+    tip: 'Cluster number, 1 to 20.',
     sortable: true,
     cellClass: 'col-sg-role',
   },
   {
     key: 'proposedScore',
     label: 'Score',
-    tip: 'Overall 1–10. Provisional (*) until job value is set. Higher = better.',
+    tip: 'Overall score. Higher is a better opportunity. * means job value is not set.',
     sortable: true,
     cellClass: 'col-score-metric',
     source: 'ops',
@@ -4657,7 +4654,7 @@ const CANDIDATE_TABLE_COLS = [
   {
     key: 'demand',
     label: 'Demand',
-    tip: 'Demand score 1–10 from cluster search volume band',
+    tip: 'Search demand, 1–10. Higher means more searches.',
     sortable: true,
     cellClass: 'col-score-metric',
     source: 'ops',
@@ -4665,7 +4662,7 @@ const CANDIDATE_TABLE_COLS = [
   {
     key: 'competition',
     label: 'Openness',
-    tip: 'Organic openness 1–10. Higher = more open / better for you.',
+    tip: 'How open the search results look. Higher is better for you.',
     sortable: true,
     cellClass: 'col-score-metric',
     source: 'ops',
@@ -4673,7 +4670,7 @@ const CANDIDATE_TABLE_COLS = [
   {
     key: 'disp',
     label: 'Displace.',
-    tip: 'Evaluation 2 — Displaceability 1–10. Higher = easier to outrank.',
+    tip: 'How easy these pages look to beat. Higher is easier.',
     sortable: true,
     cellClass: 'col-score-metric',
     source: 'ops',
@@ -4681,7 +4678,7 @@ const CANDIDATE_TABLE_COLS = [
   {
     key: 'jobValue',
     label: 'Job value',
-    tip: 'Job value score 1–10 from accepted narrative ticket size',
+    tip: 'Typical job size, 1–10. Higher is better.',
     sortable: true,
     cellClass: 'col-score-metric',
     source: 'ops',
@@ -4689,7 +4686,7 @@ const CANDIDATE_TABLE_COLS = [
   {
     key: 'serpSoftness',
     label: 'SERP soft',
-    tip: 'SERP softness label: soft / mixed / hard',
+    tip: 'How crowded search results are: soft, mixed, or hard.',
     sortable: true,
     cellClass: 'col-score-metric',
     source: 'ops',
@@ -4697,7 +4694,7 @@ const CANDIDATE_TABLE_COLS = [
   {
     key: 'volume',
     label: 'Search vol.',
-    tip: 'Demand (scored) / month: primary + α×suburb volumes (α=0.25). Bands apply here, not raw cluster sum. — if the city has no Ads geo.',
+    tip: 'Estimated monthly searches. Blank if there is no local data.',
     sortable: true,
     cellClass: 'col-truncate',
     source: 'dfs',
@@ -4705,7 +4702,7 @@ const CANDIDATE_TABLE_COLS = [
   {
     key: 'mapPack',
     label: 'Map Pack',
-    tip: 'Map Pack present (Yes/No). When Yes, shows review counts per pack slot (e.g. 78/14/235). LSA if Local Services Ads detected. May show Discovery Light SERP until Eval 1 · SERP / Volume.',
+    tip: 'Whether a map pack shows, plus review counts.',
     sortable: true,
     cellClass: 'col-mappack',
     source: 'dfs',
@@ -4721,7 +4718,7 @@ const CANDIDATE_TABLE_COLS = [
   {
     key: 'orgHome',
     label: 'Homepages',
-    tip: 'Niche-relevant / all organic homepages (title+URL token match). Directories excluded. May show Discovery Light SERP counts until Eval 1 · SERP / Volume.',
+    tip: 'Matching homepages out of all homepages.',
     sortable: true,
     cellClass: 'col-short col-center',
     source: 'dfs',
@@ -4729,7 +4726,7 @@ const CANDIDATE_TABLE_COLS = [
   {
     key: 'orgSub',
     label: 'Subpages',
-    tip: 'Niche-relevant / all organic subpages (title+URL token match). Directories excluded. May show Discovery Light SERP counts until Eval 1 · SERP / Volume.',
+    tip: 'Matching inner pages out of all inner pages.',
     sortable: true,
     cellClass: 'col-short col-center',
     source: 'dfs',
@@ -4737,7 +4734,7 @@ const CANDIDATE_TABLE_COLS = [
   {
     key: 'avgCpc',
     label: 'CPC',
-    tip: 'Average CPC from SERP / Volume Ads keywords (monetization signal). Blank until SERP / Volume.',
+    tip: 'Average ad cost per click. Blank until volumes run.',
     sortable: true,
     cellClass: 'col-short',
     source: 'dfs',
@@ -4753,7 +4750,7 @@ const CANDIDATE_TABLE_COLS = [
   {
     key: 'jobCost',
     label: 'Job Cost',
-    tip: 'Average job value / ticket size from research or narrative',
+    tip: 'Typical job cost from the research.',
     sortable: true,
     cellClass: 'col-truncate',
     source: 'claude',
@@ -4761,7 +4758,7 @@ const CANDIDATE_TABLE_COLS = [
   {
     key: 'decision',
     label: 'Decision',
-    tip: 'Decision group — autosaves. Hover shows score-based Recommend (pursue ≥7, maybe 6–7, pass <6, review if stages 1–3 incomplete).',
+    tip: 'Saves as you choose. Hover a score for the suggestion.',
     sortable: true,
     cellClass: 'col-human',
     source: 'ops',
@@ -4769,7 +4766,7 @@ const CANDIDATE_TABLE_COLS = [
   {
     key: 'prospects',
     label: 'Prospects',
-    tip: 'Evaluation 4 — Prospect count (high priority in tip)',
+    tip: 'Number of possible renters.',
     sortable: true,
     cellClass: 'col-short',
     source: 'ops',
@@ -4777,7 +4774,7 @@ const CANDIDATE_TABLE_COLS = [
   {
     key: 'batch',
     label: 'Batch',
-    tip: 'Source discovery batch id',
+    tip: 'Which discovery batch this came from.',
     sortable: true,
     cellClass: 'col-batch',
     source: 'ops',
@@ -4793,7 +4790,7 @@ const CANDIDATE_TABLE_COLS = [
   {
     key: 'apiSpend',
     label: 'API $',
-    tip: 'Recorded / estimated API spend for this candidate (hover for breakdown)',
+    tip: 'Estimated spend for this row. Hover for the breakdown.',
     sortable: true,
     cellClass: 'col-short',
     source: 'ops',
@@ -4801,7 +4798,7 @@ const CANDIDATE_TABLE_COLS = [
   {
     key: '_rank',
     label: 'Type',
-    tip: 'Pipeline rank: Discovery → Research → Website (pursue) → Launched',
+    tip: 'Where this row is: Discovery, Research, Website, or Launched.',
     sortable: true,
     cellClass: 'col-short',
     source: 'ops',
@@ -4833,16 +4830,16 @@ function launchedBadgeHtml() {
 }
 
 const STAGE_STEP_TIPS = {
-  1: '1 · SERP / Volume complete',
-  2: '2 · Enrich complete',
-  3: '3 · Narrative complete',
-  4: '4 · Prospects complete',
+  1: 'Search volumes done',
+  2: 'Page check done',
+  3: 'Write-up done',
+  4: 'Renter search done',
 };
 
 const WEBSITE_TRACK_TIPS = {
-  1: '1 · Site-Config complete',
-  2: '2 · Content complete',
-  3: '3 · Launch complete',
+  1: 'Site details done',
+  2: 'Pages written',
+  3: 'Site is live',
 };
 
 /** Highest completed Research→Prospects stage (0 = none). */
@@ -4946,12 +4943,12 @@ function updateCandidateSelectionCount() {
     if (blocked.length) {
       setElementTip(
         deleteBtn,
-        'Launched Candidates cannot be permanently deleted from Rover',
+        'Live sites cannot be deleted here.',
       );
     } else {
       setElementTip(
         deleteBtn,
-        'Permanently delete unlaunched selection (Research or Website) and scrub Discovery anti-dupe / groups / Sites / local assembled folder',
+        'Permanently delete selected sites that are not live.',
       );
     }
   }
@@ -5411,8 +5408,8 @@ function renderClusterRosterHtml(detail) {
     <h4 class="scores-heading">Zone roster</h4>
     <table class="scores-table"><thead><tr>
       <th class="sortable" data-sort="city" data-tip="Sort by city">City${mark('city')}</th>
-      <th class="sortable" data-sort="cluster" data-tip="Sort by cluster">Cl${mark('cluster')}</th>
-      <th class="sortable" data-sort="population" data-tip="Sort by population">Pop${mark('population')}</th>
+      <th class="sortable" data-sort="cluster" data-tip="Cluster number. Click to sort.">Cl${mark('cluster')}</th>
+      <th class="sortable" data-sort="population" data-tip="Population. Click to sort.">Pop${mark('population')}</th>
       <th></th>
     </tr></thead>
     <tbody>${rows}</tbody></table>
@@ -5498,9 +5495,7 @@ function renderList() {
         }
         if (col.key === 'niche') {
           const locked = Boolean(c.nicheRenameLocked);
-          const tip = locked
-            ? 'Double-click to rename (confirm after evaluations)'
-            : 'Double-click to rename (before evaluations)';
+          const tip = 'Double-click to rename.';
           const nicheClass = col.cellClass ? `${col.cellClass} cand-niche` : 'cand-niche';
           return `<td class="${esc(nicheClass)}" data-id="${esc(c.id)}" data-niche-locked="${
             locked ? '1' : '0'
@@ -5581,8 +5576,8 @@ function renderList() {
             niche != null && all != null ? `${niche}/${all}` : esc(String(niche ?? all));
           const tip =
             niche != null && all != null
-              ? `${niche} niche-relevant of ${all} organic homepages (title+URL)`
-              : 'Organic homepage count';
+              ? `${niche} of ${all} homepages match this service.`
+              : 'Homepage count.';
           return `<td${tdClass} data-tip="${esc(tip)}">${label}</td>`;
         }
         if (col.key === 'orgSub') {
@@ -5593,8 +5588,8 @@ function renderList() {
             niche != null && all != null ? `${niche}/${all}` : esc(String(niche ?? all));
           const tip =
             niche != null && all != null
-              ? `${niche} niche-relevant of ${all} organic subpages (title+URL)`
-              : 'Organic subpage count';
+              ? `${niche} of ${all} inner pages match this service.`
+              : 'Inner page count.';
           return `<td${tdClass} data-tip="${esc(tip)}">${label}</td>`;
         }
         if (col.key === 'avgCpc') {
@@ -5618,7 +5613,7 @@ function renderList() {
                   polarity: 'higher-better',
                   label: 'Demand',
                   extraTip: estimated
-                    ? `${SCORE_INPUT_TIPS.demand}\nThis row: Claude Discovery estimate, not Ads.`
+                    ? `${SCORE_INPUT_TIPS.demand} This number is a rough guess.`
                     : SCORE_INPUT_TIPS.demand,
                   suffix: estimated ? 'est.' : '',
                 })
@@ -5646,13 +5641,12 @@ function renderList() {
         if (col.key === 'disp') {
           const disp = overallInputs.displaceability;
           if (disp == null) return `<td${tdClass}>—</td>`;
-          const dispBand = displaceabilityBand(disp);
           return `<td${tdClass}>${metricHtml({
             value: disp,
             max: 10,
             polarity: 'higher-better',
             label: 'Displaceability',
-            extraTip: dispBand ? `${dispBand.label} (${dispBand.range || ''})` : '',
+            extraTip: SCORE_INPUT_TIPS.displaceability,
           })}</td>`;
         }
         if (col.key === 'jobValue') {
@@ -5678,7 +5672,7 @@ function renderList() {
             .join(' — ');
           const tip = recTip
             ? `Recommend: ${recTip}`
-            : 'Decision group — autosaves on change';
+            : 'Saves as you choose.';
           return `<td${tdClass} data-tip="${esc(tip)}"><select class="cand-decision" data-id="${esc(c.id)}">${CANDIDATE_DECISION_OPTS.map(
             (o) =>
               `<option value="${esc(o)}" ${
@@ -5689,7 +5683,7 @@ function renderList() {
         if (col.key === 'prospects') {
           if (c.prospectCount == null) return `<td${tdClass}>—</td>`;
           const tip =
-            c.highPriority != null ? `${c.highPriority} high priority` : 'Stage 4 prospects';
+            c.highPriority != null ? `${c.highPriority} high priority` : 'Number of possible renters.';
           return `<td${tdClass} data-tip="${esc(tip)}">${esc(String(c.prospectCount))}${
             c.highPriority != null
               ? ` <span class="muted">(${esc(String(c.highPriority))}↑)</span>`
@@ -5698,7 +5692,7 @@ function renderList() {
         }
         if (col.key === 'batch') {
           const bid = c.source?.batchId || '';
-          return `<td${tdClass} data-tip="${esc(bid)}"><span class="cell-text">${esc(
+          return `<td${tdClass}><span class="cell-text">${esc(
             bid || '—',
           )}</span></td>`;
         }
@@ -5706,7 +5700,7 @@ function renderList() {
           const notes = c.decisionNotes || '';
           return `<td${tdClass}><input class="cand-notes" data-id="${esc(
             c.id,
-          )}" data-tip="${esc(notes)}" value="${esc(notes)}" /></td>`;
+          )}" value="${esc(notes)}" /></td>`;
         }
         if (col.key === 'apiSpend') {
           const spend = candidateApiSpendBreakdown(c);
@@ -6317,8 +6311,8 @@ function renderMultiDetail() {
   const narrBatch =
     draftCount > 0
       ? `<div class="narrative-actions multi-queue-narrative">
-          <button type="button" class="btn primary" data-act="accept" ${busy ? 'disabled' : ''} data-tip="Commit narrative drafts for selected candidates with drafts">Accept draft (${draftCount})</button>
-          <button type="button" class="btn danger" data-act="reject" ${busy ? 'disabled' : ''} data-tip="Discard narrative drafts for selected candidates">Reject draft (${draftCount})</button>
+          <button type="button" class="btn primary" data-act="accept" ${busy ? 'disabled' : ''} data-tip="Accept the saved write-ups for the selected rows.">Accept draft (${draftCount})</button>
+          <button type="button" class="btn danger" data-act="reject" ${busy ? 'disabled' : ''} data-tip="Throw away the saved write-ups for the selected rows.">Reject draft (${draftCount})</button>
         </div>`
       : '';
   document.getElementById('tab-panels').innerHTML = `
@@ -6346,7 +6340,7 @@ function stageCheckMark() {
 }
 
 function stageDraftMark() {
-  return `<span class="stage-draft" ${tipAttr('Draft present (not committed yet)')}>draft</span>`;
+  return `<span class="stage-draft" ${tipAttr('A draft is saved and not accepted yet.')}>draft</span>`;
 }
 
 function updateTabCompletion() {
@@ -6402,7 +6396,7 @@ function updateTabCompletion() {
         : esc(base);
     tab.classList.toggle('active', key === state.tab);
     if (key === 'keywords') {
-      setElementTip(tab, 'Evaluation 1 · keyword volumes from SERP / Volume');
+      setElementTip(tab, 'Keyword search volume for this city.');
     }
   });
 }
@@ -6772,10 +6766,9 @@ function syncClaudeModeToggle() {
     pasteBtn.classList.toggle('active', effective === 'paste');
     pasteBtn.disabled = locked;
     if (locked) {
-      setElementTip(pasteBtn, 'Wait until the Claude API job finishes.');
+      setElementTip(pasteBtn, 'Wait until the writing job finishes.');
     } else {
-      pasteBtn.removeAttribute('data-tip');
-      pasteBtn.setAttribute('aria-label', 'Copy and paste');
+      setElementTip(pasteBtn, 'Copy a prompt and paste the reply.');
     }
   }
   if (apiBtn) {
@@ -6784,12 +6777,12 @@ function syncClaudeModeToggle() {
     if (!anthropicOk) {
       setElementTip(
         apiBtn,
-        'Add ANTHROPIC_API_KEY to .env and restart Rover to use Anthropic API mode.',
+        'In-app writing is not set up yet.',
       );
     } else if (locked) {
-      setElementTip(apiBtn, 'Wait until the Claude API job finishes.');
+      setElementTip(apiBtn, 'Wait until the writing job finishes.');
     } else {
-      setElementTip(apiBtn, 'Use Claude through the Anthropic API instead of Copy and paste.');
+      setElementTip(apiBtn, 'Write inside Rover.');
     }
   }
   syncDiscoveryClaudeModeUi();
@@ -7465,6 +7458,29 @@ function wireSlotPromptEvents(root) {
   root.addEventListener('mousedown', (ev) => {
     if (ev.target.closest('.slot-prompt-restore')) ev.preventDefault();
   });
+  root.addEventListener(
+    'click',
+    (ev) => {
+      const panel = ev.target.closest?.('.slot-prompt-panel');
+      if (!panel || !root.contains(panel)) return;
+      if (ev.target.closest('summary')) return;
+      ev.preventDefault();
+    },
+    true,
+  );
+  root.addEventListener(
+    'keydown',
+    (ev) => {
+      if (ev.eventPhase !== Event.CAPTURING_PHASE) return;
+      if (ev.key !== ' ' && ev.key !== 'Enter') return;
+      const ta = ev.target;
+      if (!ta.matches?.('textarea')) return;
+      const panel = ta.closest?.('.slot-prompt-panel');
+      if (!panel || !root.contains(panel)) return;
+      ta.addEventListener('keydown', (inner) => inner.stopPropagation(), { once: true });
+    },
+    true,
+  );
   root.addEventListener('click', async (ev) => {
     const restore = ev.target.closest('.slot-prompt-restore');
     if (!restore || !root.contains(restore)) return;
@@ -7483,6 +7499,10 @@ function wireSlotPromptEvents(root) {
     (ev) => {
       const panel = ev.target;
       if (!(panel instanceof HTMLDetailsElement) || !panel.classList.contains('slot-prompt-panel')) return;
+      if (panel.dataset.keepPrompt === '1') {
+        delete panel.dataset.keepPrompt;
+        return;
+      }
       if (!panel.open) return;
       void loadSlotPromptForViewpoint(panel.closest('.image-slot-card'));
     },
@@ -7500,7 +7520,7 @@ function baViewpointSegmentHtml(stepKey = 'home') {
   const key = String(stepKey || 'home').trim() || 'home';
   const mode = getBaViewpoint(key);
   const tip =
-    'Inside = camera indoors at the service feature · Outside = camera outdoors (foundation / well / exterior). Default Inside.';
+    'Indoors or outdoors. Default is indoors.';
   return `<div class="ads-mode-segment ba-viewpoint-segment" role="group" aria-label="Photo viewpoint" data-ba-viewpoint-step="${esc(
     key,
   )}" ${tipAttr(tip)}>
@@ -7517,7 +7537,7 @@ function baOccupancySegmentHtml(stepKey = 'home') {
   const key = String(stepKey || 'home').trim() || 'home';
   const mode = getBaOccupancy(key);
   const tip =
-    'Problem = the problem this service fixes, unfinished, no people · Workers = 1–2 crew doing the job · Finished = the completed result, no people · Customers = the household or the people who use this finished service. Default Problem.';
+    'Problem, crew, finished work, or customers. Default is Problem.';
   return `<div class="ads-mode-segment ba-occupancy-segment" role="group" aria-label="Photo occupancy" data-ba-occupancy-step="${esc(
     key,
   )}" ${tipAttr(tip)}>
@@ -7578,7 +7598,7 @@ function researchOptsFromUi() {
 function adsModeSegmentHtml(disabled = false) {
   const mode = getAdsMode();
   const tip =
-    'Live ≈ $0.075–0.09/Ads task · Standard queue ≈ $0.05–0.06 (slower, overnight OK)';
+    'Live is faster and costs more. Standard is cheaper and slower.';
   return `<div class="ads-mode-segment" role="group" aria-label="Ads queue" ${tipAttr(tip)}>
     <button type="button" class="ads-mode-seg${mode === 'live' ? ' active' : ''}" data-ads-mode="live" ${
       disabled ? 'disabled' : ''
@@ -7595,12 +7615,12 @@ function evalRunModeSegmentHtml(disabled = false) {
     <button type="button" class="ads-mode-seg${
       mode === 'required' ? ' active' : ''
     }" data-eval-run-mode="required" ${disabled ? 'disabled' : ''} ${tipAttr(
-      'Cheapest Research path. SERP seeds from Discovery cache or one ~$0.002 fetch, then Narrative. Skips Ads volumes, Enrich, and Prospects. Enough to Accept, set pursue, and build. Website Write still has its own Claude cost later.',
+      'Cheapest path: a quick search check, then the write-up.',
     )}>Run all required</button>
     <button type="button" class="ads-mode-seg${
       mode === 'all' ? ' active' : ''
     }" data-eval-run-mode="all" ${disabled ? 'disabled' : ''} ${tipAttr(
-      'Expensive Research path. Fills missing Evaluations 1–4 (Ads volumes, Enrich, Narrative, Prospects). Typical ~$0.40–$3.20 per candidate; Ads volumes scale with cluster size.',
+      'Runs every research step. Cost grows with the number of cities.',
     )}>Run all</button>
   </div>`;
 }
@@ -7608,7 +7628,7 @@ function evalRunModeSegmentHtml(disabled = false) {
 function forceSerpCheckboxHtml(disabled = false) {
   const on = getForceSerp();
   return `<label class="research-force-serp" ${tipAttr(
-    'Refetch Map Pack/organic (~$0.002). Leave off to reuse cached SERP when available.',
+    'Refresh the map pack and search results. Leave off to reuse the last check.',
   )}>
     <input type="checkbox" id="research-force-serp" ${on ? 'checked' : ''} ${
       disabled ? 'disabled' : ''
@@ -7820,9 +7840,7 @@ function renderActions() {
         ? 'research'
         : !narrAccepted
           ? 'narrative'
-          : !enrichDone
-            ? 'enrich'
-            : null;
+          : null;
   const busy = Boolean(state.activeJobId || state.activeBatchJobId || state.claudeBusy);
   const runningAct = state.activeAct;
   const batchLabel = targetCount > 1 ? ` (${targetCount})` : '';
@@ -7861,16 +7879,16 @@ function renderActions() {
   ].filter(Boolean);
   const narrDisabled = busy || targetCount !== 1 || !narrGateOk;
   const enrichTip = !enrichGateOk
-    ? 'Complete Evaluation 1 (SERP / Volume) first'
-    : 'Evaluation 2 — page fetch, Domain Rank, thinness / displaceability';
+    ? 'Run search volume first.'
+    : 'Check competing pages and how strong they are.';
   const narrTip = !narrGateOk
-    ? 'Select a candidate first'
+    ? 'Select one row first.'
     : effectiveClaudeUiMode() === 'api'
-      ? 'Run Narrative via the Anthropic API (confirm cost first). Enrich is optional.'
-      : 'Copy Claude.ai prompt, then paste the JSON result on the Narrative tab (default — no API cost). Hydrates cheap SERP seeds if needed.';
+      ? 'Writes the research summary here. You will confirm the cost first.'
+      : 'Copy a prompt, then paste the result on Narrative.';
   const prospectsTip = !prospectsGateOk
-    ? 'Complete Evaluation 3 (Narrative) first'
-    : 'Find local businesses via Maps SERP (optional)';
+    ? 'Finish the write-up first.'
+    : 'Find local businesses on the map. Optional.';
   const evalRunMode = getEvalRunMode();
   const requiredDone =
     targetCount === 0
@@ -7893,16 +7911,16 @@ function renderActions() {
   const runAllTip =
     evalRunMode === 'required'
       ? allBoxDone
-        ? 'Required Research steps are already complete (SERP seeds + Narrative)'
-        : 'Cheapest Research path. SERP seeds from Discovery cache or one ~$0.002 fetch, then Narrative. Skips Ads volumes, Enrich, and Prospects. Enough to Accept, set pursue, and build. Website Write still has its own Claude cost later.'
+        ? 'The required research steps are already done.'
+        : 'Cheapest path: a quick search check, then the write-up.'
       : allBoxDone
-        ? 'Evaluations 1–4 are already complete'
-        : 'Expensive Research path. Fills missing Evaluations 1–4 (Ads volumes, Enrich, Narrative, Prospects). Typical ~$0.40–$3.20 per candidate; Ads volumes scale with cluster size.';
+        ? 'All four research steps are already done.'
+        : 'Runs every research step. Cost grows with the number of cities.';
 
   el.innerHTML = `
     <div
       class="actions-toolbar"
-      data-tip="✓ = stage has data. Select rows to batch Evaluations 1–4. Narrative Accept/Reject is on the Narrative tab (or multi-queue when several drafts)."
+      data-tip="A check means that step has data. Select rows to run them."
     >
       <div class="action-group stage-1${volumesDone ? ' action-done' : ''}${
         runningAct === 'research' || runningAct === 'serp-seeds' ? ' action-running' : ''
@@ -7917,7 +7935,7 @@ function renderActions() {
                 : ''
         }</span></span>
         <div class="action-group-btns research-stage-btns">
-          <button type="button" class="btn btn-sm primary" data-act="research" data-tip="Ads search volume + CPC (~$0.50+ with several cities). Reuses Map Pack/organic unless Force new SERP is checked." ${stageBusyAttr(
+          <button type="button" class="btn btn-sm primary" data-act="research" data-tip="Gets search volume and ad cost. Reuses a saved search unless you force a new one." ${stageBusyAttr(
             'research',
           )}>${
             runningAct === 'research'
@@ -8766,7 +8784,7 @@ function renderOverview() {
         label: 'Demand',
         extraTip:
           demandSource === 'claude_estimate'
-            ? `${SCORE_INPUT_TIPS.demand}\nThis row: Claude Discovery estimate, not Ads.`
+            ? `${SCORE_INPUT_TIPS.demand} This number is a rough guess.`
             : SCORE_INPUT_TIPS.demand,
         suffix: demandSource === 'claude_estimate' ? 'est.' : '',
       }),
@@ -8796,7 +8814,7 @@ function renderOverview() {
         label: 'Displaceability',
         extraTip: dispTip,
       }),
-      dispBand?.label || (dispScore == null ? 'Run Stage 2 enrich' : '—'),
+      dispBand?.label || (dispScore == null ? 'Run enrich. Optional.' : '—'),
     ],
     [
       'Job value',
@@ -8856,7 +8874,7 @@ function renderOverview() {
       </label>
       <input id="decision-notes" placeholder="Notes" value="${esc(meta.decisionNotes || '')}" style="min-width:220px" />
       <button type="button" class="btn primary" id="save-decision">Save decision</button>
-      <button type="button" class="btn" id="shotgun-this-metro" data-tip="Lock this city as Cluster Hub and assign Cluster Cities in the same metro">Cluster this metro</button>
+      <button type="button" class="btn" id="shotgun-this-metro" data-tip="Make this city the hub and pick nearby cities.">Cluster this metro</button>
     </div>
     ${
       state.detail.shotgunClusterId
@@ -8898,23 +8916,28 @@ function domainRankCell(link, lookups) {
   const rank = page?.domainRank ?? lookups.byDomain.get(link.domain) ?? null;
   if (rank == null) {
     const tip = lookups.hasEnrichment
-      ? 'No Domain Rank for this URL/domain'
-      : 'Run Stage 2 enrich for DataForSEO Domain Rank (0–100; not Moz DA)';
+      ? 'No strength score for this page.'
+      : 'No strength score yet. Run the page check first.';
     return `<span class="metric metric-neutral" ${tipAttr(tip)}>—</span>`;
   }
-  const rankBand = domainRankBand(rank);
   return metricHtml({
     value: rank,
     max: 100,
     polarity: 'higher-harder',
-    label: 'DataForSEO Domain Rank (not Moz DA)',
-    extraTip: rankBand ? `${rankBand.label} (${rankBand.range})` : '',
+    label: 'How strong this site is',
+    extraTip: 'How strong this site is, 0–100. Higher is harder to beat.',
   });
 }
 
 function renderSerp() {
   const serp = state.detail.research?.serp;
-  if (!serp) return '<p class="muted">No research yet — run SERP / Volume (Evaluation 1).</p>';
+  if (!serp) {
+    const hint =
+      effectiveClaudeUiMode() === 'api'
+        ? 'Use <strong>Run all required</strong>, or <strong>Ad volumes</strong>.'
+        : 'Copy the story prompt, or run <strong>Ad volumes</strong>.';
+    return `<p class="muted">No search snapshot yet. ${hint}</p>`;
+  }
   const lookups = enrichmentLookups();
   const mapPackWebsiteCount =
     serp.mapPackWebsiteCount ??
@@ -8929,8 +8952,8 @@ function renderSerp() {
       esc(b.rating ?? '—'),
       esc(b.reviewsCount ?? '—'),
       yesNoHtml(hasWebsite, {
-        yesTip: 'Map Pack listing includes a website URL.',
-        noTip: 'No website URL on this Map Pack slot — often GBP-only / phone-lead angle.',
+        yesTip: 'This listing has a website.',
+        noTip: 'No website. Phone leads only.',
       }),
       b.url ? `<a href="${esc(b.url)}" target="_blank" rel="noopener">link</a>` : '—',
     ];
@@ -8957,13 +8980,11 @@ function renderSerp() {
       esc(l.domain || ''),
       domainRankCell(l, lookups),
       l.nicheRelevant
-        ? `<span class="metric metric-good" ${tipAttr('Title+URL matched ≥2 niche tokens (or 1 if niche is one word)')}>Yes</span>`
-        : `<span class="metric metric-neutral" ${tipAttr('Title+URL did not match niche tokens — synonyms/brands without niche words count as No')}>No</span>`,
+        ? `<span class="metric metric-good" ${tipAttr('The title matches this service.')}>Yes</span>`
+        : `<span class="metric metric-neutral" ${tipAttr('The title does not use this service’s words.')}>No</span>`,
       yesNoHtml(Boolean(l.looksEmd), {
-        yesTip:
-          'EMD heuristic: registrable domain (hyphens stripped) contains niche tokens (≥2, or 1 if niche is one token). Applies to homepage and subpage URLs. Display only — not a score input.',
-        noTip:
-          'Domain does not look like an exact-match niche domain under the token rule (missing looksEmd on older JSON also shows as No).',
+        yesTip: 'The website name matches the service.',
+        noTip: 'The website name does not match the service.',
       }),
       esc(l.title || ''),
       `<a href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.url)}</a>`,
@@ -8985,28 +9006,26 @@ function renderSerp() {
 
   const homeCount = serp.organicHomePages?.count ?? 0;
   const domainCount = serp.uniqueOrganicDomains?.length ?? 0;
-  const absTip =
-    'Abs # = DataForSEO rank_absolute: position among EVERYTHING on the page (AI Overview, features, organic links…). Gaps are normal — missing numbers are usually AI Overview, related searches, or other blocks we do not list. Depth requests ~10 organic URLs; Abs # can still exceed 10.';
-  const blueTip =
-    'Blue # = order among listed blue links only (organic + directories), sorted by Abs #. Map Pack businesses are separate and not numbered here.';
+  const absTip = 'Position on the whole Google page. Gaps are normal.';
+  const blueTip = 'Order among the normal search results we list.';
   const organicHeaders = [
     thWithTip('Blue #', blueTip),
     thWithTip('Abs #', absTip),
-    thWithTip('Type', 'Niche homepage vs location/service subpage'),
+    thWithTip('Type', 'Homepage or an inner service page.'),
     thWithTip('Domain', 'Competitor domain'),
     thWithTip(
       'Domain Rank',
-      'DataForSEO Rank 0–100 after Stage 2 enrich. Higher = stronger competitor = harder for you. Not Moz DA.',
+      'How strong this site is, 0–100. Higher is harder to beat.',
     ),
     thWithTip(
       'Niche?',
-      'SERP-time only: title + URL must contain niche tokens (words >2 chars). Needs ≥2 token hits, or 1 if the niche is a single token. No page HTML; synonyms/brands without niche words → No.',
+      'Whether the title and address use this service’s words.',
     ),
     thWithTip(
       'EMD?',
-      'Exact-match domain flag for every organic row. Niche tokens appear in the domain with hyphens stripped. Display heuristic — not used in proposedScore. Older JSON without looksEmd shows No until SERP / Volume re-annotates.',
+      'Whether the website name matches the service.',
     ),
-    thWithTip('Title', 'SERP title'),
+    thWithTip('Title', 'The Google result title.'),
     thWithTip('URL', 'Landing URL'),
   ];
   const dirHeaders = [
@@ -9015,17 +9034,12 @@ function renderSerp() {
     thWithTip('Domain', 'Directory domain'),
     thWithTip(
       'Domain Rank',
-      'DataForSEO Rank 0–100 after Stage 2 enrich. Higher = stronger competitor. Not Moz DA.',
+      'How strong this site is, 0–100. Higher is harder to beat.',
     ),
     thWithTip('URL', 'Landing URL'),
   ];
-  const mapPackSiteTip =
-    'Map Pack websites: count of slots with a website URL. No-URL slots are often GBP-only / harder phone-lead angles until you build a real site + GBP.';
-  const organicNumberingTip =
-    'Abs # is full-page position (not “organic 1–10”). Gaps (e.g. missing 1 or 10–12) are usually AI Overview / related blocks — not missing blue links. Map Pack rows below are separate and unnumbered in Abs #. We request ~10 organic URLs; Abs # can still be 13+ when other features sit above them. Blue # is a simple 1…N among the blue links we list.';
-  const nicheEmdTip =
-    'Niche? matches niche words in the SERP title + URL only (no page HTML). Needs at least two niche tokens (or one if the niche is a single word). Synonyms or brand names without those words show as No — that can disagree with a human read of the page. EMD? is Yes/No for every organic row (homepage or subpage).';
-  const organicInfoTip = `${organicNumberingTip} ${nicheEmdTip}`;
+  const mapPackSiteTip = 'How many map listings have a website.';
+  const organicInfoTip = 'How the result numbers and match marks work.';
 
   return `
     ${statusLineHtml(`
@@ -9037,8 +9051,8 @@ function renderSerp() {
         hasLsa: serp.features?.localServicesAds,
         websiteCount: mapPackWebsiteCount,
       })}
-      · Organic homepages: <strong data-tip="Higher count = harder SERP">${esc(homeCount)}</strong>
-      · Unique domains: <strong data-tip="Higher count = harder SERP">${esc(domainCount)}</strong>
+      · Organic homepages: <strong data-tip="More of these means a harder search page.">${esc(homeCount)}</strong>
+      · Unique domains: <strong data-tip="More of these means a harder search page.">${esc(domainCount)}</strong>
       · Sites ${esc(String(mapPackWebsiteCount))}/${esc(String(mapPackSlotCount))}
       · item types: ${esc((serp.itemTypes || []).join(', '))}
     `)}
@@ -9050,7 +9064,7 @@ function renderSerp() {
         'Domain',
         'Rating',
         'Reviews',
-        thWithTip('Site?', 'Does this Map Pack slot include a website URL?'),
+        thWithTip('Site?', 'Whether this map listing has a website.'),
         'URL',
       ],
       local,
@@ -9077,8 +9091,8 @@ function citiesMeasuredHtml(vols) {
   const honesty = adsVolumeHonesty(vols);
   if (honesty.mode === 'skipped') {
     const tip = honesty.staleState
-      ? 'Statewide Ads volume is not local. Re-run SERP / Volume.'
-      : 'No Google Ads geo for this city (and no Ads-listed neighbor).';
+      ? 'No local search volume for this city yet.'
+      : 'No local search volume for this city yet.';
     return `<span class="metric metric-neutral" ${tipAttr(tip)}>No Ads geo — volumes skipped</span>`;
   }
   const byCity = Array.isArray(vols?.byCity) ? vols.byCity : [];
@@ -9112,7 +9126,7 @@ function citiesMeasuredHtml(vols) {
 
 function renderKeywords() {
   const vols = state.detail.research?.volumes;
-  if (!vols) return '<p class="muted">No volumes yet — run SERP / Volume (Evaluation 1).</p>';
+  if (!vols) return '<p class="muted">No ad volumes yet. Ad volumes are optional.</p>';
   const honesty = adsVolumeHonesty(vols);
   const rows = (vols.keywords || []).map((k) => [
     esc(k.keyword),
@@ -9123,12 +9137,12 @@ function renderKeywords() {
     esc(JSON.stringify(k.perCity || {})),
   ]);
   const headers = [
-    thWithTip('Keyword', 'Keyword from related ideas + seeds'),
-    thWithTip('Primary', 'Monthly volume FROM the Ads geo used for the primary city (neighbor geo if noted)'),
-    thWithTip('Cluster', 'Sum of volumes across measured cluster cities'),
-    thWithTip('Comp', 'Google Ads auction competition (LOW/MED/HIGH) — not organic SEO difficulty'),
-    thWithTip('CPC', 'Ads cost-per-click when available — commercial intent proxy'),
-    thWithTip('Per city', 'Volume broken out by measured geo'),
+    thWithTip('Keyword', 'The search phrase.'),
+    thWithTip('Primary', 'Monthly searches for this city.'),
+    thWithTip('Cluster', 'Searches added up across these cities.'),
+    thWithTip('Comp', 'How competitive the ads are: low, medium, or high.'),
+    thWithTip('CPC', 'Typical ad cost per click.'),
+    thWithTip('Per city', 'Searches for each city.'),
   ];
 
   const primarySumHtml =
@@ -9166,7 +9180,7 @@ function renderKeywords() {
 
 function renderEnrichment() {
   const enr = state.detail.research?.enrichment;
-  if (!enr) return '<p class="muted">No enrichment — run Stage 2 (purple group).</p>';
+  if (!enr) return '<p class="muted">No enrichment yet. Click <strong>Run enrich</strong> if you want it. Optional.</p>';
   const d = enr.displaceability || {};
   const fetchFailedCount =
     enr.fetchFailedCount ??
@@ -9192,7 +9206,6 @@ function renderEnrichment() {
       )}). Domain Rank still shows below; re-run Enrich for a fresh Stage 2.</div>`
     : '';
   const pages = (enr.pages || []).map((p) => {
-    const rankBand = domainRankBand(p.domainRank);
     const multiLoc =
       p.kind === 'map_pack'
         ? null
@@ -9206,29 +9219,29 @@ function renderEnrichment() {
         max: 10,
         polarity: 'higher-thinner',
         label: 'Thinness',
-        extraTip: 'Higher = thinner page = easier to displace.',
+        extraTip: 'Higher means a thinner page, which is easier to beat.',
       }),
       metricHtml({
         value: p.domainRank,
         max: 100,
         polarity: 'higher-harder',
-        label: 'DataForSEO domain Rank (not Moz DA)',
-        extraTip: rankBand ? `${rankBand.label} (${rankBand.range})` : '',
+        label: 'How strong this site is',
+        extraTip: 'How strong this site is, 0–100. Higher is harder to beat.',
       }),
       metricHtml({
         value: p.pageRank,
         max: 100,
         polarity: 'higher-harder',
-        label: 'DataForSEO page Rank',
-        extraTip: 'Higher = stronger page = harder for you.',
+        label: 'How strong this page is',
+        extraTip: 'Higher means a stronger page, which is harder for you.',
       }),
       esc(p.signals?.wordCount ?? '—'),
       multiLoc == null
-        ? `<span class="metric metric-neutral" ${tipAttr('Multi-loc flag unavailable for this row')}>—</span>`
+        ? `<span class="metric metric-neutral" ${tipAttr('Not known whether this page covers many cities.')}>—</span>`
         : yesNoHtml(multiLoc, {
             yesTip:
-              'Page HTML shows multi-location / nationwide template signals (national player heuristic).',
-            noTip: 'No strong multi-location template signals on this page.',
+              'This page covers many cities.',
+            noTip: 'This page is not a many-city template.',
           }),
       esc(p.domain),
       `<a href="${esc(p.url)}" target="_blank" rel="noopener">${esc(p.url)}</a>`,
@@ -9236,7 +9249,6 @@ function renderEnrichment() {
   });
 
   const domains = Object.entries(enr.domains || {}).map(([domain, row]) => {
-    const rankBand = domainRankBand(row.rank);
     return [
       esc(domain),
       metricHtml({
@@ -9244,7 +9256,9 @@ function renderEnrichment() {
         max: 100,
         polarity: 'higher-harder',
         label: 'Domain Rank',
-        extraTip: rankBand ? `${rankBand.label}` : row.error || '',
+        extraTip: row.error
+          ? 'This strength score could not be loaded.'
+          : 'How strong this site is, 0–100. Higher is harder to beat.',
       }),
       esc(row.referringDomains ?? '—'),
       esc(row.error ? 'error' : 'ok'),
@@ -9252,14 +9266,14 @@ function renderEnrichment() {
   });
 
   const pageHeaders = [
-    thWithTip('Label', 'thin_stub = easier · strong_niche_page = harder · fetch_failed = excluded'),
-    thWithTip('Thin', '1–10. Higher = thinner = easier to displace'),
-    thWithTip('Dom Rank', '0–100 DataForSEO Rank. Higher = stronger competitor = harder for you. Not Moz DA.'),
-    thWithTip('Page Rank', '0–100 page-level Rank. Higher = harder for you.'),
-    thWithTip('Words', 'Approximate main-content word count from HTML fetch'),
+    thWithTip('Label', 'Thin page, strong page, or the page could not be read.'),
+    thWithTip('Thin', 'Higher means a thinner page, which is easier to beat.'),
+    thWithTip('Dom Rank', 'How strong this site is, 0–100. Higher is harder to beat.'),
+    thWithTip('Page Rank', 'How strong this page is, 0–100. Higher is harder.'),
+    thWithTip('Words', 'About how many words are on the page.'),
     thWithTip(
       'Multi-loc?',
-      'Enrich-time HTML heuristic: nationwide / multi-city template signals. Display only — already nudges thinness.',
+      'Whether this page covers many cities.',
     ),
     'Domain',
     'URL',
@@ -9338,8 +9352,8 @@ function narrativeReviewHtml(doc, { pending = false } = {}) {
       </div>`);
     }
     parts.push(`<div class="narrative-actions">
-      <button type="button" class="btn primary" data-act="accept" data-tip="Commit narrative draft → approved package">Accept draft</button>
-      <button type="button" class="btn danger" data-act="reject" data-tip="Discard narrative draft">Reject draft</button>
+      <button type="button" class="btn primary" data-act="accept" data-tip="Accept this write-up.">Accept draft</button>
+      <button type="button" class="btn danger" data-act="reject" data-tip="Throw away this draft.">Reject draft</button>
     </div>`);
   } else {
     parts.push(
@@ -9425,8 +9439,8 @@ function renderNarrative() {
     panelHowToHtml({
       label: 'Narrative',
       info: apiMode
-        ? 'Run Narrative from Evaluation 3. Valid JSON is accepted automatically. If the draft needs fixes, Accept or Reject here.'
-        : 'Copy prompt → Claude.ai → paste JSON → Load as draft (auto-accepts when valid). Optional Anthropic API is on the stage rail only when a key is set — never required.',
+        ? 'Run the write-up, then accept or reject it here.'
+        : 'Copy the prompt, paste the result, and load it.',
     }),
   );
   if (busy) {
@@ -10021,6 +10035,23 @@ function formatPageNameList(names) {
   return `${list.slice(0, -1).map((name) => esc(name)).join(', ')}, and ${esc(list[list.length - 1])}`;
 }
 
+function contentBuildNextHtml({ includeAccept = false, launched = false } = {}) {
+  const api = effectiveClaudeUiMode() === 'api';
+  const push = launched
+    ? ` Then click <strong>3 · Launch</strong> and <strong>Push updates</strong>.`
+    : '';
+  if (api) {
+    const accept = includeAccept
+      ? ` When that finishes, click <strong>Accept content</strong>.${push}`
+      : '';
+    return `Click <strong>2 · Content</strong>, then <strong>Structure</strong>, then <strong>Write site with Claude</strong>.${accept}`;
+  }
+  const accept = includeAccept
+    ? `, then work through to <strong>Accept content</strong>.${push}`
+    : '';
+  return `Click <strong>2 · Content</strong>, then <strong>Structure</strong>, then <strong>Site research</strong>${accept}`;
+}
+
 function siteConfigNextStep({
   accepted,
   detail,
@@ -10050,18 +10081,15 @@ function siteConfigNextStep({
     }
     return {
       kind: 'write-site',
-      html: `Click <strong>2 · Content</strong>, then <strong>Write site with Claude</strong>.`,
+      html: contentBuildNextHtml(),
     };
   }
   const configAt = String(detail?.meta?.lastSiteConfigAt || '');
   const contentAt = String(detail?.meta?.lastContentAt || '');
   if (configAt && contentAt && configAt > contentAt) {
-    const push = launched
-      ? ` Then click <strong>3 · Launch</strong> and <strong>Push updates</strong>.`
-      : '';
     return {
       kind: 'rewrite',
-      html: `Click <strong>2 · Content</strong>, then <strong>Write site with Claude</strong>. When that finishes, click <strong>Accept content</strong>.${push}`,
+      html: contentBuildNextHtml({ includeAccept: true, launched }),
     };
   }
   if (!suburbs.length) {
@@ -10076,12 +10104,9 @@ function siteConfigNextStep({
     };
   }
   if (pending.length) {
-    const push = launched
-      ? ` Then click <strong>3 · Launch</strong> and <strong>Push updates</strong>.`
-      : '';
     return {
       kind: 'write-pages',
-      html: `<strong>Write ${formatPageNameList(pending)}.</strong> Click <strong>2 · Content</strong>, then <strong>Write site with Claude</strong>. When that finishes, click <strong>Accept content</strong>.${push}`,
+      html: `<strong>Write ${formatPageNameList(pending)}.</strong> ${contentBuildNextHtml({ includeAccept: true, launched })}`,
     };
   }
   if (launched) {
@@ -10426,8 +10451,8 @@ function syncNicheServiceLoadButton(list) {
   const ready = Boolean(list?.services?.length);
   loadBtn.disabled = !ready;
   loadBtn.dataset.tip = ready
-    ? 'Compare the saved niche list with this site. Apply replaces the names.'
-    : 'No saved list for this niche yet.';
+    ? 'Compare the saved list. Apply replaces these names.'
+    : 'No saved list for this service yet.';
 }
 
 function buildNicheSourceNote(built) {
@@ -10758,20 +10783,20 @@ function siteConfigServicesChoiceHtml({
     mode === 'accepted' ? 'site-config-accept-commercial-only-update' : 'site-config-accept-commercial-only';
 
   const actions = `<div class="ca-svc-choice-actions">
-        <button type="button" class="btn" id="${esc(residentialId)}" data-tip="Write checked residential as primary services; clear commercialServices (one What we do grid).">Residential Only</button>
-        <button type="button" class="btn primary" id="${esc(bothId)}" data-tip="Write both checked lists — homepage Residential + Commercial grids when commercial is non-empty.">Residential + Commercial</button>
-        <button type="button" class="btn" id="${esc(commercialId)}" data-tip="Promote checked commercial to primary services; clear commercialServices (one What we do grid).">Commercial Only</button>
+        <button type="button" class="btn" id="${esc(residentialId)}" data-tip="Use the checked home services only.">Residential Only</button>
+        <button type="button" class="btn primary" id="${esc(bothId)}" data-tip="Use both lists. Commercial gets its own block when it has names.">Residential + Commercial</button>
+        <button type="button" class="btn" id="${esc(commercialId)}" data-tip="Use the checked commercial services only.">Commercial Only</button>
       </div>
       <div class="ca-svc-choice-actions ca-svc-choice-actions--niche">
-        <button type="button" class="btn" id="niche-svc-load" disabled data-tip="No saved list for this niche yet.">Load niche default</button>
+        <button type="button" class="btn" id="niche-svc-load" disabled data-tip="No saved list for this service yet.">Load niche default</button>
         <button type="button" class="btn" id="niche-svc-build" data-tip="Rank names from site lists and each city's research suggestions. Apply replaces the checkboxes. Save stores the master.">Build from niche</button>
-        <button type="button" class="btn" id="niche-svc-save" data-tip="Save the checked residential and commercial names as this niche’s default.">Save niche default</button>
+        <button type="button" class="btn" id="niche-svc-save" data-tip="Save the checked names as the default for this service.">Save niche default</button>
       </div>
       <div class="ca-svc-homepage-limit">
         <label>Homepage “What we do” cards
           <input id="ca-svc-homepage-limit" type="number" min="1" max="12" value="${esc(String(shownLimit.value))}" data-from-site="${shownLimit.fromSite ? '1' : '0'}" data-tip="Prefer 6 or 8 homepage cards. Service pages are still created for every residential name." />
         </label>
-        <button type="button" class="btn" id="niche-svc-set-limit" data-tip="Save this card count as the niche default and write it onto every site config in this niche.">Set as Niche Default</button>
+        <button type="button" class="btn" id="niche-svc-set-limit" data-tip="Save this card count for every site in this service.">Set as Niche Default</button>
       </div>
       <p class="muted small" data-homepage-card-note>${esc(homepageCardNoteText(shownLimit.value, res.length))}</p>`;
 
@@ -11579,9 +11604,14 @@ function renderSiteConfig() {
     panelHowToHtml({
       label: 'Site config',
       info: apiMode
-        ? '1 Colors & fonts → 2 Address → 3 Domain → 4 Business details (Apply changes) → 5 Review services → 6 Service area → 7 Provision phone → Content.'
-        : '1 Colors & fonts → 2 Address → 3 Domain → 4 Business details → 5 Paste & edit draft → 6 Review services & Accept → 7 Service area → 8 Provision phone → Content.',
+        ? 'Colors, address, domain, business details, services, service area, then phone.'
+        : 'Colors, address, domain, business details, paste the reply, services, service area, then phone.',
     }),
+  );
+  parts.push(
+    statusLineHtml(
+      'Before Colors on any site, use <strong>Open tabs</strong> on the Website list for this session’s zone and cluster range. Only <strong>pursue</strong> cities open.',
+    ),
   );
   const nextStep = accepted
     ? siteConfigNextStep({
@@ -11653,8 +11683,8 @@ function renderSiteConfig() {
       open: openId === 'look',
       current: currentId === 'look' && !lookDone,
       info: apiMode
-        ? 'Pick a brand palette and a site-wide text font first. Apply saves the look, then continue to Address → Domain → Business details → Fill site-config.'
-        : 'Pick a brand palette and a site-wide text font first. Apply saves the look, then continue to Address → Domain → Business details → Copy.',
+        ? 'Pick colors and a font, then Apply.'
+        : 'Pick colors and a font, then Apply.',
       bodyHtml: `
         <h4>Site colors</h4>
         <div class="site-config-palette">
@@ -11669,7 +11699,7 @@ function renderSiteConfig() {
           (draft || accepted)?.businessName || nap.businessName || '',
         )}
         <div class="narrative-actions" style="justify-content:flex-end;margin-top:0.75rem">
-          <button type="button" class="btn primary" id="sc-apply-look" data-tip="Save palette and font theme (to draft when available, otherwise until Load draft)">Apply look</button>
+          <button type="button" class="btn primary" id="sc-apply-look" data-tip="Save these colors and this font.">Apply look</button>
         </div>
         ${
           draft || accepted
@@ -12028,8 +12058,8 @@ function renderSiteConfig() {
       baSrcReady.loopnet ? 'pointer' : 'not-allowed'
     }" data-tip="${
       baSrcReady.loopnet
-        ? 'Include LoopNet in Find / Refresh'
-        : 'Set APIFY_LOOPNET_ACTOR_ID in .env'
+        ? 'Include LoopNet.'
+        : 'LoopNet is not set up yet.'
     }">
       <input type="checkbox" id="ba-source-loopnet" ${baSrcToggles.loopnet ? 'checked' : ''} ${
         !baSrcReady.loopnet || baBusy ? 'disabled' : ''
@@ -12038,7 +12068,7 @@ function renderSiteConfig() {
     <label style="display:inline-flex;align-items:center;gap:0.3rem;cursor:${
       baSrcReady.crexi ? 'pointer' : 'not-allowed'
     }" data-tip="${
-      baSrcReady.crexi ? 'Include Crexi in Find / Refresh' : 'Set APIFY_CREXI_ACTOR_ID in .env'
+      baSrcReady.crexi ? 'Include Crexi.' : 'Crexi is not set up yet.'
     }">
       <input type="checkbox" id="ba-source-crexi" ${baSrcToggles.crexi ? 'checked' : ''} ${
         !baSrcReady.crexi || baBusy ? 'disabled' : ''
@@ -12046,13 +12076,13 @@ function renderSiteConfig() {
     </label>
   </div>
   <div class="muted small" style="margin-top:0.45rem;display:flex;flex-wrap:wrap;gap:0.85rem;align-items:center">
-    <label style="display:inline-flex;align-items:center;gap:0.3rem" data-tip="Stop Places screening after this many clean streets (1–25)">
+    <label style="display:inline-flex;align-items:center;gap:0.3rem" data-tip="Stop after this many usable streets, from 1 to 25.">
       Clean target
       <input type="number" id="ba-clean-per-run" min="${BA_CLEAN_PER_RUN_MIN}" max="${BA_CLEAN_PER_RUN_MAX}" step="1" value="${
         baFindCaps.cleanPerRun
       }" ${baBusy ? 'disabled' : ''} style="width:3.5rem" />
     </label>
-    <label style="display:inline-flex;align-items:center;gap:0.3rem" data-tip="How many listings to pull per source on Find / Refresh (10–200)">
+    <label style="display:inline-flex;align-items:center;gap:0.3rem" data-tip="How many listings to fetch per source, from 10 to 200.">
       Pull size
       <input type="number" id="ba-listings-per-run" min="${BA_LISTINGS_PER_RUN_MIN}" max="${BA_LISTINGS_PER_RUN_MAX}" step="1" value="${
         baFindCaps.listingsPerRun
@@ -12068,9 +12098,7 @@ function renderSiteConfig() {
       done: addressDone,
       open: openId === 'address' || baBusy,
       current: currentId === 'address' && !addressDone,
-      info: `Find a clean commercial street in ${esc(
-        addrCity || 'your city',
-      )} (or Manual / home / Skip). Selection pre-fills Business details; next step is Domain.`,
+      info: `Pick a commercial street in ${addrCity || 'your city'}, or enter one, use home, or skip.`,
       bodyHtml: `
         ${
           baPkg || state.baRecover?.[d?.id]
@@ -12088,17 +12116,17 @@ function renderSiteConfig() {
         ${selectedBanner}
         ${sourceToggleHtml}
         <div class="narrative-actions" style="flex-wrap:wrap;gap:0.5rem;align-items:center;margin-top:0.5rem">
-          <button type="button" class="btn${baCacheExhausted ? '' : ' primary'}" id="ba-find-addresses" data-tip="Pull and screen checked sources. Skips unbuilt and coming-soon listings. Use Find for a first Crexi/LoopNet pull or when that source still has streets left. Cache hits skip Apify." ${
+          <button type="button" class="btn${baCacheExhausted ? '' : ' primary'}" id="ba-find-addresses" data-tip="Search the checked sources and skip unfinished buildings." ${
             baBusy || !(ready || f.hasApproved) ? 'disabled' : ''
           }${baBusy ? ' aria-busy="true"' : ''}>Find addresses</button>
           <button type="button" class="btn${baCacheExhausted ? ' primary' : ''}" id="ba-refresh-loopnet" data-tip="${
             baCacheExhausted
-              ? 'Checked sources are at 0 left — raise pull depth (Apify billable), then screen new streets.'
-              : 'Re-scrape checked sources (Apify billable). Prefer Find when a source is not exhausted yet.'
+              ? 'Nothing left in the saved results. Raise the pull size to fetch more.'
+              : 'Fetch again. This can cost money.'
           }" ${baBusy || !(ready || f.hasApproved) ? 'disabled' : ''}>${
             baCacheExhausted ? 'Fetch deeper' : 'Refresh listings'
           }</button>
-          <button type="button" class="btn" id="ba-show-manual" data-tip="Paste any commercial street and claim it for this candidate." ${
+          <button type="button" class="btn" id="ba-show-manual" data-tip="Paste a commercial street and use it." ${
             baBusy ? 'disabled' : ''
           }>Manual commercial</button>
           <button type="button" class="btn" id="ba-show-home" data-tip="Use your home street instead of a commercial listing." ${
@@ -12107,6 +12135,13 @@ function renderSiteConfig() {
           <button type="button" class="btn" id="ba-skip-address" data-tip="Continue without a business street address." ${
             baBusy ? 'disabled' : ''
           }>Skip address</button>
+          <button type="button" class="btn" id="ba-copy-city" data-place="${esc(
+            [addrCity, addrState].filter(Boolean).join(', '),
+          )}" data-tip="${
+            addrCity && addrState
+              ? `Copy ${esc(addrCity)}, ${esc(addrState)}`
+              : 'City and state are not set yet.'
+          }" ${addrCity && addrState ? '' : 'disabled'}>Copy city</button>
         </div>
         ${baProgressHtml}
         <div id="ba-manual-panel" class="hidden" style="margin-top:0.65rem">
@@ -12115,6 +12150,12 @@ function renderSiteConfig() {
             <input id="ba-manual-line" type="text" placeholder="6778 S 1300 E, ${esc(
               addrCity || 'City',
             )}, ${esc(addrState || 'ST')} 84121" style="width:100%;margin-top:0.25rem" />
+          </label>
+          <label style="display:block;margin-top:0.45rem">
+            <span class="muted small">Address line 2</span>
+            <input id="ba-manual-suite" type="text" value="${esc(
+              baSanitizeListedSuite(baSel?.suite) || '',
+            )}" placeholder="suite 101" style="width:100%;margin-top:0.25rem" />
           </label>
           <div class="narrative-actions" style="justify-content:flex-end;margin-top:0.4rem">
             <button type="button" class="btn primary" id="ba-save-manual">Save commercial address</button>
@@ -12126,6 +12167,12 @@ function renderSiteConfig() {
             <input id="ba-home-line" type="text" placeholder="123 Main St, ${esc(
               addrCity || 'City',
             )}, ${esc(addrState || 'ST')} 00000" style="width:100%;margin-top:0.25rem" />
+          </label>
+          <label style="display:block;margin-top:0.45rem">
+            <span class="muted small">Address line 2</span>
+            <input id="ba-home-suite" type="text" value="${esc(
+              baSanitizeListedSuite(baSel?.suite) || '',
+            )}" placeholder="suite 101" style="width:100%;margin-top:0.25rem" />
           </label>
           <div class="narrative-actions" style="justify-content:flex-end;margin-top:0.4rem">
             <button type="button" class="btn primary" id="ba-save-home">Save address</button>
@@ -12172,7 +12219,9 @@ function renderSiteConfig() {
       : formPhoneRaw;
   const formEmail = detailsText(draft?.email, accepted?.email, nap.email || '');
   const formStreet = detailsText(detailsAddr.street, accepted?.address?.street, preStreet);
-  const formSuite = detailsText(detailsAddr.suite, accepted?.address?.suite, preSuite);
+  // A blank draft suite must not hide the suite saved on the business address.
+  const formSuite =
+    detailsText(detailsAddr.suite, accepted?.address?.suite, preSuite) || preSuite;
   const formCity = detailsText(detailsAddr.city || draft?.primaryCity, accepted?.address?.city || accepted?.primaryCity, preCity);
   const formState = detailsText(detailsAddr.state || draft?.state, accepted?.address?.state || accepted?.state, preState);
   const formZip = detailsText(detailsAddr.zip, accepted?.address?.zip, preZip);
@@ -12258,7 +12307,7 @@ function renderSiteConfig() {
     .map((pattern) => {
       return `<li class="sc-domain-niche-pattern-row">
         <code>${esc(pattern)}</code>
-        <button type="button" class="btn sc-domain-niche-pattern-remove" data-pattern="${esc(pattern)}" data-tip="Stop adding this host to every city in this niche">Remove</button>
+        <button type="button" class="btn sc-domain-niche-pattern-remove" data-pattern="${esc(pattern)}" data-tip="Stop using this domain for every city in this service.">Remove</button>
       </li>`;
     })
     .join('');
@@ -12275,7 +12324,7 @@ function renderSiteConfig() {
     <label>
       <span class="label-with-tip-head">
         <span>Save a pattern for this niche</span>
-        <button type="button" class="tip-info" data-tip="[City] becomes the primary city slug. The host is added for every city in ${esc(nicheForDomains || 'this niche')}." aria-label="About niche domain patterns">i</button>
+        <button type="button" class="tip-info" data-tip="The city name becomes part of the address. This domain is reused for every city in ${esc(nicheForDomains || 'this service')}." aria-label="About niche domain patterns">i</button>
       </span>
       <span class="sc-domain-niche-pattern-entry">
         <input id="sc-domain-niche-pattern" type="text" placeholder="[City]SewerPros.com" ${
@@ -12302,12 +12351,12 @@ function renderSiteConfig() {
       : 'Suggest domains';
   const domainClaudeHtml = apiMode
     ? `<div class="narrative-actions">
-          <button type="button" class="btn primary" id="sc-domain-suggest" data-tip="Fill Exact Match hosts via the Anthropic API (confirm cost first)" ${
+          <button type="button" class="btn primary" id="sc-domain-suggest" data-tip="Suggest domains here. You will confirm the cost first." ${
             domainGateOk && !domainBusy ? '' : 'disabled'
           }${domainBusy ? ' aria-busy="true"' : ''}>${esc(domainSuggestLabel)}</button>
         </div>`
     : `<div class="narrative-actions">
-          <button type="button" class="btn primary" id="sc-domain-copy-prompt" data-tip="Copy Exact Domain Match prompt for Claude.ai" ${
+          <button type="button" class="btn primary" id="sc-domain-copy-prompt" data-tip="Copy a domain prompt for Claude." ${
             domainGateOk ? '' : 'disabled'
           }>Copy domain prompt</button>
           ${openClaudeAiBtnHtml({
@@ -12318,9 +12367,9 @@ function renderSiteConfig() {
         </div>
         <div class="narrative-paste" style="margin-top:0.65rem">
           <h4>Paste Claude’s domain list</h4>
-          <textarea id="sc-domain-paste" class="narrative-paste-input" rows="2" placeholder="Paste Claude’s JSON or domain list…" data-tip="Paste Exact Domain Match reply"></textarea>
+          <textarea id="sc-domain-paste" class="narrative-paste-input" rows="2" placeholder="Paste Claude’s JSON or domain list…" data-tip="Paste the domain reply."></textarea>
           <div class="narrative-actions">
-            <button type="button" class="btn primary" id="sc-domain-paste-load" data-tip="Parse pasted domains into the list below">Load</button>
+            <button type="button" class="btn primary" id="sc-domain-paste-load" data-tip="Turn the pasted reply into the list below.">Load</button>
           </div>
         </div>`;
 
@@ -12332,7 +12381,7 @@ function renderSiteConfig() {
       done: domainDone,
       open: openId === 'domain',
       current: currentId === 'domain' && !domainDone,
-      info: 'Pick a city-first Exact Match host (or enter a custom one), buy on Cloudflare if needed, then Continue to Business details. Claude Suggest is optional extra ideas.',
+      info: 'Pick a domain that starts with the city, or type your own.',
       bodyHtml: `
         <p class="disc-tool-blurb">Rover fills Exact Match hosts from the primary city and niche (city slug first — no other cities). Claude Suggest / paste is optional. Confirm availability when you buy.</p>
         ${domainClaudeHtml}
@@ -12343,12 +12392,12 @@ function renderSiteConfig() {
           <label class="sc-domain-custom" style="display:block;margin-top:0.55rem">
             <span class="label-with-tip-head">
               <span>Custom domain</span>
-              <button type="button" class="tip-info" data-tip="Use your own host instead of a suggestion. Clears any toggle." aria-label="About Custom domain">i</button>
+              <button type="button" class="tip-info" data-tip="Type your own domain. Clears the selected suggestion." aria-label="About Custom domain">i</button>
             </span>
             <input id="sc-domain-custom" type="text" value="${esc(customDomain)}" placeholder="yourdomain.com" />
           </label>
           <div class="narrative-actions" style="margin-top:0.65rem;flex-wrap:wrap;gap:0.4rem">
-            <a class="btn" href="https://dash.cloudflare.com/?to=/:account/domains/registrations/purchase" target="_blank" rel="noopener noreferrer" id="sc-domain-cloudflare" data-tip="Open the Cloudflare Registrar purchase page, then Continue">Buy on Cloudflare</a>
+            <a class="btn" href="https://dash.cloudflare.com/?to=/:account/domains/registrations/purchase" target="_blank" rel="noopener noreferrer" id="sc-domain-cloudflare" data-tip="Open the page to buy this domain, then continue.">Buy on Cloudflare</a>
             <button type="button" class="btn primary" id="sc-domain-continue" data-tip="Save chosen domain into Business details" ${
               domainChoiceReady ? '' : 'disabled'
             }>Continue</button>
@@ -12361,7 +12410,7 @@ function renderSiteConfig() {
   const scGenerateLabel = scBusy ? 'Filling…' : draft ? 'Re-run' : 'Fill site-config';
   const detailsClaudeHtml = apiMode
     ? `<div class="narrative-actions" style="justify-content:flex-end;flex-wrap:wrap;gap:0.4rem">
-          <button type="button" class="btn" id="sc-site-config-generate" data-tip="Fill this form via the Anthropic API (confirm cost first). Apply changes writes it onto the site." ${
+          <button type="button" class="btn" id="sc-site-config-generate" data-tip="Fill this form here. Confirm the cost, then apply it to the site." ${
             (ready || f.hasApproved) && !scBusy ? '' : 'disabled'
           }${scBusy ? ' aria-busy="true"' : ''}>${esc(scGenerateLabel)}</button>
           <button type="button" class="btn primary" id="sc-apply-details" data-tip="Write this form onto the site, including the address. Then refresh the preview." ${
@@ -12370,7 +12419,7 @@ function renderSiteConfig() {
         </div>
         <p class="disc-tool-blurb">Apply changes writes this form onto the site. Refresh the preview. The first choice of services is still Review services.</p>`
     : `<div class="narrative-actions" style="justify-content:flex-end">
-          <button type="button" class="btn primary" id="sc-copy-prompt" data-tip="Copy Claude.ai site-config prompt (stays on this step)" ${ready || f.hasApproved ? '' : 'disabled'}>Copy site-config prompt</button>
+          <button type="button" class="btn primary" id="sc-copy-prompt" data-tip="Copy the business-details prompt. You stay on this step." ${ready || f.hasApproved ? '' : 'disabled'}>Copy site-config prompt</button>
           ${openClaudeAiBtnHtml({
             disabled: !(ready || f.hasApproved),
             id: 'sc-open-claude',
@@ -12401,7 +12450,7 @@ function renderSiteConfig() {
         <label>
           <span class="label-with-tip-head">
             <span>Phone</span>
-            <button type="button" class="tip-info" data-tip="Optional Claude seed. Ranking number is set in step ${phoneStep} and replaces this on the live site-config." aria-label="About draft Phone">i</button>
+            <button type="button" class="tip-info" data-tip="Optional for now. The tracking number from the phone step replaces it." aria-label="About draft Phone">i</button>
           </span>
           <input id="sc-edit-phone" type="text" value="${esc(formatDisplayPhone(draft.phone || ''))}" placeholder="Optional — provision in step ${phoneStep}" />
         </label>
@@ -12412,13 +12461,13 @@ function renderSiteConfig() {
         <label>State <input id="sc-edit-state" type="text" value="${esc(draft.state || '')}" maxlength="2" /></label>
         <label>Niche <input id="sc-edit-niche" type="text" value="${esc(draft.niche || '')}" /></label>
         <label>Radius (mi) <input id="sc-edit-radius" type="text" value="${esc(String(draft.serviceRadiusMiles ?? ''))}" /></label>
-        <label>Street (optional) <input id="sc-edit-street" type="text" value="${esc(draft.address?.street || '')}" placeholder="Only if real — never invent" data-tip="Optional real street for LocalBusiness schema. Leave blank if unknown." /></label>
+        <label>Street (optional) <input id="sc-edit-street" type="text" value="${esc(draft.address?.street || '')}" placeholder="Only if real — never invent" data-tip="Optional street. Leave blank if you do not know it." /></label>
         <label>ZIP (optional) <input id="sc-edit-zip" type="text" value="${esc(draft.address?.zip || '')}" placeholder="e.g. 84084" data-tip="Optional ZIP with street. Leave blank if unknown." /></label>
         <label class="site-config-span2">Target suburbs <input id="sc-edit-suburbs" type="text" value="${esc(suburbsText)}" placeholder="City A; City B" /></label>
         <label>Turnstile site key <input id="sc-edit-turnstile" type="text" value="${esc(draft.turnstileSiteKey || '')}" placeholder="optional — existing sites only" /></label>
       </div>
       <div class="narrative-actions" style="justify-content:flex-end;margin-top:1rem">
-        <button type="button" class="btn primary" id="site-config-save-draft-btn" data-tip="Save edits without Accept">Save draft</button>
+        <button type="button" class="btn primary" id="site-config-save-draft-btn" data-tip="Save these edits without accepting yet.">Save draft</button>
       </div>
     `);
   }
@@ -12449,7 +12498,7 @@ function renderSiteConfig() {
           <label>
             <span class="label-with-tip-head">
               <span>Domain</span>
-              <button type="button" class="tip-info" data-tip="Public hostname without https:// (e.g. yourdomain.com). Prefills from Domain step." aria-label="About Domain">i</button>
+              <button type="button" class="tip-info" data-tip="The site address, like yourdomain.com. Filled from the Domain step." aria-label="About Domain">i</button>
             </span>
             <input id="sc-domain" type="text" value="${esc(formDomain)}" placeholder="yourdomain.com" />
           </label>
@@ -12463,9 +12512,7 @@ function renderSiteConfig() {
           <label>
             <span class="label-with-tip-head">
               <span>Phone</span>
-              <button type="button" class="tip-info" data-tip="Optional here. A ranking number from step ${
-                apiMode ? '7' : '8'
-              } is kept when this field is blank or still the placeholder." aria-label="About Phone">i</button>
+              <button type="button" class="tip-info" data-tip="Optional here. A blank field keeps the tracking number from the phone step." aria-label="About Phone">i</button>
             </span>
             <input id="sc-phone" type="text" value="${esc(formatDisplayPhone(formPhone))}" placeholder="Optional — provision in step ${
               apiMode ? '7' : '8'
@@ -12474,23 +12521,23 @@ function renderSiteConfig() {
           <label class="site-config-email">
             <span class="label-with-tip-head">
               <span>Email</span>
-              <button type="button" class="tip-info" data-tip="Public site leads address (usually leads@yourdomain.com) — shown in footer, contact, and schema. Not your personal Gmail." aria-label="About Email">i</button>
+              <button type="button" class="tip-info" data-tip="The public leads address on the site, not your personal email." aria-label="About Email">i</button>
             </span>
             <input id="sc-email" type="email" value="${esc(formEmail)}" placeholder="leads@yourdomain.com" />
           </label>
           <label class="site-config-span2">
             <span class="label-with-tip-head">
               <span>Street</span>
-              <button type="button" class="tip-info" data-tip="GBP Address Line 1 — street only, no suite. Leave blank to omit LocalBusiness street." aria-label="About Street">i</button>
+              <button type="button" class="tip-info" data-tip="Street only, no suite. Leave blank to hide the street." aria-label="About Street">i</button>
             </span>
             <input id="sc-street" type="text" value="${esc(formStreet)}" placeholder="1221 E University Dr" />
           </label>
           <label class="site-config-span2">
             <span class="label-with-tip-head">
               <span>Address line 2</span>
-              <button type="button" class="tip-info" data-tip="GBP Address Line 2 — listed suite only (Ste 3). Leave blank when the listing has no suite." aria-label="About Address line 2">i</button>
+              <button type="button" class="tip-info" data-tip="Suite only, such as Ste 3. Leave blank if there is none." aria-label="About Address line 2">i</button>
             </span>
-            <input id="sc-suite" type="text" value="${esc(formSuite)}" placeholder="Ste 3" />
+            <input id="sc-suite" type="text" value="${esc(formSuite)}" placeholder="suite 101" />
           </label>
           <label>
             <span>City</span>
@@ -12512,7 +12559,7 @@ function renderSiteConfig() {
           <label class="site-config-radius">
             <span class="label-with-tip-head">
               <span>Radius (mi)</span>
-              <button type="button" class="tip-info" data-tip="Default radius seed for Service area map." aria-label="About Radius">i</button>
+              <button type="button" class="tip-info" data-tip="Starting radius for the service-area map." aria-label="About Radius">i</button>
             </span>
             <input id="sc-radius" type="text" value="${esc(formRadius)}" />
           </label>
@@ -12520,7 +12567,7 @@ function renderSiteConfig() {
               : `<label class="site-config-radius">
             <span class="label-with-tip-head">
               <span>Radius (mi)</span>
-              <button type="button" class="tip-info" data-tip="Default radius seed for Service area map." aria-label="About Radius">i</button>
+              <button type="button" class="tip-info" data-tip="Starting radius for the service-area map." aria-label="About Radius">i</button>
             </span>
             <input id="sc-radius" type="text" value="${esc(formRadius || nap.radiusMiles || '15')}" />
           </label>`
@@ -12535,9 +12582,9 @@ function renderSiteConfig() {
     <div class="narrative-paste">
       <h4>${draft ? 'Replace from Claude' : 'Paste Claude’s reply'}</h4>
       <p class="muted">Paste Claude’s full reply below, then <strong>Load draft</strong>. Edit fields here, then continue to <strong>Review services</strong> to Accept. Extra commentary after the JSON is fine.</p>
-      <textarea id="site-config-paste" class="narrative-paste-input" rows="2" placeholder="Paste Claude’s site-config reply here…" data-tip="Paste Claude site-config reply"></textarea>
+      <textarea id="site-config-paste" class="narrative-paste-input" rows="2" placeholder="Paste Claude’s site-config reply here…" data-tip="Paste the business-details reply."></textarea>
       <div class="narrative-actions">
-        <button type="button" class="btn primary" id="site-config-paste-load-btn" data-tip="Load paste as draft — then edit fields and Accept in Review services" ${
+        <button type="button" class="btn primary" id="site-config-paste-load-btn" data-tip="Load this as a draft, then review services." ${
           f.hasApproved ? '' : 'disabled'
         }>Load draft</button>
       </div>
@@ -12555,7 +12602,7 @@ function renderSiteConfig() {
         done: pasteDone,
         open: openId === 'paste',
         current: currentId === 'paste' && !pasteDone,
-        info: 'Paste Claude’s site-config reply, Load draft, and edit all fields here. Accept is in the next step (Review services).',
+        info: 'Paste the reply, load it, and edit it here. Accept is the next step.',
         bodyHtml: pasteParts.join(''),
       }),
     );
@@ -12640,20 +12687,20 @@ function renderSiteConfig() {
       open: openId === 'phone',
       current: currentId === 'phone' && !phoneDone,
       locked: !accepted,
-      info: 'Buy a Twilio local DID or Skip (~$1.15/mo). Ranking calls take a voicemail and text you. A phone already in site-config from Claude does not complete this step. See docs/PHONE-TRACKING.md.',
+      info: 'Buy a local number, about $1.15 a month, or skip. Calls go to voicemail.',
       bodyHtml: accepted
         ? `
-          <p class="disc-tool-blurb">Provision a local ranking number (voicemail while ranking; texts you). Then continue Content → Website Prepare / Launch.</p>
+          <p class="disc-tool-blurb">Buy a local number, or skip. Calls go to voicemail and text you. Then open Content.</p>
           ${phoneTrackingHint}
           <div class="narrative-actions" style="align-items:center;gap:0.5rem;flex-wrap:wrap;margin-top:0.5rem">
             <label class="muted small" style="display:inline-flex;align-items:center;gap:0.35rem">
               Area code (optional)
               <input id="sc-twilio-area" type="text" inputmode="numeric" maxlength="3" placeholder="auto" style="width:4rem" />
             </label>
-            <button type="button" class="btn primary" id="sc-provision-twilio" data-tip="Buy Twilio ranking number and write site-config phone" ${
+            <button type="button" class="btn primary" id="sc-provision-twilio" data-tip="Buy a local tracking number and save it on the site." ${
               alreadyProvisioned ? 'disabled' : ''
             }>Provision new phone number</button>
-            <button type="button" class="btn" id="sc-skip-phone" data-tip="Skip Twilio for now — continue with the current site-config phone (Launch still flags placeholders)" ${
+            <button type="button" class="btn" id="sc-skip-phone" data-tip="Skip for now and keep the current number." ${
               phoneDone ? 'disabled' : ''
             }>Skip</button>
           </div>
@@ -12981,7 +13028,7 @@ function photoGroupRankEmptyLabel(i) {
 }
 
 function photoGroupRankTip(rank) {
-  return `Priority ${rank}. All saved groups, A–Z`;
+  return `Choice ${rank}. Groups are listed A to Z.`;
 }
 
 function photoGroupRankRowHtml(idPrefix, i, selectedId, excludeIds) {
@@ -13116,7 +13163,7 @@ function photoGroupToolbarHtml({ selectId, loadId, saveId, loadLabel, skipId }) 
       ${loadBtn}
       ${
         saveId
-          ? `<button type="button" class="btn" id="${esc(saveId)}" data-tip="Save this site’s stock photos, uploads, and ChatGPT before/after pairs">Save photo group</button>`
+          ? `<button type="button" class="btn" id="${esc(saveId)}" data-tip="Save this site’s photos and before-and-after pairs.">Save photo group</button>`
           : ''
       }
     </div>`;
@@ -13129,7 +13176,7 @@ function photoGroupToolbarHtml({ selectId, loadId, saveId, loadLabel, skipId }) 
 function openClaudeAiBtnHtml({ disabled = false, sm = false, id = '', tip = '' } = {}) {
   const tipText =
     tip ||
-    'Optional — open Claude.ai in a new tab. Does not copy the prompt or change this step.';
+    'Opens Claude in a new tab. Does not copy the prompt.';
   const tipHtml = tipAttr(tipText);
   const idAttr = id ? ` id="${esc(id)}"` : '';
   const cls = `btn${sm ? ' btn-sm' : ''} open-claude-ai`;
@@ -13526,12 +13573,12 @@ function editorRewriteWhyHtml(needs, workflowHtml) {
     lintSevDotHtml(
       'advisory',
       needs.advisoryN,
-      'Advisory — Accept allowed; Claude pass recommended',
+      'A suggestion. You can still accept.',
     ),
     lintSevDotHtml(
       'critical',
       needs.criticalSeoN,
-      'Critical SEO — blocks Accept unless overridden',
+      'Must be fixed, or you can accept anyway.',
     ),
   ]
     .filter(Boolean)
@@ -13663,7 +13710,7 @@ function contentUpNextHtml(stepDone, ready, { secCount = 0, outlineConfirmed = f
         'Up next: <strong>Load photo group</strong> — Load a saved group or Skip, then Accept';
     } else {
       apiNext =
-        'Up next: <strong>Accept content</strong> — then <strong>Website → Prepare preview</strong>';
+        'Up next: <strong>Accept content</strong> — then <strong>3 · Launch</strong>';
     }
     return statusLineHtml(`${apiNext}${structureLine ? ` · ${structureLine}` : ''}`);
   }
@@ -13697,7 +13744,7 @@ function contentUpNextHtml(stepDone, ready, { secCount = 0, outlineConfirmed = f
       'Up next: <strong>Load photo group</strong> — Load a saved group or Skip, then Accept';
   } else {
     upNext =
-      'Up next: <strong>Accept content</strong> — then <strong>Website → Prepare preview</strong>';
+      'Up next: <strong>Accept content</strong> — then <strong>3 · Launch</strong>';
   }
   return statusLineHtml(`${upNext}${structureLine ? ` · ${structureLine}` : ''}`);
 }
@@ -14590,7 +14637,7 @@ function syncDiscoveryApiRerunButton() {
     btn.textContent = hasRows ? 'Re-run Generate cluster pack' : 'Generate cluster pack';
     btn.disabled = generatePackJobRunning() || !ready.ok;
     setElementTip(btn, ready.ok
-      ? 'Create Discovery rows from the selected hub only (not the other hubs in the list)'
+      ? 'Create rows for this hub only.'
       : ready.tip);
     return;
   }
@@ -14608,8 +14655,8 @@ function syncDiscoveryClaudeModeUi() {
     setElementTip(
       packTip,
       api
-        ? 'Set filters, then Generate. Creates the pack and runs Claude via the Anthropic API (confirm cost). Glance/fix rows, then Light SERP.'
-        : 'Set filters, then Generate. Claude gets a filtered compact High-Ticket niche list (not the full guide) and Claude-only CSV headers.',
+        ? 'Set filters, then Generate. Rover sends only the matching service list.'
+        : 'Set filters, then Generate. Rover sends only the matching service list.',
     );
   }
   if (claudeLabel) claudeLabel.textContent = '2 · Send to Claude';
@@ -14694,12 +14741,12 @@ function indexingActionsHtml({ host, siteUrl, sitemapUrl, robotsUrl, done, curso
   const main = [
     stepBtn(1, '1. Submit to Search Console', {
       id: 'ca-indexing-submit',
-      tip: 'Verify the domain with DNS and submit the sitemap once',
+      tip: 'Confirm the domain and submit the sitemap once.',
       disabled: !host,
     }),
     stepBtn(2, '2. Copy URL and open Search Console', {
       id: 'ca-open-search-console',
-      tip: 'Optional. Copy https://{domain} and open this property’s URL Inspection page',
+      tip: 'Copy the site address and open Google’s URL inspection page.',
       disabled: !host,
     }),
     stepBtn(3, done ? 'Done' : '3. Mark done', {
@@ -14712,10 +14759,10 @@ function indexingActionsHtml({ host, siteUrl, sitemapUrl, robotsUrl, done, curso
   ].join('');
   const extras = [
     sitemapUrl
-      ? `<a class="btn" href="${esc(sitemapUrl)}" target="_blank" rel="noopener" data-tip="Open live sitemap.xml">Open sitemap</a>`
+      ? `<a class="btn" href="${esc(sitemapUrl)}" target="_blank" rel="noopener" data-tip="Open the live sitemap.">Open sitemap</a>`
       : '',
     robotsUrl
-      ? `<a class="btn" href="${esc(robotsUrl)}" target="_blank" rel="noopener" data-tip="Open live robots.txt">Open robots.txt</a>`
+      ? `<a class="btn" href="${esc(robotsUrl)}" target="_blank" rel="noopener" data-tip="Open the live robots file.">Open robots.txt</a>`
       : '',
   ]
     .filter(Boolean)
@@ -14898,7 +14945,7 @@ function citationsChecklistHtml(cfg = {}) {
       ${items.map((t) => `<li>${esc(t)}</li>`).join('')}
     </ul>
     <div class="narrative-actions" style="justify-content:flex-start">
-      <button type="button" class="btn btn-sm" id="ca-download-nap" data-tip="Download NAP CSV from accepted site-config for directory forms">Download NAP CSV</button>
+      <button type="button" class="btn btn-sm" id="ca-download-nap" data-tip="Download the name, address, and phone for directory forms.">Download NAP CSV</button>
     </div>
   </div>`;
 }
@@ -14910,7 +14957,7 @@ function launchPreflightIssues({ domain, phone, destinationEmail, formsInboxRead
     issues.push({ id: 'domain', label: 'Domain still empty or example.com' });
   }
   if (isLaunchPhonePlaceholder(phone)) {
-    issues.push({ id: 'phone', label: 'Phone still a placeholder (set under Advanced or Site config)' });
+    issues.push({ id: 'phone', label: 'Phone still a placeholder. Set it on Site-Config, or in the phone field on Launch.' });
   }
   if (formsInboxReady === false) {
     issues.push({
@@ -14966,7 +15013,7 @@ function applyShipFreshnessUi(diff) {
       : '';
   const matchInfoTip =
     status === 'current'
-      ? ` <button type="button" class="tip-info" data-tip="Local assembled tree matches GitHub origin/main — already pushed. Prepare preview builds locally only; use Push updates to ship to GitHub + Cloudflare when status shows a mismatch." aria-label="About matched GitHub status">i</button>`
+      ? ` <button type="button" class="tip-info" data-tip="This copy matches the published site. Push updates when it does not." aria-label="About matched GitHub status">i</button>`
       : '';
   msg.innerHTML = `${esc(diff?.summary || 'Could not determine ship status.')}${assembleTip}${matchInfoTip}`;
 }
@@ -15088,7 +15135,7 @@ function structureSectionRowHtml(s, selectedSections, photos) {
   const photoOn = Boolean(photo?.enabled);
   const photoTip =
     s.id === 'services'
-      ? 'Photos appear on homepage What we do cards. With Service pages off they use homepage serviceCardImages; with Service pages on they use each service card/hero image.'
+      ? 'Photos on the What we do cards, and on each service page when those pages are on.'
       : s.id === 'offerProcess' || s.id === 'process'
         ? 'One photo per process step — slot labels use step titles from homepage content.'
         : '';
@@ -15513,13 +15560,7 @@ function renderContent() {
   parts.push(
     panelHowToHtml({
       label: 'Content',
-      info: apiMode
-        ? photosOn
-          ? 'API path: Structure → Write site with Claude → optional photo group → Accept. Copy & paste mode still has the ten-step path.'
-          : 'API path: Structure → Write site with Claude → Accept.'
-        : photosOn
-        ? 'Content path (required): Structure → Site research → Brief → Outline → batched Full write → Humanize (Speech/SEO clear) → Final check → Image queries (required) → optional Load photo group → Accept. Claude.ai paste only (no Anthropic API). Then Website → Prepare preview.'
-        : 'Eight-pass path (required): Structure → Site research → Brief → Outline → batched Full write → Humanize (Speech/SEO clear) → Final check → Accept. Claude.ai paste only (no Anthropic API). Then Website → Prepare preview.',
+      info: 'Pick the pages, write them, check them, then accept.',
     }),
   );
   if (isSelectedLaunched()) {
@@ -15550,9 +15591,9 @@ function renderContent() {
       done: structureDone,
       open: openId === 'structure',
       current: currentId === 'structure' && !structureDone,
-      info: 'Choose site pages, then H2 blocks per page type. Prefer Preset C for ranking builds — selecting every section makes Full write heavy. Photo-capable sections can include image slots.',
+      info: 'Choose pages and sections. Preset C is the usual starting point.',
       bodyHtml: ready
-        ? `<div class="callout"><strong>Entity matching (Rank &amp; Rent):</strong> Home = primary niche+city · Services = offer entities only · Locations = geo proof for real suburbs. Mirror what a future GBP will claim — do not invent categories you will not deliver. Avoid weekly-blog sprawl. See <code>docs/SECTION-UX.md#entity-matching</code>.</div>
+        ? `<div class="callout"><strong>Match the business you will claim.</strong> Home is this niche in this city. Service pages are offers you will actually do. Location pages are real nearby cities. Do not add categories you will not deliver.</div>
         ${structureChecklistHtml(d, catalog)}`
         : `<p class="muted">Accept Site config to unlock the checklist.</p>`,
     }),
@@ -15571,7 +15612,7 @@ function renderContent() {
         open: openId === 'writeSite',
         current: currentId === 'writeSite' && !writeSiteDone && !contentUnreadable,
         locked: !structureDone || !ready,
-        info: 'One job per candidate: Site research → Brief → Outline → Full write → Polish → Image queries when photos are on. Up to six candidates can Write site at once. Skips steps already loaded. Stop keeps files written so far.',
+        info: 'Writes the site in one job. Stop keeps what is already written.',
         bodyHtml: `
           ${
             contentUnreadable
@@ -15616,7 +15657,7 @@ function renderContent() {
       open: openId === 'fieldResearch',
       current: currentId === 'fieldResearch' && !fieldResearchDone,
       locked: !structureDone,
-      info: 'Required Pass 1 feed. Copy field-research prompt → Claude.ai (web OK) → Load JSON. Optional notes enrich the Brief; they do not replace Load.',
+      info: 'Required. Copy the research prompt, then load the result.',
       bodyHtml: `
         ${
           fieldOk
@@ -15664,7 +15705,7 @@ function renderContent() {
       open: openId === 'brief',
       current: currentId === 'brief' && !briefDone,
       locked: !fieldResearchDone,
-      info: 'Required Pass 1 synthesis. Copy brief prompt → Claude.ai → Load & confirm. Unlocks Outline.',
+      info: 'Required. Copy the brief prompt, then load and confirm.',
       bodyHtml: `
         ${
           briefOk
@@ -15705,7 +15746,7 @@ function renderContent() {
       open: openId === 'outline',
       current: currentId === 'outline' && !outlineDone,
       locked: !briefDone,
-      info: 'Pass 2 — strategic outline. Copy structure prompt (needs confirmed brief), refine in Claude.ai, Load & confirm.',
+      info: 'Copy the outline prompt, then load and confirm.',
       bodyHtml: `
         ${
           outlinePkg?.sections?.length
@@ -15747,7 +15788,7 @@ function renderContent() {
       open: openId === 'write',
       current: currentId === 'write' && !writeDone && !contentUnreadable,
       locked: !outlineDone,
-      info: 'Pass 3 — batch by page group for tone variance. All enabled batches required. Prefer batches over Copy all (truncation risk).',
+      info: 'Copy one page group at a time. Copy all can cut the reply off.',
       bodyHtml: `
         ${contentUnreadable ? contentUnreadableCalloutHtml() : ''}
         ${incompleteDraftCalloutHtml(d)}
@@ -15799,19 +15840,19 @@ function renderContent() {
         ${contentActionRow({
           n: 4,
           label: 'Copy all (legacy) <span class="muted">(truncation risk)</span>',
-          controlsHtml: `<button type="button" class="btn" id="cs-copy-write" data-tip="Prefer batched copies for ranking builds" ${
+          controlsHtml: `<button type="button" class="btn" id="cs-copy-write" data-tip="Prefer one page group at a time." ${
             outlineConfirmed ? '' : 'disabled'
           }>Copy all</button>`,
         })}
         ${contentActionRow({
           n: 5,
           label: 'Paste FILE blocks <span class="muted">(Required)</span>',
-          controlsHtml: `<textarea id="ca-writer-paste" class="narrative-paste-input" rows="2" placeholder="### FILE: src/content/pages/index.md&#10;---&#10;..." data-tip="Paste ### FILE: markdown blocks"></textarea>`,
+          controlsHtml: `<textarea id="ca-writer-paste" class="narrative-paste-input" rows="2" placeholder="### FILE: src/content/pages/index.md&#10;---&#10;..." data-tip="Paste the page files from Claude."></textarea>`,
         })}
         ${contentActionRow({
           n: 6,
           label: 'Load FILE blocks as draft <span class="muted">(Required)</span>',
-          controlsHtml: `<button type="button" class="btn primary" id="ca-paste-writer" data-tip="Parse FILE blocks into candidate draft" ${ready ? '' : 'disabled'}>Load FILE blocks as draft</button>`,
+          controlsHtml: `<button type="button" class="btn primary" id="ca-paste-writer" data-tip="Load these pages into the draft." ${ready ? '' : 'disabled'}>Load FILE blocks as draft</button>`,
         })}`,
     }),
   );
@@ -15847,7 +15888,7 @@ function renderContent() {
           n: 2,
           label: 'Copy editor prompt',
           hint: 'Passes 4–7: Burstiness → Perplexity → Bookends → Conversion + findings. Paste back only changed FILEs; Load merges.',
-          controlsHtml: `<button type="button" class="btn primary" id="ca-copy-editor" data-tip="Copy findings-scoped editor prompt for Claude.ai" ${
+          controlsHtml: `<button type="button" class="btn primary" id="ca-copy-editor" data-tip="Copy a prompt for the remaining writing issues." ${
             writeDone && ready ? '' : 'disabled'
           }>Copy editor prompt</button>
           ${openClaudeAiBtnHtml({ disabled: !(writeDone && ready) })}`,
@@ -15856,12 +15897,12 @@ function renderContent() {
           n: 3,
           label: 'Paste revised FILE blocks',
           hint: 'Load here after Claude — Speech/SEO Refinement runs automatically.',
-          controlsHtml: `<textarea id="ca-editor-paste" class="narrative-paste-input" rows="2" placeholder="### FILE: src/content/pages/index.md&#10;---&#10;..." data-tip="Paste revised ### FILE: blocks"></textarea>`,
+          controlsHtml: `<textarea id="ca-editor-paste" class="narrative-paste-input" rows="2" placeholder="### FILE: src/content/pages/index.md&#10;---&#10;..." data-tip="Paste the revised pages."></textarea>`,
         })}
         ${contentActionRow({
           n: 4,
           label: 'Load FILE blocks as draft',
-          controlsHtml: `<button type="button" class="btn primary" id="ca-paste-editor" data-tip="Parse FILE blocks into candidate draft" ${writeDone && ready ? '' : 'disabled'}>Load FILE blocks as draft</button>`,
+          controlsHtml: `<button type="button" class="btn primary" id="ca-paste-editor" data-tip="Load these pages into the draft." ${writeDone && ready ? '' : 'disabled'}>Load FILE blocks as draft</button>`,
         })}`
     : `<p class="muted">Load Full write FILE blocks first.</p>`;
 
@@ -15874,14 +15915,14 @@ function renderContent() {
       open: openId === 'editor',
       current: currentId === 'editor' && !editorDone,
       locked: !writeDone,
-      info: 'Required. Speech/SEO Refinement auto-fixes then re-lints. After Load, Speech/SEO runs automatically. Step is done when lint is clear. Copy editor prompt is for leftover findings and Passes 4–7.',
+      info: 'Required. Rover checks the writing, then you can send leftovers back.',
       bodyHtml: `
         ${incompleteDraftCalloutHtml(d)}
         ${contentActionRow({
           n: 1,
           label: 'Speech/SEO Refinement <span class="muted">(Required)</span>',
           hint: 'Auto-fixes soft issues, then re-lints. Always shows a result message.',
-          controlsHtml: `<button type="button" class="btn primary" id="ca-speech-check" data-tip="Auto-fix + scan draft for speech + SEO issues" ${
+          controlsHtml: `<button type="button" class="btn primary" id="ca-speech-check" data-tip="Fix what Rover can, then scan the draft again." ${
             hasEditableContent && ready ? '' : 'disabled'
           }>Speech/SEO Refinement</button>`,
         })}
@@ -15906,7 +15947,7 @@ function renderContent() {
       open: openId === 'finalCheck',
       current: currentId === 'finalCheck' && !finalCheckDone,
       locked: !editorDone,
-      info: 'Required Pass 8. Copy final-check prompt → Claude returns {"ok":true} or ### FILE fixes → Load. Accept stays blocked until this runs.',
+      info: 'Required. Load the final check before you can accept.',
       bodyHtml: `
         ${
           finalOk
@@ -15961,7 +16002,7 @@ function renderContent() {
         open: openId === 'imageQueries',
         current: currentId === 'imageQueries' && !imageQueriesDone,
         locked: !finalCheckDone,
-        info: 'Required. Copy prompt → paste JSON → Load. Stock slot queries plus before/after generate prompts. A photo group or niche master does not skip this step.',
+        info: 'Required when photos are on. Load the image prompts.',
         bodyHtml: `
         ${
           imageQueriesDone
@@ -16005,7 +16046,7 @@ function renderContent() {
         open: openId === 'photoGroup',
         current: currentId === 'photoGroup' && !photoGroupDone,
         locked: apiMode ? !writeSiteDone : !finalCheckDone,
-        info: 'Optional. Rank as many saved groups as you need. The 1st fills matching slots; later groups fill leftovers; extras go into trays. Empty slots take the first tray still as live. Or skip for stock / niche master. Save named groups later from Website → Review images or Photo.',
+        info: 'Optional. The first group fills matching slots. The rest go to trays.',
         bodyHtml: `
         ${
           photoGroupAttached
@@ -16063,7 +16104,7 @@ function renderContent() {
       open: openId === 'accept',
       current: currentId === 'accept' && !stepDone.accepted,
       locked: apiMode ? !writeSiteDone || (photosOn && !photosReady) : !finalCheckDone || (photosOn && !photosReady),
-      info: 'Accept writes shared src/content/. When photos are on, Image queries must be loaded first. Accept then copies a named group or niche master (including before/after pairs) or pulls stock (Skip on step 9). Logo + coverage map still run. Fresh stock Pull leaves before/after empty until Website → Review images → OpenAI pair.',
+      info: 'Accept writes the pages. Photos, the logo, and the map are handled here too.',
       bodyHtml: `
         ${incompleteDraftCalloutHtml(d, { handledByAccept: true })}
         ${
@@ -16103,7 +16144,7 @@ function renderContent() {
               ${
                 thinLoc.length
                   ? `<div class="narrative-actions" style="justify-content:flex-start;margin-bottom:0.5rem">
-              <button type="button" class="btn" id="content-expand-loc-btn" data-tip="Send only the thin location files back to Claude">Expand location pages</button>
+              <button type="button" class="btn" id="content-expand-loc-btn" data-tip="Send only the thin location pages back to be rewritten.">Expand location pages</button>
             </div>`
                   : ''
               }
@@ -16114,7 +16155,7 @@ function renderContent() {
         <div class="narrative-actions" style="justify-content:flex-end">
           ${
             photosOn
-              ? `<label class="check" style="margin-right:auto" data-tip="Leave on to skip Unsplash, Pexels, and Pixabay. A loaded photo group or niche master still copies. Logo and the coverage map still run."><input type="checkbox" id="content-accept-skip-stock"${
+              ? `<label class="check" style="margin-right:auto" data-tip="Skip stock photos. A saved photo group, the logo, and the map still run."><input type="checkbox" id="content-accept-skip-stock"${
                   photoGroupAttached &&
                   d?.photoGroupAttached?.preview != null &&
                   Number(d.photoGroupAttached.preview.targetEmpty) === 0
@@ -16126,8 +16167,8 @@ function renderContent() {
           <button type="button" class="btn primary" id="content-accept-btn" data-tip="${
             anthropicConfigured() &&
             (contentDraftLaunchGaps(d).missing.length || contentDraftLaunchGaps(d).stubs.length)
-              ? 'Rewrites the thin pages first, then writes the site.'
-              : 'Accept draft — write files into src/content/'
+              ? 'Rewrite the thin pages, then build the site.'
+              : 'Accept and write the pages.'
           }" ${
             acceptReady ? '' : 'disabled'
           }>Accept content</button>
@@ -16946,11 +16987,11 @@ function openaiGenerateBtnHtml({ pair = false, extra = '', bulk = false, flux } 
   const label = pair ? 'OpenAI pair' : 'OpenAI';
   const tip = configured
     ? bulk
-      ? 'GPT Image 2: generate each selected photo slot (~$0.04) and Before & after pair (~$0.09). Replaces live files; previous go to the tray. Tray keeps 8; oldest is removed. Uses Inside/Outside and Problem, Workers, Finished, or Customers.'
+      ? 'Generate the selected photos. About $0.04 each, or $0.09 for a pair. The previous image is kept.'
       : pair
-      ? 'GPT Image 2 medium. ChatGPT-style prompts for the current Inside/Outside and Problem, Workers, Finished, or Customers. Generate Before, then edit After. ~$0.09. Replaces live pair; previous goes to the tray. Tray keeps 8; oldest is removed.'
-      : 'GPT Image 2 medium. ChatGPT-style prompt for the current Inside/Outside and Problem, Workers, Finished, or Customers. ~$0.04. Replaces the live slot; previous photo goes to the tray. Tray keeps 8; oldest is removed.'
-    : 'Set OPENAI_API_KEY in .env (same key as Phone), then restart Rover.';
+      ? 'Generate this before-and-after pair, about $0.09. The previous pair is kept.'
+      : 'Generate this photo, about $0.04. The previous photo is kept.'
+    : 'Photo generation is not set up yet.';
   const disabled = configured ? '' : ' disabled';
   const bulkClass = bulk ? ' slot-generate-selected-openai' : '';
   return `<button type="button" class="btn btn-sm btn-ai slot-generate-openai${pair ? ' ba' : ''}${bulkClass}" data-tip="${esc(tip)}"${disabled}${extra}>${slotAiMark('openai')}<span>${esc(label)}</span></button>`;
@@ -17251,7 +17292,7 @@ function imagesSlotCardHtml(slot) {
   const badge = sourceLabel
     ? `<span class="muted" style="font-size:0.75rem">${esc(sourceLabel)}</span>`
     : '';
-  return `<div class="image-slot-card" data-slot-key="${esc(slot.key)}" style="border:1px solid var(--border);border-radius:6px;overflow:hidden;background:var(--bg-subtle)">
+  return `<div class="image-slot-card" data-slot-key="${esc(slot.key)}" style="border:1px solid var(--border);border-radius:6px;overflow:clip;background:var(--bg-subtle)">
     ${slotCheckHtml({ id: slot.key, checked })}
     <div class="slot-thumb" style="aspect-ratio:16/10;background:#0f172a0d;display:flex;align-items:center;justify-content:center">${thumb}</div>
     <div style="padding:0.45rem 0.55rem;display:flex;flex-direction:column;gap:0.25rem">
@@ -17263,7 +17304,7 @@ function imagesSlotCardHtml(slot) {
         kind: 'photo',
         viewpointKey: slot.key,
         generateExtra: ` data-slot-key="${esc(slot.key)}"`,
-        copyHtml: `<button type="button" class="btn btn-sm ca-slot-chatgpt-prompt" data-slot-key="${esc(slot.key)}" data-tip="Copy a ChatGPT image prompt for this slot (uses Inside/Outside and Problem, Workers, Finished, or Customers), then generate and Upload">Copy prompt</button>`,
+        copyHtml: `<button type="button" class="btn btn-sm ca-slot-chatgpt-prompt" data-slot-key="${esc(slot.key)}" data-tip="Copy an image prompt for this slot, then generate or upload.">Copy prompt</button>`,
         filesHtml: `<button type="button" class="btn btn-sm ca-slot-repull" data-slot-key="${esc(slot.key)}" data-tip="Fetch a different stock photo for this slot">Re-pull</button>
         <label class="btn btn-sm" style="cursor:pointer;margin:0" data-tip="Upload a local image for this slot">
           Upload
@@ -17296,7 +17337,7 @@ function reviewBaCardHtml(candidateId, pair) {
   const badge = sourceLabel
     ? `<span class="muted" style="font-size:0.75rem">${esc(sourceLabel)}</span>`
     : '';
-  return `<div class="image-slot-card photo-ba-card" data-ba="1" data-ba-kind="${esc(kind)}" data-match-key="${esc(key)}" data-pair-index="${esc(String(pair.pairIndex || 1))}" data-service-slug="${esc(pair.slug || '')}" style="border:1px solid var(--border);border-radius:6px;overflow:hidden;background:var(--bg-subtle)">
+  return `<div class="image-slot-card photo-ba-card" data-ba="1" data-ba-kind="${esc(kind)}" data-match-key="${esc(key)}" data-pair-index="${esc(String(pair.pairIndex || 1))}" data-service-slug="${esc(pair.slug || '')}" style="border:1px solid var(--border);border-radius:6px;overflow:clip;background:var(--bg-subtle)">
     ${slotCheckHtml({ id: checkId, checked })}
     <div class="ba-pair-thumbs">
       <figure>${slotThumbImg(pair.beforeUrl, { alt: 'Before' })}<figcaption class="muted">Before</figcaption></figure>
@@ -17310,9 +17351,9 @@ function reviewBaCardHtml(candidateId, pair) {
         kind: 'ba',
         viewpointKey: key,
         generateExtra: ` data-match-key="${esc(key)}"`,
-        copyHtml: `<button type="button" class="btn btn-sm ca-ba-card-copy" data-ba-kind="before" data-service-slug="${esc(pair.slug || '')}" data-tip="Copy the current Inside/Outside and Problem, Workers, Finished, or Customers BEFORE prompt (same text OpenAI pair uses)">Copy before</button>
-        <button type="button" class="btn btn-sm ca-ba-card-copy" data-ba-kind="after" data-service-slug="${esc(pair.slug || '')}" data-tip="Copy the current Inside/Outside and Problem, Workers, Finished, or Customers AFTER prompt (same text OpenAI pair uses)">Copy after</button>`,
-        filesHtml: `<label class="btn btn-sm" style="cursor:pointer;margin:0" data-tip="Replaces the live pair; previous goes to the tray. Tray keeps 8; oldest is removed.">
+        copyHtml: `<button type="button" class="btn btn-sm ca-ba-card-copy" data-ba-kind="before" data-service-slug="${esc(pair.slug || '')}" data-tip="Copy the before prompt for the current scene.">Copy before</button>
+        <button type="button" class="btn btn-sm ca-ba-card-copy" data-ba-kind="after" data-service-slug="${esc(pair.slug || '')}" data-tip="Copy the after prompt for the current scene.">Copy after</button>`,
+        filesHtml: `<label class="btn btn-sm" style="cursor:pointer;margin:0" data-tip="Replaces this pair. The previous one is kept, up to 8.">
           Import pair
           <input type="file" class="ca-ba-card-import" data-service-slug="${esc(pair.slug || '')}" data-pair-index="${esc(String(pair.pairIndex || 1))}" accept="image/jpeg,image/png,image/webp" multiple hidden />
         </label>`,
@@ -17344,7 +17385,7 @@ function logoMapPreviewCardHtml({ src, label, alt, emptyRole, kind }) {
 function mapLabelPlacementSegmentHtml(selected) {
   const mode = String(selected || '').toLowerCase() === 'center' ? 'center' : 'callout';
   const tip =
-    'Centered = city name on the city. Callout = name off to the side with a line. Click Regenerate coverage map to apply (does not re-run Nominatim on toggle alone).';
+    'Name on the city, or off to the side. Regenerate the map to apply.';
   return `<div class="ads-mode-segment" id="ca-map-label-placement" role="group" aria-label="City label placement" ${tipAttr(
     tip,
   )}>
@@ -17375,7 +17416,7 @@ function logoAssetFilename(d) {
 function logoGenerateModeSegmentHtml(selected) {
   const mode = logoGenerateModeFromValue(selected);
   const tip =
-    'Mark = simple 2D icon, no letters (~$0.04 OpenAI). Mark + text = icon plus the business name (~$0.04). Monogram = local SVG initials (free). Click Generate logo to apply.';
+    'Icon, icon plus name, or initials. Initials are free.';
   const seg = (id, label) =>
     `<button type="button" class="ads-mode-seg${mode === id ? ' active' : ''}" data-logo-style="${esc(id)}">${esc(
       label,
@@ -17438,10 +17479,10 @@ function syncLogoGenerateButton() {
   const ok = !needsAi || fluxIsOpenaiConfigured();
   btn.disabled = !ok;
   const tip = !ok
-    ? 'Set OPENAI_API_KEY in .env (same key as Phone), then restart Rover.'
+    ? 'Photo generation is not set up yet.'
     : needsAi
-      ? 'GPT Image 2 (~$0.04). Replaces the header logo. Uses the selected Mark or Mark + text style.'
-      : 'Local SVG monogram from the business name. Replaces the header logo.';
+      ? 'Generate the logo, about $0.04.'
+      : 'Build initials from the business name.';
   btn.setAttribute('data-tip', tip);
 }
 
@@ -18078,10 +18119,69 @@ function paintReviewImageTotals() {
   );
 }
 
+function slotPromptFieldName(el) {
+  if (!el?.classList) return '';
+  if (el.classList.contains('slot-prompt-before')) return 'before';
+  if (el.classList.contains('slot-prompt-after')) return 'after';
+  if (el.classList.contains('slot-prompt-text')) return 'prompt';
+  return '';
+}
+
+function captureOpenSlotPrompts(root) {
+  const open = [];
+  if (!root?.querySelectorAll) return open;
+  const active = document.activeElement;
+  for (const panel of root.querySelectorAll('details.slot-prompt-panel[open]')) {
+    const card = panel.closest('.image-slot-card');
+    if (card) stashSlotPromptDraft(card);
+    const field = panel.contains(active) ? slotPromptFieldName(active) : '';
+    open.push({
+      key: panel.getAttribute('data-prompt-key') || '',
+      kind: panel.getAttribute('data-prompt-kind') || 'photo',
+      field,
+      selectionStart: field ? active.selectionStart : null,
+      selectionEnd: field ? active.selectionEnd : null,
+      fields: readSlotPromptFields(panel),
+    });
+  }
+  return open;
+}
+
+function restoreOpenSlotPrompts(root, open) {
+  if (!root?.querySelector || !open?.length) return;
+  for (const row of open) {
+    const panel = root.querySelector(
+      `details.slot-prompt-panel[data-prompt-kind="${CSS.escape(row.kind)}"][data-prompt-key="${CSS.escape(row.key)}"]`,
+    );
+    if (!(panel instanceof HTMLDetailsElement)) continue;
+    panel.dataset.keepPrompt = '1';
+    panel.open = true;
+    applySlotPromptFields(panel, row.fields || {});
+    if (!row.field) continue;
+    const selector =
+      row.field === 'before'
+        ? '.slot-prompt-before'
+        : row.field === 'after'
+          ? '.slot-prompt-after'
+          : '.slot-prompt-text';
+    const ta = panel.querySelector(selector);
+    if (!ta) continue;
+    ta.focus({ preventScroll: true });
+    if (row.selectionStart == null || row.selectionEnd == null) continue;
+    try {
+      ta.setSelectionRange(row.selectionStart, row.selectionEnd);
+    } catch {
+      /* detached or not a text control */
+    }
+  }
+}
+
 function swapReviewCard(existing, html) {
+  const open = captureOpenSlotPrompts(existing);
   const next = reviewHtmlElement(html);
   if (!existing || !next) return false;
   existing.replaceWith(next);
+  restoreOpenSlotPrompts(next, open);
   return true;
 }
 
@@ -18220,7 +18320,9 @@ function paintReviewImageSlotsFromState(candidateId, { matchTotals = null, rende
       imagesSlotMatchesSource(s, sourceFilter) &&
       imagesSlotMatchesTitle(s, titleQ),
   );
+  const openPrompts = captureOpenSlotPrompts(grid);
   grid.innerHTML = `${imagesSlotsGroupedHtml(visible)}${baHtml}`;
+  restoreOpenSlotPrompts(grid, openPrompts);
   if (renderToolbar) renderReviewFluxToolbar();
   restoreSlotBusyOverlays();
   applyFreshReviewCards(candidateId);
@@ -19032,9 +19134,6 @@ function renderWebsite() {
     alreadyLive,
   };
   const assembleStale = isAssembleStaleClient(d);
-  const pageIds = structurePageIdsFromDetail(d);
-  const wantsServices = pageIds.includes('services');
-  const wantsLocations = pageIds.includes('locations');
   const imagesDone = Boolean(d?.imagesManifest?.files?.length || f.hasImages);
   const hasLogoAsset = Boolean(f.hasLogo || d?.siteConfig?.logo);
   const hasCoverageMapAsset = Boolean(f.hasCoverageMap);
@@ -19042,11 +19141,11 @@ function renderWebsite() {
   const logoBtnLabel = hasLogoAsset ? 'Regenerate logo' : 'Generate logo';
   const mapBtnLabel = hasCoverageMapAsset ? 'Regenerate coverage map' : 'Generate coverage map';
   const logoTip = hasLogoAsset
-    ? 'Accept usually already created this. Click to replace the existing header logo. Previous logos go to the tray (keeps 4).'
-    : 'Accept normally creates Mark + text. Use here if Accept skipped or failed, or to pick another style.';
+    ? 'Replace the current logo. The previous one is kept.'
+    : 'Create the logo if it is missing.';
   const mapTip = hasCoverageMapAsset
-    ? 'Accept usually already created this. Click to replace the existing coverage-map.svg and homepage Areas map. Previous maps go to the tray (keeps 2).'
-    : 'Accept normally creates this when Areas exist. Use here if Accept skipped or failed.';
+    ? 'Replace the current map. The previous one is kept.'
+    : 'Create the map if it is missing.';
   const logoHint = hasLogoAsset
     ? 'Pick Mark, Mark + text, or Monogram, then generate. Edit the logo prompt if you want a different mark.'
     : 'Usually auto after Accept (Mark + text) — use if logo is still missing. Pick a style, then generate.';
@@ -19090,7 +19189,7 @@ function renderWebsite() {
   parts.push(
     panelHowToHtml({
       label: 'Website',
-      info: 'Logo & Map → Review images → Prepare preview → Launch (or Push updates) → Indexing (Search Console + sitemap). Revert restores Rover from GitHub if a launched site drifted.',
+      info: 'Logo, photos, preview, launch, then Search Console.',
       extraHtml: noteToggle,
     }),
   );
@@ -19110,7 +19209,7 @@ function renderWebsite() {
   });
   if (phoneIsPlaceholder) {
     parts.push(
-      `<div class="callout warn"><strong>Phone placeholder:</strong> still <code>+1XXXXXXXXXX</code> (or empty). Set a real click-to-call number in Site config (or Launch → Advanced) before launch — Rover will not invent one.</div>`,
+      `<div class="callout warn"><strong>Phone placeholder:</strong> still <code>+1XXXXXXXXXX</code> (or empty). Set a real click-to-call number on <strong>Site-Config</strong> (Provision phone number) or in the phone field on this Launch step. Rover will not invent one.</div>`,
     );
   }
   const domainWarn = domainBrandMismatchClient(cfg.domain, {
@@ -19125,7 +19224,7 @@ function renderWebsite() {
   }
   if (!hasMarkdown && !f.hasContent) {
     parts.push(
-      `<div class="callout warn">Accept content on the <strong>Content</strong> tab first (all service/location FILEs when Structure includes them).</div>`,
+      `<div class="callout warn">Accept content on the <strong>Content</strong> tab first.</div>`,
     );
   } else if (!logoMapDone) {
     parts.push(
@@ -19142,9 +19241,7 @@ function renderWebsite() {
   } else if (!prepareDone) {
     parts.push(
       statusLineHtml(
-        `Up next: <strong>Prepare preview</strong> — stages the full launch package${
-          wantsServices ? ' (including every service page)' : ''
-        }, assembles the sibling site, then open the sitemap on :4322.`,
+        `Up next: <strong>Prepare preview</strong>. When it finishes, open every preview page, then <strong>Run launch</strong>.`,
       ),
     );
   } else if (!flags.launched) {
@@ -19164,9 +19261,7 @@ function renderWebsite() {
   } else if (!noteHidden) {
     parts.push(
       statusLineHtml(
-        flags.alreadyLive
-          ? 'Website day-one steps complete. Use <strong>Push updates</strong> when content changes.'
-          : 'Website day-one steps complete.',
+        'Website day-one steps complete. This site is under <strong>4 Launched</strong>. Use <strong>Push updates</strong> when the pages change.',
       ),
     );
   }
@@ -19182,7 +19277,7 @@ function renderWebsite() {
       done: logoMapStepDone,
       open: contentStepIsOpen('logoMap', openId),
       current: currentId === 'logoMap' && !logoMapStepDone,
-      info: 'Accept already generates a Mark + text header logo (and a coverage map when Areas exist). Use these buttons if Accept skipped or to replace them. Coverage map is optional — Areas / Nominatim often skip it.',
+      info: 'Usually created when you accept. Use these buttons to replace them.',
       bodyHtml: `
         <div id="ca-logo-map-previews">
         ${contentActionRow({
@@ -19279,9 +19374,9 @@ function renderWebsite() {
                 state.reviewPhotoGroupMenuOpen ? '' : ' hidden'
               }">
                 <div class="photo-group-menu-actions">
-                  <button type="button" class="btn btn-sm pg-save" id="ca-pg-save" data-tip="Save this site’s stock photos, uploads, and ChatGPT before/after pairs">Save photo group</button>
-                  <button type="button" class="btn btn-sm pg-load" id="ca-pg-load" disabled data-tip="Replace this site’s Review images. 1st group fills matching slots; later groups fill leftovers; empty slots take the first tray still as live; extras go to trays.">Load</button>
-                  <button type="button" class="btn btn-sm pg-replace-master" id="ca-pg-replace-master" data-tip="Replace this niche’s master with the photos currently in Review images">Replace master</button>
+                  <button type="button" class="btn btn-sm pg-save" id="ca-pg-save" data-tip="Save this site’s photos and before-and-after pairs.">Save photo group</button>
+                  <button type="button" class="btn btn-sm pg-load" id="ca-pg-load" disabled data-tip="Replace the review photos. The first group fills matches. The rest fill gaps.">Load</button>
+                  <button type="button" class="btn btn-sm pg-replace-master" id="ca-pg-replace-master" data-tip="Replace this service’s shared photos with the ones shown here.">Replace master</button>
                 </div>
                 ${photoGroupRankSelectsHtml('ca-pg-select')}
               </div>
@@ -19293,17 +19388,12 @@ function renderWebsite() {
         </div>`,
             })
           : '',
-      info: 'Accept content already pulls stock photos. <strong>Photo groups</strong> saves, ranks, and loads named groups. Per-slot Re-pull / Upload / Copy prompt (ChatGPT) for near-launch QA — process slots show step titles; What we do cards use named service slots. ChatGPT before/after is optional gallery polish. Logo and coverage map live under <strong>Logo &amp; Map</strong>.',
+      info: 'Stock photos are already pulled. Use this step to swap, upload, or generate.',
       bodyHtml: imagesSlotsShellHtml(),
     }),
   );
 
-  const prepareInfoParts = ['Home/About/Contact'];
-  if (wantsServices) prepareInfoParts.push('every service page');
-  if (wantsLocations) prepareInfoParts.push('every location page');
-  const prepareInfo = `Prepare preview stages the full launch package (${prepareInfoParts.join(
-    ' + ',
-  )}), assembles the sibling site (full rebuild when template layout is newer; otherwise content refresh), stops any old :4322 preview, and opens the assembled preview (does not ship live — use Push updates or Run launch for that).`;
+  const prepareInfo = 'Builds a local preview of every page. It does not publish.';
   parts.push(
     contentStepHtml({
       id: 'prepare',
@@ -19314,13 +19404,14 @@ function renderWebsite() {
       current: currentId === 'prepare' && !prepareStepDone,
       info: prepareInfo,
       bodyHtml: `
+        <p class="muted small">When this finishes, open every preview page, then Run launch.</p>
         <div class="narrative-actions" style="justify-content:center">
-          <button type="button" class="btn primary" id="ca-prepare-preview" data-tip="Stage → assemble (full if template newer) → open preview :4322" ${
+          <button type="button" class="btn primary" id="ca-prepare-preview" data-tip="Build the preview and open it." ${
             hasMarkdown && !state.preparePreviewHold ? '' : 'disabled'
           }>Prepare preview</button>
-          <button type="button" class="btn" id="ca-open-assembled-preview" data-tip="Preview assembled site on 127.0.0.1:4322" ${flags.assembled ? '' : 'disabled'}>Open site preview</button>
-          <button type="button" class="btn" id="ca-visual-edit" data-tip="Operator visual editor on the assembled preview" ${hasMarkdown ? '' : 'disabled'}>Edit visually</button>
-          <button type="button" class="btn" id="ca-checklist" data-tip="Show assemble / deploy checklist">Checklist</button>
+          <button type="button" class="btn" id="ca-open-assembled-preview" data-tip="Open the local preview." ${flags.assembled ? '' : 'disabled'}>Open site preview</button>
+          <button type="button" class="btn" id="ca-visual-edit" data-tip="Edit the preview. Visitors never see this screen." ${hasMarkdown ? '' : 'disabled'}>Edit visually</button>
+          <button type="button" class="btn" id="ca-checklist" data-tip="Show the go-live checklist.">Checklist</button>
         </div>
         <div id="ca-assemble-progress" class="job-progress${assembleProgVisible ? '' : ' hidden'}" aria-live="polite" style="margin-top:0.75rem">
           <div class="job-progress-track"><div class="job-progress-bar"></div></div>
@@ -19345,8 +19436,8 @@ function renderWebsite() {
       open: contentStepIsOpen('launch', openId),
       current: currentId === 'launch' && !flags.launched,
       info: flags.alreadyLive
-        ? 'Already live: Prepare preview first, then Push updates (GitHub + build + Worker). Run launch only when you need to change keys or re-run Cloudflare domain/email.'
-        : 'Before Run launch: buy/point domain NS at Cloudflare and set the Email Routing destination so leads@ exists. Rover emails that destination from leads@. After: verify Gmail once if new.',
+        ? 'Prepare a preview, then publish the latest copy.'
+        : 'Point the domain at Cloudflare and set where leads go before you launch.',
       bodyHtml: `
         ${
           assembleStale
@@ -19359,10 +19450,10 @@ function renderWebsite() {
             ? ''
             : `<div class="callout"><strong>Before Run launch</strong>
           <ol class="narrative-list">
-            <li>Buy the domain and point nameservers to Cloudflare (zone must exist in this account)</li>
-            <li>Set the Email Routing destination (Gmail) below. Launch creates <code>leads@</code> forwarding and Rover sends form leads there</li>
+            <li>Buy this domain.</li>
+            <li>At the registrar, set the nameservers to Cloudflare. The domain has to show up in this Cloudflare account before Run launch.</li>
+            <li>Put your Gmail in the box below. After launch, open Cloudflare’s confirmation email once, then submit the form on the live site and confirm the email arrives.</li>
           </ol>
-          <p class="muted" style="margin:0.35rem 0 0">Then Run launch with Auto ship on. After: click Cloudflare’s verify link in Gmail once if the destination is new, then smoke-test the live form.</p>
         </div>`
         }
         ${launchPreflightHtml(launchIssues)}
@@ -19372,7 +19463,7 @@ function renderWebsite() {
           <label>
             <span class="label-with-tip-head">
               <span>Domain</span>
-              <button type="button" class="tip-info" data-tip="Public hostname for go-live. Point nameservers to Cloudflare first so the zone exists in this account before Run Cloudflare domain / email." aria-label="About Domain">i</button>
+              <button type="button" class="tip-info" data-tip="The live address. Point the domain at Cloudflare before you connect email." aria-label="About Domain">i</button>
             </span>
             <input id="ca-launch-domain" type="text" value="${esc(cfg.domain || '')}" placeholder="yourdomain.com" />
           </label>
@@ -19386,21 +19477,21 @@ function renderWebsite() {
           <label>
             <span class="label-with-tip-head">
               <span>Phone</span>
-              <button type="button" class="tip-info" data-tip="Click-to-call number written into site-config at launch." aria-label="About Phone">i</button>
+              <button type="button" class="tip-info" data-tip="The click-to-call number saved when you launch." aria-label="About Phone">i</button>
             </span>
             <input id="ca-launch-phone" type="text" value="${esc(formatDisplayPhone(cfg.phone || ''))}" placeholder="+1…" />
           </label>
           <label>
             <span class="label-with-tip-head">
               <span>Leads email</span>
-              <button type="button" class="tip-info" data-tip="Public site leads address (usually leads@yourdomain.com) — shown in footer, contact, and schema. Rover sends form mail from this address. Not your personal Gmail." aria-label="About Leads email">i</button>
+              <button type="button" class="tip-info" data-tip="The public leads address on the site, not your personal email." aria-label="About Leads email">i</button>
             </span>
             <input id="ca-launch-email" type="email" value="${esc(cfg.email || '')}" placeholder="leads@yourdomain.com" />
           </label>
           <label>
             <span class="label-with-tip-head">
               <span>Email Routing destination</span>
-              <button type="button" class="tip-info" data-tip="Where Rover emails each lead, and where Cloudflare forwards leads@. Usually your Gmail. One destination for every site." aria-label="About Email Routing destination">i</button>
+              <button type="button" class="tip-info" data-tip="Where each lead is forwarded. Usually your email. One place for every site." aria-label="About Email Routing destination">i</button>
             </span>
             <input id="ca-launch-dest" type="email" value="" placeholder="your@gmail.com" />
           </label>
@@ -19408,25 +19499,25 @@ function renderWebsite() {
         <div class="ca-launch-opts">
           ${launchOptCheckboxHtml({
             id: 'ca-launch-ship',
-            label: 'Auto ship (GitHub + build + Worker deploy)',
+            label: 'Auto ship',
             ariaLabel: 'About Auto ship',
             checked: true,
-            tip: 'Publishes the website online (saves it, builds it, and puts it on the internet). Leave on for a normal go-live. Turn off only if you are re-running Launch for Cloudflare/keys without republishing.',
+            tip: 'Publishes the site. Leave this on for a normal launch.',
           })}
           ${launchOptCheckboxHtml({
             id: 'ca-launch-run-cf',
-            label: 'Run Cloudflare domain / email API',
+            label: 'Connect domain and email',
             ariaLabel: 'About Cloudflare domain / email',
             checked: !flags.alreadyLive,
             tip: flags.alreadyLive
-              ? 'Domain and Email Routing are already set up for this site — left off by default. Turn on only if you need to re-attach the custom domain or recreate leads@ forwarding. Prefer Push updates for template/content publishes.'
-              : 'Attaches the Worker custom domain and forwards leads@ to your Gmail. Requires the domain zone already in this Cloudflare account (buy/point NS first). Leave on when launching a new domain.',
+              ? 'Leave this off unless you need to connect the domain or email again.'
+              : 'Connects the domain and forwards leads. Leave this on for a new domain.',
           })}
           ${launchOptCheckboxHtml({
             id: 'ca-launch-mark-cf',
-            label: 'Mark CF Worker project done',
+            label: 'Mark hosting done',
             ariaLabel: 'About Mark CF Worker project done',
-            tip: 'Only updates Rover’s checklist to say hosting is done. Does not publish or fix anything. Leave off for normal launches; use only if the site is already live but Rover still shows incomplete.',
+            tip: 'Marks hosting done without publishing. Leave off unless the site is already live.',
           })}
         </div>
         ${
@@ -19451,12 +19542,12 @@ function renderWebsite() {
         <div class="narrative-actions">
           ${
             flags.alreadyLive
-              ? `<button type="button" class="btn primary" id="ca-push-updates" data-tip="Prepare preview first, then push assembled site to GitHub + build + Cloudflare Worker. Skips Email Routing. Attaches the custom domain after deploy if it is not on the Worker yet." ${flags.assembled ? '' : 'disabled'}>Push updates</button>
-          <button type="button" class="btn" id="ca-launch" data-tip="Full launch: patch keys + optional ship + optional CF domain/email" ${flags.assembled ? '' : 'disabled'}>Run launch</button>
-          <button type="button" class="btn danger" id="ca-reset-launch" data-tip="Delete the GitHub repo and Cloudflare Worker for the current domain, clear launch flags, then you can Run launch on a different domain.">Relaunch with a different domain</button>`
-              : `<button type="button" class="btn primary" id="ca-launch" data-tip="Ship + CF helpers" ${flags.assembled ? '' : 'disabled'}>Run launch</button>`
+              ? `<button type="button" class="btn primary" id="ca-push-updates" data-tip="Publish the latest preview. Skips email forwarding." ${flags.assembled ? '' : 'disabled'}>Push updates</button>
+          <button type="button" class="btn" id="ca-launch" data-tip="Full launch, including the domain and email if those are checked." ${flags.assembled ? '' : 'disabled'}>Run launch</button>
+          <button type="button" class="btn danger" id="ca-reset-launch" data-tip="Remove the live site for this domain so you can launch a different one.">Relaunch with a different domain</button>`
+              : `<button type="button" class="btn primary" id="ca-launch" data-tip="Full launch, including the domain and email if those are checked." ${flags.assembled ? '' : 'disabled'}>Run launch</button>`
           }
-          <button type="button" class="btn" id="ca-launch-status" data-tip="Status, human leftovers, machine creds">Launch status</button>
+          <button type="button" class="btn" id="ca-launch-status" data-tip="What is done, what you still do, and saved logins.">Launch status</button>
         </div>
         ${
           flags.alreadyLive && flags.assembled
@@ -19465,8 +19556,8 @@ function renderWebsite() {
           <p id="ca-ship-freshness-msg" class="ca-ship-status-msg">Checking whether assembled matches GitHub…</p>
           <div class="ca-ship-status-actions narrative-actions">
             <button type="button" class="btn btn-sm primary hidden" id="ca-ship-create-repo">Create repo and launch</button>
-            <button type="button" class="btn btn-sm" id="ca-ship-diff-refresh" data-tip="Fetch origin and compare assembled tree to GitHub">Refresh status</button>
-            <button type="button" class="btn btn-sm" id="ca-ship-diff-show" data-tip="List files that differ from origin/main before you Push updates">Show file differences</button>
+            <button type="button" class="btn btn-sm" id="ca-ship-diff-refresh" data-tip="Compare this copy with the published site.">Refresh status</button>
+            <button type="button" class="btn btn-sm" id="ca-ship-diff-show" data-tip="List files that differ before you publish.">Show file differences</button>
           </div>
         </div>`
             : ''
@@ -19493,7 +19584,7 @@ function renderWebsite() {
       open: contentStepIsOpen('indexing', openId),
       current: currentId === 'indexing' && !indexingStepDone,
       locked: indexingLocked,
-      info: 'After go-live: Submit to Search Console verifies the domain and submits the sitemap once. Then request indexing on the homepage plus a few money pages. Indexing is not ranking.',
+      info: 'Submit the site to Search Console, then ask Google to index a few pages.',
       bodyHtml: indexingLocked
         ? `<p class="muted">Finish <strong>Run launch</strong> first, then return here to submit the live sitemap in Search Console.</p>`
         : `<div class="callout">
@@ -19540,14 +19631,14 @@ function renderWebsite() {
       plain: true,
       open: contentStepIsOpen('revert', openId),
       locked: !canRevert,
-      info: 'Overwrites Rover content, structure, site-config, and images from GitHub origin/main for this site. Does not change the live Cloudflare deploy.',
+      info: 'Replaces Rover’s copy with the published site. The live site stays as it is.',
       bodyHtml: canRevert
         ? `<p>Replace Rover’s working copy (content, structure, site-config, and images) with the <strong>current launched site</strong> from GitHub (<code>${esc(
             String(d.meta.githubRepo),
           )}</code> · <code>origin/main</code>). Does <strong>not</strong> change the live Cloudflare site.</p>
         <p class="muted">Use this if you edited a launched candidate by mistake and want Rover to match what is shipped.</p>
         <div class="narrative-actions" style="justify-content:flex-start;margin-top:0.75rem">
-          <button type="button" class="btn danger" id="ca-revert-launched" data-tip="Overwrite Rover working copy from GitHub launched site">Revert to launched site</button>
+          <button type="button" class="btn danger" id="ca-revert-launched" data-tip="Replace this copy with the published site.">Revert to launched site</button>
         </div>`
         : flags.launched
           ? `<p class="muted">Revert needs a <code>githubRepo</code> on this candidate (set at Launch / Ship).</p>`
@@ -21122,7 +21213,7 @@ function wireContentTab(d) {
             <p>Click <strong>2 · Content</strong>, then <strong>Accept content</strong>. After that, click <strong>Prepare preview</strong> again.</p>`
             : `<p><strong>Write the missing pages.</strong> These pages are missing or too short.</p>
             ${list}
-            <p>Click <strong>2 · Content</strong>, then <strong>Write site with Claude</strong>. When that finishes, click <strong>Accept content</strong>, then <strong>Prepare preview</strong> again.</p>`;
+            <p>${contentBuildNextHtml({ includeAccept: true })} Then click <strong>Prepare preview</strong> again.</p>`;
         const go = await showModal({
           title: nextStep === 'accept' ? 'Accept the new pages' : 'Write the missing pages',
           confirmLabel: 'Go to Content',
@@ -21826,6 +21917,7 @@ function wireContentTab(d) {
           ? 'Domain verified. Sitemap was already submitted.'
           : 'Domain verified and sitemap submitted.',
       );
+      noteTabAttention('ok');
       advance();
       return;
     }
@@ -22543,7 +22635,7 @@ function renderProspects() {
   const p = state.detail.prospects;
   const parts = [];
   if (!p) {
-    parts.push('<p class="muted">No prospects — save decision pursue (optional), then Run Stage 4 (orange group).</p>');
+    parts.push('<p class="muted">No renters yet. Click <strong>Find renters</strong> after the story is accepted. Optional.</p>');
   } else {
     parts.push(`
       <div class="stat-grid">
@@ -22554,7 +22646,7 @@ function renderProspects() {
         <div class="stat prospects-outreach-copy">
           ${
             effectiveClaudeUiMode() === 'api'
-              ? `<button type="button" class="btn primary" data-act="outreach" data-tip="Draft outreach copy via the Anthropic API (optional)" ${
+              ? `<button type="button" class="btn primary" data-act="outreach" data-tip="Draft a renter email here. Optional." ${
                   state.claudeBusy && state.activeAct === 'outreach' ? 'disabled' : ''
                 }>${
                   state.claudeBusy && state.activeAct === 'outreach'
@@ -22563,7 +22655,7 @@ function renderProspects() {
                       ? 'Re-run Outreach'
                       : 'Run Outreach'
                 }</button>`
-              : `<button type="button" class="btn primary" id="prospects-copy-outreach-prompt" data-tip="Copy Claude.ai outreach prompt with this prospects JSON">
+              : `<button type="button" class="btn primary" id="prospects-copy-outreach-prompt" data-tip="Copy a prompt that includes these businesses.">
             Copy outreach prompt
           </button>
           ${openClaudeAiBtnHtml()}`
@@ -22577,7 +22669,7 @@ function renderProspects() {
         value: x.outreachScore,
         max: 10,
         label: 'Outreach score',
-        extraTip: 'Higher = better outreach fit for Rover.',
+        extraTip: 'How good a renter this looks. Higher is better.',
       }),
       esc(x.name),
       prospectDomainCell(x),
@@ -22592,7 +22684,7 @@ function renderProspects() {
       tableHtml(
         [
           'Priority',
-          thWithTip('Score', '1–10 outreach fit. Higher = better prospect for you.'),
+          thWithTip('Score', 'How good a renter this looks. Higher is better.'),
           'Name',
           'Domain',
           'Rating',
@@ -22692,6 +22784,26 @@ function wireSiteConfigTab(d) {
   }
   const afterAddressChoice = async (result) => {
     if (result?.candidate) await applyCandidatePayload(result.candidate);
+    const sel = result?.package?.selection;
+    if (sel && typeof sel === 'object') {
+      const prev = siteConfigNapFromLocal(d.id);
+      const streetSplit = baSplitNapStreet(sel.street || '');
+      const peeled = baSplitSuiteFromCity(sel.city || '');
+      writeSiteConfigNapLocal(
+        {
+          ...prev,
+          addressStreet: streetSplit.street || '',
+          addressSuite:
+            baSanitizeListedSuite(sel.suite) || streetSplit.suite || peeled.suite || '',
+          addressCity: peeled.city || String(sel.city || '').trim(),
+          addressState: String(sel.state || '')
+            .trim()
+            .toUpperCase(),
+          addressZip: String(sel.zip || '').trim(),
+        },
+        d.id,
+      );
+    }
     if (!state.siteConfigSoftDone) state.siteConfigSoftDone = {};
     state.siteConfigSoftDone.address = true;
     advancePanelStep('site-config', 'domain');
@@ -22955,6 +23067,16 @@ function wireSiteConfigTab(d) {
     );
   });
 
+  document.getElementById('ba-copy-city')?.addEventListener('click', async () => {
+    const place = document.getElementById('ba-copy-city')?.dataset.place || '';
+    if (!place) return;
+    try {
+      await navigator.clipboard.writeText(place);
+      showToast(`Copied ${place}.`);
+    } catch {
+      showToast('Could not copy the city.', { tone: 'warn' });
+    }
+  });
   document.getElementById('ba-show-home')?.addEventListener('click', () => {
     document.getElementById('ba-home-panel')?.classList.remove('hidden');
     document.getElementById('ba-manual-panel')?.classList.add('hidden');
@@ -23309,10 +23431,11 @@ function wireSiteConfigTab(d) {
   });
   document.getElementById('ba-save-manual')?.addEventListener('click', async () => {
     const line = document.getElementById('ba-manual-line')?.value?.trim() || '';
+    const suite = document.getElementById('ba-manual-suite')?.value?.trim() || '';
     try {
       const result = await api(`/api/candidates/${encodeURIComponent(d.id)}/address/manual`, {
         method: 'POST',
-        body: JSON.stringify({ line }),
+        body: JSON.stringify({ line, suite }),
       });
       await afterAddressChoice(result);
     } catch (error) {
@@ -23326,10 +23449,11 @@ function wireSiteConfigTab(d) {
   });
   document.getElementById('ba-save-home')?.addEventListener('click', async () => {
     const line = document.getElementById('ba-home-line')?.value?.trim() || '';
+    const suite = document.getElementById('ba-home-suite')?.value?.trim() || '';
     try {
       const result = await api(`/api/candidates/${encodeURIComponent(d.id)}/address/home`, {
         method: 'POST',
-        body: JSON.stringify({ line }),
+        body: JSON.stringify({ line, suite }),
       });
       await afterAddressChoice(result);
     } catch (error) {
@@ -24431,8 +24555,8 @@ function renderDetail() {
   const srcBatch = d.meta?.source?.batchId;
   document.getElementById('detail-sub').textContent = '';
   const tipBits = [];
-  if (d.id) tipBits.push(`Id: ${d.id}`);
-  if (srcBatch) tipBits.push(`Discovery: ${srcBatch}`);
+  if (d.id) tipBits.push(`Candidate id: ${d.id}`);
+  if (srcBatch) tipBits.push(`Batch: ${srcBatch}`);
   const idTip = document.getElementById('detail-id-tip');
   if (idTip) {
     if (tipBits.length) {
@@ -24717,7 +24841,9 @@ function clusterNumbersForZone(zoneNumber) {
 }
 
 function formatOpenTabsCount(count, start, end) {
-  if (!count || !start || !end) return 'No pursue cities in this range.';
+  if (!count || !start || !end) {
+    return 'No pursue cities in this range. Set Decision to pursue, then try again.';
+  }
   const tabs = count === 1 ? '1 Website tab' : `${count} Website tabs`;
   const clusters = start === end ? `cluster ${start}` : `clusters ${start}–${end}`;
   return `Opens ${tabs}, ${clusters}.`;
@@ -24818,6 +24944,7 @@ async function openWebsiteTabsDialog() {
           </label>
         </div>
         <p id="open-tabs-count" class="muted small"></p>
+        <p class="muted small">Only cities set to pursue open. Allow pop-ups for this site if a tab does not appear.</p>
       </div>`,
       afterOpen: (body) => {
         zoneSelect = body.querySelector('#open-tabs-zone');
@@ -25120,10 +25247,10 @@ function applyPipelineTabMode() {
   }
   const subEl = document.getElementById('candidates-view-sub');
   if (subEl) {
-    subEl.textContent =
+    subEl.innerHTML =
       mode === 'website-builder'
-        ? 'Website Candidates (pursue) — Site-Config, Content, Launch'
-        : 'Research Candidates — SERP/Volume, Enrich, Narrative, Prospects';
+        ? 'Before Colors on any site, click <strong>Open tabs</strong> and pick this session’s zone and cluster range. Only cities set to <strong>pursue</strong> open.'
+        : 'Required: a search snapshot, then the written story. Set <strong>pursue</strong> to open Website. That is what Open tabs will open. Enrich, ad volumes, and Find renters are optional.';
   }
 }
 
@@ -25196,16 +25323,16 @@ const SITE_TABLE_COLS = [
   { key: 'domain', label: 'Domain' },
   { key: 'status', label: 'Status' },
   { key: 'clicks28d', label: 'Clicks 28d' },
-  { key: 'impressions28d', label: 'Impr 28d' },
+  { key: 'impressions28d', label: 'Impr 28d', tip: 'Times the site was shown in Google, last 28 days.' },
   { key: 'pageCount', label: 'Pages' },
   { key: 'wordCount', label: 'Words' },
-  { key: 'inspectIndexed', label: 'Indexed' },
-  { key: 'primaryPosition', label: 'Pos' },
+  { key: 'inspectIndexed', label: 'Indexed', tip: 'How many sitemap pages Google has indexed.' },
+  { key: 'primaryPosition', label: 'Pos', tip: 'Average Google position.' },
   { key: 'primaryPage', label: 'Page' },
-  { key: 'gscLastSyncAt', label: 'GSC sync' },
+  { key: 'gscLastSyncAt', label: 'GSC sync', tip: 'When Search Console was last updated.' },
   { key: 'lastRankCheckAt', label: 'Rank check' },
-  { key: 'targetRentUsd', label: 'Target $' },
-  { key: 'actualRentUsd', label: 'Actual $' },
+  { key: 'targetRentUsd', label: 'Target $', tip: 'Target rent.' },
+  { key: 'actualRentUsd', label: 'Actual $', tip: 'Rent you are collecting.' },
   { key: 'lastLaunchAt', label: 'Launched' },
 ];
 
@@ -25385,7 +25512,7 @@ function renderSvgLineChart(
   const legend = series
     .map(
       (s) =>
-        `<li class="sites-chart-legend-item" title="${esc(s.label)}">
+        `<li class="sites-chart-legend-item">
           <span class="sites-chart-legend-dot" style="background:${esc(s.color)}"></span>
           <span class="sites-chart-legend-label">${esc(s.label)}</span>
         </li>`,
@@ -25471,10 +25598,10 @@ function gscSignedIn() {
 }
 
 const GSC_SYNC_TIP =
-  'Pull 28d clicks, top queries, and sitemap submitted counts from Search Console for selected rows';
+  'Load the last 28 days of clicks and queries.';
 const GSC_INDEX_TIP =
-  'Inspect each sitemap URL in Search Console for selected rows (not the Pages report)';
-const GSC_CONNECT_FIRST_TIP = 'Connect GSC first';
+  'Check which sitemap pages Google has indexed.';
+const GSC_CONNECT_FIRST_TIP = 'Connect Search Console first.';
 
 function renderGscConnectionPill() {
   const el = document.getElementById('sites-gsc-connection');
@@ -25483,11 +25610,11 @@ function renderGscConnectionPill() {
   const g = state.gscStatus || {};
   el.classList.remove('is-connected', 'is-disconnected', 'is-unconfigured');
   let text = 'Not connected';
-  let tip = 'Search Console is not connected. Click Connect GSC to sign in.';
+  let tip = 'Search Console is not connected.';
   let cls = 'is-disconnected';
   if (state.gscStatus && !g.configured) {
     text = 'GSC not set up';
-    tip = 'Set GOOGLE_GSC_CLIENT_ID and GOOGLE_GSC_CLIENT_SECRET in .env.';
+    tip = 'Search Console is not set up yet.';
     cls = 'is-unconfigured';
   } else if (g.connected) {
     text = 'Connected';
@@ -25504,7 +25631,7 @@ function applyGscMetricsButtonState() {
   const busy = Boolean(state.sitesMetricsBusy);
   const ready = gscSignedIn();
   const g = state.gscStatus || {};
-  const blockedTip = state.gscStatus && !g.configured ? 'Set up GSC OAuth in .env first' : GSC_CONNECT_FIRST_TIP;
+  const blockedTip = state.gscStatus && !g.configured ? 'Search Console is not set up yet.' : GSC_CONNECT_FIRST_TIP;
   const pairs = [
     ['sites-gsc-sync-btn', ready ? GSC_SYNC_TIP : blockedTip],
     ['sites-index-check-btn', ready ? GSC_INDEX_TIP : blockedTip],
@@ -25529,8 +25656,8 @@ function updateSitesGscConnectButton() {
     connectBtn.setAttribute(
       'data-tip',
       g.connected
-        ? 'Sign in again if the Search Console login expired'
-        : 'Connect Google Search Console (OAuth)',
+        ? 'Sign in again if the login expired.'
+        : 'Connect Google Search Console.',
     );
     if (!g.configured) connectBtn.disabled = true;
     else connectBtn.disabled = Boolean(state.sitesMetricsBusy);
@@ -26242,13 +26369,12 @@ function formatSitemapIndexed(s) {
 
 function sitemapIndexedTip(s) {
   if (s?.inspectIndexed == null && s?.inspectSubmitted == null) {
-    const err = s.inspectError ? ` Last error: ${s.inspectError}` : '';
-    return `Run Check index to inspect each sitemap URL in Search Console. Sync GSC does not update this column. Not the GSC Pages report (that counts URL variants). Includes /privacy.${err}`;
+    return s?.inspectError ? `No index check yet. ${s.inspectError}` : 'No index check yet.';
   }
-  const local = s.pageCount == null ? '—' : String(s.pageCount);
-  const when = s.inspectCheckedAt ? formatSiteDate(s.inspectCheckedAt) : '—';
-  const err = s.inspectError ? ` Last error: ${s.inspectError}` : '';
-  return `Sitemap URLs: ${s.inspectIndexed ?? 0} indexed of ${s.inspectSubmitted ?? '—'} (${s.inspectNotIndexed ?? 0} not indexed). Last check ${when}. Pages on site: ${local}. Includes /privacy. This is URL Inspection of the sitemap, not the GSC Pages report.${err}`;
+  const when = s.inspectCheckedAt ? formatSiteDate(s.inspectCheckedAt) : '';
+  const whenBit = when ? ` Last checked ${when}.` : '';
+  const err = s.inspectError ? ` ${s.inspectError}` : '';
+  return `${s.inspectIndexed ?? 0} of ${s.inspectSubmitted ?? '—'} sitemap pages are indexed.${whenBit}${err}`;
 }
 
 function formatSiteInventoryLine(s) {
@@ -26288,7 +26414,7 @@ function renderGscQueriesTableHtml(s) {
   const queries = gsc.topQueries || [];
   const pages = gsc.topPages || [];
   return `
-      <h3 class="sites-kw-heading heading-with-info"><span>GSC queries (28d)</span><button type="button" class="tip-info" data-tip="Queries that earned impressions. Empty until Google has search traffic. Coverage reasons are in Google Search Console. Use Check index for sitemap URLs." aria-label="About GSC queries">i</button></h3>
+      <h3 class="sites-kw-heading heading-with-info"><span>GSC queries (28d)</span><button type="button" class="tip-info" data-tip="Searches that showed this site. Empty until Google has traffic." aria-label="About GSC queries">i</button></h3>
       <div class="sites-gsc-table-wrap">
         <table class="sites-gsc-table">
           <thead><tr><th>Query</th><th>Clicks</th><th>Impr</th><th>CTR</th><th>Pos</th></tr></thead>
@@ -26699,8 +26825,8 @@ function renderSitesDetail() {
       </div>
       ${
         s.candidateId
-          ? `<button type="button" class="btn primary btn-sm" id="sites-visual-edit" data-tip="Operator visual editor — visitors never see this">Edit site</button>
-             <button type="button" class="btn btn-sm" id="sites-shotgun-metro" data-tip="Lock this city as Cluster Hub and assign Cluster Cities">Cluster this metro</button>
+          ? `<button type="button" class="btn primary btn-sm" id="sites-visual-edit" data-tip="Edit the site. Visitors never see this screen.">Edit site</button>
+             <button type="button" class="btn btn-sm" id="sites-shotgun-metro" data-tip="Make this city the hub and pick nearby cities.">Cluster this metro</button>
              ${s.shotgunClusterId ? `<button type="button" class="btn btn-sm zone-map-open" data-zone-id="${esc(s.shotgunClusterId)}">Zone map</button>` : ''}`
           : ''
       }
@@ -26720,7 +26846,7 @@ function renderSitesDetail() {
       s.web3FormsRecipient
         ? `<p class="muted small sites-w3-recipient"><code id="sites-w3-recipient">${esc(s.web3FormsRecipient)}</code>
            <button type="button" class="btn btn-sm" id="sites-w3-copy">Copy</button>
-           <button type="button" class="tip-info" data-tip="Public leads@ address. Rover emails the routing destination from this address." aria-label="About leads address">i</button></p>`
+           <button type="button" class="tip-info" data-tip="The public leads address. Mail is forwarded from here." aria-label="About leads address">i</button></p>`
         : ''
     }
     ${
@@ -26828,19 +26954,19 @@ function renderSitesDetail() {
           !s.candidateId || (s.phoneTracking?.provider === 'twilio' && s.phoneTracking?.twilioSid)
             ? 'disabled'
             : ''
-        } data-tip="Buys a local number (~$1.15/mo). Ranking calls take a voicemail and text you.">Provision</button>
+        } data-tip="Buys a local number, about $1.15 a month. Calls go to voicemail and text you.">Provision</button>
         <button type="button" class="btn btn-sm" id="sites-update-site-phone" ${
           s.candidateId && s.phoneTracking?.provider === 'twilio' && s.phoneTracking?.twilioSid
             ? ''
             : 'disabled'
-        } data-tip="Stage → Assemble (and Push if already live) so CTAs show the new NAP">Update site phone</button>
+        } data-tip="Rebuild the site so buttons show the new phone and address.">Update site phone</button>
         <button type="button" class="btn btn-sm" id="sites-forward-renter" ${
           s.phoneTracking?.provider === 'twilio' &&
           s.phoneTracking?.twilioSid &&
           String(s.renter?.phone || '').trim()
             ? ''
             : 'disabled'
-        } data-tip="Keep same DID; dial renter.phone instead of ranking voicemail">Forward to renter</button>
+        } data-tip="Keep this number and ring the renter instead of voicemail.">Forward to renter</button>
         <button type="button" class="btn btn-sm" id="sites-view-calls" ${
           s.phoneTracking?.provider === 'twilio' && s.phoneTracking?.e164 ? '' : 'disabled'
         }>View calls →</button>
@@ -26854,7 +26980,7 @@ function renderSitesDetail() {
     </div>
     <div class="sites-danger-zone">
       <h3>Remove</h3>
-      <button type="button" class="btn danger solid" id="sites-delete-btn" data-tip="Removes this Launched row only. The candidate and the live site stay.">Remove from Sites</button>
+      <button type="button" class="btn danger solid" id="sites-delete-btn" data-tip="Removes this row only. The live site stays.">Remove from Sites</button>
     </div>
   `;
 
@@ -26899,7 +27025,7 @@ function renderSitesDetail() {
           <input type="radio" name="sites-kw-primary" ${kw.isPrimary ? 'checked' : ''} /> Primary
         </label>
         <input type="text" class="sites-kw-input" value="${esc(kw.keyword || '')}" placeholder="keyword + city" maxlength="120" />
-        <button type="button" class="btn sites-kw-remove" title="Remove">×</button>
+        <button type="button" class="btn sites-kw-remove" data-tip="Remove" aria-label="Remove">×</button>
       </div>`,
       )
       .join('');
@@ -27535,13 +27661,13 @@ function photoLibBaCardHtml(pair, { selected = false } = {}) {
         kind: 'ba',
         viewpointKey: key,
         generateExtra: ` data-match-key="${esc(key)}"`,
-        copyHtml: `<button type="button" class="btn btn-sm photo-ba-copy" data-match-key="${esc(key)}" data-ba-kind="before" data-tip="Copy the current Inside/Outside and Problem, Workers, Finished, or Customers BEFORE prompt">Copy before</button>
-        <button type="button" class="btn btn-sm photo-ba-copy" data-match-key="${esc(key)}" data-ba-kind="after">Copy after</button>`,
-        filesHtml: `<label class="btn btn-sm" style="cursor:pointer;margin:0" data-tip="Replaces the live pair; previous goes to the tray. Tray keeps 8; oldest is removed.">
+        copyHtml: `<button type="button" class="btn btn-sm photo-ba-copy" data-match-key="${esc(key)}" data-ba-kind="before" data-tip="Copy the before prompt for the current scene.">Copy before</button>
+        <button type="button" class="btn btn-sm photo-ba-copy" data-match-key="${esc(key)}" data-ba-kind="after" data-tip="Copy the after prompt for the current scene.">Copy after</button>`,
+        filesHtml: `<label class="btn btn-sm" style="cursor:pointer;margin:0" data-tip="Replaces this pair. The previous one is kept, up to 8.">
           Import pair
           <input type="file" class="photo-ba-import" data-match-key="${esc(key)}" data-ba-kind="${esc(kind)}" data-service-slug="${esc(pair.serviceSlug || '')}" data-service-name="${esc(pair.serviceName || '')}" data-pair-index="${esc(String(pair.pairIndex || 1))}" accept="image/jpeg,image/png,image/webp" multiple hidden />
         </label>
-        <button type="button" class="btn btn-sm photo-slot-swap" data-match-key="${esc(key)}" data-ba="1" data-filename="${esc(pair.before?.filename || '')}">Swap pair</button>`,
+        <button type="button" class="btn btn-sm photo-slot-swap" data-match-key="${esc(key)}" data-ba="1" data-filename="${esc(pair.before?.filename || '')}" data-tip="Select this pair, then pick another one.">Swap pair</button>`,
       })}
       ${slotPromptPanelHtml({ kind: 'ba', key, pair })}
     </div>
@@ -30125,7 +30251,7 @@ function selectCombinedRow(kind, id = '') {
 
 function leadZoneOpen(id) {
   const value = state.phone.combinedOpen?.zones?.[id];
-  return value === undefined ? true : Boolean(value);
+  return value === undefined ? false : Boolean(value);
 }
 
 function leadClusterOpen(id) {
@@ -30205,7 +30331,7 @@ function renderCombinedTree() {
         ? `<button type="button" class="btn btn-sm zone-map-open lead-tree-map" data-zone-id="${esc(zone.key)}" data-tip="Open Zone map">Map</button>`
         : '';
     html.push(`<tr class="lead-tree-zone${selectedClass('zone', zone.key)}" data-lead-kind="zone" data-lead-id="${esc(zone.key)}">
-      <td class="lead-tree-name"><button type="button" class="lead-tree-toggle" data-lead-toggle="zone" data-lead-id="${esc(zone.key)}" aria-expanded="${zoneOpen ? 'true' : 'false'}" title="${esc(zoneLabel)}"><span class="lead-tree-chevron">${zoneOpen ? '▾' : '▸'}</span><span class="lead-tree-label">${esc(zoneLabel)}</span></button>${zoneMapBtn}</td>
+      <td class="lead-tree-name"><button type="button" class="lead-tree-toggle" data-lead-toggle="zone" data-lead-id="${esc(zone.key)}" aria-expanded="${zoneOpen ? 'true' : 'false'}"><span class="lead-tree-chevron">${zoneOpen ? '▾' : '▸'}</span><span class="lead-tree-label">${esc(zoneLabel)}</span></button>${zoneMapBtn}</td>
       ${leadCountCells(sumLeadCounts(zoneSites))}
     </tr>`);
     if (!zoneOpen) continue;
@@ -30218,7 +30344,7 @@ function renderCombinedTree() {
       const clusterOpen = leadClusterOpen(cluster.id);
       const clusterLabel = leadClusterTitle(cluster.key, cluster.sites.length);
       html.push(`<tr class="lead-tree-cluster${selectedClass('cluster', cluster.id)}" data-lead-kind="cluster" data-lead-id="${esc(cluster.id)}">
-        <td class="lead-tree-name"><button type="button" class="lead-tree-toggle" data-lead-toggle="cluster" data-lead-id="${esc(cluster.id)}" aria-expanded="${clusterOpen ? 'true' : 'false'}" title="${esc(clusterLabel)}"><span class="lead-tree-chevron">${clusterOpen ? '▾' : '▸'}</span><span class="lead-tree-label">${esc(clusterLabel)}</span></button></td>
+        <td class="lead-tree-name"><button type="button" class="lead-tree-toggle" data-lead-toggle="cluster" data-lead-id="${esc(cluster.id)}" aria-expanded="${clusterOpen ? 'true' : 'false'}"><span class="lead-tree-chevron">${clusterOpen ? '▾' : '▸'}</span><span class="lead-tree-label">${esc(clusterLabel)}</span></button></td>
         ${leadCountCells(sumLeadCounts(cluster.sites))}
       </tr>`);
       if (!clusterOpen) continue;
@@ -30227,7 +30353,7 @@ function renderCombinedTree() {
         .sort((a, b) => String(a.businessName).localeCompare(String(b.businessName), undefined, { sensitivity: 'base' }));
       for (const site of siteRows) {
         html.push(`<tr class="lead-tree-site${selectedClass('site', site.id)}" data-lead-kind="site" data-lead-id="${esc(site.id)}">
-          <td class="lead-tree-name" title="${esc(site.businessName || site.domain || site.id)}">${esc(site.businessName || site.domain || site.id)}</td>
+          <td class="lead-tree-name">${esc(site.businessName || site.domain || site.id)}</td>
           ${leadCountCells(site)}
         </tr>`);
       }
@@ -31141,11 +31267,11 @@ async function loadDiscoveryPresets() {
       const n = Number(census.placeCount);
       const places = Number.isFinite(n) ? n.toLocaleString() : String(census.placeCount ?? '');
       el.textContent = `Census ok · ${places} places`;
-      setElementTip(el, census.path || '');
+      setElementTip(el, '');
       el.classList.remove('warn-text');
     } else {
       el.textContent = `Census missing — set CENSUS_POP_CSV`;
-      setElementTip(el, census.error || census.path || '');
+      setElementTip(el, 'The census file is missing.');
       el.classList.add('warn-text');
     }
   }
@@ -31456,7 +31582,7 @@ function createDiscoveryGeoRow({ showCityTip = false } = {}) {
     ? `<button
           type="button"
           class="tip-info"
-          data-tip="Comma-separated. Blank = Claude picks. Use Map to pick from a state map."
+          data-tip="Separate cities with commas. Blank lets Rover choose."
           aria-label="About Cities"
         >i</button>`
     : '';
@@ -31715,6 +31841,40 @@ function discoveryHumanDecisionProgress(rows = []) {
   };
 }
 
+function discoveryUpNextHtml() {
+  const rows = state.discoveryRows || [];
+  const shotgun =
+    discoveryBatchIsShotgun() || isClusterPackType(state.discoveryPackType);
+  if (!rows.length) {
+    if (shotgun) {
+      const hub = state.shotgunWorkspace?.draft?.hub;
+      if (state.discoveryBatchId && !hub) {
+        return 'Up next: pick a hub. Then set the cluster cities on the map and <strong>Generate pack</strong>.';
+      }
+      if (state.discoveryBatchId && hub) {
+        return 'Up next: pick a cluster color, click cities or drag a circle, then <strong>Generate pack</strong>. Then set a decision and <strong>Process batch</strong>.';
+      }
+      return 'Up next: <strong>Cluster Cities</strong>. Enter the niche, then pick an existing zone or start a new one. A new zone uses the map to set cluster cities, then <strong>Generate pack</strong>. An existing zone goes straight to <strong>Generate pack</strong>. Then set a decision and <strong>Process batch</strong>. Light SERP is optional.';
+    }
+    return 'Up next: set the filters and generate a pack. Then set a decision and <strong>Process batch</strong>. Light SERP is optional.';
+  }
+  const processed = rows.every((row) => isDiscoveryRowProcessed(row));
+  if (processed) {
+    return 'This batch is processed. Open <strong>Research</strong>, run the required steps, then set <strong>pursue</strong>. That is what Open tabs will open.';
+  }
+  const { allDecided, pendingProcess } = discoveryHumanDecisionProgress(rows);
+  if (!allDecided || pendingProcess > 0) {
+    return 'Up next: set a decision on each row, then <strong>Process batch</strong>. Light SERP is optional.';
+  }
+  return 'Up next: <strong>Process batch</strong>. Light SERP is optional.';
+}
+
+function renderDiscoveryUpNext() {
+  const el = document.getElementById('discovery-up-next');
+  if (!el) return;
+  el.innerHTML = discoveryUpNextHtml();
+}
+
 function updateDiscoveryProcessControls() {
   const processBtn = document.getElementById('discovery-process-btn');
   const progressEl = document.getElementById('discovery-process-progress');
@@ -31734,13 +31894,13 @@ function updateDiscoveryProcessControls() {
       processBtn,
       total === 0
         ? discoveryBatchIsShotgun()
-          ? 'Generate pack from the selected hub and set Decisions first'
-          : 'Import a batch and set Decisions first'
+          ? 'Generate a pack from the selected hub, then choose a decision.'
+          : 'Import a batch and choose a decision first.'
         : !allDecided
-          ? `Set Decision on every row (${decided}/${total}) before processing`
+          ? `Choose a decision on every row (${decided} of ${total}).`
           : pendingProcess === 0
-            ? 'No unprocessed rows left — all decided rows are already processed'
-            : `Process ${pendingProcess} decided row(s): pursue/maybe/review/hold → Candidates; pass → tracked; ignore → skip (rediscoverable)`,
+            ? 'Every decided row is already processed.'
+            : 'Every row needs a decision. Pursue, maybe, review, and hold become candidates.',
     );
   }
 
@@ -31760,6 +31920,7 @@ function updateDiscoveryProcessControls() {
     }
   }
   syncDiscoveryLightSerpButton();
+  renderDiscoveryUpNext();
 }
 
 /** Sort key for batch dropdowns: createdAt, else trailing stamp in id, else id. */
@@ -32211,15 +32372,24 @@ async function manageCandidateGroups({ scope = 'candidates' } = {}) {
     })
     .join('');
 
+  let intent = 'close';
   const doRename = await showModal({
     title: 'Manage groups',
-    confirmLabel: 'Rename…',
-    bodyHtml: `<p>Rename the selected group, or Cancel to delete instead.</p>
-      <label>Group <select id="manage-group-select">${options}</select></label>`,
+    confirmLabel: 'Rename',
+    cancelLabel: 'Close',
+    bodyHtml: `<p>Rename the selected group, or delete the list. Candidates stay.</p>
+      <label>Group <select id="manage-group-select">${options}</select></label>
+      <p style="margin-top:0.75rem"><button type="button" class="btn" id="manage-group-delete">Delete</button></p>`,
+    afterOpen: (body) => {
+      body.querySelector('#manage-group-delete')?.addEventListener('click', () => {
+        intent = 'delete';
+        document.getElementById('modal-cancel')?.click();
+      });
+    },
   });
   const groupId =
     document.getElementById('manage-group-select')?.value || groups[0]?.id;
-  if (!groupId) return;
+  if (!groupId || intent === 'close' && !doRename) return;
 
   if (doRename) {
     const current = groups.find((g) => g.id === groupId);
@@ -32322,10 +32492,10 @@ function clearDiscoveryBatch() {
 }
 
 const DISCOVERY_SOURCES = {
-  claude: { id: 'claude', label: 'Claude', tip: 'From Claude narrative CSV' },
-  census: { id: 'census', label: 'Census', tip: 'US Census population lookup on import' },
-  dfs: { id: 'dfs', label: 'DFS', tip: 'DataForSEO Discovery Light SERP' },
-  ops: { id: 'ops', label: 'Rover', tip: 'Computed or set in Rover UI' },
+  claude: { id: 'claude', label: 'Claude', tip: 'From the import' },
+  census: { id: 'census', label: 'Census', tip: 'From the census' },
+  dfs: { id: 'dfs', label: 'DFS', tip: 'From the search check' },
+  ops: { id: 'ops', label: 'Rover', tip: 'Set in Rover' },
 };
 
 const DISCOVERY_TABLE_COLS = [
@@ -32333,14 +32503,14 @@ const DISCOVERY_TABLE_COLS = [
     key: '_select',
     label: '',
     sortable: false,
-    tip: 'Select rows for Accept selected / bulk actions',
+    tip: 'Select rows for bulk actions.',
     cellClass: 'col-narrow',
   },
   {
     key: 'Niche',
     label: 'Niche',
     sortable: true,
-    tip: 'Service niche (Claude)',
+    tip: 'Service',
     cellClass: 'col-truncate',
     source: 'claude',
   },
@@ -32348,7 +32518,7 @@ const DISCOVERY_TABLE_COLS = [
     key: 'City',
     label: 'City',
     sortable: true,
-    tip: 'Primary city (Claude)',
+    tip: 'Primary city',
     cellClass: 'col-truncate',
     source: 'claude',
   },
@@ -32356,7 +32526,7 @@ const DISCOVERY_TABLE_COLS = [
     key: 'State',
     label: 'State',
     sortable: true,
-    tip: 'Two-letter US state (Claude)',
+    tip: 'Two-letter US state',
     cellClass: 'col-short',
     source: 'claude',
   },
@@ -32364,7 +32534,7 @@ const DISCOVERY_TABLE_COLS = [
     key: 'suggested_suburbs',
     label: 'Suburbs',
     sortable: true,
-    tip: 'Claude suggested nearby suburbs (count; hover cell for names)',
+    tip: 'How many nearby cities were suggested. Hover for names.',
     cellClass: 'col-short col-center',
     source: 'claude',
   },
@@ -32372,7 +32542,7 @@ const DISCOVERY_TABLE_COLS = [
     key: 'Population',
     label: 'Population',
     sortable: true,
-    tip: 'Census on import when available; else Claude estimate',
+    tip: 'Census population, or an estimate if census is missing.',
     cellClass: 'col-short',
     source: 'census',
   },
@@ -32380,7 +32550,7 @@ const DISCOVERY_TABLE_COLS = [
     key: 'Map Pack',
     label: 'Map Pack',
     sortable: true,
-    tip: 'Yes/No from DFS Light SERP',
+    tip: 'Whether a map pack showed in the quick search check.',
     cellClass: 'col-short',
     source: 'dfs',
   },
@@ -32388,7 +32558,7 @@ const DISCOVERY_TABLE_COLS = [
     key: 'Average Job Cost',
     label: 'Job Cost',
     sortable: true,
-    tip: 'Claude estimated average job value / ticket size',
+    tip: 'Estimated typical job cost.',
     cellClass: 'col-truncate',
     source: 'claude',
   },
@@ -32396,7 +32566,7 @@ const DISCOVERY_TABLE_COLS = [
     key: 'Est. Monthly Search Volume',
     label: 'Est. MSV',
     sortable: true,
-    tip: 'Claude estimated monthly searches for Niche + City (primary only). Discovery triage only — not used after Process / Research.',
+    tip: 'Estimated monthly searches for this city. Research can use this when ad volumes are skipped.',
     cellClass: 'col-short',
     source: 'claude',
   },
@@ -32404,7 +32574,7 @@ const DISCOVERY_TABLE_COLS = [
     key: 'Organic Home Page',
     label: 'Homepages',
     sortable: true,
-    tip: 'Organic homepage count from DFS Light SERP (URL path / only; directories excluded). Not niche-title filtered.',
+    tip: 'How many homepages showed, ignoring directories.',
     cellClass: 'col-short col-center',
     source: 'dfs',
   },
@@ -32412,7 +32582,7 @@ const DISCOVERY_TABLE_COLS = [
     key: 'Organic Sub Page',
     label: 'Subpages',
     sortable: true,
-    tip: 'Organic subpage count from DFS Light SERP (non-homepage URLs; directories excluded). Not niche-title filtered.',
+    tip: 'How many inner pages showed, ignoring directories.',
     cellClass: 'col-short col-center',
     source: 'dfs',
   },
@@ -32420,7 +32590,7 @@ const DISCOVERY_TABLE_COLS = [
     key: 'confidence_serp',
     label: 'Conf SERP',
     sortable: true,
-    tip: 'high after DFS Light SERP',
+    tip: 'High means the quick search check finished.',
     cellClass: 'col-short',
     source: 'dfs',
   },
@@ -32428,7 +32598,7 @@ const DISCOVERY_TABLE_COLS = [
     key: 'recommended_decision',
     label: 'Recommend',
     sortable: true,
-    tip: 'Score-based: review until Research stages 1–3; then pursue ≥7 / maybe 6–7 / pass <6',
+    tip: 'Suggested decision from the score.',
     cellClass: 'col-short',
     source: 'ops',
   },
@@ -32436,7 +32606,7 @@ const DISCOVERY_TABLE_COLS = [
     key: '_accept',
     label: 'Accept',
     sortable: false,
-    tip: 'Copy Recommend → Decision',
+    tip: 'Use the suggestion as the decision.',
     cellClass: 'col-narrow',
     source: 'ops',
   },
@@ -32444,7 +32614,7 @@ const DISCOVERY_TABLE_COLS = [
     key: 'human_decision',
     label: 'Decision',
     sortable: true,
-    tip: 'Your decision for Process batch (see sidebar Decision meanings)',
+    tip: 'Your decision for this batch.',
     cellClass: 'col-human',
     source: 'ops',
   },
@@ -32452,7 +32622,7 @@ const DISCOVERY_TABLE_COLS = [
     key: 'decision_notes',
     label: 'Notes',
     sortable: false,
-    tip: 'Notes (Claude/Rover warnings or your comments)',
+    tip: 'Warnings or your own notes.',
     cellClass: 'col-notes',
     source: 'ops',
   },
@@ -32460,7 +32630,7 @@ const DISCOVERY_TABLE_COLS = [
     key: 'candidateId',
     label: 'Candidate',
     sortable: true,
-    tip: 'Candidate id after promote, or “tracked” / “ignored”',
+    tip: 'The candidate id, or tracked or ignored.',
     cellClass: 'col-truncate',
     source: 'ops',
   },
@@ -32971,8 +33141,8 @@ function renderDiscoveryTable() {
           if (tracked || ignored) {
             return `<td${tdClass}><button type="button" class="btn btn-sm" data-reopen-idx="${idx}" data-tip="${
               ignored
-                ? 'Clear ignored status so you can change Decision and Process again'
-                : 'Clear tracked status so you can change Decision and Process again'
+                ? 'Unlock this row so you can decide again.'
+                : 'Unlock this row so you can decide again.'
             }">Reopen</button></td>`;
           }
           if (processed) {
@@ -32981,7 +33151,7 @@ function renderDiscoveryTable() {
             )}">✓ Candidates</span></td>`;
           }
           const disabled = !row.recommended_decision ? 'disabled' : '';
-          return `<td${tdClass}><button type="button" class="btn btn-accept" data-accept-idx="${idx}" data-tip="Copy Recommend → Decision" ${disabled}>Accept</button></td>`;
+          return `<td${tdClass}><button type="button" class="btn btn-accept" data-accept-idx="${idx}" data-tip="Use the suggestion as the decision." ${disabled}>Accept</button></td>`;
         }
         if (col.key === 'recommended_decision') {
           const rec = row.recommended_decision || '—';
@@ -32992,12 +33162,10 @@ function renderDiscoveryTable() {
         if (col.key === 'human_decision') {
           const v = row.human_decision || '';
           if (tracked) {
-            return `<td${tdClass}><span class="metric disc-tracked-mark" data-tip="Tracked (${esc(
-              v || '—',
-            )}) — not in Candidates. Reopen to change.">○ Tracked · ${esc(v || '—')}</span></td>`;
+            return `<td${tdClass}><span class="metric disc-tracked-mark" data-tip="Saved as tracked, not a candidate. Reopen to change.">○ Tracked · ${esc(v || '—')}</span></td>`;
           }
           if (ignored) {
-            return `<td${tdClass}><span class="metric disc-ignored-mark" data-tip="Ignored this batch — not tracked, can rediscover. Reopen to change.">○ Ignored · ${esc(
+            return `<td${tdClass}><span class="metric disc-ignored-mark" data-tip="Skipped for this batch. Reopen to change.">○ Ignored · ${esc(
               v || 'ignore',
             )}</span></td>`;
           }
@@ -33013,23 +33181,23 @@ function renderDiscoveryTable() {
         if (col.key === 'decision_notes') {
           const notes = row.decision_notes || '';
           if (processed) {
-            return `<td${tdClass} data-tip="${esc(notes)}"><span class="cell-text muted">${esc(
+            return `<td${tdClass}><span class="cell-text muted">${esc(
               notes || '—',
             )}</span></td>`;
           }
-          return `<td${tdClass}><input data-idx="${idx}" data-field="decision_notes" data-tip="${esc(notes)}" value="${esc(
+          return `<td${tdClass}><input data-idx="${idx}" data-field="decision_notes" value="${esc(
             notes,
           )}" /></td>`;
         }
         if (col.key === 'candidateId') {
           if (tracked) {
-            return `<td${tdClass} data-tip="Tracked only — not a Candidate"><span class="cell-text muted">tracked</span></td>`;
+            return `<td${tdClass} data-tip="Tracked, not a candidate."><span class="cell-text muted">tracked</span></td>`;
           }
           if (ignored) {
-            return `<td${tdClass} data-tip="Ignored this batch — rediscoverable"><span class="cell-text muted">ignored</span></td>`;
+            return `<td${tdClass} data-tip="Skipped for this batch."><span class="cell-text muted">ignored</span></td>`;
           }
           const val = row.candidateId || '';
-          return `<td${tdClass} data-tip="${esc(val)}"><span class="cell-text">${esc(val || '—')}</span></td>`;
+          return `<td${tdClass}><span class="cell-text">${esc(val || '—')}</span></td>`;
         }
         if (col.key === 'shotgun_role') {
           const role = String(row.shotgun_role || '').toLowerCase();
@@ -33048,7 +33216,7 @@ function renderDiscoveryTable() {
           )}</span></td>`;
         }
         const val = row[col.key] ?? '';
-        return `<td${tdClass} data-tip="${esc(val)}"><span class="cell-text">${esc(val)}</span></td>`;
+        return `<td${tdClass}><span class="cell-text">${esc(val)}</span></td>`;
       });
       const rowClass = [
         processed ? 'disc-row-processed' : '',
@@ -33195,9 +33363,11 @@ async function selectDiscoveryBatch(id) {
       ? `SERP $${serp.costUsd ?? '?'} · MP ${serp.mapPackYes ?? '?'}/${serp.mapPackNo ?? '?'}`
       : null,
     data.batch.lastProcess
-      ? `process +${data.batch.lastProcess.promoted?.length || 0} · ○${
+      ? `process ${data.batch.lastProcess.promoted?.length || 0} new, ${
           data.batch.lastProcess.tracked?.length || 0
-        } · ░${data.batch.lastProcess.ignored?.length || 0} · −${data.batch.lastProcess.skipped?.length || 0}`
+        } tracked, ${data.batch.lastProcess.ignored?.length || 0} ignored, ${
+          data.batch.lastProcess.skipped?.length || 0
+        } skipped`
       : null,
   ]
     .filter(Boolean)
@@ -33213,15 +33383,17 @@ async function selectDiscoveryBatch(id) {
     if (lp) {
       logEl.classList.remove('hidden');
       const linked = (lp.promoted || []).filter((p) => p.linkedExisting).length;
-      logEl.innerHTML = `<p class="muted">Last process: +${esc(
+      logEl.innerHTML = `<p class="muted">Last process: ${esc(
         String(lp.promoted?.length || 0),
-      )} Candidates${linked ? ` (${esc(String(linked))} linked)` : ''} · ○${esc(
+      )} new candidates${linked ? ` (${esc(String(linked))} already existed)` : ''}. ${esc(
         String(lp.tracked?.length || 0),
-      )} tracked · ░${esc(String(lp.ignored?.length || 0))} ignored · −${esc(
+      )} tracked. ${esc(String(lp.ignored?.length || 0))} ignored. ${esc(
         String(lp.skipped?.length || 0),
-      )} skipped · SERP / Volume ×${esc(
-        String(lp.pursueQueued?.length || 0),
-      )}</p>`;
+      )} skipped.${
+        (lp.pursueQueued?.length || 0) > 0
+          ? ` Search volumes queued for ${esc(String(lp.pursueQueued.length))} pursue.`
+          : ''
+      }</p>`;
     } else {
       logEl.classList.add('hidden');
       logEl.innerHTML = '';
@@ -33296,10 +33468,10 @@ function shotgunNewCityCount(ws = state.shotgunWorkspace) {
 }
 
 function shotgunPackReady(ws = state.shotgunWorkspace) {
-  if (!ws?.draft?.hub) return { ok: false, tip: 'Select a hub first' };
-  if (!shotgunHasPackCities(ws)) return { ok: false, tip: 'Paint Clusters (Claude cities still count as pack members)' };
+  if (!ws?.draft?.hub) return { ok: false, tip: 'Pick a hub first.' };
+  if (!shotgunHasPackCities(ws)) return { ok: false, tip: 'Assign cities on the map first.' };
   if (shotgunNewCityCount(ws) < 1) {
-    return { ok: false, tip: 'All assigned cities are already in the pipeline' };
+    return { ok: false, tip: 'These cities are already in the list.' };
   }
   return { ok: true, tip: '' };
 }
@@ -33318,9 +33490,9 @@ function syncDiscoveryLightSerpButton() {
     btn,
     !hasRows
       ? discoveryBatchIsShotgun()
-        ? 'Generate pack from the selected hub first'
-        : 'Generate pack / import Claude CSV first'
-      : 'Probes selected Discovery rows; with none selected, probes the whole batch',
+        ? 'Generate a pack from the selected hub first.'
+        : 'Import a sheet or generate a pack first.'
+      : 'Checks the selected rows, or the whole batch if none are selected.',
   );
 }
 
@@ -33547,6 +33719,20 @@ function applyShotgunSurface(surface) {
   state.shotgunSurface = surface === 'table' && hasRows ? 'table' : 'hub';
 }
 
+function syncDiscoverySurfaceToggle() {
+  const btn = document.getElementById('discovery-surface-toggle');
+  if (!btn) return;
+  const show = discoveryBatchIsShotgun() && (state.discoveryRows || []).length > 0;
+  const onMap = shotgunSurfaceIsHub();
+  btn.classList.toggle('hidden', !show);
+  btn.hidden = !show;
+  btn.textContent = onMap ? 'Table' : 'Map';
+  setElementTip(
+    btn,
+    onMap ? 'Show the decision table' : 'Show the cluster map',
+  );
+}
+
 function syncShotgunDiscoverySurfaces({ hasHub, hasPackRows }) {
   const wrap = document.querySelector('.discovery-table-wrap');
   const canvas = document.getElementById('discovery-map-canvas');
@@ -33572,6 +33758,8 @@ function syncShotgunDiscoverySurfaces({ hasHub, hasPackRows }) {
   panel?.classList.toggle('shotgun-hub-on', showHubMap);
   panel?.classList.remove('disc-map-mode');
   applyShotgunMapExpanded();
+  renderDiscoveryUpNext();
+  syncDiscoverySurfaceToggle();
   if (showHubMap) {
     requestAnimationFrame(() => {
       shotgunMapMount?.invalidateSize?.();
@@ -33860,6 +34048,7 @@ async function renderShotgunWorkspace() {
     wrap?.classList.toggle('hidden', !hasRows);
     filters?.classList.toggle('hidden', !hasRows);
     applyShotgunMapExpanded();
+    syncDiscoverySurfaceToggle();
     return;
   }
   const draft = ws.draft || {};
@@ -33931,7 +34120,7 @@ async function renderShotgunWorkspace() {
     : '';
   const waitingCopy =
     !draft.claudeClustersRan && !hubs.length
-      ? `<p class="muted small">Find hubs with Claude to name Cluster Cities, or paint Clusters on the map.</p>`
+      ? `<p class="muted small">Pick a hub. Then set the cluster cities on the map and Generate pack. Find hubs with Claude is optional.</p>`
       : '';
   const clusterTable = renderShotgunClusterTableHtml(hubs, draft, {
     selectedKey,
@@ -33952,7 +34141,7 @@ async function renderShotgunWorkspace() {
     setElementTip(
       packBtn,
       packReady.ok
-        ? 'Create Discovery rows from this hub only, then Light SERP'
+        ? 'Create rows for this hub only.'
         : packReady.tip,
     );
     packBtn.addEventListener('click', () => void startShotgunGeneratePackFromUi());
@@ -35078,6 +35267,11 @@ function wireDiscoveryUi() {
     shotgunMapExpanded = !shotgunMapExpanded;
     applyShotgunMapExpanded();
   });
+  document.getElementById('discovery-surface-toggle')?.addEventListener('click', () => {
+    if (!discoveryBatchIsShotgun()) return;
+    applyShotgunSurface(shotgunSurfaceIsHub() ? 'table' : 'hub');
+    void renderShotgunWorkspace();
+  });
   document.getElementById('discovery-sidebar-toggle')?.addEventListener('click', () => {
     discoverySidebarCollapsed = !discoverySidebarCollapsed;
     applyDiscoverySidebarCollapsed();
@@ -35101,7 +35295,8 @@ function wireDiscoveryUi() {
 
   showDiscoverySidebarStep('pack');
   syncDiscoveryClaudeModeUi();
-  syncDiscoveryPackTypeUi();
+  setDiscoveryPackType(state.discoveryPackType);
+  renderDiscoveryUpNext();
   document.getElementById('discovery-new-pack-section')?.addEventListener('toggle', () => {
     if (!discoveryBatchIsShotgun()) return;
     const el = document.getElementById('discovery-new-pack-section');
@@ -35239,19 +35434,11 @@ function wireDiscoveryUi() {
       }
       state.discoveryClaudeSent = false;
       updateDiscoveryStepChecks(pack.batch, state.discoveryRows);
-      if (isClusterPackType(state.discoveryPackType) && effectiveClaudeUiMode() === 'api') {
-        state._shotgunAwaitingClusters = true;
-      }
       await loadDiscoveryBatches();
       await selectDiscoveryBatch(pack.batch.id);
       if (isClusterPackType(state.discoveryPackType)) {
         if (effectiveClaudeUiMode() === 'api') {
           renderShotgunApiButtons();
-          if (!state.shotgunWorkspace?.draft?.hub) {
-            await startShotgunApiStep('shotgun-find-hubs');
-          } else {
-            state._shotgunAwaitingClusters = false;
-          }
         } else {
           renderShotgunPasteSteps();
           showDiscoverySidebarStep('claude');
@@ -35336,7 +35523,7 @@ function wireDiscoveryUi() {
       await showModal({
         title: 'Claude CSV imported',
         confirmLabel: 'OK',
-        bodyHtml: `<p>Loaded <strong>${esc(String(result.rows.length))}</strong> rows. Next: <strong>Light SERP</strong>.</p>${warnHtml}`,
+        bodyHtml: `<p>Loaded <strong>${esc(String(result.rows.length))}</strong> rows. Next: set a decision on each row, then <strong>Process batch</strong>. Light SERP is optional.</p>${warnHtml}`,
       });
     } catch (error) {
       await showModal({
@@ -35367,8 +35554,8 @@ function wireDiscoveryUi() {
         title: 'No rows yet',
         confirmLabel: 'OK',
         bodyHtml: discoveryBatchIsShotgun()
-          ? '<p>Generate pack from the selected hub first. That creates Discovery rows for Light SERP.</p>'
-          : '<p>Import Claude CSV (or Generate pack) first.</p>',
+          ? '<p>Generate a pack from the selected hub first. That creates the rows for the search check.</p>'
+          : '<p>Import a sheet, or generate a pack, first.</p>',
       });
       return;
     }
@@ -35554,7 +35741,7 @@ function wireDiscoveryUi() {
     const ok = await showModal({
       title: 'Accept all recommendations?',
       confirmLabel: `Accept ${indices.length}`,
-      bodyHtml: `<p>Copy Recommend → Decision for <strong>${esc(
+      bodyHtml: `<p>Use the suggestion for <strong>${esc(
         String(indices.length),
       )}</strong> visible row(s) (respects current filters).</p>`,
     });
@@ -35639,7 +35826,6 @@ function wireDiscoveryUi() {
     if (el.dataset.field !== 'decision_notes') return;
     const idx = Number(el.dataset.idx);
     if (!Number.isFinite(idx)) return;
-    setElementTip(el, el.value);
     scheduleDiscoveryNotesAutosave(idx);
   });
   discoveryTbody?.addEventListener(
@@ -35801,7 +35987,7 @@ function wireDiscoveryUi() {
             <li>Skip <strong>${esc(String(p.archivedProtectedCount ?? 0))}</strong> archived Launched (never deleted)</li>
             <li>Drop <strong>${esc(String(p.trackedDropCount ?? 0))}</strong> tracked-only pair(s) outside Active</li>
           </ul>
-          <p class="muted">After wipe, the editor list shows orphans + Research Eval 1 only. Full anti-dupe CSV for Claude is unchanged.</p>`,
+          <p class="muted">Generate pack will use this shorter list and will not suggest the removed pairs again.</p>`,
       });
       if (!ok) return;
       const result = await api('/api/discovery/known/prune-to-active', { method: 'POST', body: '{}' });
@@ -35869,13 +36055,13 @@ function wireDiscoveryUi() {
     const adsMode = getAdsMode();
     const adsLine =
       pursueCount > 0 && evalRunMode === 'all'
-        ? `<p><strong>SERP / Volume Ads mode:</strong> ${
+        ? `<p><strong>Search volumes:</strong> ${
             adsMode === 'standard'
-              ? 'Standard queue (cheaper, slower — overnight OK)'
+              ? 'Standard queue (cheaper, slower — overnight is fine)'
               : 'Live (faster)'
-          }. Change on Research → Ad volumes.</p>`
+          }. Change this on Research, next to Ad volumes.</p>`
         : pursueCount > 0
-          ? `<p><strong>Run all required:</strong> Process does not auto-run Ads volumes. Hydrate SERP seeds + Narrative from Research (cheapest path).</p>`
+          ? `<p>Search volumes are not started. On Research, run the required steps: a search snapshot, then the written story.</p>`
           : '';
     const ok = await showModal({
       title: 'Process discovery batch?',
@@ -35896,7 +36082,7 @@ function wireDiscoveryUi() {
               : ''
         }
         ${adsLine}
-        <p class="muted">Ignore skips this batch without blocking rediscovery. Pass tracks (anti-dupe) without Candidates.</p>`,
+        <p class="muted">Pass is remembered and will not be suggested again. Ignore can come back.</p>`,
     });
     if (!ok) return;
     const processDetail = document.getElementById('dp-overlay-detail');
@@ -35959,27 +36145,36 @@ function wireDiscoveryUi() {
         (result.rows || []).every((r) => isDiscoveryRowProcessed(r));
       const openCandidates =
         fullyDone && (result.promoted?.length || 0) > 0;
+      const promotedN = result.promoted?.length || 0;
+      const trackedN = result.tracked?.length || 0;
+      const ignoredN = result.ignored?.length || 0;
+      const pursueN = result.pursueIds?.length || 0;
+      const linkedN = (result.promoted || []).filter((p) => p.linkedExisting).length;
+      const adsQueued = evalRunMode === 'all' && pursueN > 0;
+      const nextSentence = adsQueued
+        ? ` Search volumes were queued for ${pursueN} pursue.`
+        : promotedN > 0
+          ? ' Open Research and run the required steps: a search snapshot, then the written story.'
+          : '';
       await showModal({
         title: fullyDone ? 'Batch fully processed' : 'Batch processed',
         confirmLabel: openCandidates ? 'Open Research' : 'OK',
-        bodyHtml: `<p>+<strong>${esc(String(result.promoted?.length || 0))}</strong> Candidates · ○<strong>${esc(
-          String(result.tracked?.length || 0),
-        )}</strong> tracked · ░<strong>${esc(
-          String(result.ignored?.length || 0),
-        )}</strong> ignored · skipped ${esc(String(result.skipped?.length || 0))}${
+        bodyHtml: `<p><strong>${esc(String(promotedN))}</strong> new candidates. <strong>${esc(
+          String(trackedN),
+        )}</strong> tracked (pass). <strong>${esc(
+          String(ignoredN),
+        )}</strong> ignored. <strong>${esc(String(result.skipped?.length || 0))}</strong> skipped${
           alreadySkipped
             ? ` (${esc(String(alreadySkipped))} already processed)`
             : ''
-        } · SERP / Volume queued for ${esc(String(result.pursueIds?.length || 0))} pursue.${
-          (result.promoted || []).some((p) => p.linkedExisting)
-            ? ` · ${esc(
-                String((result.promoted || []).filter((p) => p.linkedExisting).length),
-              )} linked to existing candidates (anti-dupe).`
+        }.${nextSentence}${
+          linkedN
+            ? ` ${esc(String(linkedN))} linked to candidates that already exist.`
             : ''
         }</p><p class="muted">${
           openCandidates
-            ? 'Switching to Research filtered to this batch.'
-            : 'Pass is tracked (anti-dupe). Ignore stays rediscoverable. Reopen a row to change your mind.'
+            ? 'Opening Research, filtered to this batch.'
+            : 'Pass is remembered and will not be suggested again. Ignore can come back. Reopen a row to change your mind.'
         }</p>`,
       });
       updateDiscoveryStepChecks(result.batch, result.rows);

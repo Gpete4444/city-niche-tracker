@@ -21,10 +21,7 @@ import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { getCandidateDetail, getCandidateShell, pathsFor, saveMeta } from './candidates.mjs';
 import { loadAcceptedSiteConfig, sanitizeMarkdownImageFrontmatter, healStagedMarkdown } from './content-markdown.mjs';
-import {
-  ensureRoverSocialProofSeed,
-  ensureSocialProofOnSiteConfigFile,
-} from './content-social-proof.mjs';
+import { assertTaglineReady, persistResolvedTagline } from './site-config.mjs';
 import { getStagingSummary } from './site-staging.mjs';
 import { formsIngestSubmitUrl } from './forms-inbox.mjs';
 import { pruneUnreferencedPublicImages } from './prune-public-images.mjs';
@@ -869,6 +866,14 @@ export function templateStaleLaunchError(siteRoot) {
  * Overlay staging site-config + content onto assembled site.
  * Skips rewriting files whose bytes are unchanged (keeps mtimes for skip-build).
  */
+function readStagingSiteConfig(stagingRoot) {
+  try {
+    return JSON.parse(readFileSync(path.join(stagingRoot, 'src', 'config', 'site-config.json'), 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
 export function injectStagingIntoSite(siteRoot, stagingRoot) {
   const injected = [];
   const stagingSrc = path.join(stagingRoot, 'src');
@@ -895,7 +900,9 @@ export function injectStagingIntoSite(siteRoot, stagingRoot) {
         try {
           if (name.endsWith('.md')) {
             const raw = readFileSync(from, 'utf8');
-            const cleaned = healStagedMarkdown(sanitizeMarkdownImageFrontmatter(raw)).markdown;
+            const cleaned = healStagedMarkdown(
+              sanitizeMarkdownImageFrontmatter(raw, { config: readStagingSiteConfig(stagingRoot) }),
+            ).markdown;
             const text = cleaned.endsWith('\n') ? cleaned : `${cleaned}\n`;
             nextBuf = Buffer.from(text, 'utf8');
           } else {
@@ -996,7 +1003,9 @@ function syncLiveContentCollections(siteRoot, config, injectedRels = []) {
 
   const writeSanitized = (from, to, rel) => {
     const raw = readFileSync(from, 'utf8');
-    const cleaned = healStagedMarkdown(sanitizeMarkdownImageFrontmatter(raw)).markdown;
+    const cleaned = healStagedMarkdown(
+      sanitizeMarkdownImageFrontmatter(raw, { config }),
+    ).markdown;
     mkdirSync(path.dirname(to), { recursive: true });
     writeFileSync(to, cleaned.endsWith('\n') ? cleaned : `${cleaned}\n`, 'utf8');
     synced.push(rel);
@@ -1086,7 +1095,7 @@ export function getAssembleChecklist(candidateId) {
     steps: [
       {
         id: 'template_remote',
-        label: 'Push Rover template to GitHub (Template repo)',
+        label: 'Template is on GitHub',
         done: Boolean(remote.url),
         detail: remote.url
           ? `Detected ${remote.nameWithOwner || remote.url} (${remote.source})`
@@ -1094,39 +1103,39 @@ export function getAssembleChecklist(candidateId) {
       },
       {
         id: 'staging',
-        label: 'Stage content for candidate',
+        label: 'Stage the pages',
         done: Boolean(staging),
       },
       {
         id: 'assemble',
-        label: 'Clone template → inject staging → new site repo',
+        label: 'Assemble the site',
         done: assembledExists,
         detail: assembledExists ? detail.meta.assembledSitePath : null,
       },
       {
         id: 'build',
-        label: 'npm run build in site repo',
+        label: 'Build the site',
         done: hasBuild,
       },
       {
         id: 'pages',
-        label: 'Create Cloudflare Workers project (build + npx wrangler deploy)',
+        label: 'Publish the site',
         done: Boolean(detail.meta?.cloudflarePagesDone),
         detail: detail.meta?.cfProject || null,
       },
       {
         id: 'dns',
-        label: 'Attach custom domain (ops Launch / CF API)',
+        label: 'Connect the domain',
         done: Boolean(detail.meta?.dnsDone),
       },
       {
         id: 'forms',
-        label: 'Rover form delivery (forms inbox + Email Routing destination)',
+        label: 'Form leads are set up',
         done: Boolean(detail.meta?.formsDone),
       },
       {
         id: 'email',
-        label: 'Cloudflare Email Routing for leads@ (ops Launch)',
+        label: 'Forward leads@',
         done: Boolean(detail.meta?.emailRoutingDone),
       },
     ],
@@ -1166,6 +1175,9 @@ export function assembleSite(
     err.checklist = getAssembleChecklist(candidateId);
     throw err;
   }
+
+  const taglineFix = persistResolvedTagline(candidateId);
+  assertTaglineReady(taglineFix.config, `Assemble ${candidateId}`);
 
   const {
     canonicalRoot,
@@ -1251,12 +1263,17 @@ export function assembleSite(
   const pruned = pruneUnstagedContentCollections(siteRoot, injected);
   const synced = syncLiveContentCollections(siteRoot, config, injected);
 
-  // Replace Local homeowner trio (and empty socialProof) with Google-style reviews
-  const researchSeed = ensureRoverSocialProofSeed(candidateId, config);
+  // Do not invent the 15+ / 500+ / Licensed row (or the matching reviews) while assembling.
+  const socialProofSeedSkipped = {
+    skipped: true,
+    reason: 'default social-proof seed is not written at assemble',
+  };
   const stagingCfg = path.join(stagingRoot, 'src', 'config', 'site-config.json');
   const assembledCfg = path.join(siteRoot, 'src', 'config', 'site-config.json');
-  const stagingSeed = ensureSocialProofOnSiteConfigFile(stagingCfg, config);
-  const assembledSeed = ensureSocialProofOnSiteConfigFile(assembledCfg, config);
+  assertTaglineReady(
+    JSON.parse(readFileSync(assembledCfg, 'utf8')),
+    `Assemble ${candidateId}`,
+  );
   const acceptedConfig = loadAcceptedSiteConfig(candidateId)?.config || config;
   const stagingWeb3 = applyAcceptedWeb3KeyToSiteConfigFile(stagingCfg, acceptedConfig);
   const assembledWeb3 = applyAcceptedWeb3KeyToSiteConfigFile(assembledCfg, acceptedConfig);
@@ -1312,11 +1329,7 @@ export function assembleSite(
     injected,
     prunedDemos: pruned,
     syncedContent: synced,
-    socialProofSeed: {
-      research: researchSeed,
-      staging: stagingSeed,
-      assembled: assembledSeed,
-    },
+    socialProofSeed: socialProofSeedSkipped,
     web3KeySync: {
       staging: stagingWeb3,
       assembled: assembledWeb3,

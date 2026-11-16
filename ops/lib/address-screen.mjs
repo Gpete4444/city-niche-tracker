@@ -14,7 +14,7 @@ import {
 } from './candidates.mjs';
 import { normalizeStateAbbr } from './census.mjs';
 import { placesIntersectingRadius } from './geo-neighbors.mjs';
-import { shotgunNapTooClose } from './shotgun.mjs';
+import { clusterForCandidate, shotgunNapTooClose } from './shotgun.mjs';
 import { recordRoverApiSpend } from './rover-api-spend.mjs';
 
 const ROOT = process.cwd();
@@ -711,6 +711,80 @@ function selectionDedupeKey(sel) {
   });
 }
 
+function addressClaimRecord(candidateId, selection, selectedAt) {
+  return {
+    candidateId,
+    street: stripInventedSuite(selection.streetBase || selection.street),
+    suite: sanitizeListedSuite(selection.suite),
+    city: selection.city,
+    state: selection.state,
+    zip: selection.zip,
+    selectedAt: selectedAt || nowIso(),
+  };
+}
+
+/**
+ * street|zip claims from saved selections. Skipped packages and self are omitted.
+ * A different suite on the same street and ZIP is the same claim.
+ */
+export function claimsFromAddressPackages(rows, selfId = '') {
+  const self = String(selfId || '').trim();
+  const used = {};
+  for (const row of rows || []) {
+    const id = String(row?.candidateId || '').trim();
+    if (!id || id === self) continue;
+    if (!row?.selection || row.skipped) continue;
+    const key = selectionDedupeKey(row.selection);
+    if (!key || !key.split('|')[1]) continue;
+    if (!used[key]) {
+      used[key] = addressClaimRecord(
+        id,
+        row.selection,
+        row.selection.screenedAt || row.updatedAt || '',
+      );
+    }
+  }
+  return used;
+}
+
+/** Saved street|zip claims held by other candidates in the same zone. Not written to the city cache. */
+export function addressesClaimedByZoneMembers(candidateId) {
+  const id = pathsFor(candidateId).id;
+  const cluster = clusterForCandidate(id);
+  if (!cluster) return {};
+  const rows = [];
+  for (const member of cluster.members || []) {
+    const memberId = String(member?.candidateId || '').trim();
+    if (!memberId || memberId === id) continue;
+    const pkg = getBusinessAddressPackage(memberId);
+    if (!pkg) continue;
+    rows.push({
+      candidateId: pkg.candidateId || memberId,
+      selection: pkg.selection,
+      skipped: pkg.skipped,
+      updatedAt: pkg.updatedAt,
+    });
+  }
+  return claimsFromAddressPackages(rows, id);
+}
+
+function addressUsedByOther(usedAddresses, zoneClaims, key, selfId) {
+  const used = usedAddresses?.[key];
+  if (used?.candidateId && used.candidateId !== selfId) return used;
+  const zone = zoneClaims?.[key];
+  if (zone?.candidateId && zone.candidateId !== selfId) return zone;
+  return null;
+}
+
+function throwAddressAlreadyUsed(existing) {
+  throw Object.assign(
+    new Error(
+      `Address already used by candidate “${existing.candidateId}”. Pick a different street.`,
+    ),
+    { status: 409, usedBy: existing },
+  );
+}
+
 function releaseUsedClaimsForCandidate(usedAddresses, candidateId) {
   const id = pathsFor(candidateId).id;
   const used = { ...(usedAddresses || {}) };
@@ -731,15 +805,8 @@ function claimUsedAddress(cityCache, candidateId, sel) {
     throw Object.assign(new Error('Cannot claim address without street and ZIP'), { status: 400 });
   }
   const used = releaseUsedClaimsForCandidate(cityCache.usedAddresses, id);
-  const existing = used[key];
-  if (existing?.candidateId && existing.candidateId !== id) {
-    throw Object.assign(
-      new Error(
-        `Address already used by candidate “${existing.candidateId}”. Pick a different street.`,
-      ),
-      { status: 409, usedBy: existing },
-    );
-  }
+  const existing = addressUsedByOther(used, addressesClaimedByZoneMembers(id), key, id);
+  if (existing) throwAddressAlreadyUsed(existing);
   used[key] = {
     candidateId: id,
     street: stripInventedSuite(sel.streetBase || sel.street),
@@ -1464,6 +1531,23 @@ export function parseHomeAddressLine(raw, { city = '', state = '' } = {}) {
   };
 }
 
+/**
+ * Address line 2 from the paste form. Blank keeps a suite already parsed from the street line.
+ * A filled value replaces that suite. Text that is not a suite is rejected.
+ */
+export function applyPastedAddressSuite(parsed, suiteRaw) {
+  const raw = String(suiteRaw || '').trim();
+  if (!raw) return parsed;
+  const suite = sanitizeListedSuite(raw);
+  if (!suite) {
+    throw Object.assign(
+      new Error('Address line 2 must look like suite 101 or Ste G'),
+      { status: 400 },
+    );
+  }
+  return { ...parsed, suite };
+}
+
 function addressQueryWithoutSuite(addr = {}) {
   return [addr.street, addr.city, addr.state, addr.zip].filter(Boolean).join(', ');
 }
@@ -1657,16 +1741,22 @@ export function selectBusinessAddress(candidateId, selection, { skipped = false 
   return { package: next, candidate: getCandidateShell(candidateId) };
 }
 
-export function saveHomeBusinessAddress(candidateId, rawLine) {
+export function saveHomeBusinessAddress(candidateId, rawLine, suiteRaw = '') {
   const { city, state } = cityStateFromCandidate(candidateId);
-  const parsed = parseHomeAddressLine(rawLine, { city, state });
+  const parsed = applyPastedAddressSuite(
+    parseHomeAddressLine(rawLine, { city, state }),
+    suiteRaw,
+  );
   return selectBusinessAddress(candidateId, parsed, { skipped: false });
 }
 
 /** Paste a commercial street (same parse as home) and claim with source manual. */
-export function saveManualBusinessAddress(candidateId, rawLine) {
+export function saveManualBusinessAddress(candidateId, rawLine, suiteRaw = '') {
   const { city, state } = cityStateFromCandidate(candidateId);
-  const parsed = parseHomeAddressLine(rawLine, { city, state });
+  const parsed = applyPastedAddressSuite(
+    parseHomeAddressLine(rawLine, { city, state }),
+    suiteRaw,
+  );
   return selectBusinessAddress(
     candidateId,
     { ...parsed, source: 'manual' },
@@ -1743,6 +1833,7 @@ export function listRecoverableAddresses(candidateId) {
   const cityCache = ensureCityCacheSeeded(city, state);
   const screenedKeys = cityCache.screenedKeys || {};
   const usedAddresses = cityCache.usedAddresses || {};
+  const zoneClaims = addressesClaimedByZoneMembers(id);
   const listings = Array.isArray(cityCache.listings) ? cityCache.listings : [];
   const listingByKey = new Map();
   for (const row of listings) {
@@ -1760,8 +1851,7 @@ export function listRecoverableAddresses(candidateId) {
     if (!streetPart || !zipPart) continue;
     if (hasAddressRange(streetPart)) continue;
 
-    const used = usedAddresses[key];
-    if (used?.candidateId && used.candidateId !== id) continue;
+    if (addressUsedByOther(usedAddresses, zoneClaims, key, id)) continue;
 
     const listing = listingByKey.get(key);
     const street = listing?.street || titleCaseStreet(streetPart);
@@ -4224,6 +4314,7 @@ export async function searchBusinessAddresses(candidateId, opts = {}) {
   const screenedKeysRaw = { ...(cityCache.screenedKeys || {}) };
   const { screenedKeys, requeued: rangesRequeued } = requeueAddressRangeScreenKeys(screenedKeysRaw);
   const usedAddresses = { ...(cityCache.usedAddresses || {}) };
+  const zoneClaims = addressesClaimedByZoneMembers(id);
 
   for (const row of Array.isArray(prev.shortlist) ? prev.shortlist : []) {
     const k = shortlistDedupeKey(row);
@@ -4264,10 +4355,7 @@ export async function searchBusinessAddresses(candidateId, opts = {}) {
   let rangeEndpointsScreened = 0;
   let detailsFetches = 0;
 
-  const isUsedByOther = (key) => {
-    const u = usedAddresses[key];
-    return Boolean(u?.candidateId && u.candidateId !== id);
-  };
+  const isUsedByOther = (key) => Boolean(addressUsedByOther(usedAddresses, zoneClaims, key, id));
 
   const placesBudget = placesBudgetPerRun();
   let placesBudgetReached = false;

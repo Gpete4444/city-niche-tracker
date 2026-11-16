@@ -22,6 +22,7 @@ import {
   saveMeta,
   RESEARCH_DIR,
 } from './candidates.mjs';
+import { publicImageAlt } from '../../src/lib/image-alt.mjs';
 import {
   assertLaunchContentComplete,
   expectedLaunchContentPaths,
@@ -30,6 +31,7 @@ import {
   resolveStructurePageIds,
 } from './preview-fidelity.mjs';
 import { isMaterialsHeading } from '../../src/lib/is-materials-heading.mjs';
+import { unwrapBusinessSelfLinks } from '../../src/lib/unwrap-business-self-link.mjs';
 import { applyStoredNichePhotoBlocks } from './niche-photo-blocks.mjs';
 import { buildRequiredLinksByFile, lintContentSeo } from './content-seo-lint.mjs';
 import { zoneLintContext } from './zone-site-diff.mjs';
@@ -1346,20 +1348,30 @@ export function looksLikeStockScrapeAlt(alt) {
   return false;
 }
 
-function slotAltFromSrc(src, serviceName = '') {
-  const svc = String(serviceName || '').trim();
-  if (!svc) return altFromImageSrc(src);
-  if (/svcHero|\/hero/i.test(src) || /\/(?:hero)[-.]/i.test(src)) {
-    return `${svc} project photo`.slice(0, 120);
-  }
-  if (/materials/i.test(src)) return `${svc} materials photo`.slice(0, 120);
-  if (/process/i.test(src)) return `${svc} process photo`.slice(0, 120);
-  return `${svc} photo`.slice(0, 120);
+function imageAltContext(config, serviceName = '') {
+  const cfg = config || {};
+  return {
+    businessName: cfg.businessName,
+    niche: cfg.niche,
+    city: cfg.primaryCity || cfg.address?.city,
+    state: cfg.state || cfg.address?.state,
+    serviceName,
+    services: [...(cfg.services || []), ...(cfg.commercialServices || [])],
+  };
 }
 
-/** Rewrite Unsplash/Pexels scrapy captions to service-shaped alts. */
-function healStockScrapeAlts(fm) {
-  const serviceName = fmScalar(fm, 'serviceName') || fmScalar(fm, 'h1') || '';
+function slotAltFromSrc(src, serviceName = '', config) {
+  const svc = String(serviceName || '').trim();
+  if (!svc) return publicImageAlt(altFromImageSrc(src), imageAltContext(config)).slice(0, 120);
+  let raw = `${svc} photo`;
+  if (/materials/i.test(src)) raw = `${svc} materials photo`;
+  else if (/process/i.test(src)) raw = `${svc} process photo`;
+  return publicImageAlt(raw, imageAltContext(config, svc)).slice(0, 120);
+}
+
+/** Rewrite scrapy, generic, and service-slot captions. */
+function healStockScrapeAlts(fm, config) {
+  const serviceName = fmScalar(fm, 'serviceName') || '';
   const lines = String(fm || '').replace(/\r\n/g, '\n').split('\n');
   let lastSrc = '';
   for (let i = 0; i < lines.length; i += 1) {
@@ -1371,8 +1383,9 @@ function healStockScrapeAlts(fm) {
     const altM = lines[i].match(/^([ \t]*(?:-[ \t]+)?alt[ \t]*:[ \t]*)("([^"]*)"|'([^']*)'|(\S.*))\s*$/i);
     if (!altM) continue;
     const alt = String(altM[3] || altM[4] || altM[5] || '').trim();
-    if (!looksLikeStockScrapeAlt(alt)) continue;
-    const next = slotAltFromSrc(lastSrc, serviceName);
+    const seeded = looksLikeStockScrapeAlt(alt) ? slotAltFromSrc(lastSrc, serviceName, config) : alt;
+    const next = publicImageAlt(seeded, imageAltContext(config, serviceName));
+    if (!next || next === alt) continue;
     lines[i] = `${altM[1]}${JSON.stringify(next)}`;
   }
   return lines.join('\n');
@@ -1462,7 +1475,7 @@ export function sanitizeMarkdownImageFrontmatter(markdown, opts = {}) {
   let bodyEarly = split.body || '';
   ({ fm, body: bodyEarly } = healMisnestedServiceCardImages(fm, bodyEarly));
   fm = omitMissingImageFrontmatter(fm, opts);
-  fm = healStockScrapeAlts(fm);
+  fm = healStockScrapeAlts(fm, opts.config);
 
   fm = fm.replace(/\n{3,}/g, '\n\n').replace(/[ \t]+\n/g, '\n').trimEnd();
   let body = stripDuplicateLeadingTitle(bodyEarly, fm);
@@ -2175,10 +2188,12 @@ export function normalizeContentFilesMap(files, siteConfig = null) {
   const niche = String(siteConfig?.niche || '').trim();
   const primaryCity = String(siteConfig?.primaryCity || '').trim();
   const primarySlug = slugifyContentName(primaryCity);
+  const businessName = String(siteConfig?.businessName || '').trim();
   const out = {};
   for (const [rel, markdown] of Object.entries(files || {})) {
     let     md = sanitizeMarkdownImageFrontmatter(ensureYamlFrontmatter(markdown));
     md = healStagedMarkdown(md).markdown;
+    if (businessName) md = unwrapBusinessSelfLinks(md, businessName);
     if (niche && /locations\/.+\.md$/i.test(rel)) {
       const slug = String(rel).replace(/^.*\//, '').replace(/\.md$/i, '');
       md = healLocationNicheHeadings(md, {

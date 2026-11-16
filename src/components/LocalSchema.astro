@@ -1,5 +1,5 @@
 ---
-import { formatSiteStreet, site } from '../config/site';
+import { formatSiteStreet, publicTagline, site } from '../config/site';
 
 interface Props {
   pageTitle?: string;
@@ -40,7 +40,7 @@ const baseBusiness = {
   '@type': site.address?.street ? 'LocalBusiness' : 'ProfessionalService',
   '@id': `https://${site.domain}/#business`,
   name: site.businessName,
-  description: pageDescription ?? site.tagline,
+  description: pageDescription || publicTagline(site.tagline) || site.businessName,
   url: `https://${site.domain}/`,
   telephone: site.phone,
   email: site.email,

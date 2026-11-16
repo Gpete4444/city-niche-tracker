@@ -2490,7 +2490,13 @@ app.post('/api/candidates/:id/address/select', (req, res) => {
 
 app.post('/api/candidates/:id/address/home', (req, res) => {
   try {
-    res.json(saveHomeBusinessAddress(req.params.id, req.body?.line || req.body?.address || ''));
+    res.json(
+      saveHomeBusinessAddress(
+        req.params.id,
+        req.body?.line || req.body?.address || '',
+        req.body?.suite || '',
+      ),
+    );
   } catch (error) {
     sendError(res, error);
   }
@@ -2499,7 +2505,11 @@ app.post('/api/candidates/:id/address/home', (req, res) => {
 app.post('/api/candidates/:id/address/manual', (req, res) => {
   try {
     res.json(
-      saveManualBusinessAddress(req.params.id, req.body?.line || req.body?.address || ''),
+      saveManualBusinessAddress(
+        req.params.id,
+        req.body?.line || req.body?.address || '',
+        req.body?.suite || '',
+      ),
     );
   } catch (error) {
     sendError(res, error);

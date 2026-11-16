@@ -1,9 +1,18 @@
 /**
  * Homepage / content body helpers for Astro pages.
  */
+import siteConfig from '../config/site-config.json' with { type: 'json' };
 import { sitePath } from './site-path';
 import { isCostHeading } from './is-cost-heading.mjs';
 import { isMaterialsHeading } from './is-materials-heading.mjs';
+import { unwrapBusinessSelfLinks } from './unwrap-business-self-link.mjs';
+import { fixSmallWords } from './small-words.mjs';
+import { polishServiceArticleHeading } from './service-article-heading.mjs';
+import { linkifyProsePhones } from './linkify-prose-phone.mjs';
+
+export { fixSmallWords };
+
+export { unwrapBusinessSelfLinks };
 
 /** Normalize for title comparison. */
 export function normTitle(s: string): string {
@@ -52,10 +61,12 @@ function titleCaseNicheWords(raw: string): string {
     .replace(/\s+/g, ' ')
     .trim();
   if (!s) return '';
-  return s
-    .split(' ')
-    .map((word) => word.split('-').map(titleCaseNichePiece).join('-'))
-    .join(' ');
+  return fixSmallWords(
+    s
+      .split(' ')
+      .map((word) => word.split('-').map(titleCaseNichePiece).join('-'))
+      .join(' '),
+  );
 }
 
 /**
@@ -95,11 +106,14 @@ export function headingNicheCase(
 ): string {
   const source = String(text ?? '');
   const rawNiche = String(niche ?? '').trim();
-  if (!rawNiche) return leadCapital(source);
-  const name = String(businessName ?? '').trim();
-  const containsName = name.length > 0 && source.toLowerCase().includes(name.toLowerCase());
-  if (opts?.hero || containsName) return leadCapital(replaceNichePhrase(source, rawNiche));
-  return leadNiche(source, rawNiche);
+  const cased = !rawNiche
+    ? fixSmallWords(leadCapital(source))
+    : opts?.hero ||
+        (String(businessName ?? '').trim().length > 0 &&
+          source.toLowerCase().includes(String(businessName ?? '').trim().toLowerCase()))
+      ? fixSmallWords(leadCapital(replaceNichePhrase(source, rawNiche)))
+      : fixSmallWords(leadNiche(source, rawNiche));
+  return polishServiceArticleHeading(cased);
 }
 
 /** Capitalize a process blurb and add a period when it reads as a sentence. */
@@ -321,7 +335,11 @@ const escAttr = (s: string) =>
  * (images belong in frontmatter / designed slots — never leave raw `![]()`).
  */
 export function inlineLightMarkdown(src: string): string {
-  let s = String(src || '');
+  let s = linkifyProsePhones(String(src || ''), {
+    businessName: String(siteConfig.businessName || ''),
+    phone: String(siteConfig.phone || ''),
+  });
+  s = unwrapBusinessSelfLinks(s, String(siteConfig.businessName || ''));
   // Drop body images entirely (broken paths otherwise leak as literal text)
   s = s.replace(/!\[([^\]]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g, '');
   const links: string[] = [];

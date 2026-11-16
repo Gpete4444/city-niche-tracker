@@ -1,13 +1,13 @@
 {
   "name": "rover",
   "type": "module",
-  "version": "2.6.0",
+  "version": "2.7.0",
   "engines": {
     "node": ">=22.12.0"
   },
   "scripts": {
     "dev": "astro dev",
-    "build": "astro build",
+    "build": "node scripts/astro-real-build.mjs",
     "preview": "astro preview",
     "generate-map": "node scripts/generate-coverage-map.mjs",
     "build-research-map": "node scripts/build-research-map-data.mjs",

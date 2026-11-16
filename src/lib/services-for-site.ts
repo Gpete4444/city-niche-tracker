@@ -1,6 +1,7 @@
 import type { SiteConfig } from '../config/site';
 import { homepageServicesDisplayLimit } from '../config/site';
 import { servicePath, sitePath } from './site-path';
+import { fixSmallWords } from './small-words.mjs';
 
 export type ServiceEntryLike = {
   id: string;
@@ -145,29 +146,34 @@ function cardsFromNames(
     return sliceNames.map((name) => {
       const e = matchService(indexes, name);
       if (e) {
+        const title = fixSmallWords(e.data.serviceName);
         return {
           id: e.id,
-          title: e.data.serviceName,
+          title,
           href: servicePath(e.id),
           description: cityOverride
-            ? `${e.data.serviceName} serving ${city} and nearby cities.`
-            : e.data.description || `${e.data.serviceName} serving ${city}.`,
+            ? `${title} serving ${city} and nearby cities.`
+            : e.data.description || `${title} serving ${city}.`,
           image: pickServiceCardImage(e),
         };
       }
+      const title = fixSmallWords(name);
       return {
-        title: name,
+        title,
         href: sitePath('/contact'),
-        description: `${name} serving ${city} and nearby cities.`,
+        description: `${title} serving ${city} and nearby cities.`,
       };
     });
   }
 
-  return sliceNames.map((name) => ({
-    title: name,
-    href: sitePath('/contact'),
-    description: `${name} serving ${city} and nearby cities.`,
-  }));
+  return sliceNames.map((name) => {
+    const title = fixSmallWords(name);
+    return {
+      title,
+      href: sitePath('/contact'),
+      description: `${title} serving ${city} and nearby cities.`,
+    };
+  });
 }
 
 /** Fallback cards from site.services when no matching service Markdown exists. */

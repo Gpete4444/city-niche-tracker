@@ -41,6 +41,7 @@ Hard rules:
 5. Filenames kebab-case under src/content/. Location files: city name only (`riverton.md`), never append state (`riverton-ut` is wrong).
 6. Type A: services grid is rendered from collection — still produce about/contact stubs; service/location pages come in a later pass unless MODE says full.
 7. Type B: do NOT write multiple service marketing pages; put depth in homepage process[]; at most one optional services/{slug}.md for the primary offer.
+7b. Phone numbers in body copy are markdown tel links from site-config, such as [(385) 555-0100](tel:+13855550100). Do not link the business name to /contact. [Contact](/contact), [contact form](/contact), and [Business Name](/about) are the right links.
 
 Required in homepage_first mode:
 - ### FILE: src/content/pages/index.md  (full homepage)

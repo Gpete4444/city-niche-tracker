@@ -3,11 +3,11 @@
  * Run: node scripts/test-skip-npm-install.mjs
  */
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { hashPackageDeps, writeDepsHashMarker } from '../ops/lib/assemble-site.mjs';
-import { discardPartialNodeModules, shouldSkipNpmInstall } from '../ops/lib/ship-site.mjs';
+import { discardPartialNodeModules, removeTreeOrRename, shouldSkipNpmInstall } from '../ops/lib/ship-site.mjs';
 
 const dir = mkdtempSync(path.join(tmpdir(), 'skip-npm-'));
 writeFileSync(path.join(dir, 'package.json'), '{"name":"skip-npm"}\n');
@@ -35,5 +35,24 @@ writeFileSync(path.join(broken, 'node_modules', '.bin', shimName), 'echo astro\n
 writeDepsHashMarker(broken, hashPackageDeps(broken));
 assert.equal(discardPartialNodeModules(broken), true);
 assert.equal(shouldSkipNpmInstall(broken), false);
+
+const stuck = mkdtempSync(path.join(tmpdir(), 'skip-npm-enotempty-'));
+const stuckModules = path.join(stuck, 'node_modules');
+mkdirSync(path.join(stuckModules, 'pkg'), { recursive: true });
+writeFileSync(path.join(stuckModules, 'pkg', 'index.js'), 'module.exports = {};\n');
+let removes = 0;
+removeTreeOrRename(stuckModules, {
+  rm(target) {
+    removes += 1;
+    if (removes === 1) {
+      const err = new Error(`ENOTEMPTY, Directory not empty: ${target}`);
+      err.code = 'ENOTEMPTY';
+      throw err;
+    }
+    rmSync(target, { recursive: true, force: true });
+  },
+});
+assert.equal(removes, 2);
+assert.equal(existsSync(stuckModules), false);
 
 console.log('test-skip-npm-install: ok');

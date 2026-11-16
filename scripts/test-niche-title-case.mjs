@@ -33,7 +33,7 @@ assertEqual(
 );
 assertEqual(titleCaseNiche('McKay'), 'McKay', 'interior capital stays');
 assertEqual(titleCaseNiche('USA'), 'USA', 'all-caps word stays');
-assertEqual(titleCaseNiche('deck and patio'), 'Deck And Patio', 'each word');
+assertEqual(titleCaseNiche('deck and patio'), 'Deck and Patio', 'small word stays lower');
 assertEqual(titleCaseNiche('Artificial Turf'), 'Artificial Turf', 'idempotent');
 assertEqual(
   titleCaseNiche('Texture matching (knockdown, orange peel, popcorn)'),
@@ -42,8 +42,8 @@ assertEqual(
 );
 assertEqual(
   titleCaseNiche('Drywall patching and hole repair'),
-  'Drywall Patching And Hole Repair',
-  'and is capitalized',
+  'Drywall Patching and Hole Repair',
+  'and stays lower',
 );
 assertEqual(
   titleCaseNiche('Water damage drywall replacement'),
@@ -57,8 +57,13 @@ assertEqual(
 );
 assertEqual(
   titleCaseNiche('Nail Pop and Seam Crack Repair'),
-  'Nail Pop And Seam Crack Repair',
-  'interior and',
+  'Nail Pop and Seam Crack Repair',
+  'interior and stays lower',
+);
+assertEqual(
+  titleCaseNiche('Piering And Underpinning'),
+  'Piering and Underpinning',
+  'stored And is lowered',
 );
 assertEqual(titleCaseNiche('McKay HVAC'), 'McKay HVAC', 'interior capital and acronym stay');
 

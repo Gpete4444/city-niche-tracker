@@ -1,7 +1,7 @@
 ---
 import TwoToneHeading from '../TwoToneHeading.astro';
 import PhoneIcon from '../PhoneIcon.astro';
-import { formatPhoneDisplay, phoneHref, site } from '../../config/site';
+import { contentImageAlt, formatPhoneDisplay, phoneHref, site } from '../../config/site';
 import {
   extractMarkdownImage,
   inferDiyProFromProse,
@@ -10,6 +10,7 @@ import {
   parseOptionRows,
   parseTimelineStages,
   proseIntroAndBullets,
+  parseLabeledBulletGroups,
   splitCompareColumns,
   stripBold,
 } from '../../lib/section-parse';
@@ -55,6 +56,9 @@ const { image, bodyWithoutImage } = extractMarkdownImage(rawBody);
 const body = bodyWithoutImage;
 
 const isDiy = variant === 'diyVsPro' || variant === 'diy';
+const scopeParsed = variant === 'scope' ? parseLabeledBulletGroups(body) : null;
+const scopeLabeled = Boolean(scopeParsed?.groups.some((group) => group.label));
+const scopeIntroHtml = scopeLabeled ? simpleProseToHtml(scopeParsed?.intro || '') : '';
 const isMaterials = variant === 'materials';
 const isTimeline = variant === 'timeline';
 const isCodes = variant === 'codes';
@@ -223,7 +227,7 @@ const resolvedCta = showMiniCta
                         thumb ? (
                           <img
                             src={thumb.src}
-                            alt={thumb.alt || row.title}
+                            alt={contentImageAlt(thumb.alt || row.title)}
                             class="aspect-[4/3] w-full object-cover"
                             width="480"
                             height="360"
@@ -354,6 +358,30 @@ const resolvedCta = showMiniCta
               </tbody>
             </table>
           </div>
+        </>
+      ) : scopeLabeled && scopeParsed ? (
+        <>
+          {scopeIntroHtml && <div class="prose-site mt-5 max-w-3xl" set:html={scopeIntroHtml} />}
+          {scopeParsed.groups.map((group) => (
+            <div class="mt-6">
+              {group.label && (
+                <h3 class="font-display text-base font-semibold text-ink">{group.label}</h3>
+              )}
+              <ul class="mt-3 space-y-3 text-sm leading-relaxed text-muted">
+                {parseOptionRows(group.bullets).map((row) => (
+                  <li class="flex gap-3">
+                    <span class="mt-0.5 font-bold text-accent-on-light" aria-hidden="true">
+                      ✓
+                    </span>
+                    <span>
+                      <strong class="text-ink">{row.title}</strong>
+                      {row.detail ? ` — ${row.detail}` : ''}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
         </>
       ) : isCodes ? (
         <>

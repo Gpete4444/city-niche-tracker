@@ -2,6 +2,7 @@
  * Per-candidate site staging (does not overwrite master template by default).
  */
 
+import { spawnSync } from 'node:child_process';
 import {
   existsSync,
   mkdirSync,
@@ -11,6 +12,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { Worker } from 'node:worker_threads';
 import { getCandidateDetail, getCandidateShell, pathsFor, saveMeta } from './candidates.mjs';
 import { loadAcceptedSiteConfig, sanitizeMarkdownImageFrontmatter, healStagedMarkdown, ensureLocationFilesInMap, pruneLocationFilesToConfigured, pruneFilesToStructure } from './content-markdown.mjs';
@@ -23,8 +25,13 @@ import {
   resolveStructurePageIds,
 } from './preview-fidelity.mjs';
 import { syncSiteImagesToPublic } from './fill-site-images.mjs';
-import { setCoverageMapOnMarkdown } from './generate-coverage-map.mjs';
-import { defaultPlaceholderSocialProof, ensureAlsoServingOnSiteConfig } from './site-config.mjs';
+import { coverageMapMissingCityNames, setCoverageMapOnMarkdown } from './generate-coverage-map.mjs';
+import {
+  defaultPlaceholderSocialProof,
+  ensureAlsoServingOnSiteConfig,
+  isPlaceholderTagline,
+  resolveCandidateTagline,
+} from './site-config.mjs';
 import { rehydrateGalleryBaFrontmatter } from './chatgpt-before-after.mjs';
 
 const ROOT = process.cwd();
@@ -32,6 +39,68 @@ const ROOT = process.cwd();
 function writeJson(filePath, data) {
   mkdirSync(path.dirname(filePath), { recursive: true });
   writeFileSync(filePath, `${JSON.stringify(data, null, 2)}\n`, 'utf8');
+}
+
+/**
+ * Redraw the saved map when a selected city has a polygon but no name chip.
+ * A failed lookup puts the previous SVG back and Stage continues.
+ */
+function redrawCoverageMapIfUnlabeled(candidateId, config) {
+  const svgPath = path.join(pathsFor(candidateId).siteImages, 'coverage-map.svg');
+  if (!existsSync(svgPath)) return { redrawn: false, reason: 'missing' };
+  let before;
+  try {
+    before = readFileSync(svgPath);
+  } catch {
+    return { redrawn: false, reason: 'unreadable' };
+  }
+  const missing = coverageMapMissingCityNames(before.toString('utf8'), config);
+  if (!missing.length) return { redrawn: false, reason: 'complete' };
+
+  const mod = pathToFileURL(path.join(ROOT, 'ops/lib/generate-coverage-map.mjs')).href;
+  const code = [
+    `import { generateCoverageMapForCandidate } from ${JSON.stringify(mod)};`,
+    `const result = await generateCoverageMapForCandidate(${JSON.stringify(candidateId)});`,
+    'if (!result?.ok) process.exit(1);',
+  ].join('\n');
+  let res;
+  try {
+    res = spawnSync(process.execPath, ['--input-type=module', '-e', code], {
+      cwd: ROOT,
+      encoding: 'utf8',
+      timeout: 600_000,
+    });
+  } catch (error) {
+    console.warn(`[stage] coverage map relabel failed: ${error?.message || error}`);
+    return { redrawn: false, reason: 'error', missing };
+  }
+  const restore = () => {
+    try {
+      writeFileSync(svgPath, before);
+    } catch {
+      /* the previous bytes are already what we want when the write never happened */
+    }
+  };
+  if (!res || res.status !== 0) {
+    restore();
+    const detail = String(res?.stderr || res?.stdout || res?.error || 'coverage map relabel failed').slice(-500);
+    console.warn(`[stage] coverage map relabel failed; kept the previous map. ${detail}`);
+    return { redrawn: false, reason: 'error', missing };
+  }
+  let after = '';
+  try {
+    after = readFileSync(svgPath, 'utf8');
+  } catch {
+    restore();
+    return { redrawn: false, reason: 'unreadable', missing };
+  }
+  const still = coverageMapMissingCityNames(after, config);
+  if (still.length) {
+    restore();
+    console.warn(`[stage] coverage map still missing ${still.join(', ')}; kept the previous map.`);
+    return { redrawn: false, reason: 'incomplete', missing: still };
+  }
+  return { redrawn: true, missing };
 }
 
 function readJson(filePath) {
@@ -99,6 +168,8 @@ export function stageSiteContent(candidateId, { mode = 'full', refreshPackage = 
   if (alsoServingSync.ok && alsoServingSync.config) {
     loaded.config = { ...loaded.config, alsoServing: alsoServingSync.alsoServing };
   }
+  const taglineFix = resolveCandidateTagline(candidateId, loaded.config);
+  if (taglineFix.resolved) loaded.config = taglineFix.config;
   let config = ensureTrustRatingStat(applyArchetypeDefaults({ ...loaded.config }));
   // Persist patched socialProof onto accepted site-config so Assemble/Stage stay in sync
   const p = pathsFor(candidateId);
@@ -112,6 +183,7 @@ export function stageSiteContent(candidateId, { mode = 'full', refreshPackage = 
         ? accepted.socialProof.reviews.length > 0
         : false;
       const nextAccepted = { ...accepted, socialProof: config.socialProof };
+      if (!isPlaceholderTagline(config.tagline)) nextAccepted.tagline = config.tagline;
       if (!alreadyHadReviews && seededReviews > 0) {
         nextAccepted._ops = {
           ...(accepted._ops && typeof accepted._ops === 'object' ? accepted._ops : {}),
@@ -146,10 +218,13 @@ export function stageSiteContent(candidateId, { mode = 'full', refreshPackage = 
     }
   }
 
+  // Name every selected city before the SVG is copied into the staged site.
+  const coverageMapRelabel = redrawCoverageMapIfUnlabeled(candidateId, config);
+
   // Sync site-images → public/ before omit-missing so Pull assets are on disk
   const imageSync = syncSiteImagesToPublic(candidateId);
   const siteImagesRoot = pathsFor(candidateId).siteImages;
-  const sanitizeOpts = { extraRoots: [siteImagesRoot] };
+  const sanitizeOpts = { extraRoots: [siteImagesRoot], config };
 
   // Restore gallery-ba FM before sanitize/write (Accept may have dropped it)
   const galleryBa = rehydrateGalleryBaFrontmatter(candidateId, { files });
@@ -313,6 +388,7 @@ export function stageSiteContent(candidateId, { mode = 'full', refreshPackage = 
     locationPruned: prunedLocs.pruned,
     contract,
     imageSync,
+    coverageMapRelabel,
     galleryBa,
     candidate: getCandidateShell(candidateId),
   };

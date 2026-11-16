@@ -32,11 +32,11 @@ export function recommendFromScoreAndStages(input = {}) {
 
   if (incomplete) {
     const missing = [];
-    if (!hasResearch) missing.push('SERP seeds');
-    if (!hasNarrative) missing.push('3 Narrative');
+    if (!hasResearch) missing.push('search snapshot');
+    if (!hasNarrative) missing.push('written story');
     return {
       recommended_decision: 'review',
-      recommended_reason: `Research stages incomplete (${missing.join(', ')}) — run required steps before score-based decide`,
+      recommended_reason: `Still needed: ${missing.join(' and ')}. Finish those before using the score.`,
     };
   }
 
@@ -44,7 +44,7 @@ export function recommendFromScoreAndStages(input = {}) {
   if (score == null || !Number.isFinite(Number(score))) {
     return {
       recommended_decision: 'review',
-      recommended_reason: 'No Overall score yet — need score inputs after Research stages',
+      recommended_reason: 'No overall score yet. Finish the required research steps before using the score.',
     };
   }
 
@@ -75,7 +75,7 @@ export function recommendDiscoveryRow(_row = {}) {
   return {
     recommended_decision: 'review',
     recommended_reason:
-      'Discovery has no Overall score yet — Process into Research and complete SERP seeds + Narrative for score-based recommend',
+      'Discovery has no overall score yet. Process this row, then finish the required research steps before using the score.',
   };
 }
 

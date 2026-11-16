@@ -13,6 +13,7 @@ Keep this block short. Inject verbatim (or lightly filled) at the top of Field r
 - Avoid stacked contrast closers (not just…, isn’t… it’s…, rather than… as the punchline, we fix the cause not the symptom). One per page max — say the mechanism instead.
 - Prefer commas/periods over em dashes (—). Structured em dashes are budgeted: process steps and cost rows only. Materials/timeline/other lists use a colon or period.
 - Conversion: natural CTAs (call / free estimate) where the page type expects them — not banner spam mid-paragraph. Honor bookendPolicy: do not add a second estimate nudge when closer=skip.
+- A phone number in body copy is a markdown tel link using the site-config phone, such as [(385) 555-0100](tel:+13855550100). Do not link the business name to /contact. [Contact](/contact) and [contact form](/contact) stay. [Business Name](/about) stays.
 - Follow the page type rules for this pass (home / service / location). Do not wander into unrelated niches.
 - Service intro (svcIntro) is unmarked prose before the first ## — never an H2. Do not flag or add an svcIntro heading.
 - Codes columns: ### Usually needs a permit, then ### Usually no permit (needs-permit first).

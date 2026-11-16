@@ -9,6 +9,7 @@ import {
   statSync,
 } from 'node:fs';
 import path from 'node:path';
+import { RESEARCH_DIR, ROOT } from './research-dir.mjs';
 import {
   computeDemandVolumeSum,
   proposedScore as computeProposedScore,
@@ -25,16 +26,16 @@ import {
 import { lookupPopulation } from './census.mjs';
 import { recordRoverApiSpend } from './rover-api-spend.mjs';
 import { logoPromptDefaultsForConfig } from './logo-prompt.mjs';
-import { persistRestoredSiteCity } from './site-config.mjs';
+import { persistRestoredSiteCity } from './site-city.mjs';
 import { normalizeCityStateCluster } from './city-state.mjs';
+import { fixSmallWords } from '../../src/lib/small-words.mjs';
 import { loadTwilioProvisionIndex } from './site-phone-index.mjs';
 import {
   applyHomepageDesignedSectionLiftToFiles,
   stampHomepageLiftOnDraftOps,
 } from './content-auto-fix.mjs';
 
-const ROOT = process.cwd();
-export const RESEARCH_DIR = path.join(ROOT, 'research');
+export { RESEARCH_DIR };
 
 function ensureResearchDir() {
   mkdirSync(RESEARCH_DIR, { recursive: true });
@@ -66,10 +67,12 @@ export function titleCaseNiche(raw) {
     .replace(/\s+/g, ' ')
     .trim();
   if (!s) return '';
-  return s
-    .split(' ')
-    .map((word) => word.split('-').map(titleCaseNichePiece).join('-'))
-    .join(' ');
+  return fixSmallWords(
+    s
+      .split(' ')
+      .map((word) => word.split('-').map(titleCaseNichePiece).join('-'))
+      .join(' '),
+  );
 }
 
 export function pathsFor(id) {

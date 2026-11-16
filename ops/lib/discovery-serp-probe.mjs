@@ -64,7 +64,7 @@ export function previewSerpProbe(batchId, { indices = null } = {}) {
       1.5
     ).toFixed(3)} for ${n} organic SERPs`,
     estimateDetail:
-      'One DataForSEO Google organic live SERP per row (Map Pack + organic/directory counts). Volumes come from Stage 1.',
+      'A quick search check for the map pack and page counts. Search volumes come later, in Research.',
     hasDataForSeo: hasCreds,
     confirmLabel: hasCreds ? `Probe ${n} rows` : 'Cannot run — add DataForSEO credentials',
   };

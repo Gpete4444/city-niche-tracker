@@ -32,6 +32,7 @@ import {
   looksLikeStockScrapeAlt,
   slugifyContentName,
 } from './content-markdown.mjs';
+import { publicImageAlt } from '../../src/lib/image-alt.mjs';
 import {
   getContentOutlinePackage,
   getContentStructure,
@@ -3451,6 +3452,24 @@ export function saveSlotIntoManifest(candidateId, entry, { replaceFilename = nul
  * Point empty Review cards at an OpenAI file when that file name matches only one card.
  * Shared prefixes stay blank. Cards that already have a file on disk stay as they are.
  */
+function altForSlot(candidateId, slot, priorAlt) {
+  let config = {};
+  try {
+    config = loadAcceptedSiteConfig(candidateId) || {};
+  } catch {
+    config = {};
+  }
+  const raw = String(priorAlt || '').trim() || `${slot?.label || slot?.sectionId || 'Photo'} photo`;
+  return publicImageAlt(raw, {
+    businessName: config.businessName,
+    niche: config.niche,
+    city: config.primaryCity,
+    state: config.state,
+    serviceName: slot?.serviceName || '',
+    services: [...(config.services || []), ...(config.commercialServices || [])],
+  });
+}
+
 export function reattachUnlinkedOpenaiFiles(candidateId) {
   const p = pathsFor(candidateId);
   const structureSlots = listImageSlots(candidateId);
@@ -3494,7 +3513,7 @@ export function reattachUnlinkedOpenaiFiles(candidateId) {
         index: slot.index,
         filename: row.filename,
         src: `/images/${row.filename}`,
-        alt: prior.alt || `${slot.label || slot.sectionId || 'Photo'} photo`,
+        alt: altForSlot(candidateId, slot, prior.alt),
         provider: 'openai',
         source: 'openai',
         photoId: prior.photoId || `openai:${row.key}:reattach`,
@@ -3597,7 +3616,7 @@ export function reattachPageNamedFiles(candidateId) {
         index: slot.index,
         filename: row.filename,
         src: `/images/${row.filename}`,
-        alt: prior.alt || `${slot.label || slot.sectionId || 'Photo'} photo`,
+        alt: altForSlot(candidateId, slot, prior.alt),
         provider: source === 'openai' ? 'openai' : prior.provider || null,
         source,
         photoId: prior.photoId || (source === 'openai' ? `openai:${row.key}:page` : null),

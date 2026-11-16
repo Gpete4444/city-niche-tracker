@@ -1,25 +1,27 @@
 ---
-import { site, formatPhoneDisplay, formatSiteStreet, phoneHref } from '../config/site';
+import { site, formatPhoneDisplay, formatSiteStreet, phoneHref, publicTagline } from '../config/site';
+import { footerServingText } from '../lib/footer-serving.mjs';
+import { alsoServingLinks } from '../lib/locations-for-site';
 import { sitePath } from '../lib/site-path';
 import FooterSocial from './FooterSocial.astro';
 import PhoneIcon from './PhoneIcon.astro';
+
+const servingLine = footerServingText({
+  primaryCity: site.primaryCity,
+  state: site.state,
+  targetSuburbs: site.targetSuburbs,
+  alsoServing: alsoServingLinks(site).map((area) => area.city),
+});
 ---
 
 <footer class="border-t border-line bg-ink text-white">
   <div class="mx-auto grid max-w-6xl gap-8 px-4 py-12 sm:grid-cols-2 sm:px-6">
     <div>
       <p class="font-display text-lg font-bold">{site.businessName}</p>
-      <p class="mt-2 max-w-sm text-sm text-white/70">{site.tagline}</p>
-      <p class="mt-4 text-sm text-white/80">
-        Serving {site.primaryCity}, {site.state}
-        {site.targetSuburbs.length > 0 && (
-          <>
-            {' '}
-            and nearby: {site.targetSuburbs.slice(0, 4).join(', ')}
-            {site.targetSuburbs.length > 4 ? ', and more' : ''}
-          </>
-        )}
-      </p>
+      {publicTagline(site.tagline) && (
+        <p class="mt-2 max-w-sm text-sm text-white/70">{publicTagline(site.tagline)}</p>
+      )}
+      <p class="mt-4 text-sm text-white/80">{servingLine}</p>
       {
         site.address && (
           <p class="mt-2 text-sm text-white/70">
@@ -27,28 +29,30 @@ import PhoneIcon from './PhoneIcon.astro';
           </p>
         )
       }
-      <FooterSocial />
     </div>
-    <div class="space-y-2 text-sm">
-      <p>
-        <a
-          class="inline-flex items-center gap-2 font-semibold text-white hover:text-accent"
-          href={phoneHref()}
-        >
-          <PhoneIcon />
-          {formatPhoneDisplay()}
-        </a>
-      </p>
-      <p>
-        <a class="text-white/80 hover:text-white" href={`mailto:${site.email}`}>
-          {site.email}
-        </a>
-      </p>
-      <p class="pt-2">
-        <a class="text-white/60 hover:text-white" href={sitePath('/privacy')}>Privacy</a>
-        <span class="mx-2 text-white/30">·</span>
-        <a class="text-white/60 hover:text-white" href={sitePath('/contact')}>Contact</a>
-      </p>
+    <div class="text-sm">
+      <div class="space-y-2">
+        <p>
+          <a
+            class="inline-flex items-center gap-2 font-semibold text-white hover:text-accent"
+            href={phoneHref()}
+          >
+            <PhoneIcon />
+            {formatPhoneDisplay()}
+          </a>
+        </p>
+        <p>
+          <a class="text-white/80 hover:text-white" href={`mailto:${site.email}`}>
+            {site.email}
+          </a>
+        </p>
+        <p class="pt-2">
+          <a class="text-white/60 hover:text-white" href={sitePath('/privacy')}>Privacy</a>
+          <span class="mx-2 text-white/30">·</span>
+          <a class="text-white/60 hover:text-white" href={sitePath('/contact')}>Contact</a>
+        </p>
+      </div>
+      <FooterSocial />
     </div>
   </div>
   <div class="border-t border-white/10">

@@ -376,6 +376,80 @@ function estimateChip(name, state) {
   return { w, h: CHIP_H, text };
 }
 
+function decodeXml(value) {
+  return String(value || '')
+    .replace(/&apos;/g, "'")
+    .replace(/&quot;/g, '"')
+    .replace(/&gt;/g, '>')
+    .replace(/&lt;/g, '<')
+    .replace(/&amp;/g, '&');
+}
+
+/**
+ * Name chip for one outlined city. Location pages are links; other selected
+ * cities are named and not linked.
+ */
+export function coverageCityGroupSvg({
+  name,
+  state = '',
+  isPage = false,
+  pathD = 'M0,0 Z',
+  fill = '#e8a317',
+  anchor = [0, 0],
+  label = [0, 0],
+  chipText,
+  chipW,
+  chipH,
+  useLeader,
+} = {}) {
+  const city = String(name || '').trim();
+  const st = String(state || '').trim();
+  const chip = estimateChip(city, st);
+  const w = chipW || chip.w;
+  const h = chipH || chip.h;
+  const text = escapeXml(chipText || chip.text);
+  const [ax, ay] = anchor;
+  const [labelX, labelY] = label;
+  const leader =
+    useLeader ?? Math.hypot(labelX - ax, labelY - ay) >= LEADER_THRESHOLD;
+  const [lx2, ly2] = nearestPointOnChip(ax, ay, labelX, labelY, w, h);
+  const pathEl = `<path d="${pathD}" fill="${fill}" fill-opacity="${
+    isPage ? '0.52' : '0.28'
+  }" stroke="#17293a" stroke-width="${isPage ? '2.2' : '1.4'}" stroke-linejoin="round" fill-rule="evenodd"/>`;
+  const pinEl = `<circle class="cov-pin" cx="${Number(ax).toFixed(1)}" cy="${Number(ay).toFixed(1)}" r="3.5"/>`;
+  const leaderEl = leader
+    ? `<line class="cov-leader" x1="${Number(ax).toFixed(1)}" y1="${Number(ay).toFixed(1)}" x2="${lx2.toFixed(1)}" y2="${ly2.toFixed(1)}"/>`
+    : '';
+  const halfW = w / 2;
+  const halfH = h / 2;
+  const group = `<g class="cov-area${isPage ? '' : ' cov-area-static'}">
+          ${pathEl}
+          ${leaderEl}
+          ${pinEl}
+          <g transform="translate(${Number(labelX).toFixed(1)} ${Number(labelY).toFixed(1)})">
+            <rect class="cov-chip" x="${(-halfW).toFixed(1)}" y="${(-halfH).toFixed(1)}" width="${w}" height="${h}" rx="7"/>
+            <text text-anchor="middle" dominant-baseline="central" y="0.5" class="cov-chip-text">${text}</text>
+          </g>
+        </g>`;
+  if (!isPage) return group;
+  const slug = slugifyAreaName(city);
+  const href = slug ? `/locations/${slug}/` : '/';
+  return `<a href="${escapeXml(href)}" target="_top" rel="noopener">
+        ${group}
+      </a>`;
+}
+
+/** Selected cities whose name chip is not in the saved SVG. */
+export function coverageMapMissingCityNames(svg, config) {
+  const chips = [...String(svg || '').matchAll(/class="cov-chip-text">([^<]*)</g)].map((m) =>
+    decodeXml(m[1]).split(',')[0].trim().toLowerCase(),
+  );
+  const have = new Set(chips.filter(Boolean));
+  return coverageAreasFromConfig(config)
+    .map((area) => String(area.name || '').trim())
+    .filter((name) => name && !have.has(name.toLowerCase()));
+}
+
 function labelRectAt(cx, cy, w, h) {
   return { x: cx - w / 2, y: cy - h / 2, w, h };
 }
@@ -790,7 +864,7 @@ export async function generateCoverageMapSvg(
 
   const fills = ['#e8a317', '#f2b83c', '#dc8f08', '#f6c65f', '#d9a11e', '#edb83d'];
 
-  // Label only SEO location pages (primary + targetSuburbs); still shade all coverage polygons.
+  // Name every outlined city. Only location pages are links.
   const labelNames = new Set(pageCityNames);
 
   const geoPts = points.map(project);
@@ -820,11 +894,10 @@ export async function generateCoverageMapSvg(
         maxY: height - attributionSpace - 8,
       };
 
-  const labeledItems = [];
-  for (const area of boundaries) {
-    if (!labelNames.has(String(area.name || '').trim().toLowerCase())) continue;
-    labeledItems.push({ area, anchor: areaCenter(area.geometry) });
-  }
+  const labeledItems = boundaries.map((area) => ({
+    area,
+    anchor: areaCenter(area.geometry),
+  }));
   const labelLayout = placeSeoLabels(labeledItems, labelBounds, placement);
 
   const paintOrder = [...boundaries].sort(
@@ -833,48 +906,22 @@ export async function generateCoverageMapSvg(
 
   const areaShapes = paintOrder
     .map((area, index) => {
-      const slug = slugifyAreaName(area.name);
-      const isLabeled = labelNames.has(String(area.name || '').trim().toLowerCase());
+      const isPage = labelNames.has(String(area.name || '').trim().toLowerCase());
       const layout = labelLayout.get(`${area.name}|${area.state}`);
-      const pathEl = `<path d="${areaPath(area.geometry)}" fill="${fills[index % fills.length]}" fill-opacity="${
-        isLabeled ? '0.52' : '0.28'
-      }" stroke="#17293a" stroke-width="${isLabeled ? '2.2' : '1.4'}" stroke-linejoin="round" fill-rule="evenodd"/>`;
-      if (!isLabeled) {
-        return `
-      <g class="cov-area cov-area-nolabel">
-        ${pathEl}
-      </g>`;
-      }
-      const [ax, ay] = layout?.anchor || areaCenter(area.geometry);
-      const [labelX, labelY] = layout?.label || [ax, ay];
-      const chipW = layout?.chipW || estimateChip(area.name, area.state).w;
-      const chipH = layout?.chipH || CHIP_H;
-      const chipText = escapeXml(
-        layout?.chipText || estimateChip(area.name, area.state).text,
-      );
-      const useLeader =
-        layout?.useLeader ??
-        Math.hypot(labelX - ax, labelY - ay) >= LEADER_THRESHOLD;
-      const [lx2, ly2] = nearestPointOnChip(ax, ay, labelX, labelY, chipW, chipH);
-      const pinEl = `<circle class="cov-pin" cx="${ax.toFixed(1)}" cy="${ay.toFixed(1)}" r="3.5"/>`;
-      const leaderEl = useLeader
-        ? `<line class="cov-leader" x1="${ax.toFixed(1)}" y1="${ay.toFixed(1)}" x2="${lx2.toFixed(1)}" y2="${ly2.toFixed(1)}"/>`
-        : '';
-      const href = slug ? `/locations/${slug}` : '/';
-      const halfW = chipW / 2;
-      const halfH = chipH / 2;
-      return `
-      <a href="${escapeXml(href)}" target="_top" rel="noopener">
-        <g class="cov-area">
-          ${pathEl}
-          ${leaderEl}
-          ${pinEl}
-          <g transform="translate(${labelX.toFixed(1)} ${labelY.toFixed(1)})">
-            <rect class="cov-chip" x="${(-halfW).toFixed(1)}" y="${(-halfH).toFixed(1)}" width="${chipW}" height="${chipH}" rx="7"/>
-            <text text-anchor="middle" dominant-baseline="central" y="0.5" class="cov-chip-text">${chipText}</text>
-          </g>
-        </g>
-      </a>`;
+      const anchor = layout?.anchor || areaCenter(area.geometry);
+      return coverageCityGroupSvg({
+        name: area.name,
+        state: area.state,
+        isPage,
+        pathD: areaPath(area.geometry),
+        fill: fills[index % fills.length],
+        anchor,
+        label: layout?.label || anchor,
+        chipText: layout?.chipText,
+        chipW: layout?.chipW,
+        chipH: layout?.chipH,
+        useLeader: layout?.useLeader,
+      });
     })
     .join('');
 
@@ -887,7 +934,8 @@ export async function generateCoverageMapSvg(
     .subheading { font: 400 12px Arial, sans-serif; fill: #5a6570; }
     .attribution { font: 400 10px Arial, sans-serif; fill: #65717d; }
     .state { font: 600 11px Arial, sans-serif; fill: #5a6570; }
-    .cov-area { cursor: pointer; transition: opacity 0.15s ease; }
+    a .cov-area { cursor: pointer; transition: opacity 0.15s ease; }
+    .cov-area-static { cursor: default; }
     .cov-area-nolabel { cursor: default; pointer-events: none; }
     .cov-area path { transition: fill-opacity 0.15s ease, stroke-width 0.15s ease; }
     .cov-chip {
@@ -900,15 +948,15 @@ export async function generateCoverageMapSvg(
     .cov-chip-text { font: 600 14px Arial, sans-serif; fill: #0f1720; }
     .cov-leader { stroke: #17293a; stroke-width: 1.2; fill: none; }
     .cov-pin { fill: #17293a; stroke: #ffffff; stroke-width: 1.25; }
-    a:hover .cov-area path, .cov-area:hover path { fill-opacity: 0.78; stroke-width: 3.2; }
-    a:hover .cov-chip, .cov-area:hover .cov-chip { fill-opacity: 1; }
+    a:hover .cov-area path { fill-opacity: 0.78; stroke-width: 3.2; }
+    a:hover .cov-chip { fill-opacity: 1; }
   </style>
   <rect width="100%" height="100%" rx="14" fill="#f7f9fb"/>
   <path d="M0 110 H1000 M0 220 H1000 M0 330 H1000 M0 440 H1000 M0 550 H1000
     M150 74 V650 M300 74 V650 M450 74 V650 M600 74 V650 M750 74 V650 M900 74 V650"
     stroke="#dce2e7" stroke-width="1"/>
   <text x="40" y="38" class="heading">Service coverage</text>
-  <text x="40" y="58" class="subheading">Named cities have local pages · shaded areas are also served</text>
+  <text x="40" y="58" class="subheading">Linked names open a local page. Other names are in the service area.</text>
   ${areaShapes}
   <g transform="translate(940 42)">
     <path d="M0 16 L8 -8 L16 16 L8 11 Z" fill="#17293a"/>

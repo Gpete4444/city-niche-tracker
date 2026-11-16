@@ -1,6 +1,6 @@
 ---
 import { getCollection } from 'astro:content';
-import { site, homepageServicesDisplayLimit, formatPhoneDisplay, phoneHref } from '../config/site';
+import { contentImageAlt, site, homepageServicesDisplayLimit, formatPhoneDisplay, phoneHref } from '../config/site';
 import {
   applyServiceCardImages,
   commercialServiceCardsForSite,
@@ -95,7 +95,7 @@ const cardClass =
                         {card.image?.src && (
                           <img
                             src={card.image.src}
-                            alt={card.image.alt}
+                            alt={contentImageAlt(card.image.alt)}
                             class="aspect-[16/10] w-full object-cover transition duration-300 group-hover:scale-[1.02]"
                             width="480"
                             height="300"
@@ -133,7 +133,7 @@ const cardClass =
                         {card.image?.src && (
                           <img
                             src={card.image.src}
-                            alt={card.image.alt}
+                            alt={contentImageAlt(card.image.alt)}
                             class="aspect-[16/10] w-full object-cover transition duration-300 group-hover:scale-[1.02]"
                             width="480"
                             height="300"
@@ -167,7 +167,7 @@ const cardClass =
                 {card.image?.src && (
                   <img
                     src={card.image.src}
-                    alt={card.image.alt}
+                    alt={contentImageAlt(card.image.alt)}
                     class="aspect-[16/10] w-full object-cover transition duration-300 group-hover:scale-[1.02]"
                     width="480"
                     height="300"

@@ -37,7 +37,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/styles.css?v=20261111svccards" />
+  <link rel="stylesheet" href="/styles.css?v=20261113hints" />
   <link rel="stylesheet" href="/brand/rover-loader.css" />
 </head>
 <body>
@@ -65,13 +65,13 @@
         <img class="top-brand-logo top-brand-logo--light" src="/brand/rover-logo-light.png" alt="" width="800" height="168" decoding="async" />
         <img class="top-brand-logo top-brand-logo--dark" src="/brand/rover-logo-dark.png" alt="" width="800" height="168" decoding="async" />
       </span>
-      <span class="top-version muted small" title="Rover product version">v2.6</span>
+      <span class="top-version muted small">v2.7</span>
       <div class="claude-mode-segment" role="group" aria-label="Claude pipeline mode">
-        <button type="button" class="claude-mode-seg active" data-claude-mode="paste" id="claude-mode-paste" aria-label="Copy and paste">
+        <button type="button" class="claude-mode-seg active" data-claude-mode="paste" id="claude-mode-paste" data-tip="Copy a prompt and paste the reply." aria-label="Copy and paste">
           <span class="claude-mode-seg-full">Copy &amp; paste</span>
           <span class="claude-mode-seg-short" aria-hidden="true">Paste</span>
         </button>
-        <button type="button" class="claude-mode-seg" data-claude-mode="api" id="claude-mode-api" aria-label="Anthropic API">
+        <button type="button" class="claude-mode-seg" data-claude-mode="api" id="claude-mode-api" data-tip="Write inside Rover." aria-label="Write inside Rover">
           <span class="claude-mode-seg-full">Anthropic API</span>
           <span class="claude-mode-seg-short" aria-hidden="true">API</span>
         </button>
@@ -105,7 +105,6 @@
             aria-haspopup="true"
             aria-expanded="false"
             aria-controls="help-panel"
-            title="User guide"
             aria-label="Help"
           >
             <span class="jobs-btn-label">Help</span>
@@ -138,18 +137,18 @@
           aria-haspopup="true"
           aria-expanded="false"
           aria-controls="api-cost-menu"
-          title="API Cost"
-          aria-label="API Cost"
+          data-tip="Spending"
+          aria-label="Spending"
         >
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <circle cx="12" cy="12" r="10" />
             <path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8" />
             <path d="M12 18V6" />
           </svg>
-          <span class="sr-only">API Cost</span>
+          <span class="sr-only">Spending</span>
         </button>
-        <div id="api-cost-menu" class="settings-menu api-cost-menu hidden" role="menu" aria-label="API Cost">
-          <div class="api-cost-head">API Cost</div>
+        <div id="api-cost-menu" class="settings-menu api-cost-menu hidden" role="menu" aria-label="Spending">
+          <div class="api-cost-head">Spending</div>
           <div id="api-cost-list" class="api-cost-list"></div>
         </div>
       </div>
@@ -304,7 +303,7 @@
             type="button"
             id="btn-open-tabs"
             class="btn hidden"
-            data-tip="Open a Website tab for each pursue city in a zone and cluster range."
+            data-tip="Open a Website tab for each chosen city in this zone."
           >Open tabs</button>
           <button type="button" id="btn-refresh" class="btn">Refresh</button>
         </div>
@@ -336,7 +335,7 @@
               <option value="">Group: all</option>
               <option value="__ungrouped">ungrouped</option>
             </select>
-            <select id="candidate-zone-filter" data-tip="Filter by Zone (ZN)">
+            <select id="candidate-zone-filter" data-tip="Filter by zone number.">
               <option value="">Zone: all</option>
             </select>
             <select id="candidate-cluster-filter" data-tip="Filter by Cluster 1–20">
@@ -386,7 +385,7 @@
                 class="btn"
                 id="candidate-add-to-sites-btn"
                 disabled
-                data-tip="Add launched checkbox selection to Launched (Run Launch first)"
+                data-tip="Add selected launched sites. Launch them first."
               >Add to Launched</button>
               <span id="candidate-selection-count" class="candidate-filter-meta muted"></span>
             </div>
@@ -400,7 +399,7 @@
                 <option value="hold">hold</option>
                 <option value="pass">pass</option>
               </select>
-              <button type="button" class="btn" id="candidate-batch-decision-btn" disabled>Apply</button>
+              <button type="button" class="btn" id="candidate-batch-decision-btn" disabled data-tip="Set this decision on the selected rows.">Apply</button>
             </div>
             <div class="candidate-filter-cluster">
               <span class="candidate-filter-label">Groups</span>
@@ -413,7 +412,7 @@
               <button type="button" class="btn" id="candidate-group-manage-btn" data-tip="Rename or delete a named group">Manage groups</button>
               <button type="button" class="btn" id="candidate-archive-btn" disabled data-tip="Hide selection from Active list (keeps files)">Archive</button>
               <button type="button" class="btn" id="candidate-unarchive-btn" disabled data-tip="Restore selection to Active list">Unarchive</button>
-              <button type="button" class="btn danger" id="candidate-delete-btn" disabled data-tip="Permanently delete unlaunched selection (Research or Website) and scrub Discovery anti-dupe / groups / Sites / local assembled folder. Launched stays blocked.">Delete permanently</button>
+              <button type="button" class="btn danger" id="candidate-delete-btn" disabled data-tip="Permanently delete selected sites that are not live.">Delete permanently</button>
             </div>
           </div>
         </details>
@@ -455,7 +454,7 @@
                 data-tab="keywords"
                 data-stage="1"
                 class="tab tab-stage-1"
-                data-tip="Evaluation 1 · keyword volumes from SERP / Volume"
+                data-tip="Keyword search volume for this city."
               >
                 1 · Keywords
               </button>
@@ -558,7 +557,7 @@
           <button
             type="button"
             class="tip-info"
-            data-tip="Set filters, then Generate. Claude gets a filtered compact High-Ticket niche list (not the full guide) and Claude-only CSV headers."
+            data-tip="Set filters, then Generate. Rover sends only the matching service list."
             aria-label="About New Discovery Pack"
           >
             i
@@ -582,10 +581,10 @@
             />
           </div>
           <div class="claude-mode-segment discovery-pack-type" role="group" aria-label="Pack type">
-            <button type="button" class="claude-mode-seg active" data-pack-type="single" id="discovery-pack-scout">
+            <button type="button" class="claude-mode-seg" data-pack-type="single" id="discovery-pack-scout">
               Single City
             </button>
-            <button type="button" class="claude-mode-seg" data-pack-type="cluster" id="discovery-pack-shotgun">
+            <button type="button" class="claude-mode-seg active" data-pack-type="cluster" id="discovery-pack-shotgun">
               Cluster Cities
             </button>
           </div>
@@ -639,7 +638,7 @@
                   <button
                     type="button"
                     class="tip-info"
-                    data-tip="Comma-separated. Blank = Claude picks. Use Map to pick from a state map."
+                    data-tip="Separate cities with commas. Blank lets Rover choose."
                     aria-label="About Cities"
                   >
                     i
@@ -722,7 +721,7 @@
               <button
                 type="button"
                 class="tip-info"
-                data-tip="Optional — blank = all catalog categories"
+                data-tip="Optional. Blank uses every category."
                 aria-label="About Catalog categories"
               >
                 i
@@ -736,7 +735,7 @@
               <button
                 type="button"
                 class="tip-info"
-              data-tip="Optional soft picks from the catalog. Blank + no Suggested = Claude picks ≥3 from catalog (Required only forces must-include of those names, then catalog for the rest)."
+              data-tip="Optional. Blank lets Rover choose at least three services."
               aria-label="About Niches"
               >
                 i
@@ -748,7 +747,7 @@
             <button
               type="button"
               class="tip-info"
-              data-tip="Soft theme preference — one per line or semicolon-separated. Claude expands to high-volume head-term Niche cells (e.g. Drywall → Drywall Repair). Alone: may still pick other catalog niches. With Required: Required rows stay exact; Suggested biases remaining rows."
+              data-tip="Preferred themes. Rover can still add other services."
               aria-label="About Suggested niches"
             >
               i
@@ -763,7 +762,7 @@
             <button
               type="button"
               class="tip-info"
-              data-tip="Must appear in ≥1 row each with Niche text exactly as typed (no synonym rename). Never an exclusive lock. Remaining rows: prefer Suggested head terms if set, else High-Ticket catalog head terms."
+              data-tip="These names must appear exactly. Other rows are still added."
               aria-label="About Required niches"
             >
               i
@@ -836,7 +835,7 @@
           <button
             type="button"
             class="tip-info"
-            data-tip="Light SERP (~$0.002/row) fills Map Pack + organic/directory counts from DataForSEO. Real search volumes come later in Research Evaluation 1 (SERP / Volume)."
+            data-tip="A cheap search check for the map pack and page counts. Volumes come later."
             aria-label="About Light SERP"
           >
             i
@@ -848,7 +847,7 @@
               type="button"
               class="btn primary"
               id="discovery-enrich-pack-btn"
-              data-tip="Probes selected Discovery rows; with none selected, probes the whole batch"
+              data-tip="Checks the selected rows, or the whole batch if none are selected."
             >
               Run Light SERP
             </button>
@@ -869,7 +868,7 @@
           <button
             type="button"
             class="tip-info"
-            data-tip="Do-not-repropose list = Active Research Candidates + tracked Discovery passes (Niche×City×State). Generate Pack tells Claude not to re-propose these."
+            data-tip="Cities already in research are not suggested again."
             aria-label="About Advanced anti-dupe"
           >
             i
@@ -883,14 +882,6 @@
           <button type="button" class="btn" id="discovery-known-prune">Wipe to match Active Research…</button>
         </div>
       </details>
-      <div class="discovery-decision-legend" aria-label="Decision meanings">
-        <div class="discovery-decision-legend-title">Decision meanings</div>
-        <ul class="discovery-decision-legend-list">
-          <li><strong>pursue / maybe / review / hold</strong> → Candidates</li>
-          <li><strong>pass</strong> → Tracked (blocks rediscovery)</li>
-          <li><strong>ignore</strong> → Skip this batch (can rediscover)</li>
-        </ul>
-      </div>
     </section>
     <button
       type="button"
@@ -924,8 +915,8 @@
       </div>
       <div id="discovery-batch-chrome">
       <div id="discovery-steps" class="discovery-step-rail" aria-label="Batch steps">
-        <div class="disc-step" data-step="claude" data-tip="Import Claude CSV"><span class="disc-step-mark"></span><span class="disc-step-label">1 Claude</span></div>
-        <div class="disc-step" data-step="enrich" data-tip="Light SERP (Map Pack + organic)"><span class="disc-step-mark"></span><span class="disc-step-label">2 Light SERP</span></div>
+        <div class="disc-step" data-step="claude" data-tip="Import the sheet"><span class="disc-step-mark"></span><span class="disc-step-label">1 Claude</span></div>
+        <div class="disc-step" data-step="enrich" data-tip="Quick search check"><span class="disc-step-mark"></span><span class="disc-step-label">2 Light SERP</span></div>
           <div class="disc-step" data-step="decisions" data-tip="Set Decisions"><span class="disc-step-mark"></span><span class="disc-step-label">3 Decide</span></div>
         <div class="disc-step" data-step="processed" data-tip="Processed to Candidates"><span class="disc-step-mark"></span><span class="disc-step-label">4 Done</span></div>
       </div>
@@ -945,28 +936,38 @@
           <div class="discovery-toolbar-actions">
             <button
               type="button"
+              class="btn hidden"
+              id="discovery-surface-toggle"
+              hidden
+            >Map</button>
+            <button
+              type="button"
               class="btn primary"
               id="discovery-process-btn"
               disabled
-              data-tip="Requires a Decision on every row. pursue/maybe/review/hold → Candidates; pass → tracked; ignore → skip (rediscoverable)."
+              data-tip="Every row needs a decision. Pursue, maybe, review, and hold become candidates."
             >Process batch</button>
             <button
               type="button"
               class="btn"
               id="discovery-reopen-selected"
               disabled
-              data-tip="Clear tracked/ignored/processed markers on selected rows so you can change Decision and Process again"
+              data-tip="Unlock the selected rows so you can decide again."
             >Reopen selected</button>
             <button
               type="button"
               class="btn"
               id="discovery-backfill-light-serp"
               disabled
-              data-tip="Copy this batch’s Light SERP Map Pack / homepage counts onto linked Research Candidates (no new DFS cost). Use if Research table shows — after an older Process."
+              data-tip="Copy this batch’s search counts onto the matching candidates. Free."
             >Backfill Light SERP → Research</button>
           </div>
           <p id="discovery-process-progress" class="muted discovery-process-progress" hidden></p>
         </div>
+      </div>
+      <div class="discovery-head-hints">
+        <p id="discovery-up-next" class="muted discovery-up-next"></p>
+        <p id="discovery-decision-legend" class="muted">Pursue, maybe, review, and hold become candidates. Pursue is what Open tabs will open. Pass is remembered and will not be suggested again. Ignore can come back.</p>
       </div>
       <div id="discovery-source-legend" class="discovery-source-legend" aria-label="Column data sources"></div>
       <div id="discovery-table-filters" class="discovery-filters-bar hidden">
@@ -1018,7 +1019,7 @@
               <option value="ignore">ignore</option>
             </select>
           </label>
-          <button type="button" class="btn btn-sm" id="discovery-accept-all" disabled data-tip="Copy Recommend → Decision for all visible rows">Accept all</button>
+          <button type="button" class="btn btn-sm" id="discovery-accept-all" disabled data-tip="Use the suggestion as the decision for every visible row.">Accept all</button>
           <button type="button" class="btn btn-sm" id="discovery-accept-selected" disabled>Accept selected</button>
         </span>
       </div>
@@ -1029,7 +1030,7 @@
         <div class="discovery-shotgun-split">
           <div class="discovery-shotgun-left">
             <div id="discovery-shotgun-hubs"></div>
-            <p id="discovery-shotgun-legend" class="muted small hidden">Colors = Clusters 1–20. Labels prefix the Cluster number (hub is ★). Sticky palette: pick a Cluster, then click cities or right-drag a circle. × clears. Hub keeps a blue outline; fill follows Cluster if assigned. Zone slider is the outer radius. Pink = outside min/max pop. Dotted rings = every 20 mi out to 200.</p>
+            <p id="discovery-shotgun-legend" class="muted small hidden">Pick a cluster color, click a city or drag a circle, then Generate pack. Pink cities are outside the population range.</p>
           </div>
           <div id="discovery-shotgun-map-slot">
             <div id="discovery-shotgun-map-pick" class="shotgun-map-pick">
@@ -1054,8 +1055,8 @@
                     aria-label="City label size"
                   />
                   <span class="sg-map-radius-steppers">
-                    <button type="button" data-sg="label-inc" aria-label="Larger labels">▲</button>
-                    <button type="button" data-sg="label-dec" aria-label="Smaller labels">▼</button>
+                    <button type="button" data-sg="label-inc" data-tip="Larger labels" aria-label="Larger labels">▲</button>
+                    <button type="button" data-sg="label-dec" data-tip="Smaller labels" aria-label="Smaller labels">▼</button>
                   </span>
                 </span>
               </span>
@@ -1165,16 +1166,16 @@
           <div class="muted">Portfolio, GSC traffic, pages, and keyword ranks</div>
         </div>
         <div class="candidates-head-actions">
-          <span id="sites-gsc-connection" class="gsc-connection is-disconnected" role="status" aria-live="polite" data-tip="Search Console is not connected. Click Connect GSC to sign in." aria-label="Search Console is not connected">
+          <span id="sites-gsc-connection" class="gsc-connection is-disconnected" role="status" aria-live="polite" data-tip="Search Console is not connected." aria-label="Search Console is not connected">
             <span class="gsc-connection-dot" aria-hidden="true"></span>
             <span class="gsc-connection-label">Not connected</span>
           </span>
-          <button type="button" id="sites-gsc-connect-btn" class="btn" data-tip="Connect Google Search Console (OAuth)">Connect GSC</button>
-          <button type="button" id="sites-gsc-sync-btn" class="btn" data-tip="Connect GSC first" disabled>Sync GSC</button>
-          <button type="button" id="sites-index-check-btn" class="btn" data-tip="Connect GSC first" disabled>Check index</button>
-          <button type="button" id="sites-rank-sync-btn" class="btn" data-tip="Weekly DataForSEO SERP rank check (Standard queue) for selected rows">Check ranks</button>
-          <button type="button" id="sites-add-btn" class="btn primary" data-tip="Add a launched candidate by id (Run Launch first)">Add from candidate</button>
-          <button type="button" id="sites-w3-inboxes-btn" class="btn" data-tip="Public leads@ address for each site — Rover emails the routing destination from it">Lead addresses</button>
+          <button type="button" id="sites-gsc-connect-btn" class="btn" data-tip="Connect Google Search Console.">Connect GSC</button>
+          <button type="button" id="sites-gsc-sync-btn" class="btn" data-tip="Connect Search Console first." disabled>Sync GSC</button>
+          <button type="button" id="sites-index-check-btn" class="btn" data-tip="Connect Search Console first." disabled>Check index</button>
+          <button type="button" id="sites-rank-sync-btn" class="btn" data-tip="Check this week’s Google rank for the selected sites.">Check ranks</button>
+          <button type="button" id="sites-add-btn" class="btn primary" data-tip="Add a site that has already been launched.">Add from candidate</button>
+          <button type="button" id="sites-w3-inboxes-btn" class="btn" data-tip="The public leads address for each site.">Lead addresses</button>
           <button type="button" id="sites-refresh-btn" class="btn">Refresh</button>
         </div>
       </div>
@@ -1218,7 +1219,7 @@
             <option value="">Group: all</option>
             <option value="__ungrouped">ungrouped</option>
           </select>
-          <select id="sites-zone-filter" data-tip="Filter by Zone (ZN)">
+          <select id="sites-zone-filter" data-tip="Filter by zone number.">
             <option value="">Zone: all</option>
           </select>
           <select id="sites-cluster-filter" data-tip="Filter by Cluster 1–20">
@@ -1671,7 +1672,7 @@
           <details class="ve-collapse" open>
             <summary class="ve-collapse-summary-row">
               <h3>Home sections</h3>
-              <button type="button" class="btn" id="ve-sections-default-order" title="Restore default section order">Default Section Order</button>
+              <button type="button" class="btn" id="ve-sections-default-order">Default Section Order</button>
             </summary>
             <div id="ve-sections" class="ve-sections"></div>
           </details>
@@ -1755,8 +1756,8 @@
             <span class="sg-map-radius"><span class="sg-map-pick-lbl">Label</span>
               <input data-sg="label-size" type="number" min="8" max="18" step="1" value="12" inputmode="numeric" aria-label="City label size" />
               <span class="sg-map-radius-steppers">
-                <button type="button" data-sg="label-inc" aria-label="Larger labels">▲</button>
-                <button type="button" data-sg="label-dec" aria-label="Smaller labels">▼</button>
+                <button type="button" data-sg="label-inc" data-tip="Larger labels" aria-label="Larger labels">▲</button>
+                <button type="button" data-sg="label-dec" data-tip="Smaller labels" aria-label="Smaller labels">▼</button>
               </span>
             </span>
           </span>
@@ -1780,6 +1781,6 @@
     </div>
   </div>
 
-  <script src="/app.js?v=20261111svcfields" type="module"></script>
+  <script src="/app.js?v=20261113mapToggle" type="module"></script>
 </body>
 </html>

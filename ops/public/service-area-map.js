@@ -96,7 +96,7 @@ const LABEL_LOAD_RADIUS = 100;
 
 /** Flat 2D document glyph — easier to see than emoji on map labels. */
 const PAGE_ICON =
-  '<span class="sa-page-icon" title="Gets a location page" aria-label="Gets a location page">' +
+  '<span class="sa-page-icon" data-tip="Gets a location page" aria-label="Gets a location page">' +
   '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">' +
   '<path fill="#2563eb" stroke="#1e3a8a" stroke-width="1" stroke-linejoin="round" ' +
   'd="M3.5 1.5h6.2L13 4.8V14a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V2.5a1 1 0 0 1 1-1z"/>' +
@@ -1061,7 +1061,7 @@ async function mountGeoSelectMap(opts) {
     const pageN = pages.size;
     const pageLabel = `${pageN}/${PREFER_MAX_PAGES}`;
     const pageHead = showPages
-      ? `<th class="sa-th-page" scope="col"><span class="sa-page-count" title="${esc(
+      ? `<th class="sa-th-page" scope="col"><span class="sa-page-count" data-tip="${esc(
           `${pageN} of ${PREFER_MAX_PAGES} location pages`,
         )}" aria-label="${esc(`${pageN} of ${PREFER_MAX_PAGES} location pages`)}">${esc(pageLabel)}</span></th>`
       : '';
@@ -1083,29 +1083,27 @@ async function mountGeoSelectMap(opts) {
         const rowTitle = isPrimary
           ? 'Primary center'
           : sibling
-            ? zoneAware
-              ? 'Zone sibling — coverage only, never a location page'
-              : 'Cluster sibling — coverage OK, location page needs override'
+            ? 'Nearby city. Shown on the map, no page.'
             : alreadyClaimed
-              ? `${ownerCity || 'Another Zone site'} already has a location page — Also serving only`
+              ? 'Another site already has this page.'
               : 'Remove from coverage';
         const pageDisabled = isPrimary || (zoneAware && sibling && !hasPage);
         const pageTitle = isPrimary
           ? 'Primary always has a page'
           : pageDisabled
-            ? 'Zone sibling — coverage only, never a location page'
+            ? 'A nearby cluster city. Coverage only, no page.'
             : 'Toggle location page';
         const pageCell = showPages
-          ? `<td class="sa-td-page"><button type="button" class="sa-page-toggle${hasPage ? ' is-on' : ''}" data-page-key="${esc(
+          ? `<td class="sa-td-page" data-tip="${esc(pageTitle)}"><button type="button" class="sa-page-toggle${hasPage ? ' is-on' : ''}" data-page-key="${esc(
               key,
-            )}" ${pageDisabled ? `disabled title="${esc(pageTitle)}"` : `title="${esc(pageTitle)}"`}>${
+            )}" ${pageDisabled ? 'disabled' : ''}>${
               hasPage ? PAGE_ICON : 'Page'
             }</button></td>`
           : '';
         return `<tr class="sa-list-item${isPrimary ? ' is-primary' : ''}${hasPage ? ' has-page' : ''}${sibling ? ' sa-cluster-sibling' : ''}${alreadyClaimed ? ' sa-cluster-claimed' : ''}" data-key="${esc(key)}">
           ${pageCell}
-          <td class="sa-td-city">
-            <button type="button" class="sa-list-btn" ${isPrimary ? 'disabled' : ''} title="${esc(rowTitle)}">
+          <td class="sa-td-city" data-tip="${esc(rowTitle)}">
+            <button type="button" class="sa-list-btn" ${isPrimary ? 'disabled' : ''}>
               <span class="sa-list-name">${esc(r.name)}, ${esc(r.state)}${esc(rowNote)}</span>
               <span class="muted">${isPrimary ? 'center' : 'remove'}</span>
             </button>

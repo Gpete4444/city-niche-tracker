@@ -1113,7 +1113,7 @@ ${formatBookendPolicyMarkdown(outline.bookendPolicy || {})}
 - gallery: [{ src, alt }] when beforeAfter/gallery photos enabled
 - materialsImages: [{ src, alt }] is Pull-owned when materials photos are on — omit or preserve existing; do not invent image paths. Ranking builds pull materials thumbs for compact media rows.
 - **Homepage body:**
-  1. Start with intro prose only (max ~2 short salesperson paragraphs). Do NOT repeat whyChooseUs, process, FAQs, or the services list in the body — those belong in frontmatter / dedicated sections only.
+  1. Start with intro prose only (max ~2 short salesperson paragraphs). Do NOT repeat whyChooseUs, process, FAQs, or the services list in the body — those belong in frontmatter / dedicated sections only. Write ${config.businessName || 'the business name'} as plain text. Never \`[${config.businessName || 'Business'}](/)\`.
   2. After the intro, add a \`##\` Markdown section for **each enabled educational homepage section** (cost, materials, timeline, codes, diyVsPro, whenToCall, and similar) using that section’s outline heading + writeInstructions. Do **not** re-dump process/why/FAQs as body prose.
 - Do **not** repeat the h1 as the first body line.
 - **Images:** omit \`heroImage\` / \`featureImage\` / \`cardImage\` / \`gallery\` / \`process[].image\` / \`materialsImages\` unless a real file already exists (Rover Pull, ChatGPT BA import, or operator upload). Never invent paths. Never write \`heroImage: ""\`. When present use object form only:
@@ -1177,7 +1177,7 @@ heroImage:
 7. **Keywords:** Put each keywordTargets[].keyword into the mapped H1/H2. Primary must appear in homepage title + h1. Homepage h1 is the head term (niche or primary keyword, then city and state). Do not prefix or equal the business name or domain. No “top-rated”, “trusted”, “premium”, or “experts” unless those words are the keyword. The brand already shows above the H1.
 8. **FAQs:** When FAQs enabled, questions must follow faqSeeds (SERP PAA) closely — paraphrase OK, topic lock required.
 9. **Organic title hints:** Use for competitive phrasing; do not copy competitor brand names.
-10. **Company subject:** Always use the full business name (“${config.businessName || 'Business'}”) when the company acts (provides, manages, files, handles, offers). Niche labels (“${config.niche || 'the niche'}”) are for H1s, section titles, and service-type nouns — do **not** shorten “${config.businessName || 'Business'}” to the niche alone in body prose.
+10. **Company subject:** Always use the full business name (“${config.businessName || 'Business'}”) as plain text when the company acts (provides, manages, files, handles, offers). Never wrap it in a markdown link, including \`[${config.businessName || 'Business'}](/)\`. Niche labels (“${config.niche || 'the niche'}”) are for H1s, section titles, and service-type nouns — do **not** shorten “${config.businessName || 'Business'}” to the niche alone in body prose.
 11. **Titles:** Prefer a keyword-led \`title\` ≤~50 characters, or include the business name in \`title\` so the layout does not need a long \`| brand\` suffix. Aim for final browser title ≤~60 characters.
 12. **Required internal links** (include as markdown \`[Label](/path)\`):
 13. **Service cards:** do not repeat “in ${config.primaryCity || '{city}'}${config.state ? `, ${config.state}` : ''}” on every service description. Name the work, when it is needed, and the outcome.
@@ -1361,7 +1361,8 @@ ${formatNichePhotoBlockPrompt(getNichePhotoBlocks(config.niche))}
 3. Use site-config socialProof only — do not invent testimonials or license IDs.
 4. Unique, honest local copy for ${config.primaryCity || 'the city'}, ${config.state || ''}.
 5. Service card \`description\`: do not repeat “in ${config.primaryCity || '{city}'}${config.state ? `, ${config.state}` : ''}” on every card — city once in the homepage intro.
-6. Return ONLY the ### FILE blocks for the paths listed above.
+6. Write ${config.businessName || 'the business name'} as plain text. Never \`[${config.businessName || 'Business'}](/)\`.
+7. Return ONLY the ### FILE blocks for the paths listed above.
 
 Draft progress: ${Object.keys(files).length} of ${expected.length} required paths already loaded; finish the ${gapCount} gap(s).`;
 
@@ -1401,6 +1402,7 @@ function buildLinkChecklistMarkdown(outline, config) {
     }
   }
   lines.push('- Each service page: `[Home](/)` and `[Contact](/contact)` (+ one sibling service link when ≥2 services)');
+  lines.push(`- The business name stays plain text. Do not write \`[${config.businessName || 'Business'}](/)\`.`);
   return lines.join('\n');
 }
 
