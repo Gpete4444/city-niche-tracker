@@ -202,32 +202,40 @@
 
     <!-- NAVIGATION TABS + ROW COUNTER -->
     <section class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-      <div class="flex flex-wrap items-center gap-2">
+      <div id="tabBarContainer" class="flex flex-wrap items-center gap-2" role="tablist">
         <button
-          id="tabBtn1"
+          id="tabBtn-tab1"
+          data-tab="tab1"
+          type="button"
           onclick="switchTab('tab1')"
-          class="px-4 py-2 rounded-xl text-xs sm:text-sm font-bold bg-slate-900 text-white shadow-sm transition cursor-pointer"
+          class="tab-nav-btn px-4 py-2 rounded-xl text-xs sm:text-sm font-bold bg-slate-900 text-white shadow-sm transition cursor-pointer"
         >
           Tab 1: Top 400 Hub Zones
         </button>
         <button
-          id="tabBtn2"
+          id="tabBtn-tab2"
+          data-tab="tab2"
+          type="button"
           onclick="switchTab('tab2')"
-          class="px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold bg-white text-slate-700 hover:bg-slate-100 border border-slate-200 transition cursor-pointer"
+          class="tab-nav-btn px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold bg-white text-slate-700 hover:bg-slate-100 border border-slate-200 transition cursor-pointer"
         >
           Tab 2: Phase 1 vs Phase 2 &amp; Category Rollup
         </button>
         <button
-          id="tabBtn3"
+          id="tabBtn-tab3"
+          data-tab="tab3"
+          type="button"
           onclick="switchTab('tab3')"
-          class="px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold bg-white text-slate-700 hover:bg-slate-100 border border-slate-200 transition cursor-pointer"
+          class="tab-nav-btn px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold bg-white text-slate-700 hover:bg-slate-100 border border-slate-200 transition cursor-pointer"
         >
           Tab 3: Niche Economics (11 Niches)
         </button>
         <button
-          id="tabBtn4"
+          id="tabBtn-tab4"
+          data-tab="tab4"
+          type="button"
           onclick="switchTab('tab4')"
-          class="px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold bg-white text-slate-700 hover:bg-slate-100 border border-slate-200 transition cursor-pointer"
+          class="tab-nav-btn px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold bg-white text-slate-700 hover:bg-slate-100 border border-slate-200 transition cursor-pointer"
         >
           Tab 4: State Clusters
         </button>
@@ -241,7 +249,7 @@
     </section>
 
     <!-- TAB 1: TOP 400 HUB ZONES (FILTERS + TABLE) -->
-    <section id="tab1Panel" class="space-y-4">
+    <section id="tab1" class="tab-panel-section space-y-4">
       <!-- Filter Bar -->
       <div class="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm">
         <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 xl:grid-cols-9 gap-3 items-end">
@@ -414,7 +422,34 @@
     </section>
 
     <!-- TAB 2: PHASE 1 VS PHASE 2 & CATEGORY ROLLUP -->
-    <section id="tab2Panel" class="hidden space-y-5">
+    <section id="tab2" class="tab-panel-section hidden space-y-5">
+      <div class="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm">
+        <h2 class="text-base sm:text-lg font-extrabold text-slate-900 mb-1">
+          Execution Phase Rollup (Phase 1 Cash-Flow Starters vs. Phase 2 Expansion)
+        </h2>
+        <p class="text-xs text-slate-500 mb-4">
+          Phase 1 prioritizes Open/Clean EMDs with lower competitor review density (&le;20 reviews) for fastest page-1 rankings.
+        </p>
+        <div class="overflow-x-auto">
+          <table class="w-full text-left border-collapse text-xs sm:text-sm">
+            <thead class="bg-slate-900 text-white text-[11px] uppercase tracking-wider">
+              <tr>
+                <th class="py-3 px-4 font-bold">Execution Phase</th>
+                <th class="py-3 px-3 font-bold text-right">Zone Count</th>
+                <th class="py-3 px-3 font-bold text-right">Completed (CLN / QCL)</th>
+                <th class="py-3 px-3 font-bold text-right">Avg ROI Score</th>
+                <th class="py-3 px-3 font-bold text-right">Total Addressable Pop.</th>
+                <th class="py-3 px-3 font-bold text-right">Avg Median HH Income</th>
+                <th class="py-3 px-3 font-bold text-right">Avg Ticket</th>
+                <th class="py-3 px-3 font-bold text-right">Completed Retainer</th>
+                <th class="py-3 px-4 font-bold text-right">Monthly Retainer Ceiling</th>
+              </tr>
+            </thead>
+            <tbody id="phaseRollupBody" class="divide-y divide-slate-200"></tbody>
+          </table>
+        </div>
+      </div>
+
       <div class="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm">
         <h2 class="text-base sm:text-lg font-extrabold text-slate-900 mb-1">
           Category Comparison: Exterior &amp; Structural vs. Interior Specialty
@@ -441,42 +476,16 @@
           </table>
         </div>
       </div>
-
-      <div class="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm">
-        <h2 class="text-base sm:text-lg font-extrabold text-slate-900 mb-1">
-          Execution Phase Rollup (Phase 1 Cash-Flow Starters vs. Phase 2 Expansion)
-        </h2>
-        <p class="text-xs text-slate-500 mb-4">
-          Phase 1 prioritizes Open/Clean EMDs with lower competitor review density (&le;20 reviews) for fastest page-1 rankings.
-        </p>
-        <div class="overflow-x-auto">
-          <table class="w-full text-left border-collapse text-xs sm:text-sm">
-            <thead class="bg-slate-900 text-white text-[11px] uppercase tracking-wider">
-              <tr>
-                <th class="py-3 px-4 font-bold">Execution Phase</th>
-                <th class="py-3 px-3 font-bold text-right">Zone Count</th>
-                <th class="py-3 px-3 font-bold text-right">Exterior / Interior</th>
-                <th class="py-3 px-3 font-bold text-right">Avg ROI Score</th>
-                <th class="py-3 px-3 font-bold text-right">Avg Median Income</th>
-                <th class="py-3 px-3 font-bold text-right">Avg Est. CPL</th>
-                <th class="py-3 px-3 font-bold text-right">Completed (CLN / QCL)</th>
-                <th class="py-3 px-4 font-bold text-right">Monthly Rent Ceiling</th>
-              </tr>
-            </thead>
-            <tbody id="phaseRollupBody" class="divide-y divide-slate-200"></tbody>
-          </table>
-        </div>
-      </div>
     </section>
 
     <!-- TAB 3: NICHE ECONOMICS (ALL 11 NICHES) -->
-    <section id="tab3Panel" class="hidden">
+    <section id="tab3" class="tab-panel-section hidden">
       <div class="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm">
         <h2 class="text-base sm:text-lg font-extrabold text-slate-900 mb-1">
           Niche Economics Breakdown (All 11 Exterior &amp; Interior Niches)
         </h2>
         <p class="text-xs text-slate-500 mb-4">
-          Sorted by Total Monthly Rent Ceiling. Shows ticket averages, CPL, Open EMD percentage, and live CLN/QCL completion progress per trade.
+          Sorted by Total Monthly Rent Ceiling. Shows ticket ranges, CPL, addressable population, and live CLN/QCL completion progress per trade.
         </p>
         <div class="overflow-x-auto">
           <table class="w-full text-left border-collapse text-xs sm:text-sm">
@@ -485,13 +494,12 @@
                 <th class="py-3 px-4 font-bold">Niche</th>
                 <th class="py-3 px-3 font-bold">Category</th>
                 <th class="py-3 px-3 font-bold text-right">Zones</th>
-                <th class="py-3 px-3 font-bold text-right">Open EMD %</th>
-                <th class="py-3 px-3 font-bold text-right">Avg ROI Score</th>
-                <th class="py-3 px-3 font-bold">Ticket Range</th>
-                <th class="py-3 px-3 font-bold text-right">Avg CPL</th>
-                <th class="py-3 px-3 font-bold text-right">Avg Monthly Rent</th>
                 <th class="py-3 px-3 font-bold text-right">Completed</th>
-                <th class="py-3 px-4 font-bold text-right">Total Monthly Ceiling</th>
+                <th class="py-3 px-3 font-bold text-right">Avg ROI Score</th>
+                <th class="py-3 px-3 font-bold">Avg Ticket Range</th>
+                <th class="py-3 px-3 font-bold text-right">Avg CPL</th>
+                <th class="py-3 px-3 font-bold text-right">Total Zone Pop.</th>
+                <th class="py-3 px-4 font-bold text-right">Monthly Retainer Ceiling</th>
               </tr>
             </thead>
             <tbody id="nicheRollupBody" class="divide-y divide-slate-200"></tbody>
@@ -501,26 +509,25 @@
     </section>
 
     <!-- TAB 4: STATE CLUSTERS -->
-    <section id="tab4Panel" class="hidden">
+    <section id="tab4" class="tab-panel-section hidden">
       <div class="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm">
         <h2 class="text-base sm:text-lg font-extrabold text-slate-900 mb-1">
           State Clusters &amp; Regional Buying Power
         </h2>
         <p class="text-xs text-slate-500 mb-4">
-          No artificial state caps—states rank strictly by the concentration of affluent suburban hub clusters and high-ticket demand.
+          Sorted by Total Addressable Population—states rank strictly by the concentration of affluent suburban hub clusters and high-ticket demand.
         </p>
         <div class="overflow-x-auto">
           <table class="w-full text-left border-collapse text-xs sm:text-sm">
             <thead class="bg-slate-900 text-white text-[11px] uppercase tracking-wider">
               <tr>
                 <th class="py-3 px-4 font-bold">State</th>
-                <th class="py-3 px-3 font-bold text-right">Total Zones</th>
-                <th class="py-3 px-3 font-bold text-right">Exterior / Interior</th>
-                <th class="py-3 px-3 font-bold text-right">Total Zone Pop.</th>
-                <th class="py-3 px-3 font-bold text-right">Avg Median Income</th>
-                <th class="py-3 px-3 font-bold text-right">Avg ROI Score</th>
+                <th class="py-3 px-3 font-bold text-right">Zone Count (Ext / Int)</th>
                 <th class="py-3 px-3 font-bold text-right">Completed</th>
-                <th class="py-3 px-4 font-bold text-right">Total Monthly Ceiling</th>
+                <th class="py-3 px-3 font-bold text-right">Avg ROI Score</th>
+                <th class="py-3 px-3 font-bold text-right">Avg Median HH Income</th>
+                <th class="py-3 px-3 font-bold text-right">Total Addressable Pop.</th>
+                <th class="py-3 px-4 font-bold text-right">Monthly Retainer Ceiling</th>
               </tr>
             </thead>
             <tbody id="stateRollupBody" class="divide-y divide-slate-200"></tbody>
@@ -1402,15 +1409,52 @@
     }
 
     function renderRollupTabs() {
-      // Tab 2A: Category Rollup
+      // Tab 2A: Execution Phase Rollup
+      const phaseGroups = ["Phase 1", "Phase 2"].map(ph => {
+        const sub = ALL_ZONES.filter(z => z.phase === ph);
+        const avgScore = sub.length ? (sub.reduce((s, z) => s + z.roiScore, 0) / sub.length).toFixed(1) : "0.0";
+        const popSum = sub.reduce((s, z) => s + z.zonePop, 0);
+        const avgInc = sub.length ? Math.round(sub.reduce((s, z) => s + z.income, 0) / sub.length) : 0;
+        const avgTicket = sub.length ? Math.round(sub.reduce((s, z) => s + z.avgTicket, 0) / sub.length) : 0;
+        const rentSum = sub.reduce((s, z) => s + z.estMonthlyRent, 0);
+
+        let done = 0, cln = 0, qcl = 0, completedRent = 0;
+        sub.forEach(z => {
+          const r = getZoneCompletionRecord(z);
+          if (r.dateCompleted || r.completedBy) {
+            done++;
+            completedRent += z.estMonthlyRent;
+          }
+          if (r.completedBy === "CLN") cln++;
+          if (r.completedBy === "QCL") qcl++;
+        });
+
+        return `
+          <tr class="hover:bg-slate-50">
+            <td class="py-3 px-4 font-extrabold text-slate-900">${ph === "Phase 1" ? "Phase 1 — Cash-Flow Starters (Open/Variant EMD & ≤20 Reviews)" : "Phase 2 — High-Ceiling Metro Expansion"}</td>
+            <td class="py-3 px-3 text-right font-bold">${sub.length}</td>
+            <td class="py-3 px-3 text-right font-semibold">${done} (${cln} CLN / ${qcl} QCL)</td>
+            <td class="py-3 px-3 text-right font-extrabold text-indigo-600">${avgScore}</td>
+            <td class="py-3 px-3 text-right text-slate-700">${popSum.toLocaleString()}</td>
+            <td class="py-3 px-3 text-right font-semibold">$${avgInc.toLocaleString()}</td>
+            <td class="py-3 px-3 text-right font-semibold text-slate-800">$${avgTicket.toLocaleString()}</td>
+            <td class="py-3 px-3 text-right font-bold text-blue-600">$${completedRent.toLocaleString()}/mo</td>
+            <td class="py-3 px-4 text-right font-extrabold text-emerald-600">$${rentSum.toLocaleString()}/mo</td>
+          </tr>
+        `;
+      }).join("");
+      const phaseBodyEl = document.getElementById("phaseRollupBody");
+      if (phaseBodyEl) phaseBodyEl.innerHTML = phaseGroups;
+
+      // Tab 2B: Category Rollup
       const catGroups = ["Exterior", "Interior"].map(cat => {
         const sub = ALL_ZONES.filter(z => z.category === cat);
         const p1 = sub.filter(z => z.phase === "Phase 1").length;
         const p2 = sub.filter(z => z.phase === "Phase 2").length;
-        const openPct = Math.round((sub.filter(z => z.emdTier === "OPEN").length / sub.length) * 100);
-        const avgScore = (sub.reduce((s, z) => s + z.roiScore, 0) / sub.length).toFixed(1);
-        const avgInc = Math.round(sub.reduce((s, z) => s + z.income, 0) / sub.length);
-        const avgCpl = Math.round(sub.reduce((s, z) => s + z.estCpl, 0) / sub.length);
+        const openPct = sub.length ? Math.round((sub.filter(z => z.emdTier === "OPEN").length / sub.length) * 100) : 0;
+        const avgScore = sub.length ? (sub.reduce((s, z) => s + z.roiScore, 0) / sub.length).toFixed(1) : "0.0";
+        const avgInc = sub.length ? Math.round(sub.reduce((s, z) => s + z.income, 0) / sub.length) : 0;
+        const avgCpl = sub.length ? Math.round(sub.reduce((s, z) => s + z.estCpl, 0) / sub.length) : 0;
         const rentSum = sub.reduce((s, z) => s + z.estMonthlyRent, 0);
 
         let done = 0, cln = 0, qcl = 0;
@@ -1435,56 +1479,23 @@
           </tr>
         `;
       }).join("");
-      document.getElementById("categoryRollupBody").innerHTML = catGroups;
-
-      // Tab 2B: Phase Rollup
-      const phaseGroups = ["Phase 1", "Phase 2"].map(ph => {
-        const sub = ALL_ZONES.filter(z => z.phase === ph);
-        const ext = sub.filter(z => z.category === "Exterior").length;
-        const intc = sub.filter(z => z.category === "Interior").length;
-        const avgScore = (sub.reduce((s, z) => s + z.roiScore, 0) / sub.length).toFixed(1);
-        const avgInc = Math.round(sub.reduce((s, z) => s + z.income, 0) / sub.length);
-        const avgCpl = Math.round(sub.reduce((s, z) => s + z.estCpl, 0) / sub.length);
-        const rentSum = sub.reduce((s, z) => s + z.estMonthlyRent, 0);
-
-        let done = 0, cln = 0, qcl = 0;
-        sub.forEach(z => {
-          const r = getZoneCompletionRecord(z);
-          if (r.dateCompleted || r.completedBy) done++;
-          if (r.completedBy === "CLN") cln++;
-          if (r.completedBy === "QCL") qcl++;
-        });
-
-        return `
-          <tr class="hover:bg-slate-50">
-            <td class="py-3 px-4 font-extrabold text-slate-900">${ph === "Phase 1" ? "Phase 1 — Cash-Flow Starters (Open/Variant EMD & ≤20 Reviews)" : "Phase 2 — High-Ceiling Metro Expansion"}</td>
-            <td class="py-3 px-3 text-right font-bold">${sub.length}</td>
-            <td class="py-3 px-3 text-right text-slate-700">${ext} Ext / ${intc} Int</td>
-            <td class="py-3 px-3 text-right font-extrabold text-indigo-600">${avgScore}</td>
-            <td class="py-3 px-3 text-right font-semibold">$${avgInc.toLocaleString()}</td>
-            <td class="py-3 px-3 text-right font-bold text-blue-600">$${avgCpl}</td>
-            <td class="py-3 px-3 text-right font-semibold">${done} (${cln} CLN / ${qcl} QCL)</td>
-            <td class="py-3 px-4 text-right font-extrabold text-emerald-600">$${rentSum.toLocaleString()}/mo</td>
-          </tr>
-        `;
-      }).join("");
-      document.getElementById("phaseRollupBody").innerHTML = phaseGroups;
+      const catBodyEl = document.getElementById("categoryRollupBody");
+      if (catBodyEl) catBodyEl.innerHTML = catGroups;
 
       // Tab 3: Niche Economics (All 11 Niches)
       const nicheRows = NICHES.map(n => {
         const sub = ALL_ZONES.filter(z => z.nicheId === n.id);
         const count = sub.length;
-        const openPct = count ? Math.round((sub.filter(z => z.emdTier === "OPEN").length / count) * 100) : 0;
         const avgScore = count ? (sub.reduce((s, z) => s + z.roiScore, 0) / count).toFixed(1) : "0.0";
         const avgCpl = count ? Math.round(sub.reduce((s, z) => s + z.estCpl, 0) / count) : 0;
-        const avgRent = count ? Math.round(sub.reduce((s, z) => s + z.estMonthlyRent, 0) / count) : 0;
+        const popSum = sub.reduce((s, z) => s + z.zonePop, 0);
         const rentSum = sub.reduce((s, z) => s + z.estMonthlyRent, 0);
         const done = sub.filter(z => {
           const r = getZoneCompletionRecord(z);
           return Boolean(r.dateCompleted || r.completedBy);
         }).length;
 
-        return { n, count, openPct, avgScore, avgCpl, avgRent, rentSum, done };
+        return { n, count, avgScore, avgCpl, popSum, rentSum, done };
       })
         .sort((a, b) => b.rentSum - a.rentSum)
         .map(row => `
@@ -1496,18 +1507,18 @@
               </span>
             </td>
             <td class="py-3 px-3 text-right font-bold">${row.count}</td>
-            <td class="py-3 px-3 text-right font-bold text-emerald-700">${row.openPct}%</td>
+            <td class="py-3 px-3 text-right font-semibold">${row.done} / ${row.count}</td>
             <td class="py-3 px-3 text-right font-extrabold text-indigo-600">${row.avgScore}</td>
             <td class="py-3 px-3 text-slate-600 text-xs">$${row.n.minTicket.toLocaleString()}–$${row.n.maxTicket.toLocaleString()}</td>
             <td class="py-3 px-3 text-right font-bold text-blue-600">$${row.avgCpl}</td>
-            <td class="py-3 px-3 text-right font-semibold text-slate-800">$${row.avgRent.toLocaleString()}/mo</td>
-            <td class="py-3 px-3 text-right font-semibold">${row.done} / ${row.count}</td>
+            <td class="py-3 px-3 text-right text-slate-700">${row.popSum.toLocaleString()}</td>
             <td class="py-3 px-4 text-right font-extrabold text-emerald-600">$${row.rentSum.toLocaleString()}/mo</td>
           </tr>
         `).join("");
-      document.getElementById("nicheRollupBody").innerHTML = nicheRows;
+      const nicheBodyEl = document.getElementById("nicheRollupBody");
+      if (nicheBodyEl) nicheBodyEl.innerHTML = nicheRows;
 
-      // Tab 4: State Clusters
+      // Tab 4: State Clusters (Sorted by Total Addressable Population)
       const statesMap = {};
       ALL_ZONES.forEach(z => {
         if (!statesMap[z.state]) statesMap[z.state] = [];
@@ -1528,20 +1539,20 @@
           }).length;
           return { st, count: sub.length, ext, intc, popSum, avgInc, avgScore, rentSum, done };
         })
-        .sort((a, b) => b.rentSum - a.rentSum)
+        .sort((a, b) => b.popSum - a.popSum)
         .map(r => `
           <tr class="hover:bg-slate-50">
             <td class="py-3 px-4 font-extrabold text-slate-900">${r.st}</td>
-            <td class="py-3 px-3 text-right font-bold">${r.count}</td>
-            <td class="py-3 px-3 text-right text-slate-700">${r.ext} Ext / ${r.intc} Int</td>
-            <td class="py-3 px-3 text-right text-slate-700">${r.popSum.toLocaleString()}</td>
-            <td class="py-3 px-3 text-right font-semibold">$${r.avgInc.toLocaleString()}</td>
-            <td class="py-3 px-3 text-right font-extrabold text-indigo-600">${r.avgScore}</td>
+            <td class="py-3 px-3 text-right font-bold">${r.count} <span class="text-xs font-normal text-slate-500">(${r.ext} Ext / ${r.intc} Int)</span></td>
             <td class="py-3 px-3 text-right font-semibold">${r.done} / ${r.count}</td>
+            <td class="py-3 px-3 text-right font-extrabold text-indigo-600">${r.avgScore}</td>
+            <td class="py-3 px-3 text-right font-semibold">$${r.avgInc.toLocaleString()}</td>
+            <td class="py-3 px-3 text-right font-bold text-slate-800">${r.popSum.toLocaleString()}</td>
             <td class="py-3 px-4 text-right font-extrabold text-emerald-600">$${r.rentSum.toLocaleString()}/mo</td>
           </tr>
         `).join("");
-      document.getElementById("stateRollupBody").innerHTML = stateRows;
+      const stateBodyEl = document.getElementById("stateRollupBody");
+      if (stateBodyEl) stateBodyEl.innerHTML = stateRows;
     }
 
     function refreshAllUI() {
@@ -1554,47 +1565,43 @@
     // 8. TAB SWITCHING & CLIPBOARD HELPER
     // =========================================================================
     function switchTab(tabId) {
+      if (!tabId) return;
       activeTab = tabId;
-      ["tab1", "tab2", "tab3", "tab4"].forEach(id => {
-        const panel = document.getElementById(`${id}Panel`);
-        const btn = document.getElementById(`${id}Btn`);
-        if (id === tabId) {
+
+      document.querySelectorAll(".tab-panel-section").forEach(panel => {
+        if (panel.id === tabId) {
           panel.classList.remove("hidden");
-          btn.className = "px-4 py-2 rounded-xl text-xs sm:text-sm font-bold bg-slate-900 text-white shadow-sm transition cursor-pointer";
         } else {
           panel.classList.add("hidden");
-          btn.className = "px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold bg-white text-slate-700 hover:bg-slate-100 border border-slate-200 transition cursor-pointer";
         }
       });
-    }
 
-    function showToast(icon, msg) {
-      const banner = document.getElementById("toastBanner");
-      document.getElementById("toastIcon").textContent = icon;
-      document.getElementById("toastMessage").textContent = msg;
-      banner.classList.remove("hidden");
-      banner.classList.add("flex");
-      clearTimeout(window._toastTimeout);
-      window._toastTimeout = setTimeout(() => {
-        banner.classList.add("hidden");
-        banner.classList.remove("flex");
-      }, 3200);
-    }
+      document.querySelectorAll(".tab-nav-btn").forEach(btn => {
+        const btnTab = btn.getAttribute("data-tab");
+        if (btnTab === tabId) {
+          btn.className = "tab-nav-btn px-4 py-2 rounded-xl text-xs sm:text-sm font-bold bg-slate-900 text-white shadow-sm transition cursor-pointer";
+        } else {
+          btn.className = "tab-nav-btn px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold bg-white text-slate-700 hover:bg-slate-100 border border-slate-200 transition cursor-pointer";
+        }
+      });
 
-    function copyTextToClipboard(text, toastLabel) {
-      const ta = document.createElement("textarea");
-      ta.value = text;
-      ta.style.position = "fixed";
-      ta.style.opacity = "0";
-      document.body.appendChild(ta);
-      ta.select();
-      try {
-        document.execCommand("copy");
-        showToast("📋", toastLabel || `Copied: ${text}`);
-      } catch (e) {
-        showToast("⚠️", "Copy failed — please copy manually");
+      const pill = document.getElementById("showingCountPill");
+      if (pill) {
+        if (tabId === "tab1") {
+          pill.textContent = `Showing ${filteredZones.length} of ${ALL_ZONES.length} Hub Zones`;
+        } else if (tabId === "tab2") {
+          pill.textContent = "Portfolio Phase & Category Breakdown (400 Zones)";
+        } else if (tabId === "tab3") {
+          pill.textContent = `All ${NICHES.length} Exterior & Interior Niches`;
+        } else if (tabId === "tab4") {
+          const stateCount = new Set(ALL_ZONES.map(z => z.state)).size;
+          pill.textContent = `${stateCount} States Ranked by Addressable Pop.`;
+        }
       }
-      document.body.removeChild(ta);
+
+      renderRollupTabs();
+    }
+    window.switchTab = switchTab;
     }
 
     // =========================================================================
@@ -1770,11 +1777,22 @@
     // 10. INITIALIZATION
     // =========================================================================
     window.addEventListener("DOMContentLoaded", () => {
-      document.getElementById("roomIdInput").value = currentRoomId;
+      const tabBar = document.getElementById("tabBarContainer");
+      if (tabBar) {
+        tabBar.addEventListener("click", (e) => {
+          const btn = e.target.closest("[data-tab]");
+          if (btn) {
+            switchTab(btn.getAttribute("data-tab"));
+          }
+        });
+      }
+
+      const roomInput = document.getElementById("roomIdInput");
+      if (roomInput) roomInput.value = currentRoomId;
       populateFilterDropdowns();
       refreshAllUI();
       fetchRoomData(false);
-      syncPollTimer = setInterval(() => fetchRoomData(false), 12000);
+      syncPollTimer = setInterval(() => fetchRoomData(false), 4000);
     });
   </script>
 </body>
