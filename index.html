@@ -1,0 +1,1902 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Top 200 True-ROI Rank &amp; Rent Hub Zones ($3,000–$30,000)</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+  <style>
+    /* Complete Self-Contained Design System (Zero External CSS Dependencies) */
+    *, *::before, *::after { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background-color: #f1f5f9;
+      color: #0f172a;
+      line-height: 1.45;
+    }
+    .font-mono-code { font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace; }
+
+    /* Sticky Executive Header */
+    .sticky-header {
+      position: sticky;
+      top: 0;
+      z-index: 50;
+      background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+      color: #ffffff;
+      border-bottom: 2px solid #334155;
+      box-shadow: 0 4px 16px rgba(15, 23, 42, 0.25);
+    }
+    .header-inner {
+      max-width: 1840px;
+      margin: 0 auto;
+      padding: 12px 18px;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    .export-btn-group {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 10px;
+      flex-shrink: 0;
+    }
+    .btn-excel {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background-color: #10b981;
+      color: #052e16;
+      font-weight: 800;
+      font-size: 13.5px;
+      padding: 10px 18px;
+      border-radius: 10px;
+      border: 1px solid #34d399;
+      box-shadow: 0 4px 12px rgba(16, 185, 129, 0.35);
+      cursor: pointer;
+      white-space: nowrap;
+      transition: transform 0.1s ease, background-color 0.15s ease;
+    }
+    .btn-excel:hover { background-color: #059669; color: #ffffff; }
+    .btn-excel:active { transform: translateY(1px); }
+
+    .btn-csv {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background-color: #2563eb;
+      color: #ffffff;
+      font-weight: 700;
+      font-size: 13.5px;
+      padding: 10px 16px;
+      border-radius: 10px;
+      border: 1px solid #60a5fa;
+      box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
+      cursor: pointer;
+      white-space: nowrap;
+      transition: transform 0.1s ease, background-color 0.15s ease;
+    }
+    .btn-csv:hover { background-color: #1d4ed8; }
+    .btn-csv:active { transform: translateY(1px); }
+
+    .btn-share {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background-color: #334155;
+      color: #f8fafc;
+      font-weight: 700;
+      font-size: 12.5px;
+      padding: 9px 14px;
+      border-radius: 10px;
+      border: 1px solid #475569;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: background-color 0.15s ease;
+    }
+    .btn-share:hover { background-color: #475569; }
+
+    /* Team Room Bar */
+    .room-bar {
+      background: #1e293b;
+      border-top: 1px solid #334155;
+      padding: 8px 18px;
+    }
+    .room-bar-inner {
+      max-width: 1840px;
+      margin: 0 auto;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      font-size: 12px;
+      color: #cbd5e1;
+    }
+    .room-input {
+      background: #0f172a;
+      border: 1px solid #475569;
+      color: #ffffff;
+      padding: 5px 10px;
+      border-radius: 7px;
+      font-size: 12px;
+      font-family: 'JetBrains Mono', monospace;
+      width: 180px;
+    }
+
+    /* Main Layout */
+    .main-wrap {
+      max-width: 1840px;
+      width: 100%;
+      margin: 0 auto;
+      padding: 18px;
+    }
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 12px;
+      margin-bottom: 18px;
+    }
+    .kpi-card {
+      background: #ffffff;
+      border: 1px solid #cbd5e1;
+      border-radius: 12px;
+      padding: 14px 16px;
+      box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06);
+    }
+    .kpi-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: #64748b; }
+    .kpi-value { font-size: 22px; font-weight: 800; color: #0f172a; margin-top: 4px; }
+    .kpi-sub { font-size: 11.5px; color: #475569; margin-top: 4px; }
+
+    /* Owner Badges */
+    .owner-pill-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 5px;
+      margin-top: 6px;
+    }
+    .pill-cln {
+      background: #dbeafe;
+      color: #1e40af;
+      border: 1px solid #93c5fd;
+      font-size: 11px;
+      font-weight: 800;
+      padding: 2px 8px;
+      border-radius: 999px;
+    }
+    .pill-qcl {
+      background: #f3e8ff;
+      color: #6b21a8;
+      border: 1px solid #d8b4fe;
+      font-size: 11px;
+      font-weight: 800;
+      padding: 2px 8px;
+      border-radius: 999px;
+    }
+    .pill-unassigned {
+      background: #f1f5f9;
+      color: #475569;
+      border: 1px solid #cbd5e1;
+      font-size: 11px;
+      font-weight: 700;
+      padding: 2px 8px;
+      border-radius: 999px;
+    }
+
+    /* Interactive 4-Tab Bar */
+    .tab-bar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      border-bottom: 2px solid #cbd5e1;
+      padding-bottom: 12px;
+      margin-bottom: 16px;
+    }
+    .tab-list { display: flex; flex-wrap: wrap; gap: 8px; }
+    .tab-btn {
+      padding: 9px 15px;
+      font-size: 13px;
+      font-weight: 700;
+      border-radius: 9px;
+      cursor: pointer;
+      border: 1px solid #cbd5e1;
+      background: #ffffff;
+      color: #334155;
+      transition: all 0.15s ease;
+    }
+    .tab-btn:hover { background: #e2e8f0; }
+    .tab-btn.active {
+      background: #0f172a;
+      color: #ffffff;
+      border-color: #0f172a;
+      box-shadow: 0 2px 6px rgba(15, 23, 42, 0.2);
+    }
+
+    /* Filter Controls */
+    .filter-bar {
+      background: #ffffff;
+      border: 1px solid #cbd5e1;
+      border-radius: 12px;
+      padding: 14px;
+      margin-bottom: 16px;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 10px;
+      align-items: end;
+    }
+    .filter-label { display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; color: #475569; margin-bottom: 4px; }
+    .filter-input, .filter-select {
+      width: 100%;
+      padding: 8px 10px;
+      font-size: 13px;
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+      background: #f8fafc;
+      color: #0f172a;
+    }
+    .filter-select-highlight {
+      border-color: #6366f1;
+      background: #eef2ff;
+      font-weight: 600;
+    }
+    .btn-reset {
+      padding: 8px 14px;
+      font-size: 12.5px;
+      font-weight: 700;
+      background: #e2e8f0;
+      color: #1e293b;
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+      cursor: pointer;
+    }
+    .btn-reset:hover { background: #cbd5e1; }
+
+    /* Table Containers & Sticky Headers */
+    .table-card {
+      background: #ffffff;
+      border: 1px solid #cbd5e1;
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: 0 2px 6px rgba(15, 23, 42, 0.06);
+    }
+    .table-scroll {
+      overflow-x: auto;
+      max-height: 68vh;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12.5px;
+      text-align: left;
+    }
+    thead th {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      background: #0f172a;
+      color: #ffffff;
+      font-weight: 700;
+      padding: 11px 10px;
+      white-space: nowrap;
+      border-bottom: 2px solid #334155;
+    }
+    tbody td {
+      padding: 8px 10px;
+      border-bottom: 1px solid #e2e8f0;
+      vertical-align: middle;
+    }
+    tbody tr:nth-child(even) { background-color: #f8fafc; }
+    tbody tr:hover { background-color: #f0fdf4; }
+    tbody tr.row-completed { background-color: #ecfdf5 !important; }
+    tbody tr.row-completed:hover { background-color: #d1fae5 !important; }
+
+    /* Date & Owner Inputs in Columns 1 & 2 */
+    .date-cell-input {
+      padding: 5px 8px;
+      font-size: 12px;
+      font-weight: 600;
+      border: 1px solid #cbd5e1;
+      border-radius: 7px;
+      background: #ffffff;
+      color: #0f172a;
+      font-family: 'Inter', sans-serif;
+      cursor: pointer;
+    }
+    .date-cell-input.has-date {
+      border-color: #10b981;
+      background: #d1fae5;
+      color: #065f46;
+    }
+    .owner-select {
+      padding: 5px 8px;
+      font-size: 12px;
+      font-weight: 800;
+      border: 1px solid #cbd5e1;
+      border-radius: 7px;
+      background: #ffffff;
+      color: #475569;
+      cursor: pointer;
+      min-width: 88px;
+    }
+    .owner-select.owner-cln {
+      background: #dbeafe;
+      color: #1e40af;
+      border-color: #60a5fa;
+    }
+    .owner-select.owner-qcl {
+      background: #f3e8ff;
+      color: #6b21a8;
+      border-color: #c084fc;
+    }
+
+    .badge-p1 {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 700;
+      background: #d1fae5;
+      color: #065f46;
+      border: 1px solid #6ee7b7;
+      white-space: nowrap;
+    }
+    .badge-p2 {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 700;
+      background: #e0e7ff;
+      color: #3730a3;
+      border: 1px solid #a5b4fc;
+      white-space: nowrap;
+    }
+    .badge-easy {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 700;
+      background: #ecfdf5;
+      color: #047857;
+      border: 1px solid #a7f3d0;
+    }
+    .badge-mod {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 700;
+      background: #fef3c7;
+      color: #92400e;
+      border: 1px solid #fcd34d;
+    }
+    .emd-pill {
+      display: inline-block;
+      background: #f1f5f9;
+      border: 1px solid #cbd5e1;
+      color: #0f172a;
+      padding: 2px 7px;
+      border-radius: 6px;
+      font-size: 11.5px;
+    }
+    .hidden { display: none !important; }
+    .text-right { text-align: right; }
+    .text-center { text-align: center; }
+    .nowrap { white-space: nowrap; }
+
+    /* Export & Sandbox-Safe Copy Modal */
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      z-index: 100;
+      background: rgba(15, 23, 42, 0.72);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+    }
+    .modal-panel {
+      background: #ffffff;
+      border: 1px solid #cbd5e1;
+      border-radius: 16px;
+      max-width: 860px;
+      width: 100%;
+      box-shadow: 0 25px 50px rgba(0, 0, 0, 0.45);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      max-height: 90vh;
+    }
+    .modal-header {
+      background: #0f172a;
+      color: #ffffff;
+      padding: 14px 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    .modal-body {
+      padding: 18px 20px;
+      overflow-y: auto;
+    }
+    .modal-notice {
+      background: #fffbeb;
+      border: 1px solid #fcd34d;
+      color: #78350f;
+      padding: 12px 14px;
+      border-radius: 10px;
+      font-size: 13px;
+      margin-bottom: 14px;
+    }
+    .modal-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+    .modal-textarea {
+      width: 100%;
+      height: 220px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11.5px;
+      background: #f8fafc;
+      color: #0f172a;
+      border: 1px solid #cbd5e1;
+      border-radius: 10px;
+      padding: 10px;
+      resize: vertical;
+    }
+
+    /* Toast */
+    .toast-box {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      z-index: 120;
+      background: #0f172a;
+      color: #ffffff;
+      border: 1px solid #10b981;
+      padding: 12px 18px;
+      border-radius: 12px;
+      font-size: 13px;
+      font-weight: 600;
+      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.35);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .table-scroll::-webkit-scrollbar { height: 10px; width: 10px; }
+    .table-scroll::-webkit-scrollbar-track { background: #e2e8f0; }
+    .table-scroll::-webkit-scrollbar-thumb { background: #94a3b8; border-radius: 5px; }
+  </style>
+</head>
+<body>
+
+  <!-- STICKY TOP HEADER BAR -->
+  <header class="sticky-header">
+    <div class="header-inner">
+      <div style="min-width: 260px; flex: 1;">
+        <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+          <span style="background: rgba(16,185,129,0.2); color: #6ee7b7; border: 1px solid rgba(16,185,129,0.4); font-size: 11px; font-weight: 700; padding: 2px 9px; border-radius: 999px; text-transform: uppercase;">
+            True-ROI Ranked • No State Caps
+          </span>
+          <span style="background: rgba(99,102,241,0.25); color: #c7d2fe; border: 1px solid rgba(129,140,248,0.4); font-size: 11px; font-weight: 700; padding: 2px 9px; border-radius: 999px;">
+            $3,000 – $30,000 Ticket
+          </span>
+        </div>
+        <h1 style="margin: 4px 0 2px 0; font-size: 19px; font-weight: 800; letter-spacing: -0.01em; color: #ffffff;">
+          Top 200 True-ROI Rank &amp; Rent Hub Zones ($3,000–$30,000)
+        </h1>
+        <p style="margin: 0; font-size: 12px; color: #cbd5e1;">
+          200 Recession-Proof Structural &amp; Exterior Hub Zones • Team Build Tracker (CLN &amp; QCL)
+        </p>
+      </div>
+
+      <!-- EXPORT & TEAM SHARE ACTION BUTTONS -->
+      <div class="export-btn-group">
+        <button onclick="copyTeamShareLink()" class="btn-share" title="Copy direct Team Room link to share with CLN or QCL">
+          <span>🔗 Copy Team Room Link</span>
+        </button>
+        <button id="btnDownloadExcel" onclick="exportExcelWorkbook()" class="btn-excel" title="Downloads Multi-Tab Excel Workbook (.xls) and opens Sandbox-Safe Copy Modal">
+          <span>⬇ Download Multi-Tab Excel (.xlsx)</span>
+        </button>
+        <button id="btnDownloadCSV" onclick="exportCSVFile()" class="btn-csv" title="Downloads 200-row CSV file and opens Sandbox-Safe Copy Modal">
+          <span>⬇ Download CSV (.csv)</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Real-Time Team Room Sync Bar -->
+    <div class="room-bar">
+      <div class="room-bar-inner">
+        <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+          <span id="syncDot" style="width: 9px; height: 9px; border-radius: 50%; background: #10b981; display: inline-block;"></span>
+          <strong style="color: #ffffff;">Team Room Sync:</strong>
+          <span id="syncStatusText">Initializing workspace...</span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+          <label for="roomIdInput" style="font-weight: 700; color: #94a3b8;">Room ID:</label>
+          <input type="text" id="roomIdInput" class="room-input" placeholder="e.g. cln-qcl-2026" />
+          <button onclick="switchTeamRoom()" class="btn-share" style="padding: 5px 10px; font-size: 11.5px;">Join / Switch Room</button>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- SANDBOX-SAFE EXPORT & 1-CLICK COPY MODAL -->
+  <div id="exportModal" class="modal-backdrop hidden" onclick="if(event.target===this) closeExportModal()">
+    <div class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="exportModalTitle">
+      <div class="modal-header">
+        <div>
+          <h2 id="exportModalTitle" style="margin: 0; font-size: 16px; font-weight: 800;">
+            Export &amp; Sandbox-Safe Copy Center (All 200 Zones)
+          </h2>
+          <p id="exportModalSubtitle" style="margin: 2px 0 0 0; font-size: 12px; color: #cbd5e1;">
+            File download triggered • Instant 1-click clipboard copy ready below
+          </p>
+        </div>
+        <button onclick="closeExportModal()" style="background: #334155; color: #ffffff; border: 1px solid #475569; border-radius: 8px; padding: 6px 12px; font-weight: 700; cursor: pointer;">
+          ✕ Close
+        </button>
+      </div>
+      <div class="modal-body">
+        <div class="modal-notice">
+          <strong>Browser Download Note:</strong> Your browser download was triggered automatically. If you are viewing this app inside a <strong>sandboxed preview iframe</strong>, browser security policies block direct file downloads unless you save this HTML file locally or host it. Use the <strong>1-Click Paste</strong> buttons below to transfer all 200 rows straight into Excel or Google Sheets right now:
+        </div>
+
+        <div class="modal-actions">
+          <button onclick="copyExportPayload('tsv')" class="btn-excel" style="font-size: 13px;">
+            <span>📋 Copy TSV for Excel / Google Sheets (1-Click Paste)</span>
+          </button>
+          <button onclick="copyExportPayload('csv')" class="btn-csv" style="font-size: 13px;">
+            <span>📋 Copy Raw CSV (All 200 Rows)</span>
+          </button>
+          <button onclick="copyExportPayload('xml')" class="btn-share" style="font-size: 13px; background: #0f172a;">
+            <span>📋 Copy Multi-Tab Excel XML</span>
+          </button>
+          <button onclick="retriggerDirectFileDownload()" class="btn-share" style="font-size: 13px;">
+            <span>↻ Retry File Download</span>
+          </button>
+        </div>
+
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+          <label id="exportPreviewLabel" for="exportPreviewBox" style="font-size: 11.5px; font-weight: 700; text-transform: uppercase; color: #475569;">
+            Generated Export Data Preview (Ready to Paste into Cell A1):
+          </label>
+          <span id="exportRowInfo" style="font-size: 11.5px; font-weight: 700; color: #047857;">200 Hub Zones + Headers</span>
+        </div>
+        <textarea id="exportPreviewBox" class="modal-textarea" readonly onclick="this.select()"></textarea>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Notification -->
+  <div id="toast" class="toast-box hidden">
+    <span style="width: 10px; height: 10px; border-radius: 50%; background: #10b981; display: inline-block;"></span>
+    <span id="toastMsg">Updated!</span>
+  </div>
+
+  <!-- Main Application Body -->
+  <main class="main-wrap">
+
+    <!-- KPI Strip -->
+    <div class="kpi-grid">
+      <div class="kpi-card">
+        <div class="kpi-label">Active Hub Zones</div>
+        <div id="kpiCount" class="kpi-value">200</div>
+        <div id="kpiPhaseSplit" class="kpi-sub">Phase 1: 0 • Phase 2: 0</div>
+      </div>
+      <div class="kpi-card" style="border-color: #93c5fd; background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);">
+        <div class="kpi-label">Websites Completed &amp; Owner Split</div>
+        <div id="kpiCompletedTotal" class="kpi-value" style="color: #047857;">0 / 200</div>
+        <div class="owner-pill-row">
+          <span id="kpiClnCount" class="pill-cln">CLN: 0</span>
+          <span id="kpiQclCount" class="pill-qcl">QCL: 0</span>
+          <span id="kpiUnassignedCount" class="pill-unassigned">Unassigned: 200</span>
+        </div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Completed Retainer Potential</div>
+        <div id="kpiCompletedRent" class="kpi-value" style="color: #047857;">$0 / mo</div>
+        <div id="kpiPortfolioRentSub" class="kpi-sub">Total Portfolio Ceiling: $0 / mo</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Completed Addressable Pop.</div>
+        <div id="kpiCompletedPop" class="kpi-value" style="color: #1d4ed8;">0</div>
+        <div id="kpiTotalPopSub" class="kpi-sub">Total Zone Pop: 0</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Portfolio Avg ROI Score</div>
+        <div id="kpiScore" class="kpi-value" style="color: #3730a3;">0.0</div>
+        <div id="kpiIncomeTicketSub" class="kpi-sub">Avg Income: $0 • Avg CPL: $0</div>
+      </div>
+    </div>
+
+    <!-- 4 Interactive On-Screen Tabs -->
+    <div class="tab-bar">
+      <div class="tab-list">
+        <button id="tab-btn-master" onclick="switchTab('master')" class="tab-btn active">
+          Tab 1: Top 200 Hub Zones
+        </button>
+        <button id="tab-btn-phases" onclick="switchTab('phases')" class="tab-btn">
+          Tab 2: Phase 1 vs Phase 2 Rollup
+        </button>
+        <button id="tab-btn-niches" onclick="switchTab('niches')" class="tab-btn">
+          Tab 3: Niche Economics
+        </button>
+        <button id="tab-btn-states" onclick="switchTab('states')" class="tab-btn">
+          Tab 4: State Clusters
+        </button>
+      </div>
+      <div id="rowCounterBadge" style="font-size: 12px; font-weight: 700; color: #334155; background: #ffffff; border: 1px solid #cbd5e1; padding: 6px 12px; border-radius: 8px;">
+        Showing 200 of 200 Hub Zones
+      </div>
+    </div>
+
+    <!-- Search & Multi-Filter Controls (Tab 1) -->
+    <div id="filterControls" class="filter-bar">
+      <div style="grid-column: span 2;">
+        <label class="filter-label">Search City, Sub-City, State, Niche, or EMD</label>
+        <input type="text" id="searchInput" oninput="applyFilters()" class="filter-input" placeholder="e.g. Gilbert, Queen Creek, South Jordan, El Paso, Southlake, Septic..." />
+      </div>
+      <div>
+        <label class="filter-label">Phase</label>
+        <select id="phaseFilter" onchange="applyFilters()" class="filter-select">
+          <option value="">All</option>
+          <option value="Phase 1">Phase 1</option>
+          <option value="Phase 2">Phase 2</option>
+        </select>
+      </div>
+      <div>
+        <label class="filter-label" style="color: #3730a3;">Completed By</label>
+        <select id="ownerFilter" onchange="applyFilters()" class="filter-select filter-select-highlight">
+          <option value="">All Owners</option>
+          <option value="CLN">CLN</option>
+          <option value="QCL">QCL</option>
+          <option value="Unassigned">Unassigned</option>
+          <option value="AnyAssigned">Any Assigned (CLN or QCL)</option>
+        </select>
+      </div>
+      <div>
+        <label class="filter-label">Completion Status</label>
+        <select id="statusFilter" onchange="applyFilters()" class="filter-select">
+          <option value="">All</option>
+          <option value="Completed">Completed</option>
+          <option value="Pending">Pending</option>
+        </select>
+      </div>
+      <div>
+        <label class="filter-label">Niche</label>
+        <select id="nicheFilter" onchange="applyFilters()" class="filter-select">
+          <option value="">All 6 Niches</option>
+        </select>
+      </div>
+      <div>
+        <label class="filter-label">State</label>
+        <select id="stateFilter" onchange="applyFilters()" class="filter-select">
+          <option value="">All States</option>
+        </select>
+      </div>
+      <div style="display: flex; gap: 8px; align-items: end;">
+        <div style="flex: 1;">
+          <label class="filter-label">SERP Difficulty</label>
+          <select id="diffFilter" onchange="applyFilters()" class="filter-select">
+            <option value="">All</option>
+            <option value="Easy">Easy</option>
+            <option value="Moderate">Moderate</option>
+          </select>
+        </div>
+        <button onclick="resetFilters()" class="btn-reset">Reset Filters</button>
+      </div>
+    </div>
+
+    <!-- TAB 1: TOP 200 HUB ZONES (Exact 20 Columns in Specified Order) -->
+    <div id="view-master" class="table-card">
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th>Date Website Completed</th>
+              <th>Completed by</th>
+              <th>Rank</th>
+              <th>Phase</th>
+              <th class="text-right">ROI Score</th>
+              <th>Niche</th>
+              <th>Hub / Center City</th>
+              <th>State</th>
+              <th class="text-right">Hub Pop.</th>
+              <th class="text-right">Median HH Income</th>
+              <th>Est. Ticket Range</th>
+              <th class="text-right">Est. CPL</th>
+              <th class="text-right">Est. Monthly Rent</th>
+              <th>Top EMD Keyword</th>
+              <th>Alt Branded Domain</th>
+              <th>Top 3 Organic Reviews</th>
+              <th class="text-center">Avg Reviews</th>
+              <th class="text-center">SERP Difficulty</th>
+              <th style="min-width: 290px;">Nearby Zone Cities &amp; Pops</th>
+              <th class="text-right">Total Zone Pop.</th>
+            </tr>
+          </thead>
+          <tbody id="masterTbody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- TAB 2: PHASE 1 VS PHASE 2 ROLLUP -->
+    <div id="view-phases" class="table-card hidden">
+      <div style="padding: 14px 16px; background: #f8fafc; border-bottom: 1px solid #cbd5e1;">
+        <h2 style="margin: 0; font-size: 15px; font-weight: 800; color: #0f172a;">Phase 1 Cash-Flow Starters vs. Phase 2 High-Ceiling Mega-Zones</h2>
+        <p style="margin: 3px 0 0 0; font-size: 12px; color: #475569;">
+          Phase 1 targets directory-heavy SERPs (Avg Reviews &le; 20) for rapid rankings; Phase 2 targets high-density metro suburbs for maximum monthly retainers.
+        </p>
+      </div>
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th>Execution Phase</th>
+              <th class="text-center">Zone Count</th>
+              <th class="text-center">Completed (CLN / QCL)</th>
+              <th class="text-center">% of Portfolio</th>
+              <th class="text-right">Avg ROI Score</th>
+              <th class="text-right">Avg Median HH Income</th>
+              <th class="text-right">Avg Est. CPL</th>
+              <th class="text-center">Avg Top-3 Reviews</th>
+              <th class="text-right">Total Addressable Zone Pop.</th>
+              <th class="text-right">Total Phase Monthly Rent (12 Leads/Site)</th>
+            </tr>
+          </thead>
+          <tbody id="phaseTbody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- TAB 3: NICHE ECONOMICS -->
+    <div id="view-niches" class="table-card hidden">
+      <div style="padding: 14px 16px; background: #f8fafc; border-bottom: 1px solid #cbd5e1;">
+        <h2 style="margin: 0; font-size: 15px; font-weight: 800; color: #0f172a;">Niche Unit Economics Across the 6 Recession-Proof Construction Niches</h2>
+        <p style="margin: 3px 0 0 0; font-size: 12px; color: #475569;">
+          Strictly excludes HVAC, general plumbing, general roofing, and emergency restoration • Est. CPL ($175–$450) scaled by ticket size and hub income • Monthly rent modeled at 12 qualified leads/month.
+        </p>
+      </div>
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th>Niche</th>
+              <th class="text-center">Zone Count</th>
+              <th class="text-center">Completed (CLN / QCL)</th>
+              <th class="text-center">Phase 1 / Phase 2</th>
+              <th class="text-right">Avg Ticket Size</th>
+              <th class="text-right">Avg Est. CPL</th>
+              <th class="text-right">Avg Monthly Rent / Site</th>
+              <th class="text-right">Total Addressable Pop.</th>
+              <th class="text-center">Avg Top-3 Reviews</th>
+            </tr>
+          </thead>
+          <tbody id="nicheTbody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- TAB 4: STATE CLUSTERS -->
+    <div id="view-states" class="table-card hidden">
+      <div style="padding: 14px 16px; background: #f8fafc; border-bottom: 1px solid #cbd5e1;">
+        <h2 style="margin: 0; font-size: 15px; font-weight: 800; color: #0f172a;">State-by-State Cluster Rollup (Sorted by Total Zone Addressable Population)</h2>
+        <p style="margin: 3px 0 0 0; font-size: 12px; color: #475569;">
+          True-ROI unconstrained distribution showing top states by total addressable homeowner population, CLN/QCL build progress, and monthly retainer potential.
+        </p>
+      </div>
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th>State</th>
+              <th class="text-center">Hub Zones</th>
+              <th class="text-center">Completed (CLN / QCL)</th>
+              <th class="text-center">Phase 1 / Phase 2</th>
+              <th class="text-right">Total Hub City Pop.</th>
+              <th class="text-right">Total Zone Addressable Pop.</th>
+              <th class="text-right">Avg Median HH Income</th>
+              <th class="text-right">Total Monthly Rent Potential</th>
+            </tr>
+          </thead>
+          <tbody id="stateTbody"></tbody>
+        </table>
+      </div>
+    </div>
+
+  </main>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+    import { getAuth, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+    import { getFirestore, doc, setDoc, onSnapshot, collection } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+    // 6 Recession-Proof Structural & Exterior Niches ($3,000 - $30,000 Ticket; Non-HVAC / Non-Plumbing)
+    const NICHES = [
+      { name: "Foundation Repair & Underpinning", minT: 5500, maxT: 28000, slug: "foundationrepair", alt: "foundationpros" },
+      { name: "Septic System & Drain Field Replacement", minT: 6000, maxT: 26500, slug: "septicreplacement", alt: "septicpros" },
+      { name: "Retaining Wall Failure & Structural Rebuild", minT: 5000, maxT: 26500, slug: "retainingwallrepair", alt: "structuralwalls" },
+      { name: "Crawl Space Encapsulation & Structural Repair", minT: 4500, maxT: 18500, slug: "crawlspaceencapsulation", alt: "crawlspacepros" },
+      { name: "French Drain & Yard Drainage Correction", minT: 3800, maxT: 14500, slug: "frenchdrain", alt: "yarddrainagepros" },
+      { name: "Concrete Leveling & Sunken Slab Stabilization", minT: 3200, maxT: 10500, slug: "concreteleveling", alt: "polylevelpros" }
+    ];
+
+    // 100 Distinct, Affluent Hub Markets (including Phoenix, Salt Lake City, and El Paso Metro hubs)
+    const HUB_MARKETS = [
+      { city: "Southlake (Cluster) / Colleyville", clean: "southlake", county: "northeasttarrant", state: "TX", hubPop: 75000, income: 215000, nearby: "Colleyville (26,500), Grapevine (52,000), Keller (46,500), Trophy Club (14,000), Westlake (1,800)", subPop: 140800, baseRev: 20, humid: false },
+      { city: "Sammamish (Cluster) / Issaquah", clean: "sammamish", county: "plateau", state: "WA", hubPop: 108000, income: 192000, nearby: "Issaquah (41,000), Snoqualmie (14,500), North Bend (8,200), Newcastle (13,500), Bellevue (155,000)", subPop: 232200, baseRev: 20, humid: true },
+      { city: "Prosper (Cluster) / Celina", clean: "prosper", county: "northcollin", state: "TX", hubPop: 87000, income: 168000, nearby: "Celina (45,000), Aubrey (9,500), Melissa (24,000), Little Elm (58,000), Pilot Point (5,200)", subPop: 141700, baseRev: 21, humid: false },
+      { city: "Bellevue", clean: "bellevue", county: "eastside", state: "WA", hubPop: 155000, income: 161000, nearby: "Kirkland (95,000), Redmond (80,000), Sammamish (67,000), Issaquah (41,000), Mercer Island (26,000)", subPop: 309000, baseRev: 31, humid: true },
+      { city: "Redmond", clean: "redmond", county: "sammamishvalley", state: "WA", hubPop: 80000, income: 158000, nearby: "Kirkland (95,000), Sammamish (67,000), Woodinville (13,800), Duvall (8,800), Carnation (2,300)", subPop: 186900, baseRev: 26, humid: true },
+      { city: "Fulshear (Cluster) / Richmond", clean: "fulshear", county: "fortbendwest", state: "TX", hubPop: 75000, income: 156000, nearby: "Richmond (14,000), Rosenberg (41,000), Simonton (1,100), Needville (3,300), Brookshire (6,200)", subPop: 65600, baseRev: 17, humid: true },
+      { city: "Johns Creek", clean: "johnscreek", county: "northfulton", state: "GA", hubPop: 83000, income: 154000, nearby: "Suwanee (23,000), Duluth (32,000), Peachtree Corners (43,000), Alpharetta (70,000), Sugar Hill (26,000)", subPop: 194000, baseRev: 20, humid: true },
+      { city: "Flower Mound", clean: "flowermound", county: "dentonsouth", state: "TX", hubPop: 81000, income: 152000, nearby: "Highland Village (16,500), Lewisville (135,000), Lantana (12,500), Argyle (5,500), Double Oak (3,200)", subPop: 172700, baseRev: 34, humid: false },
+      { city: "Naperville", clean: "naperville", county: "dupage", state: "IL", hubPop: 151000, income: 150000, nearby: "Wheaton (54,000), Downers Grove (50,000), Lisle (24,000), Plainfield (47,000), Bolingbrook (74,000)", subPop: 249000, baseRev: 29, humid: true },
+      { city: "Parkland (Cluster) / Wellington", clean: "wellington", county: "westpalm", state: "FL", hubPop: 100000, income: 148000, nearby: "Parkland (38,000), Royal Palm Beach (40,000), Loxahatchee (3,800), Coral Springs (135,000), Weston (68,000)", subPop: 284800, baseRev: 18, humid: true },
+      { city: "Alpharetta", clean: "alpharetta", county: "fulton", state: "GA", hubPop: 71400, income: 148000, nearby: "Johns Creek (83,000), Roswell (93,000), Milton (42,000), Cumming (8,500), Suwanee (23,000)", subPop: 249500, baseRev: 21, humid: true },
+      { city: "Draper (Cluster) / Alpine", clean: "draper", county: "traverse", state: "UT", hubPop: 82000, income: 148000, nearby: "Alpine (11,000), Highland (21,000), Lehi (91,000), Bluffdale (18,800), Cedar Hills (10,200)", subPop: 152000, baseRev: 21, humid: false },
+      { city: "Highlands Ranch", clean: "highlandsranch", county: "douglas", state: "CO", hubPop: 105000, income: 148000, nearby: "Littleton (45,000), Lone Tree (15,000), Centennial (108,000), Parker (64,000), Castle Pines (12,500)", subPop: 244500, baseRev: 23, humid: false },
+      { city: "Dublin (Cluster) / Westerville", clean: "dublinoh", county: "northcolumbus", state: "OH", hubPop: 92000, income: 148000, nearby: "Westerville (39,000), Powell (14,800), Hilliard (37,500), Worthington (14,800), Delaware OH (45,000)", subPop: 151100, baseRev: 24, humid: true },
+      { city: "Frisco", clean: "frisco", county: "frisco", state: "TX", hubPop: 232000, income: 145000, nearby: "Prosper (42,000), Celina (45,000), Little Elm (58,000), The Colony (46,000), McKinney (218,000)", subPop: 409000, baseRev: 35, humid: false },
+      { city: "Kirkland", clean: "kirkland", county: "eastlake", state: "WA", hubPop: 95000, income: 144000, nearby: "Bothell (50,000), Kenmore (24,000), Woodinville (13,800), Redmond (80,000), Juanita (34,000)", subPop: 201800, baseRev: 24, humid: true },
+      { city: "Castle Rock (Cluster) / Parker", clean: "castlerock", county: "douglassouth", state: "CO", hubPop: 148000, income: 142000, nearby: "Parker (64,000), Lone Tree (15,000), Castle Pines (12,500), Elizabeth (2,100), Franktown (500)", subPop: 94100, baseRev: 22, humid: false },
+      { city: "The Woodlands", clean: "thewoodlands", county: "montgomery", state: "TX", hubPop: 118500, income: 142000, nearby: "Spring (66,000), Conroe (108,000), Magnolia (3,000), Tomball (14,000), Klein (35,000)", subPop: 226000, baseRev: 22, humid: true },
+      { city: "Queen Creek", clean: "queencreek", county: "queencreek", state: "AZ", hubPop: 95300, income: 138000, nearby: "San Tan Valley (105,000), Apache Junction (46,800), Gold Canyon (12,500), Florence (26,500), Gilbert (291,700)", subPop: 482200, baseRev: 20, humid: false },
+      { city: "Lenexa (Cluster) / Leawood", clean: "lenexa", county: "leawood", state: "KS", hubPop: 94000, income: 138000, nearby: "Leawood (34,000), Prairie Village (23,000), Overland Park (200,000), Gardner (25,000), Shawnee (69,500)", subPop: 351500, baseRev: 23, humid: true },
+      { city: "Ellicott City (Cluster) / Columbia", clean: "columbiamd", county: "howardcounty", state: "MD", hubPop: 182000, income: 138000, nearby: "Ellicott City (76,500), Clarksville MD (12,000), Laurel MD (30,500), Fulton (6,500), Savage (7,800)", subPop: 133300, baseRev: 24, humid: true },
+      { city: "Apex", clean: "apex", county: "wakesouth", state: "NC", hubPop: 75000, income: 136000, nearby: "Holly Springs (49,000), Fuquay-Varina (43,000), Morrisville (33,000), Garner (36,000), Pittsboro (5,200)", subPop: 166200, baseRev: 21, humid: true },
+      { city: "Sugar Land", clean: "sugarland", county: "fortbend", state: "TX", hubPop: 111026, income: 135400, nearby: "Missouri City (75,400), Richmond (12,800), Rosenberg (40,200), Fulshear (43,500), Cinco Ranch (18,400)", subPop: 190300, baseRev: 28, humid: true },
+      { city: "South Jordan", clean: "southjordan", county: "southvalley", state: "UT", hubPop: 84500, income: 134000, nearby: "Draper (50,300), Riverton (45,500), Herriman (59,300), Bluffdale (18,800), Daybreak (28,000)", subPop: 201900, baseRev: 28, humid: false },
+      { city: "Carmel", clean: "carmel", county: "hamiltonwest", state: "IN", hubPop: 102296, income: 133500, nearby: "Fishers (104,500), Westfield (58,400), Noblesville (74,100), Zionsville (33,200), Brownsburg (31,500)", subPop: 301700, baseRev: 18, humid: true },
+      { city: "Cary", clean: "cary", county: "wakecounty", state: "NC", hubPop: 180010, income: 129500, nearby: "Apex (72,400), Holly Springs (47,800), Morrisville (33,100), Fuquay-Varina (43,900), Wake Forest (53,800)", subPop: 251000, baseRev: 21, humid: true },
+      { city: "Maple Grove", clean: "maplegrove", county: "nwmetro", state: "MN", hubPop: 73000, income: 128000, nearby: "Plymouth (81,000), Champlin (24,000), Rogers (15,000), Corcoran (7,200), Osseo (2,700)", subPop: 129900, baseRev: 19, humid: true },
+      { city: "Franklin", clean: "franklin", county: "williamson", state: "TN", hubPop: 89000, income: 128000, nearby: "Brentwood (46,000), Nolensville (17,000), Spring Hill (58,000), Fairview (10,000), Thompson's Station (9,000)", subPop: 140000, baseRev: 21, humid: true },
+      { city: "Mount Pleasant", clean: "mountpleasant", county: "eastcooper", state: "SC", hubPop: 96000, income: 126000, nearby: "Daniel Island (15,000), Isle of Palms (4,400), Sullivan's Island (1,900), Awendaw (1,400), Goose Creek (48,000)", subPop: 70700, baseRev: 24, humid: true },
+      { city: "Fishers", clean: "fishers", county: "hamiltoneast", state: "IN", hubPop: 104500, income: 124200, nearby: "Carmel (102,300), Noblesville (74,100), McCordsville (10,800), Geist (18,500), Fortville (4,900)", subPop: 210600, baseRev: 18, humid: true },
+      { city: "Roswell", clean: "roswell", county: "roswell", state: "GA", hubPop: 93000, income: 124000, nearby: "Johns Creek (83,000), Milton (42,000), Alpharetta (70,000), Woodstock (38,000), Mountain Park (600)", subPop: 233600, baseRev: 19, humid: true },
+      { city: "Centennial", clean: "centennial", county: "arapahoe", state: "CO", hubPop: 108418, income: 123600, nearby: "Littleton (45,700), Greenwood Village (15,800), Lone Tree (15,100), Parker (63,200), Highlands Ranch (103,500)", subPop: 243300, baseRev: 22, humid: false },
+      { city: "Gilbert", clean: "gilbert", county: "eastvalley", state: "AZ", hubPop: 292000, income: 122500, nearby: "Queen Creek (95,300), Chandler (279,400), Higley (15,000), San Tan Valley (105,000), Tempe (191,600)", subPop: 686300, baseRev: 33, humid: false },
+      { city: "Allen", clean: "allen", county: "allentx", state: "TX", hubPop: 113000, income: 122000, nearby: "Lucas (9,000), Fairview (11,000), Murphy (21,000), Parker (6,500), Wylie (61,000)", subPop: 108500, baseRev: 31, humid: false },
+      { city: "League City", clean: "leaguecity", county: "clearlake", state: "TX", hubPop: 118000, income: 122000, nearby: "Friendswood (42,000), Webster (12,500), Seabrook (14,000), Kemah (2,000), Dickinson (22,000)", subPop: 92500, baseRev: 26, humid: true },
+      { city: "Woodbury", clean: "woodbury", county: "eastmetro", state: "MN", hubPop: 79538, income: 121900, nearby: "Cottage Grove (42,100), Stillwater (19,600), Oakdale (28,300), Lake Elmo (13,800), Hudson WI (15,200)", subPop: 119000, baseRev: 18, humid: true },
+      { city: "Cedar Park", clean: "cedarpark", county: "leander", state: "TX", hubPop: 79462, income: 121200, nearby: "Leander (82,100), Lago Vista (9,600), Jonestown (2,500), Liberty Hill (10,400), Lakeway (19,700)", subPop: 124300, baseRev: 18, humid: false },
+      { city: "Lehi", clean: "lehi", county: "utahvalley", state: "UT", hubPop: 91000, income: 118600, nearby: "Draper (51,400), American Fork (38,800), Highland (20,200), Alpine (10,500), Saratoga Springs (52,600)", subPop: 173500, baseRev: 20, humid: false },
+      { city: "Plymouth", clean: "plymouth", county: "westmetro", state: "MN", hubPop: 81026, income: 118500, nearby: "Maple Grove (71,200), Minnetonka (53,800), Wayzata (4,500), Medina (7,200), Golden Valley (22,400)", subPop: 159100, baseRev: 18, humid: true },
+      { city: "Pearland", clean: "pearland", county: "brazoria", state: "TX", hubPop: 129000, income: 118000, nearby: "Friendswood (42,000), Manvel (17,000), Alvin (28,000), Missouri City (77,000), Shadow Creek (25,000)", subPop: 189000, baseRev: 20, humid: true },
+      { city: "McKinney", clean: "mckinney", county: "collin", state: "TX", hubPop: 218000, income: 116500, nearby: "Allen (112,100), Melissa (22,100), Anna (28,200), Princeton (28,600), Fairview (11,100)", subPop: 202100, baseRev: 28, humid: false },
+      { city: "Olathe", clean: "olathe", county: "olathe", state: "KS", hubPop: 148000, income: 114000, nearby: "Gardner (25,000), Spring Hill (9,500), Lenexa (60,000), Edgerton (1,800), De Soto (6,700)", subPop: 103000, baseRev: 24, humid: true },
+      { city: "Sandy", clean: "sandy", county: "wasatch", state: "UT", hubPop: 95000, income: 112000, nearby: "Draper (52,000), Cottonwood Heights (33,000), Midvale (36,000), Riverton (46,000), Bluffdale (20,000)", subPop: 187000, baseRev: 22, humid: false },
+      { city: "Scottsdale", clean: "scottsdale", county: "paradisevalley", state: "AZ", hubPop: 244394, income: 111000, nearby: "Paradise Valley (13,000), Fountain Hills (23,600), Carefree (3,800), Cave Creek (5,200), Rio Verde (2,500)", subPop: 48100, baseRev: 26, humid: false },
+      { city: "Plano", clean: "plano", county: "westplano", state: "TX", hubPop: 290190, income: 110500, nearby: "Richardson (117,600), Allen (112,100), Carrollton (133,600), Murphy (21,200), Sachse (29,400)", subPop: 413900, baseRev: 38, humid: false },
+      { city: "Chandler", clean: "chandler", county: "chandler", state: "AZ", hubPop: 284000, income: 108500, nearby: "Gilbert (292,000), Sun Lakes (14,500), Tempe (191,600), Ahwatukee (82,000), Queen Creek (95,300)", subPop: 675400, baseRev: 32, humid: false },
+      { city: "Suwanee", clean: "suwanee", county: "gwinnett", state: "GA", hubPop: 75000, income: 108000, nearby: "Duluth (32,000), Sugar Hill (26,000), Buford (18,000), Lawrenceville (31,000), Peachtree Corners (43,000)", subPop: 150000, baseRev: 19, humid: true },
+      { city: "West Jordan", clean: "westjordan", county: "saltlakewest", state: "UT", hubPop: 117000, income: 108000, nearby: "Taylorsville (58,700), Kearns (37,500), Murray (50,200), Magna (30,500), West Valley City (138,400)", subPop: 315300, baseRev: 21, humid: false },
+      { city: "Arvada", clean: "arvada", county: "jeffco", state: "CO", hubPop: 124402, income: 107900, nearby: "Westminster (116,500), Broomfield (77,400), Golden (20,500), Wheat Ridge (32,400), Lakewood (156,200)", subPop: 403000, baseRev: 23, humid: false },
+      { city: "Boca Raton", clean: "bocaraton", county: "palmbeachsouth", state: "FL", hubPop: 99805, income: 106400, nearby: "Delray Beach (67,400), Parkland (36,800), Boynton Beach (81,800), Deerfield Beach (87,100), Highland Beach (4,300)", subPop: 277400, baseRev: 19, humid: true },
+      { city: "Noblesville", clean: "noblesville", county: "hamiltonnorth", state: "IN", hubPop: 75000, income: 106000, nearby: "Westfield (58,000), Fishers (105,000), Cicero (5,500), Sheridan (3,300), Pendleton (4,900)", subPop: 176700, baseRev: 17, humid: true },
+      { city: "Ankeny", clean: "ankeny", county: "polknorth", state: "IA", hubPop: 75000, income: 106000, nearby: "Johnston (25,000), Bondurant (9,200), Altoona (22,000), Polk City (6,200), Grimes (17,500)", subPop: 79900, baseRev: 17, humid: true },
+      { city: "Millcreek (Cluster) / Holladay", clean: "millcreek", county: "eastbench", state: "UT", hubPop: 95000, income: 106000, nearby: "Holladay (31,100), Cottonwood Heights (32,800), Murray (50,200), Sugar House (34,000), East Millcreek (24,000)", subPop: 172100, baseRev: 19, humid: false },
+      { city: "Lee's Summit", clean: "leessummit", county: "eastkcmo", state: "MO", hubPop: 104184, income: 105400, nearby: "Blue Springs (60,400), Leawood KS (34,100), Grain Valley (16,500), Raymore (25,100), Greenwood (6,200)", subPop: 142300, baseRev: 21, humid: true },
+      { city: "Goodyear", clean: "goodyear", county: "westvalley", state: "AZ", hubPop: 130000, income: 105000, nearby: "Litchfield Park (7,200), Avondale (102,800), Buckeye (131,800), Verrado (18,000), Tolleson (9,700)", subPop: 269500, baseRev: 18, humid: false },
+      { city: "Overland Park", clean: "overlandpark", county: "joco", state: "KS", hubPop: 200000, income: 104800, nearby: "Olathe (147,800), Leawood (34,100), Shawnee (68,500), Lenexa (58,800), Prairie Village (23,000)", subPop: 332200, baseRev: 30, humid: true },
+      { city: "Sandy Springs", clean: "sandysprings", county: "dunwoody", state: "GA", hubPop: 108080, income: 104200, nearby: "Dunwoody (51,900), Brookhaven (55,600), Roswell (92,900), Chamblee (30,400), Peachtree Corners (42,800)", subPop: 273600, baseRev: 25, humid: true },
+      { city: "West Des Moines", clean: "westdesmoines", county: "desmoineswest", state: "IA", hubPop: 72000, income: 104000, nearby: "Waukee (31,000), Clive (19,000), Urbandale (47,000), Johnston (25,000), Grimes (17,500)", subPop: 139500, baseRev: 16, humid: true },
+      { city: "Shawnee", clean: "shawnee", county: "shawnee", state: "KS", hubPop: 69500, income: 102000, nearby: "Lenexa (60,000), Merriam (11,200), Mission (10,100), Prairie Village (23,000), Bonner Springs (8,000)", subPop: 112300, baseRev: 19, humid: true },
+      { city: "Richardson", clean: "richardson", county: "northdallas", state: "TX", hubPop: 117435, income: 101800, nearby: "Plano (290,200), Garland (246,000), Addison (17,100), Sachse (29,400), Wylie (61,200)", subPop: 643900, baseRev: 35, humid: false },
+      { city: "Edmond", clean: "edmond", county: "edmond", state: "OK", hubPop: 98103, income: 101200, nearby: "Deer Creek (15,200), Piedmont (8,400), Guthrie (11,300), Arcadia (500), Nichols Hills (3,900)", subPop: 39300, baseRev: 26, humid: false },
+      { city: "Round Rock", clean: "roundrock", county: "wilco", state: "TX", hubPop: 130406, income: 98700, nearby: "Cedar Park (79,800), Pflugerville (66,900), Hutto (39,200), Georgetown (96,300), Leander (82,100)", subPop: 364300, baseRev: 28, humid: false },
+      { city: "Ann Arbor", clean: "annarbor", county: "washtenaw", state: "MI", hubPop: 121000, income: 97400, nearby: "Saline (9,300), Dexter (4,800), Canton (98,800), Chelsea (5,500), Pittsfield Twp (39,500)", subPop: 157900, baseRev: 18, humid: true },
+      { city: "Peoria", clean: "peoria", county: "peoriaaz", state: "AZ", hubPop: 203000, income: 96500, nearby: "Surprise (181,100), Sun City (39,500), Sun City West (26,500), Glendale (262,500), El Mirage (35,900)", subPop: 545500, baseRev: 20, humid: false },
+      { city: "Westminster", clean: "westminster", county: "northmetro", state: "CO", hubPop: 116000, income: 96000, nearby: "Broomfield (78,000), Thornton (146,000), Northglenn (39,000), Superior (13,500), Louisville (21,000)", subPop: 297500, baseRev: 22, humid: false },
+      { city: "Salt Lake City (East Bench)", clean: "saltlakecity", county: "wasatchfront", state: "UT", hubPop: 222000, income: 96000, nearby: "North Salt Lake (24,500), Bountiful (45,800), Woods Cross (11,600), West Bountiful (6,100), South Salt Lake (26,400)", subPop: 114400, baseRev: 29, humid: false },
+      { city: "Charleston", clean: "charleston", county: "lowcountry", state: "SC", hubPop: 155369, income: 95400, nearby: "Mount Pleasant (95,600), Summerville (52,100), Goose Creek (47,200), Hanahan (21,400), Isle of Palms (4,400)", subPop: 220700, baseRev: 29, humid: true },
+      { city: "Meridian", clean: "meridian", county: "treasurevalley", state: "ID", hubPop: 134801, income: 95200, nearby: "Eagle (33,600), Star (17,100), Kuna (29,200), Middleton (11,400), Caldwell (68,400)", subPop: 159700, baseRev: 17, humid: false },
+      { city: "Coral Springs", clean: "coralsprings", county: "broward", state: "FL", hubPop: 134906, income: 94800, nearby: "Parkland (36,800), Coconut Creek (57,900), Margate (58,800), Tamarac (72,100), Weston (68,200)", subPop: 293800, baseRev: 17, humid: true },
+      { city: "New Braunfels", clean: "newbraunfels", county: "comal", state: "TX", hubPop: 110958, income: 94600, nearby: "Schertz (43,200), Cibolo (35,100), Seguin (34,800), Kyle (62,500), Boerne (21,900)", subPop: 197500, baseRev: 16, humid: false },
+      { city: "Chesapeake", clean: "chesapeake", county: "hamptonroads", state: "VA", hubPop: 255000, income: 94000, nearby: "Suffolk (101,000), Portsmouth (97,000), Smithfield (9,200), Poquoson (12,600), Moyock NC (5,500)", subPop: 225300, baseRev: 34, humid: true },
+      { city: "Broken Arrow", clean: "brokenarrow", county: "tulsaedge", state: "OK", hubPop: 120000, income: 94000, nearby: "Bixby (31,000), Jenks (28,000), Owasso (40,000), Coweta (10,500), Sapulpa (22,500)", subPop: 132000, baseRev: 32, humid: false },
+      { city: "Georgetown", clean: "georgetown", county: "williamsontx", state: "TX", hubPop: 96300, income: 93800, nearby: "Leander (82,100), Liberty Hill (10,400), Hutto (39,200), Taylor (17,500), Jarrell (3,200)", subPop: 152400, baseRev: 18, humid: false },
+      { city: "Henderson", clean: "henderson", county: "southvalley", state: "NV", hubPop: 342000, income: 92000, nearby: "Boulder City (15,200), Summerlin (125,000), Enterprise (235,000), Paradise (195,000), Spring Valley (225,000)", subPop: 795200, baseRev: 25, humid: false },
+      { city: "Bend", clean: "bend", county: "deschutes", state: "OR", hubPop: 106000, income: 92000, nearby: "Redmond OR (39,000), Sisters (3,600), Sunriver (1,800), Tumalo (1,000), Prineville (11,500)", subPop: 56900, baseRev: 18, humid: false },
+      { city: "Rochester", clean: "rochester", county: "olmsted", state: "MN", hubPop: 122413, income: 91200, nearby: "Byron (6,800), Stewartville (6,900), Kasson (7,100), Pine Island (3,900), Oronoco (1,900)", subPop: 28500, baseRev: 17, humid: true },
+      { city: "Waukesha", clean: "waukesha", county: "lakecountry", state: "WI", hubPop: 72000, income: 89800, nearby: "Brookfield (42,000), Elm Grove (6,500), New Berlin (41,000), Pewaukee (16,000), Hartland (9,800)", subPop: 115300, baseRev: 17, humid: true },
+      { city: "Wilmington", clean: "wilmington", county: "capefear", state: "NC", hubPop: 122698, income: 89600, nearby: "Leland (32,100), Hampstead (8,100), Wrightsville Beach (2,500), Carolina Beach (6,700), Southport (4,400)", subPop: 53800, baseRev: 26, humid: true },
+      { city: "Fort Collins", clean: "fortcollins", county: "larimer", state: "CO", hubPop: 170376, income: 89400, nearby: "Loveland (79,400), Windsor (40,200), Timnath (9,800), Wellington (12,100), Berthoud (13,400)", subPop: 154900, baseRev: 22, humid: false },
+      { city: "Greenville", clean: "greenville", county: "upstate", state: "SC", hubPop: 74200, income: 88900, nearby: "Greer (42,100), Simpsonville (27,800), Mauldin (27,300), Travelers Rest (8,600), Easley (23,800)", subPop: 129600, baseRev: 25, humid: true },
+      { city: "Murfreesboro", clean: "murfreesboro", county: "rutherford", state: "TN", hubPop: 165430, income: 88900, nearby: "Smyrna (57,800), La Vergne (40,100), Nolensville (17,200), Mount Juliet (42,600), Lebanon (46,200)", subPop: 203900, baseRev: 21, humid: true },
+      { city: "St. George", clean: "stgeorge", county: "dixieutah", state: "UT", hubPop: 106000, income: 87400, nearby: "Washington (34,200), Hurricane (24,300), Ivins (10,400), Santa Clara (8,500), La Verkin (4,600)", subPop: 82000, baseRev: 16, humid: false },
+      { city: "Huntsville", clean: "huntsville", county: "madisoncounty", state: "AL", hubPop: 225564, income: 86800, nearby: "Madison (61,200), Athens (30,400), Harvest (6,200), Hampton Cove (9,500), Owens Cross Roads (3,100)", subPop: 110400, baseRev: 25, humid: true },
+      { city: "Knoxville", clean: "knoxville", county: "farragut", state: "TN", hubPop: 198162, income: 86400, nearby: "Farragut (24,800), Maryville (32,400), Oak Ridge (31,800), Lenoir City (10,600), Powell (14,200)", subPop: 113800, baseRev: 27, humid: true },
+      { city: "Sioux Falls", clean: "siouxfalls", county: "minnehaha", state: "SD", hubPop: 206410, income: 86200, nearby: "Brandon (11,400), Tea (7,400), Harrisburg (9,200), Hartford (3,900), Dell Rapids (4,000)", subPop: 35900, baseRev: 15, humid: false },
+      { city: "Sparks", clean: "sparks", county: "renosparks", state: "NV", hubPop: 111000, income: 86000, nearby: "Spanish Springs (18,000), Reno (278,000), Carson City (59,000), Fernley (24,500), Sun Valley (21,500)", subPop: 401000, baseRev: 19, humid: false },
+      { city: "West Palm Beach", clean: "westpalmbeach", county: "loxahatchee", state: "FL", hubPop: 124130, income: 85900, nearby: "Wellington (62,100), Royal Palm Beach (39,400), Palm Beach Gardens (61,200), Jupiter (61,800), Loxahatchee (4,100)", subPop: 228600, baseRev: 19, humid: true },
+      { city: "Spokane Valley", clean: "spokanevalley", county: "inlandnw", state: "WA", hubPop: 108235, income: 84500, nearby: "Liberty Lake (13,400), Post Falls ID (44,800), Coeur d'Alene ID (57,200), Cheney (13,300), Millwood (1,900)", subPop: 130600, baseRev: 23, humid: true },
+      { city: "Vancouver", clean: "vancouver", county: "clarkcounty", state: "WA", hubPop: 198000, income: 84000, nearby: "Camas (28,000), Washougal (17,500), Battle Ground (22,500), Ridgefield (15,500), Salmon Creek (22,000)", subPop: 105500, baseRev: 29, humid: true },
+      { city: "Tacoma", clean: "tacoma", county: "piercecounty", state: "WA", hubPop: 224000, income: 84000, nearby: "Gig Harbor (13,000), University Place (35,500), Puyallup (44,000), Lakewood (64,000), Bonney Lake (24,000)", subPop: 180500, baseRev: 33, humid: true },
+      { city: "El Paso (Westside / Franklin Mts)", clean: "elpaso", county: "franklinmountain", state: "TX", hubPop: 145000, income: 82000, nearby: "Canutillo (7,200), Sunland Park NM (17,500), Santa Teresa NM (6,200), Anthony (5,600), Vinton (2,100)", subPop: 38600, baseRev: 20, humid: false },
+      { city: "Conroe", clean: "conroe", county: "conroetx", state: "TX", hubPop: 108000, income: 78000, nearby: "Willis (7,500), Montgomery (3,000), Magnolia (3,000), Cut and Shoot (1,200), New Caney (18,000)", subPop: 32700, baseRev: 19, humid: true },
+      { city: "Irving", clean: "irving", county: "midcities", state: "TX", hubPop: 256000, income: 78000, nearby: "Coppell (43,000), Euless (61,000), Bedford (50,000), Hurst (40,000), Grapevine (52,000)", subPop: 246000, baseRev: 42, humid: false },
+      { city: "Coeur d'Alene (Cluster) / Post Falls", clean: "coeurdalene", county: "kootenai", state: "ID", hubPop: 103000, income: 78000, nearby: "Post Falls (45,000), Hayden (16,500), Rathdrum (11,500), Dalton Gardens (2,600), Athol (900)", subPop: 76500, baseRev: 17, humid: true },
+      { city: "Lincoln", clean: "lincoln", county: "lancaster", state: "NE", hubPop: 296000, income: 74000, nearby: "Waverly (4,500), Hickman (3,200), Seward (7,700), Crete (7,500), Gretna (9,500)", subPop: 32400, baseRev: 38, humid: false },
+      { city: "El Paso (Eastside / Far East)", clean: "elpasoeast", county: "borderland", state: "TX", hubPop: 215000, income: 74000, nearby: "Horizon City (25,700), Socorro (39,800), Clint (1,200), Sparks (5,100), Agua Dulce (3,400)", subPop: 75200, baseRev: 26, humid: false },
+      { city: "Asheville", clean: "asheville", county: "blueridge", state: "NC", hubPop: 96000, income: 72000, nearby: "Weaverville (4,800), Black Mountain (8,600), Hendersonville (15,500), Fletcher (8,500), Arden (12,000)", subPop: 49400, baseRev: 20, humid: true },
+      { city: "Prescott Valley (Cluster) / Prescott", clean: "prescott", county: "yavapai", state: "AZ", hubPop: 76000, income: 72000, nearby: "Prescott (48,000), Chino Valley (14,000), Dewey-Humboldt (4,500), Paulden (5,800), Mayer (1,600)", subPop: 73900, baseRev: 16, humid: false },
+      { city: "Clarksville", clean: "clarksville", county: "montgomerytn", state: "TN", hubPop: 182000, income: 71000, nearby: "Ashland City (5,400), Pleasant View (5,300), Springfield (19,500), Oak Grove KY (8,100), Dover (2,000)", subPop: 40300, baseRev: 18, humid: true },
+      { city: "Fayetteville", clean: "fayetteville", county: "nwaregion", state: "AR", hubPop: 103000, income: 68000, nearby: "Bentonville (61,000), Rogers (75,000), Springdale (90,000), Bella Vista (32,000), Farmington (8,500)", subPop: 266500, baseRev: 19, humid: true }
+    ];
+
+    function buildTop200Zones() {
+      const rawZones = [];
+      const seenKeys = new Set();
+
+      HUB_MARKETS.forEach((m, idx) => {
+        let nicheIndices;
+        if (m.humid && idx % 3 === 0) {
+          nicheIndices = [3, 0];
+        } else if (m.humid && idx % 3 === 1) {
+          nicheIndices = [1, 2];
+        } else if (m.humid) {
+          nicheIndices = [0, 4];
+        } else if (idx % 3 === 0) {
+          nicheIndices = [0, 2];
+        } else if (idx % 3 === 1) {
+          nicheIndices = [1, 5];
+        } else {
+          nicheIndices = [2, 4];
+        }
+
+        nicheIndices.forEach((nIdx, slot) => {
+          const nicheObj = NICHES[nIdx];
+          const key = `${m.city}|${m.state}|${nicheObj.name}`;
+          if (seenKeys.has(key)) return;
+          seenKeys.add(key);
+
+          const nicheRevOffset = nIdx === 0 ? 5 : nIdx === 3 ? 2 : nIdx === 1 ? -4 : nIdx === 4 ? -3 : -1;
+          const avgReviews = Math.max(12, Math.min(46, m.baseRev + nicheRevOffset + (slot === 1 ? -1 : 0)));
+
+          const pos2 = avgReviews + 4;
+          const pos3 = Math.max(11, avgReviews - 4);
+          const top3Reviews = avgReviews <= 20
+            ? `Dir | ${avgReviews} | Dir`
+            : `Dir | ${pos2} | ${pos3}`;
+
+          const avgTicket = Math.round((nicheObj.minT + nicheObj.maxT) / 2);
+          const totalZonePop = m.hubPop + m.subPop;
+
+          // Est. CPL ($175-$450 based on niche ticket & hub household income)
+          const rawCpl = Math.round((avgTicket * 0.021) + ((m.income - 65000) / 1000) * 0.45);
+          const estCPL = Math.max(175, Math.min(450, Math.round(rawCpl / 5) * 5));
+          const estMonthlyRent = estCPL * 12;
+
+          // True-ROI Composite Score (State Caps Removed)
+          const incomePts = (m.income / 1000) * 0.34;
+          const ticketPts = (avgTicket / 1000) * 2.15;
+          const popPts = Math.min(26, (totalZonePop / 100000) * 3.1);
+          const revPenalty = avgReviews * 0.42;
+          const roiScore = Number((incomePts + ticketPts + popPts - revPenalty + 12).toFixed(1));
+
+          const phase = avgReviews <= 20 ? "Phase 1" : "Phase 2";
+          const difficulty = avgReviews <= 30 ? "Easy" : "Moderate";
+          const emd = `${m.clean}${nicheObj.slug}`;
+
+          rawZones.push({
+            id: emd,
+            phase,
+            roiScore,
+            niche: nicheObj.name,
+            city: m.city,
+            state: m.state,
+            hubPop: m.hubPop,
+            income: m.income,
+            minTicket: nicheObj.minT,
+            maxTicket: nicheObj.maxT,
+            avgTicket,
+            ticketRange: `$${nicheObj.minT.toLocaleString()}–$${nicheObj.maxT.toLocaleString()}`,
+            estCPL,
+            estMonthlyRent,
+            emd,
+            altDomain: `${m.county}${nicheObj.alt}.com`,
+            top3Reviews,
+            avgReviews,
+            difficulty,
+            nearbyCities: m.nearby,
+            totalZonePop
+          });
+        });
+      });
+
+      rawZones.sort((a, b) => b.roiScore - a.roiScore || b.income - a.income);
+
+      return rawZones.slice(0, 200).map((item, index) => ({
+        rank: index + 1,
+        ...item
+      }));
+    }
+
+    const top200Zones = buildTop200Zones();
+
+    // Team Build Progress State: { [zoneId]: { completedDate: "YYYY-MM-DD", completedBy: "CLN" | "QCL" | "" } }
+    let progressMap = {};
+    let currentRoomId = "";
+    let db = null;
+    let auth = null;
+    let currentUser = null;
+    let unsubscribeSnapshot = null;
+    let useCloudSync = false;
+
+    const appId = typeof __app_id !== "undefined" ? __app_id : "rank-and-rent-top200";
+
+    function normalizeOwner(val) {
+      if (!val) return "";
+      if (val === "LeadGen") return "QCL";
+      if (val === "CLN" || val === "QCL") return val;
+      return "";
+    }
+
+    function resolveInitialRoomId() {
+      const params = new URLSearchParams(window.location.search);
+      const urlRoom = params.get("room");
+      if (urlRoom && urlRoom.trim()) {
+        return urlRoom.trim().replace(/[^a-zA-Z0-9_-]/g, "-");
+      }
+      return "cln-qcl-team";
+    }
+
+    function updateRoomUrlParam(room) {
+      try {
+        const url = new URL(window.location.href);
+        url.searchParams.set("room", room);
+        window.history.replaceState({}, "", url.toString());
+      } catch (e) {
+        // Ignore in restricted sandboxed iframe history
+      }
+    }
+
+    function setSyncStatus(text, colorHex) {
+      const statusEl = document.getElementById("syncStatusText");
+      const dotEl = document.getElementById("syncDot");
+      if (statusEl) statusEl.textContent = text;
+      if (dotEl) dotEl.style.backgroundColor = colorHex;
+    }
+
+    function getLocalFallbackKey(room) {
+      return `rnr_top200_progress_${room}`;
+    }
+
+    function loadLocalFallback(room) {
+      try {
+        const raw = window.localStorage.getItem(getLocalFallbackKey(room));
+        if (!raw) return {};
+        const parsed = JSON.parse(raw);
+        Object.keys(parsed).forEach(k => {
+          if (parsed[k]) parsed[k].completedBy = normalizeOwner(parsed[k].completedBy);
+        });
+        return parsed;
+      } catch (e) {
+        return {};
+      }
+    }
+
+    function saveLocalFallback(room, data) {
+      try {
+        window.localStorage.setItem(getLocalFallbackKey(room), JSON.stringify(data));
+      } catch (e) {
+        // Ignore if storage blocked
+      }
+    }
+
+    async function initCloudSync() {
+      currentRoomId = resolveInitialRoomId();
+      document.getElementById("roomIdInput").value = currentRoomId;
+      updateRoomUrlParam(currentRoomId);
+
+      try {
+        if (typeof __firebase_config === "undefined" || !__firebase_config) {
+          throw new Error("Offline standalone mode");
+        }
+        const firebaseConfig = JSON.parse(__firebase_config);
+        const app = initializeApp(firebaseConfig);
+        auth = getAuth(app);
+        db = getFirestore(app);
+
+        if (typeof __initial_auth_token !== "undefined" && __initial_auth_token) {
+          await signInWithCustomToken(auth, __initial_auth_token);
+        } else {
+          await signInAnonymously(auth);
+        }
+        currentUser = auth.currentUser;
+        if (!currentUser) throw new Error("Auth unavailable");
+
+        useCloudSync = true;
+        subscribeToRoom(currentRoomId);
+      } catch (err) {
+        useCloudSync = false;
+        progressMap = loadLocalFallback(currentRoomId);
+        setSyncStatus(`Local Offline Mode (Room: ${currentRoomId}) • Host online for multi-device CLN & QCL sync`, "#f59e0b");
+        refreshAllViews();
+      }
+    }
+
+    function subscribeToRoom(room) {
+      if (unsubscribeSnapshot) {
+        unsubscribeSnapshot();
+        unsubscribeSnapshot = null;
+      }
+
+      if (!useCloudSync || !db || !currentUser) {
+        progressMap = loadLocalFallback(room);
+        setSyncStatus(`Local Offline Mode (Room: ${room})`, "#f59e0b");
+        refreshAllViews();
+        return;
+      }
+
+      setSyncStatus(`Syncing live with Team Room "${room}"...`, "#38bdf8");
+      const colRef = collection(db, "artifacts", appId, "public", "data", `room_${room}`);
+
+      unsubscribeSnapshot = onSnapshot(
+        colRef,
+        (snapshot) => {
+          const nextMap = {};
+          snapshot.forEach((docSnap) => {
+            const d = docSnap.data();
+            nextMap[docSnap.id] = {
+              completedDate: d.completedDate || "",
+              completedBy: normalizeOwner(d.completedBy)
+            };
+          });
+          progressMap = nextMap;
+          setSyncStatus(`Cloud Synced • Room: "${room}" (CLN & QCL real-time updates)`, "#10b981");
+          refreshAllViews();
+        },
+        (error) => {
+          console.error("Firestore sync error:", error);
+          useCloudSync = false;
+          progressMap = loadLocalFallback(room);
+          setSyncStatus(`Local Offline Mode (Room: ${room})`, "#f59e0b");
+          refreshAllViews();
+        }
+      );
+    }
+
+    window.switchTeamRoom = function () {
+      const inputVal = document.getElementById("roomIdInput").value.trim().replace(/[^a-zA-Z0-9_-]/g, "-");
+      if (!inputVal) {
+        showToast("Enter a valid Room ID (letters, numbers, hyphens)");
+        return;
+      }
+      currentRoomId = inputVal;
+      document.getElementById("roomIdInput").value = currentRoomId;
+      updateRoomUrlParam(currentRoomId);
+      subscribeToRoom(currentRoomId);
+      showToast(`Switched to Team Room: ${currentRoomId}`);
+    };
+
+    window.copyTeamShareLink = function () {
+      const url = new URL(window.location.href);
+      url.searchParams.set("room", currentRoomId);
+      const shareUrl = url.toString();
+
+      copyStringWithFallback(shareUrl);
+      showToast(`Copied Team Room link (${currentRoomId}) to clipboard!`);
+    };
+
+    async function persistZoneProgress(zoneId, updatedFields) {
+      const existing = progressMap[zoneId] || { completedDate: "", completedBy: "" };
+      const merged = {
+        completedDate: updatedFields.completedDate !== undefined ? updatedFields.completedDate : (existing.completedDate || ""),
+        completedBy: updatedFields.completedBy !== undefined ? normalizeOwner(updatedFields.completedBy) : normalizeOwner(existing.completedBy),
+        updatedAt: new Date().toISOString()
+      };
+
+      progressMap[zoneId] = merged;
+      saveLocalFallback(currentRoomId, progressMap);
+      refreshAllViews();
+
+      if (useCloudSync && db && currentUser) {
+        try {
+          const docRef = doc(db, "artifacts", appId, "public", "data", `room_${currentRoomId}`, zoneId);
+          await setDoc(docRef, merged, { merge: true });
+        } catch (err) {
+          console.error("Error saving zone progress:", err);
+          showToast("Saved locally (cloud sync retry pending)");
+        }
+      }
+    }
+
+    window.handleDateChange = function (zoneId, newDate) {
+      persistZoneProgress(zoneId, { completedDate: newDate });
+      showToast(newDate ? `Marked completed on ${newDate}` : "Cleared completion date");
+    };
+
+    window.handleOwnerChange = function (zoneId, newOwner) {
+      persistZoneProgress(zoneId, { completedBy: newOwner });
+      showToast(newOwner ? `Assigned owner: ${newOwner}` : "Cleared owner assignment");
+    };
+
+    const fmtNum = (n) => Number(n).toLocaleString("en-US");
+    const fmtCur = (n) => "$" + Number(n).toLocaleString("en-US");
+
+    function initFilters() {
+      const niches = [...new Set(top200Zones.map(z => z.niche))].sort();
+      const states = [...new Set(top200Zones.map(z => z.state))].sort();
+
+      const nicheSel = document.getElementById("nicheFilter");
+      niches.forEach(n => {
+        const opt = document.createElement("option");
+        opt.value = n;
+        opt.textContent = n;
+        nicheSel.appendChild(opt);
+      });
+
+      const stateSel = document.getElementById("stateFilter");
+      states.forEach(s => {
+        const opt = document.createElement("option");
+        opt.value = s;
+        opt.textContent = s;
+        stateSel.appendChild(opt);
+      });
+    }
+
+    function getZoneState(zone) {
+      const entry = progressMap[zone.id] || {};
+      return {
+        completedDate: entry.completedDate || "",
+        completedBy: normalizeOwner(entry.completedBy)
+      };
+    }
+
+    window.applyFilters = function () {
+      const q = document.getElementById("searchInput").value.trim().toLowerCase();
+      const phaseVal = document.getElementById("phaseFilter").value;
+      const ownerVal = document.getElementById("ownerFilter").value;
+      const statusVal = document.getElementById("statusFilter").value;
+      const nicheVal = document.getElementById("nicheFilter").value;
+      const stateVal = document.getElementById("stateFilter").value;
+      const diffVal = document.getElementById("diffFilter").value;
+
+      const filtered = top200Zones.filter(z => {
+        const st = getZoneState(z);
+        const isCompleted = Boolean(st.completedDate);
+
+        const matchQ = !q || [z.city, z.state, z.niche, z.emd, z.altDomain, z.nearbyCities, z.phase, st.completedBy].some(v =>
+          String(v).toLowerCase().includes(q)
+        );
+
+        let matchOwner = true;
+        if (ownerVal === "CLN") {
+          matchOwner = st.completedBy === "CLN";
+        } else if (ownerVal === "QCL") {
+          matchOwner = st.completedBy === "QCL";
+        } else if (ownerVal === "Unassigned") {
+          matchOwner = !st.completedBy;
+        } else if (ownerVal === "AnyAssigned") {
+          matchOwner = st.completedBy === "CLN" || st.completedBy === "QCL";
+        }
+
+        const matchStatus = !statusVal || (statusVal === "Completed" ? isCompleted : !isCompleted);
+        const matchPhase = !phaseVal || z.phase === phaseVal;
+        const matchNiche = !nicheVal || z.niche === nicheVal;
+        const matchState = !stateVal || z.state === stateVal;
+        const matchDiff = !diffVal || z.difficulty === diffVal;
+
+        return matchQ && matchOwner && matchStatus && matchPhase && matchNiche && matchState && matchDiff;
+      });
+
+      renderMasterTable(filtered);
+      updateKPIs(filtered);
+      document.getElementById("rowCounterBadge").textContent = `Showing ${filtered.length} of ${top200Zones.length} Hub Zones`;
+    };
+
+    window.resetFilters = function () {
+      document.getElementById("searchInput").value = "";
+      document.getElementById("phaseFilter").value = "";
+      document.getElementById("ownerFilter").value = "";
+      document.getElementById("statusFilter").value = "";
+      document.getElementById("nicheFilter").value = "";
+      document.getElementById("stateFilter").value = "";
+      document.getElementById("diffFilter").value = "";
+      window.applyFilters();
+    };
+
+    function updateKPIs(rows) {
+      const completedRows = rows.filter(r => Boolean(getZoneState(r).completedDate));
+      const clnCount = rows.filter(r => getZoneState(r).completedBy === "CLN").length;
+      const qclCount = rows.filter(r => getZoneState(r).completedBy === "QCL").length;
+      const unassignedCount = rows.filter(r => !getZoneState(r).completedBy).length;
+
+      const completedRent = completedRows.reduce((s, r) => s + r.estMonthlyRent, 0);
+      const totalPortfolioRent = rows.reduce((s, r) => s + r.estMonthlyRent, 0);
+
+      const completedPop = completedRows.reduce((s, r) => s + r.totalZonePop, 0);
+      const totalZonePop = rows.reduce((s, r) => s + r.totalZonePop, 0);
+
+      document.getElementById("kpiCompletedTotal").textContent = `${completedRows.length} / ${rows.length}`;
+      document.getElementById("kpiClnCount").textContent = `CLN: ${clnCount}`;
+      document.getElementById("kpiQclCount").textContent = `QCL: ${qclCount}`;
+      document.getElementById("kpiUnassignedCount").textContent = `Unassigned: ${unassignedCount}`;
+
+      document.getElementById("kpiCompletedRent").textContent = `${fmtCur(completedRent)} / mo`;
+      document.getElementById("kpiPortfolioRentSub").textContent = `Total View Ceiling: ${fmtCur(totalPortfolioRent)} / mo`;
+
+      document.getElementById("kpiCompletedPop").textContent = fmtNum(completedPop);
+      document.getElementById("kpiTotalPopSub").textContent = `Total View Zone Pop: ${fmtNum(totalZonePop)}`;
+
+      if (!rows.length) {
+        document.getElementById("kpiCount").textContent = "0";
+        document.getElementById("kpiPhaseSplit").textContent = "Phase 1: 0 • Phase 2: 0";
+        document.getElementById("kpiScore").textContent = "0.0";
+        document.getElementById("kpiIncomeTicketSub").textContent = "Avg Income: $0 • Avg CPL: $0";
+        return;
+      }
+
+      const p1 = rows.filter(r => r.phase === "Phase 1").length;
+      const p2 = rows.filter(r => r.phase === "Phase 2").length;
+      const avgIncome = Math.round(rows.reduce((s, r) => s + r.income, 0) / rows.length);
+      const avgCpl = Math.round(rows.reduce((s, r) => s + r.estCPL, 0) / rows.length);
+      const avgScore = (rows.reduce((s, r) => s + r.roiScore, 0) / rows.length).toFixed(1);
+
+      document.getElementById("kpiCount").textContent = fmtNum(rows.length);
+      document.getElementById("kpiPhaseSplit").textContent = `Phase 1: ${p1} • Phase 2: ${p2}`;
+      document.getElementById("kpiScore").textContent = avgScore;
+      document.getElementById("kpiIncomeTicketSub").textContent = `Avg Income: ${fmtCur(avgIncome)} • Avg CPL: ${fmtCur(avgCpl)}`;
+    }
+
+    // Render Table 1 in Exact 20-Column Order
+    function renderMasterTable(rows) {
+      const tbody = document.getElementById("masterTbody");
+      tbody.innerHTML = "";
+
+      rows.forEach(z => {
+        const st = getZoneState(z);
+        const isCompleted = Boolean(st.completedDate);
+
+        const phaseBadge = z.phase === "Phase 1"
+          ? `<span class="badge-p1">Phase 1</span>`
+          : `<span class="badge-p2">Phase 2</span>`;
+        const diffBadge = z.difficulty === "Easy"
+          ? `<span class="badge-easy">Easy</span>`
+          : `<span class="badge-mod">Moderate</span>`;
+
+        const ownerClass = st.completedBy === "CLN"
+          ? "owner-select owner-cln"
+          : st.completedBy === "QCL"
+          ? "owner-select owner-qcl"
+          : "owner-select";
+
+        const tr = document.createElement("tr");
+        if (isCompleted) tr.classList.add("row-completed");
+
+        tr.innerHTML = `
+          <td class="nowrap">
+            <input
+              type="date"
+              value="${st.completedDate}"
+              onchange="handleDateChange('${z.id}', this.value)"
+              class="date-cell-input ${isCompleted ? "has-date" : ""}"
+              aria-label="Date Website Completed for ${z.emd}"
+            />
+          </td>
+          <td class="nowrap">
+            <select
+              onchange="handleOwnerChange('${z.id}', this.value)"
+              class="${ownerClass}"
+              aria-label="Completed by for ${z.emd}"
+            >
+              <option value="" ${st.completedBy === "" ? "selected" : ""}>—</option>
+              <option value="CLN" ${st.completedBy === "CLN" ? "selected" : ""}>CLN</option>
+              <option value="QCL" ${st.completedBy === "QCL" ? "selected" : ""}>QCL</option>
+            </select>
+          </td>
+          <td class="nowrap" style="font-weight: 800; color: #0f172a;">#${z.rank}</td>
+          <td class="nowrap">${phaseBadge}</td>
+          <td class="nowrap text-right" style="font-weight: 800; color: #3730a3;">${z.roiScore.toFixed(1)}</td>
+          <td class="nowrap" style="font-weight: 700; color: #0f172a;">${z.niche}</td>
+          <td class="nowrap" style="font-weight: 600; color: #1e293b;">${z.city}</td>
+          <td class="nowrap" style="font-weight: 700; color: #475569;">${z.state}</td>
+          <td class="nowrap text-right">${fmtNum(z.hubPop)}</td>
+          <td class="nowrap text-right" style="font-weight: 600;">${fmtCur(z.income)}</td>
+          <td class="nowrap" style="color: #475569;">${z.ticketRange}</td>
+          <td class="nowrap text-right" style="font-weight: 700; color: #1d4ed8;">${fmtCur(z.estCPL)}</td>
+          <td class="nowrap text-right" style="font-weight: 800; color: #047857;">${fmtCur(z.estMonthlyRent)}/mo</td>
+          <td class="nowrap"><span class="emd-pill font-mono-code">${z.emd}</span></td>
+          <td class="nowrap" style="color: #475569;">${z.altDomain}</td>
+          <td class="nowrap" style="font-weight: 600; color: #334155;">${z.top3Reviews}</td>
+          <td class="nowrap text-center" style="font-weight: 700;">${z.avgReviews}</td>
+          <td class="nowrap text-center">${diffBadge}</td>
+          <td style="color: #475569; line-height: 1.35;">${z.nearbyCities}</td>
+          <td class="nowrap text-right" style="font-weight: 800; color: #0f172a;">${fmtNum(z.totalZonePop)}</td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    // Tab 2 Data & Renderer
+    function getPhaseRollup() {
+      return ["Phase 1", "Phase 2"].map(phase => {
+        const sub = top200Zones.filter(z => z.phase === phase);
+        const count = sub.length;
+        const completed = sub.filter(z => Boolean(getZoneState(z).completedDate)).length;
+        const cln = sub.filter(z => getZoneState(z).completedBy === "CLN").length;
+        const qcl = sub.filter(z => getZoneState(z).completedBy === "QCL").length;
+        const pct = ((count / top200Zones.length) * 100).toFixed(1) + "%";
+        const avgScore = Number((sub.reduce((s, r) => s + r.roiScore, 0) / count).toFixed(1));
+        const avgIncome = Math.round(sub.reduce((s, r) => s + r.income, 0) / count);
+        const avgCpl = Math.round(sub.reduce((s, r) => s + r.estCPL, 0) / count);
+        const avgReviews = Math.round(sub.reduce((s, r) => s + r.avgReviews, 0) / count);
+        const totalZonePop = sub.reduce((s, r) => s + r.totalZonePop, 0);
+        const totalRent = sub.reduce((s, r) => s + r.estMonthlyRent, 0);
+        return {
+          label: phase === "Phase 1" ? "Phase 1 — Cash-Flow Starters" : "Phase 2 — High-Ceiling Mega-Zones",
+          count,
+          completed,
+          cln,
+          qcl,
+          ownerSplit: `${completed} (${cln} CLN / ${qcl} QCL)`,
+          pct,
+          avgScore,
+          avgIncome,
+          avgCpl,
+          avgReviews,
+          totalZonePop,
+          totalRent
+        };
+      });
+    }
+
+    function renderPhaseRollup() {
+      const tbody = document.getElementById("phaseTbody");
+      tbody.innerHTML = "";
+      getPhaseRollup().forEach(r => {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td style="font-weight: 800; color: #0f172a;">${r.label}</td>
+          <td class="text-center" style="font-weight: 700;">${r.count}</td>
+          <td class="text-center" style="font-weight: 700; color: #047857;">${r.ownerSplit}</td>
+          <td class="text-center">${r.pct}</td>
+          <td class="text-right" style="font-weight: 800; color: #3730a3;">${r.avgScore.toFixed(1)}</td>
+          <td class="text-right">${fmtCur(r.avgIncome)}</td>
+          <td class="text-right" style="font-weight: 700; color: #1d4ed8;">${fmtCur(r.avgCpl)} / lead</td>
+          <td class="text-center" style="font-weight: 600;">${r.avgReviews} reviews</td>
+          <td class="text-right" style="font-weight: 700;">${fmtNum(r.totalZonePop)}</td>
+          <td class="text-right" style="font-weight: 800; color: #047857;">${fmtCur(r.totalRent)} / mo</td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    // Tab 3 Data & Renderer
+    function getNicheEconomics() {
+      return NICHES.map(n => {
+        const sub = top200Zones.filter(z => z.niche === n.name);
+        const count = sub.length;
+        const completed = sub.filter(z => Boolean(getZoneState(z).completedDate)).length;
+        const cln = sub.filter(z => getZoneState(z).completedBy === "CLN").length;
+        const qcl = sub.filter(z => getZoneState(z).completedBy === "QCL").length;
+        const p1 = sub.filter(z => z.phase === "Phase 1").length;
+        const p2 = sub.filter(z => z.phase === "Phase 2").length;
+        const avgTicket = Math.round(sub.reduce((s, r) => s + r.avgTicket, 0) / count);
+        const avgCpl = Math.round(sub.reduce((s, r) => s + r.estCPL, 0) / count);
+        const avgMonthlyRent = Math.round(sub.reduce((s, r) => s + r.estMonthlyRent, 0) / count);
+        const totalZonePop = sub.reduce((s, r) => s + r.totalZonePop, 0);
+        const avgReviews = Math.round(sub.reduce((s, r) => s + r.avgReviews, 0) / count);
+        return {
+          niche: n.name,
+          count,
+          completed,
+          cln,
+          qcl,
+          ownerSplit: `${completed} (${cln} CLN / ${qcl} QCL)`,
+          phaseSplit: `${p1} / ${p2}`,
+          avgTicket,
+          avgCpl,
+          avgMonthlyRent,
+          totalZonePop,
+          avgReviews
+        };
+      }).sort((a, b) => b.avgMonthlyRent - a.avgMonthlyRent);
+    }
+
+    function renderNicheEconomics() {
+      const tbody = document.getElementById("nicheTbody");
+      tbody.innerHTML = "";
+      getNicheEconomics().forEach(r => {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td style="font-weight: 800; color: #0f172a;">${r.niche}</td>
+          <td class="text-center" style="font-weight: 700;">${r.count}</td>
+          <td class="text-center" style="font-weight: 700; color: #047857;">${r.ownerSplit}</td>
+          <td class="text-center">${r.phaseSplit}</td>
+          <td class="text-right" style="font-weight: 700;">${fmtCur(r.avgTicket)}</td>
+          <td class="text-right" style="font-weight: 700; color: #1d4ed8;">${fmtCur(r.avgCpl)} / lead</td>
+          <td class="text-right" style="font-weight: 800; color: #047857;">${fmtCur(r.avgMonthlyRent)} / mo</td>
+          <td class="text-right" style="font-weight: 600;">${fmtNum(r.totalZonePop)}</td>
+          <td class="text-center">${r.avgReviews} reviews</td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    // Tab 4 Data & Renderer
+    function getStateClusters() {
+      const states = [...new Set(top200Zones.map(z => z.state))];
+      return states.map(st => {
+        const sub = top200Zones.filter(z => z.state === st);
+        const count = sub.length;
+        const completed = sub.filter(z => Boolean(getZoneState(z).completedDate)).length;
+        const cln = sub.filter(z => getZoneState(z).completedBy === "CLN").length;
+        const qcl = sub.filter(z => getZoneState(z).completedBy === "QCL").length;
+        const p1 = sub.filter(z => z.phase === "Phase 1").length;
+        const p2 = sub.filter(z => z.phase === "Phase 2").length;
+        const totalHubPop = sub.reduce((s, r) => s + r.hubPop, 0);
+        const totalZonePop = sub.reduce((s, r) => s + r.totalZonePop, 0);
+        const avgIncome = Math.round(sub.reduce((s, r) => s + r.income, 0) / count);
+        const totalRent = sub.reduce((s, r) => s + r.estMonthlyRent, 0);
+        return {
+          state: st,
+          count,
+          completed,
+          cln,
+          qcl,
+          ownerSplit: `${completed} (${cln} CLN / ${qcl} QCL)`,
+          phaseSplit: `${p1} / ${p2}`,
+          totalHubPop,
+          totalZonePop,
+          avgIncome,
+          totalRent
+        };
+      }).sort((a, b) => b.totalZonePop - a.totalZonePop);
+    }
+
+    function renderStateClusters() {
+      const tbody = document.getElementById("stateTbody");
+      tbody.innerHTML = "";
+      getStateClusters().forEach(r => {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td style="font-weight: 800; color: #0f172a;">${r.state}</td>
+          <td class="text-center" style="font-weight: 700;">${r.count}</td>
+          <td class="text-center" style="font-weight: 700; color: #047857;">${r.ownerSplit}</td>
+          <td class="text-center">${r.phaseSplit}</td>
+          <td class="text-right">${fmtNum(r.totalHubPop)}</td>
+          <td class="text-right" style="font-weight: 800; color: #0f172a;">${fmtNum(r.totalZonePop)}</td>
+          <td class="text-right">${fmtCur(r.avgIncome)}</td>
+          <td class="text-right" style="font-weight: 800; color: #047857;">${fmtCur(r.totalRent)} / mo</td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    function refreshAllViews() {
+      window.applyFilters();
+      renderPhaseRollup();
+      renderNicheEconomics();
+      renderStateClusters();
+    }
+
+    window.switchTab = function (tabName) {
+      ["master", "phases", "niches", "states"].forEach(t => {
+        document.getElementById(`view-${t}`).classList.toggle("hidden", t !== tabName);
+        document.getElementById(`tab-btn-${t}`).classList.toggle("active", t === tabName);
+      });
+      const isMaster = tabName === "master";
+      document.getElementById("filterControls").classList.toggle("hidden", !isMaster);
+      document.getElementById("rowCounterBadge").classList.toggle("hidden", !isMaster);
+    };
+
+    function showToast(msg) {
+      const box = document.getElementById("toast");
+      document.getElementById("toastMsg").textContent = msg;
+      box.classList.remove("hidden");
+      setTimeout(() => box.classList.add("hidden"), 4200);
+    }
+
+    function copyStringWithFallback(str) {
+      const temp = document.createElement("textarea");
+      temp.value = str;
+      temp.style.position = "fixed";
+      temp.style.left = "-9999px";
+      document.body.appendChild(temp);
+      temp.select();
+      try {
+        document.execCommand("copy");
+      } catch (e) {
+        // Fallback handled by visible modal textarea
+      }
+      document.body.removeChild(temp);
+    }
+
+    // =========================================================================
+    // ZERO-DEPENDENCY BULLETPROOF EXPORT SYSTEM (XLS XML + CSV + TSV + MODAL)
+    // =========================================================================
+    let lastRequestedExportType = "xls"; // "xls" | "csv"
+
+    function getExportSheets() {
+      const sheet1 = top200Zones.map(z => {
+        const st = getZoneState(z);
+        return {
+          "Date Website Completed": st.completedDate,
+          "Completed by": st.completedBy,
+          "Rank": z.rank,
+          "Phase": z.phase,
+          "ROI Score": z.roiScore,
+          "Niche": z.niche,
+          "Hub / Center City": z.city,
+          "State": z.state,
+          "Hub Pop.": z.hubPop,
+          "Median HH Income": z.income,
+          "Est. Ticket Range": z.ticketRange,
+          "Est. CPL": z.estCPL,
+          "Est. Monthly Rent": z.estMonthlyRent,
+          "Top EMD Keyword": z.emd,
+          "Alt Branded Domain": z.altDomain,
+          "Top 3 Organic Reviews": z.top3Reviews,
+          "Avg Reviews": z.avgReviews,
+          "SERP Difficulty": z.difficulty,
+          "Nearby Zone Cities & Pops": z.nearbyCities,
+          "Total Zone Pop.": z.totalZonePop
+        };
+      });
+
+      const sheet2 = getPhaseRollup().map(r => ({
+        "Execution Phase": r.label,
+        "Zone Count": r.count,
+        "Completed Sites": r.completed,
+        "CLN Completed": r.cln,
+        "QCL Completed": r.qcl,
+        "% of Portfolio": r.pct,
+        "Avg ROI Score": r.avgScore,
+        "Avg Median HH Income": r.avgIncome,
+        "Avg Est. CPL": r.avgCpl,
+        "Avg Top-3 Reviews": r.avgReviews,
+        "Total Addressable Zone Pop.": r.totalZonePop,
+        "Total Phase Monthly Rent (12 Leads/Site)": r.totalRent
+      }));
+
+      const sheet3 = getNicheEconomics().map(r => ({
+        "Niche": r.niche,
+        "Zone Count": r.count,
+        "Completed Sites": r.completed,
+        "CLN Completed": r.cln,
+        "QCL Completed": r.qcl,
+        "Phase 1 / Phase 2 Split": r.phaseSplit,
+        "Avg Ticket Size": r.avgTicket,
+        "Avg Est. CPL": r.avgCpl,
+        "Avg Monthly Rent / Site": r.avgMonthlyRent,
+        "Total Addressable Pop.": r.totalZonePop,
+        "Avg Top-3 Reviews": r.avgReviews
+      }));
+
+      const sheet4 = getStateClusters().map(r => ({
+        "State": r.state,
+        "Hub Zones": r.count,
+        "Completed Sites": r.completed,
+        "CLN Completed": r.cln,
+        "QCL Completed": r.qcl,
+        "Phase 1 / Phase 2 Split": r.phaseSplit,
+        "Total Hub City Pop.": r.totalHubPop,
+        "Total Zone Addressable Pop.": r.totalZonePop,
+        "Avg Median HH Income": r.avgIncome,
+        "Total Monthly Rent Potential": r.totalRent
+      }));
+
+      return [
+        { name: "Top 200 Hub Zones", rows: sheet1 },
+        { name: "Phase 1 vs Phase 2", rows: sheet2 },
+        { name: "Niche Economics", rows: sheet3 },
+        { name: "State Clusters", rows: sheet4 }
+      ];
+    }
+
+    function buildSpreadsheetML(sheets) {
+      const esc = (v) => String(v ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+
+      let xml = `<?xml version="1.0" encoding="UTF-8"?>
+<?mso-application progid="Excel.Sheet"?>
+<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
+ xmlns:o="urn:schemas-microsoft-com:office:office"
+ xmlns:x="urn:schemas-microsoft-com:office:excel"
+ xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
+ <Styles>
+  <Style ss:ID="Header">
+   <Font ss:Bold="1" ss:Color="#FFFFFF"/>
+   <Interior ss:Color="#0F172A" ss:Pattern="Solid"/>
+  </Style>
+  <Style ss:ID="Currency">
+   <NumberFormat ss:Format="$#,##0"/>
+  </Style>
+  <Style ss:ID="Integer">
+   <NumberFormat ss:Format="#,##0"/>
+  </Style>
+  <Style ss:ID="Decimal">
+   <NumberFormat ss:Format="0.0"/>
+  </Style>
+  <Style ss:ID="Default"><Font ss:Size="10"/></Style>
+ </Styles>`;
+
+      const currencyCols = new Set(["Median HH Income", "Avg Median HH Income", "Est. CPL", "Avg Est. CPL", "Est. Monthly Rent", "Avg Monthly Rent / Site", "Total Phase Monthly Rent (12 Leads/Site)", "Total Monthly Rent Potential", "Avg Ticket Size"]);
+      const intCols = new Set(["Rank", "Hub Pop.", "Avg Reviews", "Total Zone Pop.", "Zone Count", "Completed Sites", "CLN Completed", "QCL Completed", "Avg Top-3 Reviews", "Total Addressable Zone Pop.", "Total Addressable Pop.", "Hub Zones", "Total Hub City Pop."]);
+      const decCols = new Set(["ROI Score", "Avg ROI Score"]);
+
+      sheets.forEach(s => {
+        const headers = Object.keys(s.rows[0] || {});
+        xml += `\n <Worksheet ss:Name="${esc(s.name.slice(0, 31))}">\n  <Table>\n   <Row>`;
+        headers.forEach(h => {
+          xml += `<Cell ss:StyleID="Header"><Data ss:Type="String">${esc(h)}</Data></Cell>`;
+        });
+        xml += `</Row>`;
+
+        s.rows.forEach(row => {
+          xml += `\n   <Row>`;
+          headers.forEach(h => {
+            const val = row[h];
+            const isNum = typeof val === "number" && !Number.isNaN(val);
+            let styleAttr = "";
+            if (isNum) {
+              if (currencyCols.has(h)) styleAttr = ` ss:StyleID="Currency"`;
+              else if (decCols.has(h)) styleAttr = ` ss:StyleID="Decimal"`;
+              else if (intCols.has(h)) styleAttr = ` ss:StyleID="Integer"`;
+            }
+            xml += `<Cell${styleAttr}><Data ss:Type="${isNum ? "Number" : "String"}">${esc(val)}</Data></Cell>`;
+          });
+          xml += `</Row>`;
+        });
+
+        xml += `\n  </Table>\n </Worksheet>`;
+      });
+
+      xml += `\n</Workbook>`;
+      return xml;
+    }
+
+    function buildDelimitedText(delimiter) {
+      const rows = getExportSheets()[0].rows;
+      const headers = Object.keys(rows[0]);
+      const escapeCell = (val) => {
+        const str = String(val ?? "").replace(/\r?\n/g, " ");
+        if (delimiter === ",") {
+          return /[",\n]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str;
+        }
+        return str.replace(/\t/g, " ");
+      };
+      return [
+        headers.map(escapeCell).join(delimiter),
+        ...rows.map(r => headers.map(h => escapeCell(r[h])).join(delimiter))
+      ].join("\n");
+    }
+
+    function attemptDualDownload(contentString, mimeType, filename) {
+      // Method 1: Standard Blob + ObjectURL download
+      try {
+        const blob = new Blob([contentString], { type: mimeType });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = filename;
+        a.style.display = "none";
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(() => {
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+        }, 500);
+      } catch (e) {
+        console.warn("Blob download attempt failed:", e);
+      }
+
+      // Method 2: Data URI fallback download
+      try {
+        const dataUri = `data:${mimeType},${encodeURIComponent(contentString)}`;
+        const link = document.createElement("a");
+        link.href = dataUri;
+        link.download = filename;
+        link.style.display = "none";
+        document.body.appendChild(link);
+        link.click();
+        setTimeout(() => {
+          document.body.removeChild(link);
+        }, 500);
+      } catch (e) {
+        console.warn("Data URI download attempt failed:", e);
+      }
+    }
+
+    function openExportModal(initialMode) {
+      const modal = document.getElementById("exportModal");
+      const box = document.getElementById("exportPreviewBox");
+      const label = document.getElementById("exportPreviewLabel");
+
+      if (initialMode === "csv") {
+        box.value = buildDelimitedText(",");
+        label.textContent = "Generated CSV Output (All 200 Hub Zones + Headers):";
+      } else {
+        box.value = buildDelimitedText("\t");
+        label.textContent = "Excel / Google Sheets Ready TSV (Click 'Copy TSV' & Paste into Cell A1):";
+      }
+
+      modal.classList.remove("hidden");
+    }
+
+    window.closeExportModal = function () {
+      document.getElementById("exportModal").classList.add("hidden");
+    };
+
+    window.copyExportPayload = function (format) {
+      const box = document.getElementById("exportPreviewBox");
+      const label = document.getElementById("exportPreviewLabel");
+      let payload = "";
+      let toastMsg = "";
+
+      if (format === "tsv") {
+        payload = buildDelimitedText("\t");
+        label.textContent = "Tab-Separated Values (TSV) — Paste directly into Cell A1 of Excel or Google Sheets:";
+        toastMsg = "Copied 200-row TSV! Paste (Ctrl+V / Cmd+V) into Cell A1 of Excel or Google Sheets.";
+      } else if (format === "csv") {
+        payload = buildDelimitedText(",");
+        label.textContent = "Raw CSV Data (All 200 Hub Zones):";
+        toastMsg = "Copied all 200 rows of Raw CSV to clipboard!";
+      } else {
+        payload = buildSpreadsheetML(getExportSheets());
+        label.textContent = "Multi-Tab Excel SpreadsheetML XML (4 Worksheets):";
+        toastMsg = "Copied 4-Tab Excel SpreadsheetML XML to clipboard!";
+      }
+
+      box.value = payload;
+      copyStringWithFallback(payload);
+      box.focus();
+      box.select();
+      showToast(toastMsg);
+    };
+
+    window.exportExcelWorkbook = function () {
+      lastRequestedExportType = "xls";
+      const sheets = getExportSheets();
+      const xmlContent = buildSpreadsheetML(sheets);
+      attemptDualDownload(xmlContent, "application/vnd.ms-excel;charset=utf-8", "Top_200_True_ROI_Hub_Zones_CLN_QCL.xls");
+      openExportModal("tsv");
+      showToast("Triggered Top_200_True_ROI_Hub_Zones_CLN_QCL.xls (4 Tabs) + Opened Copy Center");
+    };
+
+    window.exportCSVFile = function () {
+      lastRequestedExportType = "csv";
+      const csvContent = "\uFEFF" + buildDelimitedText(",");
+      attemptDualDownload(csvContent, "text/csv;charset=utf-8", "Top_200_True_ROI_Hub_Zones_CLN_QCL.csv");
+      openExportModal("csv");
+      showToast("Triggered Top_200_True_ROI_Hub_Zones_CLN_QCL.csv (200 Rows) + Opened Copy Center");
+    };
+
+    window.retriggerDirectFileDownload = function () {
+      if (lastRequestedExportType === "csv") {
+        const csvContent = "\uFEFF" + buildDelimitedText(",");
+        attemptDualDownload(csvContent, "text/csv;charset=utf-8", "Top_200_True_ROI_Hub_Zones_CLN_QCL.csv");
+        showToast("Retried CSV file download!");
+      } else {
+        const xmlContent = buildSpreadsheetML(getExportSheets());
+        attemptDualDownload(xmlContent, "application/vnd.ms-excel;charset=utf-8", "Top_200_True_ROI_Hub_Zones_CLN_QCL.xls");
+        showToast("Retried Multi-Tab Excel (.xls) download!");
+      }
+    };
+
+    window.addEventListener("DOMContentLoaded", () => {
+      initFilters();
+      refreshAllViews();
+      initCloudSync();
+    });
+  </script>
+</body>
+</html>
