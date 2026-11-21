@@ -3,8 +3,12 @@
  * Voice webhooks must be a public Twilio Function URL — Rover binds 127.0.0.1 only.
  */
 import twilio from 'twilio';
+import { cityAreaCodes } from './city-area-codes.mjs';
 import { loadAcceptedSiteConfig } from './content-markdown.mjs';
+import { featureCentroid, findPlaceFeatureLocal } from './geo-neighbors.mjs';
 import { patchLaunchSiteConfig } from './launch-site.mjs';
+import { areaCodeOf, chooseLocalNumber, closestAvailable } from './phone-area-choice.mjs';
+import { equivalentPlaceNames } from './place-common-names.mjs';
 import { listSites, setSitePhoneTracking } from './sites.mjs';
 
 function env(name) {
@@ -148,56 +152,194 @@ export async function releaseTwilioNumber(sid) {
   }
 }
 
+const SEARCH_RADII_MILES = [25, 50, 100, 250, 500];
+const LIST_LIMIT = 20;
+
 /**
- * Search available US local numbers by locality/state, optional areaCode override.
+ * Search US local numbers: the city's area codes first, then the closest number in the state.
+ * A typed area code never falls through to a different code.
  */
 async function listLocalNumbers(client, filters) {
-  const withSms = await client.availablePhoneNumbers('US').local.list({
-    ...filters,
-    voiceEnabled: true,
-    smsEnabled: true,
-    limit: 5,
-  });
-  if (withSms.length) return withSms;
   return client.availablePhoneNumbers('US').local.list({
-    ...filters,
     voiceEnabled: true,
-    limit: 5,
+    limit: LIST_LIMIT,
+    ...filters,
   });
+}
+
+function dedupeNumbers(numbers) {
+  const seen = new Set();
+  const out = [];
+  for (const number of numbers || []) {
+    const id = number?.phoneNumber;
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    out.push(number);
+  }
+  return out;
+}
+
+function localityQueries(city, state) {
+  const out = [];
+  const add = (value) => {
+    const text = String(value || '').trim();
+    if (!text || out.some((item) => item.toLowerCase() === text.toLowerCase())) return;
+    out.push(text);
+  };
+  for (const name of equivalentPlaceNames(city, state)) add(name);
+  for (const name of [...out]) {
+    add(name.replace(/\bSt\.?\b/gi, 'Saint').replace(/\bMt\.?\b/gi, 'Mount').replace(/\bFt\.?\b/gi, 'Fort'));
+    add(name.replace(/\bSaint\b/gi, 'St.').replace(/\bMount\b/gi, 'Mt.').replace(/\bFort\b/gi, 'Ft.'));
+  }
+  return out;
+}
+
+function cityCentroid(city, state) {
+  try {
+    const feature = findPlaceFeatureLocal(city, state);
+    const centroid = feature ? featureCentroid(feature) : null;
+    if (!centroid) return null;
+    const [lng, lat] = centroid;
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+    return { lat, lng };
+  } catch {
+    return null;
+  }
+}
+
+function packChoice(choice, match) {
+  const number = choice.number;
+  const miles = choice.miles;
+  return {
+    phoneNumber: number.phoneNumber,
+    locality: number.locality || '',
+    region: number.region || '',
+    latitude: number.latitude ?? null,
+    longitude: number.longitude ?? null,
+    areaCode: areaCodeOf(number),
+    distanceMiles: Number.isFinite(miles) ? Math.round(miles * 10) / 10 : null,
+    match,
+  };
+}
+
+function noNumberError({ city, state, areaCode, reason }) {
+  const place = [city, state].filter(Boolean).join(', ') || 'that city';
+  const area = String(areaCode || '').replace(/\D/g, '').slice(0, 3);
+  const message = area.length === 3
+    ? `No Twilio numbers available in area code ${area} for ${place}`
+    : reason || `No Twilio numbers available in ${place} area codes or within 500 miles in the state`;
+  return Object.assign(new Error(message), { status: 404 });
+}
+
+async function gatherAreaCodes(client, npas, filters) {
+  const batches = await Promise.all(
+    npas.map((areaCode) => listLocalNumbers(client, { ...filters, areaCode })),
+  );
+  return dedupeNumbers(batches.flat());
+}
+
+/** SMS at this radius, then voice, across every area code, before the radius widens. */
+async function pickAreaCodeInventory(client, npas, { region, centroid, constrainRegion }) {
+  const near = centroid ? `${centroid.lat},${centroid.lng}` : '';
+  const regionFilter = constrainRegion && region ? { inRegion: region } : {};
+  const consider = async (filters) => {
+    const sms = await gatherAreaCodes(client, npas, { ...filters, ...regionFilter, smsEnabled: true });
+    const smsPick = closestAvailable(sms, centroid?.lat, centroid?.lng);
+    if (smsPick) return smsPick;
+    const voice = await gatherAreaCodes(client, npas, { ...filters, ...regionFilter });
+    return closestAvailable(voice, centroid?.lat, centroid?.lng);
+  };
+  if (near) {
+    for (const distance of SEARCH_RADII_MILES) {
+      const hit = await consider({ nearLatLong: near, distance });
+      if (hit) return hit;
+    }
+  }
+  return consider({});
+}
+
+async function listCityInventory(client, names, region, { smsOnly = false } = {}) {
+  const collected = [];
+  for (const inLocality of names) {
+    const filters = { inLocality, inRegion: region };
+    if (smsOnly) filters.smsEnabled = true;
+    collected.push(...(await listLocalNumbers(client, filters)));
+  }
+  return dedupeNumbers(collected);
+}
+
+function cityChoice(numbers, { npas, names, centroid }) {
+  return chooseLocalNumber(numbers, {
+    cityNpas: npas,
+    cityNames: names,
+    lat: centroid?.lat,
+    lng: centroid?.lng,
+  });
+}
+
+/** Closest in-state number. Never searches the state without a distance. */
+async function pickNearestInState(client, region, centroid) {
+  const near = `${centroid.lat},${centroid.lng}`;
+  for (const distance of SEARCH_RADII_MILES) {
+    const base = { inRegion: region, nearLatLong: near, distance };
+    const sms = await listLocalNumbers(client, { ...base, smsEnabled: true });
+    const smsPick = closestAvailable(sms, centroid.lat, centroid.lng);
+    if (smsPick) return smsPick;
+    const voice = await listLocalNumbers(client, base);
+    const voicePick = closestAvailable(voice, centroid.lat, centroid.lng);
+    if (voicePick) return voicePick;
+  }
+  return null;
 }
 
 export async function findAvailableLocalNumber({ city, state, areaCode } = {}) {
   const client = twilioClient();
-  const area = String(areaCode || '').replace(/\D/g, '').slice(0, 3);
-
-  if (area.length === 3) {
-    const byArea = await listLocalNumbers(client, { areaCode: area });
-    if (byArea.length) return byArea[0];
-  }
-
+  const typed = String(areaCode || '').replace(/\D/g, '').slice(0, 3);
   const locality = String(city || '').trim();
   const region = String(state || '').trim().toUpperCase();
-  if (locality && region) {
-    const byCity = await listLocalNumbers(client, {
-      inLocality: locality,
-      inRegion: region,
+  const centroid = locality && region ? cityCentroid(locality, region) : null;
+  const names = locality ? localityQueries(locality, region) : [];
+  const npas = typed.length === 3 || !locality || !region ? [] : cityAreaCodes(locality, region);
+
+  if (typed.length === 3) {
+    const hit = await pickAreaCodeInventory(client, [typed], {
+      region,
+      centroid,
+      constrainRegion: false,
     });
-    if (byCity.length) return byCity[0];
+    if (!hit) throw noNumberError({ city: locality, state: region, areaCode: typed });
+    return packChoice(hit, 'area-code');
   }
 
-  if (region) {
-    const byState = await listLocalNumbers(client, { inRegion: region });
-    if (byState.length) return byState[0];
+  if (locality && region) {
+    const smsNumbers = await listCityInventory(client, names, region, { smsOnly: true });
+    let cityPick = cityChoice(smsNumbers, { npas, names, centroid });
+    if (cityPick?.match !== 'city') {
+      const voiceNumbers = await listCityInventory(client, names, region);
+      cityPick = cityChoice(dedupeNumbers([...smsNumbers, ...voiceNumbers]), { npas, names, centroid });
+    }
+    if (cityPick?.match === 'city') return packChoice(cityPick, 'city');
   }
 
-  throw Object.assign(
-    new Error(
-      `No Twilio local numbers found for ${[locality, region].filter(Boolean).join(', ') || 'request'}${
-        area ? ` (area ${area})` : ''
-      }`,
-    ),
-    { status: 404 },
-  );
+  if (npas.length) {
+    const hit = await pickAreaCodeInventory(client, npas, {
+      region,
+      centroid,
+      constrainRegion: true,
+    });
+    if (hit) return packChoice(hit, 'area-code');
+  }
+
+  if (region && centroid) {
+    const hit = await pickNearestInState(client, region, centroid);
+    if (hit) return packChoice(hit, 'nearest');
+  }
+
+  const place = [locality, region].filter(Boolean).join(', ') || 'that city';
+  const reason = centroid
+    ? ''
+    : `No Twilio numbers available in ${place} area codes, and there is no map location for a closer search`;
+  throw noNumberError({ city: locality, state: region, reason });
 }
 
 /**
@@ -317,6 +459,11 @@ export async function provisionRankingNumber({ site, areaCode, force = false } =
       voiceWebhookUrl: voiceUrl,
       forwardTo: '',
       provisionedAt: new Date().toISOString(),
+      areaCode: available.areaCode || null,
+      locality: available.locality || null,
+      region: available.region || state,
+      distanceMiles: available.distanceMiles ?? null,
+      match: available.match || null,
     },
   };
 }

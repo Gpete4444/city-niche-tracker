@@ -57,7 +57,7 @@ US carriers may filter SMS from local DIDs (A2P/10DLC). Voicemail still records 
 
 ## Operator flow
 
-1. Accept site-config → **Provision ranking number** (Website Builder or Launched Sites)
+1. Accept site-config → **Provision ranking number** (Website Builder or Launched Sites). Rover buys one of that city’s area codes, including an overlay. If those codes have no inventory, it buys the closest available number in the same state.
 2. **Update site phone number** so live CTAs show the DID
 3. On **Phone**: upload a greeting, or **Save spoken fallback** (after redeploying `/inbound`). Test: call the DID from another phone — hear greeting/spoken line, leave a message; you should get an SMS, not a ring
 4. When rented: save **renter phone** → **Set forward to renter** (same DID, phase `rented`)

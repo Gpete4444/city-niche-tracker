@@ -940,7 +940,7 @@ async function runPolish(candidateId, signal, tick) {
   if (left.speechN > 0 && polishSpeechShouldBlockWrite({ speechN: left.speechN })) {
     const err = Object.assign(
       new Error(
-        `Polish leftover speech findings (${left.speechN}). Retry this phase or switch to Copy & paste Humanize.`,
+        `Polish leftover speech findings (${left.speechN}). Retry this phase.`,
       ),
       { status: 422 },
     );

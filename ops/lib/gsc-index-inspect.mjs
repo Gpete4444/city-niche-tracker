@@ -11,6 +11,7 @@ import {
   matchGscPropertyEntry,
 } from './gsc-sync.mjs';
 import { ensureSiteMetrics, saveSiteMetrics } from './site-metrics.mjs';
+import { appendInspectHistory } from './site-series.mjs';
 import { getSite } from './sites.mjs';
 
 export const INSPECT_PASS_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -343,6 +344,12 @@ export async function inspectSiteIndex(siteId, { properties = null, now = Date.n
   metrics.gsc.inspectNotIndexed = rollup.inspectNotIndexed;
   metrics.gsc.inspectCheckedAt = new Date(now).toISOString();
   metrics.gsc.inspectError = errors.length ? errors[0] : null;
+  metrics.gsc.inspectHistory = appendInspectHistory(metrics.gsc.inspectHistory, {
+    checkedAt: metrics.gsc.inspectCheckedAt,
+    indexed: rollup.inspectIndexed,
+    submitted: rollup.inspectSubmitted,
+    notIndexed: rollup.inspectNotIndexed,
+  });
   saveSiteMetrics(metrics);
 
   return {

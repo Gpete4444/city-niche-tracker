@@ -11,9 +11,9 @@ Rover finds local home-service markets worth ranking for, then ships a lead-gen 
 1. On this machine, open a terminal in the Rover folder.
 2. Run `npm run rover` **once**. Leave that terminal open.
 3. Open [http://127.0.0.1:8787](http://127.0.0.1:8787). Extra windows or tabs to that URL are extra views — do not start six terminals.
-4. After you change API keys in `.env`, stop Rover and start it again. Settings only reloads keys on startup.
+4. Keys go in the gear → **Account setup**. Saving there applies without a restart. Editing `.env` by hand still needs a restart.
 
-First-time keys: follow [ENV-SETUP.md](ENV-SETUP.md) until Settings → API/Other is green.
+First-time keys: open Account setup, or follow [ENV-SETUP.md](ENV-SETUP.md) until Settings → API/Other is green.
 
 ## Chrome {#chrome}
 
@@ -21,7 +21,7 @@ The top bar is always there.
 
 ### Version {#chrome-version}
 
-**v2.7** (or current) sits next to the Rover wordmark. That is the product version, not a candidate.
+**v2.8** (or current) sits next to the Rover wordmark. That is the product version, not a candidate.
 
 ### Stages {#chrome-stages}
 
@@ -161,7 +161,7 @@ Three tracks, in order: Site-Config → Content → Launch.
 5. **Paste the reply** — Copy & paste only. Load the reply and edit it here.
 6. **Review services → Accept** — locks site-config.
 7. **Service area** — click a city to add or remove coverage. Zone candidates have no radius ring: suggested location pages plus Also serving leftovers. Other zone cities stay Also serving only.
-8. **Provision phone** — buy a local number, or Skip. Calls go to voicemail and text you. Do not buy numbers in Discovery or Research. The area code may be an overlay, or another city in the same state if Twilio has no numbers in your city. See [Area code on a new number](#phone-area-code). If **Phone → Twilio** is still red in Settings, finish [First-time Twilio setup](#phone-twilio-setup) first.
+8. **Provision phone** — buy a local number, or Skip. Calls go to voicemail and text you. Do not buy numbers in Discovery or Research. Rover buys this city’s area code, including an overlay. If none of those codes are in stock, it buys the closest number in the state. See [Area code on a new number](#phone-area-code). If **Phone → Twilio** is still red in Settings, finish [First-time Twilio setup](#phone-twilio-setup) first.
 
 **Find addresses:** Clean target (default 10) stops Places after that many clean streets. Pull size (default ~40 listings per source) is remembered in this browser. A street is rejected only for an **active OPERATIONAL** Maps listing on that street + ZIP. **Refresh / Fetch deeper** re-scrapes checked sources. Use **Find** when a source still has streets left; **Fetch deeper** when every checked source is exhausted.
 
@@ -186,14 +186,32 @@ In **API** mode, steps 2–8 are **Structure**, then **Write site with Claude** 
 2. **Review images** — swap, upload, or generate photos. Save or load a photo group if you want.
 3. **Prepare preview** — builds a local preview of every page. It does not publish. When it finishes, open every preview page, then Run launch.
 4. **Launch** — first go-live. Buy the domain. At the registrar, point the nameservers at Cloudflare so the domain shows up in this account. Put your Gmail in the destination box. Leave **Auto ship** and **Connect domain and email** on. After launch, open Cloudflare’s confirmation email once, submit the live form, and confirm the email arrives.
-5. **Indexing** — submit the live sitemap in Search Console, then mark done. Indexing is not ranking.
+5. **Indexing** — submit the live sitemap in Search Console, then mark done. Indexing is not ranking. A “Page with redirect” email is expected. See [Search Console emails](#website-indexing-emails).
 6. **Push updates** — the site is already live: publish the latest copy. Run **Prepare preview** first if the pages changed.
 
 The site then appears under **4 Launched**.
 
+### Search Console emails {#website-indexing-emails}
+
+Google sends “New reason preventing your pages from being indexed” once per site, the first time it sees that reason. A full inbox after launching many sites is the same email repeated.
+
+**Page with redirect** is a URL Google tried that sends visitors to the real page. Rover does this on purpose:
+
+- `http://` goes to `https://`
+- `www` goes to the bare domain
+- A path with no ending slash (`/about`) goes to the same path with a slash (`/about/`)
+
+The pages that get indexed are `https://`, no `www`, with the trailing slash. The rows in the email are the other URLs. Leave them. Do not click **Validate fix**. Google keeps requesting those URLs, so the warning stays.
+
+Also ignore **Not found (404)** when that URL is not a page on the site.
+
+Open the report when the examples are the real pages (https, no www, trailing slash), or when Google reports a server error, noindex, or a robots.txt block.
+
 ## Launched {#launched}
 
-Portfolio of live sites: rent status, renter, payment, infra links. Table shows local **Pages** / **Words** plus GSC clicks and **Indexed** (Check index: sitemap URLs in Google, not the GSC Pages report). **Indexing Mark done** stays checked after reload. **Push updates** from Website ships later content. Metrics need GSC connected — see Settings greens and [SITES-METRICS.md](SITES-METRICS.md).
+Portfolio of live sites: rent status, renter, payment, infra links. The page is three bands: **Portfolio** (KPIs and charts), **Search mix** (pages by type and top queries), then **Sites**. **Cluster tree** / **Flat list** on the table picks the view: tree is Zone → Cluster → Site (same grouping as Phone/Form Combined); Flat list is the old sortable one-row-per-site table. Checkboxes drive the four charts at the top: none checked uses every site currently listed (filters still apply); checking rows limits the charts to those sites.
+
+Each chart has its own Y-axis. Hover a day for the date and values. Missing data is left off that chart, not drawn as zero. A warning under the chart names the sites that still need **Sync GSC**, **Check ranks**, or **Check index** — click it to select them. Impressions and clicks (and the Sites with impressions toggle) are Search Console’s last 90 days — **Sync GSC** once backfills them; you do not need a daily pull. The last 2–3 days on those GSC charts are dotted because Google is still landing the numbers — not a drop in traffic. Page 1 and Indexed URLs only have points on days you ran **Check ranks** / **Check index**; those cannot be backfilled. **Pages by type** and **Top queries** under the charts add up the current checkbox set. Open a site for a two-axis Traffic chart and sortable query/page tables. **Indexing Mark done** stays checked after reload. **Push updates** from Website ships later content. Metrics need GSC connected — see Settings greens and [SITES-METRICS.md](SITES-METRICS.md).
 
 ## Phone {#phone}
 
@@ -201,7 +219,7 @@ Call log for ranking numbers: voicemail / answered / missed, recordings, AI summ
 
 ### Area code on a new number {#phone-area-code}
 
-Rover does not choose the area code. It buys the first US local number Twilio returns. It searches the city first. If that city has nothing in stock, it takes the first number anywhere in the state. That statewide fallback is how a Phoenix-area site ends up with a Flagstaff number, or a Dallas suburb with an Abilene number. Newer overlays such as 447, 385, and 737 are what you get when the city search succeeds but the old area code is exhausted.
+Rover buys a number in the site city’s area codes. An overlay such as 385 for Salt Lake City or 447 for Springfield, Illinois counts as that city. If none of those codes are in stock, Rover buys the closest available number in the same state. It does not take the first number anywhere in the state. Type an area code to keep that code only. Rover will not switch to another one.
 
 ### First-time Twilio setup {#phone-twilio-setup}
 
@@ -216,8 +234,8 @@ Do these clicks in order. Do not skip **Deploy All**.
 5. On that same service, open **Environment Variables** (or Variables). Add one variable: Key `TWILIO_FORWARD_TO`, Value your cell in E.164 (US example `+18015551234` — plus sign, country code, no spaces or dashes). Do not add other variables yet.
 6. Click **Deploy All**. Wait until Twilio says it succeeded. If it fails, fix the error on screen, then Deploy All again.
 7. On the service page, copy the domain (looks like `rover-voice-1234.twil.io`). Your webhook is that domain with `/inbound` on the end: `https://rover-voice-1234.twil.io/inbound`.
-8. In the Rover folder, open `.env`. Paste the four lines from **.env paste** below, replacing the placeholders with your SID, token, cell, and webhook. Save the file.
-9. In the Rover terminal press `Ctrl+C`, then run `npm run rover` again. Settings only reads `.env` at startup.
+8. In Rover, open the gear → **Account setup**. Paste the Account SID, auth token, and forward-to number into those rows and Save. That applies without a restart.
+9. The voice webhook URL is not on that page. In `.env`, set `TWILIO_VOICE_WEBHOOK_URL` to the `/inbound` URL from the step above, save, then restart Rover (`Ctrl+C`, then `npm run rover`).
 10. In Rover, click the gear → **API/Other**. **Phone → Twilio** must be green. If it stays red, use **If something goes wrong** below.
 11. Click **Phone** in the top bar. The Rover loading card is normal. Expand **Ranking greeting**, then **Save spoken fallback** once (even if you did not change the words).
 12. After you **Provision** a ranking number on a Website candidate, call that number from another phone. Your cell must **not** ring. You should hear the spoken greeting. You get a text only if the caller leaves a message.
@@ -585,7 +603,7 @@ TWILIO_VOICE_WEBHOOK_URL=https://rover-voice-xxxx.twil.io/inbound
 
 | What you see | What to do |
 | --- | --- |
-| Settings **Phone → Twilio** still red | A line is missing, has quotes, or you did not restart Rover after saving `.env` |
+| Settings **Phone → Twilio** still red | Account SID, token, or forward-to is missing in Account setup, or `TWILIO_VOICE_WEBHOOK_URL` is missing from `.env` (that line needs a restart) |
 | `TWILIO_FORWARD_TO must be E.164` | Use `+1` then 10 digits. Example: `+18015551234`. No spaces, dashes, or parentheses |
 | `TWILIO_VOICE_WEBHOOK_URL must be a public https URL` | Use `https://your-service.twil.io/inbound`. Not `http`, and not `127.0.0.1` |
 | `No Twilio Functions service found` | Create the service named exactly `rover-voice`, or SID/token are from a different Twilio account |

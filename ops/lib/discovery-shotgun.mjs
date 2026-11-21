@@ -344,7 +344,7 @@ export function getShotgunCostPreview(batchId, act) {
         lastCost != null
           ? `${title.replace('?', '')} (est. ${formatUsd(lastCost)})`
           : `${title.replace('?', '')} (est. ${formatUsd(priced.costUsd)})`,
-      freeFallback: 'Prefer Copy & paste? Switch the header toggle.',
+      freeFallback: null,
     };
   }
   const inputTokens = estimateTokensFromText(prompt);
@@ -376,7 +376,7 @@ export function getShotgunCostPreview(batchId, act) {
       lastCost != null
         ? `${title.replace('?', '')} (est. ${formatUsd(lastCost)})`
         : `${title.replace('?', '')} (est. ${formatUsd(priced.costUsd)})`,
-    freeFallback: 'Prefer Copy & paste? Switch the header toggle.',
+    freeFallback: null,
   };
 }
 

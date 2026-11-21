@@ -76,7 +76,7 @@ export function getGeneratePackCostPreview(batchId) {
       lastCost != null
         ? `Generate pack (est. ${formatUsd(lastCost)})`
         : `Generate pack (est. ${formatUsd(priced.costUsd)})`,
-    freeFallback: 'Prefer Copy & paste? Switch the header toggle.',
+    freeFallback: null,
   };
 }
 

@@ -7,6 +7,7 @@ import path from 'node:path';
 import { RESEARCH_DIR } from './candidates.mjs';
 import { siteContentInventory } from './site-inventory.mjs';
 import { listLaunchedSites } from './sites.mjs';
+import { windowTotalsFromDaily } from './site-series.mjs';
 
 export const SITE_METRICS_DIR = path.join(RESEARCH_DIR, 'site-metrics');
 export const MAX_RANK_KEYWORDS = 5;
@@ -61,6 +62,7 @@ export function emptyGscBlock() {
     inspectNotIndexed: null,
     inspectCheckedAt: null,
     inspectError: null,
+    inspectHistory: [],
   };
 }
 
@@ -80,6 +82,7 @@ export function defaultMetrics(siteId, partial = {}) {
   if (!gsc.inspectByUrl || typeof gsc.inspectByUrl !== 'object' || Array.isArray(gsc.inspectByUrl)) {
     gsc.inspectByUrl = {};
   }
+  if (!Array.isArray(gsc.inspectHistory)) gsc.inspectHistory = [];
   return {
     version: 1,
     siteId,
@@ -271,11 +274,17 @@ export function metricsSummary(metrics) {
       inspectNotIndexed: null,
       inspectCheckedAt: null,
       inspectError: null,
+      clicks7d: null,
+      impressions7d: null,
     };
   }
+  const synced = Boolean(metrics.gsc?.lastSyncAt) && !metrics.gsc?.syncError;
+  const week = synced ? windowTotalsFromDaily(metrics.gsc?.daily, 7) : { clicks: null, impressions: null };
   return {
     clicks28d: metrics.gsc?.clicks28d ?? null,
     impressions28d: metrics.gsc?.impressions28d ?? null,
+    clicks7d: synced ? week.clicks : null,
+    impressions7d: synced ? week.impressions : null,
     ctr28d: metrics.gsc?.ctr28d ?? null,
     avgPosition28d: metrics.gsc?.avgPosition28d ?? null,
     gscLastSyncAt: metrics.gsc?.lastSyncAt ?? null,

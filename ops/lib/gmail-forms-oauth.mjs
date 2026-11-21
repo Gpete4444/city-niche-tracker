@@ -14,7 +14,9 @@ const PENDING_FILE = path.join(RESEARCH_DIR, 'gmail-forms-oauth-pending.json');
 const SCOPE = 'https://www.googleapis.com/auth/gmail.readonly';
 const AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
 const TOKEN_URL = 'https://oauth2.googleapis.com/token';
-const LOGIN_HINT = 'paulthiriot@gmail.com';
+function gmailLoginHint() {
+  return String(process.env.LEAD_NOTIFY_EMAIL || process.env.WEB3FORMS_DEFAULT_NOTIFY_EMAIL || '').trim();
+}
 
 function ensureResearchDir() {
   mkdirSync(RESEARCH_DIR, { recursive: true });
@@ -60,13 +62,14 @@ export function getGmailFormsAuthStatus() {
 export function startGmailFormsOAuth({ port } = {}) {
   if (!gmailFormsClientConfigured()) {
     throw Object.assign(
-      new Error('Set GOOGLE_GSC_CLIENT_ID and GOOGLE_GSC_CLIENT_SECRET in .env before connecting Gmail.'),
-      { status: 400 },
+      new Error('Search Console client ID is not set. Open Account setup to add it.'),
+      { status: 400, code: 'missing_key', field: 'GOOGLE_GSC_CLIENT_ID' },
     );
   }
   const state = crypto.randomBytes(24).toString('hex');
   const redirectUri = gmailFormsRedirectUri(port);
   writeJson(PENDING_FILE, { state, redirectUri, createdAt: new Date().toISOString() });
+  const hint = gmailLoginHint();
   const params = new URLSearchParams({
     client_id: process.env.GOOGLE_GSC_CLIENT_ID.trim(),
     redirect_uri: redirectUri,
@@ -74,9 +77,9 @@ export function startGmailFormsOAuth({ port } = {}) {
     scope: SCOPE,
     access_type: 'offline',
     prompt: 'consent',
-    login_hint: LOGIN_HINT,
     state,
   });
+  if (hint) params.set('login_hint', hint);
   return { authUrl: `${AUTH_URL}?${params.toString()}`, redirectUri };
 }
 

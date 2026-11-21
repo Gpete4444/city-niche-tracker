@@ -1,4 +1,17 @@
 import {
+  aggregateSiteSeries,
+  buildSiteMetricsSeries,
+  coverageForSites,
+  distinctInspectDays,
+  gscIncompleteStart,
+  GSC_PAGE_TYPE_LABELS,
+  isoDay,
+  rollupGscPagesByType,
+  rollupGscQueries,
+  splitGscCompleteIncomplete,
+  sumAlignedWindow,
+} from './site-series.js?v=20261119gscUx';
+import {
   adsVolumeHonesty,
   clusterVolumeHtml,
   competitionOpennessTip,
@@ -20,6 +33,7 @@ import {
   tipAttr,
   yesNoHtml,
 } from './metrics.js';
+import { installAccountSetup, showMissingKey } from './account-setup.js';
 import { openVisualEditor } from './visual-editor.js';
 import {
   ensureResearchMapReady,
@@ -1028,8 +1042,18 @@ const state = {
   launchedGroups: [],
   siteSort: { key: 'lastLaunchAt', dir: -1 },
   siteFilters: { text: '', status: '', state: '', group: '', zone: '', cluster: '' },
+  sitesView: 'tree',
+  sitesChartRange: 28,
+  sitesChartToggles: { impressions: 'overlay', clicks: 'overlay', ranks: 'page1', indexed: 'breadth' },
+  sitesGscSort: {
+    query: { key: 'clicks', dir: -1 },
+    page: { key: 'clicks', dir: -1 },
+    rollupQuery: { key: 'clicks', dir: -1 },
+    rollupType: { key: 'impressions', dir: -1 },
+  },
+  sitesTreeOpen: { zones: {}, clusters: {} },
   gscStatus: null,
-  sitesPortfolio: { traffic: [], ranks: [] },
+  sitesPortfolio: { traffic: [], ranks: [], series: null },
   sitesMetricsBusy: false,
   sitesMetricsStop: false,
   _sitesGscConnectWait: null,
@@ -1078,6 +1102,8 @@ async function api(path, options = {}) {
     const err = new Error(data.error || res.statusText);
     err.status = res.status;
     if (data.code) err.code = data.code;
+    if (data.field) err.field = data.field;
+    if (data.plan) err.plan = data.plan;
     if (data.details) err.details = data.details;
     if (data.suburbCheck) err.suburbCheck = data.suburbCheck;
     if (data.placeholders) err.placeholders = data.placeholders;
@@ -1097,6 +1123,9 @@ async function api(path, options = {}) {
     if (data.meta) err.meta = data.meta;
     if (data.existingId) err.existingId = data.existingId;
     if (data.holderTabId) err.holderTabId = data.holderTabId;
+    if (data.code === 'missing_key' || data.code === 'plan_required') {
+      showMissingKey(err);
+    }
     if (data.code === 'WEBSITE_WRITE_LOCKED' && !options.quietLock) {
       showToast('Could not save — this business is open for editing in another tab.', {
         tone: 'err',
@@ -3361,6 +3390,7 @@ function wireJobsUi() {
 }
 
 function wireSettingsUi() {
+  installAccountSetup();
   const btn = document.getElementById('settings-btn');
   const menu = document.getElementById('settings-menu');
   if (!btn || !menu) return;
@@ -5062,6 +5092,12 @@ function syncCandidatesDetailVisibility() {
     !saMapOpen && state.selectedIds.size === 0 && !state.selectedId;
   layout?.classList.toggle('layout-detail-collapsed', collapsed);
   applyDetailShelf();
+  const closeBtn = document.querySelector('#candidates-detail-panel .detail-panel-close');
+  if (closeBtn) {
+    closeBtn.disabled = saMapOpen;
+    if (saMapOpen) closeBtn.setAttribute('data-tip', 'Finish the map first.');
+    else closeBtn.removeAttribute('data-tip');
+  }
 
   if (!empty || !detail) return;
   if (state.selectedIds.size > 1) {
@@ -6452,11 +6488,7 @@ const CLAUDE_UI_VIEWS = new Set([
 ]);
 
 function getClaudeUiMode() {
-  try {
-    return localStorage.getItem(CLAUDE_UI_MODE_KEY) === 'api' ? 'api' : 'paste';
-  } catch {
-    return 'paste';
-  }
+  return 'api';
 }
 
 function setClaudeUiMode(mode) {
@@ -6479,9 +6511,7 @@ function anthropicConfigured() {
 }
 
 function effectiveClaudeUiMode() {
-  const stored = getClaudeUiMode();
-  if (stored === 'api' && !anthropicConfigured()) return 'paste';
-  return stored;
+  return getClaudeUiMode();
 }
 
 function applyClaudeUiModeAttr(mode = effectiveClaudeUiMode()) {
@@ -6633,6 +6663,8 @@ function persistUiRestore() {
       key: state.siteSort?.key || 'lastLaunchAt',
       dir: state.siteSort?.dir === 1 ? 1 : -1,
     },
+    sitesView: state.sitesView === 'list' ? 'list' : 'tree',
+    sitesChartRange: state.sitesChartRange === 90 ? 90 : 28,
   };
   try {
     sessionStorage.setItem(UI_RESTORE_KEY, JSON.stringify(payload));
@@ -6722,6 +6754,10 @@ function applyUiFilterSnapshot(snap) {
       allowed: sortableColumnKeys(SITE_TABLE_COLS, { defaultSortable: true }),
     });
     if (siteSort) state.siteSort = siteSort;
+    if (snap.sitesView === 'list' || snap.sitesView === 'tree') state.sitesView = snap.sitesView;
+    if (snap.sitesChartRange === 90 || snap.sitesChartRange === 28) {
+      state.sitesChartRange = snap.sitesChartRange;
+    }
     syncUiRestoreControls();
   } finally {
     uiRestoreQuiet = false;
@@ -6755,9 +6791,8 @@ async function applyUiSelectionRestore(snap) {
 }
 
 function syncClaudeModeToggle() {
-  const stored = getClaudeUiMode();
   const anthropicOk = anthropicConfigured();
-  const effective = anthropicOk ? stored : 'paste';
+  const effective = effectiveClaudeUiMode();
   applyClaudeUiModeAttr(effective);
   const pasteBtn = document.getElementById('claude-mode-paste');
   const apiBtn = document.getElementById('claude-mode-api');
@@ -11453,7 +11488,7 @@ function baSearchReportBodyHtml(pkg, { title = 'Last search', failed = false } =
     kind === 'apify_billing'
       ? `<p style="margin:0.45rem 0 0">Apify blocked this run. Add credit at <a href="https://console.apify.com/billing/subscription" target="_blank" rel="noopener">Apify billing</a>, then retry. Manual commercial / home paste / Skip still work.</p>`
       : kind === 'apify_config'
-        ? `<p style="margin:0.45rem 0 0">Add <code>APIFY_TOKEN</code>, at least one of <code>APIFY_LOOPNET_ACTOR_ID</code> / <code>APIFY_CREXI_ACTOR_ID</code>, and <code>GOOGLE_MAPS_API_KEY</code> to <code>.env</code>, restart Rover, then retry.</p>`
+        ? `<p style="margin:0.45rem 0 0">Add the Apify token and Google Maps key in Account setup, then retry. <button type="button" class="btn btn-sm" data-open-account="APIFY_TOKEN">Open Account setup</button></p>`
         : kind === 'places_budget'
           ? `<p style="margin:0.45rem 0 0">Stopped early to cap Places spend. Run <strong>Find addresses</strong> again to continue screening remaining streets (another budget), or use Manual / recover / home / Skip.</p>`
           : '';
@@ -21476,7 +21511,7 @@ function wireContentTab(d) {
         title: 'OpenAI key required',
         confirmLabel: 'OK',
         hideCancel: true,
-        bodyHtml: '<p>Set <code>OPENAI_API_KEY</code> in .env (same key as Phone), then restart Rover.</p>',
+        bodyHtml: '<p>Add the OpenAI API key in Account setup. It is the same key Phone uses. <button type="button" class="btn btn-sm" data-open-account="OPENAI_API_KEY">Open Account setup</button></p>',
       });
       return;
     }
@@ -21871,7 +21906,7 @@ function wireContentTab(d) {
         hideCancel: !reconnect,
         bodyHtml: `<p>${esc(error.message)}</p>${
           needsEnv
-            ? `<p class="muted small">Add OAuth client id/secret to <code>.env</code>. Redirect URI: <code>http://127.0.0.1:8787/api/gsc/oauth/callback</code></p>`
+            ? `<p class="muted small">Add the Search Console client ID and secret in Account setup. Redirect URI: <code>http://127.0.0.1:8787/api/gsc/oauth/callback</code> <button type="button" class="btn btn-sm" data-open-account="GOOGLE_GSC_CLIENT_ID">Open Account setup</button></p>`
             : ''
         }`,
       });
@@ -21885,7 +21920,7 @@ function wireContentTab(d) {
           confirmLabel: 'OK',
           hideCancel: true,
           bodyHtml: `<p>${esc(startError.message)}</p>
-            <p class="muted small">Add OAuth client id/secret to <code>.env</code>. Redirect URI: <code>http://127.0.0.1:8787/api/gsc/oauth/callback</code></p>`,
+            <p class="muted small">Add the Search Console client ID and secret in Account setup. Redirect URI: <code>http://127.0.0.1:8787/api/gsc/oauth/callback</code> <button type="button" class="btn btn-sm" data-open-account="GOOGLE_GSC_CLIENT_ID">Open Account setup</button></p>`,
         });
       }
     };
@@ -22120,8 +22155,8 @@ function wireContentTab(d) {
         `Assembled: ${st.assembled ? 'yes' : 'no'}`,
         `GitHub repo: ${st.githubRepo || ship?.githubRepo || 'not yet'}`,
         `gh authenticated: ${ship ? (ship.ghAuthenticated ? 'yes' : 'no — run gh auth login once') : 'unknown'}`,
-        `GitHub owner: ${ship?.githubOwner || 'set GITHUB_OWNER in .env'}`,
-        `CF credentials: ${st.cloudflareConfigured ? 'yes' : 'missing in .env'}`,
+        `GitHub owner: ${ship?.githubOwner || 'add it in Account setup'}`,
+        `CF credentials: ${st.cloudflareConfigured ? 'yes' : 'add them in Account setup'}`,
         `Forms inbox: ${st.formsInboxReady ? 'ready' : 'not set up'}`,
         `CF Worker project: ${st.cloudflarePagesDone ? '✓' : '○'}`,
         `DNS / custom domain: ${st.dnsDone ? '✓' : '○'}`,
@@ -22139,7 +22174,7 @@ function wireContentTab(d) {
         bodyHtml: `<ul class="narrative-list">${flags}</ul>
           <p class="muted">Slug: <code>${esc(st.assembledSiteSlug || '—')}</code>
           · path: <code>${esc(st.assembledSitePath || '—')}</code></p>
-          <p class="muted">Human leftovers: buy/point domain NS → Cloudflare; run Email Routing so leads@ exists; after — verify the Email Routing destination once and smoke-test the form. One-time machine: <code>gh auth login</code> + <code>GITHUB_OWNER</code> + <code>CLOUDFLARE_*</code>.</p>`,
+          <p class="muted">Human leftovers: buy/point domain NS → Cloudflare; run Email Routing so leads@ exists; after — verify the Email Routing destination once and smoke-test the form. One-time machine: <code>gh auth login</code>, then GitHub owner and Cloudflare in Account setup. <button type="button" class="btn btn-sm" data-open-account="githubOwner">Open Account setup</button></p>`,
       });
     } catch (error) {
       await showModal({ title: 'Failed', confirmLabel: 'OK', bodyHtml: `<p>${esc(error.message)}</p>` });
@@ -24188,11 +24223,12 @@ function wireSiteConfigTab(d) {
     const areaCode = String(document.getElementById('sc-twilio-area')?.value || '')
       .replace(/\D/g, '')
       .slice(0, 3);
+    const place = detailCityState(d);
     const ok = await showModal({
       title: 'Provision Twilio ranking number?',
       confirmLabel: 'Buy number',
       bodyHtml: `<p>Buys one US local number (~$1.15/mo), writes accepted site-config phone, and sends ranking calls to voicemail (texts <code>TWILIO_FORWARD_TO</code>).</p>
-        <p class="muted small">Area: ${areaCode ? esc(areaCode) : 'locality from site-config city/state'}</p>`,
+        ${phoneAreaRuleHtml(areaCode, place.city, place.state)}`,
     });
     if (!ok) return;
     const btn = document.getElementById('sc-provision-twilio');
@@ -24227,6 +24263,7 @@ function wireSiteConfigTab(d) {
         confirmLabel: 'OK',
         hideCancel: true,
         bodyHtml: `<p><strong>${esc(formatDisplayPhone(result.provisioned?.phone || result.provisioned?.e164 || ''))}</strong> written to site-config.</p>
+          ${phoneProvisionMatchHtml(result.provisioned)}
           <p class="muted small">Content is open on the next step. Then Website Prepare / Launch. Use Launched → Update site phone number if you need to re-ship later.</p>`,
       });
     } catch (error) {
@@ -25007,10 +25044,30 @@ function wireUi() {
   syncSitesDetailVisibility();
   syncPhoneDetailVisibility();
   document.getElementById('candidates-detail-panel')?.addEventListener('click', (event) => {
+    if (event.target.closest('.detail-panel-close')) {
+      event.preventDefault();
+      clearCandidateRowSelection();
+      return;
+    }
     const btn = event.target.closest('#detail-shelf-toggle');
     if (!btn) return;
     event.preventDefault();
     toggleDetailShelf();
+  });
+  document.getElementById('sites-detail')?.addEventListener('click', (event) => {
+    if (!event.target.closest('.detail-panel-close')) return;
+    event.preventDefault();
+    clearSitesRowSelection();
+  });
+  document.getElementById('phone-detail')?.addEventListener('click', (event) => {
+    if (!event.target.closest('.detail-panel-close')) return;
+    event.preventDefault();
+    clearPhoneCallSelection();
+  });
+  document.getElementById('forms-detail')?.addEventListener('click', (event) => {
+    if (!event.target.closest('.detail-panel-close')) return;
+    event.preventDefault();
+    clearFormSelection();
   });
   document.getElementById('btn-refresh').addEventListener('click', (event) => {
     event.preventDefault();
@@ -25281,6 +25338,7 @@ function setView(view) {
     void refreshWebsiteWriteLease();
   }
   if (view === 'launched-sites') {
+    watchSitesStickyHead();
     loadSites().catch(() => {});
   }
   if (view === 'phone') {
@@ -25348,6 +25406,15 @@ function formatSitesChartAxis(v, yFormat) {
   const n = Number(v);
   if (!Number.isFinite(n)) return '';
   if (yFormat === 'percent') return `${Math.round(n)}%`;
+  const abs = Math.abs(n);
+  if (abs >= 1_000_000) {
+    const m = n / 1_000_000;
+    return `${(abs >= 10_000_000 ? Math.round(m) : Number(m.toFixed(1)))}M`;
+  }
+  if (abs >= 1000) {
+    const k = n / 1000;
+    return `${(abs >= 10_000 ? Math.round(k) : Number(k.toFixed(1)))}k`;
+  }
   return String(Math.round(n));
 }
 
@@ -25379,66 +25446,11 @@ function chartYTicks(yMin, yMax, yFormat) {
   return ticks.length ? ticks : [yMin, yMax];
 }
 
-function chartYAxisMarkup({ yTicks, yFormat, yAt, w, h, pad }) {
-  const baseline = h - pad.b;
-  return yTicks
-    .map((value) => {
-      const y = yAt(value);
-      const onBase = Math.abs(y - baseline) < 1;
-      const line = onBase
-        ? ''
-        : `<line x1="${pad.l}" y1="${y.toFixed(1)}" x2="${w - pad.r}" y2="${y.toFixed(1)}" stroke="currentColor" stroke-opacity="0.18" stroke-dasharray="3 3" />`;
-      const labelY = Math.min(h - 4, Math.max(9, y));
-      return `${line}<text x="${(pad.l - 4).toFixed(1)}" y="${labelY.toFixed(1)}" fill="currentColor" font-size="10" opacity="0.55" text-anchor="end" dominant-baseline="middle">${esc(formatSitesChartAxis(value, yFormat))}</text>`;
-    })
-    .join('');
-}
-
-/**
- * Simple multi-series SVG line chart.
- * series: [{ label, color, points: [{ y }] }] — null/NaN y dropped.
- * opts: { yLabel, width, height, yFormat: 'number'|'percent', invertY, minPoints, xStart, xEnd, xTicks }
- * xTicks: [{ index, text }] drawn along the x-axis. xStart/xEnd are the two-label fallback.
- */
-function renderSvgLineChart(
-  container,
-  seriesList,
-  { yLabel = '', width = 320, height = 110, yFormat = 'number', invertY = false, minPoints = 2, xStart = '', xEnd = '', xTicks = [] } = {},
-) {
-  if (!container) return;
-
-  const cleaned = (seriesList || [])
-    .map((s) => ({
-      label: s.label || '',
-      color: s.color || '#2a9d8f',
-      points: (s.points || [])
-        .map((p) => {
-          const y = p == null || typeof p !== 'object' ? Number(p) : Number(p.y);
-          return Number.isFinite(y) ? { y } : null;
-        })
-        .filter(Boolean),
-    }))
-    .filter((s) => s.points.length > 0);
-
-  const series =
-    cleaned.filter((s) => s.points.length >= minPoints).length > 0
-      ? cleaned.filter((s) => s.points.length >= minPoints)
-      : minPoints <= 1
-        ? cleaned
-        : [];
-
-  if (!series.length) {
-    container.innerHTML = `<div class="sites-chart-empty muted small">No data yet</div>`;
-    return;
-  }
-
-  const w = Math.max(40, Math.round(width) || 320);
-  const h = Math.max(40, Math.round(height) || 110);
-  const axisTicks = (xTicks || []).filter((tick) => tick && tick.text);
-  const pad = { t: 14, r: 10, b: axisTicks.length || xStart || xEnd ? 26 : 12, l: 34 };
-  const allY = series.flatMap((s) => s.points.map((p) => p.y));
-  let yMin = Math.min(...allY);
-  let yMax = Math.max(...allY);
+function chartYDomain(allY, { yFormat = 'number', invertY = false } = {}) {
+  const values = (allY || []).filter((y) => y != null && Number.isFinite(y));
+  if (!values.length) return { yMin: 0, yMax: 1 };
+  let yMin = Math.min(...values);
+  let yMax = Math.max(...values);
   if (yMin === yMax) {
     if (yFormat === 'percent') {
       yMin = Math.max(0, yMin - 5);
@@ -25465,51 +25477,171 @@ function renderSvgLineChart(
       yMin = 0;
     }
   }
-  if (!invertY && yFormat !== 'percent' && Math.min(...allY) >= 0) yMin = Math.max(0, yMin);
+  if (!invertY && yFormat !== 'percent' && Math.min(...values) >= 0) yMin = 0;
   if (yMax <= yMin) yMax = yMin + 1;
+  return { yMin, yMax };
+}
 
-  const yTicks = chartYTicks(yMin, yMax, yFormat);
-  const widestTick = Math.max(2, ...yTicks.map((value) => formatSitesChartAxis(value, yFormat).length));
-  pad.l = Math.max(34, Math.ceil(8 + widestTick * 6.2));
+function chartYAxisMarkup({ yTicks, yFormat, yAt, w, h, pad, side = 'left' }) {
+  const baseline = h - pad.b;
+  const isRight = side === 'right';
+  return yTicks
+    .map((value) => {
+      const y = yAt(value);
+      const onBase = Math.abs(y - baseline) < 1;
+      const line =
+        onBase || isRight
+          ? ''
+          : `<line x1="${pad.l}" y1="${y.toFixed(1)}" x2="${w - pad.r}" y2="${y.toFixed(1)}" stroke="currentColor" stroke-opacity="0.18" stroke-dasharray="3 3" />`;
+      const labelY = Math.min(h - 4, Math.max(9, y));
+      const x = isRight ? (w - pad.r + 4).toFixed(1) : (pad.l - 4).toFixed(1);
+      const anchor = isRight ? 'start' : 'end';
+      return `${line}<text x="${x}" y="${labelY.toFixed(1)}" fill="currentColor" font-size="10" opacity="0.55" text-anchor="${anchor}" dominant-baseline="middle">${esc(formatSitesChartAxis(value, yFormat))}</text>`;
+    })
+    .join('');
+}
+
+/**
+ * Simple multi-series SVG line chart.
+ * series: [{ label, color, points: [{ y }], axis?: 'left'|'right' }] — null/NaN y is a gap.
+ * opts: { yLabel, width, height, yFormat, y2Format, invertY, minPoints, xStart, xEnd, xTicks, days, emptyText }
+ * xTicks: [{ index, text }] drawn along the x-axis. days enables a date+value hover.
+ */
+function renderSvgLineChart(
+  container,
+  seriesList,
+  {
+    yLabel = '',
+    width = 320,
+    height = 110,
+    yFormat = 'number',
+    y2Format = '',
+    invertY = false,
+    minPoints = 2,
+    xStart = '',
+    xEnd = '',
+    xTicks = [],
+    days = [],
+    emptyText = 'No data yet',
+  } = {},
+) {
+  if (!container) return;
+
+  const cleaned = (seriesList || []).map((s) => ({
+    label: s.label || '',
+    color: s.color || '#2a9d8f',
+    showDots: s.showDots,
+    dash: Boolean(s.dash),
+    axis: s.axis === 'right' ? 'right' : 'left',
+    opacity: s.opacity == null || !Number.isFinite(Number(s.opacity)) ? 1 : Number(s.opacity),
+    points: (s.points || []).map((p) => {
+      if (p == null) return { y: null };
+      const raw = typeof p === 'object' ? p.y : p;
+      if (raw == null || raw === '') return { y: null };
+      const y = Number(raw);
+      return { y: Number.isFinite(y) ? y : null };
+    }),
+  }));
+
+  const finiteCount = (s) => s.points.filter((p) => p.y != null).length;
+  let series =
+    cleaned.filter((s) => finiteCount(s) >= minPoints).length > 0
+      ? cleaned.filter((s) => finiteCount(s) >= minPoints)
+      : minPoints <= 1
+        ? cleaned.filter((s) => finiteCount(s) > 0)
+        : [];
+
+  if (!series.length) {
+    container.innerHTML = `<div class="sites-chart-empty muted small">${esc(emptyText)}</div>`;
+    return;
+  }
+
+  let leftSeries = series.filter((s) => s.axis !== 'right');
+  let rightSeries = series.filter((s) => s.axis === 'right');
+  if (!leftSeries.length && rightSeries.length) {
+    rightSeries.forEach((s) => {
+      s.axis = 'left';
+    });
+    leftSeries = rightSeries;
+    rightSeries = [];
+  }
+  const rightFormat = y2Format || yFormat;
+  const leftDomain = chartYDomain(
+    leftSeries.flatMap((s) => s.points.map((p) => p.y)),
+    { yFormat, invertY },
+  );
+  const rightDomain = rightSeries.length
+    ? chartYDomain(
+        rightSeries.flatMap((s) => s.points.map((p) => p.y)),
+        { yFormat: rightFormat, invertY: false },
+      )
+    : null;
+
+  const w = Math.max(40, Math.round(width) || 320);
+  const h = Math.max(40, Math.round(height) || 110);
+  const axisTicks = (xTicks || []).filter((tick) => tick && tick.text);
+  const pad = { t: 14, r: rightDomain ? 34 : 10, b: axisTicks.length || xStart || xEnd ? 26 : 12, l: 34 };
+  const leftTicks = chartYTicks(leftDomain.yMin, leftDomain.yMax, yFormat);
+  const rightTicks = rightDomain ? chartYTicks(rightDomain.yMin, rightDomain.yMax, rightFormat) : [];
+  const widestLeft = Math.max(2, ...leftTicks.map((value) => formatSitesChartAxis(value, yFormat).length));
+  pad.l = Math.max(34, Math.ceil(8 + widestLeft * 6.2));
+  if (rightDomain) {
+    const widestRight = Math.max(2, ...rightTicks.map((value) => formatSitesChartAxis(value, rightFormat).length));
+    pad.r = Math.max(34, Math.ceil(8 + widestRight * 6.2));
+  }
 
   const maxPts = Math.max(...series.map((s) => s.points.length));
   const xAt = (i, len) =>
     pad.l + (i / Math.max((len || maxPts) - 1, 1)) * (w - pad.l - pad.r);
-  const yAt = (v) => {
-    const t = (v - yMin) / (yMax - yMin);
-    const norm = invertY ? t : 1 - t;
+  const yAtOn = (v, domain, invert) => {
+    const t = (v - domain.yMin) / (domain.yMax - domain.yMin);
+    const norm = invert ? t : 1 - t;
     return pad.t + norm * (h - pad.t - pad.b);
   };
+  const yAtFor = (s) => (v) =>
+    s.axis === 'right' && rightDomain ? yAtOn(v, rightDomain, false) : yAtOn(v, leftDomain, invertY);
 
   const paths = series
     .map((s) => {
-      const d = s.points
-        .map((p, i) => {
-          const cmd = i === 0 ? 'M' : 'L';
-          return `${cmd}${xAt(i, s.points.length).toFixed(1)},${yAt(p.y).toFixed(1)}`;
-        })
-        .join(' ');
-      return `<path d="${d}" fill="none" stroke="${esc(s.color)}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />`;
+      const yAt = yAtFor(s);
+      let d = '';
+      let drawing = false;
+      s.points.forEach((p, i) => {
+        if (p.y == null || !Number.isFinite(p.y)) {
+          drawing = false;
+          return;
+        }
+        const cmd = drawing ? 'L' : 'M';
+        drawing = true;
+        d += `${cmd}${xAt(i, s.points.length).toFixed(1)},${yAt(p.y).toFixed(1)} `;
+      });
+      if (!d) return '';
+      const dash = s.dash ? ' stroke-dasharray="4 3"' : '';
+      const opacity = s.opacity < 1 ? ` stroke-opacity="${s.opacity}"` : '';
+      const strokeW = s.dash ? '1.5' : '2';
+      return `<path d="${d.trim()}" fill="none" stroke="${esc(s.color)}" stroke-width="${strokeW}" stroke-linecap="round" stroke-linejoin="round"${dash}${opacity} />`;
     })
     .join('');
 
-  const dots =
-    maxPts <= 24
-      ? series
-          .map((s) =>
-            s.points
-              .map(
-                (p, i) =>
-                  `<circle cx="${xAt(i, s.points.length).toFixed(1)}" cy="${yAt(p.y).toFixed(
-                    1,
-                  )}" r="2.25" fill="${esc(s.color)}" />`,
-              )
-              .join(''),
-          )
-          .join('')
-      : '';
+  const dots = series
+    .map((s) => {
+      const wantDots = s.showDots === true || (s.showDots !== false && maxPts <= 24);
+      if (!wantDots) return '';
+      const yAt = yAtFor(s);
+      return s.points
+        .map((p, i) =>
+          p.y == null || !Number.isFinite(p.y)
+            ? ''
+            : `<circle cx="${xAt(i, s.points.length).toFixed(1)}" cy="${yAt(p.y).toFixed(
+                1,
+              )}" r="2.5" fill="${esc(s.color)}" />`,
+        )
+        .join('');
+    })
+    .join('');
 
   const legend = series
+    .filter((s) => s.label)
     .map(
       (s) =>
         `<li class="sites-chart-legend-item">
@@ -25519,58 +25651,500 @@ function renderSvgLineChart(
     )
     .join('');
 
-  container.innerHTML = `<div class="sites-chart-plot">
+  const rightSpine = rightDomain
+    ? `<line x1="${w - pad.r}" y1="${pad.t}" x2="${w - pad.r}" y2="${h - pad.b}" stroke="currentColor" stroke-opacity="0.12" />`
+    : '';
+  const hoverOn = Array.isArray(days) && days.length >= 1;
+
+  container.innerHTML = `<div class="sites-chart-plot${hoverOn ? ' is-hoverable' : ''}">
     <svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="${esc(
       yLabel || 'chart',
     )}">
       <line x1="${pad.l}" y1="${pad.t}" x2="${pad.l}" y2="${h - pad.b}" stroke="currentColor" stroke-opacity="0.12" />
+      ${rightSpine}
       <line x1="${pad.l}" y1="${h - pad.b}" x2="${w - pad.r}" y2="${h - pad.b}" stroke="currentColor" stroke-opacity="0.12" />
-      ${chartYAxisMarkup({ yTicks, yFormat, yAt, w, h, pad })}
+      ${chartYAxisMarkup({ yTicks: leftTicks, yFormat, yAt: (v) => yAtOn(v, leftDomain, invertY), w, h, pad })}
+      ${
+        rightDomain
+          ? chartYAxisMarkup({
+              yTicks: rightTicks,
+              yFormat: rightFormat,
+              yAt: (v) => yAtOn(v, rightDomain, false),
+              w,
+              h,
+              pad,
+              side: 'right',
+            })
+          : ''
+      }
       ${paths}${dots}
       ${chartXAxisLabels({ axisTicks, xStart, xEnd, maxPts, xAt, w, h, pad })}
+      ${hoverOn ? `<line class="sites-chart-hover-x" x1="0" y1="${pad.t}" x2="0" y2="${h - pad.b}" stroke="currentColor" stroke-opacity="0.35" hidden />` : ''}
     </svg>
+    ${hoverOn ? `<div class="sites-chart-hover-tip" hidden></div>` : ''}
   </div>
   <ul class="sites-chart-legend">${legend}</ul>`;
+
+  if (hoverOn) bindSitesChartHover(container, { series, days, maxPts, pad, w, h, xAt, yFormat, yLabel, rightFormat });
+}
+
+function formatChartHoverValue(y, yFormat) {
+  if (y == null || !Number.isFinite(Number(y))) return '—';
+  if (yFormat === 'percent') return `${Number(y).toFixed(1)}%`;
+  const n = Number(y);
+  if (!Number.isInteger(n) && Math.abs(n) < 100) return formatSitesKpiNum(n, 1);
+  return formatSitesKpiNum(n);
+}
+
+function bindSitesChartHover(container, { series, days, maxPts, pad, w, h, xAt, yFormat, yLabel, rightFormat }) {
+  const plot = container.querySelector('.sites-chart-plot');
+  const svg = plot?.querySelector('svg');
+  const rule = svg?.querySelector('.sites-chart-hover-x');
+  const tip = plot?.querySelector('.sites-chart-hover-tip');
+  if (!plot || !svg || !rule || !tip || maxPts < 1) return;
+  const labelsByColor = new Map();
+  for (const row of series) {
+    if (row.label) labelsByColor.set(row.color, row.label);
+  }
+  const hide = () => {
+    rule.setAttribute('hidden', '');
+    tip.hidden = true;
+  };
+  const viewX = (event) => {
+    const rect = svg.getBoundingClientRect();
+    const scale = Math.min(rect.width / w, rect.height / h);
+    const ox = (rect.width - w * scale) / 2;
+    return (event.clientX - rect.left - ox) / scale;
+  };
+  plot.addEventListener('pointerleave', hide);
+  plot.addEventListener('pointermove', (event) => {
+    const x = viewX(event);
+    const span = Math.max(w - pad.l - pad.r, 1);
+    let index = Math.round(((x - pad.l) / span) * Math.max(maxPts - 1, 0));
+    if (!Number.isFinite(index)) return hide();
+    index = Math.max(0, Math.min(maxPts - 1, index));
+    const byColor = new Map();
+    for (const row of series) {
+      const y = row.points[index]?.y;
+      if (y == null || !Number.isFinite(y)) continue;
+      const prev = byColor.get(row.color);
+      if (!prev) {
+        byColor.set(row.color, {
+          label: labelsByColor.get(row.color) || row.label || yLabel || 'Value',
+          color: row.color,
+          y,
+          axis: row.axis,
+        });
+      } else if (!prev.label && row.label) {
+        prev.label = row.label;
+      }
+    }
+    const rows = [...byColor.values()];
+    if (!rows.length) return hide();
+    const xPx = xAt(index, maxPts);
+    rule.setAttribute('x1', xPx.toFixed(1));
+    rule.setAttribute('x2', xPx.toFixed(1));
+    rule.removeAttribute('hidden');
+    const dayLabel = formatLeadChartDay(days[index]) || days[index] || '';
+    tip.innerHTML = `<div class="sites-chart-hover-date">${esc(dayLabel)}</div>${rows
+      .map((row) => {
+        const fmt = row.axis === 'right' ? rightFormat || yFormat : yFormat;
+        return `<div class="sites-chart-hover-row"><span class="sites-chart-hover-swatch" style="background:${esc(
+          row.color,
+        )}"></span><span>${esc(row.label)}</span><span class="sites-chart-hover-val">${esc(
+          formatChartHoverValue(row.y, fmt),
+        )}</span></div>`;
+      })
+      .join('')}`;
+    tip.hidden = false;
+    const plotW = plot.clientWidth || w;
+    const tipW = tip.offsetWidth || 120;
+    const scale = Math.min((svg.getBoundingClientRect().width || w) / w, (svg.getBoundingClientRect().height || h) / h);
+    const ox = ((svg.getBoundingClientRect().width || w) - w * scale) / 2;
+    let left = ox + xPx * scale + 10;
+    if (left + tipW > plotW - 4) left = Math.max(4, ox + xPx * scale - tipW - 10);
+    tip.style.left = `${Math.round(left)}px`;
+    tip.style.top = '8px';
+  });
+}
+
+function chartSiteSet() {
+  const listed = filteredSites();
+  const checked = listed.filter((site) => state.selectedSiteIds.has(site.id));
+  return checked.length ? checked : listed;
+}
+
+function formatSitesKpiNum(value, digits = 0) {
+  if (value == null || !Number.isFinite(Number(value))) return '—';
+  const n = Number(value);
+  const abs = Math.abs(n);
+  if (abs >= 1_000_000) {
+    const m = n / 1_000_000;
+    return `${(abs >= 10_000_000 ? Math.round(m) : Number(m.toFixed(1)))}M`;
+  }
+  if (abs >= 1000) {
+    const k = n / 1000;
+    return `${(abs >= 10_000 ? Math.round(k) : Number(k.toFixed(1)))}k`;
+  }
+  return digits > 0 ? n.toFixed(digits) : String(Math.round(n));
+}
+
+function formatSitesKpiDelta(delta) {
+  if (delta == null || !Number.isFinite(Number(delta)) || Number(delta) === 0) return '';
+  const n = Number(delta);
+  const sign = n > 0 ? '+' : '';
+  return `${sign}${formatSitesKpiNum(n)}`;
+}
+
+function sitesChartSpan(days, valueLists) {
+  let first = Infinity;
+  let last = -1;
+  for (const values of valueLists) {
+    (values || []).forEach((value, index) => {
+      if (value == null || !Number.isFinite(Number(value))) return;
+      first = Math.min(first, index);
+      last = Math.max(last, index);
+    });
+  }
+  if (!Number.isFinite(first) || last < 0) return { days: [], series: [] };
+  return {
+    start: first,
+    days: days.slice(first, last + 1),
+    slice(values) {
+      return (values || []).slice(first, last + 1);
+    },
+  };
+}
+
+function setSitesChartWarn(id, coverage, emptyText) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const excluded = coverage?.excluded || [];
+  const included = coverage?.included || [];
+  const total = included.length + excluded.length;
+  if (!excluded.length) {
+    el.textContent = '';
+    el.classList.add('hidden');
+    el.dataset.ids = '';
+    return;
+  }
+  const names = excluded.slice(0, 4).map((row) => row.name);
+  const extra = excluded.length > 4 ? `, +${excluded.length - 4}` : '';
+  const action = excluded[0]?.action || 'Sync GSC';
+  const shown = included.length;
+  el.textContent = `Showing ${shown} of ${total} sites. Run ${action} on: ${names.join(', ')}${extra}`;
+  el.classList.remove('hidden');
+  el.dataset.ids = excluded.map((row) => row.id).join(',');
+  if (emptyText && !shown) el.textContent = `${emptyText} ${el.textContent}`;
+}
+
+function sliceWindowDelta(values, days = 7) {
+  const current = sumAlignedWindow(values, days);
+  const previous = sumAlignedWindow((values || []).slice(0, Math.max(0, (values || []).length - days)), days);
+  if (current == null || previous == null) return { current, delta: null };
+  return { current, delta: current - previous };
+}
+
+function renderSitesKpis(set, agg) {
+  const el = document.getElementById('sites-chart-kpis');
+  if (!el) return;
+  const impr7 = sliceWindowDelta(agg.impressions, 7);
+  const impr28 = sliceWindowDelta(agg.impressions, 28);
+  const click7 = sliceWindowDelta(agg.clicks, 7);
+  const click28 = sliceWindowDelta(agg.clicks, 28);
+  const ctr =
+    impr28.current > 0 && click28.current != null ? click28.current / impr28.current : impr28.current === 0 ? 0 : null;
+  const withImpr = set.filter((site) => Number(site.impressions28d) > 0).length;
+  const ranked = set.filter((site) => site.primaryPage != null);
+  const page1 = ranked.filter((site) => Number(site.primaryPage) === 1).length;
+  let indexed = 0;
+  let submitted = 0;
+  let indexSites = 0;
+  for (const site of set) {
+    if (site.inspectIndexed == null && site.inspectSubmitted == null) continue;
+    indexSites += 1;
+    indexed += Number(site.inspectIndexed) || 0;
+    submitted += Number(site.inspectSubmitted) || 0;
+  }
+  const kpi = (label, value, delta) => {
+    const cls = delta > 0 ? ' is-up' : delta < 0 ? ' is-down' : '';
+    const deltaHtml = delta
+      ? `<span class="sites-kpi-delta${cls}">${esc(formatSitesKpiDelta(delta))}</span>`
+      : '';
+    return `<div class="sites-kpi"><span class="sites-kpi-label">${esc(label)}</span><span class="sites-kpi-value">${esc(value)}${deltaHtml}</span></div>`;
+  };
+  el.innerHTML = [
+    kpi('Impr 7d', formatSitesKpiNum(impr7.current), impr7.delta),
+    kpi('Impr 28d', formatSitesKpiNum(impr28.current), impr28.delta),
+    kpi('Clicks 7d', formatSitesKpiNum(click7.current), click7.delta),
+    kpi('Clicks 28d', formatSitesKpiNum(click28.current), click28.delta),
+    kpi('CTR 28d', ctr == null ? '—' : `${(Number(ctr) * 100).toFixed(1)}%`),
+    kpi('With impressions', `${withImpr}/${set.length}`),
+    kpi('On page 1', ranked.length ? `${page1}/${ranked.length}` : '—'),
+    kpi('Indexed', indexSites ? `${indexed}/${submitted}` : '—'),
+  ].join('');
+}
+
+function withGscLagTail(seriesList, days) {
+  const start = gscIncompleteStart();
+  const out = [];
+  for (const series of seriesList || []) {
+    const values = (series.points || []).map((point) => (point == null ? null : point.y));
+    const { complete, incomplete } = splitGscCompleteIncomplete(values, days, start);
+    out.push({ ...series, points: complete.map((y) => ({ y })) });
+    const hasTail = incomplete.some((y) => y != null && Number.isFinite(Number(y)));
+    if (hasTail) {
+      out.push({
+        ...series,
+        label: '',
+        dash: true,
+        showDots: false,
+        points: incomplete.map((y) => ({ y })),
+      });
+    }
+  }
+  return out;
+}
+
+function paintSitesLineChart(plotId, days, seriesList, { yLabel, yFormat = 'number', invertY = false, emptyText } = {}) {
+  const plot = document.getElementById(plotId);
+  if (!plot) return;
+  const values = seriesList.map((s) => (s.points || []).map((p) => (p == null ? null : p.y)));
+  const span = sitesChartSpan(days, values);
+  const sliced = seriesList.map((s) => ({
+    ...s,
+    points: span.days.length ? span.slice(s.points) : [],
+  }));
+  const width = Math.max(220, plot.clientWidth || 320);
+  renderSvgLineChart(plot, sliced, {
+    yLabel,
+    yFormat,
+    invertY,
+    minPoints: 1,
+    width,
+    height: 110,
+    days: span.days,
+    xTicks: leadChartDateTicks(span.days, width),
+    emptyText: emptyText || 'No data yet',
+  });
+}
+
+function syncSitesChartControls() {
+  document.querySelectorAll('[data-sites-range]').forEach((btn) => {
+    btn.classList.toggle('is-active', Number(btn.dataset.sitesRange) === Number(state.sitesChartRange));
+  });
+  const labels = {
+    impressions: state.sitesChartToggles.impressions === 'overlay' ? 'Daily only' : '7d overlay',
+    clicks: state.sitesChartToggles.clicks === 'overlay' ? 'CTR' : 'Clicks',
+    ranks: state.sitesChartToggles.ranks === 'page1' ? 'Avg position' : 'Page 1',
+    indexed: state.sitesChartToggles.indexed === 'indexed' ? 'Sites with impressions' : 'Indexed',
+  };
+  const impressionsBtn = document.getElementById('sites-chart-toggle-impressions');
+  const clicksBtn = document.getElementById('sites-chart-toggle-clicks');
+  const ranksBtn = document.getElementById('sites-chart-toggle-ranks');
+  const indexedBtn = document.getElementById('sites-chart-toggle-indexed');
+  if (impressionsBtn) impressionsBtn.textContent = labels.impressions;
+  if (clicksBtn) clicksBtn.textContent = labels.clicks;
+  if (ranksBtn) ranksBtn.textContent = labels.ranks;
+  if (indexedBtn) indexedBtn.textContent = labels.indexed;
+  const indexedTitle = document.getElementById('sites-chart-indexed-title');
+  const indexedCaption = document.getElementById('sites-chart-indexed-caption');
+  const indexedIsSnapshot = state.sitesChartToggles.indexed === 'indexed';
+  if (indexedTitle) indexedTitle.textContent = indexedIsSnapshot ? 'Indexed URLs' : 'Sites with impressions';
+  if (indexedCaption) {
+    indexedCaption.textContent = indexedIsSnapshot
+      ? 'Only days you ran Check index. Cannot backfill.'
+      : 'Search Console · last 2–3 days still landing (dotted)';
+  }
+}
+
+function syncSitesStickyHead() {
+  const view = document.getElementById('view-sites');
+  const head = view?.querySelector('.sites-chrome');
+  if (!view || !head) return;
+  view.style.setProperty('--sites-sticky-head', `${Math.round(head.getBoundingClientRect().height)}px`);
+}
+
+function watchSitesStickyHead() {
+  const head = document.querySelector('#view-sites .sites-chrome');
+  if (!head || typeof ResizeObserver === 'undefined') {
+    syncSitesStickyHead();
+    return;
+  }
+  if (head.dataset.stickyWatch === '1') {
+    syncSitesStickyHead();
+    return;
+  }
+  head.dataset.stickyWatch = '1';
+  const observer = new ResizeObserver(() => syncSitesStickyHead());
+  observer.observe(head);
+  syncSitesStickyHead();
+}
+
+let sitesChartFrame = 0;
+function watchSitesChartSize() {
+  const grid = document.querySelector('#sites-portfolio-charts .sites-chart-grid');
+  if (!grid || grid.dataset.chartWatch === '1' || typeof ResizeObserver === 'undefined') return;
+  grid.dataset.chartWatch = '1';
+  const observer = new ResizeObserver(() => {
+    cancelAnimationFrame(sitesChartFrame);
+    sitesChartFrame = requestAnimationFrame(() => renderSitesPortfolioCharts());
+  });
+  observer.observe(grid);
 }
 
 function renderSitesPortfolioCharts() {
   const wrap = document.getElementById('sites-portfolio-charts');
   if (!wrap) return;
-  const traffic = state.sitesPortfolio?.traffic || [];
-  const ranks = state.sitesPortfolio?.ranks || [];
-  const hasAny = traffic.length || ranks.length || (state.sites || []).some((s) => s.clicks28d != null);
-  wrap.classList.toggle('hidden', !hasAny && !(state.gscStatus?.connected));
+  watchSitesChartSize();
+  watchSitesStickyHead();
+  const set = chartSiteSet();
+  const hasAny =
+    set.length ||
+    (state.sites || []).some((s) => s.clicks28d != null || s.gscLastSyncAt || s.lastRankCheckAt || s.inspectCheckedAt);
+  wrap.classList.toggle('hidden', !hasAny && !(state.gscStatus?.connected) && !(state.sites || []).length);
 
-  renderSvgLineChart(
-    document.getElementById('sites-chart-traffic'),
-    [
-      {
-        label: 'Clicks',
-        color: '#2a9d8f',
-        points: traffic.map((r) => ({ y: r.clicks })),
-      },
-      {
-        label: 'Impressions',
-        color: '#e9c46a',
-        points: traffic.map((r) => ({ y: r.impressions })),
-      },
-    ],
-    { yLabel: 'Portfolio traffic', yFormat: 'number', minPoints: 2 },
-  );
+  const scope = document.getElementById('sites-chart-scope');
+  const listed = filteredSites();
+  const checked = listed.filter((site) => state.selectedSiteIds.has(site.id));
+  if (scope) {
+    const subset = checked.length > 0 && checked.length < listed.length;
+    scope.textContent = subset ? `Selected (${checked.length})` : `All listed (${listed.length})`;
+  }
+  syncSitesChartControls();
+  document.getElementById('sites-view-tree')?.classList.toggle('is-active', state.sitesView !== 'list');
+  document.getElementById('sites-view-list')?.classList.toggle('is-active', state.sitesView === 'list');
 
-  renderSvgLineChart(
-    document.getElementById('sites-chart-ranks'),
-    [
-      {
-        label: '% on page 1',
-        color: '#457b9d',
-        points: ranks
-          .filter((r) => r.page1Share != null && Number.isFinite(Number(r.page1Share)))
-          .map((r) => ({ y: Math.round(Number(r.page1Share) * 100) })),
-      },
-    ],
-    { yLabel: 'Primary on page 1', yFormat: 'percent', minPoints: 2 },
-  );
+  const series = buildSiteMetricsSeries(set, { rangeDays: state.sitesChartRange || 28 });
+  const agg = aggregateSiteSeries(series, set.map((site) => site.id));
+  const coverage = series.coverage || coverageForSites(set);
+  const drawKey = [
+    wrap.clientWidth,
+    state.sitesChartRange,
+    state.sitesChartToggles.impressions,
+    state.sitesChartToggles.clicks,
+    state.sitesChartToggles.ranks,
+    state.sitesChartToggles.indexed,
+    checked.length ? 'sel' : 'all',
+    set.map((site) => site.id).join(','),
+    series.days[0] || '',
+    series.days.at(-1) || '',
+    agg.impressions.at(-1) ?? '',
+    agg.page1Count.at(-1) ?? '',
+    agg.indexed.at(-1) ?? '',
+    agg.rankCheckDayCount ?? '',
+    distinctInspectDays(set),
+    coverage.gsc.excluded.length,
+    coverage.ranks.excluded.length,
+    coverage.indexed.excluded.length,
+  ].join('|');
+  if (wrap.dataset.chartKey === drawKey) return;
+  wrap.dataset.chartKey = drawKey;
+  renderSitesKpis(set, agg);
+
+  const imprMode = state.sitesChartToggles.impressions || 'overlay';
+  const clickMode = state.sitesChartToggles.clicks || 'overlay';
+  const rankMode = state.sitesChartToggles.ranks || 'page1';
+  const indexMode = state.sitesChartToggles.indexed || 'breadth';
+  const imprColor = leadChartColor('--warn', '#e9c46a');
+  const clickColor = leadChartColor('--good', '#2a9d8f');
+  const rankColor = leadChartColor('--accent', '#457b9d');
+  const inkColor = leadChartColor('--ink', '#1c1917');
+  const lastKnown = { dash: true, opacity: 0.35, showDots: false, label: '' };
+
+  const impressionSeries =
+    imprMode === 'daily'
+      ? [{ label: 'Impressions', color: imprColor, points: agg.impressions.map((y) => ({ y })) }]
+      : [
+          { label: 'Impressions', color: imprColor, points: agg.impressions.map((y) => ({ y })) },
+          { label: '7d avg', color: inkColor, points: agg.impressions7.map((y) => ({ y })) },
+        ];
+  paintSitesLineChart('sites-chart-impressions', agg.days, withGscLagTail(impressionSeries, agg.days), {
+    yLabel: 'Impressions',
+    emptyText: 'No Search Console traffic yet.',
+  });
+  setSitesChartWarn('sites-chart-impressions-warn', coverage.gsc);
+
+  if (clickMode === 'ctr') {
+    paintSitesLineChart(
+      'sites-chart-clicks',
+      agg.days,
+      withGscLagTail(
+        [{ label: 'CTR', color: rankColor, points: agg.ctr.map((y) => ({ y: y == null ? null : y * 100 })) }],
+        agg.days,
+      ),
+      { yLabel: 'CTR', yFormat: 'percent', emptyText: 'No Search Console traffic yet.' },
+    );
+  } else {
+    paintSitesLineChart(
+      'sites-chart-clicks',
+      agg.days,
+      withGscLagTail(
+        [
+          { label: 'Clicks', color: clickColor, points: agg.clicks.map((y) => ({ y })) },
+          { label: '7d avg', color: inkColor, points: agg.clicks7.map((y) => ({ y })) },
+        ],
+        agg.days,
+      ),
+      { yLabel: 'Clicks', emptyText: 'No Search Console traffic yet.' },
+    );
+  }
+  setSitesChartWarn('sites-chart-clicks-warn', coverage.gsc);
+
+  if (rankMode === 'position') {
+    paintSitesLineChart(
+      'sites-chart-ranks',
+      agg.days,
+      [
+        { ...lastKnown, color: rankColor, points: agg.avgPosition.map((y) => ({ y })) },
+        { label: 'Avg position', color: rankColor, points: agg.positionOnCheck.map((y) => ({ y })), showDots: true },
+      ],
+      { yLabel: 'Avg position', invertY: true, emptyText: 'Run Check ranks to start this series.' },
+    );
+  } else {
+    paintSitesLineChart(
+      'sites-chart-ranks',
+      agg.days,
+      [
+        { ...lastKnown, color: rankColor, points: agg.page1Count.map((y) => ({ y })) },
+        { label: 'On page 1', color: rankColor, points: agg.page1OnCheck.map((y) => ({ y })), showDots: true },
+      ],
+      { yLabel: 'Sites on page 1', emptyText: 'Run Check ranks to start this series.' },
+    );
+  }
+  setSitesChartWarn('sites-chart-ranks-warn', coverage.ranks);
+
+  if (indexMode === 'breadth') {
+    paintSitesLineChart(
+      'sites-chart-indexed',
+      agg.days,
+      withGscLagTail(
+        [{ label: 'Sites with impressions', color: imprColor, points: agg.sitesWithImpressions.map((y) => ({ y })) }],
+        agg.days,
+      ),
+      { yLabel: 'Sites with impressions', emptyText: 'No Search Console traffic yet.' },
+    );
+    setSitesChartWarn('sites-chart-indexed-warn', coverage.gsc);
+  } else {
+    const inspectDays = distinctInspectDays(set);
+    const indexEmpty =
+      inspectDays < 1
+        ? 'Run Check index to start this series.'
+        : 'Need another Check index on a later day for a trend';
+    paintSitesLineChart(
+      'sites-chart-indexed',
+      agg.days,
+      inspectDays >= 2
+        ? [
+            { ...lastKnown, color: clickColor, points: agg.indexed.map((y) => ({ y })) },
+            { label: 'Indexed URLs', color: clickColor, points: agg.indexedOnCheck.map((y) => ({ y })), showDots: true },
+          ]
+        : [],
+      { yLabel: 'Indexed URLs', emptyText: indexEmpty },
+    );
+    setSitesChartWarn('sites-chart-indexed-warn', coverage.indexed);
+  }
+  paintSitesGscRollups(set);
 }
 
 function isGscAuthRevokedError(error) {
@@ -25598,7 +26172,7 @@ function gscSignedIn() {
 }
 
 const GSC_SYNC_TIP =
-  'Load the last 28 days of clicks and queries.';
+  'Load 90 days of daily clicks and impressions, and 28 days of queries.';
 const GSC_INDEX_TIP =
   'Check which sitemap pages Google has indexed.';
 const GSC_CONNECT_FIRST_TIP = 'Connect Search Console first.';
@@ -25619,6 +26193,8 @@ function renderGscConnectionPill() {
   } else if (g.connected) {
     text = 'Connected';
     tip = g.email ? `Connected as ${g.email}` : 'Search Console is connected';
+    const when = g.updatedAt ? String(g.updatedAt).slice(0, 16).replace('T', ' ') : '';
+    if (when) tip = `${tip}. Signed in · ${when}.`;
     cls = 'is-connected';
   }
   el.classList.add(cls);
@@ -25671,16 +26247,20 @@ function renderSitesGscStatus() {
   const g = state.gscStatus || {};
   if (el) {
     if (state.gscStatus && !g.configured) {
-      el.textContent =
-        'GSC: set GOOGLE_GSC_CLIENT_ID + GOOGLE_GSC_CLIENT_SECRET in .env (Desktop OAuth). Redirect: ' +
-        (g.redirectUri || 'http://127.0.0.1:8787/api/gsc/oauth/callback');
-    } else if (g.connected) {
-      const when = g.updatedAt ? String(g.updatedAt).slice(0, 16).replace('T', ' ') : '';
-      el.textContent = `Signed in${g.email ? ` as ${g.email}` : ''}${when ? ` · ${when}` : ''}.`;
+      el.replaceChildren();
+      el.append(
+        'GSC: add the Search Console client ID and secret in Account setup. Redirect: ',
+        g.redirectUri || 'http://127.0.0.1:8787/api/gsc/oauth/callback',
+        ' ',
+      );
+      const open = document.createElement('button');
+      open.type = 'button';
+      open.className = 'btn btn-sm';
+      open.setAttribute('data-open-account', 'GOOGLE_GSC_CLIENT_ID');
+      open.textContent = 'Open Account setup';
+      el.append(open);
     } else {
-      el.textContent = `Not connected. Click Connect GSC to sign in. Redirect URI must be allowed: ${
-        g.redirectUri || ''
-      }`;
+      el.replaceChildren();
     }
   }
   updateSitesGscConnectButton();
@@ -25697,11 +26277,7 @@ function sitesMetricsEligible() {
 
 /** Eligible sites whose Launched-table checkboxes are checked right now. */
 function selectedSitesForMetrics() {
-  const ids = [];
-  document.querySelectorAll('#sites-table tbody input.sites-check:checked').forEach((input) => {
-    const id = input.dataset.id;
-    if (id) ids.push(id);
-  });
+  const ids = [...state.selectedSiteIds];
   if (!ids.length) return [];
   const byId = new Map(sitesMetricsEligible().map((site) => [site.id, site]));
   const seen = new Set();
@@ -25755,7 +26331,6 @@ function setSitesMetricsButtonsDisabled(busy) {
     'sites-gsc-sync-btn',
     'sites-index-check-btn',
     'sites-rank-sync-btn',
-    'sites-add-btn',
     'sites-refresh-btn',
     'sites-kw-add',
     'sites-kw-save',
@@ -26165,7 +26740,10 @@ async function checkSitesIndexSequential(siteList) {
 let sitesLoadInFlight = null;
 
 function sitesTableHasRows() {
-  return Boolean(document.querySelector('#sites-table tbody tr[data-id]'));
+  return Boolean(
+    document.querySelector('#sites-table tbody tr[data-id]') ||
+      document.querySelector('#sites-tree-list tr.lead-tree-total, #sites-tree-list tr[data-id]'),
+  );
 }
 
 function setSitesTableLoading(visible) {
@@ -26185,9 +26763,13 @@ function renderSitesLoadError(message) {
   const tbody = table?.querySelector('tbody');
   const thead = table?.querySelector('thead');
   if (thead) thead.innerHTML = '';
+  const detail = String(message || 'Unknown error');
   if (tbody) {
-    const detail = String(message || 'Unknown error');
     tbody.innerHTML = `<tr><td class="muted">Could not load launched sites. ${esc(detail)}</td></tr>`;
+  }
+  const treeBody = document.getElementById('sites-tree-list');
+  if (treeBody) {
+    treeBody.innerHTML = `<tr><td colspan="8" class="muted">Could not load launched sites. ${esc(detail)}</td></tr>`;
   }
   const countEl = document.getElementById('sites-filter-count');
   if (countEl) countEl.textContent = '';
@@ -26389,6 +26971,32 @@ function formatSiteInventoryLine(s) {
   return `${idx}${notIdx} · ${pages} pages on site · ${words} words`;
 }
 
+function gscSortToggle(store, key, textKeys = []) {
+  const cur = store || { key: 'clicks', dir: -1 };
+  if (cur.key === key) return { key, dir: cur.dir === -1 ? 1 : -1 };
+  return { key, dir: textKeys.includes(key) ? 1 : -1 };
+}
+
+function sortGscRows(rows, sort, labelKey) {
+  const list = Array.isArray(rows) ? [...rows] : [];
+  const key = sort?.key || 'clicks';
+  const mul = Number(sort?.dir) >= 0 ? 1 : -1;
+  list.sort((a, b) => {
+    if (key === labelKey || key === 'label' || key === 'query' || key === 'type') {
+      return mul * String(a[key] ?? a[labelKey] ?? '').localeCompare(String(b[key] ?? b[labelKey] ?? ''));
+    }
+    return mul * ((Number(a[key]) || 0) - (Number(b[key]) || 0));
+  });
+  return list;
+}
+
+function gscSortTh(label, key, sort, { tip = '' } = {}) {
+  const active = sort?.key === key;
+  const arrow = active ? (sort.dir > 0 ? ' ↑' : ' ↓') : '';
+  const tipAttr = tip ? ` data-tip="${esc(tip)}"` : '';
+  return `<th class="sortable${active ? ' is-sorted' : ''}" data-gsc-sort="${esc(key)}"${tipAttr}><button type="button">${esc(label)}${arrow}</button></th>`;
+}
+
 function renderGscMetricRowsHtml(rows, keyName) {
   const list = Array.isArray(rows) ? rows : [];
   if (!list.length) {
@@ -26411,23 +27019,94 @@ function renderGscMetricRowsHtml(rows, keyName) {
 
 function renderGscQueriesTableHtml(s) {
   const gsc = s?.metrics?.gsc || {};
-  const queries = gsc.topQueries || [];
-  const pages = gsc.topPages || [];
+  const querySort = state.sitesGscSort.query;
+  const pageSort = state.sitesGscSort.page;
+  const queries = sortGscRows(gsc.topQueries || [], querySort, 'query');
+  const pages = sortGscRows(gsc.topPages || [], pageSort, 'page');
   return `
-      <h3 class="sites-kw-heading heading-with-info"><span>GSC queries (28d)</span><button type="button" class="tip-info" data-tip="Searches that showed this site. Empty until Google has traffic." aria-label="About GSC queries">i</button></h3>
+      <h3 class="sites-kw-heading heading-with-info"><span>GSC queries (28d)</span><button type="button" class="tip-info" data-tip="Searches that showed this site. Empty until Google has traffic. Click a column to sort." aria-label="About GSC queries">i</button></h3>
       <div class="sites-gsc-table-wrap">
-        <table class="sites-gsc-table">
-          <thead><tr><th>Query</th><th>Clicks</th><th>Impr</th><th>CTR</th><th>Pos</th></tr></thead>
+        <table class="sites-gsc-table" data-gsc-table="query">
+          <thead><tr>${gscSortTh('Query', 'query', querySort)}${gscSortTh('Clicks', 'clicks', querySort)}${gscSortTh('Impr', 'impressions', querySort)}${gscSortTh('CTR', 'ctr', querySort)}${gscSortTh('Pos', 'position', querySort)}</tr></thead>
           <tbody>${renderGscMetricRowsHtml(queries, 'query')}</tbody>
         </table>
       </div>
       <h3 class="sites-kw-heading">GSC pages (28d)</h3>
       <div class="sites-gsc-table-wrap">
-        <table class="sites-gsc-table">
-          <thead><tr><th>Page</th><th>Clicks</th><th>Impr</th><th>CTR</th><th>Pos</th></tr></thead>
+        <table class="sites-gsc-table" data-gsc-table="page">
+          <thead><tr>${gscSortTh('Page', 'page', pageSort)}${gscSortTh('Clicks', 'clicks', pageSort)}${gscSortTh('Impr', 'impressions', pageSort)}${gscSortTh('CTR', 'ctr', pageSort)}${gscSortTh('Pos', 'position', pageSort)}</tr></thead>
           <tbody>${renderGscMetricRowsHtml(pages, 'page')}</tbody>
         </table>
       </div>`;
+}
+
+function paintSitesGscDetailTables() {
+  const el = document.getElementById('sites-gsc-detail-tables');
+  const site = (state.sites || []).find((row) => row.id === state.selectedSiteId);
+  if (!el || !site) return;
+  el.innerHTML = renderGscQueriesTableHtml(site);
+}
+
+function paintSitesGscRollups(set) {
+  const el = document.getElementById('sites-gsc-rollups');
+  const band = document.getElementById('sites-search-mix');
+  if (!el) return;
+  const list = Array.isArray(set) ? set : [];
+  const typeSort = state.sitesGscSort.rollupType;
+  const querySort = state.sitesGscSort.rollupQuery;
+  const types = sortGscRows(rollupGscPagesByType(list), typeSort, 'type');
+  const queries = sortGscRows(rollupGscQueries(list, { limit: 25 }), querySort, 'query');
+  const hasPages = types.some((row) => row.pages > 0);
+  if (!hasPages && !queries.length) {
+    el.innerHTML = '';
+    band?.classList.add('hidden');
+    return;
+  }
+  band?.classList.remove('hidden');
+  const typeBody = types
+    .map(
+      (row) => `<tr>
+        <td>${esc(row.label || GSC_PAGE_TYPE_LABELS[row.type] || row.type)}</td>
+        <td>${esc(formatSiteMetricNum(row.sites))}</td>
+        <td>${esc(formatSiteMetricNum(row.pages))}</td>
+        <td>${esc(formatSiteMetricNum(row.clicks))}</td>
+        <td>${esc(formatSiteMetricNum(row.impressions))}</td>
+      </tr>`,
+    )
+    .join('');
+  const queryBody = queries.length
+    ? queries
+        .map(
+          (row) => `<tr>
+            <td>${esc(row.query)}</td>
+            <td>${esc(formatSiteMetricNum(row.sites))}</td>
+            <td>${esc(formatSiteMetricNum(row.clicks))}</td>
+            <td>${esc(formatSiteMetricNum(row.impressions))}</td>
+          </tr>`,
+        )
+        .join('')
+    : `<tr><td colspan="4" class="muted">No queries with impressions yet.</td></tr>`;
+  el.innerHTML = `
+    <div class="sites-gsc-rollups-grid">
+      <div class="sites-chart-card">
+        <h3>Pages by type</h3>
+        <div class="sites-gsc-table-wrap">
+          <table class="sites-gsc-table" data-gsc-table="rollupType">
+            <thead><tr>${gscSortTh('Type', 'type', typeSort)}${gscSortTh('Sites', 'sites', typeSort)}${gscSortTh('URLs', 'pages', typeSort)}${gscSortTh('Clicks', 'clicks', typeSort)}${gscSortTh('Impr', 'impressions', typeSort)}</tr></thead>
+            <tbody>${typeBody}</tbody>
+          </table>
+        </div>
+      </div>
+      <div class="sites-chart-card">
+        <h3>Top queries</h3>
+        <div class="sites-gsc-table-wrap">
+          <table class="sites-gsc-table" data-gsc-table="rollupQuery">
+            <thead><tr>${gscSortTh('Query', 'query', querySort)}${gscSortTh('Sites', 'sites', querySort)}${gscSortTh('Clicks', 'clicks', querySort)}${gscSortTh('Impr', 'impressions', querySort)}</tr></thead>
+            <tbody>${queryBody}</tbody>
+          </table>
+        </div>
+      </div>
+    </div>`;
 }
 
 function emptyStateForSitesFilter() {
@@ -26461,22 +27140,327 @@ function updateSitesSelectionCount() {
 
 function afterSitesCheckboxSelection(rows) {
   updateSitesSelectionCount();
+  const selectedCount = rows.filter((s) => state.selectedSiteIds.has(s.id)).length;
   syncHeaderSelectAll(document.getElementById('sites-select-all'), {
-    selectedCount: rows.filter((s) => state.selectedSiteIds.has(s.id)).length,
+    selectedCount,
     totalCount: rows.length,
+  });
+  syncHeaderSelectAll(document.getElementById('sites-tree-select-all'), {
+    selectedCount,
+    totalCount: rows.length,
+  });
+  renderSitesPortfolioCharts();
+}
+
+function siteTreeZoneKey(site) {
+  return site?.shotgunClusterId || site?.shotgunZoneId || '__none__';
+}
+
+function siteTreeClusterId(site) {
+  return `${siteTreeZoneKey(site)}:${rowClusterKey(site) || 'unassigned'}`;
+}
+
+function medianSitePositions(sites) {
+  const nums = (sites || [])
+    .map((site) => Number(site.primaryPosition))
+    .filter((n) => Number.isFinite(n))
+    .sort((a, b) => a - b);
+  if (!nums.length) return null;
+  const mid = Math.floor(nums.length / 2);
+  return nums.length % 2 ? nums[mid] : (nums[mid - 1] + nums[mid]) / 2;
+}
+
+function rollupSiteMetrics(sites) {
+  const list = sites || [];
+  let clicks7d = 0;
+  let impressions7d = 0;
+  let clicks28d = 0;
+  let impressions28d = 0;
+  let indexed = 0;
+  let submitted = 0;
+  let indexSites = 0;
+  let ranked = 0;
+  let page1 = 0;
+  let hasClicks7 = false;
+  let hasImpr7 = false;
+  let hasClicks28 = false;
+  let hasImpr28 = false;
+  for (const site of list) {
+    if (site.clicks7d != null) {
+      hasClicks7 = true;
+      clicks7d += Number(site.clicks7d) || 0;
+    }
+    if (site.impressions7d != null) {
+      hasImpr7 = true;
+      impressions7d += Number(site.impressions7d) || 0;
+    }
+    if (site.clicks28d != null) {
+      hasClicks28 = true;
+      clicks28d += Number(site.clicks28d) || 0;
+    }
+    if (site.impressions28d != null) {
+      hasImpr28 = true;
+      impressions28d += Number(site.impressions28d) || 0;
+    }
+    if (site.inspectIndexed != null || site.inspectSubmitted != null) {
+      indexSites += 1;
+      indexed += Number(site.inspectIndexed) || 0;
+      submitted += Number(site.inspectSubmitted) || 0;
+    }
+    if (site.primaryPage != null) {
+      ranked += 1;
+      if (Number(site.primaryPage) === 1) page1 += 1;
+    }
+  }
+  const pos = medianSitePositions(list);
+  return {
+    clicks7d: hasClicks7 ? clicks7d : null,
+    impressions7d: hasImpr7 ? impressions7d : null,
+    clicks28d: hasClicks28 ? clicks28d : null,
+    impressions28d: hasImpr28 ? impressions28d : null,
+    indexedText: indexSites ? `${indexed}/${submitted}` : '—',
+    posText: pos == null ? '—' : `${Number.isInteger(pos) ? pos : pos.toFixed(1)}${ranked ? ` · ${page1}/${ranked}` : ''}`,
+  };
+}
+
+function sitesTreeMetricCells(row) {
+  return `<td class="lead-tree-count">${esc(formatSiteMetricNum(row.impressions7d))}</td>
+    <td class="lead-tree-count">${esc(formatSiteMetricNum(row.impressions28d))}</td>
+    <td class="lead-tree-count">${esc(formatSiteMetricNum(row.clicks7d))}</td>
+    <td class="lead-tree-count">${esc(formatSiteMetricNum(row.clicks28d))}</td>
+    <td class="lead-tree-count">${esc(row.indexedText || formatSitemapIndexed(row))}</td>
+    <td class="lead-tree-count">${esc(row.posText || (row.primaryPosition == null ? '—' : String(row.primaryPosition)))}</td>`;
+}
+
+function siteGroupSelected(sites) {
+  if (!sites.length) return false;
+  return sites.every((site) => state.selectedSiteIds.has(site.id));
+}
+
+function setSiteGroupSelected(sites, on) {
+  for (const site of sites) {
+    if (on) state.selectedSiteIds.add(site.id);
+    else state.selectedSiteIds.delete(site.id);
+  }
+}
+
+function wireSitesRowChecks(root, rows) {
+  root.querySelectorAll('input.sites-check').forEach((cb) => {
+    const applySitesShiftRange = (e) => {
+      const id = cb.dataset.id;
+      if (!id) return false;
+      return applyShiftRangeCheckboxClick(e, {
+        visibleKeys: rows.map((s) => s.id),
+        clickedKey: id,
+        anchorKey: state.siteCheckAnchor,
+        setAnchor: (key) => {
+          state.siteCheckAnchor = key;
+        },
+        setSelected: (key, on) => {
+          if (on) state.selectedSiteIds.add(key);
+          else state.selectedSiteIds.delete(key);
+        },
+      });
+    };
+    cb.addEventListener('pointerdown', (e) => {
+      e.stopPropagation();
+      if (!e.shiftKey || state.siteCheckAnchor == null) return;
+      blockShiftRangePointerDown(e, state.siteCheckAnchor);
+      if (applySitesShiftRange(e)) renderSitesTable();
+    });
+    cb.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (applySitesShiftRange(e)) renderSitesTable();
+    });
+    cb.addEventListener('change', (e) => {
+      e.stopPropagation();
+      const group = cb.dataset.group;
+      if (group) {
+        const ids = String(cb.dataset.ids || '')
+          .split(',')
+          .filter(Boolean);
+        const groupSites = rows.filter((site) => ids.includes(site.id));
+        setSiteGroupSelected(groupSites, cb.checked);
+        afterSitesCheckboxSelection(rows);
+        renderSitesTable();
+        return;
+      }
+      const id = cb.dataset.id;
+      if (consumeShiftRangeChange(cb, id)) {
+        cb.checked = state.selectedSiteIds.has(id);
+        return;
+      }
+      state.siteCheckAnchor = id;
+      if (cb.checked) state.selectedSiteIds.add(id);
+      else state.selectedSiteIds.delete(id);
+      afterSitesCheckboxSelection(rows);
+    });
   });
 }
 
+function renderSitesTreeTable(rows) {
+  const table = document.getElementById('sites-tree-table');
+  const list = document.getElementById('sites-tree-list');
+  if (!table || !list) return;
+  if (!state.sitesTreeOpen) state.sitesTreeOpen = { zones: {}, clusters: {} };
+  const zoneOpen = (id) => {
+    const value = state.sitesTreeOpen.zones?.[id];
+    return value === undefined ? false : Boolean(value);
+  };
+  const clusterOpen = (id) => {
+    const value = state.sitesTreeOpen.clusters?.[id];
+    return value === undefined ? false : Boolean(value);
+  };
+  if (!rows.length) {
+    list.innerHTML = `<tr><td colspan="8" class="muted">${esc(emptyStateForSitesFilter())}</td></tr>`;
+    document.getElementById('sites-tree-select-all')?.addEventListener('change', (e) => {
+      const on = e.target.checked;
+      for (const s of rows) {
+        if (on) state.selectedSiteIds.add(s.id);
+        else state.selectedSiteIds.delete(s.id);
+      }
+      renderSitesTable();
+    });
+    return;
+  }
+  const zones = new Map();
+  for (const site of rows) {
+    const zoneKey = siteTreeZoneKey(site);
+    if (!zones.has(zoneKey)) {
+      zones.set(zoneKey, {
+        key: zoneKey,
+        number: Number(site.sgNumber ?? site.shotgunSg) || 0,
+        name: site.shotgunClusterName || '',
+        clusters: new Map(),
+      });
+    }
+    const zone = zones.get(zoneKey);
+    const clusterNum = rowClusterKey(site) || 0;
+    const clusterId = siteTreeClusterId(site);
+    if (!zone.clusters.has(clusterId)) {
+      zone.clusters.set(clusterId, { id: clusterId, key: clusterNum, sites: [] });
+    }
+    zone.clusters.get(clusterId).sites.push(site);
+  }
+  const zoneList = [...zones.values()].sort((a, b) => {
+    if (!a.number && b.number) return 1;
+    if (a.number && !b.number) return -1;
+    return a.number - b.number || String(a.name).localeCompare(String(b.name));
+  });
+  const html = [];
+  const totals = rollupSiteMetrics(rows);
+  html.push(`<tr class="lead-tree-total">
+    <td class="sites-select-col"><input type="checkbox" class="sites-check" data-group="total" data-ids="${esc(rows.map((s) => s.id).join(','))}" ${siteGroupSelected(rows) ? 'checked' : ''} /></td>
+    <td class="lead-tree-name">Total</td>
+    ${sitesTreeMetricCells(totals)}
+  </tr>`);
+  for (const zone of zoneList) {
+    const zoneSites = [...zone.clusters.values()].flatMap((cluster) => cluster.sites);
+    const open = zoneOpen(zone.key);
+    const zoneLabel = zone.number
+      ? `${formatZnDisplay(zone.number)}${zone.name ? ` · ${zone.name}` : ''}`
+      : 'No zone';
+    const zoneMapBtn =
+      zone.key && zone.key !== '__none__'
+        ? `<button type="button" class="btn btn-sm zone-map-open lead-tree-map" data-zone-id="${esc(zone.key)}" data-tip="Open Zone map">Map</button>`
+        : '';
+    html.push(`<tr class="lead-tree-zone" data-tree-kind="zone" data-tree-id="${esc(zone.key)}">
+      <td class="sites-select-col"><input type="checkbox" class="sites-check" data-group="zone" data-ids="${esc(zoneSites.map((s) => s.id).join(','))}" ${siteGroupSelected(zoneSites) ? 'checked' : ''} /></td>
+      <td class="lead-tree-name"><button type="button" class="lead-tree-toggle" data-tree-toggle="zone" data-tree-id="${esc(zone.key)}" aria-expanded="${open ? 'true' : 'false'}"><span class="lead-tree-chevron">${open ? '▾' : '▸'}</span><span class="lead-tree-label">${esc(zoneLabel)}</span></button>${zoneMapBtn}</td>
+      ${sitesTreeMetricCells(rollupSiteMetrics(zoneSites))}
+    </tr>`);
+    if (!open) continue;
+    const clusters = [...zone.clusters.values()].sort((a, b) => {
+      if (!a.key && b.key) return 1;
+      if (a.key && !b.key) return -1;
+      return a.key - b.key;
+    });
+    for (const cluster of clusters) {
+      const cOpen = clusterOpen(cluster.id);
+      html.push(`<tr class="lead-tree-cluster" data-tree-kind="cluster" data-tree-id="${esc(cluster.id)}">
+        <td class="sites-select-col"><input type="checkbox" class="sites-check" data-group="cluster" data-ids="${esc(cluster.sites.map((s) => s.id).join(','))}" ${siteGroupSelected(cluster.sites) ? 'checked' : ''} /></td>
+        <td class="lead-tree-name"><button type="button" class="lead-tree-toggle" data-tree-toggle="cluster" data-tree-id="${esc(cluster.id)}" aria-expanded="${cOpen ? 'true' : 'false'}"><span class="lead-tree-chevron">${cOpen ? '▾' : '▸'}</span><span class="lead-tree-label">${esc(leadClusterTitle(cluster.key, cluster.sites.length))}</span></button></td>
+        ${sitesTreeMetricCells(rollupSiteMetrics(cluster.sites))}
+      </tr>`);
+      if (!cOpen) continue;
+      const siteRows = cluster.sites
+        .slice()
+        .sort((a, b) =>
+          String(a.businessName || a.domain || a.city).localeCompare(
+            String(b.businessName || b.domain || b.city),
+            undefined,
+            { sensitivity: 'base' },
+          ),
+        );
+      for (const site of siteRows) {
+        const active = site.id === state.selectedSiteId ? ' is-selected' : '';
+        html.push(`<tr class="lead-tree-site${active}" data-id="${esc(site.id)}"${clusterRowAttr(site)}>
+          <td class="sites-select-col"><input type="checkbox" class="sites-check" data-id="${esc(site.id)}" ${state.selectedSiteIds.has(site.id) ? 'checked' : ''} /></td>
+          <td class="lead-tree-name">${esc(site.businessName || site.domain || site.city || site.id)}</td>
+          ${sitesTreeMetricCells({
+            ...site,
+            indexedText: formatSitemapIndexed(site),
+            posText: site.primaryPosition == null ? '—' : String(site.primaryPosition),
+          })}
+        </tr>`);
+      }
+    }
+  }
+  const wrap = list.closest('.sites-table-wrap');
+  const scrollTop = wrap?.scrollTop || 0;
+  list.innerHTML = html.join('');
+  if (wrap) wrap.scrollTop = scrollTop;
+  document.getElementById('sites-tree-select-all')?.addEventListener('change', (e) => {
+    const on = e.target.checked;
+    for (const s of rows) {
+      if (on) state.selectedSiteIds.add(s.id);
+      else state.selectedSiteIds.delete(s.id);
+    }
+    renderSitesTable();
+  });
+  list.querySelectorAll('.lead-tree-toggle').forEach((btn) => {
+    btn.addEventListener('click', (event) => {
+      event.stopPropagation();
+      const id = btn.dataset.treeId;
+      if (btn.dataset.treeToggle === 'zone') {
+        state.sitesTreeOpen.zones[id] = !zoneOpen(id);
+      } else {
+        state.sitesTreeOpen.clusters[id] = !clusterOpen(id);
+      }
+      renderSitesTable();
+    });
+  });
+  list.querySelectorAll('tr[data-id]').forEach((tr) => {
+    tr.addEventListener('click', (e) => {
+      if (e.target.closest('input.sites-check, button, a')) return;
+      state.selectedSiteId = tr.dataset.id;
+      renderSitesTable();
+      renderSitesDetail();
+    });
+  });
+  wireSitesRowChecks(list, rows);
+}
+
 function renderSitesTable() {
-  const table = document.getElementById('sites-table');
-  if (!table) return;
-  const thead = table.querySelector('thead');
-  const tbody = table.querySelector('tbody');
   const rows = filteredSites();
   const countEl = document.getElementById('sites-filter-count');
   if (countEl) {
     countEl.textContent = `${rows.length} of ${state.sites.length}`;
   }
+  const listTable = document.getElementById('sites-table');
+  const treeTable = document.getElementById('sites-tree-table');
+  const isList = state.sitesView === 'list';
+  listTable?.classList.toggle('hidden', !isList);
+  treeTable?.classList.toggle('hidden', isList);
+  if (!isList) {
+    renderSitesTreeTable(rows);
+    afterSitesCheckboxSelection(rows);
+    return;
+  }
+  const table = listTable;
+  if (!table) return;
+  const thead = table.querySelector('thead');
+  const tbody = table.querySelector('tbody');
   const colCount = SITE_TABLE_COLS.length + 1;
 
   thead.innerHTML = `<tr><th class="sites-select-col" data-tip="Select filtered"><input type="checkbox" id="sites-select-all" data-tip="Select filtered" /></th>${SITE_TABLE_COLS.map(
@@ -26823,6 +27807,7 @@ function renderSitesDetail() {
           s.candidateId ? ` data-tip="Candidate ${esc(s.candidateId)}"` : ''
         }>${esc([s.city, s.state].filter(Boolean).join(', ') || '—')}</p>
       </div>
+      <div class="detail-head-actions">
       ${
         s.candidateId
           ? `<button type="button" class="btn primary btn-sm" id="sites-visual-edit" data-tip="Edit the site. Visitors never see this screen.">Edit site</button>
@@ -26830,6 +27815,8 @@ function renderSitesDetail() {
              ${s.shotgunClusterId ? `<button type="button" class="btn btn-sm zone-map-open" data-zone-id="${esc(s.shotgunClusterId)}">Zone map</button>` : ''}`
           : ''
       }
+        <button type="button" class="btn btn-sm detail-panel-close">Close</button>
+      </div>
     </div>
     ${zoneGuideNoteHtml(s)}
     <div class="sites-detail-links muted small">
@@ -26877,6 +27864,7 @@ function renderSitesDetail() {
       <div class="sites-detail-charts">
         <div class="sites-chart-card">
           <h3>Traffic</h3>
+          <p class="sites-chart-caption muted small">Clicks left · impressions right. Last 2–3 days still landing (dotted).</p>
           <div id="sites-detail-chart-traffic" class="sites-chart"></div>
         </div>
         <div class="sites-chart-card">
@@ -26884,7 +27872,7 @@ function renderSitesDetail() {
           <div id="sites-detail-chart-ranks" class="sites-chart"></div>
         </div>
       </div>
-      ${renderGscQueriesTableHtml(s)}
+      <div id="sites-gsc-detail-tables">${renderGscQueriesTableHtml(s)}</div>
       <h3 class="sites-kw-heading">Tracked keywords (≤5)</h3>
       <div id="sites-kw-list"></div>
       <div class="sites-kw-actions">
@@ -26986,13 +27974,28 @@ function renderSitesDetail() {
 
   // Per-site charts
   const daily = s.metrics?.gsc?.daily || [];
+  const detailDays = daily.map((row) => isoDay(row?.date));
+  const trafficPlot = document.getElementById('sites-detail-chart-traffic');
+  const trafficWidth = Math.max(220, trafficPlot?.clientWidth || 320);
   renderSvgLineChart(
-    document.getElementById('sites-detail-chart-traffic'),
-    [
-      { label: 'Clicks', color: '#2a9d8f', points: daily.map((r) => ({ y: r.clicks })) },
-      { label: 'Impressions', color: '#e9c46a', points: daily.map((r) => ({ y: r.impressions })) },
-    ],
-    { yLabel: 'Site traffic', yFormat: 'number', minPoints: 2 },
+    trafficPlot,
+    withGscLagTail(
+      [
+        { label: 'Clicks', color: '#2a9d8f', axis: 'left', points: daily.map((r) => ({ y: r.clicks })) },
+        { label: 'Impressions', color: '#e9c46a', axis: 'right', points: daily.map((r) => ({ y: r.impressions })) },
+      ],
+      detailDays,
+    ),
+    {
+      yLabel: 'Clicks',
+      yFormat: 'number',
+      y2Format: 'number',
+      minPoints: 2,
+      width: trafficWidth,
+      height: 110,
+      days: detailDays,
+      xTicks: leadChartDateTicks(detailDays, trafficWidth),
+    },
   );
   const kwSeries = (s.rankKeywords || []).slice(0, 5).map((kw, idx) => {
     const hist = s.metrics?.ranks?.byKeyword?.[kw.keyword]?.history || [];
@@ -27271,9 +28274,7 @@ function renderSitesDetail() {
       title: 'Provision Twilio ranking number?',
       confirmLabel: 'Buy number',
       bodyHtml: `<p>Buys one US local number (~$1.15/mo + per-minute usage), sets site NAP, and takes a voicemail while ranking (texts <code>TWILIO_FORWARD_TO</code>). Rented sites still dial the renter.</p>
-        <p class="muted small">${esc([s.city, s.state].filter(Boolean).join(', ') || 'geo from site-config')}${
-          areaCode ? ` · area ${esc(areaCode)}` : ' · locality search'
-        }</p>`,
+        ${phoneAreaRuleHtml(areaCode, s.city, s.state)}`,
     });
     if (!ok) return;
     try {
@@ -27293,6 +28294,7 @@ function renderSitesDetail() {
         title: 'Number provisioned',
         confirmLabel: 'OK',
         bodyHtml: `<p><strong>${esc(formatDisplayPhone(result.provisioned?.phone || result.provisioned?.e164 || ''))}</strong> written to site-config.</p>
+          ${phoneProvisionMatchHtml(result.provisioned)}
           <p class="muted small">Next: click <strong>Update site phone number</strong> to Stage → Assemble (and Push if already live).</p>`,
       });
     } catch (error) {
@@ -27460,6 +28462,41 @@ function renderSitesDetail() {
 
 function phoneDigits(value) {
   return String(value || '').replace(/\D/g, '');
+}
+
+function phoneAreaRuleHtml(areaCode, city, state) {
+  const place = [city, state].filter(Boolean).join(', ') || 'This site';
+  if (String(areaCode || '').length === 3) {
+    return `<p class="muted small">${esc(place)} · area ${esc(areaCode)}. Buys the closest number in this area code and does not switch to another.</p>`;
+  }
+  return `<p class="muted small">${esc(place)} · city area code first, including overlays. If those codes are out of stock, the closest number in the state.</p>`;
+}
+
+function phoneProvisionMatchHtml(provisioned) {
+  const tracking = provisioned?.phoneTracking || {};
+  const match =
+    tracking.match === 'city'
+      ? 'City area code'
+      : tracking.match === 'area-code'
+        ? `Area code ${tracking.areaCode || ''}`.trim()
+        : tracking.match === 'nearest'
+          ? 'Closest available in the state'
+          : '';
+  const where = [tracking.locality, tracking.region].filter(Boolean).join(', ');
+  let miles = '';
+  if (tracking.distanceMiles != null && tracking.distanceMiles !== '') {
+    const n = Number(tracking.distanceMiles);
+    if (Number.isFinite(n)) miles = `${Number.isInteger(n) ? n : n.toFixed(1)} mi from the city`;
+  }
+  const detail = [match, where, miles].filter(Boolean).join(' · ');
+  return detail ? `<p class="muted small">${esc(detail)}</p>` : '';
+}
+
+function detailCityState(detail) {
+  return {
+    city: detail?.siteConfig?.primaryCity || detail?.primaryCity || detail?.city || '',
+    state: detail?.state || detail?.siteConfig?.state || '',
+  };
 }
 
 function formatDisplayPhone(value) {
@@ -29842,6 +30879,7 @@ function phoneDetailMarkup(call, { includeForward = true, compact = false } = {}
   }
   return `
     <div class="phone-detail-head">
+      <div class="phone-detail-head-main">
       <h2>${esc(siteName)}</h2>
       <p class="muted small">${esc(place || '—')}</p>
       <p class="muted small phone-detail-number">${esc(siteMeta)}${
@@ -29849,6 +30887,10 @@ function phoneDetailMarkup(call, { includeForward = true, compact = false } = {}
           ? ` <a class="btn btn-sm"${includeForward ? ' id="phone-open-twilio"' : ''} href="${esc(twilioUrl)}" target="_blank" rel="noopener">Open in Twilio</a>`
           : ''
       }</p>
+      </div>
+      <div class="detail-head-actions">
+        <button type="button" class="btn btn-sm detail-panel-close">Close</button>
+      </div>
     </div>
     ${
       includeForward && site?.id && site?.twilioSid
@@ -30023,7 +31065,7 @@ async function importPastGmailLeads({ connected = false } = {}) {
       const gmail = await api('/api/forms/gmail/status');
       if (!gmail.connected) {
         const started = await api('/api/forms/gmail/start');
-        setLeadSync('forms', 'info', 'Sign in as paulthiriot@gmail.com in the Google window.');
+        setLeadSync('forms', 'info', 'Sign in with the Google account that receives your form mail.');
         window.open(started.authUrl, 'rover-gmail-forms-oauth', 'width=520,height=720');
         return;
       }
@@ -30778,7 +31820,14 @@ function formDetailMarkup(row, { compact = false } = {}) {
       ${row.pageUrl ? leadInboxField('Page', `<a href="${esc(row.pageUrl)}" target="_blank" rel="noopener">${esc(row.pageUrl)}</a>`) : ''}
     </div>`;
   }
-  return `<h2>${esc(row.name || 'Submission')}${spamLabel(row.spam)}</h2>
+  return `<div class="phone-detail-head">
+      <div class="phone-detail-head-main">
+        <h2>${esc(row.name || 'Submission')}${spamLabel(row.spam)}</h2>
+      </div>
+      <div class="detail-head-actions">
+        <button type="button" class="btn btn-sm detail-panel-close">Close</button>
+      </div>
+    </div>
     <p>${spamToggleButton('form', row.id, row.spam)}</p>
     <p class="muted small">${esc(formatPhoneWhen(row.submittedAt))}</p>
     <p>${esc(site?.businessName || row.domain || '')}</p>
@@ -31076,6 +32125,68 @@ function wireSitesUi() {
     renderSitesTable();
     persistUiRestore();
   });
+  document.getElementById('sites-view-tree')?.addEventListener('click', () => {
+    state.sitesView = 'tree';
+    persistUiRestore();
+    renderSitesTable();
+  });
+  document.getElementById('sites-view-list')?.addEventListener('click', () => {
+    state.sitesView = 'list';
+    persistUiRestore();
+    renderSitesTable();
+  });
+  document.querySelectorAll('[data-sites-range]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      state.sitesChartRange = Number(btn.dataset.sitesRange) === 90 ? 90 : 28;
+      persistUiRestore();
+      renderSitesPortfolioCharts();
+    });
+  });
+  document.getElementById('sites-chart-toggle-impressions')?.addEventListener('click', () => {
+    state.sitesChartToggles.impressions =
+      state.sitesChartToggles.impressions === 'overlay' ? 'daily' : 'overlay';
+    renderSitesPortfolioCharts();
+  });
+  document.getElementById('sites-chart-toggle-clicks')?.addEventListener('click', () => {
+    state.sitesChartToggles.clicks = state.sitesChartToggles.clicks === 'overlay' ? 'ctr' : 'overlay';
+    renderSitesPortfolioCharts();
+  });
+  document.getElementById('sites-chart-toggle-ranks')?.addEventListener('click', () => {
+    state.sitesChartToggles.ranks = state.sitesChartToggles.ranks === 'page1' ? 'position' : 'page1';
+    renderSitesPortfolioCharts();
+  });
+  document.getElementById('sites-chart-toggle-indexed')?.addEventListener('click', () => {
+    state.sitesChartToggles.indexed = state.sitesChartToggles.indexed === 'indexed' ? 'breadth' : 'indexed';
+    renderSitesPortfolioCharts();
+  });
+  document.getElementById('view-sites')?.addEventListener('click', (event) => {
+    const th = event.target.closest('[data-gsc-sort]');
+    if (!th) return;
+    const key = th.getAttribute('data-gsc-sort');
+    const table = th.closest('[data-gsc-table]')?.getAttribute('data-gsc-table');
+    if (!key || !table) return;
+    event.preventDefault();
+    const textKeys = ['query', 'page', 'type'];
+    if (table === 'query') state.sitesGscSort.query = gscSortToggle(state.sitesGscSort.query, key, textKeys);
+    else if (table === 'page') state.sitesGscSort.page = gscSortToggle(state.sitesGscSort.page, key, textKeys);
+    else if (table === 'rollupQuery') {
+      state.sitesGscSort.rollupQuery = gscSortToggle(state.sitesGscSort.rollupQuery, key, textKeys);
+    } else if (table === 'rollupType') {
+      state.sitesGscSort.rollupType = gscSortToggle(state.sitesGscSort.rollupType, key, textKeys);
+    } else return;
+    if (table === 'query' || table === 'page') paintSitesGscDetailTables();
+    else paintSitesGscRollups(chartSiteSet());
+  });
+  document.getElementById('sites-portfolio-charts')?.addEventListener('click', (event) => {
+    const warn = event.target.closest('.sites-chart-warn');
+    if (!warn || warn.classList.contains('hidden')) return;
+    const ids = String(warn.dataset.ids || '')
+      .split(',')
+      .filter(Boolean);
+    if (!ids.length) return;
+    state.selectedSiteIds = new Set(ids);
+    renderSitesTable();
+  });
   document.getElementById('sites-select-filtered')?.addEventListener('click', () => {
     for (const s of filteredSites()) state.selectedSiteIds.add(s.id);
     renderSitesTable();
@@ -31129,7 +32240,7 @@ function wireSitesUi() {
         title: 'Connect GSC failed',
         confirmLabel: 'OK',
         bodyHtml: `<p>${esc(error.message)}</p>
-          <p class="muted small">Add OAuth client id/secret to <code>.env</code>. Redirect URI: <code>http://127.0.0.1:8787/api/gsc/oauth/callback</code></p>`,
+          <p class="muted small">Add the Search Console client ID and secret in Account setup. Redirect URI: <code>http://127.0.0.1:8787/api/gsc/oauth/callback</code> <button type="button" class="btn btn-sm" data-open-account="GOOGLE_GSC_CLIENT_ID">Open Account setup</button></p>`,
       });
     }
   });
@@ -35580,7 +36691,7 @@ function wireDiscoveryUi() {
           title: 'DataForSEO required',
           confirmLabel: 'OK',
           bodyHtml:
-            '<p>Add <code>DATAFORSEO_LOGIN</code> / <code>DATAFORSEO_PASSWORD</code> to <code>.env</code> to run Discovery Light SERP.</p>',
+            '<p>Add the DataForSEO login and API password in Account setup, then run Light SERP again. <button type="button" class="btn btn-sm" data-open-account="DATAFORSEO_LOGIN">Open Account setup</button></p>',
         });
         return;
       }

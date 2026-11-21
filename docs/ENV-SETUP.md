@@ -1,8 +1,10 @@
 # Rover .env & API keys setup
 
-This guide walks you through every key Rover needs in your local `.env` file. You do not need to be a developer — follow the numbered clicks, paste values into `.env`, then check the gear in Rover.
+Account setup inside Rover is the primary place to enter keys. Open the gear, then **Account setup**. Each row has **How to get this key**. The steps stay on the right while you paste, and the links open in a new tab. A step that needs a missing key offers **Open Account setup** for that row. Saving applies the key without a restart.
 
-For the product walkthrough (what to click in Discovery → Launch), see [USER-GUIDE.md](USER-GUIDE.md). Time estimates: [USER-FLOW.md](USER-FLOW.md). New operators: start from the [GitHub access gateway](GITHUB-ACCESS-GATEWAY.md) if you do not have repo access yet.
+This guide is the long version those short steps are taken from. `.env` in the Rover folder remains the advanced path. You do not need to be a developer to use Account setup.
+
+For the product walkthrough (what to click in Discovery → Launch), see [USER-GUIDE.md](USER-GUIDE.md). Time estimates: [USER-FLOW.md](USER-FLOW.md). Weekly sign-in is described in [ACCOUNTS.md](ACCOUNTS.md). New operators: start from the [GitHub access gateway](GITHUB-ACCESS-GATEWAY.md) if you do not have repo access yet.
 
 Sections match **Settings → API/Other** (same order as the green ✓ / red ✕ list).
 

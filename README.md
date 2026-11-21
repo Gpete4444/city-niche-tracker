@@ -1,6 +1,6 @@
 # Rover
 
-**Version 2.7** (`2.7.0`)
+**Version 2.8** (`2.8.0`)
 
 Clone-per-site Astro template and local Rover dashboard for local lead-gen websites. Swap `site-config.json` + Markdown content, ship a new repo, attach Cloudflare Workers.
 

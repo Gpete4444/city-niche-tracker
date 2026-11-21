@@ -25,19 +25,16 @@
       document.documentElement.setAttribute('data-theme', t);
     } catch (_) {}
     try {
-      var claudeMode = localStorage.getItem('ops.claudeUiMode');
-      document.documentElement.setAttribute(
-        'data-claude-mode',
-        claudeMode === 'api' ? 'api' : 'paste',
-      );
+      localStorage.setItem('ops.claudeUiMode', 'api');
+      document.documentElement.setAttribute('data-claude-mode', 'api');
     } catch (_) {
-      document.documentElement.setAttribute('data-claude-mode', 'paste');
+      document.documentElement.setAttribute('data-claude-mode', 'api');
     }
   </script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/styles.css?v=20261113hints" />
+  <link rel="stylesheet" href="/styles.css?v=20261120unboxChecks" />
   <link rel="stylesheet" href="/brand/rover-loader.css" />
 </head>
 <body>
@@ -65,17 +62,7 @@
         <img class="top-brand-logo top-brand-logo--light" src="/brand/rover-logo-light.png" alt="" width="800" height="168" decoding="async" />
         <img class="top-brand-logo top-brand-logo--dark" src="/brand/rover-logo-dark.png" alt="" width="800" height="168" decoding="async" />
       </span>
-      <span class="top-version muted small">v2.7</span>
-      <div class="claude-mode-segment" role="group" aria-label="Claude pipeline mode">
-        <button type="button" class="claude-mode-seg active" data-claude-mode="paste" id="claude-mode-paste" data-tip="Copy a prompt and paste the reply." aria-label="Copy and paste">
-          <span class="claude-mode-seg-full">Copy &amp; paste</span>
-          <span class="claude-mode-seg-short" aria-hidden="true">Paste</span>
-        </button>
-        <button type="button" class="claude-mode-seg" data-claude-mode="api" id="claude-mode-api" data-tip="Write inside Rover." aria-label="Write inside Rover">
-          <span class="claude-mode-seg-full">Anthropic API</span>
-          <span class="claude-mode-seg-short" aria-hidden="true">API</span>
-        </button>
-      </div>
+      <span class="top-version muted small">v2.8</span>
     </div>
     <nav class="top-nav" aria-label="Primary">
       <div class="nav-pipeline" aria-label="Pipeline stages">
@@ -168,6 +155,9 @@
           <span class="sr-only">Settings</span>
         </button>
         <div id="settings-menu" class="settings-menu hidden" role="menu" aria-label="Settings">
+          <div class="settings-row">
+            <button type="button" class="btn" id="settings-open-account">Account setup</button>
+          </div>
           <div class="settings-row">
             <span class="settings-label">Host</span>
             <span id="settings-host" class="settings-value">—</span>
@@ -440,7 +430,10 @@
             </div>
             <div id="detail-sub" class="muted"></div>
           </div>
-          <button type="button" data-tab="overview" class="tab tab-overview active">Overview</button>
+          <div class="detail-head-actions">
+            <button type="button" data-tab="overview" class="tab tab-overview active">Overview</button>
+            <button type="button" class="btn btn-sm detail-panel-close">Close</button>
+          </div>
         </div>
         <div id="website-write-lock-banner" class="website-write-lock-banner hidden" hidden></div>
 
@@ -1159,24 +1152,34 @@
   </main>
 
   <main class="layout sites-layout hidden" id="view-sites">
-    <section class="panel sites-table-panel">
+    <section class="sites-table-panel">
+      <div class="panel sites-chrome">
       <div class="panel-head">
-        <div>
+        <div class="sites-head-title">
           <h1>Launched</h1>
-          <div class="muted">Portfolio, GSC traffic, pages, and keyword ranks</div>
+          <div class="sites-head-group" role="group" aria-label="Search Console status">
+            <span id="sites-gsc-connection" class="gsc-connection is-disconnected" role="status" aria-live="polite" data-tip="Search Console is not connected." aria-label="Search Console is not connected">
+              <span class="gsc-connection-dot" aria-hidden="true"></span>
+              <span class="gsc-connection-label">Not connected</span>
+            </span>
+            <button type="button" id="sites-gsc-connect-btn" class="btn" data-tip="Connect Google Search Console.">Connect GSC</button>
+          </div>
         </div>
-        <div class="candidates-head-actions">
-          <span id="sites-gsc-connection" class="gsc-connection is-disconnected" role="status" aria-live="polite" data-tip="Search Console is not connected." aria-label="Search Console is not connected">
-            <span class="gsc-connection-dot" aria-hidden="true"></span>
-            <span class="gsc-connection-label">Not connected</span>
-          </span>
-          <button type="button" id="sites-gsc-connect-btn" class="btn" data-tip="Connect Google Search Console.">Connect GSC</button>
-          <button type="button" id="sites-gsc-sync-btn" class="btn" data-tip="Connect Search Console first." disabled>Sync GSC</button>
-          <button type="button" id="sites-index-check-btn" class="btn" data-tip="Connect Search Console first." disabled>Check index</button>
-          <button type="button" id="sites-rank-sync-btn" class="btn" data-tip="Check this week’s Google rank for the selected sites.">Check ranks</button>
-          <button type="button" id="sites-add-btn" class="btn primary" data-tip="Add a site that has already been launched.">Add from candidate</button>
-          <button type="button" id="sites-w3-inboxes-btn" class="btn" data-tip="The public leads address for each site.">Lead addresses</button>
-          <button type="button" id="sites-refresh-btn" class="btn">Refresh</button>
+        <div class="candidates-head-actions sites-head-actions">
+          <div class="sites-head-group sites-head-group-checks" role="group" aria-label="Search Console checks">
+            <button type="button" id="sites-gsc-sync-btn" class="btn primary" data-tip="Connect Search Console first." disabled>Sync GSC</button>
+            <button type="button" id="sites-index-check-btn" class="btn primary" data-tip="Connect Search Console first." disabled>Check index</button>
+            <button type="button" id="sites-rank-sync-btn" class="btn primary" data-tip="Check this week’s Google rank for the selected sites.">Check ranks</button>
+          </div>
+          <div class="sites-head-group sites-head-refresh" role="group" aria-label="Sites">
+            <button type="button" id="sites-refresh-btn" class="btn sites-refresh-btn">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+                <path d="M21 12a9 9 0 1 1-2.64-6.36" />
+                <path d="M21 3v6h-6" />
+              </svg>
+              Refresh
+            </button>
+          </div>
         </div>
       </div>
       <div id="sites-gsc-status" class="muted small sites-gsc-status"></div>
@@ -1190,16 +1193,76 @@
         </div>
         <p class="job-progress-detail" id="sites-metrics-progress-detail">Starting…</p>
       </div>
-      <div id="sites-portfolio-charts" class="sites-portfolio-charts hidden">
-        <div class="sites-chart-card">
-          <h3>Portfolio traffic</h3>
-          <div id="sites-chart-traffic" class="sites-chart"></div>
+      </div>
+      <div id="sites-portfolio-charts" class="panel sites-band sites-portfolio-charts hidden">
+        <div class="sites-band-head sites-chart-toolbar">
+          <span id="sites-chart-scope" class="sites-band-meta muted small">All listed (0)</span>
+          <div class="sites-chart-range" role="group" aria-label="Chart range">
+            <button type="button" class="btn btn-sm is-active" id="sites-chart-range-28" data-sites-range="28">28d</button>
+            <button type="button" class="btn btn-sm" id="sites-chart-range-90" data-sites-range="90">90d</button>
+          </div>
         </div>
-        <div class="sites-chart-card">
-          <h3>Primary on page 1</h3>
-          <div id="sites-chart-ranks" class="sites-chart"></div>
+        <div id="sites-chart-kpis" class="sites-chart-kpis"></div>
+        <div class="sites-chart-grid">
+          <div class="sites-chart-card">
+            <div class="sites-chart-card-head">
+              <div>
+                <h3>Impressions</h3>
+                <p class="sites-chart-caption muted small">Search Console · last 2–3 days still landing (dotted)</p>
+              </div>
+              <button type="button" class="btn btn-sm" id="sites-chart-toggle-impressions" data-tip="Switch between daily + 7-day overlay and daily only.">Daily only</button>
+            </div>
+            <div id="sites-chart-impressions" class="sites-chart"></div>
+            <p class="sites-chart-warn muted small hidden" id="sites-chart-impressions-warn"></p>
+          </div>
+          <div class="sites-chart-card">
+            <div class="sites-chart-card-head">
+              <div>
+                <h3 id="sites-chart-clicks-title">Clicks</h3>
+                <p class="sites-chart-caption muted small">Search Console · last 2–3 days still landing (dotted)</p>
+              </div>
+              <button type="button" class="btn btn-sm" id="sites-chart-toggle-clicks" data-tip="Switch between clicks and CTR.">CTR</button>
+            </div>
+            <div id="sites-chart-clicks" class="sites-chart"></div>
+            <p class="sites-chart-warn muted small hidden" id="sites-chart-clicks-warn"></p>
+          </div>
+          <div class="sites-chart-card">
+            <div class="sites-chart-card-head">
+              <div>
+                <h3>Primary on page 1</h3>
+                <p class="sites-chart-caption muted small">Only days you ran Check ranks. Cannot backfill.</p>
+              </div>
+              <button type="button" class="btn btn-sm" id="sites-chart-toggle-ranks" data-tip="Switch between page-1 count and average position.">Avg position</button>
+            </div>
+            <div id="sites-chart-ranks" class="sites-chart"></div>
+            <p class="sites-chart-warn muted small hidden" id="sites-chart-ranks-warn"></p>
+          </div>
+          <div class="sites-chart-card">
+            <div class="sites-chart-card-head">
+              <div>
+                <h3 id="sites-chart-indexed-title">Sites with impressions</h3>
+                <p class="sites-chart-caption muted small" id="sites-chart-indexed-caption">Search Console · last 2–3 days still landing (dotted)</p>
+              </div>
+              <button type="button" class="btn btn-sm" id="sites-chart-toggle-indexed" data-tip="Switch between sites with impressions and indexed URLs.">Indexed</button>
+            </div>
+            <div id="sites-chart-indexed" class="sites-chart"></div>
+            <p class="sites-chart-warn muted small hidden" id="sites-chart-indexed-warn"></p>
+          </div>
         </div>
       </div>
+      <section class="panel sites-band hidden" id="sites-search-mix" aria-label="Search mix">
+        <div class="sites-band-head">
+          <h2 class="sites-band-label">Search mix</h2>
+          <p class="sites-band-meta muted small">Search Console · 28d · current chart set. City names fold into {city}.</p>
+        </div>
+        <div id="sites-gsc-rollups" class="sites-gsc-rollups"></div>
+      </section>
+      <section class="panel sites-band sites-band-sites" id="sites-inventory" aria-label="Sites">
+        <div class="sites-band-head">
+          <h2 class="sites-band-label">Sites</h2>
+          <span id="sites-filter-count" class="sites-band-meta muted small"></span>
+        </div>
+        <div class="sites-inventory">
       <div id="sites-filters" class="sites-filters">
         <div class="discovery-filter-controls">
           <input id="sites-filter-text" type="search" placeholder="Search niche/city/domain…" />
@@ -1246,7 +1309,6 @@
             <option value="19">Cluster 19</option>
             <option value="20">Cluster 20</option>
           </select>
-          <span id="sites-filter-count" class="muted"></span>
         </div>
         <div class="discovery-filter-controls sites-group-actions">
           <button type="button" class="btn" id="sites-select-filtered">Select filtered</button>
@@ -1260,6 +1322,12 @@
           <button type="button" class="btn" id="sites-group-remove-btn" disabled data-tip="Remove selection from Launched group">Remove</button>
           <button type="button" class="btn" id="sites-group-manage-btn" data-tip="Rename or delete a Launched group">Manage groups</button>
         </div>
+      </div>
+      <div class="sites-table-viewbar">
+        <span class="sites-view-toggle" role="group" aria-label="Launched table view">
+          <button type="button" class="btn is-active" id="sites-view-tree" data-sites-view="tree" data-tip="Same grouping as Phone/Form Combined.">Cluster tree</button>
+          <button type="button" class="btn" id="sites-view-list" data-sites-view="list" data-tip="The previous sortable table (one row per site).">Flat list</button>
+        </span>
       </div>
       <div class="table-wrap sites-table-wrap">
         <div id="sites-table-loading" class="sites-table-loading hidden" hidden role="status" aria-live="polite" aria-busy="false">
@@ -1279,11 +1347,28 @@
             <p class="rover-loading-text">Loading launched sites…</p>
           </div>
         </div>
-        <table id="sites-table">
+        <table id="sites-table" class="sites-list-table hidden">
           <thead></thead>
           <tbody></tbody>
         </table>
+        <table id="sites-tree-table" class="lead-tree-table sites-tree-table">
+          <thead>
+            <tr>
+              <th class="sites-select-col"><input type="checkbox" id="sites-tree-select-all" data-tip="Select listed" /></th>
+              <th>Zone / Cluster / Site</th>
+              <th>Impr 7d</th>
+              <th>Impr 28d</th>
+              <th>Clicks 7d</th>
+              <th>Clicks 28d</th>
+              <th>Indexed</th>
+              <th>Pos</th>
+            </tr>
+          </thead>
+          <tbody id="sites-tree-list"></tbody>
+        </table>
       </div>
+        </div>
+      </section>
     </section>
     <aside class="panel sites-detail-panel" id="sites-detail">
       <div id="sites-empty-detail" class="empty">Select a site to edit rent, renter, payment, and metrics.</div>
@@ -1781,6 +1866,6 @@
     </div>
   </div>
 
-  <script src="/app.js?v=20261113mapToggle" type="module"></script>
+  <script src="/app.js?v=20261119cardsCanvas" type="module"></script>
 </body>
 </html>

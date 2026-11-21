@@ -319,7 +319,7 @@ export function getCostPreview(candidateId, act, opts = {}) {
         ? 'A narrative draft or accepted file already exists. Running again replaces the current draft. An accepted narrative stays until you Accept again.'
         : null,
       confirmLabel: `Run (est. ${formatUsd(priced.costUsd)})`,
-      freeFallback: 'Copy and paste is the other mode in the header.',
+      freeFallback: null,
     };
   }
 
@@ -397,7 +397,7 @@ export function getCostPreview(candidateId, act, opts = {}) {
         lastCost != null
           ? `Suggest domains (est. ${formatUsd(lastCost)})`
           : `Suggest domains (est. ${formatUsd(priced.costUsd)})`,
-      freeFallback: 'Prefer Copy & paste? Switch the header toggle.',
+      freeFallback: null,
     };
   }
 
@@ -440,7 +440,7 @@ export function getCostPreview(candidateId, act, opts = {}) {
         lastCost != null
           ? `Fill site-config (est. ${formatUsd(lastCost)})`
           : `Fill site-config (est. ${formatUsd(priced.costUsd)})`,
-      freeFallback: 'Prefer Copy & paste? Switch the header toggle.',
+      freeFallback: null,
     };
   }
 
@@ -471,7 +471,7 @@ export function getCostPreview(candidateId, act, opts = {}) {
       overwriteNote: null,
       confirmLabel:
         lastCost != null ? `Write site (est. ${formatUsd(lastCost)})` : `Write site (est. ${formatRange(low, high)})`,
-      freeFallback: 'Prefer Copy & paste? Switch the header toggle.',
+      freeFallback: null,
     };
   }
 

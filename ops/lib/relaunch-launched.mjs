@@ -7,14 +7,23 @@ import path from 'node:path';
 import { ensureBaLogo, setBaLogo } from './ba-logo.mjs';
 import { pathsFor, saveMeta } from './candidates.mjs';
 
-export const RELAUNCH_NOTIFY_EMAIL = 'pauljthiriot@gmail.com';
-
 export function assertRelaunchNotifyEmail(value) {
+  const expected = String(
+    process.env.LEAD_NOTIFY_EMAIL || process.env.WEB3FORMS_DEFAULT_NOTIFY_EMAIL || '',
+  )
+    .trim()
+    .toLowerCase();
   const email = String(value || '').trim().toLowerCase();
-  if (email !== RELAUNCH_NOTIFY_EMAIL) {
+  if (!expected || !email) {
     throw Object.assign(
-      new Error('LEAD_NOTIFY_EMAIL must be pauljthiriot@gmail.com before relaunch'),
-      { status: 400 },
+      new Error('Set the lead notify email in Account setup before relaunch.'),
+      { status: 400, code: 'missing_key', field: 'leadNotifyEmail' },
+    );
+  }
+  if (email !== expected) {
+    throw Object.assign(
+      new Error('Relaunch email must match the lead notify email in Account setup.'),
+      { status: 400, code: 'missing_key', field: 'leadNotifyEmail' },
     );
   }
   return email;

@@ -13,6 +13,11 @@ import { fileURLToPath } from 'node:url';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { loadEnvFile, fetchUserBalance } from '../scripts/lib/dataforseo.mjs';
+import { applySavedProfile, readProfile } from './lib/profile.mjs';
+import { registerAccountRoutes } from './lib/account-routes.mjs';
+import { missingFieldForRequest, missingKeyError } from './lib/missing-key.mjs';
+import { entitlementError, planAllows, requiredPlan } from './lib/entitlement.mjs';
+import { isSourceCheckout } from './lib/source-checkout.mjs';
 import { migrateDecisionsToScoreModel } from './lib/migrate-decisions-score.mjs';
 import { listPalettes } from '../scripts/lib/site-palettes.mjs';
 import { listFontThemes } from '../scripts/lib/site-fonts.mjs';
@@ -365,6 +370,7 @@ import {
   portfolioTrafficSeries,
   setRankKeywords,
 } from './lib/site-metrics.mjs';
+import { buildSiteMetricsSeries } from './lib/site-series.mjs';
 import {
   completeGscOAuth,
   disconnectGsc,
@@ -482,6 +488,7 @@ import { existsSync, writeFileSync, readFileSync, readdirSync, rmSync } from 'no
 import { getScoringRubric } from '../scripts/lib/scoring.mjs';
 
 loadEnvFile();
+applySavedProfile();
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const HOST = '127.0.0.1';
@@ -612,8 +619,37 @@ function sendError(res, error) {
   if (error.meta) payload.meta = error.meta;
   if (error.existingId) payload.existingId = error.existingId;
   if (error.holderTabId != null) payload.holderTabId = error.holderTabId;
+  if (error.field) payload.field = error.field;
+  if (error.plan) payload.plan = error.plan;
   res.status(status).json(payload);
 }
+
+app.use((req, res, next) => {
+  if (!req.path.startsWith('/api/')) return next();
+  if (isSourceCheckout()) return next();
+  try {
+    const need = requiredPlan(req.method, req.path);
+    if (!need) return next();
+    const entitlement = readProfile().entitlement;
+    if (!planAllows(entitlement, need)) return sendError(res, entitlementError(need));
+    return next();
+  } catch (error) {
+    return sendError(res, error);
+  }
+});
+
+app.use((req, res, next) => {
+  if (!req.path.startsWith('/api/')) return next();
+  try {
+    const field = missingFieldForRequest(req.method, req.path);
+    if (!field) return next();
+    return sendError(res, missingKeyError(field));
+  } catch (error) {
+    return sendError(res, error);
+  }
+});
+
+registerAccountRoutes(app, sendError);
 
 app.get('/api/help/user-guide', (_req, res) => {
   try {
@@ -4872,6 +4908,7 @@ app.get('/api/sites', (_req, res) => {
       portfolio: {
         traffic: portfolioTrafficSeries(sites),
         ranks: portfolioRankSeries(sites),
+        series: buildSiteMetricsSeries(withShotgun, { rangeDays: 90 }),
       },
     });
   } catch (error) {

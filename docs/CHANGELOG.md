@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## Version 2.8 (`2.8.0`)
+
+- **Launched daily charts:** Four cards (impressions, clicks, page-1 count, indexed over time) with their own Y-axis and calendar dates. Hover a day for the date and values. Checkboxes set the chart scope; none checked uses every listed site. Missing data is omitted, not drawn as zero, with a warning that names the sites and the check to run. Check index stores an Indexed snapshot per day. Default inventory is a Zone → Cluster → Site tree. **Cluster tree** / **Flat list** on the table switches that tree and the old sortable table. GSC cards caption that the last 2–3 days are still landing (dotted); page 1 and Indexed are check-day snapshots (cannot backfill). Indexed defaults to Sites with impressions until a second Check index day exists. **Pages by type** and **Top queries** roll up the current set. Site detail Traffic uses clicks left / impressions right; query and page tables sort. Launched is three labeled bands (Portfolio, Search mix, Sites); GSC actions sit apart from Add / Lead / Refresh. Launched scrolls as a page (charts, then the full tree) instead of squeezing the table into a strip. Regression: `scripts/test-site-series.mjs`.
+- **Search Console emails:** Help explains that a “Page with redirect” email is the http, www, and slashless redirects working. Do not click Validate fix.
+- **Accounts:** Gear → Account setup stores keys and applies them without a restart. A missing key opens that row. Weekly Full / Maintain is enforced only on a customer install. This development checkout does not lock. Gmail connect and relaunch use the lead-notify address from Account setup. Regression: `scripts/test-account-access.mjs`.
+- **City area codes:** Provision buys one of that city’s area codes, including an overlay. If those codes are out of stock, it buys the closest number in the same state. Typing an area code keeps that code only. Regression: `scripts/test-phone-area-choice.mjs`.
+- **API only:** Cost confirms no longer mention a header Copy & paste toggle. Polish leftover speech says to retry the phase.
+
 ## Version 2.7 (`2.7.0`)
 
 - **Open tabs:** On the Website list, Open tabs opens one tab per pursue city for the zone and cluster range of this session, before Colors on any site.
