@@ -129,6 +129,14 @@
       width: 180px;
     }
 
+    @keyframes pulseDot {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.5; transform: scale(1.2); }
+    }
+    .sync-pulse {
+      animation: pulseDot 2s infinite ease-in-out;
+    }
+
     /* Main Layout */
     .main-wrap {
       max-width: 1840px;
@@ -497,7 +505,7 @@
           Top 200 True-ROI Rank &amp; Rent Hub Zones ($3,000–$30,000)
         </h1>
         <p style="margin: 0; font-size: 12px; color: #cbd5e1;">
-          200 Recession-Proof Structural &amp; Exterior Hub Zones • Team Build Tracker (CLN &amp; QCL)
+          Construction Leads Network (CLN) &amp; Quality Construction Leads (QCL) • Live Team Build Tracker
         </p>
       </div>
 
@@ -515,15 +523,16 @@
       </div>
     </div>
 
-    <!-- Real-Time Team Room Sync Bar -->
+    <!-- Real-Time Firebase Team Room Sync Bar -->
     <div class="room-bar">
       <div class="room-bar-inner">
         <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
-          <span id="syncDot" style="width: 9px; height: 9px; border-radius: 50%; background: #10b981; display: inline-block;"></span>
+          <span id="syncDot" class="sync-pulse" style="width: 10px; height: 10px; border-radius: 50%; background: #38bdf8; display: inline-block;"></span>
           <strong style="color: #ffffff;">Team Room Sync:</strong>
-          <span id="syncStatusText">Initializing workspace...</span>
+          <span id="syncStatusText">Connecting to Firebase Realtime Database...</span>
         </div>
         <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+          <button onclick="forceManualSync()" class="btn-share" style="padding: 5px 10px; font-size: 11.5px;" title="Force immediate refresh from Firebase">↻ Sync Now</button>
           <label for="roomIdInput" style="font-weight: 700; color: #94a3b8;">Room ID:</label>
           <input type="text" id="roomIdInput" class="room-input" placeholder="e.g. cln-qcl-2026" />
           <button onclick="switchTeamRoom()" class="btn-share" style="padding: 5px 10px; font-size: 11.5px;">Join / Switch Room</button>
@@ -550,7 +559,7 @@
       </div>
       <div class="modal-body">
         <div class="modal-notice">
-          <strong>Browser Download Note:</strong> Your browser download was triggered automatically. If you are viewing this app inside a <strong>sandboxed preview iframe</strong>, browser security policies block direct file downloads unless you save this HTML file locally or host it. Use the <strong>1-Click Paste</strong> buttons below to transfer all 200 rows straight into Excel or Google Sheets right now:
+          <strong>Browser Download Note:</strong> Your browser download was triggered automatically. If you are viewing this app inside a <strong>sandboxed preview iframe</strong>, browser security policies block direct file downloads unless you open the live GitHub Pages URL. You can also use the <strong>1-Click Paste</strong> buttons below to transfer all 200 rows straight into Excel or Google Sheets:
         </div>
 
         <div class="modal-actions">
@@ -818,10 +827,13 @@
 
   </main>
 
-  <script type="module">
-    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-    import { getAuth, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-    import { getFirestore, doc, setDoc, onSnapshot, collection } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+  <script>
+    // =========================================================================
+    // LIVE FIREBASE REALTIME DATABASE CONFIGURATION
+    // =========================================================================
+    const FIREBASE_RTDB_URL = "https://city-niche-tracker-default-rtdb.firebaseio.com";
+    const DEFAULT_ROOM_ID = "cln-qcl-2026";
+    const POLL_INTERVAL_MS = 2500;
 
     // 6 Recession-Proof Structural & Exterior Niches ($3,000 - $30,000 Ticket; Non-HVAC / Non-Plumbing)
     const NICHES = [
@@ -1027,16 +1039,18 @@
 
     const top200Zones = buildTop200Zones();
 
-    // Team Build Progress State: { [zoneId]: { completedDate: "YYYY-MM-DD", completedBy: "CLN" | "QCL" | "" } }
-    let progressMap = {};
+    // =========================================================================
+    // LIVE FIREBASE REALTIME DATABASE SYNC ENGINE
+    // Path structure: /rooms/{roomId}/zones/{rank}.json
+    // Record format: { dateCompleted: "YYYY-MM-DD", owner: "CLN" | "QCL" | "", updatedAt: number }
+    // =========================================================================
+    let progressMap = {}; // keyed by rank string: { "1": { dateCompleted, owner, updatedAt } }
     let currentRoomId = "";
-    let db = null;
-    let auth = null;
-    let currentUser = null;
-    let unsubscribeSnapshot = null;
-    let useCloudSync = false;
-
-    const appId = typeof __app_id !== "undefined" ? __app_id : "rank-and-rent-top200";
+    let pollTimerId = null;
+    let sseSource = null;
+    let isCloudConnected = false;
+    let lastSyncedLabel = "";
+    const pendingWrites = new Set(); // tracks ranks currently being PATCHed to avoid stale poll overwrite
 
     function normalizeOwner(val) {
       if (!val) return "";
@@ -1051,7 +1065,7 @@
       if (urlRoom && urlRoom.trim()) {
         return urlRoom.trim().replace(/[^a-zA-Z0-9_-]/g, "-");
       }
-      return "cln-qcl-team";
+      return DEFAULT_ROOM_ID;
     }
 
     function updateRoomUrlParam(room) {
@@ -1060,115 +1074,252 @@
         url.searchParams.set("room", room);
         window.history.replaceState({}, "", url.toString());
       } catch (e) {
-        // Ignore in restricted sandboxed iframe history
+        // Ignore if running in a restricted sandbox iframe
       }
     }
 
-    function setSyncStatus(text, colorHex) {
+    function setSyncStatus(text, colorHex, pulsing = false) {
       const statusEl = document.getElementById("syncStatusText");
       const dotEl = document.getElementById("syncDot");
       if (statusEl) statusEl.textContent = text;
-      if (dotEl) dotEl.style.backgroundColor = colorHex;
+      if (dotEl) {
+        dotEl.style.backgroundColor = colorHex;
+        dotEl.classList.toggle("sync-pulse", pulsing);
+      }
     }
 
-    function getLocalFallbackKey(room) {
-      return `rnr_top200_progress_${room}`;
+    function getLocalCacheKey(room) {
+      return `rnr_top200_rtdb_cache_${room}`;
     }
 
-    function loadLocalFallback(room) {
+    function loadLocalCache(room) {
       try {
-        const raw = window.localStorage.getItem(getLocalFallbackKey(room));
+        const raw = window.localStorage.getItem(getLocalCacheKey(room));
         if (!raw) return {};
         const parsed = JSON.parse(raw);
-        Object.keys(parsed).forEach(k => {
-          if (parsed[k]) parsed[k].completedBy = normalizeOwner(parsed[k].completedBy);
+        const normalized = {};
+        Object.keys(parsed || {}).forEach(k => {
+          const item = parsed[k];
+          if (item && typeof item === "object") {
+            normalized[k] = {
+              dateCompleted: item.dateCompleted || item.completedDate || "",
+              owner: normalizeOwner(item.owner || item.completedBy),
+              updatedAt: item.updatedAt || 0
+            };
+          }
         });
-        return parsed;
+        return normalized;
       } catch (e) {
         return {};
       }
     }
 
-    function saveLocalFallback(room, data) {
+    function saveLocalCache(room, data) {
       try {
-        window.localStorage.setItem(getLocalFallbackKey(room), JSON.stringify(data));
+        window.localStorage.setItem(getLocalCacheKey(room), JSON.stringify(data));
       } catch (e) {
-        // Ignore if storage blocked
+        // Ignore storage quota / sandbox restriction
       }
     }
 
-    async function initCloudSync() {
-      currentRoomId = resolveInitialRoomId();
-      document.getElementById("roomIdInput").value = currentRoomId;
-      updateRoomUrlParam(currentRoomId);
+    function formatTimeNow() {
+      return new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    }
+
+    function parseRemoteZonesPayload(rawZonesObj) {
+      const cleanMap = {};
+      if (!rawZonesObj || typeof rawZonesObj !== "object") return cleanMap;
+
+      // Firebase RTDB may return an Array if numeric keys 1..N are dense, or an Object
+      const entries = Array.isArray(rawZonesObj)
+        ? rawZonesObj.map((v, idx) => [String(idx), v])
+        : Object.entries(rawZonesObj);
+
+      entries.forEach(([rankKey, val]) => {
+        if (!val || typeof val !== "object" || rankKey === "0") return;
+        const dateCompleted = val.dateCompleted || val.completedDate || "";
+        const owner = normalizeOwner(val.owner || val.completedBy);
+        const updatedAt = Number(val.updatedAt) || 0;
+        if (dateCompleted || owner) {
+          cleanMap[String(rankKey)] = { dateCompleted, owner, updatedAt };
+        }
+      });
+      return cleanMap;
+    }
+
+    function mergeRemoteIntoLocal(remoteZonesMap) {
+      let changed = false;
+      const nextMap = { ...progressMap };
+
+      // Apply additions & updates from Firebase (skipping ranks mid-PATCH)
+      Object.entries(remoteZonesMap).forEach(([rankKey, remoteRec]) => {
+        if (pendingWrites.has(rankKey)) return;
+        const localRec = nextMap[rankKey];
+        if (
+          !localRec ||
+          localRec.dateCompleted !== remoteRec.dateCompleted ||
+          localRec.owner !== remoteRec.owner
+        ) {
+          nextMap[rankKey] = remoteRec;
+          changed = true;
+        }
+      });
+
+      // Remove cleared records that no longer exist remotely
+      Object.keys(nextMap).forEach(rankKey => {
+        if (pendingWrites.has(rankKey)) return;
+        if (!remoteZonesMap[rankKey]) {
+          delete nextMap[rankKey];
+          changed = true;
+        }
+      });
+
+      if (changed) {
+        progressMap = nextMap;
+        saveLocalCache(currentRoomId, progressMap);
+        refreshAllViewsPreserveFocus();
+      }
+    }
+
+    async function fetchRoomFromFirebase(showManualToast = false) {
+      const room = currentRoomId;
+      const url = `${FIREBASE_RTDB_URL}/rooms/${encodeURIComponent(room)}/zones.json`;
 
       try {
-        if (typeof __firebase_config === "undefined" || !__firebase_config) {
-          throw new Error("Offline standalone mode");
-        }
-        const firebaseConfig = JSON.parse(__firebase_config);
-        const app = initializeApp(firebaseConfig);
-        auth = getAuth(app);
-        db = getFirestore(app);
+        const res = await fetch(url, {
+          method: "GET",
+          headers: { "Accept": "application/json" },
+          cache: "no-store"
+        });
 
-        if (typeof __initial_auth_token !== "undefined" && __initial_auth_token) {
-          await signInWithCustomToken(auth, __initial_auth_token);
-        } else {
-          await signInAnonymously(auth);
+        if (!res.ok) {
+          throw new Error(`HTTP ${res.status}`);
         }
-        currentUser = auth.currentUser;
-        if (!currentUser) throw new Error("Auth unavailable");
 
-        useCloudSync = true;
-        subscribeToRoom(currentRoomId);
+        const data = await res.json();
+        if (room !== currentRoomId) return; // Room switched mid-flight
+
+        isCloudConnected = true;
+        lastSyncedLabel = formatTimeNow();
+        const remoteMap = parseRemoteZonesPayload(data);
+        mergeRemoteIntoLocal(remoteMap);
+
+        setSyncStatus(
+          `Live Cloud Sync Active (Room: ${room}) • Synced with Firebase Realtime Database (${lastSyncedLabel})`,
+          "#10b981",
+          true
+        );
+
+        if (showManualToast) {
+          showToast(`Synced live with Room "${room}" at ${lastSyncedLabel}`);
+        }
       } catch (err) {
-        useCloudSync = false;
-        progressMap = loadLocalFallback(currentRoomId);
-        setSyncStatus(`Local Offline Mode (Room: ${currentRoomId}) • Host online for multi-device CLN & QCL sync`, "#f59e0b");
-        refreshAllViews();
+        console.warn("Firebase RTDB fetch warning:", err);
+        isCloudConnected = false;
+        setSyncStatus(
+          `Offline Cache Mode (Room: ${room}) • Will auto-reconnect to Firebase`,
+          "#f59e0b",
+          false
+        );
       }
     }
 
-    function subscribeToRoom(room) {
-      if (unsubscribeSnapshot) {
-        unsubscribeSnapshot();
-        unsubscribeSnapshot = null;
+    function startFirebaseRealtimeStream(room) {
+      if (sseSource) {
+        try { sseSource.close(); } catch (e) {}
+        sseSource = null;
       }
 
-      if (!useCloudSync || !db || !currentUser) {
-        progressMap = loadLocalFallback(room);
-        setSyncStatus(`Local Offline Mode (Room: ${room})`, "#f59e0b");
-        refreshAllViews();
-        return;
+      if (typeof window.EventSource === "undefined") return;
+
+      try {
+        const streamUrl = `${FIREBASE_RTDB_URL}/rooms/${encodeURIComponent(room)}/zones.json`;
+        const es = new EventSource(streamUrl);
+        sseSource = es;
+
+        const handleSseEvent = (evt) => {
+          if (room !== currentRoomId) return;
+          try {
+            const payload = JSON.parse(evt.data);
+            if (!payload || typeof payload !== "object") return;
+            const path = payload.path || "/";
+            const data = payload.data;
+
+            if (path === "/") {
+              const remoteMap = parseRemoteZonesPayload(data);
+              mergeRemoteIntoLocal(remoteMap);
+            } else {
+              // Path like "/14" or "/14/owner"
+              const parts = path.split("/").filter(Boolean);
+              const rankKey = parts[0];
+              if (rankKey && !pendingWrites.has(rankKey)) {
+                if (parts.length === 1) {
+                  if (!data) {
+                    delete progressMap[rankKey];
+                  } else {
+                    progressMap[rankKey] = {
+                      dateCompleted: data.dateCompleted || data.completedDate || "",
+                      owner: normalizeOwner(data.owner || data.completedBy),
+                      updatedAt: Number(data.updatedAt) || Date.now()
+                    };
+                  }
+                } else if (parts.length === 2 && progressMap[rankKey]) {
+                  if (parts[1] === "dateCompleted") progressMap[rankKey].dateCompleted = data || "";
+                  if (parts[1] === "owner") progressMap[rankKey].owner = normalizeOwner(data);
+                }
+                saveLocalCache(currentRoomId, progressMap);
+                refreshAllViewsPreserveFocus();
+              }
+            }
+
+            isCloudConnected = true;
+            lastSyncedLabel = formatTimeNow();
+            setSyncStatus(
+              `Live Cloud Sync Active (Room: ${room}) • Synced with Firebase Realtime Database (${lastSyncedLabel})`,
+              "#10b981",
+              true
+            );
+          } catch (parseErr) {
+            // Polling backup handles any malformed SSE chunk
+          }
+        };
+
+        es.addEventListener("put", handleSseEvent);
+        es.addEventListener("patch", handleSseEvent);
+        es.onerror = () => {
+          // Close SSE silently; 2.5s REST polling continues seamlessly
+          try { es.close(); } catch (e) {}
+          if (sseSource === es) sseSource = null;
+        };
+      } catch (e) {
+        // Fallback purely to 2.5s REST polling
       }
-
-      setSyncStatus(`Syncing live with Team Room "${room}"...`, "#38bdf8");
-      const colRef = collection(db, "artifacts", appId, "public", "data", `room_${room}`);
-
-      unsubscribeSnapshot = onSnapshot(
-        colRef,
-        (snapshot) => {
-          const nextMap = {};
-          snapshot.forEach((docSnap) => {
-            const d = docSnap.data();
-            nextMap[docSnap.id] = {
-              completedDate: d.completedDate || "",
-              completedBy: normalizeOwner(d.completedBy)
-            };
-          });
-          progressMap = nextMap;
-          setSyncStatus(`Cloud Synced • Room: "${room}" (CLN & QCL real-time updates)`, "#10b981");
-          refreshAllViews();
-        },
-        (error) => {
-          console.error("Firestore sync error:", error);
-          useCloudSync = false;
-          progressMap = loadLocalFallback(room);
-          setSyncStatus(`Local Offline Mode (Room: ${room})`, "#f59e0b");
-          refreshAllViews();
-        }
-      );
     }
+
+    function connectToRoom(room) {
+      currentRoomId = room;
+      document.getElementById("roomIdInput").value = room;
+      updateRoomUrlParam(room);
+
+      // Load cached state immediately for zero-latency render
+      progressMap = loadLocalCache(room);
+      refreshAllViews();
+
+      setSyncStatus(`Connecting to Firebase Room "${room}"...`, "#38bdf8", true);
+
+      if (pollTimerId) {
+        clearInterval(pollTimerId);
+        pollTimerId = null;
+      }
+
+      fetchRoomFromFirebase(false);
+      startFirebaseRealtimeStream(room);
+      pollTimerId = setInterval(() => fetchRoomFromFirebase(false), POLL_INTERVAL_MS);
+    }
+
+    window.forceManualSync = function () {
+      fetchRoomFromFirebase(true);
+    };
 
     window.switchTeamRoom = function () {
       const inputVal = document.getElementById("roomIdInput").value.trim().replace(/[^a-zA-Z0-9_-]/g, "-");
@@ -1176,11 +1327,8 @@
         showToast("Enter a valid Room ID (letters, numbers, hyphens)");
         return;
       }
-      currentRoomId = inputVal;
-      document.getElementById("roomIdInput").value = currentRoomId;
-      updateRoomUrlParam(currentRoomId);
-      subscribeToRoom(currentRoomId);
-      showToast(`Switched to Team Room: ${currentRoomId}`);
+      connectToRoom(inputVal);
+      showToast(`Joined Team Room: ${inputVal}`);
     };
 
     window.copyTeamShareLink = function () {
@@ -1189,40 +1337,70 @@
       const shareUrl = url.toString();
 
       copyStringWithFallback(shareUrl);
-      showToast(`Copied Team Room link (${currentRoomId}) to clipboard!`);
+      showToast(`Copied live Team Room link (${currentRoomId}) to clipboard!`);
     };
 
-    async function persistZoneProgress(zoneId, updatedFields) {
-      const existing = progressMap[zoneId] || { completedDate: "", completedBy: "" };
+    // Concurrent-Safe Per-Zone PATCH to /rooms/{roomId}/zones/{rank}.json
+    async function persistZoneProgress(rank, updatedFields) {
+      const rankKey = String(rank);
+      const existing = progressMap[rankKey] || { dateCompleted: "", owner: "", updatedAt: 0 };
       const merged = {
-        completedDate: updatedFields.completedDate !== undefined ? updatedFields.completedDate : (existing.completedDate || ""),
-        completedBy: updatedFields.completedBy !== undefined ? normalizeOwner(updatedFields.completedBy) : normalizeOwner(existing.completedBy),
-        updatedAt: new Date().toISOString()
+        dateCompleted: updatedFields.dateCompleted !== undefined ? updatedFields.dateCompleted : (existing.dateCompleted || ""),
+        owner: updatedFields.owner !== undefined ? normalizeOwner(updatedFields.owner) : normalizeOwner(existing.owner),
+        updatedAt: Date.now()
       };
 
-      progressMap[zoneId] = merged;
-      saveLocalFallback(currentRoomId, progressMap);
-      refreshAllViews();
+      // 1. Optimistic local update
+      if (!merged.dateCompleted && !merged.owner) {
+        delete progressMap[rankKey];
+      } else {
+        progressMap[rankKey] = merged;
+      }
+      saveLocalCache(currentRoomId, progressMap);
+      refreshAllViewsPreserveFocus();
 
-      if (useCloudSync && db && currentUser) {
-        try {
-          const docRef = doc(db, "artifacts", appId, "public", "data", `room_${currentRoomId}`, zoneId);
-          await setDoc(docRef, merged, { merge: true });
-        } catch (err) {
-          console.error("Error saving zone progress:", err);
-          showToast("Saved locally (cloud sync retry pending)");
-        }
+      // 2. Patch specific zone path in Firebase RTDB so CLN & QCL edits never collide
+      pendingWrites.add(rankKey);
+      const zoneEndpoint = `${FIREBASE_RTDB_URL}/rooms/${encodeURIComponent(currentRoomId)}/zones/${encodeURIComponent(rankKey)}.json`;
+
+      try {
+        const res = await fetch(zoneEndpoint, {
+          method: !merged.dateCompleted && !merged.owner ? "DELETE" : "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: !merged.dateCompleted && !merged.owner ? null : JSON.stringify(merged)
+        });
+
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+        isCloudConnected = true;
+        lastSyncedLabel = formatTimeNow();
+        setSyncStatus(
+          `Live Cloud Sync Active (Room: ${currentRoomId}) • Synced with Firebase Realtime Database (${lastSyncedLabel})`,
+          "#10b981",
+          true
+        );
+      } catch (err) {
+        console.error("Firebase PATCH error:", err);
+        isCloudConnected = false;
+        setSyncStatus(
+          `Offline Cache Mode (Room: ${currentRoomId}) • Saved locally, retrying sync...`,
+          "#f59e0b",
+          false
+        );
+        showToast("Saved locally (retrying Firebase connection...)");
+      } finally {
+        setTimeout(() => pendingWrites.delete(rankKey), 600);
       }
     }
 
-    window.handleDateChange = function (zoneId, newDate) {
-      persistZoneProgress(zoneId, { completedDate: newDate });
-      showToast(newDate ? `Marked completed on ${newDate}` : "Cleared completion date");
+    window.handleDateChange = function (rank, newDate) {
+      persistZoneProgress(rank, { dateCompleted: newDate });
+      showToast(newDate ? `Rank #${rank} marked completed on ${newDate}` : `Cleared date on Rank #${rank}`);
     };
 
-    window.handleOwnerChange = function (zoneId, newOwner) {
-      persistZoneProgress(zoneId, { completedBy: newOwner });
-      showToast(newOwner ? `Assigned owner: ${newOwner}` : "Cleared owner assignment");
+    window.handleOwnerChange = function (rank, newOwner) {
+      persistZoneProgress(rank, { owner: newOwner });
+      showToast(newOwner ? `Rank #${rank} assigned to ${newOwner}` : `Cleared owner on Rank #${rank}`);
     };
 
     const fmtNum = (n) => Number(n).toLocaleString("en-US");
@@ -1250,10 +1428,10 @@
     }
 
     function getZoneState(zone) {
-      const entry = progressMap[zone.id] || {};
+      const entry = progressMap[String(zone.rank)] || {};
       return {
-        completedDate: entry.completedDate || "",
-        completedBy: normalizeOwner(entry.completedBy)
+        dateCompleted: entry.dateCompleted || "",
+        owner: normalizeOwner(entry.owner)
       };
     }
 
@@ -1268,21 +1446,21 @@
 
       const filtered = top200Zones.filter(z => {
         const st = getZoneState(z);
-        const isCompleted = Boolean(st.completedDate);
+        const isCompleted = Boolean(st.dateCompleted);
 
-        const matchQ = !q || [z.city, z.state, z.niche, z.emd, z.altDomain, z.nearbyCities, z.phase, st.completedBy].some(v =>
+        const matchQ = !q || [z.city, z.state, z.niche, z.emd, z.altDomain, z.nearbyCities, z.phase, st.owner].some(v =>
           String(v).toLowerCase().includes(q)
         );
 
         let matchOwner = true;
         if (ownerVal === "CLN") {
-          matchOwner = st.completedBy === "CLN";
+          matchOwner = st.owner === "CLN";
         } else if (ownerVal === "QCL") {
-          matchOwner = st.completedBy === "QCL";
+          matchOwner = st.owner === "QCL";
         } else if (ownerVal === "Unassigned") {
-          matchOwner = !st.completedBy;
+          matchOwner = !st.owner;
         } else if (ownerVal === "AnyAssigned") {
-          matchOwner = st.completedBy === "CLN" || st.completedBy === "QCL";
+          matchOwner = st.owner === "CLN" || st.owner === "QCL";
         }
 
         const matchStatus = !statusVal || (statusVal === "Completed" ? isCompleted : !isCompleted);
@@ -1311,10 +1489,10 @@
     };
 
     function updateKPIs(rows) {
-      const completedRows = rows.filter(r => Boolean(getZoneState(r).completedDate));
-      const clnCount = rows.filter(r => getZoneState(r).completedBy === "CLN").length;
-      const qclCount = rows.filter(r => getZoneState(r).completedBy === "QCL").length;
-      const unassignedCount = rows.filter(r => !getZoneState(r).completedBy).length;
+      const completedRows = rows.filter(r => Boolean(getZoneState(r).dateCompleted));
+      const clnCount = rows.filter(r => getZoneState(r).owner === "CLN").length;
+      const qclCount = rows.filter(r => getZoneState(r).owner === "QCL").length;
+      const unassignedCount = rows.filter(r => !getZoneState(r).owner).length;
 
       const completedRent = completedRows.reduce((s, r) => s + r.estMonthlyRent, 0);
       const totalPortfolioRent = rows.reduce((s, r) => s + r.estMonthlyRent, 0);
@@ -1360,7 +1538,7 @@
 
       rows.forEach(z => {
         const st = getZoneState(z);
-        const isCompleted = Boolean(st.completedDate);
+        const isCompleted = Boolean(st.dateCompleted);
 
         const phaseBadge = z.phase === "Phase 1"
           ? `<span class="badge-p1">Phase 1</span>`
@@ -1369,9 +1547,9 @@
           ? `<span class="badge-easy">Easy</span>`
           : `<span class="badge-mod">Moderate</span>`;
 
-        const ownerClass = st.completedBy === "CLN"
+        const ownerClass = st.owner === "CLN"
           ? "owner-select owner-cln"
-          : st.completedBy === "QCL"
+          : st.owner === "QCL"
           ? "owner-select owner-qcl"
           : "owner-select";
 
@@ -1382,21 +1560,21 @@
           <td class="nowrap">
             <input
               type="date"
-              value="${st.completedDate}"
-              onchange="handleDateChange('${z.id}', this.value)"
+              value="${st.dateCompleted}"
+              onchange="handleDateChange(${z.rank}, this.value)"
               class="date-cell-input ${isCompleted ? "has-date" : ""}"
               aria-label="Date Website Completed for ${z.emd}"
             />
           </td>
           <td class="nowrap">
             <select
-              onchange="handleOwnerChange('${z.id}', this.value)"
+              onchange="handleOwnerChange(${z.rank}, this.value)"
               class="${ownerClass}"
               aria-label="Completed by for ${z.emd}"
             >
-              <option value="" ${st.completedBy === "" ? "selected" : ""}>—</option>
-              <option value="CLN" ${st.completedBy === "CLN" ? "selected" : ""}>CLN</option>
-              <option value="QCL" ${st.completedBy === "QCL" ? "selected" : ""}>QCL</option>
+              <option value="" ${st.owner === "" ? "selected" : ""}>—</option>
+              <option value="CLN" ${st.owner === "CLN" ? "selected" : ""}>CLN</option>
+              <option value="QCL" ${st.owner === "QCL" ? "selected" : ""}>QCL</option>
             </select>
           </td>
           <td class="nowrap" style="font-weight: 800; color: #0f172a;">#${z.rank}</td>
@@ -1427,9 +1605,9 @@
       return ["Phase 1", "Phase 2"].map(phase => {
         const sub = top200Zones.filter(z => z.phase === phase);
         const count = sub.length;
-        const completed = sub.filter(z => Boolean(getZoneState(z).completedDate)).length;
-        const cln = sub.filter(z => getZoneState(z).completedBy === "CLN").length;
-        const qcl = sub.filter(z => getZoneState(z).completedBy === "QCL").length;
+        const completed = sub.filter(z => Boolean(getZoneState(z).dateCompleted)).length;
+        const cln = sub.filter(z => getZoneState(z).owner === "CLN").length;
+        const qcl = sub.filter(z => getZoneState(z).owner === "QCL").length;
         const pct = ((count / top200Zones.length) * 100).toFixed(1) + "%";
         const avgScore = Number((sub.reduce((s, r) => s + r.roiScore, 0) / count).toFixed(1));
         const avgIncome = Math.round(sub.reduce((s, r) => s + r.income, 0) / count);
@@ -1481,9 +1659,9 @@
       return NICHES.map(n => {
         const sub = top200Zones.filter(z => z.niche === n.name);
         const count = sub.length;
-        const completed = sub.filter(z => Boolean(getZoneState(z).completedDate)).length;
-        const cln = sub.filter(z => getZoneState(z).completedBy === "CLN").length;
-        const qcl = sub.filter(z => getZoneState(z).completedBy === "QCL").length;
+        const completed = sub.filter(z => Boolean(getZoneState(z).dateCompleted)).length;
+        const cln = sub.filter(z => getZoneState(z).owner === "CLN").length;
+        const qcl = sub.filter(z => getZoneState(z).owner === "QCL").length;
         const p1 = sub.filter(z => z.phase === "Phase 1").length;
         const p2 = sub.filter(z => z.phase === "Phase 2").length;
         const avgTicket = Math.round(sub.reduce((s, r) => s + r.avgTicket, 0) / count);
@@ -1534,9 +1712,9 @@
       return states.map(st => {
         const sub = top200Zones.filter(z => z.state === st);
         const count = sub.length;
-        const completed = sub.filter(z => Boolean(getZoneState(z).completedDate)).length;
-        const cln = sub.filter(z => getZoneState(z).completedBy === "CLN").length;
-        const qcl = sub.filter(z => getZoneState(z).completedBy === "QCL").length;
+        const completed = sub.filter(z => Boolean(getZoneState(z).dateCompleted)).length;
+        const cln = sub.filter(z => getZoneState(z).owner === "CLN").length;
+        const qcl = sub.filter(z => getZoneState(z).owner === "QCL").length;
         const p1 = sub.filter(z => z.phase === "Phase 1").length;
         const p2 = sub.filter(z => z.phase === "Phase 2").length;
         const totalHubPop = sub.reduce((s, r) => s + r.hubPop, 0);
@@ -1585,6 +1763,19 @@
       renderStateClusters();
     }
 
+    function refreshAllViewsPreserveFocus() {
+      const scrollEl = document.querySelector("#view-master .table-scroll");
+      const prevTop = scrollEl ? scrollEl.scrollTop : 0;
+      const prevLeft = scrollEl ? scrollEl.scrollLeft : 0;
+
+      refreshAllViews();
+
+      if (scrollEl) {
+        scrollEl.scrollTop = prevTop;
+        scrollEl.scrollLeft = prevLeft;
+      }
+    }
+
     window.switchTab = function (tabName) {
       ["master", "phases", "niches", "states"].forEach(t => {
         document.getElementById(`view-${t}`).classList.toggle("hidden", t !== tabName);
@@ -1626,8 +1817,8 @@
       const sheet1 = top200Zones.map(z => {
         const st = getZoneState(z);
         return {
-          "Date Website Completed": st.completedDate,
-          "Completed by": st.completedBy,
+          "Date Website Completed": st.dateCompleted,
+          "Completed by": st.owner,
           "Rank": z.rank,
           "Phase": z.phase,
           "ROI Score": z.roiScore,
@@ -1781,7 +1972,6 @@
     }
 
     function attemptDualDownload(contentString, mimeType, filename) {
-      // Method 1: Standard Blob + ObjectURL download
       try {
         const blob = new Blob([contentString], { type: mimeType });
         const url = URL.createObjectURL(blob);
@@ -1799,7 +1989,6 @@
         console.warn("Blob download attempt failed:", e);
       }
 
-      // Method 2: Data URI fallback download
       try {
         const dataUri = `data:${mimeType},${encodeURIComponent(contentString)}`;
         const link = document.createElement("a");
@@ -1894,8 +2083,8 @@
 
     window.addEventListener("DOMContentLoaded", () => {
       initFilters();
-      refreshAllViews();
-      initCloudSync();
+      const initialRoom = resolveInitialRoomId();
+      connectToRoom(initialRoom);
     });
   </script>
 </body>
