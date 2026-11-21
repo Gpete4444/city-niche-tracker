@@ -1602,6 +1602,35 @@
       renderRollupTabs();
     }
     window.switchTab = switchTab;
+
+    function showToast(icon, message) {
+      const banner = document.getElementById("toastBanner");
+      const iconEl = document.getElementById("toastIcon");
+      const msgEl = document.getElementById("toastMessage");
+      if (!banner || !msgEl) return;
+      if (iconEl) iconEl.textContent = icon || "✅";
+      msgEl.textContent = message;
+      banner.classList.remove("hidden");
+      banner.classList.add("flex");
+      clearTimeout(window._toastTimer);
+      window._toastTimer = setTimeout(() => {
+        banner.classList.add("hidden");
+        banner.classList.remove("flex");
+      }, 3200);
+    }
+
+    function copyTextToClipboard(text, toastMsg) {
+      const temp = document.createElement("textarea");
+      temp.value = text;
+      temp.style.position = "fixed";
+      temp.style.left = "-9999px";
+      document.body.appendChild(temp);
+      temp.select();
+      try {
+        document.execCommand("copy");
+      } catch (e) {}
+      document.body.removeChild(temp);
+      if (toastMsg) showToast("📋", toastMsg);
     }
 
     // =========================================================================
