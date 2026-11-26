@@ -87,7 +87,11 @@ assertEqual(listMaterialOptions(matMd)[0].title, 'Two-part polyurethane foam', '
 const hero = { sectionId: 'hero', kind: 'hero', label: 'Hero', key: 'hero-1' };
 const heroBrief = defaultSlotDescription(hero, { niche: 'Concrete Lifting', city: 'Princeton' });
 assert(/Concrete Lifting/i.test(heroBrief), 'hero brief names niche');
-assert(/homepage hero/i.test(heroBrief), 'hero brief says homepage hero');
+assert(!/homepage hero|supporting photo|establishing photo/i.test(heroBrief), 'hero brief is a caption');
+const intro = { sectionId: 'intro', kind: 'intro', label: 'Intro', key: 'intro-1' };
+const introBrief = defaultSlotDescription(intro, { niche: 'Concrete Lifting', city: 'Princeton' });
+assert(/closer look/i.test(introBrief), 'intro brief is a caption');
+assert(!/supporting photo/i.test(introBrief), 'intro brief drops supporting photo');
 
 const materialSlot = {
   sectionId: 'materials',

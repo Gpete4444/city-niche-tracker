@@ -36,6 +36,11 @@ assertEqual(titleCaseNiche('USA'), 'USA', 'all-caps word stays');
 assertEqual(titleCaseNiche('deck and patio'), 'Deck and Patio', 'small word stays lower');
 assertEqual(titleCaseNiche('Artificial Turf'), 'Artificial Turf', 'idempotent');
 assertEqual(
+  titleCaseNiche('Smart Home Automation Installation.'),
+  'Smart Home Automation Installation',
+  'trailing period',
+);
+assertEqual(
   titleCaseNiche('Texture matching (knockdown, orange peel, popcorn)'),
   'Texture Matching (Knockdown, Orange Peel, Popcorn)',
   'parenthesis words',

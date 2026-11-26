@@ -1,0 +1,9 @@
+# One recognizable object per line. Lines starting with # are ignored.
+# Replace this list for the next niche. Do not run this example against Gilbert.
+large flat-screen TV on a media wall
+smart speaker on a bookshelf
+keypad deadbolt on a hinged front door
+bullet security camera under an eave
+wall touchscreen control panel
+robot vacuum on a living-room floor
+white mesh Wi-Fi node on a shelf

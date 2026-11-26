@@ -1,219 +1,187 @@
 ---
-title: "Drywall Repair Broken Arrow, OK | Free Estimates"
-description: "Drywall repair, patching, and texture matching in Broken Arrow, OK. Popcorn ceiling removal, sheetrock repair, and honest pricing. Call for a free estimate."
-h1: "Drywall Repair in Broken Arrow, OK"
-sectionHeading: "Repair dry wall the right way in Broken Arrow"
+title: "Basement Finishing in Elizabeth, NJ"
+description: "Basement finishing in Elizabeth, NJ. Unfinished basements become family rooms, offices, bathrooms, and bedrooms. Free estimates."
+h1: "Basement Finishing in Elizabeth, NJ"
+sectionHeading: "Basement finishing for Elizabeth homes"
 whyChooseUs:
-  - title: "Texture matching that actually blends"
-    description: "Broken Arrow Drywall Repair Pros matches knockdown, orange peel, and popcorn texture so patches disappear, not just get painted over."
-  - title: "Clean, contained popcorn removal"
-    description: "Plastic sheeting and dust control keep scraping and skim-coating from wrecking the rest of the room."
-  - title: "Written estimates, no surprise add-ons"
-    description: "You get a price before work starts, not a guess that grows once the drywall's cut open."
-  - title: "Specialists, not a side job"
-    description: "This crew does drywall repair day in and day out, not as one line item on a long handyman list."
+  - title: "The room starts unfinished"
+    description: "Elizabeth Basement Finishing Pros starts in the unfinished basement, concrete and block, and finishes it into living space."
+  - title: "The same window stays"
+    description: "Drywall, a flat ceiling, and a floor go in. The window stays where it is. There is no post in the room."
+  - title: "A written scope before the work"
+    description: "Homeowners get the room list and the price before framing starts."
+  - title: "Built for older Elizabeth homes"
+    description: "Crews finish basements that were built as storage, not as living space."
 process:
-  - title: "Site visit and damage inspection"
-    description: "We look at the crack, hole, or stain and check what's behind it."
+  - title: "Initial Site Assessment"
+    description: "A finisher checks the concrete floor and the block walls of the unfinished basement."
     image:
-      src: "/images/process-1-openai-mti5wm50.jpg"
-      alt: "Site visit and estimate photo"
-  - title: "Cut out the damaged section"
-    description: "Clean edges cut back to solid drywall or the nearest stud."
+      src: "/images/process-1-openai-mwviyrd0.jpg"
+      alt: "Initial Site Assessment photo"
+  - title: "Custom Plan Proposal"
+    description: "The finisher and the homeowner stand in the unfinished basement and decide what the room will be."
     image:
-      src: "/images/process-2-openai-mtjli5n8.jpg"
-      alt: "Protecting the workspace photo"
-  - title: "Tape the seams"
-    description: "Mesh or paper tape bridges the patch into the surrounding wall."
+      src: "/images/process-2-openai-mwviy9tc.jpg"
+      alt: "Custom Plan Proposal photo"
+  - title: "Site Preparation"
+    description: "Stored boxes are covered. The unfinished basement stays intact."
     image:
-      src: "/images/process-3-openai-mtjlifzh.jpg"
-      alt: "Removing damaged drywall photo"
-  - title: "Mud and build up coats"
-    description: "Joint compound applied in layers, feathered wide for a flat blend."
+      src: "/images/process-3-openai-mwviy8v8.jpg"
+      alt: "Site Preparation photo"
+  - title: "Core Installation Work"
+    description: "A finisher hangs drywall on one wall. The other walls are still block, and the floor is still concrete."
     image:
-      src: "/images/process-4-openai-mti5zry7.jpg"
-      alt: "Tape and mud the patch photo"
-  - title: "Match the texture"
-    description: "Knockdown, orange peel, or popcorn sprayed to match what's already there."
+      src: "/images/process-4-openai-mwviyupt.jpg"
+      alt: "Core Installation Work photo"
+  - title: "Quality Inspection"
+    description: "A finisher checks the new drywall seam and the baseboard in the finished room."
     image:
-      src: "/images/see-process-drywall-patching-5-sand-between-coats.jpg"
-      alt: "Sand smooth between coats photo"
-  - title: "Sand smooth"
-    description: "Light sanding levels ridges without scuffing the surrounding texture."
+      src: "/images/process-5-openai-mwviytt4.jpg"
+      alt: "Quality Inspection photo"
+  - title: "Final Walkthrough"
+    description: "The finisher and the homeowner walk the finished basement. The window is the same. There is no post in the room."
     image:
-      src: "/images/process-6-openai-mtjlhtqs.jpg"
-      alt: "Texture matching photo"
-  - title: "Prime the patch"
-    description: "Stain-blocking primer seals the repair so paint goes on even."
-    image:
-      src: "/images/process-7-prime-and-paint-ready-finish.jpg"
-      alt: "Drywall Repair Prime and paint-ready finish photo"
-  - title: "Final walkthrough"
-    description: "We check the blend in daylight before calling the job done."
-    image:
-      src: "/images/process-8-openai-mti61owq.jpg"
-      alt: "Final walkthrough photo"
+      src: "/images/process-6-openai-mwviyssb.jpg"
+      alt: "Final Walkthrough photo"
 faqs:
-  - question: "How much does it cost to have someone fix drywall?"
-    answer: "Small nail holes and dings usually run in the low hundreds. Bigger holes, panel swaps, or ceiling work cost more depending on size and texture matching. A free estimate gets you a real number."
-  - question: "Can a handyman handle drywall repairs?"
-    answer: "A handyman can patch a small hole fine. Texture matching, popcorn ceiling removal, and larger panel repairs usually turn out better with a drywall specialist who does this work every day."
-  - question: "How can I fix damaged drywall myself before calling a pro?"
-    answer: "For a nail hole or small ding, a dab of spackle and light sanding works. Anything bigger than a few inches, or on a textured wall, is where DIY patches start to show."
-  - question: "How big of a hole can I repair in drywall?"
-    answer: "Holes up to about the size of a fist can usually be patched without replacing a full panel. Bigger than that, and cutting in a new section of sheetrock is the cleaner fix."
-  - question: "How much does Drywall Repair cost in Broken Arrow?"
-    answer: "Ranges run roughly $150 to $350 for small patches, $300 to $700 for larger holes or panel sections, and more for full wall or ceiling replacement. Call for a firm quote based on your damage."
-  - question: "How long does Drywall Repair take?"
-    answer: "Small patches can be done and paint-ready the same day or next. Larger jobs need dry time between coats, so plan on a day or two for anything beyond a simple patch."
-  - question: "Do I need a permit for Drywall Repair?"
-    answer: "Standard patching, texture matching, and popcorn ceiling removal are typically permit-free in Broken Arrow. Structural framing or electrical changes behind the wall are the exception."
-  - question: "Is DIY Drywall Repair a good idea?"
-    answer: "For a small nail hole, sure, go for it. For textured walls, recurring cracks, or water-stained ceilings, a pro saves you from a patch that stands out like a sore thumb."
-heroImage:
-  src: "/images/see-svcMaterials-drywall-installation-1-openai-mtjlamc9.jpg"
-  alt: "Hero photo"
-featureImage:
-  src: "/images/intro-1-openai-mtjj0kt4.jpg"
-  alt: "Intro photo"
-materialsImages:
-  - src: "/images/pg6-svcMaterials-drywall-installation-3-openai-mtjlg8vj-19.jpg"
-    alt: "Paperless mold-resistant board photo"
-  - src: "/images/materials-2-openai-mtjl8xsw.jpg"
-    alt: "Mesh joint tape photo"
-  - src: "/images/materials-3-openai-mti47sev.jpg"
-    alt: "Moisture-resistant primer-sealer photo"
-  - src: "/images/pg3-svcMaterials-2-close-up-of-a-hand-painting-a-wall-with-5583116-20.jpg"
-    alt: "Hopper-gun orange peel texture photo"
-  - src: "/images/pg5-svcMaterials-nail-pop-repair-3-openai-mtl62boa-5.jpg"
-    alt: "Knockdown texture technique photo"
-  - src: "/images/pg6-svcMaterials-office-and-retail-buildout-drywall--openai-mtjlbij3-5.jpg"
-    alt: "Metal corner bead photo"
-gallery:
-  - src: "/images/gallery-ba-1-before.jpg"
-    alt: "Before — Drywall Repair"
-  - src: "/images/gallery-ba-1-after.jpg"
-    alt: "After — Drywall Repair"
+  - question: "How much does it cost to finish a basement in Elizabeth?"
+    answer: "A single room, such as a family room or office, usually runs $8,000 to $18,000. Finishing the whole basement runs about $20,000 to $45,000. A legal bedroom with an egress window costs more."
+  - question: "Can I legally finish my own basement in Elizabeth?"
+    answer: "Yes. Homeowners can pull their own permits and do the labor. Framing, electrical, and an egress window still have to pass inspection."
+  - question: "What does the finished basement look like?"
+    answer: "Drywall, a flat ceiling, vinyl plank or carpet, and ordinary furniture. The same window stays. There is no post in the room."
+  - question: "What's the most expensive part of finishing a basement?"
+    answer: "Electrical and an egress window, when a legal bedroom is required, usually cost more than the drywall or the floor."
+  - question: "How long does basement finishing take?"
+    answer: "A single room is often one to two weeks. A full basement is usually two to four weeks after the layout is agreed."
+  - question: "Do I need a permit?"
+    answer: "Framing, new electrical, and an egress window need a permit in Union County. Paint, trim, and furniture do not."
 coverageMap:
   src: "/images/coverage-map.svg"
-  alt: "Coverage map for Cedar Rapids area"
+  alt: "Coverage map for Elizabeth area"
+heroImage:
+  src: "/images/hero-1-openai-mwviy7ku.jpg"
+  alt: "Finished basement family room in Elizabeth, with drywall, a new floor, and a sofa."
+featureImage:
+  src: "/images/intro-1-openai-mwviy7bk.jpg"
+  alt: "A corner of the finished basement, with a window, a lamp, and the new floor."
+gallery:
+  - src: "/images/gallery-ba-1-before.jpg"
+    alt: "Before — Basement Finishing in Elizabeth (GPT Image 2 (OpenAI))"
+  - src: "/images/gallery-ba-1-after.jpg"
+    alt: "After — Basement Finishing in Elizabeth (GPT Image 2 (OpenAI))"
+materialsImages:
+  - src: "/images/materials-1-openai-mwviyu56.jpg"
+    alt: "Vinyl plank photo"
+  - src: "/images/materials-2-openai-mwvize8x.jpg"
+    alt: "Drywall photo"
+  - src: "/images/materials-3-openai-mwvizcam.jpg"
+    alt: "Baseboard photo"
+  - src: "/images/materials-4-openai-mwvizbly.jpg"
+    alt: "Ceiling photo"
+  - src: "/images/materials-5-openai-mwvizhy2.jpg"
+    alt: "Interior door photo"
+  - src: "/images/materials-6-openai-mwvizjd0.jpg"
+    alt: "Insulation photo"
 ---
-Cracked drywall over a doorway. Nail pops popping up again after you just painted. Sound familiar? You're not alone, and it's not always something you did wrong.
+Elizabeth Basement Finishing Pros finishes unfinished basements. The work starts on a concrete floor and block walls and ends as a family room, an office, a bathroom, or a bedroom. Drywall, a flat ceiling, and a floor go in. The window stays.
 
-Broken Arrow sits on clay soil that shifts with the seasons, and that shows up as diagonal cracks over doors and windows as homes settle. Add in Oklahoma's swing between humid summers and dry winters, and seams stress, fasteners loosen, nail pops appear. Broken Arrow Drywall Repair Pros handles patching, texture matching, and sheetrock replacement built around exactly this kind of movement, not a one-size patch job.
+[Contact](/contact) us for a written estimate, or read on for the rooms we finish. [About](/about) has more on how the crew works.
 
-Whether it's a hole from moving furniture, a water stain on the ceiling after a spring storm, or a popcorn ceiling ready for an update, we match compound, texture, and paint prep to what's actually causing the damage. [Contact](/contact) us or keep reading for cost ranges, materials, and what to expect.
+## Basement finishing in Elizabeth, NJ
 
-## Drywall Repair services in Broken Arrow
+Licensed and insured in NJ. A 4.9 average rating from local customers. Fifteen-plus years of local experience and 500-plus completed projects.
 
-**[Drywall Repair](/services/drywall-repair)** covers general cracks, holes, and seam damage, patched and texture-matched so the repair blends into the wall, not stands out from it.
+## Basement finishing services in Elizabeth
 
-**[Sheetrock Repair](/services/sheetrock-repair)** handles panel-level damage where a patch alone won't cut it, cutting out the bad section and fitting new board cleanly.
+[Family Room Finishing](/services/interior-french-drain-installation): an unfinished basement measured, framed, drywalled, and floored into a simple living room.
 
-**Water Damage Repair** addresses ceilings and walls stained or softened by a leak, replacing what's compromised and sealing with stain-blocking primer so it doesn't bleed through new paint.
+[Basement Office Finishing](/services/sump-pump-installation-and-replacement): one unfinished corner closed in with a ceiling, a light, a switch, and a closet.
 
-**[Popcorn Ceiling Removal](/services/popcorn-ceiling-removal)** updates older Broken Arrow homes still carrying that dated texture, with containment to keep the mess in one room.
+[Basement Finishing](/services/basement-finishing-and-remodeling): the whole unfinished basement framed, drywalled, and floored into living space.
 
-**[Texture Matching](/services/texture-matching)** is the step that makes any patch invisible, whether the wall's knockdown, orange peel, or popcorn.
+[Basement Bathroom Finishing](/services/waterproof-membrane-application): a small bath built into an unfinished corner, with a vanity, a mirror, tile, and a vinyl floor.
 
-**Wall Crack Repair** targets cosmetic cracks tied to normal home settling, especially the diagonal ones over doors and windows that keep coming back.
+[Basement Bedroom Finishing](/services/mold-remediation-add-on): an unfinished bay with a window, framed, painted, and carpeted into a bedroom.
 
-**Ceiling Repair** covers sagging, cracked, or stained ceiling drywall, common in two-story Broken Arrow homes after an upstairs leak.
+## What basement finishing costs in Elizabeth
 
-**Nail Pop Repair** re-fastens and refinishes drywall where nails or screws have worked loose, a common issue in newer subdivisions still settling.
+- **Family room or office** — $8,000–$18,000 for one defined room.
+- **Full basement** — $20,000–$45,000 for the whole footprint.
+- **Basement bathroom** — $12,000–$25,000, including the plumbing tie-in.
+- **Bedroom** — $10,000–$20,000, or $18,000–$32,000 with an egress window.
 
-**[Drywall Patching](/services/drywall-patching)** fixes small to medium holes from doorknobs, furniture, or accidents, matched to texture so nothing shows.
+Call [(908) 838-4566](tel:+19088384566) for a number based on your basement.
 
-**Drywall Hole Repair** scales the patch method to the hole size, from a quick mesh patch to a full cutout and new backing.
+## Materials we use to finish a basement
 
-## Drywall repair broken arrow cost: what to expect
+- **Vinyl plank**: the new floor, already laid.
+- **Drywall**: painted, with the framing covered.
+- **Baseboard**: painted trim along the new floor.
+- **Ceiling**: a flat finished ceiling with one recessed light.
+- **Interior door**: a painted door at the basement stairs.
+- **Insulation**: a batt above the finished ceiling, with the rest of the ceiling closed.
 
-Pricing depends on damage size, texture complexity, and whether it's a wall or ceiling. Here's a rough breakdown:
+## How long basement finishing takes
 
-- **Small patch (nail holes, dings)** — $150–$350 — texture match and paint-ready finish
-- **Medium hole or panel section** — $300–$700 — cut-out repair, new backing, taping and texture
-- **Full wall or ceiling section** — $700–$2,000+ — larger sheetrock replacement with multiple mud coats
-- **Water damage repair** — $250–$900 — depends on stain size and whether replacement is needed
+- **Measurement and plan**: one visit.
+- **One room**: 1–2 weeks.
+- **Full basement**: 2–4 weeks.
 
-These are ballparks, not quotes. Call for a free estimate and we'll give you a firm number after seeing the damage.
-
-## Materials and Methods We Use
-
-Broken Arrow's humidity swings and clay-soil settling push us toward materials built for that kind of movement, not just whatever's cheapest at the box store.
-
-- **Setting-type joint compound** — Dries chemically instead of by evaporation, so it handles Oklahoma's humidity swings better and won't shrink or crack as it cures.
-- **Self-adhesive mesh tape** — Bridges seams and cracks with flexibility, holding up better against the minor movement from clay-soil settling than paper tape alone.
-- **Knockdown texture spray** — Matches the most common wall texture in Broken Arrow homes built since the 90s, applied and knocked down by hand for a real blend.
-- **Orange peel texture** — Common in older homes and some newer builds, sprayed at the right pressure so the pattern matches rather than looks pasted on.
-- **Moisture-resistant drywall** — Used in bath and kitchen areas prone to humidity, holding up longer where standard board would soften over time.
-- **Stain-blocking primer** — Seals water stains so they don't bleed through fresh paint, essential after any leak-related repair.
-
-## How long does a Drywall Repair take?
-Small jobs move fast. Bigger ones need dry time between coats, so patience pays off with a better finish.
-
-- **Inspection** — same day
-- **Patch and first coat** — same day
-- **Dry time between coats** — 24 hours
-- **Texture and paint-ready** — 1–2 days
-
-## Permits, Codes, and Compliance for Drywall Repair
+## Permits for a finished basement in Elizabeth
 
 ### Usually needs a permit
-- Structural framing changes behind the wall
-- Electrical work tied into the repair area
-- Plumbing tie-ins affecting the wall cavity
-- Load-bearing wall alterations
+- Framing and new walls
+- New electrical circuits
+- An egress window for a legal bedroom
+- Plumbing for a basement bathroom
 
 ### Usually no permit
-- Standard patch and crack repair
-- Texture matching
-- Popcorn ceiling removal
-- Nail pop repair
-- Cosmetic drywall replacement
+- Paint and trim
+- Furniture
+- A floor in a room that is already finished
 
-Always verify with the City of Broken Arrow or your county before starting work, especially if you're unsure whether something behind the wall counts as structural.
+Confirm the current rule with Union County before work starts.
 
-## DIY vs Hiring a Drywall Repair Pro
+## DIY or a finisher
 
 ### DIY
-- Small nail holes and picture-hanger dings
-- Minor scuffs fixable with spackle and a light sand
-- Flat, untextured walls where blending isn't an issue
+- Paint after the inspection
+- Hang a shelf
+- Pick the floor and the paint color
 
-### Hire a pro
-- Holes larger than a fist
-- Textured walls or ceilings needing a blended patch
-- Recurring cracks that keep coming back in the same spot
-- Water-stained drywall that might be softened underneath
-- Multiple nail pops across one wall or ceiling
+### Hire a finisher
+- Framing and drywall
+- Electrical that has to be inspected
+- An egress window
 
-## When to Call for Drywall Repair
+## When to call
 
-- Cracks over doors or windows that keep returning after you patch them
-- Water stains or soft spots on a ceiling
-- Several nail pops showing up across the same wall
-- Holes bigger than a couple inches
-- A previous handyman patch with a visible seam or flat spot
+- The basement is still concrete and block, and you want a room.
+- You need a bedroom, and the bay already has a window.
+- You want a small bath or an office in one corner.
+- You want the whole basement finished, not one patch of paint.
 
-None of these need to turn into an emergency. Give us a call and we'll get it sorted before it gets worse.
+Call [(908) 838-4566](tel:+19088384566) or request a free estimate.
 
-## Locations We Serve Near Broken Arrow
+## Areas we serve near Elizabeth, NJ
 
-**[Bixby](/locations/bixby)** — fast-growing subdivisions still settling, which means plenty of nail pops and hairline cracks in newer homes.
+[Elizabeth (primary area)](/locations/elizabeth): older houses whose basements were built as storage.
 
-**[Coweta](/locations/coweta)** — older and more rural housing stock, often with original texture and popcorn ceilings needing careful matching.
+[Colonia](/locations/colonia): mid-century houses with unfinished basements.
 
-**[Tulsa](/locations/tulsa)** — a mix of ranch-style and two-story homes, so both ceiling leak repairs and wall crack work are common calls.
+[Avenel](/locations/avenel): older commuter houses along the rail line.
 
-**[Jenks](/locations/jenks)** — rapid new-construction growth near the river corridor, with settling cracks showing up 1-3 years after move-in.
+[Iselin](/locations/iselin): more families finishing basements into extra rooms each year.
 
-**[Owasso](/locations/owasso)** — one of the fastest-growing northern suburbs, seeing the same new-build settling issues as Bixby and Jenks.
+[Woodbridge](/locations/woodbridge): unfinished basements in houses near the highways.
 
-**[Broken Arrow (primary area)](/locations/broken-arrow)** stays our home base, with the widest mix of housing eras and drywall issues.
+[Carteret](/locations/carteret): older houses where owners are finishing the basement.
 
-<!-- rover-autofix-links -->
-- [About](/about)
+## What customers say
 
-## Get a Free Estimate in Broken Arrow
+Reviews here reflect verified feedback from customers in Elizabeth and nearby areas.
 
-Cracked wall, stained ceiling, or a hole that's been bugging you for months, it's an easy fix once someone who knows drywall takes a look. Call Broken Arrow Drywall Repair Pros at +1 (918) 317-6536 or [request a free estimate](/contact) and we'll get you a real number, not a guess.
+## Get a free estimate in Elizabeth
+
+Call [(908) 838-4566](tel:+19088384566) or fill out the [contact form](/contact). Elizabeth Basement Finishing Pros serves Elizabeth and the surrounding suburbs.

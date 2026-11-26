@@ -1,0 +1,32 @@
+flowchart TD
+  S[npm run rover · open dashboard<br/>reload with Ctrl+Shift+R] --> R[Discovery / Research → pursue]
+  R --> SC[Site-Config: name, domain, services<br/>City 1 Save niche default · City 2+ Load]
+  SC --> PH[Provision ranking number<br/>leave area-code box blank]
+  PH --> W[Content: Preset C → Write site]
+  W --> PG{First city for this niche?}
+  PG -->|Yes| SKIP[Load photo group → Skip<br/>Accept · Skip stock off]
+  PG -->|No| LOAD[Load photo group → niche master<br/>Load on Accept · Skip stock on]
+  SKIP --> ACC[Accept content]
+  LOAD --> ACC
+  ACC --> IMG[Review images · Filter Empty<br/>Fill materials/process before master]
+  IMG --> PREP[Prepare preview + QA<br/>or Replace master if this city is the gold set]
+  PREP --> DOM[Buy domain in Cloudflare<br/>Domains → Overview → Add domain · Active]
+  DOM --> VRF{Notify destination Verified?<br/>once per inbox}
+  VRF -->|No| VRF2[Click Cloudflare verify link in inbox]
+  VRF2 --> VRF
+  VRF -->|Yes| LCH[Run launch<br/>Auto ship + Connect domain and email]
+  LCH --> SMOKE[Live form smoke-test<br/>→ notify inbox + Phone/Form]
+  SMOKE --> IDX[Indexing: GOOGLE INDEX → REQUEST INDEXING<br/>homepage + 2–3 services · Mark done]
+  IDX --> DONE[Launched · site live]
+  DONE --> CHARTS[Launched: Cluster tree + daily charts]
+  CHARTS --> NEXT{Another city same niche?}
+  NEXT -->|Yes| R2[Reuse forms inbox + LEAD_NOTIFY<br/>+ Load niche default + Load master]
+  R2 --> R
+  NEXT -->|Gap-fill then share| GAP[Fill Empty → Replace master<br/>→ Load master on siblings → Push]
+  NEXT -->|Later updates| UPD[Prepare preview → Push updates]
+
+  style LCH fill:#dbeafe,stroke:#2563eb
+  style DONE fill:#dcfce7,stroke:#16a34a
+  style UPD fill:#fef9c3,stroke:#ca8a04
+  style GAP fill:#fef9c3,stroke:#ca8a04
+  style LOAD fill:#e0e7ff,stroke:#4338ca

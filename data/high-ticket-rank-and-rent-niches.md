@@ -25,7 +25,7 @@ Every niche listed below represents a potential lead gen website. The **"Avg. Jo
 2. [Electrical Sub-Niches](#2-electrical-sub-niches)  
 3. [Concrete & Masonry Sub-Niches](#3-concrete--masonry-sub-niches)  
 4. [Exterior Home Sub-Niches](#4-exterior-home-sub-niches)  
-5. [Interior Remodeling Sub-Niches](#5-interior-remodeling-sub-niches)  
+5. [Interior Specialties](#5-interior-specialties)  
 6. [Stairs, Railings & Architectural Metalwork](#6-stairs-railings--architectural-metalwork)  
 7. [HVAC & Climate Sub-Niches](#7-hvac--climate-sub-niches)  
 8. [Water & Fire Damage Restoration](#8-water--fire-damage-restoration)  
@@ -114,16 +114,15 @@ The exterior of a home is where some of the most visually dramatic (and expensiv
 
 ---
 
-## 5\. Interior Remodeling Sub-Niches
+## 5\. Interior Specialties
 
-Interior remodeling is a massive industry, but most local lead gen operators target broad terms like "kitchen remodeling" or "bathroom renovation." The niches below are the overlooked, high-ticket specialty projects that wealthy homeowners actively search for.
+These are overlooked, high-ticket specialty projects inside the home. Basement finishing is listed under its own niche.
 
 | \# | Niche / Service | Avg. Job Value | Tier | R\&R Opportunity Notes |
 | :---- | :---- | :---- | :---- | :---- |
 | 1 | **Custom Wine Cellar Construction** | $25,000–$100,000+ | Platinum | Ultra-luxury feature for affluent homeowners. "Custom wine cellar builders" is a high-intent, low-competition keyword. |
 | 2 | **Home Theater Design & Installation** | $15,000–$75,000+ | Platinum | Passionate hobbyists with large budgets. "Custom home cinema" and "home theater installation" are valuable keywords. |
-| 3 | **Basement Finishing / Remodeling** | $20,000–$50,000+ | Platinum | One of the most searched remodeling services. Homeowners want to expand living space without moving. |
-| 4 | **Mudroom Addition** | $10,000–$25,000+ | Gold | Highly desirable in colder climates and for families. "Mudroom addition cost" is a common search query. |
+| 3 | **Mudroom Addition** | $10,000–$25,000+ | Gold | Highly desirable in colder climates and for families. "Mudroom addition cost" is a common search query. |
 | 5 | **Butler Pantry Installation** | $5,000–$20,000+ | Gold | Luxury kitchen feature trending in high-end homes. Very low competition for "custom butler pantry" keywords. |
 | 6 | **Custom Wet Bar Installation** | $5,000–$25,000 | Gold | Popular for basements and entertainment areas. "Basement bar ideas" and "home bar design" drive traffic. |
 | 7 | **Custom Bookshelves / Entertainment Centers** | $5,000–$15,000 | Silver | Common request for living rooms and home offices. Good for targeting local "custom built-in" searches. |
@@ -135,6 +134,16 @@ Interior remodeling is a massive industry, but most local lead gen operators tar
 | 13 | **Basement Waterproofing** | $3,000–$8,000 | Silver | Essential service in many regions. Recurring demand driven by water problems. |
 | 14 | **Custom Wardrobe / Armoire** | $2,500–$8,000 | Bronze | For homes without existing closet space. Less competition than full closet system companies. |
 | 15 | **Acoustic Treatment Installation** | $2,000–$10,000 | Silver | Specialized service for audiophiles and home theater enthusiasts. Very low competition. |
+
+---
+
+## 16. Basement Finishing
+
+Finishing an unfinished basement into living space. This niche is separate from interior specialties.
+
+| \# | Niche / Service | Avg. Job Value | Tier | R\&R Opportunity Notes |
+| :---- | :---- | :---- | :---- | :---- |
+| 1 | **Basement Finishing** | $20,000–$50,000+ | Platinum | Homeowners finish an unfinished basement into living space. |
 
 ---
 
@@ -342,11 +351,11 @@ These are the absolute best niches from the entire list — combining the highes
 | Rank | Niche | Avg. Job Value | Category |
 | :---- | :---- | :---- | :---- |
 | 1 | Home Elevator Installation | $20,000–$100,000+ | Specialty/Luxury |
-| 2 | Custom Wine Cellar Construction | $25,000–$100,000+ | Interior Remodeling |
+| 2 | Custom Wine Cellar Construction | $25,000–$100,000+ | Interior Specialties |
 | 3 | Pool House Construction | $20,000–$150,000+ | Outdoor Living |
 | 4 | Copper Roofing | $25,000–$75,000 | Roofing |
 | 5 | Floating / Cantilevered Staircases | $10,000–$78,000+ | Stairs & Metalwork |
-| 6 | Home Theater Design & Installation | $15,000–$75,000+ | Interior Remodeling |
+| 6 | Home Theater Design & Installation | $15,000–$75,000+ | Interior Specialties |
 | 7 | Exterior Stone Cladding | $16,000–$90,000 | Exterior Home |
 | 8 | Historic Building Restoration | $10,000–$100,000+ | Commercial |
 | 9 | Geothermal Heating Installation | $15,000–$40,000+ | HVAC |
@@ -364,7 +373,7 @@ These are the absolute best niches from the entire list — combining the highes
 | 21 | Whole-Home Generator Installation | $7,000–$25,000+ | Electrical |
 | 22 | Limewash Painting | $7,000–$18,000 | Exterior Home |
 | 23 | James Hardie Siding Installation | $9,000–$22,500 | Exterior Home |
-| 24 | Basement Finishing / Remodeling | $20,000–$50,000+ | Interior Remodeling |
+| 24 | Basement Finishing | $20,000–$50,000+ | Basement Finishing |
 | 25 | Bronze Railings | $8,000–$40,000+ | Stairs & Metalwork |
 
 ---
@@ -377,7 +386,7 @@ For students who want to maximize lead value, here is every niche sorted from hi
 | :---- | :---- | :---- |
 | Pool House Construction | $150,000+ | Outdoor Living |
 | Home Elevator Installation | $100,000+ | Specialty/Luxury |
-| Custom Wine Cellar Construction | $100,000+ | Interior Remodeling |
+| Custom Wine Cellar Construction | $100,000+ | Interior Specialties |
 | Clean Room HVAC | $100,000+ | HVAC |
 | Historic Building Restoration | $100,000+ | Commercial |
 | Large-Scale Commercial Metalwork | $100,000+ | Stairs & Metalwork |
@@ -386,7 +395,7 @@ For students who want to maximize lead value, here is every niche sorted from hi
 | Outdoor Kitchen Construction | $80,000+ | Outdoor Living |
 | Floating / Cantilevered Staircases | $78,000+ | Stairs & Metalwork |
 | Copper Roofing | $75,000 | Roofing |
-| Home Theater Design & Installation | $75,000+ | Interior Remodeling |
+| Home Theater Design & Installation | $75,000+ | Interior Specialties |
 | Cantilevered Stairs | $50,000+ | Stairs & Metalwork |
 | Smart Home Automation (luxury) | $50,000+ | Specialty/Luxury |
 | Custom Architectural Metal Fabrication | $50,000+ | Stairs & Metalwork |
@@ -394,7 +403,7 @@ For students who want to maximize lead value, here is every niche sorted from hi
 | Industrial Painting | $50,000+ | Commercial |
 | Commercial Refrigeration | $50,000+ | HVAC |
 | Fire Damage Restoration | $50,000+ | Restoration |
-| Basement Finishing / Remodeling | $50,000+ | Interior Remodeling |
+| Basement Finishing | $50,000+ | Basement Finishing |
 | Artificial Turf Installation | $45,000+ | Outdoor Living |
 | Bronze Railings | $40,000+ | Stairs & Metalwork |
 | Metal Roof Installation | $40,000 | Roofing |
@@ -413,12 +422,12 @@ For students who want to maximize lead value, here is every niche sorted from hi
 | Biohazard Cleanup | $25,000+ | Restoration |
 | Medical Facility Decontamination | $25,000+ | Commercial |
 | Pergola & Pavilion Building | $25,000+ | Outdoor Living |
-| Custom Wet Bar Installation | $25,000 | Interior Remodeling |
+| Custom Wet Bar Installation | $25,000 | Interior Specialties |
 | Impact / Hurricane Window Installation | $25,000+ | Windows & Glass |
 | Storefront Glass Installation | $25,000+ | Windows & Glass |
 | Ornate Custom Forged Iron Railings | $25,000+ | Stairs & Metalwork |
 | Whole-Home Generator Installation | $25,000+ | Electrical |
-| Mudroom Addition | $25,000+ | Interior Remodeling |
+| Mudroom Addition | $25,000+ | Interior Specialties |
 | Green / Living Roof Installation | $25,000 | Roofing |
 | James Hardie Siding Installation | $22,500 | Exterior Home |
 | Outdoor Fireplace Construction | $21,000+ | Outdoor Living |

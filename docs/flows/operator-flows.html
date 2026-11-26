@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Rover 2.7 — Operator flowcharts</title>
+  <script type="module">
+    import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+    mermaid.initialize({
+      startOnLoad: true,
+      theme: "neutral",
+      flowchart: { curve: "basis", htmlLabels: true },
+      securityLevel: "loose",
+    });
+  </script>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #1a1a1a;
+      --muted: #555;
+      --line: #e5e5e5;
+      --bg: #fafafa;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", system-ui, sans-serif;
+      color: var(--ink);
+      background: var(--bg);
+      line-height: 1.45;
+    }
+    header {
+      padding: 1.25rem 1.5rem 1rem;
+      border-bottom: 1px solid var(--line);
+      background: #fff;
+    }
+    header h1 {
+      margin: 0 0 0.35rem;
+      font-size: 1.35rem;
+      font-weight: 600;
+    }
+    header p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 0.95rem;
+    }
+    .actions {
+      margin-top: 0.75rem;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+    }
+    button {
+      font: inherit;
+      padding: 0.45rem 0.85rem;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+      background: #fff;
+      cursor: pointer;
+    }
+    button:hover { background: #f3f3f3; }
+    main {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 1.25rem 1.5rem 3rem;
+    }
+    section {
+      background: #fff;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 1rem 1.25rem 1.5rem;
+      margin-bottom: 1.5rem;
+    }
+    section h2 {
+      margin: 0 0 0.25rem;
+      font-size: 1.15rem;
+      font-weight: 600;
+    }
+    section .sub {
+      margin: 0 0 1rem;
+      color: var(--muted);
+      font-size: 0.9rem;
+    }
+    .mermaid {
+      display: flex;
+      justify-content: center;
+      overflow-x: auto;
+    }
+    footer {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 0 1.5rem 2rem;
+      color: var(--muted);
+      font-size: 0.85rem;
+    }
+    @media print {
+      header .actions { display: none; }
+      body { background: #fff; }
+      section {
+        break-inside: avoid;
+        border: none;
+        padding: 0 0 1.5rem;
+        margin-bottom: 2rem;
+      }
+      header { border: none; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Rover 2.8 — Operator flowcharts</h1>
+    <p>One-time setup, then per-site run. Forms use the Rover forms Worker — not Web3Forms.</p>
+    <div class="actions">
+      <button type="button" onclick="window.print()">Print / Save as PDF</button>
+    </div>
+  </header>
+
+  <main>
+    <section id="one-time">
+      <h2>1. One-time setup</h2>
+      <p class="sub">Once per machine / account · OPERATOR-ONE-TIME-SETUP.md</p>
+      <pre class="mermaid">
+flowchart TD
+  A[GitHub invite + Git + Cursor] --> B[Clone Rover 2.8 + npm install]
+  B --> C[Gear → Account setup<br/>APIs, Maps, Apify, OpenAI, Anthropic]
+  C --> D[gh auth login + GitHub owner]
+  D --> E[Cloudflare account ID + user API token<br/>include D1 Edit]
+  E --> F[Register workers.dev subdomain]
+  F --> G[Account setup → Lead notify email<br/>Gmail / Zoho / etc.]
+  G --> H[npm run rover]
+  H --> I[Phone/Form → Set up inbox<br/>Forms Worker — not Web3Forms]
+  I --> J[Twilio rover-voice + Deploy All<br/>SID token forward in Account setup<br/>webhook stays in .env]
+  J --> K[Phone → Save spoken fallback]
+  K --> L{Settings greens?}
+  L -->|No| M[Fix red rows / restart Rover]
+  M --> L
+  L -->|Yes| N[One-time setup done]
+  N --> O[Optional later: Connect GSC]
+  N --> P[Go to site runbook → build first site]
+
+  style I fill:#dbeafe,stroke:#2563eb
+  style N fill:#dcfce7,stroke:#16a34a
+  style P fill:#fef9c3,stroke:#ca8a04
+      </pre>
+    </section>
+
+    <section id="running">
+      <h2>2. Running the app</h2>
+      <p class="sub">Each new site · OPERATOR-SITE-RUNBOOK.md</p>
+      <pre class="mermaid">
+flowchart TD
+  S[npm run rover · open dashboard<br/>reload with Ctrl+Shift+R] --> R[Discovery / Research → pursue]
+  R --> SC[Site-Config: name, domain, services<br/>City 1 Save niche default · City 2+ Load]
+  SC --> PH[Provision ranking number<br/>leave area-code box blank]
+  PH --> W[Content: Preset C → Write site]
+  W --> PG{First city for this niche?}
+  PG -->|Yes| SKIP[Load photo group → Skip<br/>Accept · Skip stock off]
+  PG -->|No| LOAD[Load photo group → niche master<br/>Load on Accept · Skip stock on]
+  SKIP --> ACC[Accept content]
+  LOAD --> ACC
+  ACC --> IMG[Review images · Filter Empty<br/>Fill materials/process before master]
+  IMG --> PREP[Prepare preview + QA<br/>or Replace master if this city is the gold set]
+  PREP --> DOM[Buy domain in Cloudflare<br/>Domains → Overview → Add domain · Active]
+  DOM --> VRF{Notify destination Verified?<br/>once per inbox}
+  VRF -->|No| VRF2[Click Cloudflare verify link in inbox]
+  VRF2 --> VRF
+  VRF -->|Yes| LCH[Run launch<br/>Auto ship + Connect domain and email]
+  LCH --> SMOKE[Live form smoke-test<br/>→ notify inbox + Phone/Form]
+  SMOKE --> IDX[Indexing: GOOGLE INDEX → REQUEST INDEXING<br/>homepage + 2–3 services · Mark done]
+  IDX --> DONE[Launched · site live]
+  DONE --> CHARTS[Launched: Cluster tree + daily charts]
+  CHARTS --> NEXT{Another city same niche?}
+  NEXT -->|Yes| R2[Reuse forms inbox + LEAD_NOTIFY<br/>+ Load niche default + Load master]
+  R2 --> R
+  NEXT -->|Gap-fill then share| GAP[Fill Empty → Replace master<br/>→ Load master on siblings → Push]
+  NEXT -->|Later updates| UPD[Prepare preview → Push updates]
+
+  style LCH fill:#dbeafe,stroke:#2563eb
+  style DONE fill:#dcfce7,stroke:#16a34a
+  style UPD fill:#fef9c3,stroke:#ca8a04
+  style GAP fill:#fef9c3,stroke:#ca8a04
+  style LOAD fill:#e0e7ff,stroke:#4338ca
+      </pre>
+    </section>
+  </main>
+
+  <footer>
+    Save this file anywhere. Open it in Chrome or Edge → click <strong>Print / Save as PDF</strong>.
+  </footer>
+</body>
+</html>

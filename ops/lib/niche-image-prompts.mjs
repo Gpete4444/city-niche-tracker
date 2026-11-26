@@ -157,7 +157,8 @@ export function imagePromptFill({ library, imageSlots, baSlots, planSlots, planB
 export function getNicheImagePrompts(niche, filePath = NICHE_IMAGE_PROMPT_FILE) {
   const key = nicheKey(niche);
   if (!key) return null;
-  const record = readStore(filePath).lists[key];
+  const lists = readStore(filePath).lists;
+  const record = lists[key] || lists[`${key}.`];
   if (!record) return null;
   return {
     niche: record.niche || titleCaseNiche(niche),

@@ -1,0 +1,21 @@
+flowchart TD
+  A[GitHub invite + Git + Cursor] --> B[Clone Rover 2.8 + npm install]
+  B --> C[Gear → Account setup<br/>APIs, Maps, Apify, OpenAI, Anthropic]
+  C --> D[gh auth login + GitHub owner]
+  D --> E[Cloudflare account ID + user API token<br/>include D1 Edit]
+  E --> F[Register workers.dev subdomain]
+  F --> G[Account setup → Lead notify email<br/>Gmail / Zoho / etc.]
+  G --> H[npm run rover]
+  H --> I[Phone/Form → Set up inbox<br/>Forms Worker — not Web3Forms]
+  I --> J[Twilio rover-voice + Deploy All<br/>SID token forward in Account setup<br/>webhook stays in .env]
+  J --> K[Phone → Save spoken fallback]
+  K --> L{Settings greens?}
+  L -->|No| M[Fix red rows / restart Rover]
+  M --> L
+  L -->|Yes| N[One-time setup done]
+  N --> O[Optional later: Connect GSC]
+  N --> P[Go to site runbook → build first site]
+
+  style I fill:#dbeafe,stroke:#2563eb
+  style N fill:#dcfce7,stroke:#16a34a
+  style P fill:#fef9c3,stroke:#ca8a04

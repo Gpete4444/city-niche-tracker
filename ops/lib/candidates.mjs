@@ -65,6 +65,8 @@ function titleCaseNichePiece(piece) {
 export function titleCaseNiche(raw) {
   const s = String(raw ?? '')
     .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/\.+$/, '')
     .trim();
   if (!s) return '';
   return fixSmallWords(
@@ -1053,9 +1055,7 @@ function photoGroupDisplayName(g) {
 /** Rank dropdowns only need this niche (plus any already-attached ids). Other niches stay on GET /api/photo-groups. */
 export function filterPhotoGroupsForCandidate(groups, { niche, attached } = {}) {
   const list = Array.isArray(groups) ? groups : [];
-  const nicheKey = String(niche || '')
-    .trim()
-    .toLowerCase();
+  const nicheKey = titleCaseNiche(niche).toLowerCase();
   const attachedIds = new Set();
   if (attached && !attached.skipped) {
     for (const id of attached.groupIds || []) {
@@ -1069,11 +1069,7 @@ export function filterPhotoGroupsForCandidate(groups, { niche, attached } = {}) 
     if (!g) return false;
     if (attachedIds.has(String(g.id || ''))) return true;
     if (!nicheKey) return false;
-    return (
-      String(g.niche || '')
-        .trim()
-        .toLowerCase() === nicheKey
-    );
+    return titleCaseNiche(g.niche).toLowerCase() === nicheKey;
   });
 }
 
@@ -1191,14 +1187,10 @@ export function getCandidateDetail(id, opts = undefined) {
           sensitivity: 'base',
         }),
       );
-    const nicheKey = photoGroupNiche.toLowerCase();
+    const nicheKey = titleCaseNiche(photoGroupNiche).toLowerCase();
     photoNicheMaster =
       photoGroupsAll.find(
-        (g) =>
-          g.kind === 'master' &&
-          String(g.niche || '')
-            .trim()
-            .toLowerCase() === nicheKey,
+        (g) => g.kind === 'master' && titleCaseNiche(g.niche).toLowerCase() === nicheKey,
       ) || null;
   }
 

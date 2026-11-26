@@ -1,0 +1,20 @@
+---
+description: On every Rover version upgrade, copy all local operator data per the master checklist
+alwaysApply: true
+---
+
+# Rover version upgrade
+
+When the user starts a **new Rover version**, **upgrades**, or asks to **copy everything** into a new folder:
+
+1. Follow **`docs/ROVER-UPDATE-COPY.md`** as the single source of truth. Do not invent a shorter list.
+2. Prefer the automated script:
+
+   ```powershell
+   .\scripts\rover-upgrade-copy.ps1 -OldRoot "<old Rover folder>" -NewRoot "<new Rover folder>"
+   ```
+
+3. **Always** include the entire **`research/`** tree — that is how **all niche master images** and named photo groups move (`research/_photo-groups/master-*`, city groups, `index.json`).
+4. **Always** include **`data/census/boundaries/`** and **`data/census/map/`** (geo database), **`.env`**, **`photo-prompt-app/`**, and **`public/images/`**.
+5. After copy: `npm install`, map rebuild if needed, `npm run rover`, then verify Forms inbox, notify email, Load photo group (masters), and Map/Service area — as listed in that doc.
+6. Keep `photo-prompt-app/ROVER-UPDATE-COPY.md` in sync if you change the master checklist.

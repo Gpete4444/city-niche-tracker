@@ -843,6 +843,96 @@
       },
       "autoSeeded": false,
       "llmEnrichedAt": "2026-11-13T21:05:12.630Z"
+    },
+    {
+      "id": "smart-home-automation-installation",
+      "match": "Smart\\s+Home\\s+Automation\\s+Installation\\.?",
+      "boost": [
+        "Smart Home Automation Installation",
+        "New-Construction Smart Wiring & Pre-Wire Packages",
+        "Smart Irrigation and Outdoor Lighting Control",
+        "Garage/gate Automation"
+      ],
+      "tokens": [
+        "smart",
+        "automation",
+        "new",
+        "construction",
+        "wiring",
+        "pre",
+        "wire",
+        "packages",
+        "irrigation",
+        "outdoor",
+        "lighting",
+        "control",
+        "garage",
+        "gate",
+        "whole",
+        "property",
+        "security",
+        "integration",
+        "thermostat",
+        "energy",
+        "management"
+      ],
+      "requireNicheHit": true,
+      "kindHints": {
+        "hero": "smart automation new residential",
+        "intro": "smart automation new interior",
+        "process": "smart automation new jobsite contractor",
+        "materials": "smart automation new materials",
+        "other": "smart automation new"
+      },
+      "autoSeeded": false,
+      "llmEnrichedAt": "2026-11-24T02:05:33.951Z"
+    },
+    {
+      "id": "basement-finishing-interior-waterproofing",
+      "match": "Basement\\s+Finishing\\s+&\\s+Interior\\s+Waterproofing",
+      "boost": [
+        "interior french drain installation",
+        "basement waterproofing membrane",
+        "sump pump basin install",
+        "basement finishing framing",
+        "foundation crack injection",
+        "basement mold remediation",
+        "waterproof vapor barrier wall"
+      ],
+      "tokens": [
+        "waterproofing",
+        "french drain",
+        "sump pump",
+        "basement",
+        "foundation",
+        "membrane",
+        "vapor barrier",
+        "crack injection",
+        "mold",
+        "drainage",
+        "basin",
+        "finishing",
+        "interior",
+        "french",
+        "drain",
+        "sump",
+        "pump",
+        "remodeling",
+        "waterproof",
+        "application",
+        "remediation",
+        "add"
+      ],
+      "requireNicheHit": true,
+      "kindHints": {
+        "hero": "finished basement waterproofing french drain",
+        "intro": "residential basement interior waterproofing work",
+        "process": "basement waterproofing contractor jobsite",
+        "materials": "sump pump drainage membrane material close up",
+        "other": "basement foundation waterproofing interior"
+      },
+      "autoSeeded": false,
+      "llmEnrichedAt": "2026-11-25T01:39:14.375Z"
     }
   ]
 }

@@ -165,7 +165,9 @@ Weekly prep improvements help **next week’s queue**, not today’s 5h arithmet
 | Doc | When you need it |
 |-----|------------------|
 | [USER-FLOW.md](USER-FLOW.md) | Step-by-step product map + per-step times |
-| [ENV-SETUP.md](ENV-SETUP.md) | API keys / `.env` before first batch |
+| [ENV-SETUP.md](ENV-SETUP.md) | API keys in Account setup (or `.env`) before first batch |
+| [OPERATOR-ONE-TIME-SETUP.md](OPERATOR-ONE-TIME-SETUP.md) | Once-per-machine setup |
+| [OPERATOR-SITE-RUNBOOK.md](OPERATOR-SITE-RUNBOOK.md) | Per-site path |
 | [PIPELINE-STAGES.md](PIPELINE-STAGES.md) | Funnel definitions |
 | [ASSEMBLE-AND-LAUNCH.md](ASSEMBLE-AND-LAUNCH.md) | Assemble / ship deep dive |
 | [LAUNCH.md](LAUNCH.md) | Launch button reference |

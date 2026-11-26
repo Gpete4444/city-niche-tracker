@@ -1,0 +1,147 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1000" height="680" viewBox="0 0 1000 680" role="img"
+  aria-label="Elizabeth Basement Finishing Pros service coverage map">
+  <style>
+    a { text-decoration: none; }
+    .heading { font: 700 24px Arial, sans-serif; fill: #0f1720; }
+    .subheading { font: 400 12px Arial, sans-serif; fill: #5a6570; }
+    .attribution { font: 400 10px Arial, sans-serif; fill: #65717d; }
+    .state { font: 600 11px Arial, sans-serif; fill: #5a6570; }
+    a .cov-area { cursor: pointer; transition: opacity 0.15s ease; }
+    .cov-area-static { cursor: default; }
+    .cov-area-nolabel { cursor: default; pointer-events: none; }
+    .cov-area path { transition: fill-opacity 0.15s ease, stroke-width 0.15s ease; }
+    .cov-chip {
+      fill: #ffffff;
+      fill-opacity: 0.92;
+      stroke: #17293a;
+      stroke-width: 1;
+      transition: fill-opacity 0.15s ease;
+    }
+    .cov-chip-text { font: 600 14px Arial, sans-serif; fill: #0f1720; }
+    .cov-leader { stroke: #17293a; stroke-width: 1.2; fill: none; }
+    .cov-pin { fill: #17293a; stroke: #ffffff; stroke-width: 1.25; }
+    a:hover .cov-area path { fill-opacity: 0.78; stroke-width: 3.2; }
+    a:hover .cov-chip { fill-opacity: 1; }
+  </style>
+  <rect width="100%" height="100%" rx="14" fill="#f7f9fb"/>
+  <path d="M0 110 H1000 M0 220 H1000 M0 330 H1000 M0 440 H1000 M0 550 H1000
+    M150 74 V650 M300 74 V650 M450 74 V650 M600 74 V650 M750 74 V650 M900 74 V650"
+    stroke="#dce2e7" stroke-width="1"/>
+  <text x="40" y="38" class="heading">Service coverage</text>
+  <text x="40" y="58" class="subheading">Linked names open a local page. Other names are in the service area.</text>
+  <a href="/locations/elizabeth/" target="_top" rel="noopener">
+        <g class="cov-area">
+          <path d="M466.3,205.9 L475.6,200.8 L483.6,197.3 L487.5,197.6 L494.3,199.6 L499.5,197.3 L501.4,195.6 L504.2,189.3 L506.6,186.5 L508.3,187.6 L506.4,190.8 L510.3,193.9 L509.6,194.5 L516.6,201.6 L519.0,195.6 L521.8,195.9 L528.3,192.5 L526.5,190.8 L535.6,192.2 L535.2,191.9 L542.8,176.8 L545.4,171.9 L551.9,159.1 L551.7,156.8 L551.5,152.5 L557.1,147.4 L563.8,147.4 L566.0,148.8 L567.5,150.0 L579.8,158.5 L587.8,158.2 L598.7,157.4 L650.2,153.4 L653.9,149.4 L659.6,148.8 L668.2,152.5 L671.0,158.0 L674.9,160.8 L683.6,161.1 L691.2,169.1 L705.7,179.4 L716.3,195.3 L693.6,235.0 L677.3,227.0 L656.1,249.0 L649.2,256.1 L626.6,269.8 L616.4,271.8 L613.8,274.7 L609.7,278.4 L590.7,296.1 L588.7,302.1 L583.3,308.6 L580.5,309.2 L561.6,292.4 L548.6,281.5 L547.1,280.1 L543.9,277.2 L541.9,275.5 L532.6,267.0 L522.6,258.1 L513.3,249.6 L511.4,251.0 L507.0,244.1 L504.4,240.4 L496.0,233.3 L489.1,227.0 L486.9,225.0 L482.6,225.9 L479.5,215.6 L477.4,213.6 L468.9,207.9 L466.3,205.9 Z" fill="#e8a317" fill-opacity="0.52" stroke="#17293a" stroke-width="2.2" stroke-linejoin="round" fill-rule="evenodd"/>
+          <line class="cov-leader" x1="591.3" y1="228.3" x2="703.3" y2="226.1"/>
+          <circle class="cov-pin" cx="591.3" cy="228.3" r="3.5"/>
+          <g transform="translate(765.8 210.1)">
+            <rect class="cov-chip" x="-62.5" y="-16.0" width="125" height="32" rx="7"/>
+            <text text-anchor="middle" dominant-baseline="central" y="0.5" class="cov-chip-text">Elizabeth, NJ</text>
+          </g>
+        </g>
+      </a><a href="/locations/woodbridge/" target="_top" rel="noopener">
+        <g class="cov-area">
+          <path d="M333.1,538.9 L351.3,527.2 L353.9,526.9 L362.8,521.0 L374.5,513.3 L381.2,505.3 L373.8,501.0 L374.5,500.1 L375.8,497.8 L382.9,487.6 L384.6,490.7 L388.8,483.9 L402.4,485.6 L402.2,487.9 L408.9,485.3 L415.0,484.7 L418.0,484.7 L429.5,487.0 L438.8,489.0 L432.9,496.1 L434.2,512.4 L441.0,512.1 L454.0,513.3 L444.4,526.1 L437.3,533.8 L439.9,538.7 L437.7,543.2 L436.4,549.5 L431.6,544.4 L430.1,548.1 L436.6,556.3 L434.5,561.2 L436.8,564.9 L440.7,563.8 L443.8,569.2 L439.0,567.5 L436.6,570.3 L429.9,570.3 L428.6,570.6 L415.6,577.2 L406.1,581.2 L399.2,581.7 L392.2,582.3 L388.3,579.5 L386.4,581.7 L389.8,587.5 L382.0,585.5 L383.8,588.9 L379.2,595.7 L373.4,593.2 L371.2,606.0 L369.3,599.7 L364.1,593.2 L355.6,584.6 L348.9,574.6 L348.5,574.6 L348.5,573.8 L357.3,572.0 L361.0,565.8 L362.8,552.9 L362.1,544.6 L360.4,546.6 L356.0,545.8 L357.3,555.2 L353.2,555.8 L352.6,564.0 L343.3,564.9 L330.3,541.2 L333.1,538.9 Z" fill="#f2b83c" fill-opacity="0.52" stroke="#17293a" stroke-width="2.2" stroke-linejoin="round" fill-rule="evenodd"/>
+          <line class="cov-leader" x1="392.1" y1="544.9" x2="304.7" y2="602.0"/>
+          <circle class="cov-pin" cx="392.1" cy="544.9" r="3.5"/>
+          <g transform="translate(238.2 618.0)">
+            <rect class="cov-chip" x="-66.5" y="-16.0" width="133" height="32" rx="7"/>
+            <text text-anchor="middle" dominant-baseline="central" y="0.5" class="cov-chip-text">Woodbridge, NJ</text>
+          </g>
+        </g>
+      </a><a href="/locations/carteret/" target="_top" rel="noopener">
+        <g class="cov-area">
+          <path d="M467.2,455.9 L468.0,450.8 L469.6,441.9 L468.7,435.3 L470.9,426.2 L470.0,418.5 L470.6,418.8 L471.1,414.5 L482.6,410.5 L483.9,406.8 L485.2,407.1 L491.9,407.7 L499.0,404.0 L503.4,399.1 L506.6,399.1 L511.4,407.4 L515.5,409.1 L519.4,409.7 L527.8,406.5 L536.5,406.2 L544.7,403.1 L547.1,397.7 L549.9,394.8 L553.4,394.5 L556.7,398.2 L557.5,407.4 L558.8,411.1 L562.9,415.9 L572.5,423.6 L568.8,426.8 L558.6,469.0 L552.3,506.1 L539.5,523.5 L530.7,519.0 L522.9,516.4 L524.6,510.1 L520.3,505.3 L523.3,500.1 L521.8,499.6 L519.6,489.6 L521.3,489.0 L516.4,485.6 L503.6,476.4 L487.5,465.0 L484.7,463.0 L465.0,462.7 L467.2,455.9 Z" fill="#dc8f08" fill-opacity="0.52" stroke="#17293a" stroke-width="2.2" stroke-linejoin="round" fill-rule="evenodd"/>
+          <line class="cov-leader" x1="518.7" y1="459.0" x2="712.3" y2="489.1"/>
+          <circle class="cov-pin" cx="518.7" cy="459.0" r="3.5"/>
+          <g transform="translate(770.3 505.1)">
+            <rect class="cov-chip" x="-58.0" y="-16.0" width="116" height="32" rx="7"/>
+            <text text-anchor="middle" dominant-baseline="central" y="0.5" class="cov-chip-text">Carteret, NJ</text>
+          </g>
+        </g>
+      </a><a href="/locations/colonia/" target="_top" rel="noopener">
+        <g class="cov-area">
+          <path d="M283.7,390.0 L298.4,388.3 L316.2,386.3 L338.9,383.7 L360.8,381.4 L357.1,387.4 L360.4,390.0 L358.0,397.1 L357.6,398.5 L355.6,404.5 L367.3,411.7 L372.1,415.9 L374.2,417.6 L378.1,421.1 L383.3,426.2 L384.0,426.8 L387.0,429.1 L387.7,434.2 L386.6,439.1 L384.2,445.0 L382.3,451.3 L379.4,465.9 L379.0,473.0 L379.0,475.6 L380.3,482.7 L382.5,487.0 L376.4,483.3 L376.6,480.1 L367.7,476.7 L365.1,479.9 L353.4,470.7 L354.1,470.2 L350.4,465.9 L345.9,463.0 L345.0,462.5 L341.5,465.3 L335.2,462.5 L321.2,463.0 L312.5,463.0 L311.8,462.2 L312.1,462.2 L312.3,457.9 L311.8,449.3 L309.7,449.3 L306.0,447.9 L302.1,446.5 L286.5,446.8 L285.4,430.5 L284.8,412.2 L283.7,390.0 Z" fill="#f6c65f" fill-opacity="0.52" stroke="#17293a" stroke-width="2.2" stroke-linejoin="round" fill-rule="evenodd"/>
+          <line class="cov-leader" x1="335.7" y1="434.2" x2="279.7" y2="480.5"/>
+          <circle class="cov-pin" cx="335.7" cy="434.2" r="3.5"/>
+          <g transform="translate(225.7 496.5)">
+            <rect class="cov-chip" x="-54.0" y="-16.0" width="108" height="32" rx="7"/>
+            <text text-anchor="middle" dominant-baseline="central" y="0.5" class="cov-chip-text">Colonia, NJ</text>
+          </g>
+        </g>
+      </a><a href="/locations/avenel/" target="_top" rel="noopener">
+        <g class="cov-area">
+          <path d="M379.0,473.0 L379.4,465.9 L382.3,451.3 L384.2,445.0 L386.6,439.1 L387.7,434.2 L387.0,429.1 L411.3,423.6 L425.8,420.2 L453.3,414.2 L454.6,413.9 L458.7,399.7 L464.6,400.5 L468.9,404.0 L483.9,406.8 L482.6,410.5 L471.1,414.5 L470.6,418.8 L470.0,418.5 L470.9,426.2 L468.7,435.3 L469.6,441.9 L468.0,450.8 L467.2,455.9 L465.0,462.7 L455.9,490.4 L456.1,492.7 L452.9,492.1 L438.8,489.0 L429.5,487.0 L418.0,484.7 L415.0,484.7 L408.9,485.3 L402.2,487.9 L402.4,485.6 L388.8,483.9 L384.6,490.7 L382.9,487.6 L382.5,487.0 L380.3,482.7 L379.0,475.6 L379.0,473.0 Z" fill="#d9a11e" fill-opacity="0.52" stroke="#17293a" stroke-width="2.2" stroke-linejoin="round" fill-rule="evenodd"/>
+          <line class="cov-leader" x1="431.4" y1="446.2" x2="431.4" y2="602.0"/>
+          <circle class="cov-pin" cx="431.4" cy="446.2" r="3.5"/>
+          <g transform="translate(407.8 618.0)">
+            <rect class="cov-chip" x="-50.0" y="-16.0" width="100" height="32" rx="7"/>
+            <text text-anchor="middle" dominant-baseline="central" y="0.5" class="cov-chip-text">Avenel, NJ</text>
+          </g>
+        </g>
+      </a><a href="/locations/iselin/" target="_top" rel="noopener">
+        <g class="cov-area">
+          <path d="M286.5,446.8 L302.1,446.5 L306.0,447.9 L309.7,449.3 L311.8,449.3 L312.3,457.9 L312.1,462.2 L311.8,462.2 L312.5,463.0 L321.2,463.0 L335.2,462.5 L341.5,465.3 L345.0,462.5 L345.9,463.0 L350.4,465.9 L354.1,470.2 L353.4,470.7 L365.1,479.9 L367.7,476.7 L376.6,480.1 L376.4,483.3 L382.5,487.0 L382.9,487.6 L375.8,497.8 L374.5,500.1 L373.8,501.0 L381.2,505.3 L374.5,513.3 L362.8,521.0 L353.9,526.9 L351.3,527.2 L333.1,538.9 L330.3,541.2 L323.1,522.4 L302.3,529.8 L300.1,503.8 L297.5,502.4 L294.7,501.0 L290.4,492.4 L288.9,483.3 L287.6,464.5 L286.5,446.8 Z" fill="#edb83d" fill-opacity="0.52" stroke="#17293a" stroke-width="2.2" stroke-linejoin="round" fill-rule="evenodd"/>
+          <line class="cov-leader" x1="334.7" y1="493.8" x2="271.7" y2="372.4"/>
+          <circle class="cov-pin" cx="334.7" cy="493.8" r="3.5"/>
+          <g transform="translate(221.7 356.4)">
+            <rect class="cov-chip" x="-50.0" y="-16.0" width="100" height="32" rx="7"/>
+            <text text-anchor="middle" dominant-baseline="central" y="0.5" class="cov-chip-text">Iselin, NJ</text>
+          </g>
+        </g>
+      </a><g class="cov-area cov-area-static">
+          <path d="M336.8,195.3 L341.5,194.5 L340.2,189.1 L344.6,182.2 L345.0,178.8 L351.9,177.1 L352.4,176.2 L355.8,173.9 L355.8,165.4 L366.0,163.1 L370.6,164.5 L369.9,156.5 L378.6,155.1 L379.0,149.4 L382.9,148.8 L384.9,161.4 L389.6,160.5 L391.8,159.7 L398.7,155.1 L400.7,160.8 L410.9,159.1 L415.0,154.0 L412.2,151.7 L414.3,148.3 L424.3,147.7 L423.8,150.0 L418.7,152.2 L418.4,155.4 L422.5,159.1 L416.5,160.8 L419.7,166.2 L429.5,177.1 L430.1,181.4 L433.8,183.4 L429.5,187.3 L423.0,197.1 L429.3,203.9 L418.9,205.9 L420.6,213.0 L410.2,216.7 L402.6,219.9 L400.5,217.9 L398.7,219.9 L396.8,210.2 L392.0,205.3 L391.8,203.9 L387.5,205.3 L385.3,202.8 L384.6,201.6 L386.6,197.3 L379.2,197.9 L361.5,199.6 L352.6,200.5 L350.2,193.9 L347.2,194.2 L338.7,196.2 L336.8,195.3 Z" fill="#e8a317" fill-opacity="0.28" stroke="#17293a" stroke-width="1.4" stroke-linejoin="round" fill-rule="evenodd"/>
+          <line class="cov-leader" x1="385.3" y1="183.8" x2="385.3" y2="122.0"/>
+          <circle class="cov-pin" cx="385.3" cy="183.8" r="3.5"/>
+          <g transform="translate(346.3 106.0)">
+            <rect class="cov-chip" x="-66.5" y="-16.0" width="133" height="32" rx="7"/>
+            <text text-anchor="middle" dominant-baseline="central" y="0.5" class="cov-chip-text">Kenilworth, NJ</text>
+          </g>
+        </g><g class="cov-area cov-area-static">
+          <path d="M432.9,496.1 L438.8,489.0 L452.9,492.1 L456.1,492.7 L455.9,490.4 L465.0,462.7 L484.7,463.0 L487.5,465.0 L503.6,476.4 L516.4,485.6 L521.3,489.0 L519.6,489.6 L521.8,499.6 L523.3,500.1 L520.3,505.3 L524.6,510.1 L522.9,516.4 L514.8,513.8 L508.6,519.2 L499.9,526.7 L492.1,530.1 L486.9,519.0 L480.0,523.5 L471.1,515.5 L473.2,510.4 L464.4,506.4 L458.7,511.3 L457.9,512.1 L454.0,513.3 L441.0,512.1 L434.2,512.4 L432.9,496.1 Z" fill="#f2b83c" fill-opacity="0.28" stroke="#17293a" stroke-width="1.4" stroke-linejoin="round" fill-rule="evenodd"/>
+          <line class="cov-leader" x1="478.8" y1="496.4" x2="679.3" y2="602.0"/>
+          <circle class="cov-pin" cx="478.8" cy="496.4" r="3.5"/>
+          <g transform="translate(753.8 618.0)">
+            <rect class="cov-chip" x="-74.5" y="-16.0" width="149" height="32" rx="7"/>
+            <text text-anchor="middle" dominant-baseline="central" y="0.5" class="cov-chip-text">Port Reading, NJ</text>
+          </g>
+        </g><g class="cov-area cov-area-static">
+          <path d="M431.6,544.4 L436.4,549.5 L437.7,543.2 L439.9,538.7 L437.3,533.8 L444.4,526.1 L454.0,513.3 L457.9,512.1 L458.7,511.3 L464.4,506.4 L473.2,510.4 L471.1,515.5 L480.0,523.5 L486.9,519.0 L492.1,530.1 L476.7,536.4 L470.4,541.2 L465.4,552.9 L468.9,570.9 L469.1,577.2 L458.7,577.5 L456.8,585.5 L449.0,580.0 L443.8,569.2 L440.7,563.8 L436.8,564.9 L434.5,561.2 L436.6,556.3 L430.1,548.1 L431.6,544.4 Z" fill="#dc8f08" fill-opacity="0.28" stroke="#17293a" stroke-width="1.4" stroke-linejoin="round" fill-rule="evenodd"/>
+          <line class="cov-leader" x1="461.1" y1="545.9" x2="512.2" y2="602.0"/>
+          <circle class="cov-pin" cx="461.1" cy="545.9" r="3.5"/>
+          <g transform="translate(566.2 618.0)">
+            <rect class="cov-chip" x="-54.0" y="-16.0" width="108" height="32" rx="7"/>
+            <text text-anchor="middle" dominant-baseline="central" y="0.5" class="cov-chip-text">Sewaren, NJ</text>
+          </g>
+        </g><g class="cov-area cov-area-static">
+          <path d="M400.5,217.9 L402.6,219.9 L410.2,216.7 L420.6,213.0 L418.9,205.9 L429.3,203.9 L435.5,202.8 L450.5,200.2 L455.9,199.0 L458.1,200.5 L466.3,205.9 L468.9,207.9 L477.4,213.6 L479.5,215.6 L482.6,225.9 L476.9,227.0 L457.4,230.2 L452.2,231.3 L416.5,237.6 L403.1,240.1 L402.0,238.1 L398.7,219.9 L400.5,217.9 Z" fill="#f6c65f" fill-opacity="0.28" stroke="#17293a" stroke-width="1.4" stroke-linejoin="round" fill-rule="evenodd"/>
+          <line class="cov-leader" x1="440.6" y1="219.6" x2="646.7" y2="122.0"/>
+          <circle class="cov-pin" cx="440.6" cy="219.6" r="3.5"/>
+          <g transform="translate(721.2 106.0)">
+            <rect class="cov-chip" x="-74.5" y="-16.0" width="149" height="32" rx="7"/>
+            <text text-anchor="middle" dominant-baseline="central" y="0.5" class="cov-chip-text">Roselle Park, NJ</text>
+          </g>
+        </g><g class="cov-area cov-area-static">
+          <path d="M296.9,261.3 L298.0,257.0 L299.3,253.8 L302.7,247.0 L304.7,243.3 L310.1,242.1 L311.4,245.9 L316.0,244.7 L320.3,241.3 L325.1,240.4 L330.5,244.4 L337.4,249.6 L337.4,249.8 L340.0,251.8 L331.6,262.7 L330.5,263.3 L326.6,266.7 L322.2,271.0 L331.1,277.0 L324.4,285.5 L311.8,275.5 L309.5,273.8 L306.4,271.2 L299.5,268.4 L294.3,265.0 L296.9,261.3 Z" fill="#d9a11e" fill-opacity="0.28" stroke="#17293a" stroke-width="1.4" stroke-linejoin="round" fill-rule="evenodd"/>
+          <line class="cov-leader" x1="317.2" y1="263.0" x2="279.7" y2="225.2"/>
+          <circle class="cov-pin" cx="317.2" cy="263.0" r="3.5"/>
+          <g transform="translate(225.7 209.2)">
+            <rect class="cov-chip" x="-54.0" y="-16.0" width="108" height="32" rx="7"/>
+            <text text-anchor="middle" dominant-baseline="central" y="0.5" class="cov-chip-text">Garwood, NJ</text>
+          </g>
+        </g><g class="cov-area cov-area-static">
+          <path d="M418.2,126.8 L422.5,122.3 L424.1,123.4 L428.8,118.6 L429.3,118.0 L433.8,122.9 L438.8,126.0 L440.1,123.7 L446.2,126.8 L445.9,129.7 L449.8,128.6 L449.8,129.7 L448.1,135.7 L448.5,136.0 L443.1,140.8 L435.8,143.7 L436.4,136.5 L432.5,138.3 L429.9,134.0 L426.2,136.0 L425.6,135.7 L420.4,133.4 L414.5,130.8 L418.2,126.8 Z" fill="#edb83d" fill-opacity="0.28" stroke="#17293a" stroke-width="1.4" stroke-linejoin="round" fill-rule="evenodd"/>
+          <line class="cov-leader" x1="432.2" y1="130.8" x2="498.2" y2="122.0"/>
+          <circle class="cov-pin" cx="432.2" cy="130.8" r="3.5"/>
+          <g transform="translate(544.2 106.0)">
+            <rect class="cov-chip" x="-46.0" y="-16.0" width="92" height="32" rx="7"/>
+            <text text-anchor="middle" dominant-baseline="central" y="0.5" class="cov-chip-text">Union, NJ</text>
+          </g>
+        </g>
+  <g transform="translate(940 42)">
+    <path d="M0 16 L8 -8 L16 16 L8 11 Z" fill="#17293a"/>
+    <text x="8" y="29" text-anchor="middle" class="state">N</text>
+  </g>
+  <text x="40" y="662" class="attribution">Boundary data © OpenStreetMap contributors · ODbL</text>
+</svg>

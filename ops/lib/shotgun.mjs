@@ -965,9 +965,9 @@ export function listShotgunClaimedGeos() {
 
 export function findShotgunClusterByHub(niche, city, state) {
   const key = placeKey(city, state);
-  const n = String(niche || '').trim().toLowerCase();
+  const n = titleCaseNiche(niche).toLowerCase();
   for (const c of loadShotgunClusters().clusters) {
-    if (String(c.niche || '').trim().toLowerCase() !== n) continue;
+    if (titleCaseNiche(c.niche).toLowerCase() !== n) continue;
     const hub = c.hub || {};
     if (placeKey(hub.city || hub.name, hub.state) === key) return c;
     const main = (c.members || []).find((m) => normalizeClusterRole(m.role) === 'hub');
@@ -978,9 +978,9 @@ export function findShotgunClusterByHub(niche, city, state) {
 
 export function findShotgunMember(niche, city, state) {
   const key = placeKey(city, state);
-  const n = String(niche || '').trim().toLowerCase();
+  const n = titleCaseNiche(niche).toLowerCase();
   for (const c of loadShotgunClusters().clusters) {
-    if (String(c.niche || '').trim().toLowerCase() !== n) continue;
+    if (titleCaseNiche(c.niche).toLowerCase() !== n) continue;
     for (const m of c.members || []) {
       if (placeKey(m.city, m.state) === key) return { cluster: c, member: m };
     }
@@ -1776,10 +1776,10 @@ export function membersFromAssign({ main, hub, wave1, wave2, cities }, rings = n
 function lookupPipelineCity(niche, city, state) {
   const exact = findCandidateByGeo({ niche, city, state });
   if (exact) return annotatePipeline(exact);
-  const n = String(niche || '').trim().toLowerCase();
+  const n = titleCaseNiche(niche).toLowerCase();
   const want = placeKey(city, state);
   for (const row of indexCandidatesByGeo({ includeArchived: true }).values()) {
-    if (String(row.niche || '').trim().toLowerCase() !== n) continue;
+    if (titleCaseNiche(row.niche).toLowerCase() !== n) continue;
     if (placeKey(row.city, row.state) === want) return annotatePipeline(row);
   }
   return null;

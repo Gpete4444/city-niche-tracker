@@ -85,7 +85,7 @@ Assumptions: you know the product, reuse defaults / Preset C, trust Claude after
 | 2 · Review images (glance; skip polish)                  | ~20–40 sec   | —                       | ~30 sec         |
 | 3 · Prepare preview (Stage + Assemble)                   | ~5–10 sec    | ~2–4 min                | ~3 min          |
 | Open every preview page                                     | ~1–2 min     | —                       | ~2 min          |
-| Buy domain + point NS at Cloudflare                      | ~3–5 min     | —                       | ~5 min          |
+| Buy domain in Cloudflare (Domains → Overview → Add domain) | ~3–5 min     | —                       | ~5 min          |
 | 3 · Run launch (domain, destination, Auto ship)          | ~30–60 sec   | ~3–5 min                | ~5 min          |
 | Verify Gmail + smoke-test form                           | ~1 min       | *(email may lag)*       | ~1–2 min        |
 | **Website / Launch subtotal**                            | **~8 min**   | **~7 min**              | **~15 min**     |
@@ -251,7 +251,7 @@ Optional group organizer (not a Stage). Skipping Photo does not block Content, A
 
 **Site-Config · Service area** — Click a city on the map to add or remove coverage (reversible; remove also drops its Page). Non-Zone still uses the research-seed suburb list and a radius slider. Zone candidates have no radius ring: **Suggested location pages** = this primary plus the closest leftover (non-site) towns (one site each); **Also serving** = other coverage including Zone sibling cities and leftover towns another Zone site already Also-serves or already pages (overlap is allowed). Sibling cities cannot be pages. Turning **Page** on a leftover that already has a location page on another Zone site stays exclusive (confirm steals that page). Min pop defaults to 0 so leftover CDPs appear. Use the table **Page** button to turn a location page on or off.
 
-**Before Run launch (outside Rover):** buy the domain, point its nameservers at Cloudflare so it shows up in this account, and put your Gmail in the destination box. After launch, confirm Cloudflare’s email, submit the live form, and open **4 Launched**.
+**Before Run launch (outside Rover):** buy the domain in this Cloudflare account (**Domains** → **Overview** → **Add domain** → **Buy**, then open the name and wait until it is **Active**) and put the lead notify inbox in the destination box. Phone/Form → **Set up inbox** must already be done. `gh` must be logged in as **GitHub owner**. After launch, confirm Cloudflare’s email, submit the live form, then Website → **5 · Indexing** → **Submit to Search Console**, **GOOGLE INDEX** → **REQUEST INDEXING** on the homepage and 2–3 services, **Mark done**, and open **4 Launched**.
 
 **Already live?** Prepare preview → **Push updates**.
 
@@ -259,11 +259,11 @@ Optional group organizer (not a Stage). Skipping Photo does not block Content, A
 
 ### Screen: Launched
 
-Portfolio tracking — rent status, renter, payment, infra links.
+Portfolio tracking — rent status, renter, payment, infra links. Three bands: **Portfolio** (four daily charts), **Search mix** (pages by type and top queries), **Sites**. **Cluster tree** / **Flat list** switches the list. Checkboxes limit the charts; none checked uses every listed site.
 
 ### Screen: Phone
 
-Twilio calls — answered/missed, recordings, AI summaries. Numbers are provisioned in Site-Config, not Discovery/Research.
+Twilio calls — answered/missed, recordings, AI summaries. Numbers are provisioned in Site-Config, not Discovery/Research. Provision buys that city’s area codes (including an overlay), then the closest in-state number if those codes are out of stock.
 
 ---
 
@@ -271,10 +271,10 @@ Twilio calls — answered/missed, recordings, AI summaries. Numbers are provisio
 
 ## Still done by hand
 
-- Buy domain + point NS at Cloudflare  
-- Set the Email Routing destination (Gmail) so Rover can email leads  
-- Verify Email Routing in Gmail once  
-- One-time machine setup (`gh auth`, Cloudflare tokens in `.env`)
+- Buy domain in Cloudflare (**Domains → Overview → Add domain**)
+- Set the Email Routing destination (lead notify inbox) so Rover can email leads  
+- Verify that destination once when it is new  
+- One-time machine setup (`gh auth`, keys in Account setup, forms inbox)
 
 ---
 
@@ -285,7 +285,10 @@ Twilio calls — answered/missed, recordings, AI summaries. Numbers are provisio
 
 | Doc                                                  | When you need it                                |
 | ---------------------------------------------------- | ----------------------------------------------- |
-| [ENV-SETUP.md](ENV-SETUP.md)                         | API keys / .env (do this before first batch)    |
+| [ENV-SETUP.md](ENV-SETUP.md)                         | API keys (Account setup, or .env)               |
+| [OPERATOR-ONE-TIME-SETUP.md](OPERATOR-ONE-TIME-SETUP.md) | Once per machine                            |
+| [OPERATOR-SITE-RUNBOOK.md](OPERATOR-SITE-RUNBOOK.md) | Each site, niche to live                        |
+| [ACCOUNTS.md](ACCOUNTS.md)                           | Weekly login on a customer install              |
 | [GITHUB-ACCESS-GATEWAY.md](GITHUB-ACCESS-GATEWAY.md) | Non-technical GitHub signup (Google Doc source) |
 | [OPERATOR-CADENCE.md](OPERATOR-CADENCE.md)           | 10 sites/day schedule (weekly prep vs daily 5h) |
 | [OPERATOR-CADENCE-FLOW.md](OPERATOR-CADENCE-FLOW.md) | Color flowchart (also open the .html poster)    |

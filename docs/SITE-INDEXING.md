@@ -64,7 +64,8 @@ Google emails when a **new reason type first appears** on a property — not on 
 | **Not found (404)** | Only for URLs that are not on the site (old or guessed). Sitemap and on-site links must be 200. | Ignore. Do **not** Validate fix and do not invent a page for the URL. |
 | **Crawled – currently not indexed** | Sometimes on new domains / thin location URLs | Wait; unique copy; citations. Only worry if **money pages** stay here for weeks. |
 | **Discovered – currently not indexed** | New URLs Google has not crawled yet | Normal for long-tail; don’t bulk Request indexing. |
-| **5xx, noindex, robots.txt, sitemap listing the wrong host** | No — fix immediately | Real blockers. |
+| **5xx, noindex, a robots.txt that Disallows the site, sitemap listing the wrong host** | No — fix immediately | Real blockers. |
+| **LIVE TEST: Robots.txt unreachable** on a site that just launched | Common on day one. The file can still open in a normal browser. | Request indexing from the **GOOGLE INDEX** tab. Do not treat the DevTools 404 on `search.google.com` as this site. |
 
 Launch turns on zone **Always Use HTTPS**, Full SSL, and HSTS when the API token has Zone Settings Edit (soft-skip otherwise). The Worker **301s `http://` → `https://`, `www` → apex, and slashless HTML paths → a trailing slash** in one hop, so those URLs never serve HTML. Launch still attaches **www** plus apex so the www hostname can redirect instead of failing DNS. Sites use **trailing slashes everywhere** (`https://{domain}/about/`, homepage `https://{domain}/`). Coverage-map cities without a real `/locations/{id}/` page link to `/contact/` — they must not invent location URLs. `*.workers.dev` sends `X-Robots-Tag: noindex`.
 
@@ -74,15 +75,17 @@ Real problems: 5xx, accidental `noindex`, robots blocks, sitemap URLs that are n
 
 ## Rover day-one checklist
 
-After **Run launch** (or **Push updates** when already live), open **Website → Indexing** (step 4):
+After **Run launch** (or **Push updates** when already live), open **Website → 5 · Indexing**:
 
 1. **Confirm live crawl files**
    - Open `https://{domain}/sitemap.xml` — URLs and host match this site (pipeline emits sitemap via [`src/integrations/ensure-sitemap-xml.mjs`](../src/integrations/ensure-sitemap-xml.mjs)). Rover’s Indexing step has **Open sitemap**.
    - Open `https://{domain}/robots.txt` — allows crawlers; `Sitemap:` line points at **this** domain ([`src/pages/robots.txt.ts`](../src/pages/robots.txt.ts)).
 2. **Google Search Console**
-   - **Submit to Search Console** verifies the Domain property (Cloudflare DNS TXT) and submits `https://{domain}/sitemap.xml` once.
-   - **Open Search Console** opens that property’s URL Inspection page.
-   - **Copy URL for Inspection**, paste it, and **Request indexing** on the homepage and top 2–3 service pages.
+   - **1. Submit to Search Console** verifies the Domain property (Cloudflare DNS TXT) and submits `https://{domain}/sitemap.xml` once.
+   - **2. Copy URL and open Search Console** copies the homepage and opens that property’s URL Inspection page. Stay on **GOOGLE INDEX**. Click **REQUEST INDEXING**. When the green **Indexing requested** box appears, click **Dismiss**. **URL is not on Google** stays until Google crawls it.
+   - Click **Inspect any URL in "{domain}"**, paste a service URL, press Enter, click **REQUEST INDEXING**, then **Dismiss**. Repeat for the top 2–3 service pages only.
+   - **LIVE TEST** can say **Failed: Robots.txt unreachable** on a new domain even when the file returns 200. That page has no Dismiss. The circular arrow next to **Tested on** only retests. If the request is rejected, open the domain in Cloudflare → **Security** → **Settings** → **Bot traffic** and leave **Bot fight mode** off.
+   - **3. Mark done** saves the step. After that, the indexing buttons stay closed. Submit does not remain available for a later rebuild.
 3. **External pointer** — Set GBP website (when you have it) and any planned citations to the live URL. In Rover **Website → Launch**, use **Citations** checklist + **Download NAP CSV** so directory forms match site-config.
 4. **Stop thrashing** — Wait. Monitor Page indexing; don’t resubmit the whole site every day. Mark Indexing **done** in Rover when finished. Rover saves that check on candidate meta (`indexingDone`); it survives reload and re-select, and Push updates does not clear it.
 
@@ -110,9 +113,9 @@ Meaningful rankings for competitive local terms often take **months** after firs
 
 Once the Domain property is verified under the Google account you connect to Rover:
 
-1. Add `GOOGLE_GSC_CLIENT_ID` + `GOOGLE_GSC_CLIENT_SECRET` to `.env` (Desktop OAuth client; Search Console API enabled). Redirect URI: `http://127.0.0.1:8787/api/gsc/oauth/callback`.
-2. Restart Rover → **Launched Sites → Connect GSC** → approve Search Console and Site Verification access. If an older login was read-only, Connect GSC again.
-3. **Sync GSC** pulls trailing 28d clicks/impressions (+ daily series for charts).
+1. Gear → **Account setup** → paste the Search Console client ID and secret and **Save** (or put `GOOGLE_GSC_CLIENT_ID` and `GOOGLE_GSC_CLIENT_SECRET` in `.env` and restart). Desktop OAuth client; Search Console API enabled. Redirect URI: `http://127.0.0.1:8787/api/gsc/oauth/callback`.
+2. **Launched Sites → Connect GSC** → approve Search Console and Site Verification access. Finish login with the Gmail you added as a test user. If an older login was read-only, Connect GSC again.
+3. **Sync GSC** pulls trailing 28-day totals for the cards and 90 days of daily points for the Launched charts.
 4. **Check index** inspects each sitemap URL (Indexed column). First run is slower; later runs skip URLs indexed in the last 7 days.
 5. **Check ranks** (or per-site **Check ranks**) uses DataForSEO Standard-queue organic SERP for up to 5 keywords (primary auto = `{niche} {city}`). Needs existing `DATAFORSEO_*` credentials.
 

@@ -45,7 +45,7 @@ export function getNicheServiceList(niche, filePath = STORE_FILE) {
   const label = titleCaseNiche(niche);
   if (!label) return null;
   const store = readStore(filePath);
-  return store.lists[label.toLowerCase()] || null;
+  return store.lists[label.toLowerCase()] || store.lists[`${label.toLowerCase()}.`] || null;
 }
 
 /** Homepage “What we do” card count. Blank input stays unset; a number clamps to 1–12. */

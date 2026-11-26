@@ -1,6 +1,6 @@
 # Rover User Guide
 
-How to run the pipeline from finding a market to a live site. This is the operator manual: every screen and control you can see. Time estimates live in [USER-FLOW.md](USER-FLOW.md). API keys: [ENV-SETUP.md](ENV-SETUP.md).
+How to run the pipeline from finding a market to a live site. This is the operator manual: every screen and control you can see. Time estimates live in [USER-FLOW.md](USER-FLOW.md). API keys: gear → **Account setup**, with the long version in [ENV-SETUP.md](ENV-SETUP.md). Once-per-machine clicks: [OPERATOR-ONE-TIME-SETUP.md](OPERATOR-ONE-TIME-SETUP.md). Per-site clicks: [OPERATOR-SITE-RUNBOOK.md](OPERATOR-SITE-RUNBOOK.md).
 
 ## What Rover is {#what-rover-is}
 
@@ -33,7 +33,7 @@ Unnumbered helpers after Launched. They are not stages. You can skip Map and Pho
 
 ### Jobs {#chrome-jobs}
 
-Prepare preview, Push updates, Run launch, Write site, Accept, and Generate pack dim the workspace under the top bar on that candidate. Other work (Light SERP, Find addresses, GSC, Research) uses a bar on that step. **Concurrent Limit** in Settings is how many of each kind may run at once. Write site, Evaluations, Light SERP, Generate pack, and Heavy (Prepare / Launch) pop up if you try to start more than the box. **Assembled previews** is how many live preview doors may stay open. **OpenAI photos** and **OpenAI before/after** queue extras in the background (including other Rover tabs and other candidates). Generating photos does not lock the table or other tabs — you can switch candidates and start SERP / Write site / Prepare while images finish. Hard-refresh every open tab after a Rover update.
+Prepare preview, Push updates, Run launch, Write site, Accept, and Generate pack dim the workspace under the top bar on that candidate. Other work (Light SERP, Find addresses, GSC, Research) uses a bar on that step. **Concurrent Limit** in Settings is how many of each kind may run at once. Write site, Evaluations, Light SERP, Generate pack, and Heavy (Prepare / Launch) pop up if you try to start more than the box. **Assembled previews** is how many live preview doors may stay open. **OpenAI photos** and **OpenAI before/after** queue extras in the background (including other Rover tabs and other candidates). Generating photos does not lock the table or other tabs — you can switch candidates and start SERP / Write site / Prepare while images finish. After a Rover update, click the page and press Ctrl+Shift+R in every open Rover tab. Ctrl+F5 opens the Windows Voice Access window.
 
 ### API Cost {#chrome-api-cost}
 
@@ -67,7 +67,7 @@ The usual path is Cluster Cities. Single City is still there. Most rows will not
 1. Choose **Cluster Cities**.
 2. Enter the cluster niche.
 3. Pick an existing zone, or start a new one.
-4. New zone only: on the map, pick a cluster color, click cities or drag a circle, then **Generate pack**. An existing zone skips the map.
+4. New zone only: on the map, pick a cluster color, click cities or drag a circle, then **Generate pack**. An existing zone skips the map. The Cities box and the map list Census places. A township does not appear. Millburn, Maplewood, and Livingston, New Jersey are townships, so they are not options. The Zone 4–5 walkthrough uses Summit as the hub, then Chatham, New Providence, Short Hills, and Madison.
 5. **Generate pack**.
 6. Set a decision on each row.
 7. **Process batch**.
@@ -140,7 +140,7 @@ Evaluation 2. How strong the competing pages look. Optional. Click **Run enrich*
 
 ### Narrative {#research-narrative}
 
-Evaluation 3. Required to build. Needs the search snapshot, not Enrich. In Copy & paste: **Copy prompt** → Claude → **Load** the reply. A valid reply is accepted automatically. In API mode, **Run Narrative** does the same. When ad volumes were skipped, the reply should include keyword phrases and not invented volumes.
+Evaluation 3. Required to build. Needs the search snapshot, not Enrich. In Copy & paste: **Copy prompt** → Claude → **Load** the reply. A valid reply is accepted automatically. In API mode, **Run Narrative** and **Run all required** do the same. When the Stage column already says `narrative_accepted`, **Accept draft** is hidden. **Accept draft** shows only while a draft is still waiting, and that click opens **Accept narrative drafts?** then **Batch Accept complete**. When ad volumes were skipped, the reply should include keyword phrases and not invented volumes.
 
 ### Prospects {#research-prospects}
 
@@ -185,8 +185,8 @@ In **API** mode, steps 2–8 are **Structure**, then **Write site with Claude** 
 1. **Logo & Map** — regenerate the logo or coverage map if Accept skipped them.
 2. **Review images** — swap, upload, or generate photos. Save or load a photo group if you want.
 3. **Prepare preview** — builds a local preview of every page. It does not publish. When it finishes, open every preview page, then Run launch.
-4. **Launch** — first go-live. Buy the domain. At the registrar, point the nameservers at Cloudflare so the domain shows up in this account. Put your Gmail in the destination box. Leave **Auto ship** and **Connect domain and email** on. After launch, open Cloudflare’s confirmation email once, submit the live form, and confirm the email arrives.
-5. **Indexing** — submit the live sitemap in Search Console, then mark done. Indexing is not ranking. A “Page with redirect” email is expected. See [Search Console emails](#website-indexing-emails).
+4. **Launch** — first go-live. In Cloudflare, **Domains** → **Overview** → blue **Add domain**. Click **Buy** for a new name, or **Connect a domain** when you already own it. If the popup says the name is not registered, click the blue **Buy domain**. Then **Domains** → **Overview**, search the name, and open it. Stop when it says **Your domain is now protected by Cloudflare** and the list says **Active**. Rover does not buy the domain. Put the lead notify inbox (Gmail, Zoho, or another address Cloudflare can verify) in the destination box. Forms use the Rover forms Worker — Phone/Form → **Set up inbox** once, not Web3Forms. Leave **Auto ship** and **Connect domain and email** on. `gh api user --jq .login` must match **GitHub owner** before **Run launch**. After launch, open Cloudflare’s confirmation email once, submit the live form, and confirm the email arrives in that inbox and under Phone/Form.
+5. **Indexing** — **1. Submit to Search Console**. On **2. Copy URL and open Search Console**, stay on **GOOGLE INDEX**, click **REQUEST INDEXING**, and **Dismiss** the green **Indexing requested** box. Do that for the homepage and the top 2–3 money pages, then **3. Mark done**. A live test that says **Robots.txt unreachable** on day one is not a missing file. Indexing is not ranking. A “Page with redirect” email is expected. See [Search Console emails](#website-indexing-emails).
 6. **Push updates** — the site is already live: publish the latest copy. Run **Prepare preview** first if the pages changed.
 
 The site then appears under **4 Launched**.
@@ -205,7 +205,7 @@ The pages that get indexed are `https://`, no `www`, with the trailing slash. Th
 
 Also ignore **Not found (404)** when that URL is not a page on the site.
 
-Open the report when the examples are the real pages (https, no www, trailing slash), or when Google reports a server error, noindex, or a robots.txt block.
+Open the report when the examples are the real pages (https, no www, trailing slash), or when Google reports a server error, noindex, or a robots.txt file that disallows the site. A day-one live test that says **Robots.txt unreachable** is not that email.
 
 ## Launched {#launched}
 
@@ -636,10 +636,10 @@ Most clicks are seconds. Wall-clock is Claude, DataForSEO, Prepare preview, and 
 
 ## Still done by hand {#manual}
 
-- Buy domain + point NS at Cloudflare
-- Set the Email Routing destination (Gmail) so Rover can email leads
-- Verify Email Routing in Gmail once
-- One-time machine setup (`gh auth`, Cloudflare tokens)
+- Buy domain in Cloudflare (**Domains → Overview → Add domain**)
+- Set the Email Routing destination (lead notify inbox) so Rover can email leads
+- Verify that destination once when it is new
+- One-time machine setup (`gh auth`, keys in Account setup, forms inbox)
 - First-time Twilio Functions **Deploy All** (see [First-time Twilio setup](#phone-twilio-setup))
 
 ## Related docs {#related}
@@ -648,6 +648,10 @@ Most clicks are seconds. Wall-clock is Claude, DataForSEO, Prepare preview, and 
 | --- | --- |
 | [USER-FLOW.md](USER-FLOW.md) | Time estimates |
 | [ENV-SETUP.md](ENV-SETUP.md) | API keys |
+| [OPERATOR-ONE-TIME-SETUP.md](OPERATOR-ONE-TIME-SETUP.md) | Once per machine |
+| [OPERATOR-SITE-RUNBOOK.md](OPERATOR-SITE-RUNBOOK.md) | Each site, niche to live |
+| [OPERATOR-FLOWS.md](OPERATOR-FLOWS.md) | Flowcharts for those two manuals |
+| [ACCOUNTS.md](ACCOUNTS.md) | Weekly login on a customer install |
 | [OPERATOR-CADENCE.md](OPERATOR-CADENCE.md) | 10 sites/day schedule |
 | [PHONE-TRACKING.md](PHONE-TRACKING.md) | Ranking voicemail → renter forward |
 | [SITE-INDEXING.md](SITE-INDEXING.md) | Google indexing after launch |

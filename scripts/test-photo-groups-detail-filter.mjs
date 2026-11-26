@@ -55,4 +55,10 @@ assertEqual(
   'skipped attach does not pull other niches',
 );
 
+assertEqual(
+  filterPhotoGroupsForCandidate(groups, { niche: 'Plumbing.' }).map((g) => g.id),
+  ['plumb-master', 'plumb-a'],
+  'trailing period still matches the niche',
+);
+
 console.log('test-photo-groups-detail-filter: ok');

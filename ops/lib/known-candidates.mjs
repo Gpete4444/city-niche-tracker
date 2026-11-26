@@ -95,7 +95,7 @@ function parseSimpleCsv(text) {
 }
 
 export function candidateGeoKey({ niche, city, state }) {
-  return [niche, city, state]
+  return [titleCaseNiche(niche), city, state]
     .map((v) => String(v || '').trim().toLowerCase())
     .join('|');
 }

@@ -33,14 +33,12 @@ function isBaSlot(slot) {
 export function defaultSlotDescription(slot, ctx = {}) {
   const niche = clean(ctx.niche || 'home service') || 'home service';
   const city = clean(ctx.city || '');
-  const setting = ctx.setting === 'commercial' ? 'commercial' : 'residential';
   const service = clean(slot?.serviceName || '');
   const material = clean(slot?.materialTitle || '');
   const process = clean(slot?.processTitle || '');
   const id = String(slot?.sectionId || '');
   const kind = String(slot?.kind || '').toLowerCase();
   const place = city ? ` in ${city}` : '';
-  const space = setting === 'commercial' ? 'commercial building' : 'residential';
 
   if (isBaSlot(slot)) {
     const focus = service || niche;
@@ -57,10 +55,10 @@ export function defaultSlotDescription(slot, ctx = {}) {
     return `Service card / hero for ${name} — that job being done or the finished result.`;
   }
   if (id === 'hero' || kind === 'hero') {
-    return `Wide establishing photo of ${niche}${place} — homepage hero.`;
+    return city ? `${niche} in ${city}.` : `${niche}.`;
   }
   if (id === 'intro' || kind === 'intro') {
-    return `Supporting photo of ${niche} in a typical ${space} setting.`;
+    return city ? `A closer look at ${niche} in ${city}.` : `A closer look at ${niche}.`;
   }
   const label = clean(slot?.label || id || 'service') || 'service';
   return `${label} website photo for ${niche}${place}.`;

@@ -530,7 +530,7 @@ Gmail (or inbox) that receives every form lead. Rover sends from `leads@{domain}
 
 #### Required?
 
-**Recommended** for Launch email setup. Optional if you always type the address by hand.
+**Required for go-live** unless you type the destination on that Launch. Gear → **Account setup** → **Lead notify email** → **Save** applies it with no restart. `.env` is the advanced path.
 
 #### Env variable names
 
@@ -538,13 +538,12 @@ Gmail (or inbox) that receives every form lead. Rover sends from `leads@{domain}
 LEAD_NOTIFY_EMAIL=
 ```
 
-`WEB3FORMS_DEFAULT_NOTIFY_EMAIL` is still read when `LEAD_NOTIFY_EMAIL` is empty.
+`WEB3FORMS_DEFAULT_NOTIFY_EMAIL` is still read when `LEAD_NOTIFY_EMAIL` is empty. That name is a fallback only. Web3Forms is not used for go-live.
 
 #### Steps
 
-1. Choose the Gmail (or other inbox) where lead mail should land.
-2. Set that address in `.env`.
-3. Save and restart Rover.
+1. Choose the inbox where lead mail should land (Gmail, Zoho, or another address Cloudflare can verify).
+2. Gear → **Account setup** → **Lead notify email** → paste it → **Save**. Or set it in `.env` and restart Rover.
 
 #### Where to paste
 
@@ -562,11 +561,11 @@ LEAD_NOTIFY_EMAIL=you@gmail.com
 
 #### What it’s for
 
-Phone/Form in Rover stores each lead. The live form posts to a shared Cloudflare Worker. The Worker saves the lead in D1 and emails the Lead notify address from `leads@{domain}`. Rover pulls that copy while the dashboard is open.
+Phone/Form in Rover stores each lead. The live form posts to a shared Cloudflare Worker (`formsIngestUrl`). The Worker saves the lead in D1 and emails the Lead notify address from `leads@{domain}`. Rover pulls that copy while the dashboard is open. **Do not** create a Web3Forms form or paste an access key.
 
 #### Required?
 
-Optional. Phone calls work without it. Form totals stay at 0 until the inbox is set up and each site is shipped with the inbox URL.
+**Required before Run launch.** Launch stops with “Forms inbox is not set up” until this exists. Phone calls work without it. Form totals stay at 0 until the inbox is set up and each site is shipped with the inbox URL.
 
 #### Token permissions
 
@@ -579,8 +578,8 @@ On the same Cloudflare API token Launch uses, add:
 
 1. Restart Rover after the token change.
 2. Open **Phone/Form** and click **Set up inbox**. Rover creates the D1 database, deploys the worker, and saves the public URL under `research/forms-inbox.json`.
-3. Ship each launched site again. Assemble writes that URL into the contact form. Leads sent before that ship stay in Gmail only.
-4. To copy older Web3Forms emails into Phone/Form, open **Phone/Form** and click **Import past leads**. Sign in as the Gmail that received those leads. The Gmail login reuses the Search Console OAuth client and stores a separate token. One-time in Google Cloud: enable the [Gmail API](https://console.cloud.google.com/apis/library/gmail.googleapis.com), add redirect URI `http://127.0.0.1:8787/api/forms/gmail/callback`, and add scope `https://www.googleapis.com/auth/gmail.readonly` on the consent screen.
+3. Ship each launched site again (Prepare preview → Push updates, or Launch). Assemble writes `formsIngestUrl` into the contact form. Until that ship, an older live page may still post somewhere else.
+4. **Import past leads** is Gmail only. Phone/Form → **Import past leads** copies older lead emails from the Gmail that used to receive them. It does not read Zoho or Outlook. Sign in as that Gmail. The login reuses the Search Console OAuth client and stores a separate token. One-time in Google Cloud: enable the [Gmail API](https://console.cloud.google.com/apis/library/gmail.googleapis.com), add redirect URI `http://127.0.0.1:8787/api/forms/gmail/callback`, and add scope `https://www.googleapis.com/auth/gmail.readonly` on the consent screen.
 
 #### Optional env override
 

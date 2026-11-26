@@ -1,0 +1,20 @@
+---
+description: Keep operator flowcharts in sync when one-time setup or site-runbook instructions change
+alwaysApply: true
+---
+
+# Rover operator flowcharts
+
+When you change **operator instructions** in any of these:
+
+- `docs/OPERATOR-ONE-TIME-SETUP.md`
+- `docs/OPERATOR-SITE-RUNBOOK.md`
+- Lead-mail / forms / Launch steps in `docs/ENV-SETUP.md`, `docs/LAUNCH.md`, or `docs/ASSEMBLE-AND-LAUNCH.md`
+
+Also update the visual maps in the **same change**:
+
+1. Follow the checklist in **`docs/OPERATOR-FLOWS.md`** (Maintenance checklist).
+2. Edit the matching Mermaid source under `docs/flows/` (`one-time-setup.mmd` and/or `running-the-app.mmd`).
+3. Regenerate assets: `.\scripts\render-operator-flows.ps1`
+4. Keep `docs/flows/operator-flows.html` labels aligned with the `.mmd` files.
+5. Do not leave the manuals and flowcharts disagreeing on steps, order, or “no Web3Forms”.

@@ -2,7 +2,7 @@
 
 Shareable overview of the full project: how a market becomes a live lead-gen site, and which tools do which work.
 
-**What this is:** **Rover** finds local niches worth ranking for, then ships a static lead-gen website per market (rank-and-rent style). You rent the site (or its leads) to a local operator. One **master template** plus the local **Rover dashboard** drive the pipeline; each live site is its **own GitHub repo** hosted on **Cloudflare Workers**. The shared forms Worker stores each lead and emails it from `leads@{domain}` to one Gmail. **Cloudflare Email Routing** forwards that same address.
+**What this is:** **Rover** finds local niches worth ranking for, then ships a static lead-gen website per market (rank-and-rent style). You rent the site (or its leads) to a local operator. One **master template** plus the local **Rover dashboard** drive the pipeline; each live site is its **own GitHub repo** hosted on **Cloudflare Workers**. The shared forms Worker stores each lead and emails it from `leads@{domain}` to the lead notify inbox (Gmail, Zoho, or another address Cloudflare can verify). **Web3Forms is not used.** **Cloudflare Email Routing** forwards that same `leads@` address. Keys are entered in gear → **Account setup**.
 
 **Operator funnel (Discovery → Research → Website Builder → Launched Sites):** see [PIPELINE-STAGES.md](PIPELINE-STAGES.md).  
 **Operator manual (screens and buttons):** [USER-GUIDE.md](USER-GUIDE.md). Time estimates: [USER-FLOW.md](USER-FLOW.md).
@@ -77,8 +77,8 @@ flowchart TB
 
     subgraph launch [9 Launch]
       direction TB
-      l1["Buy domain and point NS — human"] --> l2["Rover Launch Email Routing and custom domain"]
-      l2 --> l3["Verify Gmail destination — human"]
+      l1["Buy domain in Cloudflare Domains → Overview → Add domain — human"] --> l2["Rover Launch Email Routing and custom domain"]
+      l2 --> l3["Verify notify destination — human"]
     end
 
     subgraph live [10 Live / rent]
@@ -107,12 +107,12 @@ Open on GitHub or [mermaid.live](https://mermaid.live) to view the rendered boxe
 | **6 · Stage preview** | Stage **full** site (all Structure-selected pages including every service/location FILE) into `site-staging/`, then Assemble + open **every** preview sitemap URL on :4322. Re-Assemble after every Stage (stale warning if skipped). | Catch wrong market/content before Launch — preview must match what ships. |
 | **7 · Assemble** | Copy template + inject staging into `rover-sites/{slug}`. | Isolate each domain in its own folder/repo (clone-per-site). |
 | **8 · GitHub + CF Worker** | First go-live: Launch Auto ship. Later updates: **Push updates** (ship only) after Prepare preview. | Cheap global hosting with one Worker project per site — no per-site terminal. |
-| **9 · Launch** | Email Routing (`leads@` → Gmail); Rover ships and attaches the domain. The form Worker emails that Gmail from `leads@`. Full button reference: [LAUNCH.md](LAUNCH.md). | Go live on the real domain with working form and `leads@` inbox. |
-| **10 · Live / rent** | Leads hit Gmail and Phone/Form; hand site or leads to a local renter. Track inventory on the **Sites** tab (rent status, pricing, payment method, Cloudflare links). Day-one indexing (GSC, sitemap, Request indexing): [SITE-INDEXING.md](SITE-INDEXING.md). | The business model: ranked site → rented asset. |
+| **9 · Launch** | Email Routing (`leads@` → notify inbox); Rover ships and attaches the domain. The forms Worker (not Web3Forms) emails that inbox from `leads@`. Full button reference: [LAUNCH.md](LAUNCH.md). | Go live on the real domain with working form and `leads@` routing. |
+| **10 · Live / rent** | Leads hit the notify inbox and Phone/Form; hand site or leads to a local renter. **Launched** shows daily charts and a Zone → Cluster → Site tree. Day-one indexing (Submit to Search Console, request indexing, Mark done): [SITE-INDEXING.md](SITE-INDEXING.md). | The business model: ranked site → rented asset. |
 
 ### Still human (API cannot fully automate)
 
-- **Buy the domain** and point nameservers at Cloudflare (step 9).
+- **Buy the domain** in this Cloudflare account (**Domains → Overview → Add domain**) so the zone is Active (step 9). Rover does not buy it.
 - **Verify** the Email Routing destination once (step 9).
 - **One-time machine setup:** `gh auth login` + `.env` (`GITHUB_OWNER`, `CLOUDFLARE_*`) — not per site.
 

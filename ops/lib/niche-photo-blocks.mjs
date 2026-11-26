@@ -107,7 +107,8 @@ function homepageComplete(home) {
 export function getNichePhotoBlocks(niche, filePath = STORE_FILE) {
   const key = nichePhotoBlockKey(niche);
   if (!key) return null;
-  const record = readStore(filePath).blocks[key];
+  const blocks = readStore(filePath).blocks;
+  const record = blocks[key] || blocks[`${key}.`];
   if (!record || typeof record !== 'object') return null;
   return record;
 }

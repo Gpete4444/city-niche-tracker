@@ -116,6 +116,19 @@ function yamlScalar(match) {
   return String(match?.[1] || match?.[2] || match?.[3] || '').trim();
 }
 
+/** Alt text on homepage heroImage / featureImage, when it is a real caption. */
+function homepageImageCaption(md, key) {
+  const block = String(md || '').match(new RegExp(`^${key}:\\s*\\n((?:[ \\t]+.*\\n)*)`, 'm'));
+  if (!block) return '';
+  const altM = block[1].match(/^[ \t]*alt:\s*(?:"([^"]*)"|'([^']*)'|(.+?))\s*$/m);
+  const alt = stripMaterialBold(yamlScalar(altM));
+  if (!alt) return '';
+  if (/^(hero|intro|feature|image|photo)(\s+photo)?$/i.test(alt)) return '';
+  if (/^supporting photo of /i.test(alt)) return '';
+  if (/homepage hero/i.test(alt)) return '';
+  return alt;
+}
+
 /** Step title + description from homepage `process:` frontmatter. */
 export function listProcessStepsFromFrontmatter(md) {
   const m = String(md || '').match(/^process:\s*\n((?:(?:[ \t]+.*|-(?!-).*)\n)*)/m);
@@ -420,9 +433,15 @@ export function listImageSlots(candidateId, options = {}) {
       const outlineImg = outlineSec?.images?.[n - 1];
       const materialTitle = stripMaterialBold(materialOptions[n - 1]?.title || '');
       const processTitle = stripMaterialBold(processSteps[n - 1]?.title || '');
-      const slotDescription = stripMaterialBold(
+      let slotDescription = stripMaterialBold(
         materialOptions[n - 1]?.detail || processSteps[n - 1]?.detail || '',
       );
+      if (!slotDescription && sectionId === 'hero') {
+        slotDescription = homepageImageCaption(homepageMd, 'heroImage');
+      }
+      if (!slotDescription && sectionId === 'intro') {
+        slotDescription = homepageImageCaption(homepageMd, 'featureImage');
+      }
       slots.push({
         key: `${sectionId}-${n}`,
         sectionId,

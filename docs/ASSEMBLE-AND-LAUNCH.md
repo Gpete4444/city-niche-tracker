@@ -101,11 +101,11 @@ If install fails with `npm ci` / lockfile out of sync, regenerate `package-lock.
 
 After Assemble, use Rover → Website → **Launch**:
 
-1. Set domain / `leads@` / Email Routing destination (Gmail)
-2. Leave **Auto ship** and **Run Cloudflare domain / email API** checked
+1. Set domain / `leads@` / Email Routing destination (lead notify inbox from Account setup)
+2. Leave **Auto ship** and **Connect domain and email** checked
 3. **Run launch**
 
-The live form posts to the shared Rover forms Worker. That Worker stores the lead and emails the destination from `leads@{domain}`.
+The live form posts to the shared Rover forms Worker (`formsIngestUrl`). **Web3Forms is not used.** That Worker stores the lead and emails the destination from `leads@{domain}`. Run launch stops until Phone/Form → **Set up inbox** has run once.
 
 **Full step-by-step reference (UI fields, pipeline, soft-fails, env, meta flags):** [LAUNCH.md](LAUNCH.md).
 
@@ -136,9 +136,9 @@ npm run launch-site -- <candidateId> --destination=you@gmail.com
 
 ### Human leftovers (API cannot do these)
 
-1. **Buy the domain** / point nameservers at Cloudflare (zone must exist in your account)
-2. **Verify** Email Routing destination once (click link in Gmail) when the destination is new
-3. **One-time** machine setup: `gh auth login` + `.env` (`GITHUB_OWNER`, `CLOUDFLARE_*`, `LEAD_NOTIFY_EMAIL`) — not per site
+1. **Buy the domain in this Cloudflare account** (**Domains** → **Overview** → **Add domain**) so the zone is **Active**. Rover does not buy it.
+2. **Verify** the Email Routing destination once (click the link in that inbox) when the destination is new
+3. **One-time** machine setup: `gh auth login` + gear → **Account setup** (GitHub owner, Cloudflare, lead notify email) — not per site
 
 ### Cost
 
@@ -147,7 +147,9 @@ Cloudflare **API calls are $0**. You pay domains (~$10–15/yr). Form mail to th
 ## 6. Forms notes
 
 - `LeadForm.astro` posts only to the Rover forms Worker (`formsIngestUrl`)
+- One-time: Phone/Form → **Set up inbox** (D1 + Worker). Per site: Launch / Push updates writes the ingest URL
 - The Worker stores the lead, then emails `leads@{domain}` → the Email Routing destination
+- Do **not** create a Web3Forms form or paste an access key
 - A failed email stays in Phone/Form and the page shows an error
 - Launch does not create a Turnstile widget. The form uses a honeypot, the domain allowlist, and a per-IP rate limit. See [TURNSTILE.md](TURNSTILE.md).
 

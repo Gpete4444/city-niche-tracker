@@ -64,7 +64,7 @@ Rank & Rent sites should mirror what a future GBP will claim:
 
 ### Candidate recovery after FAQ / image forever fixes
 
-1. Hard-refresh Rover.
+1. Click the Rover page and press Ctrl+Shift+R. Ctrl+F5 opens the Windows Voice Access window.
 2. Content → **Speech check** (auto-strips off-niche FAQs; Stage sanitize also places `Optional:` / `Customer prep:` under What’s included).
 3. Website → Review images → per-slot **Re-pull** (Camera hero + CIPP materials/process slots) so camera/permit gates apply.
 4. **Prepare preview** → confirm FAQs + images → **Push**.

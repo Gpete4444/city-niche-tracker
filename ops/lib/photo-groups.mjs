@@ -79,7 +79,7 @@ function nicheOf(candidateId) {
 }
 
 export function nichesEqual(a, b) {
-  return String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
+  return titleCaseNiche(a).toLowerCase() === titleCaseNiche(b).toLowerCase();
 }
 
 function slugifyName(name) {

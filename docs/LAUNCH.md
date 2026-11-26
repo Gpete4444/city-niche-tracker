@@ -27,7 +27,7 @@ npm run launch-site -- <candidateId> --destination=you@gmail.com
 
 Related: `GET/POST /api/candidates/:id/ship` (ship only), `GET /api/candidates/:id/launch` (status, no secrets).
 
-**Push updates** appears when the candidate looks already live (`lastLaunchAt`, `lastShipAt`, `dnsDone`, `emailRoutingDone`, or `cloudflarePagesDone`). It does **not** patch NAP/Web3Forms or run Cloudflare Email Routing / custom domain. Re-assemble via **Prepare preview** before pushing template/content changes.
+**Push updates** appears when the candidate looks already live (`lastLaunchAt`, `lastShipAt`, `dnsDone`, `emailRoutingDone`, or `cloudflarePagesDone`). It does **not** re-run Cloudflare Email Routing / custom domain. It **does** ship the contact form with the current `formsIngestUrl` (Rover forms Worker — Web3Forms is not used). Re-assemble via **Prepare preview** before pushing template/content changes.
 
 ### Live vs Rover freshness
 
@@ -49,10 +49,10 @@ Statuses: `current` | `behind` | `no_remote` | `no_assembled` | `unknown`. Push 
 | Domain | From accepted site-config | Written into site-config; used for CF zone + custom domain |
 | Phone | From site-config | Written into site-config |
 | Leads email | From site-config (or `leads@{domain}`) | Written into site-config; public address and the From address on form mail |
-| Email Routing destination | Prefills from `LEAD_NOTIFY_EMAIL` if empty | Gmail that receives every form lead. Also the `leads@` forward destination |
+| Email Routing destination | Prefills from Account setup / `LEAD_NOTIFY_EMAIL` if empty | Inbox that receives every form lead (Gmail, Zoho, or another address Cloudflare can verify). Also the `leads@` forward destination |
 | Turnstile site key | From site-config / optional | Written into site-config. Existing keys still render a widget. Launch does not create a widget per site |
 | **Auto ship** (GitHub + build + Worker deploy) | **On** | GitHub create/push, `npm` build, Wrangler deploy, Workers Builds connect |
-| **Run Cloudflare domain / email API** | **On** first go-live; **Off** when already live | Zone lookup, Email Routing, custom domain attach |
+| **Connect domain and email** | **On** first go-live; **Off** when already live | Zone lookup, Email Routing, custom domain attach |
 | Mark CF Worker project done | Off | Forces meta `cloudflarePagesDone` even without a successful deploy |
 
 When already live, **Push updates** is the primary button; **Run launch** remains available for key changes or intentional CF re-runs.
@@ -163,9 +163,10 @@ If a build-package JSON exists for the candidate, refreshes `deploy.domain`, `de
 | Workers Builds GitHub connection skipped / Authentication error | Builds API could not connect repo | Worker still deployed via Wrangler. Check user token **Workers Builds Configuration Edit** + GitHub App (click Connect once in CF). Re-run Launch |
 | Ship failed: … nothing to commit / Command failed: git commit | Older bug: clean tree treated as failure | Fixed — clean tree is success and push continues |
 | Worker "…" not found | Worker missing or existence check failed | Re-run Launch after Auto ship deploy; assets Worker check uses `/settings` |
-| No Cloudflare zone found | Domain not in this CF account | Add domain / point NS, then re-run |
-| Forms inbox is not set up | Phone/Form has not provisioned the shared Worker | Open Phone/Form and click Set up inbox |
-| Email Routing destination missing | No Gmail for lead mail | Set the destination in Launch or `LEAD_NOTIFY_EMAIL` |
+| No Cloudflare zone found | Domain not in this CF account | Cloudflare → **Domains** → **Overview** → **Add domain**, wait until **Active**, then re-run |
+| `{login} cannot create a repository for {owner}` | `gh` is a different GitHub user than **GitHub owner** | `gh auth login` as that owner, then Run launch again |
+| Forms inbox is not set up | Shared Worker not provisioned. Run launch stops. | Phone/Form → **Set up inbox** (not Web3Forms) |
+| Email Routing destination missing | No notify inbox for lead mail | Set it in Launch, Account setup, or `LEAD_NOTIFY_EMAIL` |
 
 Launch result modal summarizes ship ok/partial, Cloudflare ok/partial, and whether Rover form delivery is ready.
 
@@ -173,13 +174,14 @@ Launch result modal summarizes ship ok/partial, Cloudflare ok/partial, and wheth
 
 ## 5. Human leftovers (never fully automated)
 
-1. **Buy the domain** and point nameservers at Cloudflare (zone must exist in the account)
-2. **Set the Email Routing destination** (usually Gmail) so Rover can send from `leads@` and Cloudflare can forward that address
-3. **Verify** the Email Routing destination once when it is new (the link lands in Gmail)
-4. **Index the live site** — Search Console Domain property, submit `/sitemap.xml`, Request indexing on homepage + top service pages: [SITE-INDEXING.md](SITE-INDEXING.md)
+1. **Buy the domain in this Cloudflare account** — **Domains** → **Overview** → **Add domain** → **Buy** (or **Connect a domain** if you already own it). The zone must show **Active** before Run launch. Rover does not buy the domain.
+2. **Set the Email Routing destination** (lead notify inbox) so Rover can send from `leads@` and Cloudflare can forward that address
+3. **Verify** the Email Routing destination once when it is new (the link lands in that inbox)
+4. **Index the live site** — Website → **5 · Indexing** → **1. Submit to Search Console**, then on **GOOGLE INDEX** click **REQUEST INDEXING** for the homepage and top service pages (**Dismiss** the green box), then **3. Mark done**: [SITE-INDEXING.md](SITE-INDEXING.md)
 5. **One-time machine setup** (not per site):
    - `gh auth login`
-   - `.env`: `GITHUB_OWNER`, `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN`, optional `LEAD_NOTIFY_EMAIL`
+   - Gear → **Account setup** (or `.env`): GitHub owner, Cloudflare account ID, Cloudflare API token, lead notify email
+   - Phone/Form → **Set up inbox** (forms Worker; not Web3Forms). The Cloudflare token needs **D1 Edit**
    - Authorize Cloudflare Workers and Pages GitHub App once for push-to-rebuild
 
 ---
@@ -193,7 +195,7 @@ See [`.env.example`](../.env.example).
 | `CLOUDFLARE_ACCOUNT_ID` | Account for Wrangler + CF APIs |
 | `CLOUDFLARE_API_TOKEN` | **User** API token (account-owned tokens fail Builds API) |
 | `GITHUB_OWNER` | Org/user for per-site repos (optional if `gh` user / template remote resolves it) |
-| `LEAD_NOTIFY_EMAIL` | Prefills the Gmail that receives form leads |
+| `LEAD_NOTIFY_EMAIL` | Prefills the inbox that receives form leads (Account setup writes the same value). Not Web3Forms |
 | `ASSEMBLED_SITES_DIR` | Where Assemble writes sibling sites (default `../rover-sites`) |
 | `TEMPLATE_GITHUB_REPO` | Optional; used to infer GitHub owner (default example `7D7D/Rover`) |
 
@@ -202,6 +204,7 @@ Suggested token permissions:
 | Scope | Permission | Level |
 | --- | --- | --- |
 | Account | Workers Scripts | Edit |
+| Account | D1 | Edit (forms inbox) |
 | Account | Workers Builds Configuration | Edit (push-to-rebuild / Builds connect) |
 | Account | Email Routing Addresses | Edit |
 | Account | Turnstile | Edit |
